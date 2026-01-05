@@ -1,6 +1,836 @@
 #include "BufferExporter.hpp"
+#include "DsAlphaShapeUtils.hpp"
+#include "DsAlphaShapeVolumeUtils.hpp"
+#include "DsKineticVoronoiVolumeUtils.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 using namespace eco_sys_lab_package;
+
+namespace {
+
+struct ExactX0Key {
+  uint32_t x = 0;
+  uint32_t y = 0;
+  uint32_t z = 0;
+
+  static ExactX0Key From(const glm::vec3& v) {
+    ExactX0Key key;
+    std::memcpy(&key.x, &v.x, sizeof(float));
+    std::memcpy(&key.y, &v.y, sizeof(float));
+    std::memcpy(&key.z, &v.z, sizeof(float));
+    return key;
+  }
+
+  bool operator==(const ExactX0Key& other) const {
+    return x == other.x && y == other.y && z == other.z;
+  }
+};
+
+struct ExactX0KeyHash {
+  size_t operator()(const ExactX0Key& key) const {
+    size_t h = static_cast<size_t>(key.x);
+    h ^= static_cast<size_t>(key.y) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    h ^= static_cast<size_t>(key.z) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    return h;
+  }
+};
+
+class UnionFind {
+ public:
+  explicit UnionFind(const size_t n) : parent_(n), rank_(n, 0) {
+    for (size_t i = 0; i < n; ++i) {
+      parent_[i] = i;
+    }
+  }
+
+  size_t Find(size_t i) {
+    while (parent_[i] != i) {
+      parent_[i] = parent_[parent_[i]];
+      i = parent_[i];
+    }
+    return i;
+  }
+
+  void Unite(size_t a, size_t b) {
+    a = Find(a);
+    b = Find(b);
+    if (a == b) {
+      return;
+    }
+    if (rank_[a] < rank_[b]) {
+      std::swap(a, b);
+    }
+    parent_[b] = a;
+    if (rank_[a] == rank_[b]) {
+      ++rank_[a];
+    }
+  }
+
+ private:
+  std::vector<size_t> parent_;
+  std::vector<size_t> rank_;
+};
+
+bool AreSegmentsStillConnected(const int segment_a, const int segment_b,
+                               const std::vector<DynamicStrands::GpuSegment>& segments,
+                               const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                               const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  if (segment_a == segment_b) {
+    return true;
+  }
+  if (segment_a < 0 || segment_b < 0 || static_cast<size_t>(segment_a) >= segment_data_list.size() ||
+      static_cast<size_t>(segment_b) >= segment_data_list.size() || static_cast<size_t>(segment_a) >= segments.size() ||
+      static_cast<size_t>(segment_b) >= segments.size()) {
+    return false;
+  }
+
+  const auto& data_a = segment_data_list[static_cast<size_t>(segment_a)];
+  for (const int pair_handle : data_a.pair_handles) {
+    if (pair_handle < 0 || static_cast<size_t>(pair_handle) >= segment_pairs.size()) {
+      continue;
+    }
+    const auto& pair = segment_pairs[static_cast<size_t>(pair_handle)];
+    const int other = (pair.segment0_handle == segment_a)   ? pair.segment1_handle
+                      : (pair.segment1_handle == segment_a) ? pair.segment0_handle
+                                                            : -1;
+    if (other != segment_b) {
+      continue;
+    }
+
+    // Neighbor in the rod-element graph. Strand (prev/next) pairs use connectivity_integrity;
+    // lateral bundle pairs use bend_twist_bundle_integrity.
+    const auto& seg_a = segments[static_cast<size_t>(segment_a)];
+    const auto& seg_b = segments[static_cast<size_t>(segment_b)];
+    const bool strand_adjacent = seg_a.prev_handle == segment_b || seg_a.next_handle == segment_b ||
+                                 seg_b.prev_handle == segment_a || seg_b.next_handle == segment_a;
+    if (strand_adjacent) {
+      return pair.connectivity_integrity > 0.f;
+    }
+    return pair.bend_twist_bundle_integrity > 0.f;
+  }
+  return false;
+}
+
+struct SegmentPairSheetKey {
+  int owner_segment_index = -1;
+  int segment_pair_index = -1;
+
+  bool operator==(const SegmentPairSheetKey& other) const {
+    return owner_segment_index == other.owner_segment_index && segment_pair_index == other.segment_pair_index;
+  }
+};
+
+struct SegmentPairSheetKeyHash {
+  size_t operator()(const SegmentPairSheetKey& key) const {
+    size_t h = static_cast<size_t>(key.owner_segment_index + 1);
+    h ^= static_cast<size_t>(key.segment_pair_index + 2) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    return h;
+  }
+};
+
+void AddTriangleVertices(std::unordered_set<size_t>& dst,
+                         const DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle& triangle) {
+  dst.insert(triangle.vertex_index0);
+  dst.insert(triangle.vertex_index1);
+  dst.insert(triangle.vertex_index2);
+}
+
+struct SimilarityTransform3D {
+  glm::vec3 center_before{0.f};
+  glm::vec3 center_after{0.f};
+  glm::mat3 rotation{1.f};
+  float scale = 1.f;
+  bool translation_only = true;
+
+  glm::vec3 Apply(const glm::vec3& x) const {
+    return scale * (rotation * (x - center_before)) + center_after;
+  }
+};
+
+enum class SimilarityFitMode {
+  Empty,
+  TranslationOnlyTooFewPoints,
+  TranslationOnlyLowVariance,
+  TranslationOnlySvdFailed,
+  TranslationOnlyScaleOutOfRange,
+  TranslationOnlyHighError,
+  Similarity,
+};
+
+struct SimilarityFitResult {
+  SimilarityTransform3D transform;
+  SimilarityFitMode mode = SimilarityFitMode::Empty;
+};
+
+struct SmoothingPropagationStats {
+  size_t sheet_fit_count = 0;
+  size_t sheets_skipped_no_matched = 0;
+  size_t fallback_count = 0;
+  size_t similarity_count = 0;
+  size_t identity_rotation_scale_count = 0;
+  size_t similarity_identity_rotation_scale_count = 0;
+  size_t too_few_points = 0;
+  size_t low_variance = 0;
+  size_t svd_failed = 0;
+  size_t scale_out_of_range = 0;
+  size_t high_error = 0;
+  size_t unmatched_vertices_updated = 0;
+  size_t min_pair_count = std::numeric_limits<size_t>::max();
+  size_t max_pair_count = 0;
+  size_t sheets_with_at_least_4_matched = 0;
+  size_t segment_pair_triangle_count = 0;
+  size_t segment_pair_vertex_count = 0;
+  size_t segment_pair_matched_vertex_count = 0;
+  size_t segment_pair_unmatched_vertex_count = 0;
+  size_t segment_pair_sheet_count = 0;
+  size_t unmatched_segment_sheet_count = 0;
+
+  void RecordSheetFit(const SimilarityFitResult& fit, const size_t pair_count) {
+    ++sheet_fit_count;
+    min_pair_count = std::min(min_pair_count, pair_count);
+    max_pair_count = std::max(max_pair_count, pair_count);
+    if (pair_count >= 4) {
+      ++sheets_with_at_least_4_matched;
+    }
+    if (fit.mode == SimilarityFitMode::Similarity) {
+      ++similarity_count;
+    } else if (fit.mode != SimilarityFitMode::Empty) {
+      ++fallback_count;
+      switch (fit.mode) {
+        case SimilarityFitMode::TranslationOnlyTooFewPoints:
+          ++too_few_points;
+          break;
+        case SimilarityFitMode::TranslationOnlyLowVariance:
+          ++low_variance;
+          break;
+        case SimilarityFitMode::TranslationOnlySvdFailed:
+          ++svd_failed;
+          break;
+        case SimilarityFitMode::TranslationOnlyScaleOutOfRange:
+          ++scale_out_of_range;
+          break;
+        case SimilarityFitMode::TranslationOnlyHighError:
+          ++high_error;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (IsNearIdentityRotationAndScale(fit.transform)) {
+      ++identity_rotation_scale_count;
+      if (fit.mode == SimilarityFitMode::Similarity) {
+        ++similarity_identity_rotation_scale_count;
+      }
+    }
+  }
+
+  void LogSummary() const {
+    if (sheet_fit_count == 0 && sheets_skipped_no_matched == 0) {
+      return;
+    }
+    std::cout << "ApplySmoothing propagation: " << sheet_fit_count << " sheet fit(s), " << sheets_skipped_no_matched
+              << " sheet(s) skipped (no matched control points), " << fallback_count << " fallback (translation-only), "
+              << similarity_count << " similarity fit(s), " << identity_rotation_scale_count
+              << " with identity rotation and scale=1";
+    if (similarity_count > 0) {
+      std::cout << " (" << similarity_identity_rotation_scale_count << " of similarity fits are numerically identity)";
+    }
+    std::cout << ", " << unmatched_vertices_updated << " unmatched vertex update(s)";
+    if (sheet_fit_count > 0) {
+      std::cout << ", matched-pair range [" << min_pair_count << ", " << max_pair_count << "], "
+                << sheets_with_at_least_4_matched << " sheet(s) with >= 4 matched point(s)";
+    }
+    std::cout << std::endl;
+    std::cout << "  segment-pair sheets: " << segment_pair_sheet_count
+              << ", unmatched segment sheets: " << unmatched_segment_sheet_count
+              << ", segment-pair triangles=" << segment_pair_triangle_count
+              << ", vertices=" << segment_pair_vertex_count << " (matched=" << segment_pair_matched_vertex_count
+              << ", unmatched=" << segment_pair_unmatched_vertex_count << ")" << std::endl;
+    if (fallback_count > 0) {
+      std::cout << "  fallback reasons: too_few_points=" << too_few_points << ", low_variance=" << low_variance
+                << ", svd_failed=" << svd_failed << ", scale_out_of_range=" << scale_out_of_range
+                << ", high_error=" << high_error << std::endl;
+    }
+  }
+
+ private:
+  static bool IsNearIdentityRotation(const glm::mat3& rotation, const float epsilon = 1e-4f) {
+    const glm::mat3 identity(1.f);
+    for (int column = 0; column < 3; ++column) {
+      for (int row = 0; row < 3; ++row) {
+        if (std::abs(rotation[column][row] - identity[column][row]) > epsilon) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static bool IsNearIdentityRotationAndScale(const SimilarityTransform3D& transform,
+                                             const float rotation_epsilon = 1e-4f, const float scale_epsilon = 1e-4f) {
+    return std::abs(transform.scale - 1.f) <= scale_epsilon &&
+           IsNearIdentityRotation(transform.rotation, rotation_epsilon);
+  }
+};
+
+SimilarityTransform3D MakeTranslationOnlyTransform(const glm::vec3& center_before, const glm::vec3& center_after) {
+  SimilarityTransform3D transform;
+  transform.center_before = center_before;
+  transform.center_after = center_after;
+  transform.rotation = glm::mat3(1.f);
+  transform.scale = 1.f;
+  transform.translation_only = true;
+  return transform;
+}
+
+bool SymmetricEigen3x3(glm::dmat3& matrix, glm::dmat3& eigenvectors, glm::dvec3& eigenvalues) {
+  eigenvectors = glm::dmat3(1.0);
+  for (int sweep = 0; sweep < 32; ++sweep) {
+    int p = 0;
+    int q = 1;
+    double max_off_diagonal = std::abs(matrix[1][0]);
+    if (std::abs(matrix[2][0]) > max_off_diagonal) {
+      p = 0;
+      q = 2;
+      max_off_diagonal = std::abs(matrix[2][0]);
+    }
+    if (std::abs(matrix[2][1]) > max_off_diagonal) {
+      p = 1;
+      q = 2;
+      max_off_diagonal = std::abs(matrix[2][1]);
+    }
+    if (max_off_diagonal < 1e-15) {
+      break;
+    }
+
+    const double app = matrix[p][p];
+    const double aqq = matrix[q][q];
+    const double apq = matrix[q][p];
+    const double tau = (aqq - app) / (2.0 * apq);
+    const double t = (tau >= 0.0 ? 1.0 : -1.0) / (std::abs(tau) + std::sqrt(1.0 + tau * tau));
+    const double c = 1.0 / std::sqrt(1.0 + t * t);
+    const double s = t * c;
+
+    matrix[p][p] = app - t * apq;
+    matrix[q][q] = aqq + t * apq;
+    matrix[q][p] = 0.0;
+    matrix[p][q] = 0.0;
+
+    for (int k = 0; k < 3; ++k) {
+      if (k == p || k == q) {
+        continue;
+      }
+      const double akp = matrix[p][k];
+      const double akq = matrix[q][k];
+      matrix[p][k] = c * akp - s * akq;
+      matrix[q][k] = s * akp + c * akq;
+      matrix[k][p] = matrix[p][k];
+      matrix[k][q] = matrix[q][k];
+    }
+
+    for (int k = 0; k < 3; ++k) {
+      const double vip = eigenvectors[p][k];
+      const double viq = eigenvectors[q][k];
+      eigenvectors[p][k] = c * vip - s * viq;
+      eigenvectors[q][k] = s * vip + c * viq;
+    }
+  }
+
+  eigenvalues = glm::dvec3(matrix[0][0], matrix[1][1], matrix[2][2]);
+  return std::isfinite(eigenvalues.x) && std::isfinite(eigenvalues.y) && std::isfinite(eigenvalues.z);
+}
+
+bool Svd3x3(const glm::dmat3& matrix, glm::dmat3& u, glm::dvec3& singular_values, glm::dmat3& v) {
+  const glm::dmat3 normal_matrix = glm::transpose(matrix) * matrix;
+  glm::dmat3 v_candidate = glm::dmat3(1.0);
+  glm::dvec3 eigenvalues{0.0};
+  glm::dmat3 normal_copy = normal_matrix;
+  if (!SymmetricEigen3x3(normal_copy, v_candidate, eigenvalues)) {
+    return false;
+  }
+
+  singular_values = glm::dvec3(std::sqrt(std::max(0.0, eigenvalues.x)), std::sqrt(std::max(0.0, eigenvalues.y)),
+                               std::sqrt(std::max(0.0, eigenvalues.z)));
+  v = v_candidate;
+
+  u = glm::dmat3(1.0);
+  for (int i = 0; i < 3; ++i) {
+    const double sigma = singular_values[i];
+    if (sigma < 1e-12) {
+      continue;
+    }
+    const glm::dvec3 column = matrix * glm::dvec3(v[0][i], v[1][i], v[2][i]) / sigma;
+    u[0][i] = column.x;
+    u[1][i] = column.y;
+    u[2][i] = column.z;
+  }
+
+  for (int i = 0; i < 3; ++i) {
+    if (singular_values[i] >= 1e-12) {
+      continue;
+    }
+    glm::dvec3 fallback{0.0, 0.0, 0.0};
+    fallback[i] = 1.0;
+    for (int j = 0; j < i; ++j) {
+      if (singular_values[j] < 1e-12) {
+        continue;
+      }
+      const glm::dvec3 uj(u[0][j], u[1][j], u[2][j]);
+      fallback -= glm::dot(fallback, uj) * uj;
+    }
+    const double length = glm::length(fallback);
+    if (length < 1e-12) {
+      fallback = glm::dvec3(1.0, 0.0, 0.0);
+      for (int j = 0; j < i; ++j) {
+        if (singular_values[j] < 1e-12) {
+          continue;
+        }
+        const glm::dvec3 uj(u[0][j], u[1][j], u[2][j]);
+        fallback -= glm::dot(fallback, uj) * uj;
+      }
+    }
+    const glm::dvec3 column = glm::normalize(fallback);
+    u[0][i] = column.x;
+    u[1][i] = column.y;
+    u[2][i] = column.z;
+  }
+
+  return std::isfinite(singular_values.x) && std::isfinite(singular_values.y) && std::isfinite(singular_values.z);
+}
+
+SimilarityFitResult FitSimilarityTransform(const std::vector<std::pair<glm::vec3, glm::vec3>>& pairs) {
+  SimilarityFitResult result;
+  if (pairs.empty()) {
+    return result;
+  }
+
+  glm::dvec3 mean_before{0.0};
+  glm::dvec3 mean_after{0.0};
+  for (const auto& [before, after] : pairs) {
+    mean_before += glm::dvec3(before);
+    mean_after += glm::dvec3(after);
+  }
+  mean_before /= static_cast<double>(pairs.size());
+  mean_after /= static_cast<double>(pairs.size());
+  result.transform.center_before = glm::vec3(mean_before);
+  result.transform.center_after = glm::vec3(mean_after);
+
+  if (pairs.size() < 3) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlyTooFewPoints;
+    return result;
+  }
+
+  glm::dmat3 covariance{0.0};
+  double source_variance = 0.0;
+  glm::dvec3 min_before{std::numeric_limits<double>::max()};
+  glm::dvec3 max_before{std::numeric_limits<double>::lowest()};
+  for (const auto& [before, after] : pairs) {
+    const glm::dvec3 centered_before = glm::dvec3(before) - mean_before;
+    const glm::dvec3 centered_after = glm::dvec3(after) - mean_after;
+    covariance += glm::transpose(glm::outerProduct(centered_after, centered_before));
+    source_variance += glm::dot(centered_before, centered_before);
+    min_before = glm::min(min_before, glm::dvec3(before));
+    max_before = glm::max(max_before, glm::dvec3(before));
+  }
+
+  if (source_variance < 1e-12) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlyLowVariance;
+    return result;
+  }
+
+  glm::dmat3 u;
+  glm::dmat3 v;
+  glm::dvec3 singular_values;
+  if (!Svd3x3(covariance, u, singular_values, v)) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlySvdFailed;
+    return result;
+  }
+
+  const glm::dmat3 v_transpose = glm::transpose(v);
+  const double reflection_sign = glm::determinant(u * v_transpose) < 0.0 ? -1.0 : 1.0;
+  glm::dmat3 correction(1.0);
+  correction[2][2] = reflection_sign;
+  const glm::dmat3 rotation = u * correction * v_transpose;
+  const double scale = (singular_values.x + singular_values.y + reflection_sign * singular_values.z) / source_variance;
+  if (!std::isfinite(scale) || scale < 0.25 || scale > 4.0) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlyScaleOutOfRange;
+    return result;
+  }
+
+  result.transform.rotation = glm::mat3(rotation);
+  result.transform.scale = static_cast<float>(scale);
+  result.transform.translation_only = false;
+
+  const glm::dvec3 extent = max_before - min_before;
+  const double reference_extent = std::max({extent.x, extent.y, extent.z, 1e-6});
+  const double max_error_tolerance = 0.05 * reference_extent;
+  const double max_error_tolerance_sq = max_error_tolerance * max_error_tolerance;
+  for (const auto& [before, after] : pairs) {
+    const glm::vec3 predicted = result.transform.Apply(before);
+    const glm::vec3 error = predicted - after;
+    if (static_cast<double>(glm::dot(error, error)) > max_error_tolerance_sq) {
+      result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+      result.mode = SimilarityFitMode::TranslationOnlyHighError;
+      return result;
+    }
+  }
+
+  result.mode = SimilarityFitMode::Similarity;
+  return result;
+}
+
+std::vector<std::pair<glm::vec3, glm::vec3>> BuildSeamPairsFromVertices(
+    const std::unordered_set<size_t>& vertex_indices, const std::vector<glm::vec3>& x_before,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices) {
+  std::vector<std::pair<glm::vec3, glm::vec3>> pairs;
+  pairs.reserve(vertex_indices.size());
+  for (const size_t vertex_index : vertex_indices) {
+    pairs.emplace_back(x_before[vertex_index], vertices[vertex_index].x);
+  }
+  return pairs;
+}
+
+std::unordered_set<size_t> CollectMatchedVertices(const std::unordered_set<size_t>& vertex_indices,
+                                                  const std::vector<uint8_t>& was_smoothed) {
+  std::unordered_set<size_t> matched_vertices;
+  for (const size_t vertex_index : vertex_indices) {
+    if (vertex_index < was_smoothed.size() && was_smoothed[vertex_index]) {
+      matched_vertices.insert(vertex_index);
+    }
+  }
+  return matched_vertices;
+}
+
+std::optional<SimilarityFitResult> FitSheetTransform(
+    const std::unordered_set<size_t>& matched_vertices, const std::vector<glm::vec3>& x_before,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices, SmoothingPropagationStats& stats) {
+  if (matched_vertices.empty()) {
+    ++stats.sheets_skipped_no_matched;
+    return std::nullopt;
+  }
+  const std::vector<std::pair<glm::vec3, glm::vec3>> pairs =
+      BuildSeamPairsFromVertices(matched_vertices, x_before, vertices);
+  const SimilarityFitResult fit = FitSimilarityTransform(pairs);
+  stats.RecordSheetFit(fit, pairs.size());
+  return fit;
+}
+
+size_t ApplyTransformToUnmatchedVertices(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                         const std::vector<glm::vec3>& x_before,
+                                         const std::vector<uint8_t>& was_smoothed,
+                                         const std::unordered_set<size_t>& vertex_indices,
+                                         const SimilarityTransform3D& transform) {
+  size_t updated_count = 0;
+  for (const size_t vertex_index : vertex_indices) {
+    if (vertex_index >= was_smoothed.size() || was_smoothed[vertex_index]) {
+      continue;
+    }
+    vertices[vertex_index].x = transform.Apply(x_before[vertex_index]);
+    ++updated_count;
+  }
+  return updated_count;
+}
+
+size_t ApplyNearestTransformToUnmatchedVertices(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                                const std::vector<glm::vec3>& x_before,
+                                                const std::vector<uint8_t>& was_smoothed,
+                                                const std::unordered_set<size_t>& vertex_indices,
+                                                const std::vector<SimilarityTransform3D>& transforms) {
+  if (transforms.empty()) {
+    return 0;
+  }
+
+  size_t updated_count = 0;
+  for (const size_t vertex_index : vertex_indices) {
+    if (vertex_index >= was_smoothed.size() || was_smoothed[vertex_index]) {
+      continue;
+    }
+
+    const glm::vec3 query = x_before[vertex_index];
+    float best_distance_sq = std::numeric_limits<float>::max();
+    const SimilarityTransform3D* best_transform = &transforms.front();
+    for (const SimilarityTransform3D& transform : transforms) {
+      const glm::vec3 delta = query - transform.center_before;
+      const float distance_sq = glm::dot(delta, delta);
+      if (distance_sq < best_distance_sq) {
+        best_distance_sq = distance_sq;
+        best_transform = &transform;
+      }
+    }
+    vertices[vertex_index].x = best_transform->Apply(query);
+    ++updated_count;
+  }
+  return updated_count;
+}
+
+void PropagateSmoothingToUnmatchedVertices(
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices, const std::vector<glm::vec3>& x_before,
+    const std::vector<uint8_t>& was_smoothed,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles) {
+  SmoothingPropagationStats stats;
+
+  struct SegmentPairSheetGroup {
+    size_t triangle_count = 0;
+    std::unordered_set<size_t> vertices;
+  };
+
+  std::unordered_map<SegmentPairSheetKey, SegmentPairSheetGroup, SegmentPairSheetKeyHash> segment_pair_sheet_groups;
+  std::unordered_map<int, std::unordered_set<size_t>> unmatched_segment_vertices;
+  std::unordered_map<int, std::vector<SimilarityTransform3D>> pair_sheet_transforms_by_owner;
+
+  for (const auto& triangle : triangles) {
+    if (triangle.segment_pair_index >= 0) {
+      const SegmentPairSheetKey sheet_key{static_cast<int>(vertices[triangle.vertex_index0].segment_index),
+                                          triangle.segment_pair_index};
+      SegmentPairSheetGroup& group = segment_pair_sheet_groups[sheet_key];
+      ++group.triangle_count;
+      AddTriangleVertices(group.vertices, triangle);
+      continue;
+    }
+
+    const int owner_segment_index = static_cast<int>(vertices[triangle.vertex_index0].segment_index);
+    AddTriangleVertices(unmatched_segment_vertices[owner_segment_index], triangle);
+  }
+
+  for (const auto& [sheet_key, group] : segment_pair_sheet_groups) {
+    ++stats.segment_pair_sheet_count;
+    stats.segment_pair_triangle_count += group.triangle_count;
+    stats.segment_pair_vertex_count += group.vertices.size();
+
+    const std::unordered_set<size_t> matched_vertices = CollectMatchedVertices(group.vertices, was_smoothed);
+    stats.segment_pair_matched_vertex_count += matched_vertices.size();
+    stats.segment_pair_unmatched_vertex_count += group.vertices.size() - matched_vertices.size();
+
+    const std::optional<SimilarityFitResult> fit = FitSheetTransform(matched_vertices, x_before, vertices, stats);
+    if (!fit.has_value()) {
+      continue;
+    }
+
+    pair_sheet_transforms_by_owner[sheet_key.owner_segment_index].push_back(fit->transform);
+    stats.unmatched_vertices_updated +=
+        ApplyTransformToUnmatchedVertices(vertices, x_before, was_smoothed, group.vertices, fit->transform);
+  }
+
+  for (const auto& [owner_segment_index, segment_vertices] : unmatched_segment_vertices) {
+    ++stats.unmatched_segment_sheet_count;
+
+    std::vector<SimilarityTransform3D> transforms = pair_sheet_transforms_by_owner[owner_segment_index];
+    const std::unordered_set<size_t> matched_vertices = CollectMatchedVertices(segment_vertices, was_smoothed);
+    if (const std::optional<SimilarityFitResult> fit = FitSheetTransform(matched_vertices, x_before, vertices, stats);
+        fit.has_value()) {
+      transforms.push_back(fit->transform);
+    }
+
+    stats.unmatched_vertices_updated +=
+        ApplyNearestTransformToUnmatchedVertices(vertices, x_before, was_smoothed, segment_vertices, transforms);
+  }
+
+  stats.LogSummary();
+}
+
+constexpr int kNeighborMatGrey = 0;
+constexpr int kNeighborMatBrown = 1;
+constexpr int kNeighborMatRed = 2;
+constexpr int kNeighborMatGreen = 3;
+
+bool NeighborConnectivityDebugEnabled() {
+  return DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.debug_neighbor_connectivity;
+}
+
+int NeighborConnectivityMaterialId(const DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle& triangle,
+                                   const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs) {
+  if (triangle.neighbor_segment_index == -2) {
+    return kNeighborMatBrown;
+  }
+  if (triangle.neighbor_segment_index == -1 || triangle.neighbor_segment_index == -3) {
+    return kNeighborMatGrey;
+  }
+  if (triangle.segment_pair_index < 0 || static_cast<size_t>(triangle.segment_pair_index) >= segment_pairs.size()) {
+    return kNeighborMatRed;
+  }
+  const auto& pair = segment_pairs[static_cast<size_t>(triangle.segment_pair_index)];
+  if (pair.connectivity_integrity <= 0.f && pair.bend_twist_bundle_integrity <= 0.f) {
+    return kNeighborMatRed;
+  }
+  return kNeighborMatGreen;
+}
+
+void WriteNeighborConnectivityDebugMtl(const std::filesystem::path& mtl_path) {
+  std::ofstream file(mtl_path);
+  if (!file.is_open()) {
+    throw std::runtime_error("Failed to open neighbor-connectivity debug MTL file");
+  }
+  file << "newmtl debug_grey\n";
+  file << "Ka 0.55 0.55 0.55\n";
+  file << "Kd 0.55 0.55 0.55\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n\n";
+  file << "newmtl debug_brown\n";
+  file << "Ka 0.45 0.28 0.12\n";
+  file << "Kd 0.45 0.28 0.12\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n\n";
+  file << "newmtl debug_red\n";
+  file << "Ka 1.0 0.0 0.0\n";
+  file << "Kd 1.0 0.0 0.0\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n\n";
+  file << "newmtl debug_green\n";
+  file << "Ka 0.0 1.0 0.0\n";
+  file << "Kd 0.0 1.0 0.0\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n";
+}
+
+void WriteExportedMesh(const std::filesystem::path& path, kinDS::VoronoiMesh mesh, kinDS::ObjWriteOptions options,
+                       const bool neighbor_connectivity_debug) {
+  options.framework_compatible = !neighbor_connectivity_debug;
+  if (mesh.storeMetadata() && (!mesh.getVertexMetadata().empty() || !mesh.getFaceMetadata().empty())) {
+    options.include_metadata = true;
+  }
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+  if (neighbor_connectivity_debug) {
+    std::filesystem::path mtl_path = path;
+    mtl_path.replace_extension(".mtl");
+    WriteNeighborConnectivityDebugMtl(mtl_path);
+  }
+}
+
+}  // namespace
+
+bool MeshletObjExport::enable_smoothing = true;
+bool MeshletObjExport::per_meshlet_objects = false;
+bool MeshletObjExport::separate_bark_obj_group = true;
+MeshletObjExport::VisualizationColorMode MeshletObjExport::visualization_color_mode =
+    MeshletObjExport::VisualizationColorMode::Segments;
+MeshletObjExport::VisualizationObjectGrouping MeshletObjExport::visualization_object_grouping =
+    MeshletObjExport::VisualizationObjectGrouping::Combined;
+MeshletObjExport::VisualizationObjectGrouping MeshletObjExport::intersection_visualization_object_grouping =
+    MeshletObjExport::VisualizationObjectGrouping::IntersectionMeshes;
+
+std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsBySegmentIndex(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles) {
+  using Triangle = DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle;
+
+  std::unordered_map<unsigned int, std::vector<size_t>> triangle_indices_by_segment;
+  triangle_indices_by_segment.reserve(triangles.size() / 4 + 1);
+  for (size_t tri_index = 0; tri_index < triangles.size(); ++tri_index) {
+    const unsigned int segment_index = vertices[triangles[tri_index].vertex_index0].segment_index;
+    triangle_indices_by_segment[segment_index].push_back(tri_index);
+  }
+
+  std::vector<unsigned int> segment_indices;
+  segment_indices.reserve(triangle_indices_by_segment.size());
+  for (const auto& [segment_index, _] : triangle_indices_by_segment) {
+    segment_indices.push_back(segment_index);
+  }
+  std::sort(segment_indices.begin(), segment_indices.end());
+
+  std::vector<MeshletObjExport::MeshGroup> groups;
+  groups.reserve(segment_indices.size());
+  for (const unsigned int segment_index : segment_indices) {
+    const auto& tri_indices = triangle_indices_by_segment[segment_index];
+    MeshletObjExport::MeshGroup group;
+    group.name = "meshlet_" + std::to_string(segment_index);
+
+    std::unordered_map<unsigned int, unsigned int> vertex_remap;
+    vertex_remap.reserve(tri_indices.size() * 2);
+    group.vertices.reserve(tri_indices.size());
+    group.triangles.reserve(tri_indices.size());
+
+    const auto remap_vertex = [&](const unsigned int old_index) -> unsigned int {
+      const auto found = vertex_remap.find(old_index);
+      if (found != vertex_remap.end()) {
+        return found->second;
+      }
+      const unsigned int new_index = static_cast<unsigned int>(group.vertices.size());
+      group.vertices.push_back(vertices[old_index]);
+      vertex_remap.emplace(old_index, new_index);
+      return new_index;
+    };
+
+    for (const size_t tri_index : tri_indices) {
+      const Triangle& src = triangles[tri_index];
+      Triangle dst = src;
+      dst.vertex_index0 = remap_vertex(src.vertex_index0);
+      dst.vertex_index1 = remap_vertex(src.vertex_index1);
+      dst.vertex_index2 = remap_vertex(src.vertex_index2);
+      group.triangles.push_back(dst);
+    }
+    groups.push_back(std::move(group));
+  }
+  return groups;
+}
+
+void WriteCombinedMeshGroups(const std::filesystem::path& path, const std::vector<MeshletObjExport::MeshGroup>& groups,
+                             const std::vector<DynamicStrands::GpuSegment>& segments, const double uv_height_factor,
+                             const double uv_circum_factor, const float fracture_distance,
+                             const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                             const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list,
+                             const bool smooth_each_group) {
+  if (groups.empty()) {
+    throw std::runtime_error("WriteCombinedMeshGroups: no mesh groups to export");
+  }
+
+  const bool neighbor_connectivity_debug = NeighborConnectivityDebugEnabled();
+
+  kinDS::VoronoiMesh combined;
+  kinDS::ObjExportGpuAttributes combined_attrs;
+  bool initialized = false;
+
+  for (const auto& group : groups) {
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = group.vertices;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = group.triangles;
+    if (smooth_each_group && MeshletObjExport::enable_smoothing) {
+      MeshletObjExport::ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+    }
+
+    kinDS::VoronoiMesh part = MeshletObjExport::ToVoronoiMesh(export_vertices, export_triangles, fracture_distance,
+                                                              neighbor_connectivity_debug, segment_pairs);
+    kinDS::ObjExportGpuAttributes part_attrs =
+        MeshletObjExport::BuildGpuAttributes(export_vertices, export_triangles, segments, uv_height_factor);
+
+    if (!initialized) {
+      combined = std::move(part);
+      combined.setGroupOffsets({0});
+      combined.setGroupNames({group.name});
+      combined_attrs = std::move(part_attrs);
+      initialized = true;
+    } else {
+      combined.startNewGroup(group.name);
+      combined += part;
+      MeshletObjExport::AppendGpuAttributes(combined_attrs, part_attrs);
+    }
+  }
+
+  kinDS::ObjWriteOptions options;
+  options.uv_height_factor = uv_height_factor;
+  options.uv_circum_factor = uv_circum_factor;
+  options.write_obj_groups = true;
+  options.gpu_attributes = std::move(combined_attrs);
+  WriteExportedMesh(path, std::move(combined), options, neighbor_connectivity_debug);
+}
 
 void PlyExporter::ExportAscii(const std::filesystem::path& path,
                               const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
@@ -64,7 +894,7 @@ void PlyExporter::WriteFaces(std::ofstream& file,
       file << t.normal[i].x << " " << t.normal[i].y << " " << t.normal[i].z << " ";
     }
 
-    // Corner UVs (3 * vec2)
+    // Corner UVs (3 * vec3)
     file << "6 ";
     for (int i = 0; i < 3; ++i) {
       glm::vec4 uv = t.uv[i];
@@ -84,633 +914,1480 @@ void PlyExporter::WriteFaces(std::ofstream& file,
   }
 }
 
-void ObjExporter::ExportObj(const std::filesystem::path& obj_path,
-                            const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-                            const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-                            const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor,
-                            double uv_circum_factor, float fracture_distance) {
-  std::filesystem::path mtl_path = obj_path;
-  mtl_path.replace_extension(".mtl");
-  std::filesystem::path json_path = obj_path;
-  json_path.replace_extension(".json");
+kinDS::VoronoiMesh MeshletObjExport::ToVoronoiMesh(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, const float fracture_distance,
+    const bool neighbor_connectivity_debug, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<std::string>& vertex_metadata, const std::vector<std::string>& face_metadata) {
+  kinDS::VoronoiMesh mesh(neighbor_connectivity_debug
+                              ? std::vector<std::string>{"debug_grey", "debug_brown", "debug_red", "debug_green"}
+                              : std::vector<std::string>{"bark", "interior"},
+                          kinDS::PerTriangleCorner);
 
-  WriteMtl(mtl_path);
-  WriteObj(obj_path, mtl_path, vertices, triangles, uv_height_factor, uv_circum_factor, fracture_distance);
-  WriteJson(json_path, vertices, triangles, segments, uv_height_factor);
-}
+  const bool keep_metadata = (!vertex_metadata.empty() || !face_metadata.empty()) &&
+                             (vertex_metadata.empty() || vertex_metadata.size() == vertices.size()) &&
+                             (face_metadata.empty() || face_metadata.size() == triangles.size());
+  mesh.setStoreMetadata(keep_metadata);
 
-void ObjExporter::WriteMtl(const std::filesystem::path& mtl_path) {
-  std::ofstream file(mtl_path);
-  if (!file.is_open()) {
-    throw std::runtime_error("Failed to open MTL file");
+  for (size_t vi = 0; vi < vertices.size(); ++vi) {
+    const auto& v = vertices[vi];
+    const glm::vec3 p = v.x - fracture_distance * v.shift;
+    const std::string& meta = keep_metadata && vi < vertex_metadata.size() ? vertex_metadata[vi] : std::string{};
+    mesh.addVertex(glm::dvec3(p.x, p.y, p.z), meta);
   }
 
-  // TODO: Define proper materials or perhaps pass them as arguments
-
-  // Bark material
-  file << "newmtl bark\n";
-  file << "Ka 0.2 0.1 0.05\n";
-  file << "Kd 0.4 0.25 0.1\n";
-  file << "Ks 0.0 0.0 0.0\n";
-  file << "d 1.0\n\n";
-
-  // Interior material
-  file << "newmtl interior\n";
-  file << "Ka 0.8 0.8 0.8\n";
-  file << "Kd 0.8 0.8 0.8\n";
-  file << "Ks 0.0 0.0 0.0\n";
-  file << "d 1.0\n";
-
-  file.close();
-}
-
-void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::filesystem::path& mtl_path,
-                           const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-                           const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-                           double uv_height_factor, double uv_circum_factor, float fracture_distance) {
-  std::ofstream file(obj_path);
-  if (!file.is_open()) {
-    throw std::runtime_error("Failed to open OBJ file");
-  }
-
-  file << "# Exported from EcoSysLab\n";
-  file << "mtllib " << mtl_path.filename() << "\n\n";
-
-  const int index_offset = 1;  // OBJ indices are 1-based
-
-  // first write all vertices
-  file << "# Vertices\n";
-  for (const auto& v : vertices) {
-    const glm::vec3& p = v.x - fracture_distance * v.shift;
-    file << "v  " << p.x << " " << p.y << " " << p.z << "\n";
-  }
-
-  // Sort triangles by material (bark vs interior)
-  std::vector<size_t> bark_triangle_indices;
-  std::vector<size_t> interior_triangle_indices;
-
-  for (size_t i = 0; i < triangles.size(); i++) {
-    if (triangles[i].neighbor_segment_index == -2) {
-      bark_triangle_indices.push_back(i);
-    } else {
-      interior_triangle_indices.push_back(i);
-    }
-  }
-
-  // First write all texture and normal coordinates
-  file << "# Texture coordinates and normals\n";
-  for (const auto& t : triangles) {
-    // Write normals, uvs
-    std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    const auto& t = triangles[ti];
+    const int material_id = neighbor_connectivity_debug ? NeighborConnectivityMaterialId(t, segment_pairs)
+                                                        : ((t.neighbor_segment_index == -2) ? 0 : 1);
+    const size_t uv0 = mesh.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
+    const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
+    const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
+    const std::string& face_meta = keep_metadata && ti < face_metadata.size() ? face_metadata[ti] : std::string{};
+    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, material_id, face_meta);
+    // One normal per triangle corner (not per shared vertex). Matches GpuSegmentMeshletTriangle::normal[3].
     for (int i = 0; i < 3; ++i) {
-      const glm::vec3& p = vertices[v_idx[i]].x;
-      const glm::vec4& n = t.normal[i];
-      glm::vec4 uv = t.uv[i];
-
-      if (t.neighbor_segment_index == -2) {
-        uv.x *= uv_circum_factor;
-        uv.y *= uv_height_factor;
-      } else {
-        uv.z *= uv_height_factor;
-      }
-
-      file << "vt " << uv.x << " " << uv.y << " " << uv.z << "\n";
-      // Somehow this keeps on being an issue that the x-coordinate has the incorrect sign
-      file << "vn " << (-n.x) << " " << n.y << " " << n.z << "\n";
+      mesh.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
     }
   }
 
-  // Finally write faces, grouped by material
-  file << "# Faces grouped by material\n";
-  file << "usemtl bark" << "\n";
-  for (size_t i : bark_triangle_indices) {
-    auto& t = triangles[i];
-    std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
-    file << "f";
-    for (size_t j = 0; j < 3; j++) {
-      file << " " << (v_idx[j] + index_offset) << "/" << (3 * i + j + index_offset) << "/"
-           << (3 * i + j + index_offset);
-    }
-    file << "\n";
+  if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
+      mesh.getNormals().size() != mesh.getTriangles().size()) {
+    throw std::runtime_error(
+        "MeshletObjExport::ToVoronoiMesh: expected PerTriangleCorner normals with one entry "
+        "per corner; normals=" +
+        std::to_string(mesh.getNormals().size()) + ", corners=" + std::to_string(mesh.getTriangles().size()));
   }
 
-  file << "usemtl interior" << "\n";
-  for (size_t i : interior_triangle_indices) {
-    auto& t = triangles[i];
-    std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
-    file << "f";
-    for (size_t j = 0; j < 3; j++) {
-      file << " " << (v_idx[j] + index_offset) << "/" << (3 * i + j + index_offset) << "/"
-           << (3 * i + j + index_offset);
-    }
-    file << "\n";
-  }
-
-  file.close();
+  return mesh;
 }
 
-inline std::string json_vec2(const glm::vec2& v) {
-  return "[" + std::to_string(v.x) + ", " + std::to_string(v.y) + "]";
-}
-
-inline std::string json_vec3(const glm::vec3& v) {
-  return "[" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + "]";
-}
-
-inline std::string json_vec4(const glm::vec4& v) {
-  return "[" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ", " +
-         std::to_string(v.w) + "]";
-}
-
-inline std::string json_quat(const glm::quat& q) {
-  return "[" + std::to_string(q.x) + ", " + std::to_string(q.y) + ", " + std::to_string(q.z) + ", " +
-         std::to_string(q.w) + "]";
-}
-
-inline std::string json_mat4(const glm::mat4& m) {
-  std::string s = "[";
-  for (int c = 0; c < 4; ++c) {
-    s += "[";
-    for (int r = 0; r < 4; ++r) {
-      s += std::to_string(m[c][r]);
-      if (r < 3)
-        s += ", ";
-    }
-    s += "]";
-    if (c < 3)
-      s += ", ";
-  }
-  s += "]";
-  return s;
-}
-
-void eco_sys_lab_package::ObjExporter::WriteJson(
-    const std::filesystem::path& json_path,
+kinDS::ObjExportGpuAttributes MeshletObjExport::BuildGpuAttributes(
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
     const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor) {
-  std::ofstream file(json_path);
-  if (!file.is_open()) {
-    throw std::runtime_error("Failed to open JSON file");
+  kinDS::ObjExportGpuAttributes attrs;
+  const size_t n = vertices.size();
+  attrs.color.resize(n);
+  attrs.boundary_distance.resize(n);
+  attrs.profile_position.resize(n);
+  attrs.profile_polar_coordinate.resize(n);
+  attrs.HC.resize(n);
+  attrs.HL.resize(n);
+  attrs.RW.resize(n);
+  attrs.RB.resize(n);
+  attrs.moisture.resize(n);
+  attrs.position0.resize(n);
+  attrs.direction0.resize(n);
+  attrs.root_distance.resize(n);
+  attrs.uv_3.assign(n, 0.0);
+  attrs.has_neighbor.resize(triangles.size());
+
+  for (size_t i = 0; i < n; ++i) {
+    const unsigned int segment_index = vertices[i].segment_index;
+    if (segment_index >= segments.size()) {
+      continue;
+    }
+    const auto& seg = segments[segment_index];
+    attrs.color[i] = glm::dvec4(seg.color.x, seg.color.y, seg.color.z, seg.color.w);
+    attrs.boundary_distance[i] = seg.boundary_distance;
+    attrs.profile_position[i] = glm::dvec2(seg.profile_position.x, seg.profile_position.y);
+    attrs.profile_polar_coordinate[i] = glm::dvec2(seg.profile_polar_coordinate.x, seg.profile_polar_coordinate.y);
+    attrs.HC[i] = seg.HC;
+    attrs.HL[i] = seg.HL;
+    attrs.RW[i] = seg.RW;
+    attrs.RB[i] = seg.RB;
+    attrs.moisture[i] = seg.moisture;
+
+    const glm::vec3 p0 = seg.particle0.x0;
+    const glm::vec3 p1 = seg.particle1.x0;
+    const glm::vec3 avg = 0.5f * (p0 + p1);
+    attrs.position0[i] = glm::dvec3(avg.x, avg.y, avg.z);
+    const glm::vec3 direction = glm::normalize(p1 - p0);
+    attrs.direction0[i] = glm::dvec3(direction.x, direction.y, direction.z);
+    attrs.root_distance[i] = 0.5 * (seg.particle0.root_distance + seg.particle1.root_distance);
   }
 
-  auto write_values = [](std::ofstream& file, const std::string& key,
-                         const std::function<std::string(size_t index)>& get_value, size_t size, bool last = false) {
-    file << "  \"" << key << "\": [\n";
-    for (size_t i = 0; i < size; ++i) {
-      file << "    " << get_value(i);
-      if (i < size - 1) {
-        file << ",";
+  for (size_t tri_index = 0; tri_index < triangles.size(); ++tri_index) {
+    const auto& tri = triangles[tri_index];
+    attrs.has_neighbor[tri_index] = tri.neighbor_segment_index >= 0;
+    const bool is_bark = (tri.neighbor_segment_index == -2);
+    const std::array<unsigned int, 3> v_idxs = {tri.vertex_index0, tri.vertex_index1, tri.vertex_index2};
+    for (int c = 0; c < 3; ++c) {
+      const glm::vec4& uv = tri.uv[c];
+      const double value =
+          is_bark ? static_cast<double>(uv.y) * uv_height_factor : static_cast<double>(uv.z) * uv_height_factor;
+      if (v_idxs[c] < attrs.uv_3.size()) {
+        attrs.uv_3[v_idxs[c]] = value;
       }
-      file << "\n";
+    }
+  }
+
+  return attrs;
+}
+
+void MeshletObjExport::AppendGpuAttributes(kinDS::ObjExportGpuAttributes& dst,
+                                           const kinDS::ObjExportGpuAttributes& src) {
+  auto append = [](auto& d, const auto& s) {
+    d.insert(d.end(), s.begin(), s.end());
+  };
+  append(dst.color, src.color);
+  append(dst.boundary_distance, src.boundary_distance);
+  append(dst.profile_position, src.profile_position);
+  append(dst.profile_polar_coordinate, src.profile_polar_coordinate);
+  append(dst.HC, src.HC);
+  append(dst.HL, src.HL);
+  append(dst.RW, src.RW);
+  append(dst.RB, src.RB);
+  append(dst.moisture, src.moisture);
+  append(dst.position0, src.position0);
+  append(dst.direction0, src.direction0);
+  append(dst.root_distance, src.root_distance);
+  append(dst.uv_3, src.uv_3);
+  append(dst.has_neighbor, src.has_neighbor);
+}
+
+void MeshletObjExport::ApplySmoothing(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                      std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+                                      const std::vector<DynamicStrands::GpuSegment>& segments,
+                                      const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                                      const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  if (vertices.size() < 2) {
+    return;
+  }
+
+  std::vector<glm::vec3> x_before(vertices.size());
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    x_before[i] = vertices[i].x;
+  }
+  std::vector<uint8_t> was_smoothed(vertices.size(), 0);
+
+  std::unordered_map<ExactX0Key, std::vector<size_t>, ExactX0KeyHash> groups_by_x0;
+  groups_by_x0.reserve(vertices.size());
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    groups_by_x0[ExactX0Key::From(vertices[i].x0)].push_back(i);
+  }
+
+  for (auto& [x0_key, member_indices] : groups_by_x0) {
+    (void)x0_key;
+    const size_t member_count = member_indices.size();
+    if (member_count < 2) {
+      continue;
     }
 
-    if (!last) {
-      file << "  ],\n";
-    } else {
-      file << "  ]\n";
+    UnionFind uf(member_count);
+    for (size_t i = 0; i < member_count; ++i) {
+      const int segment_i = static_cast<int>(vertices[member_indices[i]].segment_index);
+      for (size_t j = i + 1; j < member_count; ++j) {
+        const int segment_j = static_cast<int>(vertices[member_indices[j]].segment_index);
+        if (AreSegmentsStillConnected(segment_i, segment_j, segments, segment_pairs, segment_data_list)) {
+          uf.Unite(i, j);
+        }
+      }
     }
+
+    std::unordered_map<size_t, std::vector<size_t>> components;
+    components.reserve(member_count);
+    for (size_t i = 0; i < member_count; ++i) {
+      components[uf.Find(i)].push_back(member_indices[i]);
+    }
+
+    for (const auto& [root, component] : components) {
+      (void)root;
+      if (component.size() < 2) {
+        continue;
+      }
+      glm::vec3 mean_x(0.f);
+      for (const size_t vertex_index : component) {
+        mean_x += vertices[vertex_index].x;
+      }
+      const float inv = 1.f / static_cast<float>(component.size());
+      mean_x *= inv;
+      for (const size_t vertex_index : component) {
+        vertices[vertex_index].x = mean_x;
+        was_smoothed[vertex_index] = 1;
+      }
+    }
+  }
+
+  PropagateSmoothingToUnmatchedVertices(vertices, x_before, was_smoothed, triangles);
+}
+
+void MeshletObjExport::ExportObj(const std::filesystem::path& path,
+                                 const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                 const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+                                 const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor,
+                                 double uv_circum_factor, float fracture_distance,
+                                 const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                                 const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list,
+                                 const std::vector<std::string>& vertex_metadata,
+                                 const std::vector<std::string>& face_metadata) {
+  std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = vertices;
+  std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = triangles;
+  if (enable_smoothing) {
+    ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+  }
+
+  if (per_meshlet_objects) {
+    WriteCombinedMeshGroups(path, BuildMeshGroupsBySegmentIndex(export_vertices, export_triangles), segments,
+                            uv_height_factor, uv_circum_factor, fracture_distance, segment_pairs, segment_data_list,
+                            false);
+    return;
+  }
+
+  const bool neighbor_connectivity_debug = NeighborConnectivityDebugEnabled();
+  size_t bark_triangle_count = 0;
+  const bool write_bark_group = separate_bark_obj_group && !neighbor_connectivity_debug;
+  std::vector<std::string> export_face_metadata = face_metadata;
+  if (write_bark_group) {
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> bark_triangles;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> interior_triangles;
+    std::vector<std::string> bark_face_metadata;
+    std::vector<std::string> interior_face_metadata;
+    bark_triangles.reserve(export_triangles.size());
+    interior_triangles.reserve(export_triangles.size());
+    const bool reorder_face_metadata = export_face_metadata.size() == export_triangles.size();
+    if (reorder_face_metadata) {
+      bark_face_metadata.reserve(export_triangles.size());
+      interior_face_metadata.reserve(export_triangles.size());
+    }
+    for (size_t ti = 0; ti < export_triangles.size(); ++ti) {
+      const auto& triangle = export_triangles[ti];
+      if (triangle.neighbor_segment_index == -2) {
+        bark_triangles.push_back(triangle);
+        if (reorder_face_metadata) {
+          bark_face_metadata.push_back(export_face_metadata[ti]);
+        }
+      } else {
+        interior_triangles.push_back(triangle);
+        if (reorder_face_metadata) {
+          interior_face_metadata.push_back(export_face_metadata[ti]);
+        }
+      }
+    }
+    bark_triangle_count = bark_triangles.size();
+    export_triangles = std::move(bark_triangles);
+    export_triangles.insert(export_triangles.end(), std::make_move_iterator(interior_triangles.begin()),
+                            std::make_move_iterator(interior_triangles.end()));
+    if (reorder_face_metadata) {
+      export_face_metadata = std::move(bark_face_metadata);
+      export_face_metadata.insert(export_face_metadata.end(), std::make_move_iterator(interior_face_metadata.begin()),
+                                  std::make_move_iterator(interior_face_metadata.end()));
+    }
+  }
+
+  kinDS::VoronoiMesh mesh =
+      ToVoronoiMesh(export_vertices, export_triangles, fracture_distance, neighbor_connectivity_debug, segment_pairs,
+                    vertex_metadata, export_face_metadata);
+  if (write_bark_group) {
+    mesh.setGroupOffsets({0, bark_triangle_count});
+    mesh.setGroupNames({"bark", "interior"});
+  }
+  kinDS::ObjWriteOptions options;
+  options.uv_height_factor = uv_height_factor;
+  options.uv_circum_factor = uv_circum_factor;
+  options.write_obj_groups = write_bark_group;
+  options.gpu_attributes = BuildGpuAttributes(export_vertices, export_triangles, segments, uv_height_factor);
+  WriteExportedMesh(path, std::move(mesh), options, neighbor_connectivity_debug);
+}
+
+void MeshletObjExport::ExportObjCombined(const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
+                                         const std::vector<DynamicStrands::GpuSegment>& segments,
+                                         double uv_height_factor, double uv_circum_factor, float fracture_distance,
+                                         const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                                         const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  WriteCombinedMeshGroups(path, groups, segments, uv_height_factor, uv_circum_factor, fracture_distance, segment_pairs,
+                          segment_data_list, true);
+}
+
+namespace {
+
+struct Rgb8Key {
+  uint8_t r = 0;
+  uint8_t g = 0;
+  uint8_t b = 0;
+
+  static Rgb8Key From(const glm::vec4& c) {
+    auto to_u8 = [](float v) -> uint8_t {
+      return static_cast<uint8_t>(glm::clamp(static_cast<int>(std::lround(static_cast<double>(v) * 255.0)), 0, 255));
+    };
+    return Rgb8Key{to_u8(c.x), to_u8(c.y), to_u8(c.z)};
+  }
+
+  bool operator==(const Rgb8Key& other) const {
+    return r == other.r && g == other.g && b == other.b;
+  }
+};
+
+struct Rgb8KeyHash {
+  size_t operator()(const Rgb8Key& key) const {
+    return (static_cast<size_t>(key.r) << 16) | (static_cast<size_t>(key.g) << 8) | static_cast<size_t>(key.b);
+  }
+};
+
+/// Push mid-saturation RGB toward a more vivid albedo for ray-traced MTL materials.
+glm::dvec3 VibrantAlbedoFromRgb8(const Rgb8Key& key) {
+  glm::dvec3 rgb(static_cast<double>(key.r) / 255.0, static_cast<double>(key.g) / 255.0,
+                 static_cast<double>(key.b) / 255.0);
+  const double max_c = std::max({rgb.x, rgb.y, rgb.z});
+  const double min_c = std::min({rgb.x, rgb.y, rgb.z});
+  if (max_c <= 1e-8) {
+    return rgb;
+  }
+  // HSV-style saturation boost: keep hue/value, raise chroma toward full saturation.
+  constexpr double kSaturationBoost = 1.75;
+  const double value = max_c;
+  const double saturation = (max_c - min_c) / max_c;
+  if (saturation <= 1e-8) {
+    return rgb;
+  }
+  const double boosted_s = std::min(1.0, saturation * kSaturationBoost);
+  const double scale = boosted_s / saturation;
+  rgb = value + (rgb - glm::dvec3(value)) * scale;
+  return glm::clamp(rgb, 0.0, 1.0);
+}
+
+enum class VisualizationColorSource {
+  SegmentColor,
+  StrandColor,
+};
+
+glm::vec4 VisualizationColorForSegment(const DynamicStrands::GpuSegment& segment,
+                                       const std::vector<DynamicStrands::GpuSegment>& segments,
+                                       const VisualizationColorSource color_source) {
+  if (color_source == VisualizationColorSource::StrandColor) {
+    // Matches Segments.mesh Strand color mode: color = segments[strand_handle].color
+    if (segment.strand_handle >= 0 && static_cast<size_t>(segment.strand_handle) < segments.size()) {
+      return segments[static_cast<size_t>(segment.strand_handle)].color;
+    }
+  }
+  return segment.color;
+}
+
+VisualizationColorSource ColorSourceFromMode(const MeshletObjExport::VisualizationColorMode color_mode) {
+  return color_mode == MeshletObjExport::VisualizationColorMode::Strands ? VisualizationColorSource::StrandColor
+                                                                         : VisualizationColorSource::SegmentColor;
+}
+
+int VisualizationGroupId(const unsigned int segment_index, const std::vector<DynamicStrands::GpuSegment>& segments,
+                         const VisualizationColorSource color_source) {
+  if (segment_index >= segments.size()) {
+    return static_cast<int>(segment_index);
+  }
+  if (color_source == VisualizationColorSource::StrandColor) {
+    const int strand_handle = segments[segment_index].strand_handle;
+    return strand_handle >= 0 ? strand_handle : static_cast<int>(segment_index);
+  }
+  return static_cast<int>(segment_index);
+}
+
+std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsForVisualization(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationColorSource color_source,
+    const std::string& name_prefix = {}) {
+  using Triangle = DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle;
+
+  std::unordered_map<int, std::vector<size_t>> triangle_indices_by_group;
+  triangle_indices_by_group.reserve(triangles.size() / 4 + 1);
+  for (size_t tri_index = 0; tri_index < triangles.size(); ++tri_index) {
+    const unsigned int segment_index = vertices[triangles[tri_index].vertex_index0].segment_index;
+    const int group_id = VisualizationGroupId(segment_index, segments, color_source);
+    triangle_indices_by_group[group_id].push_back(tri_index);
+  }
+
+  std::vector<int> group_ids;
+  group_ids.reserve(triangle_indices_by_group.size());
+  for (const auto& [group_id, _] : triangle_indices_by_group) {
+    group_ids.push_back(group_id);
+  }
+  std::sort(group_ids.begin(), group_ids.end());
+
+  const char* id_prefix = color_source == VisualizationColorSource::StrandColor ? "strand_" : "segment_";
+
+  std::vector<MeshletObjExport::MeshGroup> groups;
+  groups.reserve(group_ids.size());
+  for (const int group_id : group_ids) {
+    const auto& tri_indices = triangle_indices_by_group[group_id];
+    MeshletObjExport::MeshGroup group;
+    group.name = name_prefix + id_prefix + std::to_string(group_id);
+
+    std::unordered_map<unsigned int, unsigned int> vertex_remap;
+    vertex_remap.reserve(tri_indices.size() * 2);
+    group.vertices.reserve(tri_indices.size());
+    group.triangles.reserve(tri_indices.size());
+
+    const auto remap_vertex = [&](const unsigned int old_index) -> unsigned int {
+      const auto found = vertex_remap.find(old_index);
+      if (found != vertex_remap.end()) {
+        return found->second;
+      }
+      const unsigned int new_index = static_cast<unsigned int>(group.vertices.size());
+      group.vertices.push_back(vertices[old_index]);
+      vertex_remap.emplace(old_index, new_index);
+      return new_index;
+    };
+
+    for (const size_t tri_index : tri_indices) {
+      const Triangle& src = triangles[tri_index];
+      Triangle dst = src;
+      dst.vertex_index0 = remap_vertex(src.vertex_index0);
+      dst.vertex_index1 = remap_vertex(src.vertex_index1);
+      dst.vertex_index2 = remap_vertex(src.vertex_index2);
+      group.triangles.push_back(dst);
+    }
+    groups.push_back(std::move(group));
+  }
+  return groups;
+}
+
+class SolidColorPalette {
+ public:
+  int IdForColor(const glm::vec4& color) {
+    const Rgb8Key key = Rgb8Key::From(color);
+    const auto found = index_by_color_.find(key);
+    if (found != index_by_color_.end()) {
+      return static_cast<int>(found->second);
+    }
+    const size_t index = names_.size();
+    index_by_color_.emplace(key, index);
+    names_.push_back("solid_" + std::to_string(index));
+    kd_.push_back(VibrantAlbedoFromRgb8(key));
+    return static_cast<int>(index);
+  }
+
+  const std::vector<std::string>& Names() const {
+    return names_;
+  }
+  const std::vector<glm::dvec3>& Kd() const {
+    return kd_;
+  }
+
+ private:
+  std::unordered_map<Rgb8Key, size_t, Rgb8KeyHash> index_by_color_;
+  std::vector<std::string> names_;
+  std::vector<glm::dvec3> kd_;
+};
+
+void WriteSolidColoredVisualizationGroups(const std::filesystem::path& path,
+                                          const std::vector<MeshletObjExport::MeshGroup>& groups,
+                                          const std::vector<DynamicStrands::GpuSegment>& segments,
+                                          const VisualizationColorSource color_source, const bool per_face_colors,
+                                          const double uv_height_factor, const double uv_circum_factor,
+                                          const float fracture_distance) {
+  if (groups.empty()) {
+    throw std::runtime_error("WriteSolidColoredVisualizationGroups: no mesh groups to export");
+  }
+
+  size_t total_vertices = 0;
+  size_t total_triangles = 0;
+  size_t non_empty_groups = 0;
+  for (const auto& group : groups) {
+    if (group.vertices.empty() || group.triangles.empty()) {
+      continue;
+    }
+    total_vertices += group.vertices.size();
+    total_triangles += group.triangles.size();
+    ++non_empty_groups;
+  }
+  if (non_empty_groups == 0) {
+    throw std::runtime_error("WriteSolidColoredVisualizationGroups: all mesh groups were empty");
+  }
+
+  // Pass 1: hash unique RGB8 colors into a dense material palette (O(faces) expected).
+  SolidColorPalette palette;
+  std::vector<int> uniform_material_ids(groups.size(), -1);
+  for (size_t group_index = 0; group_index < groups.size(); ++group_index) {
+    const auto& group = groups[group_index];
+    if (group.vertices.empty() || group.triangles.empty()) {
+      continue;
+    }
+    if (per_face_colors) {
+      for (const auto& t : group.triangles) {
+        glm::vec4 color(0.8f, 0.8f, 0.8f, 1.0f);
+        const unsigned int segment_index = group.vertices[t.vertex_index0].segment_index;
+        if (segment_index < segments.size()) {
+          color = VisualizationColorForSegment(segments[segment_index], segments, color_source);
+        }
+        palette.IdForColor(color);
+      }
+    } else {
+      glm::vec4 color(0.8f, 0.8f, 0.8f, 1.0f);
+      const unsigned int segment_index = group.vertices.front().segment_index;
+      if (segment_index < segments.size()) {
+        color = VisualizationColorForSegment(segments[segment_index], segments, color_source);
+      }
+      uniform_material_ids[group_index] = palette.IdForColor(color);
+    }
+  }
+
+  // Pass 2: append everything into one mesh — no VoronoiMesh::operator+= (avoids per-merge string scans).
+  kinDS::VoronoiMesh combined(palette.Names(), kinDS::PerTriangleCorner);
+  combined.getVertices().reserve(total_vertices);
+  combined.getTriangles().reserve(total_triangles * 3);
+  combined.getNormals().reserve(total_triangles * 3);
+  combined.getUVs().reserve(total_triangles * 3);
+  combined.getUVIndices().reserve(total_triangles * 3);
+  combined.getMaterialIDs().reserve(total_triangles);
+
+  std::vector<size_t> group_offsets;
+  std::vector<std::string> group_names;
+  group_offsets.reserve(non_empty_groups);
+  group_names.reserve(non_empty_groups);
+
+  for (size_t group_index = 0; group_index < groups.size(); ++group_index) {
+    const auto& group = groups[group_index];
+    if (group.vertices.empty() || group.triangles.empty()) {
+      continue;
+    }
+
+    group_offsets.push_back(combined.getTriangleCount());
+    group_names.push_back(group.name);
+
+    const size_t vertex_base = combined.getVertexCount();
+    for (const auto& v : group.vertices) {
+      const glm::vec3 p = v.x - fracture_distance * v.shift;
+      combined.addVertex(glm::dvec3(p.x, p.y, p.z));
+    }
+
+    const int uniform_material_id = uniform_material_ids[group_index];
+    for (const auto& t : group.triangles) {
+      int material_id = uniform_material_id;
+      if (per_face_colors) {
+        glm::vec4 color(0.8f, 0.8f, 0.8f, 1.0f);
+        const unsigned int segment_index = group.vertices[t.vertex_index0].segment_index;
+        if (segment_index < segments.size()) {
+          color = VisualizationColorForSegment(segments[segment_index], segments, color_source);
+        }
+        material_id = palette.IdForColor(color);
+      }
+
+      const size_t uv0 = combined.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
+      const size_t uv1 = combined.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
+      const size_t uv2 = combined.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
+      combined.addTriangle(vertex_base + t.vertex_index0, vertex_base + t.vertex_index1, vertex_base + t.vertex_index2,
+                           uv0, uv1, uv2, material_id);
+      for (int i = 0; i < 3; ++i) {
+        combined.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
+      }
+    }
+  }
+
+  combined.setGroupOffsets(group_offsets);
+  combined.setGroupNames(group_names);
+
+  kinDS::ObjWriteOptions options;
+  options.uv_height_factor = uv_height_factor;
+  options.uv_circum_factor = uv_circum_factor;
+  options.write_obj_groups = true;
+  options.framework_compatible = false;
+  options.material_kd_colors = palette.Kd();
+  kinDS::ObjExporter::writeMesh(combined, path, options);
+}
+
+}  // namespace
+
+void MeshletObjExport::ExportVisualizationObj(
+    const std::filesystem::path& path, const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationColorMode color_mode,
+    const VisualizationObjectGrouping object_grouping, double uv_height_factor, double uv_circum_factor,
+    float fracture_distance, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = vertices;
+  std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = triangles;
+  if (enable_smoothing) {
+    ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+  }
+
+  const VisualizationColorSource color_source = ColorSourceFromMode(color_mode);
+  const bool by_highlight = object_grouping == VisualizationObjectGrouping::ByHighlight;
+
+  std::vector<MeshGroup> groups;
+  if (by_highlight) {
+    groups = BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source);
+  } else {
+    MeshGroup combined;
+    combined.name = "mesh";
+    combined.vertices = std::move(export_vertices);
+    combined.triangles = std::move(export_triangles);
+    if (!combined.vertices.empty() && !combined.triangles.empty()) {
+      groups.push_back(std::move(combined));
+    }
+  }
+
+  WriteSolidColoredVisualizationGroups(path, groups, segments, color_source, !by_highlight, uv_height_factor,
+                                       uv_circum_factor, fracture_distance);
+}
+
+void MeshletObjExport::ExportVisualizationObjCombined(
+    const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationColorMode color_mode,
+    const VisualizationObjectGrouping object_grouping, double uv_height_factor, double uv_circum_factor,
+    float fracture_distance, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  if (groups.empty()) {
+    throw std::runtime_error("ExportVisualizationObjCombined: no mesh groups to export");
+  }
+
+  std::vector<MeshGroup> export_groups;
+  export_groups.reserve(groups.size());
+
+  const VisualizationColorSource color_source = ColorSourceFromMode(color_mode);
+  const bool by_highlight = object_grouping == VisualizationObjectGrouping::ByHighlight;
+  const bool per_face_colors = !by_highlight;
+
+  for (const auto& group : groups) {
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = group.vertices;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = group.triangles;
+    if (enable_smoothing) {
+      ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+    }
+
+    if (!by_highlight) {
+      MeshGroup out = group;
+      out.vertices = std::move(export_vertices);
+      out.triangles = std::move(export_triangles);
+      if (!out.vertices.empty() && !out.triangles.empty()) {
+        export_groups.push_back(std::move(out));
+      }
+      continue;
+    }
+
+    const std::string prefix = group.name.empty() ? std::string() : (group.name + "_");
+    auto subdivided =
+        BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source, prefix);
+    for (auto& part : subdivided) {
+      export_groups.push_back(std::move(part));
+    }
+  }
+
+  WriteSolidColoredVisualizationGroups(path, export_groups, segments, color_source, per_face_colors, uv_height_factor,
+                                       uv_circum_factor, fracture_distance);
+}
+
+bool AlphaShapeTetObjExport::separate_tet_objects = false;
+bool AlphaShapeTetObjExport::separate_bark_obj_group = true;
+bool AlphaShapeTetObjExport::surface_only = true;
+bool AlphaShapeTetObjExport::use_current_position = true;
+
+namespace {
+
+// Matches AlphaShape.glsl: lookup[] + triangles[] face winding.
+constexpr int kAlphaFaceLookup[12] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
+
+bool AlphaTetAlive(const DsAlphaShapeMeshing::GpuDelaunayTetrahedron& tet) {
+  return tet.inside == 1;
+}
+
+bool AlphaFaceIsBoundary(const DsAlphaShapeMeshing::GpuDelaunayTetrahedron& tet, const int face_index,
+                         const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons) {
+  const int render_flag = tet.render_neighbor[face_index];
+  if (render_flag == 1) {
+    return true;
+  }
+  if (render_flag == 0) {
+    return false;
+  }
+  // Not filtered yet (still -1): match TriangleFiltering.comp boundary rule.
+  const int neighbor = tet.neighbor_tet_ids[face_index];
+  if (neighbor < 0 || static_cast<size_t>(neighbor) >= tetrahedrons.size()) {
+    return true;
+  }
+  return tetrahedrons[static_cast<size_t>(neighbor)].inside != 1;
+}
+
+bool AlphaFaceIsBark(const DsAlphaShapeMeshing::GpuDelaunayTetrahedron& tet, const int face_index,
+                     const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons) {
+  if (tet.is_bark[face_index] == 1) {
+    return true;
+  }
+  if (tet.is_bark[face_index] == 0) {
+    return false;
+  }
+  // BarkFlag.comp not run yet: treat alpha-shape boundary faces as bark.
+  return AlphaFaceIsBoundary(tet, face_index, tetrahedrons);
+}
+
+const std::vector<glm::dvec2>* LookupBundleBoundaryPolygon(
+    const std::unordered_map<uint64_t, std::vector<glm::dvec2>>& boundaries,
+    const DsAlphaShapeMeshing::GpuUniformParticle& particle) {
+  const uint64_t key = DsAlphaShapeUtils::ProfileBundleKey(particle.segment_index, particle.node_index);
+  const auto found = boundaries.find(key);
+  if (found == boundaries.end()) {
+    return nullptr;
+  }
+  return &found->second;
+}
+
+}  // namespace
+
+void AlphaShapeTetObjExport::ExportObj(
+    const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+    const std::unordered_map<uint64_t, std::vector<glm::dvec2>>* profile_bundle_boundary_polygons) {
+  const auto& branch_rp = DsAlphaShapeMeshing::render_settings.branches_render_parameters;
+  const float u_multiplier = branch_rp.u_multiplier;
+  const float v_multiplier = branch_rp.v_multiplier;
+  const float texture_diameter = branch_rp.texture_diameter;
+  const bool use_polar = branch_rp.use_polar_coordinates_for_uv;
+
+  std::unordered_map<uint64_t, std::vector<glm::dvec2>> owned_boundaries;
+  const std::unordered_map<uint64_t, std::vector<glm::dvec2>>* boundaries = profile_bundle_boundary_polygons;
+  if (boundaries == nullptr || boundaries->empty()) {
+    owned_boundaries = DsAlphaShapeUtils::BuildProfileBundleBoundaryPolygons(particles);
+    boundaries = &owned_boundaries;
+  }
+
+  const auto corner_uv = [&](const DsAlphaShapeMeshing::GpuUniformParticle& particle, const bool is_bark_face) {
+    const std::vector<glm::dvec2>* polygon = LookupBundleBoundaryPolygon(*boundaries, particle);
+    return DsAlphaShapeUtils::ComputeAlphaTetCornerUv(particle, is_bark_face, polygon, u_multiplier, v_multiplier,
+                                                      texture_diameter, use_polar);
   };
 
-  file << "{\n";
+  struct PendingFace {
+    int particle_indices[3] = {-1, -1, -1};
+    int tet_id = -1;
+    int face_index = -1;
+    bool is_bark = false;
+  };
+  std::vector<PendingFace> pending_faces;
+  pending_faces.reserve(tetrahedrons.size() * 4);
 
-  // write all segment properties per vertex (uncomment to your needs)
-#define SEG segments[vertices[index].segment_index]
-
-  // write_values(
-  //     file, "prev_handle",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.prev_handle);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "next_handle",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.next_handle);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "strand_handle",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.strand_handle);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "inv_mass",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.inv_mass);
-  //     },
-  //     vertices.size());
-  write_values(
-      file, "color",
-      [&](size_t index) {
-        return json_vec4(SEG.color);
-      },
-      vertices.size());
-  // write_values(
-  //     file, "q0",
-  //     [&](size_t index) {
-  //       return json_quat(SEG.q0);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "q",
-  //     [&](size_t index) {
-  //       return json_quat(SEG.q);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "last_q",
-  //     [&](size_t index) {
-  //       return json_quat(SEG.last_q);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "angular_v",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.angular_v);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "radius",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.radius);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "torque",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.torque);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "rest_length",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.rest_length);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "max_young_modulus",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.max_young_modulus);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "shear_stretch_alpha",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.shear_stretch_alpha);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "strength",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.strength);
-  //     },
-  //     vertices.size());
-  write_values(
-      file, "boundary_distance",
-      [&](size_t index) {
-        return std::to_string(SEG.boundary_distance);
-      },
-      vertices.size());
-  write_values(
-      file, "profile_position",
-      [&](size_t index) {
-        return json_vec2(SEG.profile_position);
-      },
-      vertices.size());
-  write_values(
-      file, "profile_polar_coordinate",
-      [&](size_t index) {
-        return json_vec2(SEG.profile_polar_coordinate);
-      },
-      vertices.size());
-  // write_values(
-  //     file, "inertia_tensor",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.inertia_tensor);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "max_shear_stretch_strain",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.max_shear_stretch_strain);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "inv_inertia_tensor",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.inv_inertia_tensor);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "shear_stretch_strain_limit",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.shear_stretch_strain_limit);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "inertia_w",
-  //     [&](size_t index) {
-  //       return json_mat4(SEG.inertia_w);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "inv_inertia_w",
-  //     [&](size_t index) {
-  //       return json_mat4(SEG.inv_inertia_w);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "shear_stretch_strain",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.shear_stretch_strain);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "node_handle",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.node_handle);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "original_mass",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.original_mass);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "group_index",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.group_index);
-  //     },
-  //     vertices.size());
-
-  // write_values(
-  //     file, "extra_mass",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.extra_mass);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "snow_amount",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.snow_amount);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "screen_depth",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.screen_depth);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "reach_ground",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.reach_ground);
-  //     },
-  //     vertices.size());
-
-  // write_values(
-  //     file, "C",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.C);
-  //     },
-  //     vertices.size());
-  write_values(
-      file, "HC",
-      [&](size_t index) {
-        return std::to_string(SEG.HC);
-      },
-      vertices.size());
-  write_values(
-      file, "HL",
-      [&](size_t index) {
-        return std::to_string(SEG.HL);
-      },
-      vertices.size());
-  write_values(
-      file, "RW",
-      [&](size_t index) {
-        return std::to_string(SEG.RW);
-      },
-      vertices.size());
-  write_values(
-      file, "RB",
-      [&](size_t index) {
-        return std::to_string(SEG.RB);
-      },
-      vertices.size());
-
-  // write_values(
-  //     file, "C_pre",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.C_pre);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "HC_pre",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.HC_pre);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "HL_pre",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.HL_pre);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "RW_pre",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.RW_pre);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "RB_pre",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.RB_pre);
-  //     },
-  //     vertices.size());
-
-  // write_values(
-  //     file, "K",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.K);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "diffusion_c",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.diffusion_c);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "diffusion_w",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.diffusion_w);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "diffusion_b",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.diffusion_b);
-  //     },
-  //     vertices.size());
-
-  // write_values(
-  //     file, "pairs_count",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.pairs_count);
-  //     },
-  //     vertices.size());
-  write_values(
-      file, "moisture",
-      [&](size_t index) {
-        return std::to_string(SEG.moisture);
-      },
-      vertices.size());
-  // write_values(
-  //     file, "moisture_pre",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.moisture_pre);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "diffusion_m",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.diffusion_m);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "internal_pattern",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.internal_pattern);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "cube_pattern",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.cube_pattern);
-  //     },
-  //     vertices.size());
-
-  // write_values(
-  //     file, "Obstruction_w",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.Obstruction_w);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "unlink_constraint",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.unlink_constraint);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "Obstruction_b",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.Obstruction_b);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "ground_damping",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.ground_damping);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "Obstruction_c",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.Obstruction_c);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "quasi_stable",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.quasi_stable);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "Obstruction_m",
-  //     [&](size_t index) {
-  //       return json_vec3(SEG.Obstruction_m);
-  //     },
-  //     vertices.size());
-  // write_values(
-  //     file, "quasi_damping",
-  //     [&](size_t index) {
-  //       return std::to_string(SEG.quasi_damping);
-  //     },
-  //     vertices.size());
-
-  // also write average position of the two particles forming the segment
-  write_values(
-      file, "position0",
-      [&](size_t index) {
-        glm::vec3 p0 = SEG.particle0.x0;
-        glm::vec3 p1 = SEG.particle1.x0;
-        glm::vec3 avg = 0.5f * (p0 + p1);
-        return json_vec3(avg);
-      },
-      vertices.size());
-
-  write_values(
-      file, "direction0",
-      [&](size_t index) {
-        glm::vec3 p0 = SEG.particle0.x0;
-        glm::vec3 p1 = SEG.particle1.x0;
-        glm::vec3 direction = glm::normalize(p1 - p0);
-        return json_vec3(direction);
-      },
-      vertices.size());
-
-  write_values(
-      file, "root_distance",
-      [&](size_t index) {
-        float d1 = SEG.particle0.root_distance;
-        float d2 = SEG.particle1.root_distance;
-        float average = 0.5f * (d1 + d2);
-        return std::to_string(average);
-      },
-      vertices.size(), false);
-
-  // obtain third UV coordinate
-  std::vector<float> uv_3(vertices.size());
-
-  // iterate over triangles and fill array
-  for (auto& tri : triangles) {
-    bool is_bark = (tri.neighbor_segment_index == -2);
-
-    std::array<size_t, 3> v_idxs = {tri.vertex_index0, tri.vertex_index1, tri.vertex_index2};
-    for (size_t i = 0; i < 3; i++) {
-      glm::vec4 uv = tri.uv[i];
-      float value;
-      if (is_bark) {
-        value = uv.y * uv_height_factor;
-      } else {
-        value = uv.z * uv_height_factor;
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    const auto& tet = tetrahedrons[tet_id];
+    if (!AlphaTetAlive(tet)) {
+      continue;
+    }
+    for (int face_index = 0; face_index < 4; ++face_index) {
+      if (surface_only && !AlphaFaceIsBoundary(tet, face_index, tetrahedrons)) {
+        continue;
       }
-      uv_3[v_idxs[i]] = value;
+      PendingFace face;
+      face.tet_id = static_cast<int>(tet_id);
+      face.face_index = face_index;
+      face.is_bark = AlphaFaceIsBark(tet, face_index, tetrahedrons);
+      for (int c = 0; c < 3; ++c) {
+        const int local = kAlphaFaceLookup[face_index * 3 + c];
+        face.particle_indices[c] = tet.indices[local];
+      }
+      pending_faces.push_back(face);
     }
   }
 
-  write_values(
-      file, "uv_3",
-      [&](size_t index) {
-        return std::to_string(uv_3[index]);
-      },
-      vertices.size(), true);
+  if (pending_faces.empty()) {
+    throw std::runtime_error(
+        "AlphaShapeTetObjExport: no alive Alpha tetrahedra (inside==1) with faces to export. "
+        "Run Alpha Shape meshing / filtering first, then Download.");
+  }
 
-  // write properties per face
-  write_values(
-      file, "has_neighbor",
-      [&](size_t index) {
-        return (triangles[index].neighbor_segment_index >= 0) ? "true" : "false";
-      },
-      triangles.size(), true);
+  size_t bark_face_count = 0;
+  if (separate_bark_obj_group) {
+    // Prefer bark faces first so group offsets match Kinetic meshlet export.
+    std::stable_partition(pending_faces.begin(), pending_faces.end(), [](const PendingFace& f) {
+      return f.is_bark;
+    });
+    bark_face_count =
+        static_cast<size_t>(std::count_if(pending_faces.begin(), pending_faces.end(), [](const PendingFace& f) {
+          return f.is_bark;
+        }));
+  }
 
-#undef SEG
+  std::vector<int> used_particle_indices;
+  used_particle_indices.reserve(particles.size());
+  std::unordered_map<int, size_t> particle_to_vertex;
+  particle_to_vertex.reserve(particles.size());
 
-  file << "}\n";
+  const auto ensure_vertex = [&](const int particle_index) -> size_t {
+    if (particle_index < 0 || static_cast<size_t>(particle_index) >= particles.size()) {
+      throw std::runtime_error("AlphaShapeTetObjExport: particle index out of range");
+    }
+    const auto found = particle_to_vertex.find(particle_index);
+    if (found != particle_to_vertex.end()) {
+      return found->second;
+    }
+    const size_t vertex_index = used_particle_indices.size();
+    particle_to_vertex.emplace(particle_index, vertex_index);
+    used_particle_indices.push_back(particle_index);
+    return vertex_index;
+  };
+
+  for (const PendingFace& face : pending_faces) {
+    for (int c = 0; c < 3; ++c) {
+      ensure_vertex(face.particle_indices[c]);
+    }
+  }
+
+  kinDS::VoronoiMesh mesh(std::vector<std::string>{"bark", "interior"}, kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(false);
+
+  for (const int particle_index : used_particle_indices) {
+    const auto& p = particles[static_cast<size_t>(particle_index)];
+    const glm::vec3& pos = use_current_position ? p.position : p.initial_position;
+    mesh.addVertex(glm::dvec3(pos.x, pos.y, pos.z));
+  }
+
+  for (const PendingFace& face : pending_faces) {
+    const size_t v0 = particle_to_vertex.at(face.particle_indices[0]);
+    const size_t v1 = particle_to_vertex.at(face.particle_indices[1]);
+    const size_t v2 = particle_to_vertex.at(face.particle_indices[2]);
+    const auto& p0 = particles[static_cast<size_t>(face.particle_indices[0])];
+    const auto& p1 = particles[static_cast<size_t>(face.particle_indices[1])];
+    const auto& p2 = particles[static_cast<size_t>(face.particle_indices[2])];
+
+    const glm::dvec3 uv0 = corner_uv(p0, face.is_bark);
+    const glm::dvec3 uv1 = corner_uv(p1, face.is_bark);
+    const glm::dvec3 uv2 = corner_uv(p2, face.is_bark);
+    const size_t uv_i0 = mesh.addUV(uv0);
+    const size_t uv_i1 = mesh.addUV(uv1);
+    const size_t uv_i2 = mesh.addUV(uv2);
+
+    const int material_id = face.is_bark ? 0 : 1;
+    mesh.addTriangle(v0, v1, v2, uv_i0, uv_i1, uv_i2, material_id);
+  }
+
+  // Recompute normals from the exported surface (do not reuse particle shading normals).
+  mesh.computeNormals(kinDS::PerTriangleCorner);
+
+  if (separate_bark_obj_group) {
+    mesh.setGroupOffsets({0, bark_face_count});
+    mesh.setGroupNames({"bark", "interior"});
+  } else if (separate_tet_objects) {
+    std::vector<size_t> offsets;
+    std::vector<std::string> names;
+    offsets.reserve(pending_faces.size() + 1);
+    names.reserve(pending_faces.size());
+    int current_tet = std::numeric_limits<int>::min();
+    for (size_t i = 0; i < pending_faces.size(); ++i) {
+      if (pending_faces[i].tet_id != current_tet) {
+        current_tet = pending_faces[i].tet_id;
+        offsets.push_back(i);
+        names.push_back("alpha_tet_" + std::to_string(current_tet));
+      }
+    }
+    mesh.setGroupOffsets(offsets);
+    mesh.setGroupNames(names);
+  } else {
+    mesh.setGroupOffsets({0});
+    mesh.setGroupNames({surface_only ? "alpha_surface" : "alpha_tetrahedra"});
+  }
+
+  kinDS::ObjExportGpuAttributes attrs;
+  const size_t vertex_count = used_particle_indices.size();
+  attrs.color.resize(vertex_count);
+  attrs.boundary_distance.resize(vertex_count);
+  attrs.profile_position.resize(vertex_count);
+  attrs.profile_polar_coordinate.resize(vertex_count);
+  attrs.HC.assign(vertex_count, 0.0);
+  attrs.HL.assign(vertex_count, 0.0);
+  attrs.RW.assign(vertex_count, 0.0);
+  attrs.RB.assign(vertex_count, 0.0);
+  attrs.moisture.assign(vertex_count, 0.0);
+  attrs.position0.resize(vertex_count);
+  attrs.direction0.resize(vertex_count);
+  attrs.root_distance.assign(vertex_count, 0.0);
+  attrs.uv_3.resize(vertex_count);
+  attrs.has_neighbor.resize(pending_faces.size());
+
+  for (size_t i = 0; i < vertex_count; ++i) {
+    const auto& p = particles[static_cast<size_t>(used_particle_indices[i])];
+    attrs.color[i] = glm::dvec4(p.override_color.x, p.override_color.y, p.override_color.z, p.override_color.w);
+    // Distance from bark / to the profile boundary (GPU uniform particle field).
+    attrs.boundary_distance[i] = static_cast<double>(p.distance_to_boundary);
+    attrs.profile_position[i] = glm::dvec2(p.profile_position.x, p.profile_position.y);
+    attrs.profile_polar_coordinate[i] = glm::dvec2(p.profile_polar_coordinate.x, p.profile_polar_coordinate.y);
+    attrs.position0[i] = glm::dvec3(p.initial_position.x, p.initial_position.y, p.initial_position.z);
+    glm::dvec3 tangent(p.tangent.x, p.tangent.y, p.tangent.z);
+    const double tangent_len = glm::length(tangent);
+    attrs.direction0[i] = tangent_len > 1e-6 ? (tangent / tangent_len) : glm::dvec3(0.0, 1.0, 0.0);
+    attrs.root_distance[i] = static_cast<double>(p.t);
+    attrs.uv_3[i] = corner_uv(p, p.is_bark != 0).z;
+  }
+  for (size_t i = 0; i < pending_faces.size(); ++i) {
+    const auto& face = pending_faces[i];
+    const auto& tet = tetrahedrons[static_cast<size_t>(face.tet_id)];
+    const int neighbor = tet.neighbor_tet_ids[face.face_index];
+    attrs.has_neighbor[i] = neighbor >= 0 && static_cast<size_t>(neighbor) < tetrahedrons.size() &&
+                            AlphaTetAlive(tetrahedrons[static_cast<size_t>(neighbor)]);
+  }
+
+  kinDS::ObjWriteOptions options;
+  options.framework_compatible = true;
+  // UVs already include render u/v multipliers; avoid double-scaling in the exporter.
+  options.uv_height_factor = 1.0;
+  options.uv_circum_factor = 1.0;
+  options.write_obj_groups = true;
+  options.gpu_attributes = std::move(attrs);
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+}
+
+double VolumeChangeHeatmapExport::max_abs_percent = 30.0;
+
+namespace {
+
+constexpr double kVolumeChangeEpsilon = 1e-18;
+
+double VolumePercentChange(const double initial_volume, const double current_volume) {
+  if (initial_volume > kVolumeChangeEpsilon) {
+    return 100.0 * (current_volume - initial_volume) / initial_volume;
+  }
+  if (current_volume > kVolumeChangeEpsilon) {
+    return VolumeChangeHeatmapExport::max_abs_percent;
+  }
+  return 0.0;
+}
+
+void AccumulateVolumeChangeStats(VolumeChangeHeatmapExport::ChangeStats& stats, const unsigned int id,
+                                 const double initial_volume, const double current_volume) {
+  const double percent = VolumePercentChange(initial_volume, current_volume);
+  if (!stats.has_max || percent > stats.max_percent) {
+    stats.has_max = true;
+    stats.max_percent = percent;
+    stats.max_id = id;
+  }
+  // Min among elements that did not collapse to zero volume.
+  if (current_volume > kVolumeChangeEpsilon) {
+    if (!stats.has_min || percent < stats.min_percent) {
+      stats.has_min = true;
+      stats.min_percent = percent;
+      stats.min_id = id;
+    }
+  }
+}
+
+void FoldStatsIntoColorScale(VolumeChangeHeatmapExport::ColorScale& scale,
+                             const VolumeChangeHeatmapExport::ChangeStats& stats) {
+  if (stats.has_min) {
+    scale.min_percent = std::min(scale.min_percent, stats.min_percent);
+  }
+  if (stats.has_max) {
+    scale.max_percent = std::max(scale.max_percent, stats.max_percent);
+  }
+}
+
+/// Material palette keyed by rounded % volume change; MTL names encode that percentage.
+class PercentHeatmapPalette {
+ public:
+  explicit PercentHeatmapPalette(const VolumeChangeHeatmapExport::ColorScale& scale) : scale_(scale) {
+  }
+
+  static std::string FormatPercentToken(const double percent) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1);
+    if (percent > 0.0) {
+      oss << "pct_+" << percent;
+    } else if (percent < 0.0) {
+      oss << "pct_" << percent;
+    } else {
+      oss << "pct_0.0";
+    }
+    return oss.str();
+  }
+
+  int IdForPercent(const double percent) {
+    // Coalesce near-identical values (0.1% bins) so MTL size stays manageable.
+    const long long key = static_cast<long long>(std::llround(percent * 10.0));
+    const auto found = index_by_tenths_.find(key);
+    if (found != index_by_tenths_.end()) {
+      return static_cast<int>(found->second);
+    }
+    const double rounded = static_cast<double>(key) / 10.0;
+    const size_t index = names_.size();
+    index_by_tenths_.emplace(key, index);
+    names_.push_back(FormatPercentToken(rounded));
+    const glm::dvec3 rgb = VolumeChangeHeatmapExport::ColorFromPercent(rounded, scale_);
+    kd_.push_back(rgb);
+    return static_cast<int>(index);
+  }
+
+  const std::vector<std::string>& Names() const {
+    return names_;
+  }
+  const std::vector<glm::dvec3>& Kd() const {
+    return kd_;
+  }
+
+ private:
+  VolumeChangeHeatmapExport::ColorScale scale_;
+  std::unordered_map<long long, size_t> index_by_tenths_;
+  std::vector<std::string> names_;
+  std::vector<glm::dvec3> kd_;
+};
+
+std::string FormatMeshletHeatmapObjectName(const unsigned int segment_index, const double percent) {
+  const long long key = static_cast<long long>(std::llround(percent * 10.0));
+  const double rounded = static_cast<double>(key) / 10.0;
+  return "meshlet_" + std::to_string(segment_index) + "_" + PercentHeatmapPalette::FormatPercentToken(rounded);
+}
+
+VolumeChangeHeatmapExport::ColorScale ResolveColorScale(const VolumeChangeHeatmapExport::ColorScale* color_scale) {
+  if (color_scale) {
+    return *color_scale;
+  }
+  return VolumeChangeHeatmapExport::ColorScale::Symmetric(VolumeChangeHeatmapExport::max_abs_percent);
+}
+
+}  // namespace
+
+VolumeChangeHeatmapExport::ColorScale VolumeChangeHeatmapExport::ColorScale::Symmetric(const double abs_percent) {
+  const double extent = std::max(1e-6, std::abs(abs_percent));
+  return ColorScale{-extent, extent};
+}
+
+VolumeChangeHeatmapExport::ColorScale VolumeChangeHeatmapExport::ColorScale::FromStats(const ChangeStats& a) {
+  ColorScale scale{0.0, 0.0};
+  FoldStatsIntoColorScale(scale, a);
+  if (scale.min_percent > 0.0) {
+    scale.min_percent = 0.0;
+  }
+  if (scale.max_percent < 0.0) {
+    scale.max_percent = 0.0;
+  }
+  return scale;
+}
+
+VolumeChangeHeatmapExport::ColorScale VolumeChangeHeatmapExport::ColorScale::FromStats(const ChangeStats& a,
+                                                                                       const ChangeStats& b) {
+  ColorScale scale{0.0, 0.0};
+  FoldStatsIntoColorScale(scale, a);
+  FoldStatsIntoColorScale(scale, b);
+  if (scale.min_percent > 0.0) {
+    scale.min_percent = 0.0;
+  }
+  if (scale.max_percent < 0.0) {
+    scale.max_percent = 0.0;
+  }
+  return scale;
+}
+
+glm::dvec3 VolumeChangeHeatmapExport::ColorFromPercent(const double percent) {
+  return ColorFromPercent(percent, ColorScale::Symmetric(max_abs_percent));
+}
+
+glm::dvec3 VolumeChangeHeatmapExport::ColorFromPercent(const double percent, const ColorScale& scale) {
+  const glm::dvec3 white(1.0, 1.0, 1.0);
+  if (percent >= 0.0) {
+    if (scale.max_percent <= 1e-12) {
+      return white;
+    }
+    const double t = glm::clamp(percent / scale.max_percent, 0.0, 1.0);
+    return glm::mix(white, glm::dvec3(0.15, 0.35, 1.0), t);
+  }
+  if (scale.min_percent >= -1e-12) {
+    return white;
+  }
+  // Both percent and min_percent are negative → ratio in [0, 1].
+  const double t = glm::clamp(percent / scale.min_percent, 0.0, 1.0);
+  return glm::mix(white, glm::dvec3(1.0, 0.12, 0.12), t);
+}
+
+void VolumeChangeHeatmapExport::LogStats(const std::string& label, const ChangeStats& stats) {
+  std::ostringstream oss;
+  oss << std::setprecision(6);
+  oss << label << ": cumulative volume " << stats.initial_cumulative << " -> " << stats.current_cumulative
+      << " (delta=" << stats.cumulative_delta;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    oss << ", " << stats.cumulative_percent << "%";
+  }
+  oss << ")";
+  if (stats.has_max) {
+    oss << "; max " << stats.max_percent << "% (id=" << stats.max_id << ")";
+  }
+  if (stats.has_min) {
+    oss << "; min " << stats.min_percent << "% among non-zero (id=" << stats.min_id << ")";
+  }
+  EVOENGINE_LOG(oss.str());
+}
+
+VolumeChangeHeatmapExport::ChangeStats VolumeChangeHeatmapExport::ComputeKineticStats(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, const double initial_cumulative) {
+  if (vertices.empty() || triangles.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Kinetic meshlet buffers empty");
+  }
+  if (initial_volumes_by_segment.empty()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: no initial meshlet volumes captured. Remesh first so a baseline exists.");
+  }
+
+  const auto current = DsKineticVoronoiVolumeUtils::ComputeAllMeshletVolumes(vertices, triangles, true);
+  std::unordered_map<unsigned int, double> current_by_segment;
+  current_by_segment.reserve(current.meshlets.size());
+  for (const auto& entry : current.meshlets) {
+    current_by_segment[entry.segment_index] = entry.volume;
+  }
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  stats.current_cumulative = current.cumulative_volume;
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  for (const auto& [segment_index, initial_volume] : initial_volumes_by_segment) {
+    const double current_volume = current_by_segment.count(segment_index) ? current_by_segment.at(segment_index) : 0.0;
+    AccumulateVolumeChangeStats(stats, segment_index, initial_volume, current_volume);
+  }
+  for (const auto& [segment_index, current_volume] : current_by_segment) {
+    if (initial_volumes_by_segment.count(segment_index)) {
+      continue;
+    }
+    AccumulateVolumeChangeStats(stats, segment_index, 0.0, current_volume);
+  }
+  return stats;
+}
+
+VolumeChangeHeatmapExport::ChangeStats VolumeChangeHeatmapExport::ComputeAlphaStats(
+    const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+    const std::vector<double>& initial_tet_volumes, const std::vector<uint8_t>& initial_near_degenerate_tets,
+    const double initial_cumulative, const bool use_current_position) {
+  if (particles.empty() || tetrahedrons.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Alpha particle/tet buffers empty");
+  }
+  if (initial_tet_volumes.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial tet volume count mismatches tetrahedra. Re-initialize Alpha meshing.");
+  }
+  if (initial_near_degenerate_tets.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial near-degenerate mask size mismatches tetrahedra. "
+        "Re-initialize Alpha meshing.");
+  }
+
+  const auto current =
+      DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(particles, tetrahedrons, use_current_position);
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (initial_near_degenerate_tets[tet_id] != 0) {
+      continue;
+    }
+    stats.current_cumulative += DsAlphaShapeVolumeUtils::EffectiveVolume(current.per_tet_volume[tet_id]);
+  }
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (initial_near_degenerate_tets[tet_id] != 0) {
+      continue;
+    }
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tetrahedrons[tet_id])) {
+      continue;
+    }
+    const double initial_volume = DsAlphaShapeVolumeUtils::EffectiveVolume(initial_tet_volumes[tet_id]);
+    const double current_volume = DsAlphaShapeVolumeUtils::EffectiveVolume(current.per_tet_volume[tet_id]);
+    if (initial_volume > kVolumeChangeEpsilon || current_volume > kVolumeChangeEpsilon) {
+      AccumulateVolumeChangeStats(stats, static_cast<unsigned int>(tet_id), initial_volume, current_volume);
+    }
+  }
+  return stats;
+}
+
+void VolumeChangeHeatmapExport::ExportKineticMeshlets(
+    const std::filesystem::path& path, const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, const double initial_cumulative,
+    ChangeStats* stats_out, const ColorScale* color_scale) {
+  if (vertices.empty() || triangles.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Kinetic meshlet buffers empty");
+  }
+  if (initial_volumes_by_segment.empty()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: no initial meshlet volumes captured. Remesh first so a baseline exists.");
+  }
+
+  const auto current = DsKineticVoronoiVolumeUtils::ComputeAllMeshletVolumes(vertices, triangles, true);
+  std::unordered_map<unsigned int, double> current_by_segment;
+  current_by_segment.reserve(current.meshlets.size());
+  for (const auto& entry : current.meshlets) {
+    current_by_segment[entry.segment_index] = entry.volume;
+  }
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  stats.current_cumulative = current.cumulative_volume;
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  std::unordered_map<unsigned int, double> percent_by_segment;
+  percent_by_segment.reserve(initial_volumes_by_segment.size() + current_by_segment.size());
+  for (const auto& [segment_index, initial_volume] : initial_volumes_by_segment) {
+    const double current_volume = current_by_segment.count(segment_index) ? current_by_segment.at(segment_index) : 0.0;
+    const double percent = VolumePercentChange(initial_volume, current_volume);
+    percent_by_segment[segment_index] = percent;
+    AccumulateVolumeChangeStats(stats, segment_index, initial_volume, current_volume);
+  }
+  for (const auto& [segment_index, current_volume] : current_by_segment) {
+    if (initial_volumes_by_segment.count(segment_index)) {
+      continue;
+    }
+    const double percent = VolumePercentChange(0.0, current_volume);
+    percent_by_segment[segment_index] = percent;
+    AccumulateVolumeChangeStats(stats, segment_index, 0.0, current_volume);
+  }
+
+  const ColorScale scale = ResolveColorScale(color_scale);
+  PercentHeatmapPalette palette(scale);
+  std::unordered_map<unsigned int, std::vector<size_t>> triangle_indices_by_segment;
+  triangle_indices_by_segment.reserve(triangles.size() / 4 + 1);
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    const unsigned int segment_index = vertices[triangles[ti].vertex_index0].segment_index;
+    triangle_indices_by_segment[segment_index].push_back(ti);
+  }
+
+  std::vector<unsigned int> segment_order;
+  segment_order.reserve(triangle_indices_by_segment.size());
+  for (const auto& [segment_index, _] : triangle_indices_by_segment) {
+    segment_order.push_back(segment_index);
+  }
+  std::sort(segment_order.begin(), segment_order.end());
+
+  const bool write_per_meshlet = MeshletObjExport::per_meshlet_objects;
+  std::vector<size_t> export_triangle_order;
+  export_triangle_order.reserve(triangles.size());
+  std::vector<size_t> group_offsets;
+  std::vector<std::string> group_names;
+  if (write_per_meshlet) {
+    group_offsets.reserve(segment_order.size());
+    group_names.reserve(segment_order.size());
+  }
+
+  for (const unsigned int segment_index : segment_order) {
+    if (write_per_meshlet) {
+      group_offsets.push_back(export_triangle_order.size());
+      const double percent = percent_by_segment.count(segment_index) ? percent_by_segment.at(segment_index) : 0.0;
+      group_names.push_back(FormatMeshletHeatmapObjectName(segment_index, percent));
+    }
+    const auto& tri_indices = triangle_indices_by_segment[segment_index];
+    export_triangle_order.insert(export_triangle_order.end(), tri_indices.begin(), tri_indices.end());
+  }
+
+  std::vector<int> face_material_ids(export_triangle_order.size(), 0);
+  for (size_t i = 0; i < export_triangle_order.size(); ++i) {
+    const size_t ti = export_triangle_order[i];
+    const unsigned int segment_index = vertices[triangles[ti].vertex_index0].segment_index;
+    const double percent = percent_by_segment.count(segment_index) ? percent_by_segment.at(segment_index) : 0.0;
+    face_material_ids[i] = palette.IdForPercent(percent);
+  }
+
+  kinDS::VoronoiMesh mesh(palette.Names(), kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(false);
+  for (const auto& v : vertices) {
+    mesh.addVertex(glm::dvec3(v.x.x, v.x.y, v.x.z));
+  }
+  for (size_t i = 0; i < export_triangle_order.size(); ++i) {
+    const auto& t = triangles[export_triangle_order[i]];
+    const size_t uv0 = mesh.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
+    const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
+    const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
+    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, face_material_ids[i]);
+    for (int c = 0; c < 3; ++c) {
+      mesh.addNormal(glm::dvec3(t.normal[c].x, t.normal[c].y, t.normal[c].z));
+    }
+  }
+
+  if (write_per_meshlet) {
+    mesh.setGroupOffsets(group_offsets);
+    mesh.setGroupNames(group_names);
+  } else {
+    mesh.setGroupOffsets({0});
+    mesh.setGroupNames({"volume_change_heatmap"});
+  }
+
+  kinDS::ObjWriteOptions options;
+  options.framework_compatible = false;
+  options.write_obj_groups = true;
+  options.material_kd_colors = palette.Kd();
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+
+  LogStats("Kinetic volume change heatmap", stats);
+  if (stats_out) {
+    *stats_out = stats;
+  }
+}
+
+void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
+    const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+    const std::vector<double>& initial_tet_volumes, const std::vector<uint8_t>& initial_near_degenerate_tets,
+    const double initial_cumulative, const bool use_current_position, ChangeStats* stats_out,
+    const ColorScale* color_scale) {
+  if (particles.empty() || tetrahedrons.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Alpha particle/tet buffers empty");
+  }
+  if (initial_tet_volumes.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial tet volume count mismatches tetrahedra. Re-initialize Alpha meshing.");
+  }
+  if (initial_near_degenerate_tets.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial near-degenerate mask size mismatches tetrahedra. "
+        "Re-initialize Alpha meshing.");
+  }
+
+  const auto current =
+      DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(particles, tetrahedrons, use_current_position);
+
+  const auto was_near_degenerate_at_init = [&](const size_t tet_id) -> bool {
+    return initial_near_degenerate_tets[tet_id] != 0;
+  };
+
+  // Current cumulative excludes only tets that were near-degenerate at init; collapse during
+  // simulation of formerly valid tets is included (near-zero volume → large % loss).
+  double current_cumulative = 0.0;
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (was_near_degenerate_at_init(tet_id)) {
+      continue;
+    }
+    current_cumulative += DsAlphaShapeVolumeUtils::EffectiveVolume(current.per_tet_volume[tet_id]);
+  }
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  stats.current_cumulative = current_cumulative;
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  std::vector<double> percent_by_tet(tetrahedrons.size(), 0.0);
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    // Near-degenerate-at-init stay at 0% for mesh materials and are omitted from per-tet stats.
+    if (was_near_degenerate_at_init(tet_id)) {
+      continue;
+    }
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tetrahedrons[tet_id])) {
+      continue;
+    }
+    const double initial_volume = DsAlphaShapeVolumeUtils::EffectiveVolume(initial_tet_volumes[tet_id]);
+    const double current_volume = DsAlphaShapeVolumeUtils::EffectiveVolume(current.per_tet_volume[tet_id]);
+    percent_by_tet[tet_id] = VolumePercentChange(initial_volume, current_volume);
+    if (initial_volume > kVolumeChangeEpsilon || current_volume > kVolumeChangeEpsilon) {
+      AccumulateVolumeChangeStats(stats, static_cast<unsigned int>(tet_id), initial_volume, current_volume);
+    }
+  }
+
+  // Matches AlphaShape.glsl lookup for face winding.
+  constexpr int kAlphaFaceLookup[12] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
+
+  const ColorScale scale = ResolveColorScale(color_scale);
+  PercentHeatmapPalette palette(scale);
+  struct HeatFace {
+    size_t v0 = 0;
+    size_t v1 = 0;
+    size_t v2 = 0;
+    int material_id = 0;
+  };
+  std::vector<HeatFace> faces;
+  faces.reserve(tetrahedrons.size() * 4);
+
+  std::unordered_map<int, size_t> particle_to_vertex;
+  std::vector<int> used_particles;
+  used_particles.reserve(particles.size());
+  const auto ensure_vertex = [&](const int particle_index) -> size_t {
+    const auto found = particle_to_vertex.find(particle_index);
+    if (found != particle_to_vertex.end()) {
+      return found->second;
+    }
+    const size_t index = used_particles.size();
+    particle_to_vertex.emplace(particle_index, index);
+    used_particles.push_back(particle_index);
+    return index;
+  };
+
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    const auto& tet = tetrahedrons[tet_id];
+    // Keep near-degenerate-at-init tets in the mesh (0% material); only skip dead tets.
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tet)) {
+      continue;
+    }
+    bool indices_valid = true;
+    for (int c = 0; c < 4; ++c) {
+      if (tet.indices[c] < 0 || static_cast<size_t>(tet.indices[c]) >= particles.size()) {
+        indices_valid = false;
+        break;
+      }
+    }
+    if (!indices_valid) {
+      continue;
+    }
+
+    const int material_id = palette.IdForPercent(percent_by_tet[tet_id]);
+
+    for (int face_index = 0; face_index < 4; ++face_index) {
+      // Match Branches/Rendering.mesh / AlphaShapeTetObjExport::surface_only (not bark).
+      if (AlphaShapeTetObjExport::surface_only && !AlphaFaceIsBoundary(tet, face_index, tetrahedrons)) {
+        continue;
+      }
+      HeatFace face;
+      face.material_id = material_id;
+      const int i0 = tet.indices[kAlphaFaceLookup[face_index * 3 + 0]];
+      const int i1 = tet.indices[kAlphaFaceLookup[face_index * 3 + 1]];
+      const int i2 = tet.indices[kAlphaFaceLookup[face_index * 3 + 2]];
+      face.v0 = ensure_vertex(i0);
+      face.v1 = ensure_vertex(i1);
+      face.v2 = ensure_vertex(i2);
+      faces.push_back(face);
+    }
+  }
+
+  if (used_particles.empty() || faces.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: no Alpha faces to export for heatmap");
+  }
+
+  kinDS::VoronoiMesh mesh(palette.Names(), kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(false);
+  for (const int particle_index : used_particles) {
+    const auto& p = particles[static_cast<size_t>(particle_index)];
+    const glm::vec3& pos = use_current_position ? p.position : p.initial_position;
+    mesh.addVertex(glm::dvec3(pos.x, pos.y, pos.z));
+  }
+  for (const HeatFace& face : faces) {
+    const size_t uv0 = mesh.addUV(glm::dvec3(0.0));
+    const size_t uv1 = mesh.addUV(glm::dvec3(0.0));
+    const size_t uv2 = mesh.addUV(glm::dvec3(0.0));
+    mesh.addTriangle(face.v0, face.v1, face.v2, uv0, uv1, uv2, face.material_id);
+  }
+  // Recompute normals from the exported surface mesh.
+  mesh.computeNormals(kinDS::PerTriangleCorner);
+  mesh.setGroupOffsets({0});
+  mesh.setGroupNames({"volume_change_heatmap"});
+
+  kinDS::ObjWriteOptions options;
+  options.framework_compatible = false;
+  options.write_obj_groups = true;
+  options.material_kd_colors = palette.Kd();
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+
+  LogStats("Alpha volume change heatmap", stats);
+  if (stats_out) {
+    *stats_out = stats;
+  }
+}
+
+void VolumeChangeHeatmapExport::ExportBothWithSharedScale(
+    const std::filesystem::path& kinetic_path, const std::filesystem::path& alpha_path,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& kinetic_vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& kinetic_triangles,
+    const std::unordered_map<unsigned int, double>& kinetic_initial_volumes, const double kinetic_initial_cumulative,
+    const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& alpha_particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& alpha_tetrahedrons,
+    const std::vector<double>& alpha_initial_tet_volumes, const std::vector<uint8_t>& alpha_near_degenerate_tets,
+    const double alpha_initial_cumulative, const bool alpha_use_current_position) {
+  // Fixed symmetric clamp (±max_abs_percent) so Kinetic and Alpha heatmaps stay comparable.
+  const ColorScale scale = ColorScale::Symmetric(max_abs_percent);
+  EVOENGINE_LOG("Shared volume-change color scale: white at 0%, red/blue clamped to ±" << max_abs_percent << "%.");
+  ExportKineticMeshlets(kinetic_path, kinetic_vertices, kinetic_triangles, kinetic_initial_volumes,
+                        kinetic_initial_cumulative, nullptr, &scale);
+  ExportAlphaTetrahedra(alpha_path, alpha_particles, alpha_tetrahedrons, alpha_initial_tet_volumes,
+                        alpha_near_degenerate_tets, alpha_initial_cumulative, alpha_use_current_position, nullptr,
+                        &scale);
 }

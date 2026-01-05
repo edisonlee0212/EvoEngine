@@ -240,21 +240,77 @@ void DynamicStrands::FungusStep(const FungusParameters& fungus_parameters, const
 }
 
 void DynamicStrands::InitMeshingAlgorithm(MeshingType meshing_type) {
-  // create new meshing object
+  kinetic_voronoi_meshing.reset();
+  alpha_shape_meshing.reset();
 
-  switch (meshing_type) {
-    case MeshingType::AlphaShape:
-      meshing = std::make_shared<DsAlphaShapeMeshing>();
-      break;
-    case MeshingType::KineticVoronoi:
-      meshing = std::make_shared<DsKineticVoronoiMeshing>();
-      break;
-    default:
-      EVOENGINE_ERROR("Unsupported meshing type.");
-      return;
+  const bool want_kinetic = meshing_type == MeshingType::KineticVoronoi || meshing_type == MeshingType::Both;
+  const bool want_alpha = meshing_type == MeshingType::AlphaShape || meshing_type == MeshingType::Both;
+  if (!want_kinetic && !want_alpha) {
+    EVOENGINE_ERROR("Unsupported meshing type.");
+    return;
   }
 
-  meshing->dynamic_strands = this;
+  if (want_kinetic) {
+    kinetic_voronoi_meshing = std::make_shared<DsKineticVoronoiMeshing>();
+    kinetic_voronoi_meshing->dynamic_strands = this;
+  }
+  if (want_alpha) {
+    alpha_shape_meshing = std::make_shared<DsAlphaShapeMeshing>();
+    alpha_shape_meshing->dynamic_strands = this;
+  }
+}
+
+void DynamicStrands::EnsureMeshingAlgorithms(MeshingType meshing_type) {
+  const bool want_kinetic = meshing_type == MeshingType::KineticVoronoi || meshing_type == MeshingType::Both;
+  const bool want_alpha = meshing_type == MeshingType::AlphaShape || meshing_type == MeshingType::Both;
+  if (!want_kinetic && !want_alpha) {
+    EVOENGINE_ERROR("Unsupported meshing type.");
+    return;
+  }
+
+  bool created_any = false;
+  if (want_kinetic) {
+    if (!kinetic_voronoi_meshing) {
+      kinetic_voronoi_meshing = std::make_shared<DsKineticVoronoiMeshing>();
+      kinetic_voronoi_meshing->dynamic_strands = this;
+      created_any = true;
+    }
+  } else {
+    kinetic_voronoi_meshing.reset();
+  }
+  if (want_alpha) {
+    if (!alpha_shape_meshing) {
+      alpha_shape_meshing = std::make_shared<DsAlphaShapeMeshing>();
+      alpha_shape_meshing->dynamic_strands = this;
+      created_any = true;
+    }
+  } else {
+    alpha_shape_meshing.reset();
+  }
+
+  if (!created_any) {
+    return;
+  }
+
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_create_info.size = 1;
+  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
+  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+  if (!device_meshing_binding_placeholder_buffer) {
+    device_meshing_binding_placeholder_buffer =
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  }
+
+  ForEachMeshing([&](DsMeshing& m) {
+    m.InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
+    m.BuildRenderComputePipelines();
+    m.BuildRenderingPipelines();
+  });
 }
 
 void DynamicStrands::Init(MeshingType meshing_type) {
@@ -270,21 +326,19 @@ void DynamicStrands::Init(MeshingType meshing_type) {
 
   InitMeshingAlgorithm(meshing_type);
 
-  if (!strands_layout) {
+  // Bindings 0–7: physics. 8–9: Kinetic meshlets. 10–11: Alpha particles/tets.
+  // 12–13: Alpha volume measure. 14–15: Kinetic volume measure.
+  // 16–17: Alpha tet current/initial volumes (heatmap). 18: Kinetic initial segment volumes.
+  // Recreate if an older process-lifetime layout is too small.
+  static uint32_t strands_layout_binding_count = 0;
+  constexpr uint32_t kStrandsLayoutBindingCount = 19;
+  if (!strands_layout || strands_layout_binding_count < kStrandsLayoutBindingCount) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
-    strands_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    for (uint32_t binding = 0; binding < kStrandsLayoutBindingCount; ++binding) {
+      strands_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    }
     strands_layout->Initialize();
+    strands_layout_binding_count = kStrandsLayoutBindingCount;
   }
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -305,9 +359,13 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_connection_handles_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_meshing_binding_placeholder_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
-  meshing->InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
-  meshing->InitGeometryDescriptors();
+  ForEachMeshing([&](DsMeshing& m) {
+    m.InitGeometryDescriptors();
+    m.InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
+  });
 
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =
@@ -328,14 +386,22 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   structural_damage = std::make_shared<DsStructuralDamage>();
   fungus = std::make_shared<DsFungus>();
 
-  meshing->BuildRenderComputePipelines();
-  meshing->BuildRenderingPipelines();
+  ForEachMeshing([](DsMeshing& m) {
+    m.BuildRenderComputePipelines();
+    m.BuildRenderingPipelines();
+  });
   BuildFoliageRenderingPipelines();
   BuildSegmentPairsRenderingPipeline();
 }
 
 void DynamicStrands::UpdateGeometry() const {
-  meshing->UpdateGeometry();
+  RenderCompute(false);
+}
+
+void DynamicStrands::RenderCompute(const bool physics_simulation_active) const {
+  ForEachMeshing([physics_simulation_active](const DsMeshing& m) {
+    m.RenderCompute(physics_simulation_active);
+  });
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
@@ -367,7 +433,37 @@ void DynamicStrands::UpdateBindings() const {
   descriptor_set->UpdateBufferDescriptorBinding(12, device_segment_connection_handles_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(13, device_segment_biology_buffer, 0);
 
-  meshing->UpdateBindings();
+  // Keep unused meshing bindings valid for the extended layout (0–18).
+  if (!kinetic_voronoi_meshing && device_meshing_binding_placeholder_buffer) {
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        8, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        9, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        14, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        15, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        18, device_meshing_binding_placeholder_buffer, 0);
+  }
+  if (!alpha_shape_meshing && device_meshing_binding_placeholder_buffer) {
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        10, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        11, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        12, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        13, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        16, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        17, device_meshing_binding_placeholder_buffer, 0);
+  }
+
+  ForEachMeshing([](const DsMeshing& m) {
+    m.UpdateBindings();
+  });
   for (const auto& c : constraints) {
     c->UpdateBindings();
   }
@@ -399,7 +495,9 @@ void DynamicStrands::Upload() {
   device_segment_connection_handles_buffer->UploadVector(packed_segment_data.connection_handles);
   device_segment_connection_handles_buffer->SetDebugName("Segment Connection Handles Buffer");
 
-  meshing->Upload();
+  ForEachMeshing([](DsMeshing& m) {
+    m.Upload();
+  });
 
   device_hashed_grid_elements_buffer->UploadVector(hashed_grid_elements);
   device_hashed_grid_elements_buffer->SetDebugName("Hashed Grid Elements Buffer");
@@ -437,7 +535,9 @@ void DynamicStrands::Download() {
     UnpackSegmentData(segment_data_list, packed_segment_data);
   }
 
-  meshing->Download();
+  ForEachMeshing([](DsMeshing& m) {
+    m.Download();
+  });
 
   if (!hashed_grid_elements.empty())
     device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
@@ -672,12 +772,17 @@ void DynamicStrands::Clear() {
   segments.clear();
   segment_pairs.clear();
   segment_data_list.clear();
+  foliage.clear();
 
-  meshing->Clear();
+  ForEachMeshing([](DsMeshing& m) {
+    m.Clear();
+  });
 
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
   constraints.clear();
+  simulated_time = 0.f;
+  frame_index = 0;
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,

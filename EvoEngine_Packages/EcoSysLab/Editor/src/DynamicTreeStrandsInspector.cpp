@@ -198,7 +198,12 @@ bool DynamicTreeStrandsInspector::Inspect(InspectorContext& context, DynamicTree
     ImGui::Text(
         (std::string("Segment pair count: ") + std::to_string(target.dynamic_strands->segment_pairs.size())).c_str());
     if (ImGui::TreeNode("Meshing")) {
-      DynamicStrandsMeshingInspector::DrawStats(*target.dynamic_strands->meshing);
+      if (const auto* kinetic = target.dynamic_strands->GetKineticVoronoiMeshing()) {
+        DynamicStrandsMeshingInspector::DrawStats(*kinetic);
+      }
+      if (const auto* alpha = target.dynamic_strands->GetAlphaShapeMeshing()) {
+        DynamicStrandsMeshingInspector::DrawStats(*alpha);
+      }
       ImGui::TreePop();
     }
     ImGui::TreePop();
@@ -259,7 +264,12 @@ bool DynamicTreeStrandsInspector::Inspect(InspectorContext& context, DynamicTree
     EVOENGINE_LOG("Uploaded data from GPU")
   }
 
-  InspectorRegistry::GetInstance().InspectValue(inspector_context, *target.dynamic_strands->meshing);
+  if (auto* kinetic = target.dynamic_strands->GetKineticVoronoiMeshing()) {
+    InspectorRegistry::GetInstance().InspectValue(inspector_context, *kinetic);
+  }
+  if (auto* alpha = target.dynamic_strands->GetAlphaShapeMeshing()) {
+    InspectorRegistry::GetInstance().InspectValue(inspector_context, *alpha);
+  }
 
   return false;
 }

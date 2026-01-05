@@ -4,7 +4,6 @@
 #include "EcoSysLabSettingsEditor.hpp"
 #include "EditorFileDialogs.hpp"
 #include "EditorWidgets.hpp"
-#include "ObjExporter.hpp"
 using namespace eco_sys_lab_package;
 using namespace evo_engine;
 bool DynamicStrandsMeshingInspector::Inspect(InspectorContext& context, DsAlphaShapeMeshing& target) {
@@ -96,7 +95,7 @@ bool DynamicStrandsMeshingInspector::Inspect(InspectorContext& context, DsKineti
       [&](const std::filesystem::path& path) {
         target.dynamic_strands->Download();
         EVOENGINE_LOG("Downloaded data from GPU");
-        ObjExporter::ExportObj(
+        MeshletObjExport::ExportObj(
             path, target.segment_meshlet_vertices, target.segment_meshlet_triangles, target.dynamic_strands->segments,
             DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.uv_height_factor,
             DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.uv_circum_factor,
@@ -107,7 +106,7 @@ bool DynamicStrandsMeshingInspector::Inspect(InspectorContext& context, DsKineti
   EditorFileDialogs::SaveFile(
       "Export OBJ", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
-        ObjExporter::ExportObj(
+        MeshletObjExport::ExportObj(
             path, target.segment_meshlet_vertices, target.segment_meshlet_triangles, target.dynamic_strands->segments,
             DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.uv_height_factor,
             DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.uv_circum_factor,

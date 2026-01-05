@@ -826,6 +826,9 @@ void PostProcessingStack::Resize(PostProcessingCameraResources& resources, const
 }
 
 void PostProcessingStack::OnCreate() {
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    return;
+  }
   ApplyDefaultSettings();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (render_layer && render_layer->GetPostProcessingRendererResources() &&

@@ -6,7 +6,7 @@
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 
-enum class MeshingType { AlphaShape, KineticVoronoi };
+enum class MeshingType { AlphaShape, KineticVoronoi, Both };
 
 enum class BundleSolverMode { Legacy, CoupledXpbd, Hybrid };
 
@@ -30,7 +30,7 @@ struct BundleSolverSettings {
  * \brief Parameters used during the initialization of the dynamic strand model.
  */
 struct DynamicStrandsInitializeParameters {
-  MeshingType meshing_type = MeshingType::AlphaShape;  ///< The type of meshing algorithm to use.
+  MeshingType meshing_type = MeshingType::Both;        ///< The type of meshing algorithm to use.
   float min_segment_length = 0.03f;                    ///< The minimum length of a segment.
   float max_segment_length = 0.06f;                    ///< The maximum length of a segment.
   int uniform_subdivision = 5;                         ///< The number of uniform subdivisions per segment for strands.

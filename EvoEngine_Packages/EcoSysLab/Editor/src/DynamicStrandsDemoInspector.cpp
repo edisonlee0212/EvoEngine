@@ -12,75 +12,11 @@ using namespace evo_engine;
 using namespace eco_sys_lab_package;
 void DynamicStrandsDemoInspector::ResetEnvironment(DynamicStrandsDemo& target,
                                                    const std::shared_ptr<EditorLayer>& editor_layer) {
-  const auto owner = target.GetOwner();
-  const auto scene = target.GetScene();
-  const auto children = scene->GetChildren(owner);
-  if (scene->HasPrivateComponent<DynamicTreeStrands>(owner)) {
-    scene->RemovePrivateComponent<DynamicTreeStrands>(owner);
-  }
-  const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
-
-  target.target_simulation_time = 100.f;
-  target.simulated_time = 0.f;
-  // target_factor0 = 1.f;
-  target.target_factor1 = 1.f;
-  target.physics_parameters = {};
-  target.physics_parameters.time_step = 0.005f;
-  target.physics_parameters.enable_segment_collision = false;
-
-  target.board_experiment_setup_settings.center_damage = 0.f;
-  target.board_experiment_setup_settings.left_pivot_type =
-      static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
-  target.board_experiment_setup_settings.right_pivot_type =
-      static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
-  target.log_experiment_setup_settings.left_pivot_type =
-      static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
-  target.log_experiment_setup_settings.right_pivot_type =
-      static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
-  target.log_experiment_setup_settings.lock_upper = false;
-  target.log_experiment_setup_settings.t_cut = false;
-  target.log_experiment_setup_settings.t_cut_width = 0.7f;
-  target.board_experiment_setup_settings.rod_dimension = {20, 40, 20};
-
-  dts->initialize_parameters.strength_graph.SetShearStretchStrength({500.f, 250.f});
-  dts->initialize_parameters.strength_graph.SetBendingStrength({500.f, 250.f});
-  dts->initialize_parameters.strength_graph.SetTwistingStrength({500.f, 250.f});
-  dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 250.f});
-  dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 125.f});
-
-  dts->initialize_parameters.max_segment_length = 0.06f;
-  dts->initialize_parameters.min_segment_length = 0.03f;
-  dts->initialize_parameters.damage_scale_factor = glm::vec3(0.01f);
-  dts->initialize_parameters.damage_graph.Reset();
-  dts->enable_physics = false;
-  target.object_initial_pose = {};
-  target.tree_initial_pose = {};
-  target.tree_initial_pose.SetPosition(glm::vec3(0, -0.05, 0));
-  camera_pose = {};
-  camera_pose.SetPosition(glm::vec3(0, 1, 4.5));
-  camera_pose.SetEulerRotation(glm::radians(glm::vec3(0, 0, 0)));
-  editor_layer->GetSceneCamera()->camera_settings.fov = 120;
-  for (const auto& child : children) {
-    scene->DeleteEntity(child);
-  }
-  const auto temp_entity = target.temp_entity1_ref.Get();
-  if (scene->IsEntityValid(temp_entity)) {
-    scene->DeleteEntity(temp_entity);
-  }
-  const auto tree_entity = target.tree_entity_ref.Get();
-  if (scene->IsEntityValid(tree_entity)) {
-    scene->DeleteEntity(tree_entity);
-  }
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  eco_sys_lab_layer->ResetAllTrees(tree_entities);
-  target.physics_parameters.enable_structural_damage = true;
-  target.physics_parameters.enable_segment_compression_disconnection = true;
-  target.physics_parameters.segment_velocity_damping = 1.f;
-  target.physics_parameters.segment_angular_velocity_damping = 1.f;
+  target.ResetEnvironment();
 }
 bool DynamicStrandsDemoInspector::Inspect(InspectorContext& context, DynamicStrandsDemo& target) {
   const auto& editor_layer = context.editor_layer;
+  target.DrawVolumetricMeshingUi();
   auto& inspector_context = context;
   if (ImGui::TreeNode("Physics Parameters")) {
     InspectSettings(target.physics_parameters, editor_layer);

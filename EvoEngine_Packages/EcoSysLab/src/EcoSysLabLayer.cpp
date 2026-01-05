@@ -176,6 +176,42 @@ float EcoSysLabLayer::GetSimulatedTime() const {
   return simulated_time_;
 }
 
+void EcoSysLabLayer::StartAutoGrow(const float years) {
+  if (years <= 0.f) {
+    return;
+  }
+  auto_iteration_grow_remaining_ = 0;
+  auto_time_grow_ = true;
+  auto_grow_target_time_ = simulated_time_ + years * 365.f;
+  EVOENGINE_LOG("Tree auto-grow started: +" << years << " years (target age " << (auto_grow_target_time_ / 365.f)
+                                            << " years).");
+}
+
+void EcoSysLabLayer::StartAutoGrowIterations(const int iterations) {
+  if (iterations <= 0) {
+    return;
+  }
+  auto_time_grow_ = false;
+  auto_grow_target_time_ = simulated_time_;
+  auto_iteration_grow_remaining_ = iterations;
+  EVOENGINE_LOG("Tree auto-grow started: +" << iterations << " iterations.");
+}
+
+void EcoSysLabLayer::StopAutoGrow() {
+  auto_time_grow_ = false;
+  auto_grow_target_time_ = simulated_time_;
+  auto_iteration_grow_remaining_ = 0;
+  on_auto_grow_finished_ = {};
+}
+
+bool EcoSysLabLayer::IsAutoGrowing() const {
+  return auto_time_grow_ || auto_iteration_grow_remaining_ > 0;
+}
+
+void EcoSysLabLayer::SetOnAutoGrowFinished(std::function<void()> callback) {
+  on_auto_grow_finished_ = std::move(callback);
+}
+
 void EcoSysLabLayer::UpdateDemoTreeGrowth() {
   if (demo_tree_growth_finished_ || !ProjectManager::IsProjectIdle()) {
     return;
@@ -223,12 +259,39 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
 }
 
 void EcoSysLabLayer::Update() {
-  if (const auto scene = GetScene(); !scene)
+  const auto scene = GetScene();
+  if (!scene)
     return;
   UpdateDemoTreeGrowth();
   RegisterStrandRenderingProcedure();
   DynamicSkeletonPhysics();
   DynamicStrandSimulation();
+
+  const bool growing = auto_time_grow_ || auto_iteration_grow_remaining_ > 0;
+  if (!growing) {
+    return;
+  }
+  Simulate();
+  if (auto_iteration_grow_remaining_ > 0) {
+    --auto_iteration_grow_remaining_;
+  }
+  const bool years_done = auto_time_grow_ && auto_grow_target_time_ <= simulated_time_;
+  const bool iterations_done = !auto_time_grow_ && auto_iteration_grow_remaining_ == 0;
+  if (!years_done && !iterations_done) {
+    return;
+  }
+  auto_time_grow_ = false;
+  auto_iteration_grow_remaining_ = 0;
+  if (years_done) {
+    EVOENGINE_LOG("Tree auto-grow finished at age " << (simulated_time_ / 365.f) << " years.");
+  } else {
+    EVOENGINE_LOG("Tree auto-grow finished after requested iterations (age " << (simulated_time_ / 365.f) << " years).");
+  }
+  if (on_auto_grow_finished_) {
+    auto finished = std::move(on_auto_grow_finished_);
+    on_auto_grow_finished_ = {};
+    finished();
+  }
 }
 
 void EcoSysLabLayer::OnCreate() {

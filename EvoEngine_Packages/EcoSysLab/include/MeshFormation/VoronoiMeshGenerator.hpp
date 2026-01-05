@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DynamicStrands.hpp"
-#include "MeshIntersection.hpp"
 #include "StrandModel.hpp"
 #include "StrandModelData.hpp"
 #include "StrandModelMeshGenerator.hpp"

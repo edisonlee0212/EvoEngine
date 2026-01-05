@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include "Climate.hpp"
 #include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
@@ -33,6 +34,11 @@ class EcoSysLabLayer : public ILayer {
   void GenerateStrandModelProfiles() const;
   void GenerateStrandRenderers() const;
   [[nodiscard]] float GetSimulatedTime() const;
+  void StartAutoGrow(float years);
+  void StartAutoGrowIterations(int iterations);
+  void StopAutoGrow();
+  [[nodiscard]] bool IsAutoGrowing() const;
+  void SetOnAutoGrowFinished(std::function<void()> callback);
   [[nodiscard]] bool IsDynamicStrandsPhysicsRunning() const;
   [[nodiscard]] bool IsDynamicStrandsFungusRunning() const;
   [[nodiscard]] int GetDynamicStrandsFungusStepsPerFrame() const;
@@ -100,6 +106,10 @@ class EcoSysLabLayer : public ILayer {
   std::vector<Fruit> fruits_;
   std::vector<Leaf> leaves_;
   float simulated_time_ = 0.0f;
+  bool auto_time_grow_ = false;
+  float auto_grow_target_time_ = 0.0f;
+  int auto_iteration_grow_remaining_ = 0;
+  std::function<void()> on_auto_grow_finished_;
   uint64_t simulation_revision_ = 0;
   uint64_t reset_revision_ = 0;
   bool demo_growth_enabled_ = true;

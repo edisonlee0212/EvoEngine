@@ -206,6 +206,34 @@ register_evoengine_app(EcoSysLabApp OFF)
 register_evoengine_app(DigitalAgricultureApp OFF)
 register_evoengine_app(LSystemApp OFF)
 
+# Minimal kinDS-only meshing worker (no EvoEngine / Vulkan / shaders).
+if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
+	option(EvoEngine_App-KineticMeshPrecomputeApp "Build KineticMeshPrecomputeApp" ON)
+	if(EvoEngine_App-KineticMeshPrecomputeApp)
+		if (WIN32)
+			add_executable(KineticMeshPrecomputeApp
+				KineticMeshPrecomputeApp.cpp
+				KineticMeshPrecomputeApp.rc
+				)
+		else()
+			add_executable(KineticMeshPrecomputeApp
+				KineticMeshPrecomputeApp.cpp
+				)
+		endif()
+		target_compile_features(KineticMeshPrecomputeApp PRIVATE cxx_std_20)
+		target_link_libraries(KineticMeshPrecomputeApp PRIVATE kinDS)
+		if (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+			target_compile_options(KineticMeshPrecomputeApp PRIVATE /EHsc /W2 /c)
+		endif()
+		set_property(TARGET KineticMeshPrecomputeApp PROPERTY FOLDER Executables)
+		message("Enabled [KineticMeshPrecomputeApp] application (kinDS-only).")
+	endif()
+endif()
+
+
+
+
+# Setup an empty application for quicker compilation for testing SDK
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 	install(FILES ${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini

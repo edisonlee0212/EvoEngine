@@ -26,6 +26,10 @@ using namespace eco_sys_lab_package;
 void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   simulated_time_ = 0;
+  auto_time_grow_ = false;
+  auto_grow_target_time_ = 0.0f;
+  auto_iteration_grow_remaining_ = 0;
+  on_auto_grow_finished_ = {};
   ++reset_revision_;
   if (tree_entities) {
     for (const auto& i : *tree_entities) {

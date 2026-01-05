@@ -58,6 +58,7 @@ struct BranchesRenderPushConstant {
   int snow_material_index = 0;
   float global_extrusion_distance = 0.0f;
   float break_threshold = 0.01f;
+  float texture_diameter = 0.9f;
   int use_polar_coordinates_for_uv = 1;
   int bark_material_index = 0;
   int render_material_index = 0;
@@ -327,6 +328,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
   render_push_constant.snow_material_index = snow_material_index;
   render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   render_push_constant.break_threshold = render_parameters.break_threshold;
+  render_push_constant.texture_diameter = render_parameters.texture_diameter;
   render_push_constant.use_polar_coordinates_for_uv = render_parameters.use_polar_coordinates_for_uv ? 1 : 0;
   render_push_constant.bark_material_index = bark_material_index;
   render_push_constant.render_material_index = render_material_index;

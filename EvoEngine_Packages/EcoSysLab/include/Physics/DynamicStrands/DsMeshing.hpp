@@ -33,7 +33,9 @@ class DsMeshing {
   virtual void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) = 0;
 
   virtual void BuildRenderComputePipelines() = 0;
-  virtual void UpdateGeometry() const = 0;
+  virtual void UpdateGeometry() const { RenderCompute(false); }
+  /// @param physics_simulation_active True when a physics step ran this frame for the owning strands.
+  virtual void RenderCompute(bool physics_simulation_active) const = 0;
   virtual void BuildRenderingPipelines() = 0;
 
   virtual void Download() = 0;

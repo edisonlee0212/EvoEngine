@@ -28,7 +28,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     Particle segment_particle0 = segment_particle0s[segment_index];
     Particle segment_particle1 = segment_particle1s[segment_index];
     if (segment.inv_mass == 0.0f)
-      return;
+      continue;
 
     segment_particle0s[segment_index].x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment_particle0.x.y);
     segment_particle1s[segment_index].x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment_particle1.x.y);

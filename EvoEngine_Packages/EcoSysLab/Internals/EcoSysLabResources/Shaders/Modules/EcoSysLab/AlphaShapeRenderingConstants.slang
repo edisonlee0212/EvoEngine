@@ -17,6 +17,7 @@
   public int snow_material_index;
   public float global_extrusion_distance;
   public float break_threshold;
+  public float texture_diameter;
 
   public int use_polar_coordinates_for_uv;
   public int bark_material_index;

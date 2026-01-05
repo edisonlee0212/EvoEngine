@@ -71,3 +71,5 @@ endif()
 if(EVOENGINE_WITH_EDITOR)
   add_subdirectory(Editor)
 endif()
+
+target_link_libraries(EcoSysLabPackage PRIVATE kinDS)

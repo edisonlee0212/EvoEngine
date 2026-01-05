@@ -92,7 +92,10 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
     const RecordedGpuProfilerScope gpu_scope(profiler_items.geometry_update);
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
-        dts->dynamic_strands->UpdateGeometry();
+        const auto app_status = ApplicationContext::Get().GetApplicationStatus();
+        const bool physics_simulation_active = app_status == Application::ExecutionStatus::Playing ||
+                                               app_status == Application::ExecutionStatus::Step;
+        dts->dynamic_strands->RenderCompute(physics_simulation_active);
       }
     });
     ConsumePendingDynamicStrandsStep(dynamic_strands_settings_.remaining_geometry_step);
@@ -147,7 +150,9 @@ void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
           auto scene = dts->GetScene();
           auto owner = dts->GetOwner();
 
-          dts->dynamic_strands->meshing->RegisterRenderInstances(handle, scene, owner);
+          dts->dynamic_strands->ForEachMeshing([&](DsMeshing& meshing) {
+            meshing.RegisterRenderInstances(handle, scene, owner);
+          });
 
           dts->RegisterFoliageRenderInstance(dynamic_strands_settings_.foliage_render_parameters);
 

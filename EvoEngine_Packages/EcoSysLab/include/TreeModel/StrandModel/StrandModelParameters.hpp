@@ -45,7 +45,7 @@ struct StrandModelParameters {
   /**
    * @brief Number of strands assigned to end nodes.
    */
-  int end_node_strands = 1;
+  int end_node_strands = 4;
 
   /**
    * @brief Number of strands along branches.

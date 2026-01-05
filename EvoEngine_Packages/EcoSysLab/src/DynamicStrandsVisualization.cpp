@@ -339,5 +339,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     }
   });
 
-  meshing->Visualize(target_camera, initialize_parameters, visualization_parameters);
+  ForEachMeshing([&](DsMeshing& m) {
+    m.Visualize(target_camera, initialize_parameters, visualization_parameters);
+  });
 }

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "GeometryStorage.hpp"
+#include <cmath>
+#include <functional>
+#include <vector>
 #include "Vertex.hpp"
 
 namespace eco_sys_lab_package {
@@ -360,6 +363,21 @@ class StrandGroup {
                                           StrandSegmentHandle src_handle, uint32_t segment_index, float segment_t,
                                           OSsd& tgt_data, uint32_t sub_segment_index)>& segment_data_action,
                  float tolerance) const;
+
+  /**
+   * \brief Rebuild physics segments from StrandTree subdivision parameters
+   *        (@c uniform_subdivision * (end_t + original_segment_index)).
+   *        Each parameter is a cut (end of a segment / start of the next); a final tip
+   *        segment is always appended, so @c N parameters yield @c N+1 physics segments.
+   */
+  template <typename OSgd, typename OSd, typename OSsd>
+  void SubdivideAtSubdivisionParameters(
+      StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::vector<std::vector<double>>& subdivisions_by_strand,
+      float uniform_subdivision, const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
+      const std::function<void(float start_root_distance, float end_root_distance, StrandSegmentHandle src_handle,
+                               uint32_t segment_index, float segment_t, OSsd& tgt_data, uint32_t sub_segment_index)>&
+          segment_data_action,
+      float tolerance) const;
 
   void RandomAssignColor();
   void Clear();
@@ -1114,6 +1132,140 @@ void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Subdivide(
       new_strand_segment.end_color = segment.end_color;
       segment_data_action(previous_root_distance, GetStrandArcLength(strand_handle), segment_handle,
                           strand.strand_segment_handles_.size() - 1, 1.0f,
+                          target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
+    }
+  }
+  target_strand_group.CalculateRotations();
+}
+
+template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
+template <typename OSgd, typename OSd, typename OSsd>
+void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::SubdivideAtSubdivisionParameters(
+    StrandGroup<OSgd, OSd, OSsd>& target_strand_group, const std::vector<std::vector<double>>& subdivisions_by_strand,
+    const float uniform_subdivision,
+    const std::function<void(StrandHandle src_handle, OSd& tgt_data)>& strand_data_action,
+    const std::function<void(float start_root_distance, float end_root_distance, StrandSegmentHandle src_handle,
+                             uint32_t segment_index, float segment_t, OSsd& tgt_data, uint32_t sub_segment_index)>&
+        segment_data_action,
+    float tolerance) const {
+  target_strand_group.Clear();
+  const float U = std::max(1.f, uniform_subdivision);
+  for (int strand_handle = 0; strand_handle < static_cast<int>(strands_.size()); strand_handle++) {
+    const auto& strand = strands_[strand_handle];
+    const auto new_strand_handle = target_strand_group.AllocateStrand();
+    auto& new_strand = target_strand_group.RefStrand(new_strand_handle);
+    new_strand.start_color = strand.start_color;
+    new_strand.start_thickness = strand.start_thickness;
+    new_strand.start_position = strand.start_position;
+    strand_data_action(strand_handle, target_strand_group.RefStrandData(new_strand_handle));
+
+    const std::vector<double>* subdivs = nullptr;
+    if (strand_handle < static_cast<int>(subdivisions_by_strand.size())) {
+      subdivs = &subdivisions_by_strand[static_cast<size_t>(strand_handle)];
+    }
+    if (!subdivs || subdivs->empty() || strand.strand_segment_handles_.empty()) {
+      continue;
+    }
+
+    struct Cut {
+      uint32_t original_segment_index = 0;
+      float t = 0.f;
+    };
+    std::vector<Cut> cuts;
+    cuts.reserve(subdivs->size());
+    const uint32_t orig_count = static_cast<uint32_t>(strand.strand_segment_handles_.size());
+    for (const double s : *subdivs) {
+      const double param = s / static_cast<double>(U);
+      Cut cut{};
+      if (param >= static_cast<double>(orig_count)) {
+        cut.original_segment_index = orig_count - 1;
+        cut.t = 1.f;
+      } else if (param <= 0.0) {
+        cut.original_segment_index = 0;
+        cut.t = static_cast<float>(std::max(param, 1e-6));
+      } else {
+        cut.original_segment_index = static_cast<uint32_t>(std::floor(param));
+        cut.t = static_cast<float>(param - static_cast<double>(cut.original_segment_index));
+        if (cut.t <= 1e-7f) {
+          if (cut.original_segment_index == 0) {
+            cut.t = 1e-6f;
+          } else {
+            cut.original_segment_index -= 1;
+            cut.t = 1.f;
+          }
+        } else if (cut.t >= 1.f - 1e-7f) {
+          cut.t = 1.f;
+        }
+      }
+      cuts.push_back(cut);
+    }
+
+    // Prefix arc lengths at the start of each original segment.
+    std::vector<float> orig_start_root(orig_count, 0.f);
+    float running = 0.f;
+    for (uint32_t i = 0; i < orig_count; ++i) {
+      orig_start_root[i] = running;
+      glm::vec3 p0, p1, p2, p3;
+      GetPositionControlPoints(strand.strand_segment_handles_[i], p0, p1, p2, p3);
+      running += Strands::CalculateLengthAdaptive(p0, p1, p2, p3, 0.f, 1.f, tolerance);
+    }
+    const float strand_arc = GetStrandArcLength(strand_handle, tolerance);
+
+    float previous_root_distance = 0.f;
+    uint32_t sub_segment_index = 0;
+    for (const Cut& cut : cuts) {
+      const auto segment_handle = strand.strand_segment_handles_[cut.original_segment_index];
+      glm::vec3 p0, p1, p2, p3;
+      float t0, t1, t2, t3;
+      glm::vec4 c0, c1, c2, c3;
+      GetPositionControlPoints(segment_handle, p0, p1, p2, p3);
+      GetThicknessControlPoints(segment_handle, t0, t1, t2, t3);
+      GetColorControlPoints(segment_handle, c0, c1, c2, c3);
+
+      const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+      auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
+      new_strand_segment.end_t = cut.t;
+      new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, cut.t);
+      new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, cut.t);
+      new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, cut.t);
+
+      const float end_root_distance = orig_start_root[cut.original_segment_index] +
+                                      Strands::CalculateLengthAdaptive(p0, p1, p2, p3, 0.f, cut.t, tolerance);
+      segment_data_action(previous_root_distance, end_root_distance, segment_handle, cut.original_segment_index, cut.t,
+                          target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
+      previous_root_distance = end_root_distance;
+      sub_segment_index++;
+    }
+
+    // Tip segment: last subdivision is the start of the final rod (end of the previous cut).
+    // Matches StrandTree layout: N subdivision parameters ↔ N+1 physics segments.
+    {
+      const auto tip_orig_index = orig_count - 1;
+      const auto segment_handle = strand.strand_segment_handles_[tip_orig_index];
+      const auto& src_segment = strand_segments_[segment_handle];
+      glm::vec3 p0, p1, p2, p3;
+      float t0, t1, t2, t3;
+      glm::vec4 c0, c1, c2, c3;
+      GetPositionControlPoints(segment_handle, p0, p1, p2, p3);
+      GetThicknessControlPoints(segment_handle, t0, t1, t2, t3);
+      GetColorControlPoints(segment_handle, c0, c1, c2, c3);
+
+      const float tip_t = 1.f;
+      const auto new_strand_segment_handle = target_strand_group.Extend(new_strand_handle);
+      auto& new_strand_segment = target_strand_group.RefStrandSegment(new_strand_segment_handle);
+      // Prefer the source strand tip attributes (same as StrandGroup::Subdivide tip path).
+      new_strand_segment.end_t = src_segment.end_t;
+      new_strand_segment.end_position = src_segment.end_position;
+      new_strand_segment.end_thickness = src_segment.end_thickness;
+      new_strand_segment.end_color = src_segment.end_color;
+      if (std::isnan(new_strand_segment.end_t)) {
+        new_strand_segment.end_t = tip_t;
+        new_strand_segment.end_position = Strands::CubicInterpolation(p0, p1, p2, p3, tip_t);
+        new_strand_segment.end_thickness = Strands::CubicInterpolation(t0, t1, t2, t3, tip_t);
+        new_strand_segment.end_color = Strands::CubicInterpolation(c0, c1, c2, c3, tip_t);
+      }
+
+      segment_data_action(previous_root_distance, strand_arc, segment_handle, tip_orig_index, tip_t,
                           target_strand_group.RefStrandSegmentData(new_strand_segment_handle), sub_segment_index);
     }
   }
