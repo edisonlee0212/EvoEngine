@@ -64,7 +64,8 @@ void main() {
 		Segment segment = segments[segment_index];
                 if (segment.boundary_distance > ring_radius || segment.unlink_constraint == 1)  
                         continue;
-                if (segment.HC < HC_threshold || segment.HL < HL_threshold)  // Todo: Automatically align with fungus threshold
+                if (segment.HC < HC_threshold || segment.HL < HL_threshold)
+                //if (segment.HC < 0.1 + max(0.3 - segment.boundary_distance, 0.0))
                   segment.unlink_constraint = 1;
 		segment.q = segment.last_q = segment_update.new_rotation;
 		segment.torque = vec3(0, 0, 0);

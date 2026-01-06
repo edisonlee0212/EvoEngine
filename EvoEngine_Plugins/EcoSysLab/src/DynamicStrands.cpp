@@ -212,13 +212,28 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       internal_pattern = 1;
       changed = true;
     }
-    if (ImGui::Button("Oak Trunk crack")) {
+    if (ImGui::Button("Oak Trunk Crack Process")) {
       bundle_strength_factor = 1.0f;
       crack_bd_shrinkage_offset = 0.0f;
       crack_R_scale = 0.0f;
       crack_T_scale = 1.0f;
       boundary_strength_decay_factor = 6.0f;
       internal_pattern = 1;
+      changed = true;
+    }
+    if (ImGui::Button("Oak Trunk Full Process")) {
+      bundle_strength_factor = 1.0f;
+      crack_bd_shrinkage_offset = 0.0f;
+      crack_R_scale = 0.0f;
+      crack_T_scale = 1.0f;
+      boundary_strength_decay_factor = 6.0f;
+      internal_pattern = 1;
+      bd_offset = 0.06f;
+      HL_threshold = 0.1f;
+      matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f);
+      // time_step = 0.005f;
+      bb = 0.5f;
+      be = 0.5f;  // ZY: Test it!
       changed = true;
     }
     if (ImGui::Button("Elm")) {
@@ -434,6 +449,12 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     if (ImGui::DragFloat("Crack T Scale", &crack_T_scale, 0.01f, 0.0f, 2.0f)) {
       changed = true;
     }
+    bool internal_pattern_bool = (internal_pattern != 0);
+    if (ImGui::Checkbox("Simulate internal cracking?", &internal_pattern_bool)) {
+      internal_pattern = internal_pattern_bool ? 1u : 0u;
+      changed = true;
+    }
+
     ImGui::TreePop();
   }
 

@@ -182,7 +182,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
     std::vector<Region> regions;
-    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/800, 0.1f, 1.8f, 10,
+    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
                                      /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
                                      3000.f);  // ZY: 800 for pull operator test
 
@@ -198,7 +198,10 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
       //                            segment.particle0.x[1] * 0.5 + 0.1f};
       std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
-                                 segment.particle0.root_distance * 0.5f + 0.1f};
+                                 segment.particle0.root_distance * 0.5f + 0.1f};  // for general
+      // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1]
+      // * 2.0f,
+      //                            segment.particle0.root_distance * 0.3f + 0.1f}; //ZY: for oak trunk ONLY
       int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, false);  // ZY:false for pull operator test
       segment.color = region_colors[id];
     });
@@ -844,13 +847,44 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     segment.particle1.v = settings.initial_velocity;
     segment.angular_v = settings.initial_angular_velocity;
   });
-
+  if (settings.competition_setting) {
+    Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+      auto& segment = dynamic_strands->segments[i];
+      segment.C = 0.0f;
+      segment.C_pre = 0.0f;
+      if (segment.boundary_distance < 0.01f && segment.profile_polar_coordinate.y > 0.7f &&
+          segment.profile_polar_coordinate.y < 0.75f) {
+        if (segment.particle0.x0[0] < 0.005f) {
+          segment.RB = 1.0f;
+          segment.RB_pre = 1.0f;
+        }
+        if (segment.particle1.x0[0] > 0.5f - 0.004f) {
+          segment.RW = 1.0f;
+          segment.RW_pre = 1.0f;
+        }
+      }
+    });
+  }
   if (settings.fungus_test) {
-    auto& segment = dynamic_strands->segments[0];
-    segment.RW = 1.0f;
-    segment.RB = 1.0f;
-    segment.RW_pre = 1.0f;
-    segment.RB_pre = 1.0f;
+    if (settings.competition_setting == false) {
+      auto& segment = dynamic_strands->segments[0];
+      segment.RW = 1.0f;
+      segment.RB = 1.0f;
+      segment.RW_pre = 1.0f;
+      segment.RB_pre = 1.0f;
+      /*Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        segment.C = 0.0f;
+        segment.C_pre = 0.0f;
+        if (segment.boundary_distance < 0.02f && segment.profile_polar_coordinate.y > -0.75f &&
+            segment.profile_polar_coordinate.y < -0.7f) {
+          if (segment.particle0.x0[0] < 0.005f) {
+            segment.RB = 1.0f;
+            segment.RB_pre = 1.0f;
+          }
+        }
+      });*/
+    }
     if (false) {
       // Uniformly subdivided strand groups
       Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {

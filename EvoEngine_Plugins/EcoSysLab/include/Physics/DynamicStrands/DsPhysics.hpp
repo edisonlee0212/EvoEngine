@@ -50,7 +50,7 @@ class DsFungus {
     float ylw = 2.0f;
     float pc = 0.2f;
     float pl = 0.1f;
-    float k = 0.2f;
+    float k = 5.0f;
     float delta = 0.05f;
     float ll = 0.5f;
     float lc = 0.5f;
@@ -60,6 +60,8 @@ class DsFungus {
     float brb = 0.5f;
     float msr = 0.15f;
     float bd_offset = 0.02f;
+    float cpb = 1.0f;
+    float cpw = 1.0f;
   };
 
   inline static std::shared_ptr<ComputePipeline>

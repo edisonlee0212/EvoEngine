@@ -221,7 +221,7 @@ struct Leaf {
 
   float extra_mass;
   float property1;
-  float property2;
+  float health;
   float property3;
 
   int selected;
