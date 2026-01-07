@@ -802,7 +802,8 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     leaf.original_mass = 0.0001f;
     leaf.extra_mass = 0.0f;
     leaf.inv_mass = 1.f / leaf.original_mass;  // 0.1g
-    leaf.property1 = leaf.property2 = leaf.property3 = 0.f;
+    leaf.property1 = leaf.property3 = 0.f;
+    leaf.health = 1.f;
     leaf.inertia_tensor = ComputeInertiaTensorBox(1.f, leaf.scale.x, leaf.scale.y, leaf.scale.z);
     leaf.inv_inertia_tensor = 1.f / leaf.inertia_tensor;
 

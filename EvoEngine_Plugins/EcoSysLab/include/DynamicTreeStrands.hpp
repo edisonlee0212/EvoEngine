@@ -182,6 +182,7 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool fungus_test = false;
     bool cube_pattern = false;
     bool internal_pattern = false;
+    bool competition_setting = false;
     float t_cut_width = 0.7f;  ///< Width of the T-cut.
 
     /**

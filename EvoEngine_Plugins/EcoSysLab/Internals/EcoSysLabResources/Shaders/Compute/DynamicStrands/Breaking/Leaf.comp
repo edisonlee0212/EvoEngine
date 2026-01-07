@@ -44,6 +44,7 @@ void main() {
                 if (leaf_break_from_moisture == 1) {
                   multiplier = clamp(
                       max(-r + segment.moisture_pre - leaf_break_threshold, 0.0) / (1.0 - leaf_break_threshold), 0.0f, 1.0f);
+                  leaf.health = multiplier;
                 }
 
 

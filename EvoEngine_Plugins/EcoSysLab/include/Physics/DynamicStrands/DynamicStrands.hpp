@@ -163,7 +163,7 @@ class DynamicStrands {
     float ylw = 2.0f;     // lignin tissue damage (w)
     float pc = 0.2f;      // carbon regeneration
     float pl = 0.1f;      // lignin regeneration
-    float k = 0.2f;       // defense rate
+    float k = 5.0f;       // defense rate
     float delta = 0.05f;  // defense decay rate
     float ll = 0.5f;      // lignin weight for w
     float lc = 0.5f;      // carbon weight for w
@@ -173,6 +173,8 @@ class DynamicStrands {
     float brw = 0.5f;     // Base growth rate for white rot regardless of moisture
     float brb = 0.5f;     // Base growth rate for brown rot regardless of moisture
     float msr = 0.15f;    // Moisture spread rate
+    float cpb = 1.0f;     // Chemical protection for brown rot
+    float cpw = 1.0f;     // Chemical protection for white rot
     float lignin_threshold = -1.0f;
     float rod_strength_factor = 1.0f;
     float bundle_strength_factor = 1.0f;
@@ -436,7 +438,7 @@ class DynamicStrands {
 
     float extra_mass = 0.f;
     float property1 = 0.f;
-    float property2 = 0.f;
+    float health = 1.f;
     float property3 = 0.f;
 
     int selected = 0;

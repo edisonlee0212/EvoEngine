@@ -88,6 +88,8 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   node_push_constant.brb = physics_parameters.brb;
   node_push_constant.msr = physics_parameters.msr;
   node_push_constant.bd_offset = physics_parameters.bd_offset;
+  node_push_constant.cpb = physics_parameters.cpb;
+  node_push_constant.cpw = physics_parameters.cpw;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     // Process node diffusion first
