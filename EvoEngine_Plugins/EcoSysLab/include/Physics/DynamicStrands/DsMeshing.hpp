@@ -37,6 +37,8 @@ class DsMeshing {
 
   virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) = 0;
 
+  virtual void Stats(const std::shared_ptr<EditorLayer>& editor_layer);
+
   virtual void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
                                        Entity& owner) = 0;
 

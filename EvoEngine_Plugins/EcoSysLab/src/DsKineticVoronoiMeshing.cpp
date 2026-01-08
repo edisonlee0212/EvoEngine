@@ -5,6 +5,7 @@
 #include <queue>
 #include <utility>
 #include <vector>
+#include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
 #include "DynamicStrands.hpp"
 #include "KineticDelaunay.hpp"
@@ -132,7 +133,7 @@ glm::mat4 ComputeAffineFromCoplanarPoints(const glm::vec3& p0, const glm::vec3& 
   // Translation: t = q0 - A * p0
   glm::vec3 t = q0 - A * p0;
 
-  // Assemble full 4×4 affine transform
+  // Assemble full 4x4 affine transform
   glm::mat4 T(1.0f);
   T[0][0] = A[0][0];
   T[1][0] = A[1][0];
@@ -158,7 +159,7 @@ std::optional<std::array<size_t, 3>> FindNonCollinearTriple(std::function<glm::v
   size_t i0 = 0;
   size_t i1 = -1;
   size_t i2 = -1;
-  // Step 2: choose p1—must be distinct from p0
+  // Step 2: choose p1 - must be distinct from p0
 
   for (int j = 1; j < size; ++j) {
     if (glm::length(get_point(j) - get_point(i0)) > eps) {
@@ -908,10 +909,52 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
 }
 
 bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  // just output the size of the meshlets for now
+  FileUtils::SaveFile(
+      "Download and export PLY", "PLY", {".ply"},
+      [&](const std::filesystem::path& path) {
+        dynamic_strands->Download();
+        EVOENGINE_LOG("Downloaded data from GPU");
+        PlyExporter::ExportAscii(path, segment_meshlet_vertices, segment_meshlet_triangles,
+                                 render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                 render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+      },
+      false);
+  ImGui::SameLine();
+  FileUtils::SaveFile(
+      "Export PLY", "PLY", {".ply"},
+      [&](const std::filesystem::path& path) {
+        PlyExporter::ExportAscii(path, segment_meshlet_vertices, segment_meshlet_triangles,
+                                 render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                 render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+      },
+      false);
+
+  FileUtils::SaveFile(
+      "Download and export OBJ", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        dynamic_strands->Download();
+        EVOENGINE_LOG("Downloaded data from GPU");
+        ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
+                               render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                               render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+      },
+      false);
+  ImGui::SameLine();
+  FileUtils::SaveFile(
+      "Export OBJ", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
+                               render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                               render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+      },
+      false);
+
+  return false;
+}
+
+void DsKineticVoronoiMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Text((std::string("Segment Meshlets Vertices: ") + std::to_string(segment_meshlet_vertices.size())).c_str());
   ImGui::Text((std::string("Segment Meshlets Triangles: ") + std::to_string(segment_meshlet_triangles.size())).c_str());
-  return false;
 }
 
 void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
