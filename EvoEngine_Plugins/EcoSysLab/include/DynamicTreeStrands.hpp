@@ -37,6 +37,7 @@ class DynamicTreeStrands : public IPrivateComponent {
   bool initialized_from_tree = false;
   bool limit_strand_length = false;  ///< Flag to limit strand length.
   float max_strand_length = 1.f;     ///< Maximum allowable strand length.
+  float mass = 0.f;
   DsMaterials materials;
 
   std::shared_ptr<DynamicStrands> dynamic_strands{};  ///< Shared pointer to DynamicStrands instance.
@@ -246,6 +247,9 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @param render_parameters Parameters for segment pair rendering.
    */
   void RegisterSegmentPairRenderInstance(const SegmentPairsRenderParameters& render_parameters);
+
+  float ComputeTotalMass(const DynamicStrands::PhysicsParameters& physics_parameters,
+                        const DynamicStrands& dynamic_strands);
 
   struct Region {
     float r_min, r_max;

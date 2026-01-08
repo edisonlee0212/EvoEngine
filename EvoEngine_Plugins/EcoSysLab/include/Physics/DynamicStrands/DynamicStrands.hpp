@@ -484,6 +484,8 @@ class DynamicStrands {
 
   void Upload();
   void Download();
+  void DownloadSegments();
+  float ComputeTotalMass();
 
   void CalculateGroups(const PhysicsParameters& physics_parameters) const;
   void Clear();

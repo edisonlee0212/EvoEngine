@@ -260,6 +260,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dynamic_strands->meshing->Stats(editor_layer);
       ImGui::TreePop();
     }
+    if (ImGui::Button("Reset Stat")) {
+      dynamic_strands->DownloadSegments();
+      mass = dynamic_strands->ComputeTotalMass();
+    }
+    ImGui::Text("Stat: %.3f", mass);
     ImGui::TreePop();
   }
 
@@ -1801,4 +1806,19 @@ int DynamicTreeStrands::classify_point_jitter_axis(const std::array<float, 3>& p
     n = (vj < coord_n) ? n->left : n->right;
   }
   return n->leaf_id;
+}
+
+float DynamicTreeStrands::ComputeTotalMass(const DynamicStrands::PhysicsParameters& physics_parameters,
+                                           const DynamicStrands& ds) {
+  float total_mass = 0.0f;
+  float HL = physics_parameters.HL_threshold;
+  float HC = physics_parameters.HC_threshold;
+
+  for (const auto& segment : ds.segments) {
+    float L = glm::clamp((segment.HL_pre - HL) / (1.f - HL), 0.0f, 1.f);
+    float C = glm::clamp((segment.HC_pre - HC) / (1.f - HC), 0.0f, 1.f);
+    float segment_mass = std::max(L, C) * glm::length(segment.particle0.x - segment.particle1.x);
+    total_mass += segment_mass;
+  }
+  return total_mass;
 }

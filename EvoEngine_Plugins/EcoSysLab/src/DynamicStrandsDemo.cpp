@@ -76,7 +76,10 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
   }
-
+  bool changed = false;
+  const auto owner = GetOwner();
+  const auto scene = GetScene();
+  const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
   if (demo_type != DemoType::Empty) {
     ImGui::Text("Demo started");
     ImGui::Text(("Simulated time: " + std::to_string(simulated_time)).c_str());
@@ -85,12 +88,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       demo_type = DemoType::Empty;
       demo_status = DemoStatus::Idle;
     }
+    if (ImGui::Button("Compute Mass")) {
+      dts->dynamic_strands->DownloadSegments();
+      mass = dts->ComputeTotalMass(physics_parameters, *dts->dynamic_strands);
+    }
+    ImGui::Text("Stat: %.3f", mass);
     return false;
   }
-  bool changed = false;
-  const auto owner = GetOwner();
-  const auto scene = GetScene();
-  const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
+
   if (ImGui::TreeNode("Initialize Parameters")) {
     dts->initialize_parameters.OnInspect(editor_layer);
     ImGui::TreePop();

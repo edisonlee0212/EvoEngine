@@ -26,6 +26,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Target growth time for the simulation.
   float target_growth_time = 0.f;
 
+  float mass = 0.0f;
+
   /// @brief Reference to a temporary entity.
   EntityRef temp_entity1_ref;
 

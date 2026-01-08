@@ -622,6 +622,21 @@ void DynamicStrands::Download() {
   }
 }
 
+void DynamicStrands::DownloadSegments() {
+  if (!segments.empty())
+    device_segments_buffer->DownloadVector(segments, segments.size());
+}
+
+float DynamicStrands::ComputeTotalMass() {
+  float total_mass = 0.f;
+  for (const auto& segment : segments) {
+    total_mass += segment.HL_pre;
+  }
+  return total_mass;
+}
+
+
+
 void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters) const {
   if (segments.empty())
     return;
