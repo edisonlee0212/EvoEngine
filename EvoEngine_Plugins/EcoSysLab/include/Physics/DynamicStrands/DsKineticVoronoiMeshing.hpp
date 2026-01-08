@@ -29,6 +29,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   void UpdateBindings() const override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void Stats(const std::shared_ptr<EditorLayer>& editor_layer) override;
   static void OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer);
   void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene, Entity& owner) override;
   void Visualize(const std::shared_ptr<Camera>& target_camera,

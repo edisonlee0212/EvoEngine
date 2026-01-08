@@ -551,9 +551,11 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
 }
 
 bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  return false;
+}
+void DsAlphaShapeMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Text((std::string("Uniform particles count: ") + std::to_string(uniform_particles.size())).c_str());
   ImGui::Text((std::string("Meshlet count: ") + std::to_string(delaunay_tetrahedrons.size())).c_str());
-  return false;
 }
 
 void DsAlphaShapeMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
