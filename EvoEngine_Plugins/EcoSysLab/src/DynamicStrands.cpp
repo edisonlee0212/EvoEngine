@@ -233,7 +233,7 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f);
       // time_step = 0.005f;
       bb = 0.5f;
-      be = 0.5f;  // ZY: Test it!
+      be = 0.5f; 
       changed = true;
     }
     if (ImGui::Button("Elm")) {

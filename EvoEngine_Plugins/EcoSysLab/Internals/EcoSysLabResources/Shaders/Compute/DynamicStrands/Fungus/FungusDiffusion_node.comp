@@ -68,7 +68,7 @@ void main() {
     segments[segment_index].K = k;
     //if (segments[segment_index].boundary_distance > 0.13) {
     //  segments[segment_index].K = 0.0;
-    //}  // Inner fast decay
+    //}  // Inner fast decay for anisotropic test, competition test (log)
     if (segments[segment_index].boundary_distance >
              bd_offset + segments[segment_index].particle0.root_distance / 40.0 ) {
       segments[segment_index].K = 0.0;
