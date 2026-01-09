@@ -862,8 +862,8 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       if (segment.boundary_distance < 0.01f && segment.profile_polar_coordinate.y > 0.7f &&
           segment.profile_polar_coordinate.y < 0.75f) {
         if (segment.particle0.x0[0] < 0.005f) {
-          segment.RB = 1.0f;
-          segment.RB_pre = 1.0f;
+          //segment.RB = 1.0f;
+          //segment.RB_pre = 1.0f; //ZY:Disable RB for massloss
         }
         if (segment.particle1.x0[0] > 0.5f - 0.004f) {
           segment.RW = 1.0f;
@@ -1813,11 +1813,14 @@ float DynamicTreeStrands::ComputeTotalMass(const DynamicStrands::PhysicsParamete
   float total_mass = 0.0f;
   float HL = physics_parameters.HL_threshold;
   float HC = physics_parameters.HC_threshold;
+  HL = 0.f;
+  HC = 0.f;
 
   for (const auto& segment : ds.segments) {
-    float L = glm::clamp((segment.HL_pre - HL) / (1.f - HL), 0.0f, 1.f);
-    float C = glm::clamp((segment.HC_pre - HC) / (1.f - HC), 0.0f, 1.f);
-    float segment_mass = std::max(L, C) * glm::length(segment.particle0.x - segment.particle1.x);
+    float L = glm::clamp((segment.HL_pre - HL) / (1.f - HL + 0.0001f), 0.0f, 1.f);
+    float C = glm::clamp((segment.HC_pre - HC) / (1.f - HC + 0.0001f), 0.0f, 1.f);
+    //float segment_mass = std::min(L, C) * glm::length(segment.particle0.x - segment.particle1.x);
+    float segment_mass = (L) * glm::length(segment.particle0.x - segment.particle1.x);
     total_mass += segment_mass;
   }
   return total_mass;

@@ -159,7 +159,7 @@ void main() {
     //color = vec4(vec3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.x / 80.0, -0.5, 0.5) + 0.5), 1.0);
     color = computeRotCompetitionColor(segment_id);
   } else if (color_mode == 10) {  // health
-    color = vec4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HC, 0.0, 1.0), 0.0, 1.0);
+    color = vec4(clamp(segments[segment_id].HL, 0.0, 1.0), 1.0, 0.0, 1.0);
     //color = vec4(0.0, clamp(segments[segment_id].RB, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
     //color = vec4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
     //color = vec4(clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),

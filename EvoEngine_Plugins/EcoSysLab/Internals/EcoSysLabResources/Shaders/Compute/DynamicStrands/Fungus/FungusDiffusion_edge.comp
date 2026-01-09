@@ -209,9 +209,9 @@ void computeDiffusionWeights_Tspace(vec3 source_pos, vec3 target_pos, float sour
      //  M_w = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0);
      //} //Anisotropic Case
 
-    // if ((source_distance + target_distance) > 2.0 * 0.13) {
-    //  M_w[2][2] = mat3(matrixAw4)[2][2] * 0.125;
-    //} //Competition Case
+     if ((source_distance + target_distance) > 2.0 * 0.13) {
+      M_w[2][2] = mat3(matrixAw4)[2][2] * 0.125;
+    } //ZY: Competition Case, massloss
   }
 
   float rho2_w = max(dot(Tspace_diff * M_w, Tspace_diff), 0.0);

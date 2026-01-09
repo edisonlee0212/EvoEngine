@@ -66,13 +66,13 @@ void main() {
     //segments[segment_index].K = (0.2 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);d
     //segments[segment_index].K = 5.0;
     segments[segment_index].K = k;
-    //if (segments[segment_index].boundary_distance > 0.13) {
-    //  segments[segment_index].K = 0.0;
-    //}  // Inner fast decay for anisotropic test, competition test (log)
-    if (segments[segment_index].boundary_distance >
-             bd_offset + segments[segment_index].particle0.root_distance / 40.0 ) {
+    if (segments[segment_index].boundary_distance > 0.13) {
       segments[segment_index].K = 0.0;
-    }  // Inner faster decay considering root distance for TREE ELM (0.02) SPRUCE (0.015) OAK (0.02)
+    }  // Inner fast decay for anisotropic test, competition test (log), massloss test
+    //if (segments[segment_index].boundary_distance >
+    //         bd_offset + segments[segment_index].particle0.root_distance / 40.0 ) {
+    //  segments[segment_index].K = 0.0;
+    //}  // Inner faster decay considering root distance for TREE ELM (0.02) SPRUCE (0.015) OAK (0.02)
     //segments[segment_index].K = 1.0; // for board case
     //segments[segment_index].K = k; // ZY: for competition(0.4) & log(0.2)
 
@@ -81,6 +81,12 @@ void main() {
     float diffusion_w = segments[segment_index].diffusion_w;
     float diffusion_b = segments[segment_index].diffusion_b;
     float diffusion_m = segments[segment_index].diffusion_m;
+
+    float cellular_offset = 1.0f;
+    if (segments[segment_index].HL_pre > 0.48 && segments[segment_index].HL_pre < 0.5)
+    {
+      cellular_offset = 0.015f;
+    }
 
     // Update chemical protection (C)
     segments[segment_index].C = segments[segment_index].C_pre +
@@ -103,7 +109,7 @@ void main() {
 
     // Update health of lignin (HL)
     segments[segment_index].HL = segments[segment_index].HL_pre +
-                                 dt * ((-ylw * segments[segment_index].RW_pre) * segments[segment_index].HL_pre +
+                                 dt * ((-ylw * segments[segment_index].RW_pre) * segments[segment_index].HL_pre * cellular_offset +
                                        pl * segments[segment_index].C_pre * (1.0 - segments[segment_index].HL_pre));
 
     segments[segment_index].HL = clamp(segments[segment_index].HL, 0.0, 1.0);

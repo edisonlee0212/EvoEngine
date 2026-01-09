@@ -92,6 +92,15 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->dynamic_strands->DownloadSegments();
       mass = dts->ComputeTotalMass(physics_parameters, *dts->dynamic_strands);
     }
+    if (int(simulated_time / physics_parameters.time_step) % 20 == 1) {
+      dts->dynamic_strands->DownloadSegments();
+      mass = dts->ComputeTotalMass(physics_parameters, *dts->dynamic_strands);
+      std::ofstream csv("C:\\Users\\PC\\Documents\\output.csv", std::ios::out | std::ios::app);
+      if (csv.is_open()) {
+        csv << simulated_time << "," << mass << "\n";
+        csv.close();
+      }
+    }
     ImGui::Text("Stat: %.3f", mass);
     return false;
   }
@@ -131,6 +140,57 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.t_cut_width = 0.f;
     target_factor0 = 2.f;
     target_factor1 = 1.f;
+
+    dts->LogExperimentSetup(log_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+  if (ImGui::Button("Fungus [Massloss]")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(0.73, 1.17, 0.52));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(-11, 33, 0)));
+    target_factor0 = 1.5f;
+    demo_type = DemoType::Fungus;
+    demo_status = DemoStatus::Simulation;
+    log_experiment_setup_settings.rod_segment_count = 10;
+    log_experiment_setup_settings.rod_segment_count = 20;
+    log_experiment_setup_settings.rod_size = 3200;
+    log_experiment_setup_settings.segment_length = 0.025f;
+    log_experiment_setup_settings.fungus_test = true;
+    log_experiment_setup_settings.competition_setting = true;
+    log_experiment_setup_settings.cube_pattern = true;
+    log_experiment_setup_settings.internal_pattern = false;
+    log_experiment_setup_settings.right_pivot_type =
+        static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+    log_experiment_setup_settings.left_pivot_type =
+        static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+    physics_parameters.enable_fungus = true;
+    physics_parameters.enable_segment_collision = false;
+    physics_parameters.bo = 0.0f;
+    physics_parameters.be = 0.0f;
+    physics_parameters.HL_threshold = -1.0f;
+    physics_parameters.HC_threshold = -1.0f;  // Disable breakage for competition
+    // physics_parameters.k = 0.4f;
+    // physics_parameters.ycb = 2.0f;
+    // physics_parameters.kc = 0.1f;
+    physics_parameters.k = 1.f;
+    physics_parameters.ycw = 0.0f;
+    physics_parameters.ylw = 1.3f;
+    physics_parameters.bb = 0.0f;
+    physics_parameters.pc = 0.0f;
+    physics_parameters.pl = 0.0f;
+    physics_parameters.bw = 0.5f;
+    
+
+    physics_parameters.HL_threshold = 0.1f;
+    physics_parameters.HC_threshold = 0.1f;
+
+    physics_parameters.bd_offset = 100.f;  // disable fast internal decay
+
+    physics_parameters.matrixAw = glm::mat3(0.001f, 0.0f, 0.0f, 0.0f, 0.001f, 0.0f, 0.0f, 0.0f, 8.0f);
+    physics_parameters.matrixAb = glm::mat3(80.f, 0.0f, 0.0f, 0.0f, 0.01f, 0.0f, 0.0f, 0.0f, 15.0f);  //(R,T,L)
+    dts->initialize_parameters.max_segment_length = 0.01f;
+    dts->initialize_parameters.min_segment_length = 0.005f;
 
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
