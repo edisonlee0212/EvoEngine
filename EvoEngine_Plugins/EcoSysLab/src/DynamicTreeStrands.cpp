@@ -257,7 +257,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::Text((std::string("Segment count: ") + std::to_string(dynamic_strands->segments.size())).c_str());
     ImGui::Text((std::string("Segment pair count: ") + std::to_string(dynamic_strands->segment_pairs.size())).c_str());
     if (ImGui::TreeNode("Meshing")) {
-      dynamic_strands->meshing->OnInspect(editor_layer);
+      dynamic_strands->meshing->Stats(editor_layer);
       ImGui::TreePop();
     }
     ImGui::TreePop();
@@ -317,6 +317,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dynamic_strands->Upload();
     EVOENGINE_LOG("Uploaded data from GPU")
   }
+
+  dynamic_strands->meshing->OnInspect(editor_layer);
 
   return false;
 }
