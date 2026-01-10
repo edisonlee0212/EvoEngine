@@ -945,7 +945,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
                                    segment.particle0.x[0]};
         // int id = classify_point(pt, root);
         // int id = classify_point_tilt(pt, root);
-        int id = classify_point_jitter_axis(pt, root, 0.002f, 0xA53A5F1Bu, false);
+        int id = classify_point_jitter_axis(pt, root, 0.0001f, 0xA53A5F1Bu, false);
         segment.color = region_colors[id];
       });
     }

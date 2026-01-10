@@ -56,12 +56,14 @@ struct RecordingVisitor : public PMP::Corefinement::Default_visitor<MeshCGAL_int
 
   void after_face_copy(FaceDescriptor f_src, const MeshCGAL_internal& tm_src, FaceDescriptor f_tgt,
                        MeshCGAL_internal& tm_tgt) {
-    auto [fmap, ok] = tm_tgt.property_map<FaceDescriptor, Origin>(result.property_name);
+    auto fmap_opt = tm_tgt.template property_map<FaceDescriptor, Origin>(result.property_name);
 
-    if (!ok) {
+    if (!fmap_opt) {
       EVOENGINE_ERROR("after_face_copy: Could not retrieve property map!");
       return;
     }
+
+    auto fmap = *fmap_opt;  // Property_map<FaceDescriptor, Origin>
 
     if (&tm_src == &m0.mesh) {
       fmap[f_tgt] = m0.fidx[f_src];
@@ -79,14 +81,14 @@ struct RecordingVisitor : public PMP::Corefinement::Default_visitor<MeshCGAL_int
   }
 
   void after_subface_created(FaceDescriptor f_new, MeshCGAL_internal& tm_tgt) {
-    auto property_map_pair = tm_tgt.property_map<FaceDescriptor, Origin>(m0.property_name);
+    auto fmap_opt = tm_tgt.template property_map<FaceDescriptor, Origin>(m0.property_name);
 
-    if (!property_map_pair.second) {
+    if (!fmap_opt) {
       EVOENGINE_ERROR("after_subface_created: Could not retrieve property map!");
       return;
     }
 
-    property_map_pair.first[f_new] = current_origin;
+    (*fmap_opt)[f_new] = current_origin;
   }
 };
 

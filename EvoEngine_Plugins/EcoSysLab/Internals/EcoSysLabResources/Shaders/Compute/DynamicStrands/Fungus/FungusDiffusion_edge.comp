@@ -209,9 +209,9 @@ void computeDiffusionWeights_Tspace(vec3 source_pos, vec3 target_pos, float sour
      //  M_w = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 1.0);
      //} //Anisotropic Case
 
-    // if ((source_distance + target_distance) > 2.0 * 0.13) {
-    //  M_w[2][2] = mat3(matrixAw4)[2][2] * 0.125;
-    //} //Competition Case
+     if ((source_distance + target_distance) > 2.0 * 0.13) {
+      M_w[2][2] = mat3(matrixAw4)[2][2] * 0.125;
+    } //Competition Case
   }
 
   float rho2_w = max(dot(Tspace_diff * M_w, Tspace_diff), 0.0);
@@ -428,6 +428,18 @@ void main() {
                                                           segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
         segments[segment0_handle].quasi_stable = 1;
     }
+
+    //if ((segments[segment1_handle].particle0.x.z > 0.01 && segments[segment0_handle].particle0.x.z > 0.01) &&
+    //   uvec4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
+    //       uvec4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
+    // segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+    // segment_pairs[pair_index].connectivity_integrity = 0.0;
+    // }
+    //if ((segments[segment1_handle].boundary_distance > 0.15 || segments[segment0_handle].boundary_distance > 0.15)) {
+    //  segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
+    //  segment_pairs[pair_index].connectivity_integrity = 0.0;
+    //}  
+
 
     /*if (segments[segment0_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
                                                         segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
