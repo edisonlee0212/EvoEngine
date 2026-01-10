@@ -251,7 +251,7 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
   }
 
   auto write_values = [](std::ofstream& file, const std::string& key,
-                         const std::function<std::string(size_t index)>& get_value, size_t size) {
+                         const std::function<std::string(size_t index)>& get_value, size_t size, bool last = false) {
     file << "  \"" << key << "\": [\n";
     for (size_t i = 0; i < size; ++i) {
       file << "    " << get_value(i);
@@ -260,7 +260,12 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
       }
       file << "\n";
     }
-    file << "  ],\n";
+
+    if (!last) {
+      file << "  ],\n";
+    } else {
+      file << "  ]\n";
+    }
   };
 
   file << "{\n";
@@ -664,7 +669,7 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
         float average = 0.5f * (d1 + d2);
         return std::to_string(average);
       },
-      vertices.size());
+      vertices.size(), true);
 
 #undef SEG
 
