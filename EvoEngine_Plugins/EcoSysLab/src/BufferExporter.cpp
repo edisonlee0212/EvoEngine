@@ -131,41 +131,75 @@ void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::fil
     throw std::runtime_error("Failed to open OBJ file");
   }
 
+  file << "# Exported from EcoSysLab\n";
   file << "mtllib " << mtl_path.filename() << "\n\n";
 
-  int index_offset = 1;  // OBJ indices are 1-based
+  const int index_offset = 1;  // OBJ indices are 1-based
 
+  // first write all vertices
+  file << "# Vertices\n";
+  for (const auto& v : vertices) {
+    const glm::vec3& p = v.x;
+    file << "v  " << p.x << " " << p.y << " " << p.z << "\n";
+  }
+
+  // Sort triangles by material (bark vs interior)
+  std::vector<size_t> bark_triangle_indices;
+  std::vector<size_t> interior_triangle_indices;
+
+  for (size_t i = 0; i < triangles.size(); i++) {
+    if (triangles[i].neighbor_segment_index == -2) {
+      bark_triangle_indices.push_back(i);
+    } else {
+      interior_triangle_indices.push_back(i);
+    }
+  }
+
+  // First write all texture and normal coordinates
+  file << "# Texture coordinates and normals\n";
   for (const auto& t : triangles) {
-    const bool is_bark = (t.neighbor_segment_index == -2);
-    file << "usemtl " << (is_bark ? "bark" : "interior") << "\n";
-
-    const unsigned int v_idx[3] = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
-
-    // Write expanded vertices, normals, uvs
+    // Write normals, uvs
+    std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
     for (int i = 0; i < 3; ++i) {
       const glm::vec3& p = vertices[v_idx[i]].x;
       const glm::vec4& n = t.normal[i];
       glm::vec2 uv = t.uv[i];
 
-      if (is_bark) {
+      if (t.neighbor_segment_index == -2) {
         uv.x *= uv_circum_factor;
         uv.y *= uv_height_factor;
       }
 
-      file << "v  " << p.x << " " << p.y << " " << p.z << "\n";
       file << "vt " << uv.x << " " << uv.y << "\n";
-      file << "vn " << n.x << " " << n.y << " " << n.z << "\n";
+      // Somehow this keeps on being an issue that the x-coordinate has the incorrect sign
+      file << "vn " << (-n.x) << " " << n.y << " " << n.z << "\n";
     }
+  }
 
-    // Face (position/uv/normal)
-    file << "f ";
-    for (int i = 0; i < 3; ++i) {
-      file << index_offset << "/" << index_offset << "/" << index_offset;
-      if (i < 2)
-        file << " ";
-      ++index_offset;
+  // Finally write faces, grouped by material
+  file << "# Faces grouped by material\n";
+  file << "usemtl bark" << "\n";
+  for (size_t i : bark_triangle_indices) {
+    auto& t = triangles[i];
+    std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
+    file << "f";
+    for (size_t j = 0; j < 3; j++) {
+      file << " " << (v_idx[j] + index_offset) << "/" << (3 * i + j + index_offset) << "/"
+           << (3 * i + j + index_offset);
     }
-    file << "\n\n";
+    file << "\n";
+  }
+
+  file << "usemtl interior" << "\n";
+  for (size_t i : interior_triangle_indices) {
+    auto& t = triangles[i];
+    std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
+    file << "f";
+    for (size_t j = 0; j < 3; j++) {
+      file << " " << (v_idx[j] + index_offset) << "/" << (3 * i + j + index_offset) << "/"
+           << (3 * i + j + index_offset);
+    }
+    file << "\n";
   }
 
   file.close();
@@ -234,105 +268,102 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
   // write all segment properties per vertex (uncomment to your needs)
 #define SEG segments[vertices[index].segment_index]
 
-  /*write_values(
-      file, "prev_handle",
-      [&](size_t index) {
-        return std::to_string(SEG.prev_handle);
-      },
-      vertices.size());
-  write_values(
-      file, "next_handle",
-      [&](size_t index) {
-        return std::to_string(SEG.next_handle);
-      },
-      vertices.size());
-  write_values(
-      file, "strand_handle",
-      [&](size_t index) {
-        return std::to_string(SEG.strand_handle);
-      },
-      vertices.size());
-  write_values(
-      file, "inv_mass",
-      [&](size_t index) {
-        return std::to_string(SEG.inv_mass);
-      },
-      vertices.size());
+  // write_values(
+  //     file, "prev_handle",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.prev_handle);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "next_handle",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.next_handle);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "strand_handle",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.strand_handle);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "inv_mass",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.inv_mass);
+  //     },
+  //     vertices.size());
   write_values(
       file, "color",
       [&](size_t index) {
         return json_vec4(SEG.color);
       },
       vertices.size());
-
-  write_values(
-      file, "q0",
-      [&](size_t index) {
-        return json_quat(SEG.q0);
-      },
-      vertices.size());
-  write_values(
-      file, "q",
-      [&](size_t index) {
-        return json_quat(SEG.q);
-      },
-      vertices.size());
-  write_values(
-      file, "last_q",
-      [&](size_t index) {
-        return json_quat(SEG.last_q);
-      },
-      vertices.size());
-  write_values(
-      file, "angular_v",
-      [&](size_t index) {
-        return json_vec3(SEG.angular_v);
-      },
-      vertices.size());
-  write_values(
-      file, "radius",
-      [&](size_t index) {
-        return std::to_string(SEG.radius);
-      },
-      vertices.size());
-
-  write_values(
-      file, "torque",
-      [&](size_t index) {
-        return json_vec3(SEG.torque);
-      },
-      vertices.size());
-  write_values(
-      file, "rest_length",
-      [&](size_t index) {
-        return std::to_string(SEG.rest_length);
-      },
-      vertices.size());
-  write_values(
-      file, "max_young_modulus",
-      [&](size_t index) {
-        return std::to_string(SEG.max_young_modulus);
-      },
-      vertices.size());
-  write_values(
-      file, "shear_stretch_alpha",
-      [&](size_t index) {
-        return std::to_string(SEG.shear_stretch_alpha);
-      },
-      vertices.size());
-  write_values(
-      file, "strength",
-      [&](size_t index) {
-        return std::to_string(SEG.strength);
-      },
-      vertices.size());
+  // write_values(
+  //     file, "q0",
+  //     [&](size_t index) {
+  //       return json_quat(SEG.q0);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "q",
+  //     [&](size_t index) {
+  //       return json_quat(SEG.q);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "last_q",
+  //     [&](size_t index) {
+  //       return json_quat(SEG.last_q);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "angular_v",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.angular_v);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "radius",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.radius);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "torque",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.torque);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "rest_length",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.rest_length);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "max_young_modulus",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.max_young_modulus);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "shear_stretch_alpha",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.shear_stretch_alpha);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "strength",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.strength);
+  //     },
+  //     vertices.size());
   write_values(
       file, "boundary_distance",
       [&](size_t index) {
         return std::to_string(SEG.boundary_distance);
       },
       vertices.size());
-
   write_values(
       file, "profile_position",
       [&](size_t index) {
@@ -345,101 +376,98 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
         return json_vec2(SEG.profile_polar_coordinate);
       },
       vertices.size());
+  // write_values(
+  //     file, "inertia_tensor",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.inertia_tensor);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "max_shear_stretch_strain",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.max_shear_stretch_strain);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "inv_inertia_tensor",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.inv_inertia_tensor);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "shear_stretch_strain_limit",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.shear_stretch_strain_limit);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "inertia_w",
+  //     [&](size_t index) {
+  //       return json_mat4(SEG.inertia_w);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "inv_inertia_w",
+  //     [&](size_t index) {
+  //       return json_mat4(SEG.inv_inertia_w);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "shear_stretch_strain",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.shear_stretch_strain);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "node_handle",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.node_handle);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "original_mass",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.original_mass);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "group_index",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.group_index);
+  //     },
+  //     vertices.size());
 
-  write_values(
-      file, "inertia_tensor",
-      [&](size_t index) {
-        return json_vec3(SEG.inertia_tensor);
-      },
-      vertices.size());
-  write_values(
-      file, "max_shear_stretch_strain",
-      [&](size_t index) {
-        return std::to_string(SEG.max_shear_stretch_strain);
-      },
-      vertices.size());
-  write_values(
-      file, "inv_inertia_tensor",
-      [&](size_t index) {
-        return json_vec3(SEG.inv_inertia_tensor);
-      },
-      vertices.size());
-  write_values(
-      file, "shear_stretch_strain_limit",
-      [&](size_t index) {
-        return std::to_string(SEG.shear_stretch_strain_limit);
-      },
-      vertices.size());
+  // write_values(
+  //     file, "extra_mass",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.extra_mass);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "snow_amount",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.snow_amount);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "screen_depth",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.screen_depth);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "reach_ground",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.reach_ground);
+  //     },
+  //     vertices.size());
 
-  write_values(
-      file, "inertia_w",
-      [&](size_t index) {
-        return json_mat4(SEG.inertia_w);
-      },
-      vertices.size());
-  write_values(
-      file, "inv_inertia_w",
-      [&](size_t index) {
-        return json_mat4(SEG.inv_inertia_w);
-      },
-      vertices.size());*/
-
-  write_values(
-      file, "shear_stretch_strain",
-      [&](size_t index) {
-        return std::to_string(SEG.shear_stretch_strain);
-      },
-      vertices.size());
-  /*write_values(
-      file, "node_handle",
-      [&](size_t index) {
-        return std::to_string(SEG.node_handle);
-      },
-      vertices.size());
-  write_values(
-      file, "original_mass",
-      [&](size_t index) {
-        return std::to_string(SEG.original_mass);
-      },
-      vertices.size());
-  write_values(
-      file, "group_index",
-      [&](size_t index) {
-        return std::to_string(SEG.group_index);
-      },
-      vertices.size());
-
-  write_values(
-      file, "extra_mass",
-      [&](size_t index) {
-        return std::to_string(SEG.extra_mass);
-      },
-      vertices.size());
-  write_values(
-      file, "snow_amount",
-      [&](size_t index) {
-        return std::to_string(SEG.snow_amount);
-      },
-      vertices.size());
-  write_values(
-      file, "screen_depth",
-      [&](size_t index) {
-        return std::to_string(SEG.screen_depth);
-      },
-      vertices.size());
-  write_values(
-      file, "reach_ground",
-      [&](size_t index) {
-        return std::to_string(SEG.reach_ground);
-      },
-      vertices.size());
-
-  write_values(
-      file, "C",
-      [&](size_t index) {
-        return std::to_string(SEG.C);
-      },
-      vertices.size());*/
+  // write_values(
+  //     file, "C",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.C);
+  //     },
+  //     vertices.size());
   write_values(
       file, "HC",
       [&](size_t index) {
@@ -452,7 +480,7 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
         return std::to_string(SEG.HL);
       },
       vertices.size());
-  /*write_values(
+  write_values(
       file, "RW",
       [&](size_t index) {
         return std::to_string(SEG.RW);
@@ -465,157 +493,176 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
       },
       vertices.size());
 
-  write_values(
-      file, "C_pre",
-      [&](size_t index) {
-        return std::to_string(SEG.C_pre);
-      },
-      vertices.size());
-  write_values(
-      file, "HC_pre",
-      [&](size_t index) {
-        return std::to_string(SEG.HC_pre);
-      },
-      vertices.size());
-  write_values(
-      file, "HL_pre",
-      [&](size_t index) {
-        return std::to_string(SEG.HL_pre);
-      },
-      vertices.size());
-  write_values(
-      file, "RW_pre",
-      [&](size_t index) {
-        return std::to_string(SEG.RW_pre);
-      },
-      vertices.size());
-  write_values(
-      file, "RB_pre",
-      [&](size_t index) {
-        return std::to_string(SEG.RB_pre);
-      },
-      vertices.size());
+  // write_values(
+  //     file, "C_pre",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.C_pre);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "HC_pre",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.HC_pre);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "HL_pre",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.HL_pre);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "RW_pre",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.RW_pre);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "RB_pre",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.RB_pre);
+  //     },
+  //     vertices.size());
 
-  write_values(
-      file, "K",
-      [&](size_t index) {
-        return std::to_string(SEG.K);
-      },
-      vertices.size());
-  write_values(
-      file, "diffusion_c",
-      [&](size_t index) {
-        return std::to_string(SEG.diffusion_c);
-      },
-      vertices.size());
-  write_values(
-      file, "diffusion_w",
-      [&](size_t index) {
-        return std::to_string(SEG.diffusion_w);
-      },
-      vertices.size());
-  write_values(
-      file, "diffusion_b",
-      [&](size_t index) {
-        return std::to_string(SEG.diffusion_b);
-      },
-      vertices.size());
+  // write_values(
+  //     file, "K",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.K);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "diffusion_c",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.diffusion_c);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "diffusion_w",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.diffusion_w);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "diffusion_b",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.diffusion_b);
+  //     },
+  //     vertices.size());
 
-  write_values(
-      file, "pairs_count",
-      [&](size_t index) {
-        return std::to_string(SEG.pairs_count);
-      },
-      vertices.size());*/
+  // write_values(
+  //     file, "pairs_count",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.pairs_count);
+  //     },
+  //     vertices.size());
   write_values(
       file, "moisture",
       [&](size_t index) {
         return std::to_string(SEG.moisture);
       },
       vertices.size());
-  /*write_values(
-      file, "moisture_pre",
-      [&](size_t index) {
-        return std::to_string(SEG.moisture_pre);
-      },
-      vertices.size());
-  write_values(
-      file, "diffusion_m",
-      [&](size_t index) {
-        return std::to_string(SEG.diffusion_m);
-      },
-      vertices.size());
+  // write_values(
+  //     file, "moisture_pre",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.moisture_pre);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "diffusion_m",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.diffusion_m);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "internal_pattern",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.internal_pattern);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "cube_pattern",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.cube_pattern);
+  //     },
+  //     vertices.size());
 
-  write_values(
-      file, "internal_pattern",
-      [&](size_t index) {
-        return std::to_string(SEG.internal_pattern);
-      },
-      vertices.size());
-  write_values(
-      file, "cube_pattern",
-      [&](size_t index) {
-        return std::to_string(SEG.cube_pattern);
-      },
-      vertices.size());
-
-  write_values(
-      file, "Obstruction_w",
-      [&](size_t index) {
-        return json_vec3(SEG.Obstruction_w);
-      },
-      vertices.size());
-  write_values(
-      file, "unlink_constraint",
-      [&](size_t index) {
-        return std::to_string(SEG.unlink_constraint);
-      },
-      vertices.size());
-  write_values(
-      file, "Obstruction_b",
-      [&](size_t index) {
-        return json_vec3(SEG.Obstruction_b);
-      },
-      vertices.size());
-  write_values(
-      file, "ground_damping",
-      [&](size_t index) {
-        return std::to_string(SEG.ground_damping);
-      },
-      vertices.size());
-  write_values(
-      file, "Obstruction_c",
-      [&](size_t index) {
-        return json_vec3(SEG.Obstruction_c);
-      },
-      vertices.size());
-  write_values(
-      file, "quasi_stable",
-      [&](size_t index) {
-        return std::to_string(SEG.quasi_stable);
-      },
-      vertices.size());
-  write_values(
-      file, "Obstruction_m",
-      [&](size_t index) {
-        return json_vec3(SEG.Obstruction_m);
-      },
-      vertices.size());
-  write_values(
-      file, "quasi_damping",
-      [&](size_t index) {
-        return std::to_string(SEG.quasi_damping);
-      },
-      vertices.size());*/
+  // write_values(
+  //     file, "Obstruction_w",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.Obstruction_w);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "unlink_constraint",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.unlink_constraint);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "Obstruction_b",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.Obstruction_b);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "ground_damping",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.ground_damping);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "Obstruction_c",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.Obstruction_c);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "quasi_stable",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.quasi_stable);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "Obstruction_m",
+  //     [&](size_t index) {
+  //       return json_vec3(SEG.Obstruction_m);
+  //     },
+  //     vertices.size());
+  // write_values(
+  //     file, "quasi_damping",
+  //     [&](size_t index) {
+  //       return std::to_string(SEG.quasi_damping);
+  //     },
+  //     vertices.size());
 
   // also write average position of the two particles forming the segment
   write_values(
-      file, "position",
+      file, "position0",
       [&](size_t index) {
-        glm::vec3 p0 = SEG.particle0.x;
-        glm::vec3 p1 = SEG.particle1.x;
+        glm::vec3 p0 = SEG.particle0.x0;
+        glm::vec3 p1 = SEG.particle1.x0;
         glm::vec3 avg = 0.5f * (p0 + p1);
         return json_vec3(avg);
+      },
+      vertices.size());
+
+  write_values(
+      file, "direction0",
+      [&](size_t index) {
+        glm::vec3 p0 = SEG.particle0.x0;
+        glm::vec3 p1 = SEG.particle1.x0;
+        glm::vec3 direction = glm::normalize(p1 - p0);
+        return json_vec3(direction);
+      },
+      vertices.size());
+
+  write_values(
+      file, "root_distance",
+      [&](size_t index) {
+        float d1 = SEG.particle0.root_distance;
+        float d2 = SEG.particle1.root_distance;
+        float average = 0.5f * (d1 + d2);
+        return std::to_string(average);
       },
       vertices.size());
 
