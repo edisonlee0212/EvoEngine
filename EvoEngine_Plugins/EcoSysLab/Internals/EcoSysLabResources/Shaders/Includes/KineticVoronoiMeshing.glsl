@@ -11,7 +11,7 @@ struct SegmentMeshletTriangle {
   // TODO: perhaps split these off into separate buffers with indices
   vec4[3] normal;
   vec4[3] normal0;
-  vec2[4] uv;
+  vec4[3] uv;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer SEGMENT_MESHLET_VERTICES_BLOCK {

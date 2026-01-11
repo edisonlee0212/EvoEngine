@@ -12,7 +12,7 @@ class VoronoiMesh {
   std::vector<Point<3>> vertices;     // Stores vertex coordinates
   std::vector<size_t> triangles;      // Stores indices of vertices forming triangles
   std::vector<Vector<3>> normals;     // Stores normal vectors for each vertex
-  std::vector<Vector<2>> uvs;         // Stores texture coordinates for each vertex
+  std::vector<Vector<3>> uvs;         // Stores texture coordinates for each vertex
   std::vector<size_t> uv_indices;     // Stores indices of texture coordinates for faces
   std::vector<size_t> group_offsets;  // Offsets for groups of triangles, if needed
 
@@ -31,8 +31,7 @@ class VoronoiMesh {
   VoronoiMesh(NormalMode normal_mode = PerTriangleCorner) : normal_mode(normal_mode) {};
 
   VoronoiMesh(std::vector<Point<3>> vertices, std::vector<size_t> triangles, std::vector<Vector<3>> normals = {},
-
-              std::vector<Vector<2>> uvs = {}, std::vector<size_t> uv_indices = {})
+              std::vector<Vector<3>> uvs = {}, std::vector<size_t> uv_indices = {})
       : vertices(std::move(vertices)),
         triangles(std::move(triangles)),
         normals(std::move(normals)),
@@ -55,8 +54,8 @@ class VoronoiMesh {
   size_t addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, size_t uv2, size_t uv3);
   size_t addNormal(double nx, double ny, double nz);
   size_t addNormal(const Vector<3>& n);
-  size_t addUV(double u, double v);
-  size_t addUV(Vector<2> uv);
+  size_t addUV(double u, double v, double w);
+  size_t addUV(Vector<3> uv);
   void startNewGroup();
   void setGroupOffsets(const std::vector<size_t>& offsets);
   VoronoiMesh& operator+=(const VoronoiMesh& other);
@@ -77,7 +76,7 @@ class VoronoiMesh {
   std::vector<size_t>& getTriangles();
   const std::vector<Vector<3>>& getNormals() const;
   std::vector<Vector<3>>& getNormals();
-  const std::vector<Vector<2>>& getUVs() const;
+  const std::vector<Vector<3>>& getUVs() const;
   const std::vector<size_t>& getUVIndices() const;
   bool hasValidUVIndex(size_t triangle_vertex_index) const;
 
@@ -89,7 +88,7 @@ class VoronoiMesh {
    * @return
    */
   const Vector<3>& getNormal(size_t triangle_vertex_index) const;
-  const Vector<2>& getUV(size_t triangle_vertex_index) const;
+  const Vector<3>& getUV(size_t triangle_vertex_index) const;
 
   NormalMode getNormalMode() const;
 

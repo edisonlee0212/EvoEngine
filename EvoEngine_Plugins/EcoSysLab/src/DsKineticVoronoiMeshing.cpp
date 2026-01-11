@@ -234,8 +234,8 @@ glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_tra
   return glm::vec3(global_pos);
 }
 
-glm::vec2 ToVec2(const kinDS::Point<2>& a) {
-  return glm::vec2(static_cast<float>(a[0]), static_cast<float>(a[1]));
+glm::vec3 ToVec3(const kinDS::Point<3>& a) {
+  return glm::vec3(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]));
 }
 
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermiteSpline<2>> strand_splines,
@@ -376,9 +376,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
                         0.0f);
 
           if (mesh.hasValidUVIndex(triangle_vertex_index + j)) {
-            triangle.uv[j] = ToVec2(mesh.getUV(triangle_vertex_index + j));
+            triangle.uv[j] = glm::vec4(ToVec3(mesh.getUV(triangle_vertex_index + j)), 0.0);
           } else {
-            triangle.uv[j] = glm::vec2(0.0f, 0.0f);
+            triangle.uv[j] = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
           }
         }
 
