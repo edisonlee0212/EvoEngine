@@ -67,14 +67,16 @@ void PlyExporter::WriteFaces(std::ofstream& file,
     // Corner UVs (3 * vec2)
     file << "6 ";
     for (int i = 0; i < 3; ++i) {
-      glm::vec2 uv = t.uv[i];
+      glm::vec4 uv = t.uv[i];
 
       if (material_id == 0) {
         uv.x *= uv_circum_factor;
         uv.y *= uv_height_factor;
+      } else {
+        uv.z *= uv_height_factor;
       }
 
-      file << uv.x << " " << uv.y << " ";
+      file << uv.x << " " << uv.y << " " << uv.z << " ";
     }
 
     // Material
@@ -94,7 +96,7 @@ void ObjExporter::ExportObj(const std::filesystem::path& obj_path,
 
   WriteMtl(mtl_path);
   WriteObj(obj_path, mtl_path, vertices, triangles, uv_height_factor, uv_circum_factor);
-  WriteJson(json_path, vertices, triangles, segments);
+  WriteJson(json_path, vertices, triangles, segments, uv_height_factor);
 }
 
 void ObjExporter::WriteMtl(const std::filesystem::path& mtl_path) {
@@ -163,14 +165,16 @@ void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::fil
     for (int i = 0; i < 3; ++i) {
       const glm::vec3& p = vertices[v_idx[i]].x;
       const glm::vec4& n = t.normal[i];
-      glm::vec2 uv = t.uv[i];
+      glm::vec4 uv = t.uv[i];
 
       if (t.neighbor_segment_index == -2) {
         uv.x *= uv_circum_factor;
         uv.y *= uv_height_factor;
+      } else {
+        uv.z *= uv_height_factor;
       }
 
-      file << "vt " << uv.x << " " << uv.y << "\n";
+      file << "vt " << uv.x << " " << uv.y << " " << uv.z << "\n";
       // Somehow this keeps on being an issue that the x-coordinate has the incorrect sign
       file << "vn " << (-n.x) << " " << n.y << " " << n.z << "\n";
     }
@@ -244,7 +248,7 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
     const std::filesystem::path& json_path,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-    const std::vector<DynamicStrands::GpuSegment>& segments) {
+    const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor) {
   std::ofstream file(json_path);
   if (!file.is_open()) {
     throw std::runtime_error("Failed to open JSON file");
@@ -668,6 +672,33 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
         float d2 = SEG.particle1.root_distance;
         float average = 0.5f * (d1 + d2);
         return std::to_string(average);
+      },
+      vertices.size(), false);
+
+  // obtain third UV coordinate
+  std::vector<float> uv_3(vertices.size());
+
+  // iterate over triangles and fill array
+  for (auto& tri : triangles) {
+    bool is_bark = (tri.neighbor_segment_index == -2);
+
+    std::array<size_t, 3> v_idxs = {tri.vertex_index0, tri.vertex_index1, tri.vertex_index2};
+    for (size_t i = 0; i < 3; i++) {
+      glm::vec4 uv = tri.uv[i];
+      float value;
+      if (is_bark) {
+        value = uv.y * uv_height_factor;
+      } else {
+        value = uv.z * uv_height_factor;
+      }
+      uv_3[v_idxs[i]] = value;
+    }
+  }
+
+  write_values(
+      file, "uv_3",
+      [&](size_t index) {
+        return std::to_string(uv_3[index]);
       },
       vertices.size(), true);
 

@@ -44,6 +44,6 @@ class ObjExporter {
   static void WriteJson(const std::filesystem::path& json_path,
                         const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                         const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-                        const std::vector<DynamicStrands::GpuSegment>& segments);
+                        const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor);
 };
 }  // namespace eco_sys_lab_plugin

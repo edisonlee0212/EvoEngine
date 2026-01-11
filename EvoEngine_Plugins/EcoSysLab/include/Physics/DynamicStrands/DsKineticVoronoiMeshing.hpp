@@ -68,7 +68,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     // TODO: perhaps split these off into separate buffers with indices
     glm::vec4 normal[3];   // 4th dimension is padding
     glm::vec4 normal0[3];  // 4th dimension is padding
-    glm::vec2 uv[4];       // 4th element is padding
+    glm::vec4 uv[3];       // 4th dimension is padding
   };
 
   struct SegmentMeshletPushConstant {

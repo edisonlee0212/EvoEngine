@@ -113,7 +113,7 @@ void main() {
       for (int j = 0; j < 3; j++) {
         uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
-        SetUpTriangleVertex(j, tri.normal[j].xyz, segment_meshlet_vertex, color, tri.uv[j],
+        SetUpTriangleVertex(j, tri.normal[j].xyz, segment_meshlet_vertex, color, tri.uv[j].xy,
                             tri.neighbor_segment_index == -2);
       }
 

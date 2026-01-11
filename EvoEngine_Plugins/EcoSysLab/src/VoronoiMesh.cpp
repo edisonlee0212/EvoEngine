@@ -81,11 +81,11 @@ size_t VoronoiMesh::addNormal(const Vector<3>& n) {
   return index;
 }
 
-size_t VoronoiMesh::addUV(double u, double v) {
-  return addUV(Vector<2>{u, v});
+size_t VoronoiMesh::addUV(double u, double v, double w) {
+  return addUV(Vector<3>{u, v, w});
 }
 
-size_t VoronoiMesh::addUV(Vector<2> uv) {
+size_t VoronoiMesh::addUV(Vector<3> uv) {
   size_t index = uvs.size();
   uvs.emplace_back(uv);
   return index;
@@ -273,7 +273,7 @@ std::vector<Vector<3>>& VoronoiMesh::getNormals() {
   return normals;
 }
 
-const std::vector<Vector<2>>& VoronoiMesh::getUVs() const {
+const std::vector<Vector<3>>& VoronoiMesh::getUVs() const {
   return uvs;
 }
 
@@ -297,7 +297,7 @@ const Vector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_index) con
   }
 }
 
-const Vector<2>& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
+const Vector<3>& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
   return uvs[uv_indices[triangle_vertex_index]];
 }
 

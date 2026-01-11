@@ -264,9 +264,9 @@ void kinDS::SegmentBuilder::completeBoundaryMeshSection(size_t he_id, size_t new
 
 size_t kinDS::SegmentBuilder::addBoundaryTriangle(size_t u, size_t v, size_t w) {
   // get raw UVs
-  Point<2> uv_u = boundary_mesh_raw_uvs[u];
-  Point<2> uv_v = boundary_mesh_raw_uvs[v];
-  Point<2> uv_w = boundary_mesh_raw_uvs[w];
+  Point<3> uv_u = {boundary_mesh_raw_uvs[u][0], boundary_mesh_raw_uvs[u][1], 0.0};
+  Point<3> uv_v = {boundary_mesh_raw_uvs[v][0], boundary_mesh_raw_uvs[v][1], 0.0};
+  Point<3> uv_w = {boundary_mesh_raw_uvs[w][0], boundary_mesh_raw_uvs[w][1], 0.0};
 
   // output UVs
   /*EVOENGINE_LOG("Adding boundary triangle with raw UVs: u(" + std::to_string(uv_u[0]) + ", " + std::to_string(uv_u[1])
@@ -329,7 +329,7 @@ size_t kinDS::SegmentBuilder::addMeshletVertex(VoronoiMesh& mesh,
   double angle = std::atan2(centroid[1] - vertex[1], centroid[0] - vertex[0]);
   double u = 0.5 + texture_diameter * rel_dist * 0.5 * std::cos(angle);
   double v = 0.5 + texture_diameter * rel_dist * 0.5 * std::sin(angle);
-  size_t uv_index = mesh.addUV(u, v);
+  size_t uv_index = mesh.addUV(u, v, vertex[2] * uv_height_factor);
   return index;
 }
 
@@ -371,7 +371,7 @@ void kinDS::SegmentBuilder::addVoronoiTriangulationToBoundaryMesh(double t, bool
       double angle = boundary_mesh_raw_uvs[index_offset + vertices[i]][0] * 2.0 * glm::pi<double>();
       double u = 0.5 + texture_diameter * rel_dist * 0.5 * std::cos(angle);
       double v = 0.5 + texture_diameter * rel_dist * 0.5 * std::sin(angle);
-      uv_indices[i] = boundary_mesh.addUV(u, v);
+      uv_indices[i] = boundary_mesh.addUV(u, v, 0.0);
     }
 
     // as an exception, we directly add the triangle here to have access to the UV indices
