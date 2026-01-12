@@ -377,6 +377,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.bw = 4.0f;
     physics_parameters.k = 0.2f;
 
+    physics_parameters.HL_threshold = -1.0f;
+    physics_parameters.HC_threshold = -1.0f;  // Disable breakage for competition
+
     physics_parameters.bd_offset = 100.f;  // disable fast internal decay
 
     // physics_parameters.matrixAw = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.5f);

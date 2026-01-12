@@ -176,7 +176,8 @@ void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::fil
 
       file << "vt " << uv.x << " " << uv.y << " " << uv.z << "\n";
       // Somehow this keeps on being an issue that the x-coordinate has the incorrect sign
-      file << "vn " << (-n.x) << " " << (-n.y) << " " << (-n.z) << "\n";
+      file << "vn " << (-n.x) << " " << (n.y) << " " << (n.z) << "\n"; // for log
+      // file << "vn " << (-n.x) << " " << (-n.y) << " " << (-n.z) << "\n"; //for board
     }
   }
 
