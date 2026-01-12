@@ -444,13 +444,15 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.enable_fungus = true;
     physics_parameters.treespace = false;
     physics_parameters.matrixAw = glm::mat3(200.0f, 0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.0f, 0.0f, 200.0f);
-    // physics_parameters.matrixAb = glm::mat3(2.f, 0.0f, 0.0f, 0.0f, 1000.f, 0.0f, 0.0f, 0.0f, 0.2f);  // slow y
-    physics_parameters.matrixAb = glm::mat3(1000.f, 0.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.2f);  // slow x
+    physics_parameters.matrixAb = glm::mat3(2.f, 0.0f, 0.0f, 0.0f, 500.f, 0.0f, 0.0f, 0.0f, 0.1f);  // slow y
+    //physics_parameters.matrixAb = glm::mat3(1000.f, 0.0f, 0.0f, 0.0f, 0.2f, 0.0f, 0.0f, 0.0f, 0.2f);  // slow x
     physics_parameters.brb = 0.75f;
     physics_parameters.pc = 0.05f;
-    physics_parameters.k = 1.0f;
+    physics_parameters.k = 0.0f; //1.0f;
 
     physics_parameters.bd_offset = 100.f;  // disable boundary decay
+    physics_parameters.crack_T_scale = 0.f;
+    physics_parameters.crack_R_scale = 1.f;
 
     board_experiment_setup_settings.center_damage = 0.7f;
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
