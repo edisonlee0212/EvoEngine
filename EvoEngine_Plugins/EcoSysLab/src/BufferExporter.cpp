@@ -88,14 +88,14 @@ void ObjExporter::ExportObj(const std::filesystem::path& obj_path,
                             const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                             const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
                             const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor,
-                            double uv_circum_factor) {
+                            double uv_circum_factor, float fracture_distance) {
   std::filesystem::path mtl_path = obj_path;
   mtl_path.replace_extension(".mtl");
   std::filesystem::path json_path = obj_path;
   json_path.replace_extension(".json");
 
   WriteMtl(mtl_path);
-  WriteObj(obj_path, mtl_path, vertices, triangles, uv_height_factor, uv_circum_factor);
+  WriteObj(obj_path, mtl_path, vertices, triangles, uv_height_factor, uv_circum_factor, fracture_distance);
   WriteJson(json_path, vertices, triangles, segments, uv_height_factor);
 }
 
@@ -127,7 +127,7 @@ void ObjExporter::WriteMtl(const std::filesystem::path& mtl_path) {
 void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::filesystem::path& mtl_path,
                            const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                            const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-                           double uv_height_factor, double uv_circum_factor) {
+                           double uv_height_factor, double uv_circum_factor, float fracture_distance) {
   std::ofstream file(obj_path);
   if (!file.is_open()) {
     throw std::runtime_error("Failed to open OBJ file");
@@ -141,7 +141,7 @@ void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::fil
   // first write all vertices
   file << "# Vertices\n";
   for (const auto& v : vertices) {
-    const glm::vec3& p = v.x;
+    const glm::vec3& p = v.x - fracture_distance * v.shift;
     file << "v  " << p.x << " " << p.y << " " << p.z << "\n";
   }
 
@@ -701,6 +701,14 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
         return std::to_string(uv_3[index]);
       },
       vertices.size(), true);
+
+  // write properties per face
+  write_values(
+      file, "has_neighbor",
+      [&](size_t index) {
+        return (triangles[index].neighbor_segment_index >= 0) ? "true" : "false";
+      },
+      triangles.size(), true);
 
 #undef SEG
 

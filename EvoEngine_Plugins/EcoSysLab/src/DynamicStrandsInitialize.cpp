@@ -562,6 +562,19 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
   }
   EVOENGINE_LOG("Max counter: " + std::to_string(max_counter));
 
+  // set up nodes
+  auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();
+  nodes.resize(skeleton_nodes.size());
+
+  for (size_t i = 0; i < skeleton_nodes.size(); i++) {
+    nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
+  }
+
+  meshing->InitData(initialize_parameters, strand_model_skeleton, strand_model_strand_group,
+                    randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+
+  // compute pair properties after meshing in case we recomputed them
+  EVOENGINE_LOG("Computing pair properties...");
   Jobs::RunParallelFor(segment_pairs.size(), [&](const auto pair_index) {
     auto& segment_pair = segment_pairs[pair_index];
     auto& segment0 = segments[segment_pair.segment0_handle];
@@ -691,16 +704,6 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     segment_pair.compression_lock = segment_pair.positional_lock = segment_pair.rotational_lock =
         segment_pair.tensile_lock = 0;
   });
-  // set up nodes
-  auto& skeleton_nodes = strand_model_skeleton.PeekRawNodes();
-  nodes.resize(skeleton_nodes.size());
-
-  for (size_t i = 0; i < skeleton_nodes.size(); i++) {
-    nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
-  }
-
-  meshing->InitData(initialize_parameters, strand_model_skeleton, strand_model_strand_group,
-                    randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
   for (const auto& i : constraints)
     i->InitializeData(initialize_parameters, strand_model_skeleton, randomly_subdivided_strand_group, *this);

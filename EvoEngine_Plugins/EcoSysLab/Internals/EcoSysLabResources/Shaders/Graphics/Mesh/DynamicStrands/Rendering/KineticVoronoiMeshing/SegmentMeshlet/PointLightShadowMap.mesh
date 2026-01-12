@@ -56,11 +56,13 @@ uint laneID = gl_LocalInvocationID.x;
 void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex) {
   mat4 transform = EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_INSTANCE_INDEX];
 
-  ms_v_out[vertex_index].FragPos = segment_meshlet_vertex.x;
+  vec3 pos = segment_meshlet_vertex.x - fracture_distance * segment_meshlet_vertex.shift;
+  ms_v_out[vertex_index].FragPos = pos;
+
   ms_v_out[vertex_index].Normal = vertex_normal;
   ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0);     // TODO
   ms_v_out[vertex_index].Color = vec4(1.0, 1.0, 1.0, 1.0);  // TODO
-  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(segment_meshlet_vertex.x, 1.0);
+  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(pos, 1.0);
 }
 
 void main() {

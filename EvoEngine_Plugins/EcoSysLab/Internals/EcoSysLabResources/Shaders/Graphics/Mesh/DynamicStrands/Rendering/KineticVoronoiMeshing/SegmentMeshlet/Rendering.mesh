@@ -59,10 +59,11 @@ uint laneID = gl_LocalInvocationID.x;
 #include "KineticVoronoiRenderingConstants.glsl"
 
 vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex,
-                         in vec4 color, in vec2 uv_coords, in bool is_bark) {
+                         in vec4 color, in vec2 uv_coords, in bool is_bark, in bool has_pair_handle) {
   mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 
-  ms_v_out[vertex_index].FragPos = segment_meshlet_vertex.x;
+  vec3 pos = segment_meshlet_vertex.x - fracture_distance * segment_meshlet_vertex.shift;
+  ms_v_out[vertex_index].FragPos = pos;
   // this is certainly incorrect, but somehow the lighting computation expects the x-coordinate to be inverted
   ms_v_out[vertex_index].Normal = vec3(-vertex_normal.x, vertex_normal.y, vertex_normal.z);
   ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0);  // TODO
@@ -84,9 +85,18 @@ vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMes
     case COLOR_UVS:
       ms_v_out[vertex_index].Color = vec4(uv_coords, 0.0, 1.0);
       break;
+    case COLOR_NEIGHBORS:
+      if (has_pair_handle) {
+        ms_v_out[vertex_index].Color = vec4(0.0, 1.0, 0.0, 1.0);
+      } else {
+        ms_v_out[vertex_index].Color = vec4(1.0, 0.0, 0.0, 1.0);
+      }
+        
+      break;
+
   }
 
-  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(segment_meshlet_vertex.x, 1.0);
+  gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(pos, 1.0);
 
   return segment_meshlet_vertex.x;
 }
@@ -114,7 +124,7 @@ void main() {
         uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
         SetUpTriangleVertex(j, tri.normal[j].xyz, segment_meshlet_vertex, color, tri.uv[j].xy,
-                            tri.neighbor_segment_index == -2);
+                            tri.neighbor_segment_index == -2, tri.segment_pair_index != -1);
       }
 
       ms_prim[0].MaterialIndex = material_index;
