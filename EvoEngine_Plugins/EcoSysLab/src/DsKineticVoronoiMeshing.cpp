@@ -243,6 +243,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
                                                   std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                                   std::vector<glm::mat4>& profile_to_model_transforms,
                                                   const GlobalTransform& root_transform) {
+  bool recompute_segment_pairs = false;  // TODO: expose as option?
+
   // sort subdivisions into a single array
   std::vector<std::pair<size_t, double>> subdivisions = MergeSortedVectors(subdivisions_by_strand);
 
@@ -271,7 +273,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   EVOENGINE_LOG("Finalizing Kinetic Delaunay Voronoi Meshing...");
   mesh_builder.finalize(section_count);
 
-  auto [meshes, neighbor_indices] = mesh_builder.extractSegmentMeshlets();
+  auto [meshes, meshing_neighbor_indices] = mesh_builder.extractSegmentMeshlets();
 
   auto& boundary_mesh = mesh_builder.getBoundaryMesh();
 
@@ -299,14 +301,14 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
         if (debug_export_meshes && mesh_index < max_meshlet_export) {
           kinDS::ObjExporter::writeMesh(meshes[mesh_index], "meshlet" + std::to_string(mesh_index) + "_raw.obj");
         }
-        std::tie(meshes[mesh_index], neighbor_indices[mesh_index]) =
-            boundary_intersector.Intersect(meshes[mesh_index], neighbor_indices[mesh_index]);
+        std::tie(meshes[mesh_index], meshing_neighbor_indices[mesh_index]) =
+            boundary_intersector.Intersect(meshes[mesh_index], meshing_neighbor_indices[mesh_index]);
         break;
 
       case kinDS::MeshIntersection::MeshRelation::OUTSIDE:
         // fully outside, result is empty mesh
         meshes[mesh_index] = kinDS::VoronoiMesh();
-        neighbor_indices[mesh_index] = {};
+        meshing_neighbor_indices[mesh_index] = {};
         break;
 
       case kinDS::MeshIntersection::MeshRelation::UNDEFINED:
@@ -322,6 +324,79 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   // intersection_progress_bar.Finish();
 
   const auto& meshing_strand_to_segment_indices = mesh_builder.getStrandToSegmentIndices();
+
+  size_t max_meshing_id = 0;
+  for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+    for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
+      size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      max_meshing_id = std::max(max_meshing_id, meshing_segment_id);
+    }
+  }
+
+  std::vector<size_t> meshing_to_physics_segment_indices(max_meshing_id + 1, -1);
+  for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+    for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
+      size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
+      meshing_to_physics_segment_indices[meshing_segment_id] = physics_segment_id;
+    }
+  }
+
+  std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = dynamic_strands->segment_data_list;
+  std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = dynamic_strands->segment_pairs;
+
+  if (recompute_segment_pairs) {
+    segment_pairs.clear();
+
+    std::vector<size_t> pair_handle_offsets(segment_data_list.size(), 0);
+
+    // clear existing pair handles in segment data
+    for (auto& segment_data : segment_data_list) {
+      for (auto& pair_handle : segment_data.pair_handles) {
+        pair_handle = -1;
+      }
+    }
+
+    for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+      for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
+        size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+        auto& mesh = meshes[meshing_segment_id];
+        int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
+        const auto& triangles = mesh.getTriangles();
+
+        std::set<int> neighbor_set;
+        for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+          int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+          if (meshing_neighbor_segment_index >= 0) {
+            int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
+            neighbor_set.insert(physics_neighbor_segment_index);
+          }
+        }
+
+        // create a new segment pair for each neighbor if the neighbor index is greater to avoid duplicates from
+        // symmetry
+        for (auto& physics_neighbor_segment_index : neighbor_set) {
+          if (physics_neighbor_segment_index > physics_segment_id) {
+            DynamicStrands::GpuSegmentPair segment_pair;
+            segment_pair.segment0_handle = physics_segment_id;
+            segment_pair.segment1_handle = physics_neighbor_segment_index;
+
+            // TODO: other properties
+
+            int pair_handle = static_cast<int>(segment_pairs.size());
+            segment_data_list[physics_segment_id].pair_handles[pair_handle_offsets[physics_segment_id]] = pair_handle;
+            pair_handle_offsets[physics_segment_id]++;
+
+            segment_data_list[physics_neighbor_segment_index]
+                .pair_handles[pair_handle_offsets[physics_neighbor_segment_index]] = pair_handle;
+            pair_handle_offsets[physics_neighbor_segment_index]++;
+
+            segment_pairs.emplace_back(segment_pair);
+          }
+        }
+      }
+    }
+  }
 
   for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
     // Verify segment count:
@@ -339,7 +414,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
       // Note that this is different from the original segment id from the strand model because it is assigned in the
       // order of creation of the segments.
       size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
-      auto& mesh = meshes[meshing_strand_to_segment_indices[strand_id][segment_no]];
+      auto& mesh = meshes[meshing_segment_id];
       int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
 
       // get original segment id from strand model
@@ -359,12 +434,57 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
       }
 
       const auto& triangles = mesh.getTriangles();
+
+      // for debugging, output all segment ids of the pair from both sources
+      /*EVOENGINE_LOG("Physics simulation neighbors:")
+      std::ostringstream oss;
+      oss << '[';
+      for (int pair_handle : segment_data_list[physics_segment_id].pair_handles) {
+        int neighbor_segment_id = -1;
+        if (pair_handle == -1) {
+          continue;
+        }
+
+        if (segment_pairs[pair_handle].segment0_handle == physics_segment_id) {
+          neighbor_segment_id = segment_pairs[pair_handle].segment1_handle;
+        } else if (segment_pairs[pair_handle].segment1_handle == physics_segment_id) {
+          neighbor_segment_id = segment_pairs[pair_handle].segment0_handle;
+        }
+
+        oss << neighbor_segment_id << ", ";
+      }
+
+      std::string s = oss.str();
+      s.replace(s.size() - 2, 2, "]");
+      std::cout << s << std::endl;
+
+      EVOENGINE_LOG("Meshing neighbors:")
+      std::set<int> neighbor_set;
+      for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+        int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+        if (meshing_neighbor_segment_index >= 0) {
+          int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
+          neighbor_set.insert(physics_neighbor_segment_index);
+        }
+      }
+
+      std::cout << '[';
+      for (auto& index : neighbor_set) {
+        std::cout << index << ", ";
+      }
+      std::cout << ']' << std::endl;*/
+
       for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
         GpuSegmentMeshletTriangle triangle;
         triangle.vertex_index0 = static_cast<unsigned int>(triangles[triangle_vertex_index] + vertex_offset);
         triangle.vertex_index1 = static_cast<unsigned int>(triangles[triangle_vertex_index + 1] + vertex_offset);
         triangle.vertex_index2 = static_cast<unsigned int>(triangles[triangle_vertex_index + 2] + vertex_offset);
-        triangle.neighbor_segment_index = neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+        int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+        if (meshing_neighbor_segment_index >= 0) {
+          triangle.neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
+        } else {
+          triangle.neighbor_segment_index = meshing_neighbor_segment_index;
+        }
 
         // Just assume the transformations (without translations) are orthogonal
         for (size_t j = 0; j < 3; j++) {
@@ -379,6 +499,31 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
             triangle.uv[j] = glm::vec4(ToVec3(mesh.getUV(triangle_vertex_index + j)), 0.0);
           } else {
             triangle.uv[j] = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+          }
+        }
+
+        triangle.segment_pair_index = -1;
+
+        if (triangle.neighbor_segment_index >= 0) {
+          // find segment pair index (TODO: this is not very efficient, perhaps we can improve it in the future)
+          for (int pair_handle : segment_data_list[physics_segment_id].pair_handles) {
+            if (pair_handle == -1) {
+              continue;
+            }
+            if (segment_pairs[pair_handle].segment0_handle != physics_segment_id &&
+                segment_pairs[pair_handle].segment1_handle != physics_segment_id) {
+              EVOENGINE_ERROR("Segment pair incorrectly referenced!");
+            }
+            if (segment_pairs[pair_handle].segment0_handle == triangle.neighbor_segment_index ||
+                segment_pairs[pair_handle].segment1_handle == triangle.neighbor_segment_index) {
+              triangle.segment_pair_index = static_cast<int>(pair_handle);
+              break;
+            }
+          }
+
+          if (triangle.segment_pair_index == -1) {
+            /*EVOENGINE_WARNING("Could not find segment pair index for segment "
+                              << physics_segment_id << " and neighbor segment " << triangle.neighbor_segment_index);*/
           }
         }
 
@@ -836,6 +981,13 @@ struct VertexPredictionPushConstant {
   int padding2;
 };
 
+struct TrianglePredictionPushConstant {
+  uint32_t triangle_count = 0;
+  int padding0;
+  int padding1;
+  int padding2;
+};
+
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::BuildRenderComputePipelines() {
   static std::shared_ptr<Shader> shader{};
   shader = std::make_shared<Shader>();
@@ -843,16 +995,32 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::BuildRenderComputePipelines() 
                      std::filesystem::path("./EcoSysLabResources") /
                          "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Vertex.comp");
 
-  branches_uniform_particle_update_pipeline = std::make_shared<ComputePipeline>();
-  branches_uniform_particle_update_pipeline->compute_shader = shader;
-  branches_uniform_particle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_vertex_update_pipeline = std::make_shared<ComputePipeline>();
+  branches_vertex_update_pipeline->compute_shader = shader;
+  branches_vertex_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
-  auto& push_constant_range = branches_uniform_particle_update_pipeline->push_constant_ranges.emplace_back();
+  auto& push_constant_range = branches_vertex_update_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(VertexPredictionPushConstant);
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-  branches_uniform_particle_update_pipeline->Initialize();
+  branches_vertex_update_pipeline->Initialize();
+
+  // Triangles
+  branches_triangle_update_pipeline = std::make_shared<ComputePipeline>();
+  branches_triangle_update_pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              std::filesystem::path("./EcoSysLabResources") /
+                                  "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Triangle.comp");
+  branches_triangle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+  auto& triangle_prediction_push_constant_range =
+      branches_triangle_update_pipeline->push_constant_ranges.emplace_back();
+  triangle_prediction_push_constant_range.size = sizeof(TrianglePredictionPushConstant);
+  triangle_prediction_push_constant_range.offset = 0;
+  triangle_prediction_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+  branches_triangle_update_pipeline->Initialize();
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
@@ -862,14 +1030,25 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    // Uniform Particles
+    // Vertices
     VertexPredictionPushConstant vertex_push_constant;
     vertex_push_constant.vertex_count = segment_meshlet_vertices.size();
-    branches_uniform_particle_update_pipeline->Bind(vk_command_buffer);
-    branches_uniform_particle_update_pipeline->BindDescriptorSet(
+    branches_vertex_update_pipeline->Bind(vk_command_buffer);
+    branches_vertex_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    branches_uniform_particle_update_pipeline->PushConstant(vk_command_buffer, 0, vertex_push_constant);
+    branches_vertex_update_pipeline->PushConstant(vk_command_buffer, 0, vertex_push_constant);
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(vertex_push_constant.vertex_count, work_group_invocations), 1, 1);
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    // Triangles
+    TrianglePredictionPushConstant triangle_push_constant;
+    triangle_push_constant.triangle_count = segment_meshlet_triangles.size();
+    branches_triangle_update_pipeline->Bind(vk_command_buffer);
+    branches_triangle_update_pipeline->BindDescriptorSet(
+        vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_triangle_update_pipeline->PushConstant(vk_command_buffer, 0, triangle_push_constant);
+    vkCmdDispatch(vk_command_buffer, Platform::DivUp(triangle_push_constant.triangle_count, work_group_invocations), 1,
+                  1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -936,7 +1115,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         EVOENGINE_LOG("Downloaded data from GPU");
         ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
                                render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                               render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+                               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+                               render_settings.segment_meshlet_render_parameters.fracture_distance);
       },
       false);
   ImGui::SameLine();
@@ -945,7 +1125,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       [&](const std::filesystem::path& path) {
         ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
                                render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                               render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+                               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+                               render_settings.segment_meshlet_render_parameters.fracture_distance);
       },
       false);
 
@@ -964,7 +1145,7 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
       BuildSegmentMeshletsRenderingPipelines();
     }
 
-    ImGui::Combo("Color mode", {"Standard", "Normals", "UVs"},
+    ImGui::Combo("Color mode", {"Standard", "Normals", "UVs", "Pair"},
                  render_settings.segment_meshlet_render_parameters.color_mode);
 
     // uv factors
@@ -972,6 +1153,9 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
                      0.001f, 1.0f);
     ImGui::DragFloat("UV circum factor", &render_settings.segment_meshlet_render_parameters.uv_circum_factor, 1.0f,
                      1.0f, 50.0f, "%.0f");
+
+    ImGui::DragFloat("Fracture distance", &render_settings.segment_meshlet_render_parameters.fracture_distance, 0.0001f,
+                     0.0f, 2.0f, "%.4f");
   }
 }
 
@@ -1269,6 +1453,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   render_push_constant.bark_material_index = bark_material_index;
   render_push_constant.uv_height_factor = render_settings.segment_meshlet_render_parameters.uv_height_factor;
   render_push_constant.uv_circum_factor = render_settings.segment_meshlet_render_parameters.uv_circum_factor;
+  render_push_constant.fracture_distance = render_settings.segment_meshlet_render_parameters.fracture_distance;
 
   segment_meshlet_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   segment_meshlet_render_pipeline->states.SetViewportScissor(view.viewport);

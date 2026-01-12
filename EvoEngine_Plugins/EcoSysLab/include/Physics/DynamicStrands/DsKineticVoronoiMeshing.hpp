@@ -44,6 +44,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     int color_mode = 0;
     float uv_height_factor = 0.02f;
     float uv_circum_factor = 2.0f;
+    float fracture_distance = 0.0004f;
   };
 
   struct RenderSettings {
@@ -57,7 +58,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     glm::vec3 x0;
     unsigned int segment_index;
     glm::vec3 x = glm::vec3(1.0f, 2.0f, 3.0f);
-    int padding;
+    int padding0;
+    glm::vec3 shift = glm::vec3(0.0f, 0.0f, 0.0f);
+    int padding1;
   };
 
   struct GpuSegmentMeshletTriangle {
@@ -69,6 +72,10 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     glm::vec4 normal[3];   // 4th dimension is padding
     glm::vec4 normal0[3];  // 4th dimension is padding
     glm::vec4 uv[3];       // 4th dimension is padding
+    int segment_pair_index;
+    int padding0;
+    int padding1;
+    int padding2;
   };
 
   struct SegmentMeshletPushConstant {
@@ -90,10 +97,12 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     int inner_wood_material_index;
     float uv_height_factor;
     float uv_circum_factor;
+    float fracture_distance;
   };
 
   // public:
-  inline static std::shared_ptr<ComputePipeline> branches_uniform_particle_update_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> branches_vertex_update_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> branches_triangle_update_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_spot_light_render_pipeline{};

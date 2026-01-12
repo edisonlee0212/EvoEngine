@@ -8,9 +8,11 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
   int inner_wood_material_index;
   float uv_height_factor;
   float uv_circum_factor;
+  float fracture_distance;
 };
 
 // color mode constants
 #define COLOR_STANDARD 0
 #define COLOR_NORMALS 1
 #define COLOR_UVS 2
+#define COLOR_NEIGHBORS 3

@@ -825,10 +825,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   initialize_parameters.trunk_additional_strength = false;
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = false;
-  // if (settings.fungus_test) {
-  //   initialize_parameters.min_segment_length = 0.005f;
-  //   initialize_parameters.max_segment_length = 0.01f;
-  // }
+  if (settings.fungus_test) {
+    initialize_parameters.min_segment_length = 0.015f;
+    initialize_parameters.max_segment_length = 0.03f;
+  }
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
   const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();

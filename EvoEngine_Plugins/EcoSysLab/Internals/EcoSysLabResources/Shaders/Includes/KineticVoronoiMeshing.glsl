@@ -2,7 +2,9 @@ struct SegmentMeshletVertex {
   vec3 x0;
   int segment_index;
   vec3 x;
-  int padding;
+  int padding0;
+  vec3 shift;
+  int padding1;
 };
 
 struct SegmentMeshletTriangle {
@@ -12,6 +14,10 @@ struct SegmentMeshletTriangle {
   vec4[3] normal;
   vec4[3] normal0;
   vec4[3] uv;
+  int segment_pair_index;
+  int padding0;
+  int padding1;
+  int padding2;
 };
 
 layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer SEGMENT_MESHLET_VERTICES_BLOCK {
