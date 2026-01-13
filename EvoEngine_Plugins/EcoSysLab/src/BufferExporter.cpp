@@ -703,13 +703,13 @@ void eco_sys_lab_plugin::ObjExporter::WriteJson(
       },
       vertices.size(), true);
 
-  // write properties per face
-  write_values(
-      file, "has_neighbor",
-      [&](size_t index) {
-        return (triangles[index].neighbor_segment_index >= 0) ? "true" : "false";
-      },
-      triangles.size(), true);
+  //// write properties per face
+  //write_values(
+  //    file, "has_neighbor",
+  //    [&](size_t index) {
+  //      return (triangles[index].neighbor_segment_index >= 0) ? "true" : "false";
+  //    },
+  //    triangles.size(), true);
 
 #undef SEG
 

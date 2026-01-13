@@ -44,7 +44,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     int color_mode = 0;
     float uv_height_factor = 0.02f;
     float uv_circum_factor = 2.0f;
-    float fracture_distance = 0.0004f;
+    float fracture_distance = 0.0010f;
   };
 
   struct RenderSettings {

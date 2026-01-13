@@ -189,29 +189,29 @@ void computeDiffusionWeights_Tspace(vec3 source_pos, vec3 target_pos, float sour
     M_c = mat3(matrixAc4);
     M_m = mat3(matrixAm4);
 
-     //M_b = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 20.0); //For elm
-     M_b = mat3(1000.0, 0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 0.0, 1000.0);
-     M_w = mat3(500.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0, 0.0, 200.0);
-     M_c = mat3(100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0);
-     M_m = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
-     if ((source_distance + target_distance) < 2.0 * 0.06 && (source_distance + target_distance) > 2.0 * 0.03) {
-       M_w = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
-     }
-     if ((source_distance + target_distance) < 2.0 * 0.1 && (source_distance + target_distance) > 2.0 * 0.08) {
-       M_w = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
-     }
-     if (source_polar.y + target_polar.y > -21.0 * 3.1415926 / 24.0 &&
-         source_polar.y + target_polar.y < -5.0 * 3.1415926 / 6.0 && (source_distance + target_distance) > 2.0 * 0.04)
-         {
-       M_w = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 200.0);
-     }
-     if ((source_distance + target_distance) > 2.0 * 0.13) {
-       M_w = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 10.0);
-     } //Anisotropic Case
+     ////M_b = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 20.0); //For elm
+     //M_b = mat3(1000.0, 0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 0.0, 1000.0);
+     //M_w = mat3(500.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0, 0.0, 200.0);
+     //M_c = mat3(100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0);
+     //M_m = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+     //if ((source_distance + target_distance) < 2.0 * 0.06 && (source_distance + target_distance) > 2.0 * 0.03) {
+     //  M_w = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
+     //}
+     //if ((source_distance + target_distance) < 2.0 * 0.1 && (source_distance + target_distance) > 2.0 * 0.08) {
+     //  M_w = mat3(800.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 200.0);
+     //}
+     //if (source_polar.y + target_polar.y > -21.0 * 3.1415926 / 24.0 &&
+     //    source_polar.y + target_polar.y < -5.0 * 3.1415926 / 6.0 && (source_distance + target_distance) > 2.0 * 0.04)
+     //    {
+     //  M_w = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 200.0);
+     //}
+     //if ((source_distance + target_distance) > 2.0 * 0.13) {
+     //  M_w = mat3(0.1, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 10.0);
+     //} //Anisotropic Case
 
-    // if ((source_distance + target_distance) > 2.0 * 0.13) {
-    //  M_w[2][2] = mat3(matrixAw4)[2][2] * 0.125;
-    //} //Competition Case
+     if ((source_distance + target_distance) > 2.0 * 0.13) {
+      M_w[2][2] = mat3(matrixAw4)[2][2] * 0.125;
+    } //Competition Case
   }
 
   float rho2_w = max(dot(Tspace_diff * M_w, Tspace_diff), 0.0);
