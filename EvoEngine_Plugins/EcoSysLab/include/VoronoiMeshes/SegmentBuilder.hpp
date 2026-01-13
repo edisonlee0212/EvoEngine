@@ -10,6 +10,7 @@ struct ComponentData {
   std::vector<size_t> component_map;
   std::vector<std::vector<BoundaryPoint>> component_boundaries;
   std::vector<Point<2>> component_centroids;
+  std::vector<double> component_last_updated;
 };
 
 class SegmentBuilder : public KineticDelaunay::EventHandler {
@@ -26,6 +27,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   // Maps corner indices (correspoding to outgoing half-edge inside the cell) to the index of the cutoff mesh, -1 if no
   // cutoff mesh exists
   std::vector<int> corner_to_cutoff_mesh_indices;
+  ComponentData component_data;
 
   // We no longer use these two factors, they are instead adjusted dynamically in the shader at runtime
   double uv_height_factor = 1.0;
@@ -97,7 +99,9 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
 
   void afterEvent(KineticDelaunay::Event& e) override;
 
-  void boundaryEvent(KineticDelaunay::Event& e) override;
+  void beforeBoundaryEvent(KineticDelaunay::Event& e) override;
+
+  void afterBoundaryEvent(KineticDelaunay::Event& e) override;
 
   void insertSubdivision(size_t strand_id, double t);
 
@@ -112,5 +116,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   const std::vector<std::vector<size_t>>& getStrandToSegmentIndices() const;
 
   ComponentData computeComponentData(double t) const;
+
+  void splitComponent(size_t component_id, const std::vector<std::vector<size_t>>& new_components, double t);
 };
 }  // namespace kinDS

@@ -63,13 +63,19 @@ class KineticDelaunay {
     }
 
     /**
-     * \brief Handle a BOUNDARY event.
-     * Unlike swap events, boundary events do not modify the triangulation, so no distinct before/after methods are
-     * necessary. It is called before the face inside/outside status is updated.
+     * \brief Handle a BOUNDARY event before it is processed
      *
      * @param e The event to handle
      */
-    virtual void boundaryEvent(Event& e) {
+    virtual void beforeBoundaryEvent(Event& e) {
+    }
+
+    /**
+     * \brief Handle a BOUNDARY event after it is processed
+     *
+     * @param e The event to handle
+     */
+    virtual void afterBoundaryEvent(Event& e) {
     }
 
     virtual void betweenSections(size_t index) {
@@ -365,9 +371,11 @@ class KineticDelaunay {
     // Process the event at the given time
     EVOENGINE_LOG("Processing boundary event at time " << event.time << " for half-edge ID " << event.half_edge_id);
     // Call the event handler if provided
-    event_handler.boundaryEvent(event);
+    event_handler.beforeBoundaryEvent(event);
     size_t face_id = graph.getHalfEdges()[event.half_edge_id].face;
     face_inside[face_id] = !face_inside[face_id];
+
+    event_handler.afterBoundaryEvent(event);
   }
 
   void handleEvents(EventHandler& event_handler) {
@@ -488,7 +496,7 @@ class KineticDelaunay {
       visited[v] = true;
       component.push_back(v);
 
-      const auto& nbrs = graph.inducedNeighbors(v, face_inside);
+      const auto nbrs = graph.inducedNeighbors(v, face_inside);
 
       // Push neighbors in reverse order, the same order as recursive DFS
       for (auto it = nbrs.rbegin(); it != nbrs.rend(); ++it) {
@@ -499,6 +507,55 @@ class KineticDelaunay {
     }
 
     return component;
+  }
+
+  std::vector<std::vector<size_t>> checkForSplit(const std::array<int, 3>& tri_vertices) const {
+    std::vector<std::vector<size_t>> components;
+    std::vector<bool> visited(graph.getVertexCount(), false);
+
+    size_t u = tri_vertices[0];
+
+    std::vector<size_t> component;
+
+    std::vector<size_t> queue;
+    queue.push_back(u);
+    visited[u] = true;
+
+    size_t head = 0;
+
+    while (head < queue.size()) {
+      size_t v = queue[head++];
+      component.push_back(v);
+
+      const auto nbrs = graph.inducedNeighbors(v, face_inside);
+
+      for (size_t w : nbrs) {
+        if (!visited[w]) {
+          visited[w] = true;
+
+          // quit early if we found all triangle vertices
+          if (visited[tri_vertices[1]] && visited[tri_vertices[2]]) {
+            return {};  // return empty to indicate no split
+          }
+
+          queue.push_back(w);
+        }
+      }
+    }
+
+    components.push_back(component);
+
+    if (!visited[tri_vertices[1]]) {
+      auto component2 = extractConnectedComponent(tri_vertices[1], visited);
+      components.push_back(component2);
+    }
+
+    if (!visited[tri_vertices[2]]) {
+      auto component3 = extractConnectedComponent(tri_vertices[2], visited);
+      components.push_back(component3);
+    }
+
+    return components;
   }
 
   std::vector<std::vector<size_t>> extractConnectedComponents() const {
