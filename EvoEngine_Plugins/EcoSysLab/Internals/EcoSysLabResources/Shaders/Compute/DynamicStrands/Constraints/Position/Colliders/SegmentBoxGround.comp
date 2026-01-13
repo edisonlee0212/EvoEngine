@@ -30,6 +30,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   uint segment_size;
   float friction;
   float rotational_friction;
+  int apply_damping;
 };
 
 void process_point(inout vec3 p0, inout vec3 p1, inout vec4 q, in vec3 v0, in vec3 v1, inout vec3 torque,
@@ -153,7 +154,7 @@ void main() {
     segments[segment_index].particle0.acceleration = segment.particle0.acceleration;
     segments[segment_index].particle1.acceleration = segment.particle1.acceleration;
     segments[segment_index].reach_ground = segment.reach_ground;
-    if (segment.reach_ground == 1) {
+    if (segment.reach_ground == 1 && apply_damping == 1) {
       segments[segment_index].quasi_stable = 1;
       segments[segment_index].particle0.last_x = segment.particle0.x;
       segments[segment_index].particle1.last_x = segment.particle1.x;

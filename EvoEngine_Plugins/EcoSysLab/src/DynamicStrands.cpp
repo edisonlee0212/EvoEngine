@@ -457,6 +457,11 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
 
     ImGui::TreePop();
   }
+  bool apply_ground_damping = (apply_damping != 0);
+  if (ImGui::Checkbox("Apply ground damping?", &apply_ground_damping)) {
+    apply_damping = apply_ground_damping ? 1 : 0;
+    changed = true;
+  }
 
   if (ImGui::TreeNode("Leaf Parameters:")) {
     if (ImGui::DragFloat("Leaf Break Threshold", &leaf_break_threshold, 0.01f, 0.0f, 1.0f)) {

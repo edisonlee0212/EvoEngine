@@ -31,6 +31,7 @@ class DsBoxCollider : public IDsCollider {
     uint32_t segment_size;
     float friction = 1.0f;
     float rotational_friction;
+    int apply_damping = 1;
   };
 
   struct LeafPositionPushConstant {

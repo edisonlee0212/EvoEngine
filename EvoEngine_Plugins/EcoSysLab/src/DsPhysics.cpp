@@ -263,6 +263,7 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.time_step = physics_parameters.time_step / physics_parameters.sub_step;
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
+  segment_push_constant.apply_damping = physics_parameters.apply_damping;
 
   SegmentPairPredictionPushConstant segment_pair_push_constant;
   segment_pair_push_constant.pair_size = target_dynamic_strands.segment_pairs.size();
@@ -436,6 +437,7 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
   segment_push_constant.inv_time_step = 1.f / segment_push_constant.time_step;
   segment_push_constant.angular_velocity_damping = physics_parameters.segment_angular_velocity_damping;
   segment_push_constant.velocity_damping = physics_parameters.segment_velocity_damping;
+  segment_push_constant.apply_damping = physics_parameters.apply_damping;
 
   LeafPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands.foliage.size();

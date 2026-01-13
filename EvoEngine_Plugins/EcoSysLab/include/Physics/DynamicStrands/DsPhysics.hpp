@@ -149,6 +149,7 @@ class DsPrediction {
     uint32_t segment_size = 0;    ///< Number of segments.
     float time_step = 0.01f;      ///< Time step for simulation.
     float inv_time_step = 100.f;  ///< Inverse of the time step.
+    int apply_damping = 1;        ///< Flag to apply damping.
   };
 
   /**
@@ -240,6 +241,7 @@ class DsVelocityUpdate {
     uint32_t segment_size = 0;
     float angular_velocity_damping;
     float velocity_damping;
+    int apply_damping = 1;
   };
 
   struct LeafPushConstant {

@@ -199,6 +199,7 @@ class DynamicStrands {
     int internal_pattern = 0;
 
     int pull_cubical = 0;
+    int apply_damping = 1;
 
     int leaf_break_from_moisture = 0;
     float leaf_break_threshold = 0.4f;
