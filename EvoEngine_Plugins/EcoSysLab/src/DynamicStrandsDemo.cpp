@@ -511,6 +511,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     board_experiment_setup_settings.center_damage = 0.7f;
     board_experiment_setup_settings.rod_dimension = {160, 10, 20};
     board_experiment_setup_settings.fungus_test = true;
+    board_experiment_setup_settings.left_pivot_type = 0;
 
     dts->BoardExperimentSetup(board_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
