@@ -97,10 +97,14 @@ void main() {
         Segment neighbor_segment = segments[tri.neighbor_segment_index];
         if ((neighbor_segment.next_handle == vertex.segment_index ||
              segment.next_handle == tri.neighbor_segment_index) &&
-            segment.next_handle != -1) {
+            segment.next_handle != -1 && segment.prev_handle != -1) {
           SegmentPair segment_pair = segment_pairs[tri.segment_pair_index];
-          if (segment_pair.connectivity_integrity == 0.0f && segment_pair.bend_twist_bundle_integrity == 0.0f) {
-            segment_meshlet_vertices[vertex_index].shift = vec3(-tri.normal[j].x, tri.normal[j].y, tri.normal[j].z);
+          if (segment_pair.connectivity_integrity == 0.0f && segment_pair.bend_twist_bundle_integrity == 0.0f && (segment.HC < 0.5f || neighbor_segment.HC < 0.5f)) {
+            vec3 n = vec3(-tri.normal[j].x, tri.normal[j].y, tri.normal[j].z);
+
+            if (!any(isnan(n)) && !any(isinf(n))) {
+              segment_meshlet_vertices[vertex_index].shift = n;
+            }
           }
         }
       }

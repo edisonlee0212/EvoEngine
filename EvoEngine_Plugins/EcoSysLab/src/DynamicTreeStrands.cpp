@@ -522,8 +522,8 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
         auto& segment = dynamic_strands->segments[i];
         //segment.C = 0.0f;
         //segment.C_pre = 0.0f;
-        if (segment.particle0.x0[0] < 0.005f && segment.particle0.x0[1] > 1.015f && segment.particle0.x0[2] > -0.24f &&
-            segment.particle0.x0[2] < -0.23f) {
+        if (segment.particle0.x0[0] < 0.005f && segment.particle0.x0[1] > 1.015f && segment.particle0.x0[2] > 0.0f &&
+            segment.particle0.x0[2] < 0.01f) {
             segment.RB = 1.0f;
             segment.RB_pre = 1.0f;
         }
