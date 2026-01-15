@@ -277,12 +277,12 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
 
   auto& boundary_mesh = mesh_builder.getBoundaryMesh();
 
-  bool debug_export_meshes = false;
+  bool debug_export_meshes = true;
 
   if (debug_export_meshes) {
     kinDS::ObjExporter::writeMesh(boundary_mesh, "boundary_mesh.obj");
   }
-  size_t max_meshlet_export = 500;
+  size_t max_meshlet_export = 50000000;
   // intersect all meshes with the boundary mesh and save the result
   // Build an AABB-tree of the boundary-mesh to prefilter
   kinDS::MeshIntersection boundary_intersector(boundary_mesh);

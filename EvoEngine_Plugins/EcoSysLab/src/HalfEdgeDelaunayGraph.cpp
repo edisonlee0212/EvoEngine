@@ -258,7 +258,7 @@ void kinDS::HalfEdgeDelaunayGraph::flipEdge(size_t he_id) {
   triangles[twin.face].half_edges[1] = twin_last_id;  // Update the second half-edge of the twin face
   triangles[twin.face].half_edges[2] = he_next_id;    // Update the third half-edge of the twin face
 
-  EVOENGINE_LOG("Flipped edge " << he_id << " between vertices " << u << " and " << v << ".");
+  // EVOENGINE_LOG("Flipped edge " << he_id << " between vertices " << u << " and " << v << ".");
 
   // printDebug();
 }

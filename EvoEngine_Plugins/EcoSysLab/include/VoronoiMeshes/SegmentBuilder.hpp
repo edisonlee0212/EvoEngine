@@ -8,7 +8,9 @@ namespace kinDS {
 struct ComponentData {
   std::vector<std::vector<size_t>> components;
   std::vector<size_t> component_map;
-  std::vector<std::vector<BoundaryPoint>> component_boundaries;
+  // [component_index][boundary_no][point_no] - the first boundary is the outer one, any additional ones are holes in
+  // the polygon
+  std::vector<std::vector<std::vector<BoundaryPoint>>> component_boundaries;
   std::vector<Point<2>> component_centroids;
   std::vector<double> component_last_updated;
 };
@@ -80,6 +82,8 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   std::vector<BoundaryPoint> traceConvexHull(double t) const;
 
   void advanceBoundaryMesh(double t, const std::vector<BoundaryPoint>& boundary_points, const Point<2>& centroid);
+
+  void advanceBoundaryMeshes(double t);
 
   size_t createClosingMesh(size_t strand_id, double t, const std::vector<BoundaryPoint>& boundary_polygon,
                            const Point<2>& centroid);

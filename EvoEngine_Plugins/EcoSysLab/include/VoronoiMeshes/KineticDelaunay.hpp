@@ -305,8 +305,8 @@ class KineticDelaunay {
         center[0] /= trajs.size();
         center[1] /= trajs.size();
 
-        EVOENGINE_LOG("Swap Event at time " << event_time << " for half-edge ID " << he_id << " at center position "
-                                            << center.toString().c_str());
+        // EVOENGINE_LOG("Swap Event at time " << event_time << " for half-edge ID " << he_id << " at center position "
+        // << center.toString().c_str());
 
         events.emplace(
             Event(event_time, he_id, t, center, Event::SWAP));  // Store the event with the time and half-edge index
@@ -337,7 +337,7 @@ class KineticDelaunay {
     }
 
     // Process the event at the given time
-    EVOENGINE_LOG("Processing event at time " << event.time << " for half-edge ID " << event.half_edge_id);
+    // EVOENGINE_LOG("Processing swap event at time " << event.time << " for half-edge ID " << event.half_edge_id);
 
     // Call the event handler if provided
     event_handler.beforeEvent(event);
@@ -573,6 +573,60 @@ class KineticDelaunay {
     return components;
   }
 
+  std::vector<BoundaryPoint> traverseBoundary(size_t start_he_id, double t) const {
+    // Walk the boundary to extract the boundary half-edges
+    // std::vector<size_t> boundary_he_ids;
+    std::vector<BoundaryPoint> boundary_points;
+    size_t he_id = start_he_id;
+    do {
+      // boundary_he_ids.push_back(he_id);
+      size_t origin = graph.getHalfEdges()[he_id].origin;
+      Point<2> pos = splines[origin].evaluate(t);
+      boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
+      he_id = nextOnComponentBoundaryId(he_id);
+    } while (he_id != start_he_id);
+
+    return boundary_points;
+  }
+
+  std::vector<std::vector<BoundaryPoint>> extractComponentBoundaries(const std::vector<size_t>& component, double t,
+                                                                     std::vector<bool>& he_visited) const {
+    std::vector<std::vector<BoundaryPoint>> boundaries;
+    double min_x = std::numeric_limits<double>::infinity();
+    // TODO: this is not perfectly safe if points of the outer and an inner boundary coincide at the minimum
+    size_t min_x_id = 0;
+    for (size_t i = 0; i < component.size(); i++) {
+      const size_t& v = component[i];
+
+      for (auto it = graph.incidentEdgesBegin(v); it != graph.incidentEdgesEnd(v); it++) {
+        auto he_id = *it;
+
+        if (he_visited[he_id] || !isOnComponentBoundaryOutside(he_id)) {
+          continue;
+        }
+
+        auto boundary_points = traverseBoundary(he_id, t);
+
+        for (auto& bp : boundary_points) {
+          he_visited[bp.he_id] = true;
+          if (bp.p[0] < min_x) {
+            min_x = bp.p[0];
+            min_x_id = boundaries.size();
+          }
+        }
+
+        boundaries.emplace_back(boundary_points);
+      }
+    }
+
+    // swap the boundary with the minimum x to the front
+    if (min_x_id != 0) {
+      std::swap(boundaries[0], boundaries[min_x_id]);
+    }
+
+    return boundaries;
+  }
+
   std::vector<BoundaryPoint> extractComponentBoundary(const std::vector<size_t>& component, double t) const {
     // Find an extreme point to start the boundary walk as it must be on the boundary
     // Note that merely being on the outside of the boundary is not sufficent as there can also be holes inside the
@@ -600,19 +654,7 @@ class KineticDelaunay {
       }
     }
 
-    // Walk the boundary to extract the boundary half-edges
-    // std::vector<size_t> boundary_he_ids;
-    std::vector<BoundaryPoint> boundary_points;
-    size_t he_id = start_he_id;
-    do {
-      // boundary_he_ids.push_back(he_id);
-      size_t origin = graph.getHalfEdges()[he_id].origin;
-      Point<2> pos = splines[origin].evaluate(t);
-      boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
-      he_id = nextOnComponentBoundaryId(he_id);
-    } while (he_id != start_he_id);
-
-    return boundary_points;
+    return traverseBoundary(start_he_id, t);
   }
 
   bool faceInside(size_t face_index) const {
