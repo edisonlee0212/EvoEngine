@@ -368,7 +368,38 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   //  editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   //}
 
-  if (ImGui::Button("Fungus [Internal]")) {
+  //if (ImGui::Button("Fungus [Internal]")) {
+  //  ResetEnvironment(editor_layer);
+  //  camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+  //  camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+  //  target_factor0 = 1.5f;
+  //  demo_type = DemoType::Fungus;
+  //  demo_status = DemoStatus::Simulation;
+  //  log_experiment_setup_settings.rod_segment_count = 10;
+  //  log_experiment_setup_settings.rod_segment_count = 20;
+  //  log_experiment_setup_settings.rod_size = 3200;
+  //  log_experiment_setup_settings.segment_length = 0.025f;
+  //  log_experiment_setup_settings.fungus_test = true;
+  //  log_experiment_setup_settings.internal_pattern = true;
+  //  log_experiment_setup_settings.cube_pattern = false;
+  //  physics_parameters.enable_fungus = false;
+  //  physics_parameters.pivot_ring_radius = 0.05f;
+
+  //  log_experiment_setup_settings.right_pivot_type =
+  //      static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+  //  log_experiment_setup_settings.left_pivot_type =
+  //      static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+
+  //  physics_parameters.gravity = glm::vec3(0.f, 0.f, 0.f);
+  //  dts->initialize_parameters.max_segment_length = 0.01f;
+  //  dts->initialize_parameters.min_segment_length = 0.005f;
+
+  //  dts->LogExperimentSetup(log_experiment_setup_settings);
+  //  editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+  //  editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  //}
+
+  if (ImGui::Button("Fungus [Cracking]")) {
     ResetEnvironment(editor_layer);
     camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
     camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
@@ -382,8 +413,9 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     log_experiment_setup_settings.fungus_test = true;
     log_experiment_setup_settings.internal_pattern = true;
     log_experiment_setup_settings.cube_pattern = false;
+    log_experiment_setup_settings.rod_segment_count = 10;
     physics_parameters.enable_fungus = false;
-    physics_parameters.pivot_ring_radius = 0.05f;
+    //physics_parameters.pivot_ring_radius = 0.05f;
 
     log_experiment_setup_settings.right_pivot_type =
         static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
@@ -393,6 +425,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     physics_parameters.gravity = glm::vec3(0.f, 0.f, 0.f);
     dts->initialize_parameters.max_segment_length = 0.01f;
     dts->initialize_parameters.min_segment_length = 0.005f;
+    log_experiment_setup_settings.right_pivot_type = 0;
 
     dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());

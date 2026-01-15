@@ -281,8 +281,8 @@ void BundleSegmentPosition(in uint segment_handle, in float inv_time_step, in fl
   if (length(dot(L_normal_world, up)) > 0.99) {
     up = vec3(0.0, -1.0, 0.0);
   }
-  vec3 localX = -normalize(cross(up, L_normal_world));
-  vec3 localY = normalize(cross(localX, L_normal_world));
+  vec3 localX = normalize(cross(up, L_normal_world));
+  vec3 localY = -normalize(cross(localX, L_normal_world));
   vec3 R_normal_world =
       normalize(segments[segment_handle].profile_position.x * localX + segments[segment_handle].profile_position.y * localY);
   vec3 T_normal_world = normalize( - segments[segment_handle].profile_position.y * localX +

@@ -205,8 +205,8 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::TreeNode("Preset Settings")) {
     if (ImGui::Button("Log Crack")) {
       bundle_strength_factor = 1.2f;
-      crack_bd_shrinkage_offset = 0.1f;
-      crack_R_scale = 1.0f;
+      crack_bd_shrinkage_offset = 0.0f;
+      crack_R_scale = 0.0f;
       crack_T_scale = 1.0f;
       boundary_strength_decay_factor = 3.0f;
       internal_pattern = 1;
