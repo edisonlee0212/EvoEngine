@@ -27,7 +27,8 @@ void printStrandGuidePoints(const std::vector<std::vector<kinDS::Point<2>>>& str
 static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
                                 std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
                                 std::vector<kinDS::CubicHermiteSpline<2>> strand_splines) {
-  kinDS::KineticDelaunay kinetic_delaunay(strand_splines);
+  // TODO: Here we could only extract the boundary mesh and use it
+  kinDS::KineticDelaunay kinetic_delaunay(strand_splines, 10.0);
 
   kinetic_delaunay.init();
   kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, strand_splines);

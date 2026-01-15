@@ -83,6 +83,10 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
 
   void advanceBoundaryMesh(double t, const std::vector<BoundaryPoint>& boundary_points, const Point<2>& centroid);
 
+  void updateBoundary(double t, std::vector<bool>& visited, size_t component_index);
+
+  void updateBoundaries(double t);
+
   void advanceBoundaryMeshes(double t);
 
   size_t createClosingMesh(size_t strand_id, double t, const std::vector<BoundaryPoint>& boundary_polygon,

@@ -206,7 +206,7 @@ void kinDS::HalfEdgeDelaunayGraph::flipEdge(size_t he_id) {
 
   // Check if we can flip the edge
   if (he.face == -1 || twin.face == -1) {
-    EVOENGINE_ERROR("Cannot flip edge " << he_id << " because one of the triangles is a boundary triangle.");
+    EVOENGINE_ERROR("Cannot flip edge " << he_id << " because one of the triangles is invalid.");
     return;
   }
 

@@ -249,7 +249,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   std::vector<std::pair<size_t, double>> subdivisions = MergeSortedVectors(subdivisions_by_strand);
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
-  kinDS::KineticDelaunay kinetic_delaunay(strand_splines);
+  kinDS::KineticDelaunay kinetic_delaunay(strand_splines,
+                                          render_settings.segment_meshlet_render_parameters.alpha_cutoff);
 
   kinetic_delaunay.init();
   kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, strand_splines, subdivisions);
@@ -626,7 +627,10 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     DtsStrandGroup& uniformly_subdivided_strand_group) {
   const auto& randomly_subdivided_strands = randomly_subdivided_strand_group.PeekStrands();
   const auto& randomly_subdivided_strand_segments = randomly_subdivided_strand_group.PeekStrandSegments();
-
+  if (randomly_subdivided_strands.empty()) {
+    EVOENGINE_LOG("Strand Group is empty!");
+    return;
+  }
   strand_model_strand_group.UniformlySubdivide<DtsStrandGroupData, DtsStrandData, DtsStrandSegmentData>(
       uniformly_subdivided_strand_group, initialize_parameters.uniform_subdivision,
       [&](const StrandHandle src_handle, DtsStrandData& strand_data) {

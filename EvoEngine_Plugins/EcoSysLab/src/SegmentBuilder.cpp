@@ -286,11 +286,13 @@ size_t kinDS::SegmentBuilder::addBoundaryTriangle(size_t u, size_t v, size_t w) 
   // check bounds
   if (u >= boundary_mesh.getVertexCount() || v >= boundary_mesh.getVertexCount() ||
       w >= boundary_mesh.getVertexCount()) {
-    throw std::out_of_range("Vertex index out of boundary mesh range.");
+    EVOENGINE_ERROR("Vertex index out of boundary mesh range.");
+    return -1;
   }
 
   if (u >= boundary_mesh_raw_uvs.size() || v >= boundary_mesh_raw_uvs.size() || w >= boundary_mesh_raw_uvs.size()) {
-    throw std::out_of_range("Vertex index out of raw uv range.");
+    EVOENGINE_ERROR("Vertex index out of raw uv range.");
+    return -1;
   }
 
   // get raw UVs
@@ -398,7 +400,7 @@ void kinDS::SegmentBuilder::addVoronoiTriangulationToBoundaryMesh(double t, bool
       }
     }
     // skip faces that are outside
-    if (!kin_del.faceInside(face_index)) {
+    if (!kin_del.getFaceInside(face_index)) {
       continue;
     }
 
@@ -465,7 +467,27 @@ void kinDS::SegmentBuilder::advanceBoundaryMesh(double t, const std::vector<Boun
   }
 }
 
+void kinDS::SegmentBuilder::updateBoundary(double t, std::vector<bool>& visited, size_t component_index) {
+  if (component_data.component_last_updated[component_index] != t) {
+    component_data.component_boundaries[component_index] =
+        kin_del.extractComponentBoundaries(component_data.components[component_index], t, visited);
+    component_data.component_centroids[component_index] =
+        polygonCentroid(component_data.component_boundaries[component_index][0]);
+    component_data.component_last_updated[component_index] = t;
+  }
+}
+
+void kinDS::SegmentBuilder::updateBoundaries(double t) {
+  std::vector<bool> visited(kin_del.getGraph().getHalfEdges().size(), false);
+
+  for (size_t component_index = 0; component_index < component_data.components.size(); component_index++) {
+    updateBoundary(t, visited, component_index);
+  }
+}
+
 void kinDS::SegmentBuilder::advanceBoundaryMeshes(double t) {
+  updateBoundaries(t);
+
   for (size_t component_index = 0; component_index < component_data.components.size(); component_index++) {
     auto& boundaries = component_data.component_boundaries[component_index];
     auto& centroid = component_data.component_centroids[component_index];
@@ -721,6 +743,7 @@ void SegmentBuilder::beforeEvent(KineticDelaunay::Event& e) {
      * The mesh can later be completed as usual because we update the last left and right vertex indices accordingly.
      */
 
+    // TODO: make sure this is equivalent to component boundary
     size_t outer_he_id =
         kin_del.isOnComponentBoundaryOutside(e.half_edge_id) ? e.half_edge_id : graph.twin(e.half_edge_id);
     size_t inner_he_id = outer_he_id ^ 1;
@@ -752,6 +775,7 @@ void SegmentBuilder::beforeEvent(KineticDelaunay::Event& e) {
 }
 
 void SegmentBuilder::afterEvent(KineticDelaunay::Event& e) {
+  updateBoundaries(e.time);
   auto& graph = kin_del.getGraph();
   const auto& he = graph.getHalfEdges()[e.half_edge_id];
   const auto& twin_he = graph.getHalfEdges()[e.half_edge_id ^ 1];
@@ -848,7 +872,7 @@ void SegmentBuilder::afterEvent(KineticDelaunay::Event& e) {
     Point<2> old_boundary_vertex = splines[opposite_vertex].evaluate(e.time);
 
     size_t old_boundary_vertex_index = boundary_mesh.getVertices().size();
-    // TODO: raw UVs
+    // TODO: UV should correspond to a relative distance of 1.0
     addBoundaryVertex(Point<3>{old_boundary_vertex[0], old_boundary_vertex[1], e.time}, centroid);
 
     size_t he1_id = graph.getHalfEdges()[inner_he_id].next;
@@ -872,12 +896,20 @@ void SegmentBuilder::afterEvent(KineticDelaunay::Event& e) {
     boundary_mesh_last_left_and_right_vertex[he1_id] = std::make_pair(-1, -1);
     boundary_mesh_last_left_and_right_vertex[he2_id] = std::make_pair(-1, -1);
   }
+
+  // update the boundaries (TODO: maybe do this beforehand for the UV mapping?)
+  std::vector<bool> visited(kin_del.getGraph().getHalfEdges().size(), false);
+  component_data.component_boundaries[component_id] =
+      kin_del.extractComponentBoundaries(component_data.components[component_id], e.time, visited);
+  component_data.component_centroids[component_id] =
+      polygonCentroid(component_data.component_boundaries[component_id][0]);
+  component_data.component_last_updated[component_id] = e.time;
 }
 
 void kinDS::SegmentBuilder::beforeBoundaryEvent(KineticDelaunay::Event& e) {
   // Build the boundary mesh at the event time
   size_t face_id = kin_del.getGraph().getHalfEdges()[e.half_edge_id].face;
-  bool is_inside = kin_del.faceInside(face_id);
+  bool is_inside = kin_del.getFaceInside(face_id);
 
   // For each half-edge of the face, check if it is on the boundary
   auto& graph = kin_del.getGraph();
@@ -1075,7 +1107,7 @@ void kinDS::SegmentBuilder::beforeBoundaryEvent(KineticDelaunay::Event& e) {
 }
 
 void kinDS::SegmentBuilder::afterBoundaryEvent(KineticDelaunay::Event& e) {
-  // TODO: update the component data structure
+  // update the component data structure
   auto& graph = kin_del.getGraph();
   auto vertices = graph.adjacentTriangleVertices(e.half_edge_id);
   size_t component_id = component_data.component_map[vertices[0]];
@@ -1100,8 +1132,10 @@ void kinDS::SegmentBuilder::insertSubdivision(size_t strand_id, double t) {
   auto& graph = kin_del.getGraph();
 
   // compute boundary polygon for component at time t
-  std::vector<bool> visited(graph.getVertexCount(), false);
+  std::vector<bool> he_visited(graph.getHalfEdges().size(), false);
   size_t component_id = component_data.component_map[strand_id];
+  updateBoundary(t, he_visited, component_id);
+
   auto& boundary_polygon = component_data.component_boundaries[component_id][0];
   auto centroid = polygonCentroid(boundary_polygon);
 
@@ -1158,6 +1192,8 @@ void SegmentBuilder::finalize(double t) {
     insertSubdivision(subdivisions[subdivision_index].first, subdivisions[subdivision_index].second);
     subdivision_index++;
   }
+
+  updateBoundaries(t);
 
   // Finalize the segments by finishing all meshes
   auto& graph = kin_del.getGraph();

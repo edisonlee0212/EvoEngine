@@ -1,4 +1,6 @@
 #pragma once
+#include <limits>
+
 #include "CubicHermiteSpline.hpp"
 #include "DsMeshing.hpp"
 
@@ -45,6 +47,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     float uv_height_factor = 0.02f;
     float uv_circum_factor = 2.0f;
     float fracture_distance = 0.0004f;
+    double alpha_cutoff = std::numeric_limits<double>::infinity();
   };
 
   struct RenderSettings {

@@ -101,7 +101,7 @@ class KineticDelaunay {
   HalfEdgeDelaunayGraph graph;
   EventQueue events;
   size_t sections_advanced = 0;               // Counter for the number of sections advanced
-  double cutoff = 10.0;                       // Cutoff radius for boundary events
+  double cutoff;                              // Cutoff radius for boundary events
   std::vector<bool> face_inside;              // Tracks whether faces are inside or outside the boundary
   std::vector<size_t> branch_ids;             // track branch ID for each vertex/spline
   std::vector<std::vector<size_t>> branches;  // track which vertices/splines belong to which branch
@@ -170,6 +170,11 @@ class KineticDelaunay {
   }
 
   void computeBoundaryEvents(double t, size_t he_id) {
+    if (cutoff == std::numeric_limits<double>::infinity()) {
+      // no boundary events wanted
+      return;
+    }
+
     const size_t section = static_cast<size_t>(t);
     const float fraction = t - section;
 
@@ -342,7 +347,57 @@ class KineticDelaunay {
     // Call the event handler if provided
     event_handler.beforeEvent(event);
 
+    size_t face_id = graph.getHalfEdges()[event.half_edge_id].face;
+    size_t twin_face_id = graph.getHalfEdges()[event.half_edge_id ^ 1].face;
+    EVOENGINE_LOG("Processing swap event at time " << event.time << " for half-edge ID " << event.half_edge_id
+                                                   << ". Faces inside " << face_inside[face_id] << " | "
+                                                   << face_inside[twin_face_id]);
+
+    // Faces swapped to the inside start out with an infinite circumradius, therefore their state depends on the cutoff
+    if (graph.getHalfEdges()[event.half_edge_id].origin == -1) {
+      EVOENGINE_LOG("Swapping face of half-edge " << event.half_edge_id << " to the inside at t = " << event.time);
+      face_inside[twin_face_id] = (cutoff == std::numeric_limits<double>::infinity());
+    }
+
+    if (graph.getHalfEdges()[event.half_edge_id ^ 1].origin == -1) {
+      EVOENGINE_LOG("Swapping face of twin half-edge " << (event.half_edge_id ^ 1)
+                                                       << " to the inside at t = " << event.time);
+      face_inside[face_id] = (cutoff == std::numeric_limits<double>::infinity());
+    }
+
+    EVOENGINE_LOG("Pre-flip: " << event.time << " for half-edge ID " << event.half_edge_id << ". Faces inside "
+                               << face_inside[face_id] << " | " << face_inside[twin_face_id]);
+
     graph.flipEdge(event.half_edge_id);
+
+    EVOENGINE_LOG("Post-flip:  " << event.time << " for half-edge ID " << event.half_edge_id << ". Faces inside "
+                                 << face_inside[face_id] << " | " << face_inside[twin_face_id]);
+
+    // one of the triangles might have been swapped outside
+    auto tri_verts1 = graph.adjacentTriangleVertices(event.half_edge_id);
+
+    for (auto& v : tri_verts1) {
+      if (v == -1) {
+        size_t face_id = graph.getHalfEdges()[event.half_edge_id].face;
+        EVOENGINE_LOG("Swapped face " << face_id << " of half-edge " << event.half_edge_id
+                                      << " to the outside at t = " << event.time);
+        setFaceInside(face_id, false);
+      }
+    }
+
+    auto tri_verts2 = graph.adjacentTriangleVertices(event.half_edge_id ^ 1);
+    for (auto& v : tri_verts2) {
+      if (v == -1) {
+        size_t face_id = graph.getHalfEdges()[event.half_edge_id ^ 1].face;
+        EVOENGINE_LOG("Swapped face " << face_id << " of half-edge " << (event.half_edge_id ^ 1)
+                                      << " to the outside at t = " << event.time);
+        setFaceInside(face_id, false);
+      }
+    }
+
+    EVOENGINE_LOG("Processed swap event at time " << event.time << " for half-edge ID " << event.half_edge_id
+                                                  << ". Faces inside " << face_inside[face_id] << " | "
+                                                  << face_inside[twin_face_id]);
 
     // After flipping the edge, we need to recompute the events for all surrounding half-edges
     size_t next1 = graph.getHalfEdges()[event.half_edge_id].next;
@@ -373,7 +428,7 @@ class KineticDelaunay {
     // Call the event handler if provided
     event_handler.beforeBoundaryEvent(event);
     size_t face_id = graph.getHalfEdges()[event.half_edge_id].face;
-    face_inside[face_id] = !face_inside[face_id];
+    setFaceInside(face_id, face_inside[face_id]);
 
     event_handler.afterBoundaryEvent(event);
   }
@@ -396,7 +451,7 @@ class KineticDelaunay {
   }
 
  public:
-  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines) : splines(splines) {
+  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines, double cutoff) : splines(splines), cutoff(cutoff) {
   }
 
   std::vector<Point<2>> getPointsAt(double t) const {
@@ -436,7 +491,11 @@ class KineticDelaunay {
       double r = circumradius(points[0], points[1], points[2]);
       // EVOENGINE_LOG("Circumradius: " << r);
       if (r < cutoff) {
-        face_inside[face_index] = true;
+        setFaceInside(face_index, true);
+      } else {
+        EVOENGINE_LOG("Face outside! Index:" << face_index << "; Circumradius: " << r << " Points: {"
+                                             << points[0].toString() << ", " << points[1].toString() << ", "
+                                             << points[2].toString() << "}");
       }
     }
 
@@ -575,12 +634,13 @@ class KineticDelaunay {
 
   std::vector<BoundaryPoint> traverseBoundary(size_t start_he_id, double t) const {
     // Walk the boundary to extract the boundary half-edges
-    // std::vector<size_t> boundary_he_ids;
     std::vector<BoundaryPoint> boundary_points;
     size_t he_id = start_he_id;
     do {
-      // boundary_he_ids.push_back(he_id);
       size_t origin = graph.getHalfEdges()[he_id].origin;
+      if (origin == -1) {
+        EVOENGINE_ERROR("Followed infinite edge.");
+      }
       Point<2> pos = splines[origin].evaluate(t);
       boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
       he_id = nextOnComponentBoundaryId(he_id);
@@ -603,6 +663,13 @@ class KineticDelaunay {
 
         if (he_visited[he_id] || !isOnComponentBoundaryOutside(he_id)) {
           continue;
+        }
+
+        if (graph.destination(he_id) == -1) {
+          EVOENGINE_ERROR("Destination of half-edge is invalid");
+        }
+        if (graph.getHalfEdges()[he_id].origin == -1) {
+          EVOENGINE_ERROR("Origin of half-edge is invalid");
         }
 
         auto boundary_points = traverseBoundary(he_id, t);
@@ -657,8 +724,22 @@ class KineticDelaunay {
     return traverseBoundary(start_he_id, t);
   }
 
-  bool faceInside(size_t face_index) const {
+  bool getFaceInside(size_t face_index) const {
     return face_inside[face_index];
+  }
+
+  void setFaceInside(size_t face_index, bool value) {
+    if (value) {
+      auto tri_vertices = graph.adjacentTriangleVertices(graph.getFaces()[face_index].half_edges[0]);
+
+      for (int& v : tri_vertices) {
+        if (v == -1) {
+          // cannot set face with infinite vertex to inside
+          throw std::runtime_error("Cannot set face " + std::to_string(face_index) + " to inside!");
+        }
+      }
+    }
+    face_inside[face_index] = value;
   }
 
   bool isOnComponentBoundary(size_t he_id) const {
