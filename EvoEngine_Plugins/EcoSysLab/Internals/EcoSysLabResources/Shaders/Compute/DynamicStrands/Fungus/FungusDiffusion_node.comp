@@ -85,7 +85,7 @@ void main() {
     float cellular_offset = 1.0f;
     if (segments[segment_index].HL_pre > 0.48 && segments[segment_index].HL_pre < 0.5)
     {
-      cellular_offset = 0.015f;
+      cellular_offset = 0.05f;
     }
 
     // Update chemical protection (C)
