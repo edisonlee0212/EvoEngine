@@ -113,10 +113,10 @@ void main() {
       // connectivity_strain_limit *= 0.0005f;
       connectivity_strain_limit *= max(5.f * scaling_factor / 6.f, 0.0004f);
       bending_twist_bundle_strain_limit.x *= 0.4f * scaling_factor;
-      // if (segments[segment0_handle].particle0.x[1] > 0.1)
-      //{
-      //   bending_twist_bundle_strain_limit.x *= 0.45f;
-      // } //Disabled hacking for spruce case (0.25) and oak case (0.4 - 0.48)
+      if (segments[segment0_handle].particle0.x[1] > 0.1)
+      {
+         bending_twist_bundle_strain_limit.x *= 0.45f;
+      } //Disabled hacking for spruce case (0.25) and oak case (0.4 - 0.48)
       bending_twist_bundle_strain_limit.y *= 0.4f * scaling_factor;
       bending_twist_bundle_strain_limit.z *=
           (1.0f - bd * boundary_strength_decay_factor) * bundle_scaling_factor;  // for log
