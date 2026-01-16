@@ -515,9 +515,19 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
   if (settings.fungus_test) {
     {
-      auto& segment = dynamic_strands->segments[0];
+      /*auto& segment = dynamic_strands->segments[0];
       segment.RB = 1.0f;
-      segment.RB_pre = 1.0f;
+      segment.RB_pre = 1.0f;*/
+      Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+        auto& segment = dynamic_strands->segments[i];
+        //segment.C = 0.0f;
+        //segment.C_pre = 0.0f;
+        if (segment.particle0.x0[0] < 0.005f && segment.particle0.x0[1] > 1.015f && segment.particle0.x0[2] > 0.0f &&
+            segment.particle0.x0[2] < 0.01f) {
+            segment.RB = 1.0f;
+            segment.RB_pre = 1.0f;
+        }
+      });
       Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
       std::vector<Region> regions;
       Node_tilt* root = build_bsp_tilt(INIT, /*N=*/3200, 0.1f, 1.8f, 10,
@@ -532,7 +542,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       }
       Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
         auto& segment = dynamic_strands->segments[i];
-        std::array<float, 3> pt = {segment.profile_position[0], segment.profile_position[1],
+        std::array<float, 3> pt = {segment.profile_position[0] + 1.0f, segment.profile_position[1],
                                    segment.particle0.x[0] + 0.05f};
         int id = classify_point_jitter_axis(pt, root, 0.000f, 0xA53A5F1Bu, true);
         segment.color = region_colors[id];
@@ -825,10 +835,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   initialize_parameters.trunk_additional_strength = false;
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = false;
-  if (settings.fungus_test) {
-    initialize_parameters.min_segment_length = 0.015f;
-    initialize_parameters.max_segment_length = 0.03f;
-  }
+  //if (settings.fungus_test) {
+  //  initialize_parameters.min_segment_length = 0.015f;
+  //  initialize_parameters.max_segment_length = 0.03f;
+  //}
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
   const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();
@@ -870,9 +880,9 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   if (settings.fungus_test) {
     if (settings.competition_setting == false) {
       auto& segment = dynamic_strands->segments[0];
-      segment.RW = 1.0f;
+      //segment.RW = 1.0f;
       segment.RB = 1.0f;
-      segment.RW_pre = 1.0f;
+      //segment.RW_pre = 1.0f;
       segment.RB_pre = 1.0f;
       /*Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
         auto& segment = dynamic_strands->segments[i];
@@ -945,7 +955,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
                                    segment.particle0.x[0]};
         // int id = classify_point(pt, root);
         // int id = classify_point_tilt(pt, root);
-        int id = classify_point_jitter_axis(pt, root, 0.002f, 0xA53A5F1Bu, false);
+        int id = classify_point_jitter_axis(pt, root, 0.0001f, 0xA53A5F1Bu, false);
         segment.color = region_colors[id];
       });
     }

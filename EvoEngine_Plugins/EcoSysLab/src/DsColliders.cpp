@@ -166,6 +166,7 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
   segment_push_constant.softness = softness;
   segment_push_constant.friction = friction;
   segment_push_constant.rotational_friction = rotational_friction;
+  segment_push_constant.apply_damping = physics_parameters.apply_damping;
   LeafPositionPushConstant leaf_push_constant;
   leaf_push_constant.obb_center = global_transform.GetPosition();
   leaf_push_constant.obb_scale = size;

@@ -205,8 +205,8 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::TreeNode("Preset Settings")) {
     if (ImGui::Button("Log Crack")) {
       bundle_strength_factor = 1.2f;
-      crack_bd_shrinkage_offset = 0.1f;
-      crack_R_scale = 1.0f;
+      crack_bd_shrinkage_offset = 0.0f;
+      crack_R_scale = 0.0f;
       crack_T_scale = 1.0f;
       boundary_strength_decay_factor = 3.0f;
       internal_pattern = 1;
@@ -233,7 +233,7 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f);
       // time_step = 0.005f;
       bb = 0.5f;
-      be = 0.5f;  // ZY: Test it!
+      be = 0.5f; 
       changed = true;
     }
     if (ImGui::Button("Elm")) {
@@ -456,6 +456,11 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     }
 
     ImGui::TreePop();
+  }
+  bool apply_ground_damping = (apply_damping != 0);
+  if (ImGui::Checkbox("Apply ground damping?", &apply_ground_damping)) {
+    apply_damping = apply_ground_damping ? 1 : 0;
+    changed = true;
   }
 
   if (ImGui::TreeNode("Leaf Parameters:")) {

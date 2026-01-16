@@ -30,6 +30,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   uint segment_size;
   float angular_velocity_damping;
   float velocity_damping;
+  int apply_damping;
 };
 
 void main() {
@@ -73,7 +74,7 @@ void main() {
     vec3 up = vec3(0.0, 1.0, 0.0);
     vec3 down = vec3(0.0, -1.0, 0.0);
     float friction = 0.8 * 9.8;
-    if (segments[segment_index].reach_ground == 1) {  // Todo: Enhanced Friction Model
+    if (segments[segment_index].reach_ground == 1 && apply_damping == 1) {  // Todo: Enhanced Friction Model
       segments[segment_index].particle0.v = scaleAlongDirectional(segments[segment_index].particle0.v, up, 0.1);
       segments[segment_index].particle1.v = scaleAlongDirectional(segments[segment_index].particle1.v, up, 0.1);
 

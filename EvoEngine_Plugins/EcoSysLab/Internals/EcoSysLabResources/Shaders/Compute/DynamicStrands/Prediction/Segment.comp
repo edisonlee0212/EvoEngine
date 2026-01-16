@@ -25,6 +25,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   uint segment_size;
   float time_step;
   float inv_time_step;
+  int apply_damping;
 };
 
 void main() {
@@ -55,7 +56,7 @@ void main() {
     // Apply velocity
     segment.particle0.x += time_step * segment.particle0.v;
 
-    if (segment.quasi_stable == 1 && length(segment.particle0.v) < 5e-3) {
+    if (segment.quasi_stable == 1 && length(segment.particle0.v) < 5e-3 && apply_damping == 1) {
       segment.particle0.x = segment.particle0.last_x;
     }
 
@@ -64,7 +65,7 @@ void main() {
     // Apply velocity
     segment.particle1.x += time_step * segment.particle1.v;
 
-    if (segment.quasi_stable == 1 && length(segment.particle1.v) < 5e-3)  // 5e-3
+    if (segment.quasi_stable == 1 && length(segment.particle1.v) < 5e-3 && apply_damping == 1)  // 5e-3
     {
       segment.particle1.x = segment.particle1.last_x;
     }
