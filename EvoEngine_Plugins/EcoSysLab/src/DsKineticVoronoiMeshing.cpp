@@ -200,8 +200,8 @@ std::optional<std::array<size_t, 2>> FindNonIdenticalPair(std::function<glm::vec
   return std::optional<std::array<size_t, 2>>();  // all points identical
 }
 
-glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_transforms, kinDS::Point<3> point, float t,
-                                    float w = 1.0f) {
+glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_transforms, kinDS::VoronoiPoint<3> point,
+                                    float t, float w = 1.0f) {
   size_t lower_section_index = static_cast<size_t>(glm::floor(t));
   size_t upper_section_index = static_cast<size_t>(glm::ceil(t));
 
@@ -234,7 +234,7 @@ glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_tra
   return glm::vec3(global_pos);
 }
 
-glm::vec3 ToVec3(const kinDS::Point<3>& a) {
+glm::vec3 ToVec3(const kinDS::VoronoiPoint<3>& a) {
   return glm::vec3(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]));
 }
 
@@ -708,7 +708,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
-  std::vector<std::pair<std::vector<kinDS::Point<2>>, std::vector<SkeletonNodeHandle>>> strand_guide_points(
+  std::vector<std::pair<std::vector<kinDS::VoronoiPoint<2>>, std::vector<SkeletonNodeHandle>>> strand_guide_points(
       randomly_subdivided_strands.size());
   std::vector<int> uniform_particle_offsets(randomly_subdivided_strands.size());
   if (!uniform_particle_offsets.empty())
@@ -743,8 +743,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
         uniformly_subdivided_strand.PeekStrandSegmentHandles()[0]);
     auto node_handle = first_uniform_segment_data.node_handle;
     // First 2 particles within same strand will always have same profile position/polar coordinate.
-    kinDS::Point<2> profile_position{first_uniform_segment_data.profile_position.x,
-                                     first_uniform_segment_data.profile_position.y};
+    kinDS::VoronoiPoint<2> profile_position{first_uniform_segment_data.profile_position.x,
+                                            first_uniform_segment_data.profile_position.y};
     strand_guide_points[strand_index].first.push_back(profile_position);
     strand_guide_points[strand_index].second.push_back(node_handle);
 
@@ -758,8 +758,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
       const auto& uniform_segment = uniformly_subdivided_strand_group.PeekStrandSegment(segment_handle);
       auto node_handle = uniform_segment_data.node_handle;
-      kinDS::Point<2> profile_position{uniform_segment_data.profile_position.x,
-                                       uniform_segment_data.profile_position.y};
+      kinDS::VoronoiPoint<2> profile_position{uniform_segment_data.profile_position.x,
+                                              uniform_segment_data.profile_position.y};
 
       /* if (uniform_segment_data.segment_index != strand_guide_points[strand_index].size()) {
         EVOENGINE_WARNING(std::string("Deviation detected in guide point generation: guide point no. " +

@@ -46,9 +46,10 @@ class HalfEdgeDelaunayGraph {
   // Other methods to manipulate and query the triangulation can be added here.
   void printDebug() const;
 
-  static Point<2> circumcenter(const Point<2>& a, const Point<2>& b, const Point<2>& c);
+  static VoronoiPoint<2> circumcenter(const VoronoiPoint<2>& a, const VoronoiPoint<2>& b, const VoronoiPoint<2>& c);
 
-  std::vector<std::pair<Point<2>, bool>> computeCircumcenters(const std::vector<Point<2>>& vertices) const;
+  std::vector<std::pair<VoronoiPoint<2>, bool>> computeCircumcenters(
+      const std::vector<VoronoiPoint<2>>& vertices) const;
 
   // utils
 

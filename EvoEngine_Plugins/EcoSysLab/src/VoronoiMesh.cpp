@@ -11,12 +11,12 @@
 
 using namespace kinDS;
 
-std::array<double, 3> barycentricCoordinates(const Point<3>& A, const Point<3>& B, const Point<3>& C,
-                                             const Point<3>& P) {
+std::array<double, 3> barycentricCoordinates(const VoronoiPoint<3>& A, const VoronoiPoint<3>& B,
+                                             const VoronoiPoint<3>& C, const VoronoiPoint<3>& P) {
   // Vectors
-  const Vector<3> v0 = B - A;
-  const Vector<3> v1 = C - A;
-  const Vector<3> v2 = P - A;
+  const VoronoiVector<3> v0 = B - A;
+  const VoronoiVector<3> v1 = C - A;
+  const VoronoiVector<3> v2 = P - A;
 
   // Dot products
   const double d00 = v0 * v0;
@@ -43,11 +43,11 @@ std::array<double, 3> barycentricCoordinates(const Point<3>& A, const Point<3>& 
 
 size_t VoronoiMesh::addVertex(double x, double y, double z) {
   size_t index = vertices.size();
-  vertices.emplace_back(Point<3>{x, y, z});
+  vertices.emplace_back(VoronoiPoint<3>{x, y, z});
   return index;
 }
 
-size_t VoronoiMesh::addVertex(const Point<3>& p) {
+size_t VoronoiMesh::addVertex(const VoronoiPoint<3>& p) {
   size_t index = vertices.size();
   vertices.emplace_back(p);
   return index;
@@ -77,20 +77,20 @@ size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, siz
 }
 
 size_t VoronoiMesh::addNormal(double nx, double ny, double nz) {
-  return addNormal(Vector<3>{nx, ny, nz});
+  return addNormal(VoronoiVector<3>{nx, ny, nz});
 }
 
-size_t VoronoiMesh::addNormal(const Vector<3>& n) {
+size_t VoronoiMesh::addNormal(const VoronoiVector<3>& n) {
   size_t index = normals.size();
   normals.emplace_back(n);
   return index;
 }
 
 size_t VoronoiMesh::addUV(double u, double v, double w) {
-  return addUV(Vector<3>{u, v, w});
+  return addUV(VoronoiVector<3>{u, v, w});
 }
 
-size_t VoronoiMesh::addUV(Vector<3> uv) {
+size_t VoronoiMesh::addUV(VoronoiVector<3> uv) {
   size_t index = uvs.size();
   uvs.emplace_back(uv);
   return index;
@@ -160,8 +160,8 @@ void VoronoiMesh::flipOrientation() {
 
 void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   const double inv_eps = (epsilon > 0.0) ? 1.0 / epsilon : 0.0;
-  std::unordered_map<Point<3>, size_t, VoronoiMesh::Vec3iHash> grid;
-  std::vector<Point<3>> newVerts;
+  std::unordered_map<VoronoiPoint<3>, size_t, VoronoiMesh::Vec3iHash> grid;
+  std::vector<VoronoiPoint<3>> newVerts;
   newVerts.reserve(vertices.size());
 
   std::vector<size_t> remap(vertices.size(), size_t(-1));
@@ -170,7 +170,7 @@ void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
     const auto& v = vertices[i];
 
     // Quantize vertex for approximate matching
-    Point<3> key;
+    VoronoiPoint<3> key;
     if (epsilon > 0.0) {
       key[0] = static_cast<int>(std::llround(v[0] * inv_eps));
       key[1] = static_cast<int>(std::llround(v[1] * inv_eps));
@@ -200,23 +200,23 @@ void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   vertices.swap(newVerts);
 }
 
-std::vector<Vector<3>> kinDS::VoronoiMesh::computeVertexNormals() {
-  std::vector<Vector<3>> vertex_normals(vertices.size(), Vector<3>{0.0, 0.0, 0.0});
+std::vector<VoronoiVector<3>> kinDS::VoronoiMesh::computeVertexNormals() {
+  std::vector<VoronoiVector<3>> vertex_normals(vertices.size(), VoronoiVector<3>{0.0, 0.0, 0.0});
   // Accumulate triangle normals into vertex normals
   for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
     size_t i0 = triangles[i];
     size_t i1 = triangles[i + 1];
     size_t i2 = triangles[i + 2];
 
-    const Point<3>& p0 = vertices[i0];
-    const Point<3>& p1 = vertices[i1];
-    const Point<3>& p2 = vertices[i2];
+    const VoronoiPoint<3>& p0 = vertices[i0];
+    const VoronoiPoint<3>& p1 = vertices[i1];
+    const VoronoiPoint<3>& p2 = vertices[i2];
 
-    Vector<3> e1 = p1 - p0;
-    Vector<3> e2 = p2 - p0;
+    VoronoiVector<3> e1 = p1 - p0;
+    VoronoiVector<3> e2 = p2 - p0;
 
     // Unnormalized triangle normal (area-weighted)
-    Vector<3> triNormal = e1 % e2;
+    VoronoiVector<3> triNormal = e1 % e2;
 
     vertex_normals[i0] += triNormal;
     vertex_normals[i1] += triNormal;
@@ -224,7 +224,7 @@ std::vector<Vector<3>> kinDS::VoronoiMesh::computeVertexNormals() {
   }
 
   // Normalize the accumulated vertex normals
-  for (Vector<3>& n : vertex_normals) {
+  for (VoronoiVector<3>& n : vertex_normals) {
     if (n.len_sqr() > 0.0) {
       n = n.normalized();
     }
@@ -240,8 +240,8 @@ void kinDS::VoronoiMesh::computeNormals(NormalMode normal_mode) {
   if (normal_mode == PerVertex) {
     normals = computeVertexNormals();
   } else if (normal_mode == PerTriangleCorner) {
-    std::vector<Vector<3>> vertex_normals = computeVertexNormals();
-    normals.resize(triangles.size(), Vector<3>{0.0, 0.0, 0.0});
+    std::vector<VoronoiVector<3>> vertex_normals = computeVertexNormals();
+    normals.resize(triangles.size(), VoronoiVector<3>{0.0, 0.0, 0.0});
 
     for (size_t i = 0; i < triangles.size(); i++) {
       normals[i] = vertex_normals[triangles[i]];
@@ -249,16 +249,17 @@ void kinDS::VoronoiMesh::computeNormals(NormalMode normal_mode) {
   }
 }
 
-std::array<double, 3> kinDS::VoronoiMesh::computeBarycentricCoordinates(size_t triangle_index, Point<3>& point) const {
+std::array<double, 3> kinDS::VoronoiMesh::computeBarycentricCoordinates(size_t triangle_index,
+                                                                        VoronoiPoint<3>& point) const {
   return barycentricCoordinates(vertices[triangles[3 * triangle_index]], vertices[triangles[3 * triangle_index + 1]],
                                 vertices[triangles[3 * triangle_index + 2]], point);
 }
 
-const std::vector<kinDS::Point<3>>& VoronoiMesh::getVertices() const {
+const std::vector<kinDS::VoronoiPoint<3>>& VoronoiMesh::getVertices() const {
   return vertices;
 }
 
-std::vector<Point<3>>& kinDS::VoronoiMesh::getVertices() {
+std::vector<VoronoiPoint<3>>& kinDS::VoronoiMesh::getVertices() {
   return vertices;
 }
 
@@ -270,15 +271,15 @@ std::vector<size_t>& kinDS::VoronoiMesh::getTriangles() {
   return triangles;
 }
 
-const std::vector<Vector<3>>& VoronoiMesh::getNormals() const {
+const std::vector<VoronoiVector<3>>& VoronoiMesh::getNormals() const {
   return normals;
 }
 
-std::vector<Vector<3>>& VoronoiMesh::getNormals() {
+std::vector<VoronoiVector<3>>& VoronoiMesh::getNormals() {
   return normals;
 }
 
-const std::vector<Vector<3>>& VoronoiMesh::getUVs() const {
+const std::vector<VoronoiVector<3>>& VoronoiMesh::getUVs() const {
   return uvs;
 }
 
@@ -294,7 +295,107 @@ std::vector<size_t>& VoronoiMesh::getUVIndices() {
   return uv_indices;
 }
 
-const Vector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_index) const {
+void VoronoiMesh::removeIsolatedVertices() {
+  const size_t n_vertices = vertices.size();
+
+  // 1. Mark used vertices
+  std::vector<bool> used(n_vertices, false);
+  for (size_t idx : triangles) {
+    if (idx < n_vertices) {
+      used[idx] = true;
+    }
+  }
+
+  // 2. Build old -> new index map
+  std::vector<size_t> remap(n_vertices, size_t(-1));
+  size_t new_count = 0;
+
+  for (size_t i = 0; i < n_vertices; ++i) {
+    if (used[i]) {
+      remap[i] = new_count++;
+    } else {
+      // EVOENGINE_LOG("Found unused vertex at index: " << i);
+    }
+  }
+
+  // Early out: nothing to remove
+  if (new_count == n_vertices) {
+    return;
+  }
+
+  // 3. Compact vertex data
+  std::vector<VoronoiPoint<3>> new_vertices;
+  new_vertices.reserve(new_count);
+
+  for (size_t i = 0; i < n_vertices; ++i) {
+    if (used[i]) {
+      new_vertices.push_back(vertices[i]);
+    }
+  }
+  vertices.swap(new_vertices);
+
+  // 4. Compact per-vertex normals if needed
+  if (normal_mode == PerVertex) {
+    std::vector<VoronoiVector<3>> new_normals;
+    new_normals.reserve(new_count);
+
+    for (size_t i = 0; i < n_vertices; ++i) {
+      if (used[i]) {
+        new_normals.push_back(normals[i]);
+      }
+    }
+    normals.swap(new_normals);
+  }
+
+  // 5. Remap triangle vertex indices
+  for (size_t& idx : triangles) {
+    idx = remap[idx];
+  }
+}
+
+void VoronoiMesh::removeDegenerateTriangles() {
+  const size_t n_triangles = triangles.size() / 3;
+  std::vector<size_t> new_triangles;
+  std::vector<size_t> new_uv_indices;
+
+  new_triangles.reserve(triangles.size());
+  if (!uv_indices.empty()) {
+    new_uv_indices.reserve(uv_indices.size());
+  }
+
+  for (size_t t = 0; t < n_triangles; ++t) {
+    size_t i0 = triangles[3 * t + 0];
+    size_t i1 = triangles[3 * t + 1];
+    size_t i2 = triangles[3 * t + 2];
+
+    // Check for duplicate vertices
+    if (i0 != i1 && i0 != i2 && i1 != i2) {
+      new_triangles.push_back(i0);
+      new_triangles.push_back(i1);
+      new_triangles.push_back(i2);
+
+      // Keep uv_indices in sync if present
+      if (!uv_indices.empty()) {
+        new_uv_indices.push_back(uv_indices[3 * t + 0]);
+        new_uv_indices.push_back(uv_indices[3 * t + 1]);
+        new_uv_indices.push_back(uv_indices[3 * t + 2]);
+      }
+    }
+  }
+
+  triangles.swap(new_triangles);
+  if (!uv_indices.empty()) {
+    uv_indices.swap(new_uv_indices);
+  }
+
+  // Optionally: warn if triangles were removed
+  size_t removed = n_triangles - (triangles.size() / 3);
+  if (removed > 0) {
+    // std::cerr << "Removed " << removed << " degenerate triangles.\n";
+  }
+}
+
+const VoronoiVector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_index) const {
   if (normal_mode == PerTriangleCorner) {
     return normals[triangle_vertex_index];
   } else {
@@ -302,7 +403,7 @@ const Vector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_index) con
   }
 }
 
-const Vector<3>& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
+const VoronoiVector<3>& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
   return uvs[uv_indices[triangle_vertex_index]];
 }
 

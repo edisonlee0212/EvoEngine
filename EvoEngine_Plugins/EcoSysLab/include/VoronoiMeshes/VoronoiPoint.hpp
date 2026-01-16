@@ -6,7 +6,7 @@
 
 namespace kinDS {
 template <size_t dim>
-class Point : public std::array<double, dim> {
+class VoronoiPoint : public std::array<double, dim> {
  public:
   // These should be inherited from std::array
 
@@ -22,7 +22,7 @@ class Point : public std::array<double, dim> {
     return result;
   }
 
-  double operator*(const Point<dim>& other) const {
+  double operator*(const VoronoiPoint<dim>& other) const {
     double result = 0.0;
     for (size_t i = 0; i < dim; ++i) {
       result += (*this)[i] * other[i];
@@ -30,25 +30,25 @@ class Point : public std::array<double, dim> {
     return result;
   }
 
-  Point& operator+=(const Point& rhs) {
+  VoronoiPoint& operator+=(const VoronoiPoint& rhs) {
     *this = *this + rhs;
     return *this;
   }
 
-  Point& operator-=(const Point& rhs) {
+  VoronoiPoint& operator-=(const VoronoiPoint& rhs) {
     *this = *this - rhs;
     return *this;
   }
 
-  Point operator-() const {
-    Point result;
+  VoronoiPoint operator-() const {
+    VoronoiPoint result;
     for (size_t i = 0; i < dim; ++i) {
       result[i] = -(*this)[i];
     }
     return result;
   }
 
-  Point& operator*=(double scalar) {
+  VoronoiPoint& operator*=(double scalar) {
     *this = *this * scalar;
     return *this;
   }
@@ -61,20 +61,20 @@ class Point : public std::array<double, dim> {
     return std::sqrt(len_sqr());
   }
 
-  double dist_sqr(const Point<dim>& other) const {
+  double dist_sqr(const VoronoiPoint<dim>& other) const {
     return ((*this) - other).len_sqr();
   }
 
-  double dist(const Point<dim>& other) const {
+  double dist(const VoronoiPoint<dim>& other) const {
     return std::sqrt(dist_sqr(other));
   }
 
-  Point<dim> normalized() const {
+  VoronoiPoint<dim> normalized() const {
     double length = len();
     if (length == 0) {
       throw std::runtime_error("Cannot normalize a zero-length vector");
     }
-    Point<dim> result{};
+    VoronoiPoint<dim> result{};
     for (size_t i = 0; i < dim; ++i) {
       result[i] = (*this)[i] / length;
     }
@@ -84,8 +84,8 @@ class Point : public std::array<double, dim> {
 
 // operators for Point
 template <size_t dim>
-Point<dim> operator+(const Point<dim>& a, const Point<dim>& b) {
-  Point<dim> result{};
+VoronoiPoint<dim> operator+(const VoronoiPoint<dim>& a, const VoronoiPoint<dim>& b) {
+  VoronoiPoint<dim> result{};
   for (size_t i = 0; i < dim; ++i) {
     result[i] = a[i] + b[i];
   }
@@ -93,8 +93,8 @@ Point<dim> operator+(const Point<dim>& a, const Point<dim>& b) {
 }
 
 template <size_t dim>
-Point<dim> operator-(const Point<dim>& a, const Point<dim>& b) {
-  Point<dim> result{};
+VoronoiPoint<dim> operator-(const VoronoiPoint<dim>& a, const VoronoiPoint<dim>& b) {
+  VoronoiPoint<dim> result{};
   for (size_t i = 0; i < dim; ++i) {
     result[i] = a[i] - b[i];
   }
@@ -102,8 +102,8 @@ Point<dim> operator-(const Point<dim>& a, const Point<dim>& b) {
 }
 
 template <size_t dim>
-Point<dim> operator*(const Point<dim>& a, double scalar) {
-  Point<dim> result{};
+VoronoiPoint<dim> operator*(const VoronoiPoint<dim>& a, double scalar) {
+  VoronoiPoint<dim> result{};
   for (size_t i = 0; i < dim; ++i) {
     result[i] = a[i] * scalar;
   }
@@ -111,8 +111,8 @@ Point<dim> operator*(const Point<dim>& a, double scalar) {
 }
 
 template <size_t dim>
-Point<dim> operator/(const Point<dim>& a, double scalar) {
-  Point<dim> result{};
+VoronoiPoint<dim> operator/(const VoronoiPoint<dim>& a, double scalar) {
+  VoronoiPoint<dim> result{};
   for (size_t i = 0; i < dim; ++i) {
     result[i] = a[i] / scalar;
   }
@@ -121,8 +121,8 @@ Point<dim> operator/(const Point<dim>& a, double scalar) {
 
 // allow multiplication with a scalar before a point
 template <size_t dim>
-Point<dim> operator*(double scalar, const Point<dim>& a) {
-  Point<dim> result{};
+VoronoiPoint<dim> operator*(double scalar, const VoronoiPoint<dim>& a) {
+  VoronoiPoint<dim> result{};
   for (size_t i = 0; i < dim; ++i) {
     result[i] = a[i] * scalar;
   }
@@ -130,10 +130,10 @@ Point<dim> operator*(double scalar, const Point<dim>& a) {
 }
 
 // cross product
-Point<3> operator%(const Point<3>& a, const Point<3>& b);
-double operator%(const Point<2>& a, const Point<2>& b);
+VoronoiPoint<3> operator%(const VoronoiPoint<3>& a, const VoronoiPoint<3>& b);
+double operator%(const VoronoiPoint<2>& a, const VoronoiPoint<2>& b);
 
 // also provide Vector as alias
 template <size_t dim>
-using Vector = Point<dim>;
+using VoronoiVector = VoronoiPoint<dim>;
 }  // namespace kinDS

@@ -8,7 +8,7 @@
 using namespace evo_engine;
 
 namespace eco_sys_lab_plugin {
-void printStrandGuidePoints(const std::vector<std::vector<kinDS::Point<2>>>& strand_guide_points) {
+void printStrandGuidePoints(const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& strand_guide_points) {
   // Print the points such that they can be copy-pasted into C++
   std::cout << "std::vector<std::vector<kinDS::Point<2>>> strand_guide_points = {\n";
   for (size_t strand_id = 0; strand_id < strand_guide_points.size(); ++strand_id) {
@@ -135,7 +135,7 @@ void VoronoiMeshGenerator::Generate(const StrandModel& strand_model, std::vector
     return;
   }
 
-  std::vector<std::vector<kinDS::Point<2>>> strand_guide_points(strands.size());
+  std::vector<std::vector<kinDS::VoronoiPoint<2>>> strand_guide_points(strands.size());
 
   const auto& nodes = skeleton.PeekRawNodes();
   SkeletonNodeHandle root_handle = 0;  // root is always 0
@@ -154,7 +154,7 @@ void VoronoiMeshGenerator::Generate(const StrandModel& strand_model, std::vector
 
       // compute the 3D position of the particle
       glm::vec3 pos3D = node.info.global_position + node.info.global_rotation * glm::vec3(pos.x, pos.y, 0.0f);
-      strand_guide_points[strand_id].emplace_back(kinDS::Point<2>{pos3D.x, pos3D.z});
+      strand_guide_points[strand_id].emplace_back(kinDS::VoronoiPoint<2>{pos3D.x, pos3D.z});
     }
   }
 
@@ -177,7 +177,7 @@ void VoronoiMeshGenerator::Generate(const DtsStrandGroup& randomly_subdivided_st
   // Obtain strand guide points from the randomly subdivided strands
   // For now we use uniformly subdivided strands only for ease of implementation
 
-  std::vector<std::vector<kinDS::Point<2>>> strand_guide_points;
+  std::vector<std::vector<kinDS::VoronoiPoint<2>>> strand_guide_points;
   const auto& strands = randomly_subdivided_strands.PeekStrands();
   strand_guide_points.resize(strands.size());
 
@@ -191,7 +191,7 @@ void VoronoiMeshGenerator::Generate(const DtsStrandGroup& randomly_subdivided_st
       glm::vec3 end_pos = segment.end_position;
 
       // Add end position
-      strand_guide_points[strand_id].emplace_back(kinDS::Point<2>{end_pos.y, end_pos.z});
+      strand_guide_points[strand_id].emplace_back(kinDS::VoronoiPoint<2>{end_pos.y, end_pos.z});
     }
   }
 

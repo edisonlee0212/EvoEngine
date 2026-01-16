@@ -11,7 +11,7 @@ struct ComponentData {
   // [component_index][boundary_no][point_no] - the first boundary is the outer one, any additional ones are holes in
   // the polygon
   std::vector<std::vector<std::vector<BoundaryPoint>>> component_boundaries;
-  std::vector<Point<2>> component_centroids;
+  std::vector<VoronoiPoint<2>> component_centroids;
   std::vector<double> component_last_updated;
 };
 
@@ -43,7 +43,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   std::vector<std::pair<size_t, size_t>> boundary_mesh_last_left_and_right_vertex;
 
   // UVs must be adjusted to avoid seams, these are the raw UVs before adjustment
-  std::vector<Point<2>> boundary_mesh_raw_uvs;
+  std::vector<VoronoiPoint<2>> boundary_mesh_raw_uvs;
 
   // Map half-edges to a vertex index in the boundary mesh if a flip created a new boundary edge
   std::vector<int> half_edge_to_boundary_vertex_index;
@@ -54,7 +54,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   std::vector<std::pair<size_t, double>> subdivisions;
   size_t subdivision_index = 0;
 
-  Point<3> computeVoronoiVertex(size_t half_edge_id, double t, size_t segment_mesh_pair_index) const;
+  VoronoiPoint<3> computeVoronoiVertex(size_t half_edge_id, double t, size_t segment_mesh_pair_index) const;
 
   void finishMesh(size_t half_edge_id, double t, const std::vector<BoundaryPoint>& boundary_points);
 
@@ -70,18 +70,19 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
    */
   size_t addBoundaryTriangle(size_t u, size_t v, size_t w);
 
-  size_t addBoundaryVertex(Point<3> vertex, Point<2> centroid);
+  size_t addBoundaryVertex(VoronoiPoint<3> vertex, VoronoiPoint<2> centroid);
 
   size_t addMeshletTriangle(VoronoiMesh& mesh, size_t u, size_t v, size_t w);
 
   size_t addMeshletVertex(VoronoiMesh& mesh, const std::vector<BoundaryPoint>& boundary_polygon,
-                          const Point<2>& centroid, const Point<3>& vertex);
+                          const VoronoiPoint<2>& centroid, const VoronoiPoint<3>& vertex);
 
   void addVoronoiTriangulationToBoundaryMesh(double t, bool invert_orientation, double offset);
 
   std::vector<BoundaryPoint> traceConvexHull(double t) const;
 
-  void advanceBoundaryMesh(double t, const std::vector<BoundaryPoint>& boundary_points, const Point<2>& centroid);
+  void advanceBoundaryMesh(double t, const std::vector<BoundaryPoint>& boundary_points,
+                           const VoronoiPoint<2>& centroid);
 
   void updateBoundary(double t, std::vector<bool>& visited, size_t component_index);
 
@@ -90,7 +91,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   void advanceBoundaryMeshes(double t);
 
   size_t createClosingMesh(size_t strand_id, double t, const std::vector<BoundaryPoint>& boundary_polygon,
-                           const Point<2>& centroid);
+                           const VoronoiPoint<2>& centroid);
 
   void accumulateSegmentProperties();
 
