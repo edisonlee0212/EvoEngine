@@ -255,10 +255,10 @@ void main() {
     uint pair_index = baseID + local_index;
     if (pair_index >= pair_size)
       break;
-    if (segment_pairs[pair_index].connectivity_integrity <= 0.0 &&
-        segment_pairs[pair_index].bend_twist_bundle_integrity <= 0.0) {
-      continue;
-    }
+    //if (segment_pairs[pair_index].connectivity_integrity <= 0.0 &&
+    //    segment_pairs[pair_index].bend_twist_bundle_integrity <= 0.0) {
+    //  continue;
+    //}
 
     int segment0_handle = segment_pairs[pair_index].segment0_handle;
     int segment1_handle = segment_pairs[pair_index].segment1_handle;

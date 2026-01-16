@@ -107,6 +107,7 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
       DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
       ds->initialized_from_tree = true;
       ds->UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+      ds->Cubic_pattern();
       ds->dynamic_strands->Upload();
       ds->dynamic_strands->InitializeMesh(ds->initialize_parameters);
     }
@@ -119,6 +120,7 @@ void EcoSysLabLayer::GenerateDynamicStrandsForAllTrees() const {
       const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(dts_entity).lock();
       DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
       ds->UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+      ds->Cubic_pattern();
       ds->dynamic_strands->Upload();
       ds->dynamic_strands->InitializeMesh(ds->initialize_parameters);
     }

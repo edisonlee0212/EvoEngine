@@ -29,6 +29,9 @@ class DynamicTreeStrands : public IPrivateComponent {
    */
   void InitializeFromTree(const std::shared_ptr<Tree>& tree);
 
+
+  void Cubic_pattern();
+
   int seed = 0;                ///< Seed for procedural generation.
   StrandModel strand_model{};  ///< Strand model.
 

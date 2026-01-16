@@ -325,6 +325,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
 void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>(materials);
+
+  //initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+  initialize_parameters.max_segment_length = 0.01f;
+  initialize_parameters.min_segment_length = 0.005f; //OAK TRUNK SETTINGS
+
   dynamic_strands->Init(initialize_parameters.meshing_type);
   leaf_drop = std::make_shared<DsLeafDrop>();
   snow = std::make_shared<DsSnow>();
@@ -1355,9 +1360,65 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = true;
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+
+
+  Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
+  std::vector<Region> regions;
+  Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
+                                   /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
+                                   3000.f);  // ZY: 800 for pull operator test
+
+  std::mt19937 rng(std::random_device{}());
+  int K = (int)regions.size();
+  std::uniform_real_distribution<float> dc(0.0f, 1.0f);
+  std::vector<glm::vec4> region_colors(K);
+  for (int i = 0; i < K; ++i) {
+    region_colors[i] = glm::vec4(dc(rng), dc(rng), dc(rng), 1.0f);
+  }
+  Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+    auto& segment = dynamic_strands->segments[i];
+    // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
+    //                            segment.particle0.x[1] * 0.5 + 0.1f};
+    std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
+                               segment.particle0.root_distance * 0.5f + 0.1f};  // for general
+    // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1]
+    // * 2.0f,
+    //                            segment.particle0.root_distance * 0.3f + 0.1f}; //ZY: for oak trunk ONLY
+    int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, false);  // ZY:false for pull operator test
+    segment.color = region_colors[id];
+  });
+
   dynamic_strands->Upload();
   dynamic_strands->InitializeMesh(initialize_parameters);
 }
+
+void DynamicTreeStrands::Cubic_pattern() {
+  Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
+  std::vector<Region> regions;
+  Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
+                                   /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
+                                   3000.f);  // ZY: 800 for pull operator test
+
+  std::mt19937 rng(std::random_device{}());
+  int K = (int)regions.size();
+  std::uniform_real_distribution<float> dc(0.0f, 1.0f);
+  std::vector<glm::vec4> region_colors(K);
+  for (int i = 0; i < K; ++i) {
+    region_colors[i] = glm::vec4(dc(rng), dc(rng), dc(rng), 1.0f);
+  }
+  Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+    auto& segment = dynamic_strands->segments[i];
+    // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
+    //                            segment.particle0.x[1] * 0.5 + 0.1f};
+    //std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
+    //                           segment.particle0.root_distance * 0.5f + 0.1f};  // for general
+     std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 1.5f, segment.profile_polar_coordinate[1]
+     * 2.3f, segment.particle0.root_distance * 0.2f + 0.1f}; //ZY: for oak trunk ONLY
+    int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, false);  // ZY:false for pull operator test
+    segment.color = region_colors[id];
+  });
+}
+
 
 void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
   if (!dynamic_strands->segments.empty()) {
