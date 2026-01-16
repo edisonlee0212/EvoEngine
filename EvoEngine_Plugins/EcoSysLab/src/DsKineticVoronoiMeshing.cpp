@@ -295,7 +295,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
     // progress_counter.fetch_add(1, std::memory_order_relaxed);
     // intersection_progress_bar.Update(progress_counter);
-    auto intersect_relation = boundary_intersector.ClassifyMeshRelation(meshes[mesh_index], true);
+    auto intersect_relation = kinDS::MeshIntersection::MeshRelation::INSIDE;
+    // boundary_intersector.ClassifyMeshRelation(meshes[mesh_index], true);
 
     switch (intersect_relation) {
       case kinDS::MeshIntersection::MeshRelation::INSIDE:

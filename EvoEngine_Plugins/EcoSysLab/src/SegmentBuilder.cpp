@@ -45,34 +45,59 @@ static bool raySegmentIntersection(const VoronoiPoint<2>& C, const VoronoiPoint<
   return false;
 }
 
-static double relativeDistanceFromCenter(const std::vector<BoundaryPoint>& polygon, const VoronoiPoint<2>& center,
-                                         const VoronoiPoint<2>& point) {
-  VoronoiPoint<2> D = point - center;
-  double lenCP = D.len();
+static std::vector<double> rayCast(const std::vector<BoundaryPoint>& polygon, const VoronoiPoint<2>& origin,
+                                   const VoronoiPoint<2>& dir) {
+  double lenCP = dir.len();
 
   if (lenCP < 1e-12)
-    return 0.0;
+    return {};
 
   double t_max = 0.0;
-  bool hit = false;
 
+  std::vector<double> hits;
   const size_t n = polygon.size();
   for (size_t i = 0; i < n; ++i) {
     const VoronoiPoint<2>& A = polygon[i].p;
     const VoronoiPoint<2>& B = polygon[(i + 1) % n].p;
 
     double t;
-    if (raySegmentIntersection(center, D, A, B, t)) {
-      t_max = std::max(t_max, t);
-      hit = true;
+    if (raySegmentIntersection(origin, dir, A, B, t)) {
+      hits.emplace_back(t);
     }
   }
 
-  if (!hit)
+  return hits;
+}
+
+static double relativeDistanceFromCenter(const std::vector<BoundaryPoint>& polygon, const VoronoiPoint<2>& center,
+                                         const VoronoiPoint<2>& point) {
+  VoronoiPoint<2> dir = point - center;
+  auto hits = rayCast(polygon, center, dir);
+
+  if (hits.empty())
     return std::numeric_limits<double>::quiet_NaN();
+
+  double t_max = -std::numeric_limits<double>::infinity();
+
+  for (double t : hits) {
+    t_max = std::max(t_max, t);
+  }
+
+  if (t_max < 0) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
 
   // |B - C| = t_max * |D|
   return 1.0 / t_max;
+}
+
+static bool isInside(const std::vector<BoundaryPoint>& polygon, const VoronoiPoint<2>& center,
+                     const VoronoiPoint<2>& point) {
+  double rel_dist = relativeDistanceFromCenter(polygon, center, point);
+  if (std::isnan(rel_dist)) {
+    throw std::runtime_error("Center lies outside of polygon");
+  }
+  return rel_dist <= 1.0;
 }
 
 static std::vector<size_t> buildComponentMap(const std::vector<std::vector<size_t>>& components, size_t vertex_count) {
@@ -104,12 +129,14 @@ static std::vector<size_t> buildComponentMap(const std::vector<std::vector<size_
   bool infinite = false;
 
   std::vector<VoronoiPoint<2>> points;
+  std::vector<size_t> vertex_indices;
 
   size_t infinite_vertex_index = -1;
 
   for (size_t i = 0; i < 3; ++i) {
     if (triVertices[i] != -1) {
       points.push_back(splines[triVertices[i]].evaluate(t));
+      vertex_indices.push_back(triVertices[i]);
     } else {
       infinite_vertex_index = i;
     }
@@ -144,12 +171,75 @@ static std::vector<size_t> buildComponentMap(const std::vector<std::vector<size_
     // move circumcenter far out in the direction perpendicular to the edge
     VoronoiVector<2> edge_dir = (points[1] - points[0]).normalized();
     VoronoiVector<2> perp_dir = VoronoiVector<2>{-edge_dir[1], edge_dir[0]};
-    double far_distance = 1.0;
-    circumcenter = neighboring_circumcenter - perp_dir * far_distance;
+
+    // compute intersection with the boundary
+    size_t component_id = component_data.component_map[vertex_indices[0]];
+    auto& polygon = component_data.component_boundaries[component_id][0];
+    std::vector<double> hits = rayCast(polygon, neighboring_circumcenter, perp_dir);
+
+    double t_min = std::numeric_limits<double>::infinity();
+
+    for (auto t : hits) {
+      // negative hits are not permitted
+      if (t >= 0) {
+        t_min = std::min(t, t_min);
+      }
+    }
+
+    if (t_min == std::numeric_limits<double>::infinity()) {
+      EVOENGINE_ERROR("Found no suitable hit!");
+    }
+
+    circumcenter = neighboring_circumcenter - perp_dir * t_min;
   }
 
   // place circumcenters into the mesh
   return VoronoiPoint<3>{circumcenter[0], circumcenter[1], t};
+}
+
+bool clampVoronoiVertices(VoronoiPoint<3>& left_vertex, VoronoiPoint<3>& right_vertex,
+                          const std::vector<BoundaryPoint>& boundary_points, const VoronoiPoint<2>& centroid) {
+  bool left_inside = isInside(boundary_points, centroid, VoronoiPoint<2>{left_vertex[0], left_vertex[1]});
+  bool right_inside = isInside(boundary_points, centroid, VoronoiPoint<2>{right_vertex[0], right_vertex[1]});
+
+  if (left_inside && !right_inside) {
+    // clamp right to the boundary
+    VoronoiPoint<2> origin{left_vertex[0], left_vertex[1]};
+    VoronoiVector<2> dir{right_vertex[0] - left_vertex[0], right_vertex[1] - left_vertex[1]};
+    auto hits = rayCast(boundary_points, origin, dir);
+
+    double s_min = -std::numeric_limits<double>::infinity();
+
+    for (double s : hits) {
+      if (s >= 0) {
+        s_min = std::min(s_min, s);
+      }
+    }
+
+    auto right_vertex_2d = origin + s_min * dir;
+    right_vertex = VoronoiPoint<3>{right_vertex_2d[0], right_vertex_2d[1], right_vertex[2]};
+
+  } else if (!left_inside && right_inside) {
+    // clamp left to the boundary
+    VoronoiPoint<2> origin{right_vertex[0], right_vertex[1]};
+    VoronoiVector<2> dir{left_vertex[0] - right_vertex[0], left_vertex[1] - right_vertex[1]};
+    auto hits = rayCast(boundary_points, origin, dir);
+
+    double s_min = -std::numeric_limits<double>::infinity();
+
+    for (double s : hits) {
+      if (s >= 0) {
+        s_min = std::min(s_min, s);
+      }
+    }
+
+    auto left_vertex_2d = origin + s_min * dir;
+    left_vertex = VoronoiPoint<3>{left_vertex_2d[0], left_vertex_2d[1], left_vertex[2]};
+  } else if (!left_inside && !right_inside) {
+    // I'm not sure yet if this will work, especially for connections, but for now we will just discard it
+    return false;
+  }
+  return true;
 }
 
 void kinDS::SegmentBuilder::finishMesh(size_t he_id, double t, const std::vector<BoundaryPoint>& boundary_points) {
@@ -161,19 +251,18 @@ void kinDS::SegmentBuilder::finishMesh(size_t he_id, double t, const std::vector
   VoronoiPoint<3> left_vertex = computeVoronoiVertex(he_id & ~1, t, segment_mesh_pair_index);
   VoronoiPoint<3> right_vertex = computeVoronoiVertex((he_id & ~1) + 1, t, segment_mesh_pair_index);
   auto& he = kin_del.getGraph().getHalfEdges()[he_id & ~1];
+  VoronoiPoint<2> centroid = polygonCentroid(boundary_points);
+
+  clampVoronoiVertices(left_vertex, right_vertex, boundary_points, centroid);
 
   if (he.origin == -1) {
     // TODO: Seems like we don't need this after all?
     // throw std::runtime_error("Cannot create segment mesh for half-edge with infinite origin.");
   }
 
-  VoronoiPoint<2> centroid = polygonCentroid(boundary_points);
-
   // TODO: Compute UVs here
-  size_t new_left_vertex_index = mesh.getVertices().size();
-  addMeshletVertex(mesh, boundary_points, centroid, left_vertex);
-  size_t new_right_vertex_index = mesh.getVertices().size();
-  addMeshletVertex(mesh, boundary_points, centroid, right_vertex);
+  size_t new_left_vertex_index = addMeshletVertex(mesh, boundary_points, centroid, left_vertex);
+  size_t new_right_vertex_index = addMeshletVertex(mesh, boundary_points, centroid, right_vertex);
   // build triangles
   const auto& last_vertices = segment_mesh_pair_last_left_and_right_vertex[segment_mesh_pair_index];
   // create two triangles
@@ -229,22 +318,21 @@ void SegmentBuilder::startNewMesh(size_t half_edge_id, double t) {
   VoronoiPoint<3> left_vertex = computeVoronoiVertex(even_id, t, half_edge_index_to_segment_mesh_pair_index[even_id]);
   VoronoiPoint<3> right_vertex = computeVoronoiVertex(odd_id, t, half_edge_index_to_segment_mesh_pair_index[even_id]);
 
+  size_t vertex = std::max(he.origin, twin_he.origin);
+  size_t component_id = component_data.component_map[vertex];
+
+  std::vector<bool> he_visited(graph.getHalfEdges().size(), false);
+  updateBoundary(t, he_visited, component_id);
+
+  auto& boundary_polygon = component_data.component_boundaries[component_id][0];
+  auto& centroid = component_data.component_centroids[component_id];
+
+  clampVoronoiVertices(left_vertex, right_vertex, boundary_polygon, centroid);
+
   if (he.origin == -1) {
     // TODO:  Seems like we don't need this after all?
     // throw std::runtime_error("Cannot create segment mesh for half-edge with infinite origin.");
   }
-
-  auto vertex = graph.getHalfEdges()[half_edge_id].origin;
-
-  if (vertex == -1) {
-    vertex = graph.destination(half_edge_id);
-  }
-
-  std::vector<bool> visited(graph.getVertexCount(), false);
-  size_t component_id = component_data.component_map[vertex];
-  auto boundary_polygon = component_data.component_boundaries[component_id][0];
-  // TODO: cache centroids for components
-  VoronoiPoint<2> centroid = polygonCentroid(boundary_polygon);
 
   addMeshletVertex(mesh, boundary_polygon, centroid, left_vertex);
   addMeshletVertex(mesh, boundary_polygon, centroid, right_vertex);
@@ -508,12 +596,45 @@ size_t kinDS::SegmentBuilder::createClosingMesh(size_t strand_id, double t,
 
   VoronoiMesh mesh;
 
+  std::vector<VoronoiPoint<3>> voronoi_vertices;
+
   // we just create a triangle fan because the Voronoi cell is convex
   // iterate over all segment indices of the strand
   for (HalfEdgeDelaunayGraph::IncidentEdgeIterator it = graph.incidentEdgesBegin(strand_id),
                                                    end = graph.incidentEdgesEnd(strand_id);
        it != end; ++it) {
     VoronoiPoint<3> voronoi_vertex = computeVoronoiVertex(*it, t, half_edge_index_to_segment_mesh_pair_index[*it]);
+    voronoi_vertices.emplace_back(voronoi_vertex);
+    // addMeshletVertex(mesh, boundary_polygon, centroid, voronoi_vertex);
+  }
+
+  std::vector<VoronoiPoint<3>> clamped_voronoi_vertices;
+  // go through the vertices and clamp them
+  for (size_t i = 0; i < voronoi_vertices.size(); i++) {
+    auto left = voronoi_vertices[i];
+    auto right = voronoi_vertices[(i + 1) % voronoi_vertices.size()];
+
+    bool inside = clampVoronoiVertices(left, right, boundary_polygon, centroid);
+
+    if (inside) {
+      clamped_voronoi_vertices.push_back(left);
+      clamped_voronoi_vertices.push_back(right);
+    }
+  }
+
+  voronoi_vertices.clear();
+  // Put back into original vector and remove duplicates
+  voronoi_vertices.emplace_back(clamped_voronoi_vertices.front());
+  for (size_t i = 1; i < clamped_voronoi_vertices.size() - 1; i++) {
+    if (clamped_voronoi_vertices[i] != voronoi_vertices.back()) {
+      voronoi_vertices.push_back(clamped_voronoi_vertices[i]);
+    }
+  }
+  if (clamped_voronoi_vertices.front() != clamped_voronoi_vertices.back()) {
+    voronoi_vertices.push_back(clamped_voronoi_vertices.back());
+  }
+
+  for (auto& voronoi_vertex : voronoi_vertices) {
     addMeshletVertex(mesh, boundary_polygon, centroid, voronoi_vertex);
   }
 
@@ -1176,6 +1297,8 @@ void kinDS::SegmentBuilder::insertSubdivision(size_t strand_id, double t) {
     size_t adjacent_segment_mesh_pair_index = half_edge_index_to_segment_mesh_pair_index[adjacent_he_id];
     auto& adjacent_segment_mesh_pair = segment_mesh_pairs[adjacent_segment_mesh_pair_index];
     VoronoiMesh& adjacent_mesh = meshes[adjacent_segment_mesh_pair_index];
+
+    // TODO: also apply clamping
     VoronoiPoint<3> vertex = computeVoronoiVertex(adjacent_he_id, t, adjacent_segment_mesh_pair_index);
     size_t new_vertex_index = addMeshletVertex(adjacent_mesh, boundary_polygon, centroid, vertex);
     auto& last_vertices = segment_mesh_pair_last_left_and_right_vertex[adjacent_segment_mesh_pair_index];
