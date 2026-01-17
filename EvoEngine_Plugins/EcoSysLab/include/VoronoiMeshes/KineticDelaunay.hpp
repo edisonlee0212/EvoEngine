@@ -31,7 +31,7 @@ class KineticDelaunay {
     double creation_time;  // Time when the event was created, used do check validity after a quadrilateral is updated
     VoronoiPoint<2> position;  // Position of the event
 
-    enum Type { SWAP, BOUNDARY } type;
+    enum Type { SWAP, BOUNDARY, RIGHT_ANGLED } type;
 
     Event(double t, size_t he_id, double creation_time, VoronoiPoint<2> position, Type type)
         : time(t), half_edge_id(he_id), creation_time(creation_time), position(position), type(type) {
@@ -148,6 +148,12 @@ class KineticDelaunay {
     return circumradius_eq;
   }
 
+  // Polynomial that evaluates to zero iff there is a right angle at c
+  static Polynomial rightAngled(const Polynomial& ax, const Polynomial& ay, const Polynomial& bx, const Polynomial& by,
+                                const Polynomial& cx, const Polynomial& cy) {
+    return (ax - cx) * (bx - cx) + (ay - cy) * (by - cy);
+  }
+
   double circumradius(const VoronoiPoint<2>& p0, const VoronoiPoint<2>& p1, const VoronoiPoint<2>& p2) {
     const double x0 = p0[0], y0 = p0[1];
     const double x1 = p1[0], y1 = p1[1];
@@ -167,6 +173,63 @@ class KineticDelaunay {
 
     // R = (a * b * c) / (4 * A), and area2 = 2 * A
     return (a * b * c) / (2.0 * area2);
+  }
+
+  void computeRightAngleEvents(double t, size_t he_id) {
+    if (cutoff == std::numeric_limits<double>::infinity()) {
+      // no boundary events wanted
+      return;
+    }
+
+    const size_t section = static_cast<size_t>(t);
+    const float fraction = t - section;
+
+    size_t face_id = graph.getHalfEdges()[he_id].face;
+    size_t u = graph.getHalfEdges()[he_id].origin;
+    size_t v = graph.destination(he_id);
+    size_t w = graph.triangleOppositeVertex(he_id);
+
+    if (u == -1 || v == -1 || w == -1) {
+      // one of the vertices is at infinity, no event possible
+      return;
+    }
+
+    std::vector<Trajectory<2>> trajs;
+
+    trajs.push_back(splines[u].getPiecePolynomial(section));
+    trajs.push_back(splines[v].getPiecePolynomial(section));
+    trajs.push_back(splines[w].getPiecePolynomial(section));
+
+    Polynomial event_trigger =
+        rightAngled(trajs[0][0], trajs[0][1], trajs[1][0], trajs[1][1], trajs[2][0], trajs[2][1]);
+
+    event_trigger.trim();
+    auto zeros = event_trigger.realRoots();
+
+    // print roots:
+    for (const auto& root : zeros) {
+      if (isnan(root)) {
+        continue;  // Skip NaN roots
+      }
+      if (root > fraction && root <= 1) {  // Check if the root is within the valid range
+        double event_time = root + section;
+        // std::cout << "Root found at t = " << event_time << std::endl;
+
+        VoronoiPoint<2> center{};
+
+        for (const auto& traj : trajs) {
+          center[0] += traj[0](root);
+          center[1] += traj[1](root);
+        }
+        center[0] /= trajs.size();
+        center[1] /= trajs.size();
+        EVOENGINE_LOG("Right Angle Event at time " << event_time << " for half-edge ID " << he_id
+                                                   << " at center position " << center.toString().c_str());
+
+        events.emplace(Event(event_time, he_id, t, center,
+                             Event::RIGHT_ANGLED));  // Store the event with the time and half-edge index
+      }
+    }
   }
 
   void computeBoundaryEvents(double t, size_t he_id) {
@@ -332,6 +395,10 @@ class KineticDelaunay {
     for (size_t i = 0; i < face_inside.size(); i++) {
       size_t he_id = graph.getFaces()[i].half_edges[0];
       computeBoundaryEvents(t, he_id);
+    }
+
+    for (size_t he_id = 0; he_id < he_count; he_id++) {
+      computeRightAngleEvents(t, he_id);
     }
   }
 

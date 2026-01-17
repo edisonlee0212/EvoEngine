@@ -124,6 +124,10 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
 
   const std::vector<std::vector<size_t>>& getStrandToSegmentIndices() const;
 
+  std::vector<VoronoiPoint<3>> computeClampedVoronoiVertices(size_t strand_id, double t,
+                                                             const std::vector<BoundaryPoint>& boundary_polygon,
+                                                             const VoronoiPoint<2>& centroid);
+
   ComponentData computeComponentData(double t) const;
 
   void splitComponent(size_t component_id, const std::vector<std::vector<size_t>>& new_components, double t);
