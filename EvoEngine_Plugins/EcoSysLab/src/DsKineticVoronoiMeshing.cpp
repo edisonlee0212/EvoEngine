@@ -202,8 +202,8 @@ std::optional<std::array<size_t, 2>> FindNonIdenticalPair(std::function<glm::vec
 
 glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_transforms, kinDS::VoronoiPoint<3> point,
                                     float t, float w = 1.0f) {
-  size_t lower_section_index = static_cast<size_t>(glm::floor(t));
-  size_t upper_section_index = static_cast<size_t>(glm::ceil(t));
+  size_t lower_section_index = static_cast<size_t>(std::max(0.0f, glm::floor(t)));
+  size_t upper_section_index = std::min(profile_to_model_transforms.size() - 1, static_cast<size_t>(glm::ceil(t)));
 
   // check range
   auto coord_str = std::to_string(t);
@@ -223,8 +223,8 @@ glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_tra
 
   if (upper_section_index != lower_section_index) {
     glm::vec4 upper_global_pos = profile_to_model_transforms[upper_section_index] * local_pos;
-    float t = static_cast<float>(point[2] - static_cast<double>(lower_section_index));
-    global_pos = glm::mix(global_pos, upper_global_pos, t);
+    float frac = static_cast<float>(t - static_cast<double>(lower_section_index));
+    global_pos = glm::mix(global_pos, upper_global_pos, frac);
   }
 
   if (w == 0.0f) {
@@ -245,15 +245,22 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
                                                   const GlobalTransform& root_transform) {
   bool recompute_segment_pairs = false;  // TODO: expose as option?
 
+  std::vector<glm::mat4> profile_to_model_normal_transforms(profile_to_model_transforms.size());
+
+  for (size_t i = 0; i < profile_to_model_transforms.size(); i++) {
+    profile_to_model_normal_transforms[i] = glm::transpose(glm::inverse(profile_to_model_transforms[i]));
+    profile_to_model_normal_transforms[i][3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+  }
+
   // sort subdivisions into a single array
   std::vector<std::pair<size_t, double>> subdivisions = MergeSortedVectors(subdivisions_by_strand);
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
   kinDS::KineticDelaunay kinetic_delaunay(strand_splines,
-                                          render_settings.segment_meshlet_render_parameters.alpha_cutoff);
+                                          render_settings.segment_meshlet_render_parameters.alpha_cutoff, true);
 
   kinetic_delaunay.init();
-  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, strand_splines, subdivisions);
+  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, subdivisions);
   mesh_builder.init();
   auto points = kinetic_delaunay.getPointsAt(0.0);
 
@@ -288,15 +295,14 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   // Build an AABB-tree of the boundary-mesh to prefilter
   kinDS::MeshIntersection boundary_intersector(boundary_mesh);
 
-  /*ProgressBar intersection_progress_bar(0, meshes.size(), "Computing Mesh Intersections",
-                                        ProgressBar::Display::Absolute, 50);*/
+  ProgressBar intersection_progress_bar(0, meshes.size(), "Computing Mesh Intersections",
+                                        ProgressBar::Display::Absolute, 50);
 
-  // std::atomic<int> progress_counter{0};
+  std::atomic<int> progress_counter{0};
   Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
-    // progress_counter.fetch_add(1, std::memory_order_relaxed);
-    // intersection_progress_bar.Update(progress_counter);
-    auto intersect_relation = kinDS::MeshIntersection::MeshRelation::INSIDE;
-    // boundary_intersector.ClassifyMeshRelation(meshes[mesh_index], true);
+    progress_counter.fetch_add(1, std::memory_order_relaxed);
+    intersection_progress_bar.Update(progress_counter);
+    auto intersect_relation = boundary_intersector.ClassifyMeshRelation(meshes[mesh_index], true);
 
     switch (intersect_relation) {
       case kinDS::MeshIntersection::MeshRelation::INSIDE:
@@ -327,7 +333,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
     }
   });
 
-  // intersection_progress_bar.Finish();
+  intersection_progress_bar.Finish();
 
   const auto& meshing_strand_to_segment_indices = mesh_builder.getStrandToSegmentIndices();
 
@@ -340,7 +346,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   }
 
   std::vector<size_t> meshing_to_physics_segment_indices(max_meshing_id + 1, -1);
-  for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
     for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
       size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
       int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
@@ -363,7 +369,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
       }
     }
 
-    for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+    for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
       for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
         size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
         auto& mesh = meshes[meshing_segment_id];
@@ -375,7 +381,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
           int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
           if (meshing_neighbor_segment_index >= 0) {
             int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
-            neighbor_set.insert(physics_neighbor_segment_index);
+            if (physics_neighbor_segment_index != -1) {
+              neighbor_set.insert(physics_neighbor_segment_index);
+            }
           }
         }
 
@@ -404,7 +412,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
     }
   }
 
-  for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
     // Verify segment count:
     if (meshing_strand_to_segment_indices[strand_id].size() != physics_strand_to_segment_indices[strand_id].size()) {
       EVOENGINE_WARNING("Meshing algorithm resulted in "
@@ -497,7 +505,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
           triangle.normal0[j] = triangle.normal[j] =
               glm::vec4(root_transform.TransformVector(ProfileToModelCoordinates(
-                            profile_to_model_transforms, mesh.getNormal(triangle_vertex_index + j),
+                            profile_to_model_normal_transforms, mesh.getNormal(triangle_vertex_index + j),
                             mesh.getVertices()[source_tri_vertex_index][2], 0.0f)),
                         0.0f);
 
@@ -574,7 +582,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
 
           glm::vec3 normal = glm::vec3(root_transform.TransformVector(
-              ProfileToModelCoordinates(profile_to_model_transforms, mesh.getNormal(triangle_vertex_index + j),
+              ProfileToModelCoordinates(profile_to_model_normal_transforms, mesh.getNormal(triangle_vertex_index + j),
                                         mesh.getVertices()[source_tri_vertex_index][2], 0.0f)));
           size_t normal_index = transformed_mesh.addNormal(normal.x, normal.y, normal.z);
 
@@ -583,6 +591,36 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
             transformed_mesh.getUVIndices()[dest_tri_vertex_index + j] = uv_index;
           }
         }
+      }
+    }
+  }
+
+  kinDS::VoronoiMesh transformed_boundary_mesh(kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
+
+  for (const auto& v : boundary_mesh.getVertices()) {
+    // v is a relative position in 2D, we need to convert it to 3D
+    glm::vec3 global_pos =
+        root_transform.TransformPoint(ProfileToModelCoordinates(profile_to_model_transforms, v, v[2]));
+    transformed_boundary_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
+  }
+
+  const auto& triangles = boundary_mesh.getTriangles();
+  for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+    size_t dest_tri_vertex_index = 3 * transformed_boundary_mesh.addTriangle(triangles[triangle_vertex_index],
+                                                                             triangles[triangle_vertex_index + 1],
+                                                                             triangles[triangle_vertex_index + 2]);
+
+    for (size_t j = 0; j < 3; j++) {
+      auto source_tri_vertex_index = boundary_mesh.getTriangles()[triangle_vertex_index + j];
+
+      glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
+          profile_to_model_normal_transforms, boundary_mesh.getNormal(triangle_vertex_index + j),
+          boundary_mesh.getVertices()[source_tri_vertex_index][2], 0.0f)));
+      size_t normal_index = transformed_boundary_mesh.addNormal(normal.x, normal.y, normal.z);
+
+      if (boundary_mesh.hasValidUVIndex(triangle_vertex_index + j)) {
+        size_t uv_index = transformed_boundary_mesh.addUV(boundary_mesh.getUV(triangle_vertex_index + j));
+        transformed_boundary_mesh.getUVIndices()[dest_tri_vertex_index + j] = uv_index;
       }
     }
   }
@@ -600,8 +638,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
 
   // export combined mesh
   // combined_mesh.mergeDuplicateVertices(0.0001);
-  kinDS::ObjExporter::writeMesh(transformed_mesh, "transformed_mesh.obj");
-  kinDS::ObjExporter::writeMesh(combined_mesh, "meshtest_subdivided.obj");
+  // kinDS::ObjExporter::writeMesh(transformed_mesh, "transformed_mesh.obj");
+  kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, "transformed_boundary_mesh.obj");
+  // kinDS::ObjExporter::writeMesh(combined_mesh, "meshtest_subdivided.obj");
   EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
 }
 

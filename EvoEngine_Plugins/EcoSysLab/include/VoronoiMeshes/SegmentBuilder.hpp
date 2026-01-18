@@ -49,8 +49,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   std::vector<int> half_edge_to_boundary_vertex_index;
 
   const KineticDelaunay& kin_del;
-  const std::vector<CubicHermiteSpline<2>>& splines;  // Reference to the splines used for the triangulation
-  bool finalized = false;                             // Flag to indicate if the mesh has been finalized
+  bool finalized = false;  // Flag to indicate if the mesh has been finalized
   std::vector<std::pair<size_t, double>> subdivisions;
   size_t subdivision_index = 0;
 
@@ -96,9 +95,8 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   void accumulateSegmentProperties();
 
  public:
-  SegmentBuilder(const KineticDelaunay& kin_del, std::vector<CubicHermiteSpline<2>>& splines,
-                 std::vector<std::pair<size_t, double>> subdivisions);
-  SegmentBuilder(const KineticDelaunay& kin_del, std::vector<CubicHermiteSpline<2>>& splines);
+  SegmentBuilder(const KineticDelaunay& kin_del, std::vector<std::pair<size_t, double>> subdivisions);
+  SegmentBuilder(const KineticDelaunay& kin_del);
 
   void init() override;
 

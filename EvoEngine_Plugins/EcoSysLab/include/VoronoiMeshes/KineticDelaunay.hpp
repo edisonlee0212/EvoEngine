@@ -105,6 +105,8 @@ class KineticDelaunay {
   std::vector<bool> face_inside;              // Tracks whether faces are inside or outside the boundary
   std::vector<size_t> branch_ids;             // track branch ID for each vertex/spline
   std::vector<std::vector<size_t>> branches;  // track which vertices/splines belong to which branch
+  std::vector<VoronoiPoint<2>> dummy_boundary;
+  bool add_dummy_boundary;
 
   /* Compare to Leonidas Guibas and Jorge Stolfi. 1985. Primitives for the manipulation of general subdivisions and the
    * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74–123. https://doi.org/10.1145/282918.282923
@@ -176,6 +178,9 @@ class KineticDelaunay {
   }
 
   void computeRightAngleEvents(double t, size_t he_id) {
+    // generally don't do this for now:
+    return;
+
     if (cutoff == std::numeric_limits<double>::infinity()) {
       // no boundary events wanted
       return;
@@ -223,8 +228,8 @@ class KineticDelaunay {
         }
         center[0] /= trajs.size();
         center[1] /= trajs.size();
-        EVOENGINE_LOG("Right Angle Event at time " << event_time << " for half-edge ID " << he_id
-                                                   << " at center position " << center.toString().c_str());
+        /*EVOENGINE_LOG("Right Angle Event at time " << event_time << " for half-edge ID " << he_id
+                                                   << " at center position " << center.toString().c_str());*/
 
         events.emplace(Event(event_time, he_id, t, center,
                              Event::RIGHT_ANGLED));  // Store the event with the time and half-edge index
@@ -517,7 +522,63 @@ class KineticDelaunay {
   }
 
  public:
-  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines, double cutoff) : splines(splines), cutoff(cutoff) {
+  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines, double cutoff, bool add_dummy_splines)
+      : splines(splines), cutoff(cutoff), add_dummy_boundary(add_dummy_splines) {
+    if (add_dummy_splines) {
+      // first compute a bounding box:
+      VoronoiPoint<2> p_min{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
+      VoronoiPoint<2> p_max{-std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
+
+      for (auto& spline : splines) {
+        const auto& points = spline.getPoints();
+        for (const auto& p : points) {
+          for (int dim = 0; dim < 2; dim++) {
+            if (p[dim] < p_min[dim]) {
+              p_min[dim] = p[dim];
+            }
+            if (p[dim] > p_max[dim]) {
+              p_max[dim] = p[dim];
+            }
+          }
+        }
+      }
+
+      // We will need dummy points such that no voronoi vertices can slip outside
+      double range = std::max(p_max[0] - p_min[0], p_max[1] - p_min[1]);
+      double dist_from_bb = std::max(range, 2 * cutoff);
+
+      dummy_boundary = {
+          {p_min[0] - 0.75 * dist_from_bb, p_max[1] + 0.75 * dist_from_bb},  // corner_tl
+          {p_min[0], p_max[1] + dist_from_bb},                               // top_left
+          {p_max[0], p_max[1] + dist_from_bb},                               // top_right
+          {p_max[0] + 0.75 * dist_from_bb, p_max[1] + 0.75 * dist_from_bb},  // corner_tr
+          {p_max[0] + dist_from_bb, p_max[1]},                               // right_top
+          {p_max[0] + dist_from_bb, p_min[1]},                               // right_bottom
+          {p_max[0] + 0.75 * dist_from_bb, p_min[1] - 0.75 * dist_from_bb},  // corner_br
+          {p_max[0], p_min[1] - dist_from_bb},                               // bottom_right
+          {p_min[0], p_min[1] - dist_from_bb},                               // bottom_left
+          {p_min[0] - 0.75 * dist_from_bb, p_min[1] - 0.75 * dist_from_bb},  // corner_bl
+          {p_min[0] - dist_from_bb, p_min[1]},                               // left_bottom
+          {p_min[0] - dist_from_bb, p_max[1]}                                // left_top
+      };
+
+      size_t length = splines[0].pointCount();
+
+      for (const auto& p : dummy_boundary) {
+        CubicHermiteSpline<2> new_spline;
+        for (size_t i = 0; i < length; i++) {
+          new_spline.addControlPoint(p);
+        }
+        this->splines.push_back(new_spline);
+      }
+    }
+  }
+
+  bool isDummyBoundary(size_t v) {
+    if (add_dummy_boundary) {
+      return v >= splines.size() - 12;
+    }
+    return false;
   }
 
   std::vector<VoronoiPoint<2>> getPointsAt(double t) const {
@@ -527,6 +588,14 @@ class KineticDelaunay {
       points.push_back(spline.evaluate(t));  // Get the first point of each spline
     }
     return points;
+  }
+
+  VoronoiPoint<2> getPointAt(double t, size_t v) const {
+    return splines[v].evaluate(t);  // Get the first point of each spline
+  }
+
+  const CubicHermiteSpline<2>& getSpline(size_t v) const {
+    return splines[v];
   }
 
   const HalfEdgeDelaunayGraph& init() {
@@ -630,6 +699,10 @@ class KineticDelaunay {
     return component;
   }
 
+  const std::vector<VoronoiPoint<2>>& getDummyBoundary() const {
+    return dummy_boundary;
+  }
+
   std::vector<std::vector<size_t>> checkForSplit(const std::array<int, 3>& tri_vertices) const {
     std::vector<std::vector<size_t>> components;
     std::vector<bool> visited(graph.getVertexCount(), false);
@@ -713,6 +786,10 @@ class KineticDelaunay {
 
   std::vector<std::vector<BoundaryPoint>> extractComponentBoundaries(const std::vector<size_t>& component, double t,
                                                                      std::vector<bool>& he_visited) const {
+    if (component.size() < 3) {
+      return {{}};
+    }
+
     std::vector<std::vector<BoundaryPoint>> boundaries;
     double min_x = std::numeric_limits<double>::infinity();
     // TODO: this is not perfectly safe if points of the outer and an inner boundary coincide at the minimum

@@ -86,6 +86,10 @@ class CubicHermiteSpline {
     return result;
   }
 
+  const std::vector<VoronoiPoint<dim>> getPoints() const {
+    return points;
+  }
+
   size_t pointCount() const {
     return points.size();
   }

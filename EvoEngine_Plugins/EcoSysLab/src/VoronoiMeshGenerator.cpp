@@ -28,10 +28,10 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
                                 std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
                                 std::vector<kinDS::CubicHermiteSpline<2>> strand_splines) {
   // TODO: Here we could only extract the boundary mesh and use it
-  kinDS::KineticDelaunay kinetic_delaunay(strand_splines, 10.0);
+  kinDS::KineticDelaunay kinetic_delaunay(strand_splines, 10.0, true);
 
   kinetic_delaunay.init();
-  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, strand_splines);
+  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay);
   mesh_builder.init();
   auto points = kinetic_delaunay.getPointsAt(0.0);
 

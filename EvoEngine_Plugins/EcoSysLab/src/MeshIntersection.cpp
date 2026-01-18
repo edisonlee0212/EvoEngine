@@ -104,55 +104,37 @@ static MeshCGAL<Origin> voronoiMeshToCgalMesh(const VoronoiMesh& input_mesh, con
 
 static double eps = 1e-12;
 
-kinDS::MeshIntersection::MeshIntersection(const VoronoiMesh& static_mesh) : boundary_mesh_voronoi(static_mesh) {
-  // All neighbor segments are -1
-  boundary_mesh_voronoi.mergeDuplicateVertices();
-  boundary_mesh_voronoi.removeDegenerateTriangles();
-  boundary_mesh_voronoi.removeIsolatedVertices();
-  std::vector<int> neighbor_segments(boundary_mesh_voronoi.getTriangleCount(), -1);
+bool isManifold(const MeshCGAL_internal& mesh) {
+  auto vindex = get(CGAL::vertex_index, mesh);
+  auto eindex = get(CGAL::edge_index, mesh);
+  auto findex = get(CGAL::face_index, mesh);
 
-  boundary_mesh = voronoiMeshToCgalMesh(boundary_mesh_voronoi, neighbor_segments, 0);
-
-  namespace PMP = CGAL::Polygon_mesh_processing;
-
-  /*if (!CGAL::is_valid_polygon_mesh(boundary_mesh.mesh)) {
-    throw std::runtime_error("Invalid polygon mesh");
-  }
-
-  if (!CGAL::is_closed(boundary_mesh.mesh)) {
-    throw std::runtime_error("Mesh must be closed and manifold");
-  }
-
-  auto vindex = get(CGAL::vertex_index, boundary_mesh.mesh);
-  auto eindex = get(CGAL::edge_index, boundary_mesh.mesh);
-  auto findex = get(CGAL::face_index, boundary_mesh.mesh);
-
-  auto origin_map_pair =
-      boundary_mesh.mesh.property_map<CGAL::Surface_mesh<Point_CGAL>::Face_index, Origin>("f:origin");
+  auto origin_map_pair = mesh.property_map<CGAL::Surface_mesh<Point_CGAL>::Face_index, Origin>("f:origin");
   bool has_origin = origin_map_pair.second;
   auto origin_map = origin_map_pair.first;
 
-  for (auto e : edges(boundary_mesh.mesh)) {
+  for (auto e : edges(mesh)) {
     int count = 0;
 
-    auto h = halfedge(e, boundary_mesh.mesh);
-    auto h2 = opposite(h, boundary_mesh.mesh);
+    auto h = halfedge(e, mesh);
+    auto h2 = CGAL::opposite(h, mesh);
 
-    auto f1 = face(h, boundary_mesh.mesh);
-    auto f2 = face(h2, boundary_mesh.mesh);
+    auto f1 = face(h, mesh);
+    auto f2 = face(h2, mesh);
 
-    bool boundary = (f1 == boundary_mesh.mesh.null_face() || f2 == boundary_mesh.mesh.null_face());
+    bool boundary = (f1 == mesh.null_face() || f2 == mesh.null_face());
 
     if (boundary) {
-      auto v0 = source(h, boundary_mesh.mesh);
-      auto v1 = target(h, boundary_mesh.mesh);
+      auto v0 = source(h, mesh);
+      auto v1 = target(h, mesh);
 
-      std::cerr << "Non-manifold edge detected\n";
+      return false;
+      /*std::cerr << "Non-manifold edge detected\n";
       std::cerr << "  edge index: " << eindex[e] << "\n";
       std::cerr << "  vertices:   " << vindex[v0] << " -- " << vindex[v1] << "\n";
 
-      auto p0 = boundary_mesh.mesh.point(v0);
-      auto p1 = boundary_mesh.mesh.point(v1);
+      auto p0 = mesh.point(v0);
+      auto p1 = mesh.point(v1);
 
       std::cerr << "  coords: (" << p0 << ") -- (" << p1 << ")\n";
       std::cerr << "  incident halfedges: " << count << "\n";
@@ -164,11 +146,10 @@ kinDS::MeshIntersection::MeshIntersection(const VoronoiMesh& static_mesh) : boun
           std::cerr << "  original face id =" << origin_map[f].face_id;
         }
         std::cerr << "\n";
-      }
+      }*/
     }
   }
 
-  auto& mesh = boundary_mesh.mesh;
   using Halfedge = MeshCGAL_internal::Halfedge_index;
   using Face = MeshCGAL_internal::Face_index;
 
@@ -218,10 +199,32 @@ kinDS::MeshIntersection::MeshIntersection(const VoronoiMesh& static_mesh) : boun
     }
 
     if (visited.size() != incident_faces.size()) {
-      std::cerr << "Non-manifold vertex detected: " << get(CGAL::vertex_index, mesh)[v] << std::endl;
-      break;
+      return false;
     }
-  }*/
+  }
+  return true;
+}
+
+kinDS::MeshIntersection::MeshIntersection(const VoronoiMesh& static_mesh) : boundary_mesh_voronoi(static_mesh) {
+  // All neighbor segments are -1
+  boundary_mesh_voronoi.mergeDuplicateVertices();
+  boundary_mesh_voronoi.removeDegenerateTriangles();
+  boundary_mesh_voronoi.removeIsolatedVertices();
+  std::vector<int> neighbor_segments(boundary_mesh_voronoi.getTriangleCount(), -1);
+
+  boundary_mesh = voronoiMeshToCgalMesh(boundary_mesh_voronoi, neighbor_segments, 0);
+
+  namespace PMP = CGAL::Polygon_mesh_processing;
+
+  /*if (!CGAL::is_valid_polygon_mesh(boundary_mesh.mesh)) {
+    throw std::runtime_error("Invalid polygon mesh");
+  }
+
+  if (!CGAL::is_closed(boundary_mesh.mesh)) {
+    throw std::runtime_error("Mesh must be closed and manifold");
+  }
+
+  */
 
   // assume that this is already the case and omit this call
 
@@ -296,12 +299,31 @@ std::pair<VoronoiMesh, std::vector<int>> MeshIntersection::Intersect(const Voron
   MeshCGAL<Origin> boundary_mesh_copy = boundary_mesh;
   MeshCGAL<Origin> output_mesh("f:origin", {-1, 0});
   //  assume that this is already the case and omit this call
-  PMP::orient_to_bound_a_volume(input_mesh.mesh);
+  // PMP::orient_to_bound_a_volume(input_mesh.mesh);
+
+  bool manifold = isManifold(input_mesh.mesh);
+
+  if (!manifold) {
+    EVOENGINE_ERROR("Intersection failed - Input mesh is not a manifold.");
+    return ret_val;  // empty mesh
+  }
+
+  if (PMP::does_self_intersect(input_mesh.mesh)) {
+    EVOENGINE_ERROR("Intersection failed - Mesh self-intersects.");
+    return ret_val;  // empty mesh
+  }
 
   RecordingVisitor visitor(boundary_mesh_copy, input_mesh, output_mesh);
 
-  bool success = PMP::corefine_and_compute_intersection(boundary_mesh_copy.mesh, input_mesh.mesh, output_mesh.mesh,
-                                                        PMP::parameters::visitor(visitor));
+  bool success = false;
+  try {
+    success = PMP::corefine_and_compute_intersection(boundary_mesh_copy.mesh, input_mesh.mesh, output_mesh.mesh,
+                                                     PMP::parameters::visitor(visitor));
+  } catch (...) {
+    success = false;
+    EVOENGINE_ERROR("Intersection failed - An exception was thrown.");
+    return ret_val;  // empty mesh
+  }
 
   if (!success) {
     EVOENGINE_ERROR("Intersection failed - make sure both meshes are closed.");
