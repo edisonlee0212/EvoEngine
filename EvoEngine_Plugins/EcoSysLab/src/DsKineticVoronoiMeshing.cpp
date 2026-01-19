@@ -200,9 +200,11 @@ std::optional<std::array<size_t, 2>> FindNonIdenticalPair(std::function<glm::vec
   return std::optional<std::array<size_t, 2>>();  // all points identical
 }
 
-glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_transforms, kinDS::VoronoiPoint<3> point,
-                                    float t, float w = 1.0f) {
+glm::vec3 ProfileToModelCoordinates(const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms,
+                                    kinDS::VoronoiPoint<3> point, float t, const std::vector<size_t>& branch_indices,
+                                    float w = 1.0f) {
   size_t lower_section_index = static_cast<size_t>(std::max(0.0f, glm::floor(t)));
+
   size_t upper_section_index = std::min(profile_to_model_transforms.size() - 1, static_cast<size_t>(glm::ceil(t)));
 
   // check range
@@ -219,10 +221,12 @@ glm::vec3 ProfileToModelCoordinates(std::vector<glm::mat4>& profile_to_model_tra
   // only set second coordinate to 0 for points, not for normal vectors
   // TODO: I actually wanted to get rid of this coordinate swap at some point
   glm::vec4 local_pos(point[0], (1.0f - w) * point[2], point[1], w);
-  glm::vec4 global_pos = profile_to_model_transforms[lower_section_index] * local_pos;
+  size_t lower_branch_index = branch_indices[lower_section_index];
+  glm::vec4 global_pos = profile_to_model_transforms[lower_section_index][lower_branch_index] * local_pos;
 
   if (upper_section_index != lower_section_index) {
-    glm::vec4 upper_global_pos = profile_to_model_transforms[upper_section_index] * local_pos;
+    size_t upper_branch_index = branch_indices[upper_section_index];
+    glm::vec4 upper_global_pos = profile_to_model_transforms[upper_section_index][upper_branch_index] * local_pos;
     float frac = static_cast<float>(t - static_cast<double>(lower_section_index));
     global_pos = glm::mix(global_pos, upper_global_pos, frac);
   }
@@ -238,18 +242,23 @@ glm::vec3 ToVec3(const kinDS::VoronoiPoint<3>& a) {
   return glm::vec3(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]));
 }
 
-void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermiteSpline<2>> strand_splines,
-                                                  std::vector<std::vector<double>>& subdivisions_by_strand,
-                                                  std::vector<std::vector<int>>& physics_strand_to_segment_indices,
-                                                  std::vector<glm::mat4>& profile_to_model_transforms,
-                                                  const GlobalTransform& root_transform) {
+void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
+    std::vector<kinDS::CubicHermiteSpline<2>> strand_splines, std::vector<std::vector<double>>& subdivisions_by_strand,
+    std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+    const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
+    const std::vector<std::vector<size_t>>& branch_indices,
+    std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
   bool recompute_segment_pairs = false;  // TODO: expose as option?
 
-  std::vector<glm::mat4> profile_to_model_normal_transforms(profile_to_model_transforms.size());
+  std::vector<std::vector<glm::mat4>> normal_transforms_by_height_and_branch(transforms_by_height_and_branch.size());
 
-  for (size_t i = 0; i < profile_to_model_transforms.size(); i++) {
-    profile_to_model_normal_transforms[i] = glm::transpose(glm::inverse(profile_to_model_transforms[i]));
-    profile_to_model_normal_transforms[i][3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+  for (size_t i = 0; i < transforms_by_height_and_branch.size(); i++) {
+    normal_transforms_by_height_and_branch[i].resize(transforms_by_height_and_branch[i].size());
+    for (size_t j = 0; j < normal_transforms_by_height_and_branch[i].size(); j++) {
+      normal_transforms_by_height_and_branch[i][j] =
+          glm::transpose(glm::inverse(transforms_by_height_and_branch[i][j]));
+      normal_transforms_by_height_and_branch[i][j][3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    }
   }
 
   // sort subdivisions into a single array
@@ -257,7 +266,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
   kinDS::KineticDelaunay kinetic_delaunay(strand_splines,
-                                          render_settings.segment_meshlet_render_parameters.alpha_cutoff, true);
+                                          render_settings.segment_meshlet_render_parameters.alpha_cutoff, true,
+                                          branch_indices, strands_by_branch_id);
 
   kinetic_delaunay.init();
   kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, subdivisions);
@@ -430,7 +440,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
       size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
       auto& mesh = meshes[meshing_segment_id];
       int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
-
       // get original segment id from strand model
 
       // store in the buffers
@@ -441,7 +450,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
         GpuSegmentMeshletVertex vertex;
 
         // Convert from profile to global 3D position
-        vertex.x0 = root_transform.TransformPoint(ProfileToModelCoordinates(profile_to_model_transforms, v, v[2]));
+        vertex.x0 = root_transform.TransformPoint(
+            ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
         vertex.x = vertex.x0;
         vertex.segment_index = physics_segment_id;
         segment_meshlet_vertices.push_back(vertex);
@@ -505,8 +515,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
           triangle.normal0[j] = triangle.normal[j] =
               glm::vec4(root_transform.TransformVector(ProfileToModelCoordinates(
-                            profile_to_model_normal_transforms, mesh.getNormal(triangle_vertex_index + j),
-                            mesh.getVertices()[source_tri_vertex_index][2], 0.0f)),
+                            normal_transforms_by_height_and_branch, mesh.getNormal(triangle_vertex_index + j),
+                            mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)),
                         0.0f);
 
           if (mesh.hasValidUVIndex(triangle_vertex_index + j)) {
@@ -552,7 +562,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   }
   EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
   kinDS::VoronoiMesh transformed_mesh(kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
-  for (size_t strand_id = 0; strand_id < meshing_strand_to_segment_indices.size(); ++strand_id) {
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
     for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
       // Get mesh using the segment id from the meshing algorithm.
       // Note that this is different from the original segment id from the strand model because it is assigned in the
@@ -566,8 +576,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
       size_t vertex_offset = transformed_mesh.getVertexCount();
       for (const auto& v : mesh.getVertices()) {
         // v is a relative position in 2D, we need to convert it to 3D
-        glm::vec3 global_pos =
-            root_transform.TransformPoint(ProfileToModelCoordinates(profile_to_model_transforms, v, v[2]));
+        if (branch_indices.size() <= strand_id) {
+          EVOENGINE_ERROR("strand id out if bounds: " << strand_id << " vector length is: " << branch_indices.size());
+        }
+        glm::vec3 global_pos = root_transform.TransformPoint(
+            ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
         transformed_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
       }
 
@@ -581,9 +594,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
         for (size_t j = 0; j < 3; j++) {
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
 
-          glm::vec3 normal = glm::vec3(root_transform.TransformVector(
-              ProfileToModelCoordinates(profile_to_model_normal_transforms, mesh.getNormal(triangle_vertex_index + j),
-                                        mesh.getVertices()[source_tri_vertex_index][2], 0.0f)));
+          glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
+              normal_transforms_by_height_and_branch, mesh.getNormal(triangle_vertex_index + j),
+              mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)));
           size_t normal_index = transformed_mesh.addNormal(normal.x, normal.y, normal.z);
 
           if (mesh.hasValidUVIndex(triangle_vertex_index + j)) {
@@ -595,12 +608,16 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
     }
   }
 
-  kinDS::VoronoiMesh transformed_boundary_mesh(kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
+  // comment this out for now, strand id can not be obtained
+  /*kinDS::VoronoiMesh transformed_boundary_mesh(kinDS::PerTriangleCorner);  // also build transformed mesh for
+  debugging
 
-  for (const auto& v : boundary_mesh.getVertices()) {
+  const auto& vertices = boundary_mesh.getVertices();
+  for (size_t i = 0; i < vertices.size(); i++) {
+    const auto& v = vertices[i];
     // v is a relative position in 2D, we need to convert it to 3D
-    glm::vec3 global_pos =
-        root_transform.TransformPoint(ProfileToModelCoordinates(profile_to_model_transforms, v, v[2]));
+    glm::vec3 global_pos = root_transform.TransformPoint(
+        ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
     transformed_boundary_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
   }
 
@@ -614,8 +631,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
       auto source_tri_vertex_index = boundary_mesh.getTriangles()[triangle_vertex_index + j];
 
       glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
-          profile_to_model_normal_transforms, boundary_mesh.getNormal(triangle_vertex_index + j),
-          boundary_mesh.getVertices()[source_tri_vertex_index][2], 0.0f)));
+          normal_transforms_by_height_and_branch, boundary_mesh.getNormal(triangle_vertex_index + j),
+          boundary_mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)));
       size_t normal_index = transformed_boundary_mesh.addNormal(normal.x, normal.y, normal.z);
 
       if (boundary_mesh.hasValidUVIndex(triangle_vertex_index + j)) {
@@ -623,7 +640,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
         transformed_boundary_mesh.getUVIndices()[dest_tri_vertex_index + j] = uv_index;
       }
     }
-  }
+  }*/
 
   // for now, just combine all meshes into one
   kinDS::VoronoiMesh combined_mesh;
@@ -639,7 +656,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(std::vector<kinDS::CubicHermit
   // export combined mesh
   // combined_mesh.mergeDuplicateVertices(0.0001);
   // kinDS::ObjExporter::writeMesh(transformed_mesh, "transformed_mesh.obj");
-  kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, "transformed_boundary_mesh.obj");
+  // kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, "transformed_boundary_mesh.obj");
   // kinDS::ObjExporter::writeMesh(combined_mesh, "meshtest_subdivided.obj");
   EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
 }
@@ -748,8 +765,13 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
-  std::vector<std::pair<std::vector<kinDS::VoronoiPoint<2>>, std::vector<SkeletonNodeHandle>>> strand_guide_points(
-      randomly_subdivided_strands.size());
+  struct GuidePoint {
+    kinDS::VoronoiPoint<2> profile_position;
+    SkeletonNodeHandle node_handle;
+    StrandSegmentHandle segment_handle;
+  };
+
+  std::vector<std::vector<GuidePoint>> strand_guide_points(randomly_subdivided_strands.size());
   std::vector<int> uniform_particle_offsets(randomly_subdivided_strands.size());
   if (!uniform_particle_offsets.empty())
     uniform_particle_offsets[0] = 0;
@@ -768,9 +790,9 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
   int maxSegmentCount = std::numeric_limits<int>::min();
   std::mutex m;
 
-  std::function<void(int)> updateMax = [&](int candidate) {
+  std::function<void(int&, int)> updateMax = [&](int& cur_max, int candidate) {
     std::lock_guard<std::mutex> lock(m);
-    maxSegmentCount = std::max(maxSegmentCount, candidate);
+    cur_max = std::max(cur_max, candidate);
   };
 
   Jobs::RunParallelFor(randomly_subdivided_strands.size(), [&](const size_t strand_index) {
@@ -779,18 +801,23 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
     const auto uniform_particle_offset = uniform_particle_offsets[strand_index];
 
-    auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(
-        uniformly_subdivided_strand.PeekStrandSegmentHandles()[0]);
+    size_t segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[0];
+    auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
     auto node_handle = first_uniform_segment_data.node_handle;
+
     // First 2 particles within same strand will always have same profile position/polar coordinate.
     kinDS::VoronoiPoint<2> profile_position{first_uniform_segment_data.profile_position.x,
                                             first_uniform_segment_data.profile_position.y};
-    strand_guide_points[strand_index].first.push_back(profile_position);
-    strand_guide_points[strand_index].second.push_back(node_handle);
+    GuidePoint guide_point;
+    guide_point.profile_position = profile_position;
+    guide_point.node_handle = node_handle;
+    guide_point.segment_handle = segment_handle;
+
+    strand_guide_points[strand_index].push_back(guide_point);
 
     int last_index_with_new_node = 0;
     float previous_root_distance = 0.0f;
-    updateMax(uniformly_subdivided_strand.PeekStrandSegmentHandles().size());
+    updateMax(maxSegmentCount, uniformly_subdivided_strand.PeekStrandSegmentHandles().size());
     for (int uniform_segment_index = 0;
          uniform_segment_index < uniformly_subdivided_strand.PeekStrandSegmentHandles().size();
          uniform_segment_index++) {
@@ -806,8 +833,12 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
                                       std::to_string(strand_guide_points[strand_index].size()) + " has distance " +
                                       std::to_string(uniform_segment_data.segment_index)));
       }*/
-      strand_guide_points[strand_index].first.push_back(profile_position);
-      strand_guide_points[strand_index].second.push_back(node_handle);
+      GuidePoint guide_point;
+      guide_point.profile_position = profile_position;
+      guide_point.node_handle = node_handle;
+      guide_point.segment_handle = segment_handle;
+
+      strand_guide_points[strand_index].push_back(guide_point);
       uniform_subdivisions_by_strand[strand_index].push_back(uniform_segment.end_t);
     }
 
@@ -860,8 +891,13 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
   // we need to treat the first transform separately as it derives from the start points of the first segments
   const auto& strands = uniformly_subdivided_strand_group.PeekStrands();
 
-  auto get_transforms = [&](int segment_index) {
-    const auto& segments = sorted_segments[segment_index == 0 ? 0 : (segment_index - 1)];
+  auto get_transforms = [&](int h) {
+    if (h >= profile_to_model_transforms.size()) {
+      EVOENGINE_ERROR("Segment index out of bounds!");
+      return;
+    }
+
+    const auto& segments = sorted_segments[h == 0 ? 0 : (h - 1)];
 
     std::function<glm::vec3(size_t)> get_point = [&](size_t idx) {
       size_t segment_handle = segments[idx];
@@ -889,7 +925,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       float normal_sign = 1.0f;
       glm::vec3 normal_global;
 
-      if (segment_index != 0) {
+      if (h != 0) {
         // TODO: is this always safe? We could have a strand with only one segment.
         if (next_segment_handle == -1) {
           next_segment_handle = first_segment.GetPrevHandle();
@@ -918,7 +954,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
         }
         v_global = glm::normalize(glm::cross(normal_global, u_global));
 
-        if (segment_index != 0) {
+        if (h != 0) {
           p0_global = first_segment.end_position;
         } else {
           p0_global = strand.start_position;
@@ -940,7 +976,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
             uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[p1_idx]).profile_position;
         p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
 
-        if (segment_index != 0) {
+        if (h != 0) {
           p0_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[p0_idx]).end_position;
           p1_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[p1_idx]).end_position;
         } else {
@@ -977,7 +1013,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
           uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[2]]).profile_position;
       p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
 
-      if (segment_index != 0) {
+      if (h != 0) {
         p0_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[0]]).end_position;
         p1_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[1]]).end_position;
         p2_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[2]]).end_position;
@@ -1000,7 +1036,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
                << p2_profile.x << "," << p2_profile.y << "," << p2_profile.z << "," << p2_global.x << "," << p2_global.y
                << "," << p2_global.z << "\n";*/
 
-    profile_to_model_transforms[segment_index] =
+    profile_to_model_transforms[h] =
         ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
   };
 
@@ -1008,15 +1044,308 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     get_transforms(segment_index);
   });
 
+  // Create a branch index lookup using [strand_id][h]
+  std::vector<std::vector<size_t>> branch_indices(strand_guide_points.size());
+  size_t last_branch_index = 0;
+  // Maintain the branches as [h][branch_id][strand_no]
+  std::vector<std::vector<std::vector<size_t>>> strands_by_branch_id(maxSegmentCount + 1);
+
+  std::map<SkeletonNodeHandle, size_t> node_to_branch_map;
+  for (size_t strand_id = 0; strand_id < strand_guide_points.size(); strand_id++) {
+    auto& guide_points = strand_guide_points[strand_id];
+    auto node_handle = guide_points.front().node_handle;
+    auto it = node_to_branch_map.find(node_handle);
+    if (it != node_to_branch_map.end()) {
+      size_t branch_index = it->second;
+      branch_indices[strand_id].push_back(branch_index);
+      strands_by_branch_id[0][branch_index].push_back(strand_id);
+    } else {
+      size_t branch_index = strands_by_branch_id[0].size();
+      node_to_branch_map[node_handle] = branch_index;
+      strands_by_branch_id[0].push_back({strand_id});
+      branch_indices[strand_id].push_back(branch_index);
+    }
+  }
+
+  for (size_t h = 1; h < maxSegmentCount + 1; h++) {
+    // Now iterate over each branch and check if we need to split it
+    strands_by_branch_id[h].resize(strands_by_branch_id[h - 1].size());
+    for (size_t branch_id = 0; branch_id < strands_by_branch_id[h - 1].size(); branch_id++) {
+      auto& branch_strands = strands_by_branch_id[h - 1][branch_id];
+      // branch might end early:
+      if (branch_strands.empty()) {
+        EVOENGINE_LOG("Branch with id " << branch_id << " ended at height " << h);
+        continue;
+      }
+
+      SkeletonNodeHandle branch_node = strand_guide_points[branch_strands.front()][h].node_handle;
+      std::map<SkeletonNodeHandle, size_t> node_to_branch_map;
+
+      node_to_branch_map[branch_node] = branch_id;
+
+      for (size_t& strand_id : branch_strands) {
+        const auto& guide_points = strand_guide_points[strand_id];
+
+        if (h >= guide_points.size()) {
+          EVOENGINE_LOG("Strand " << strand_id << " ended early at height " << h);
+          continue;  // strand ends here
+        }
+
+        auto node_handle = guide_points[h].node_handle;
+
+        auto it = node_to_branch_map.find(node_handle);
+        if (it != node_to_branch_map.end()) {
+          size_t branch_index = it->second;
+          branch_indices[strand_id].push_back(branch_index);
+          strands_by_branch_id[h][branch_index].push_back(strand_id);
+        } else {
+          size_t branch_index = strands_by_branch_id.size();
+          node_to_branch_map[node_handle] = branch_index;
+          strands_by_branch_id[h].push_back({strand_id});
+          branch_indices[strand_id].push_back(branch_index);
+        }
+      }
+    }
+  }
+
+  // For debugging, output the node index for each height:
+  for (size_t h = 0; h < maxSegmentCount + 1; h++) {
+    std::cout << "Node handles at height " << h << ": ";
+
+    // collect in a set to not list duplicates
+    std::set<SkeletonNodeHandle> handles;
+    for (size_t strand_id = 0; strand_id < strand_guide_points.size(); strand_id++) {
+      auto& guide_points = strand_guide_points[strand_id];
+      if (h < guide_points.size()) {
+        handles.insert(guide_points[h].node_handle);
+      }
+    }
+
+    for (auto& handle : handles) {
+      std::cout << handle << ", ";
+    }
+    std::cout << std::endl;
+  }
+
+  for (size_t h = 0; h < maxSegmentCount + 1; h++) {
+    std::cout << "Branch indices at height " << h << ": ";
+    std::set<size_t> index_set;
+    for (size_t strand_id = 0; strand_id < strand_guide_points.size(); strand_id++) {
+      if (h < branch_indices[strand_id].size()) {
+        index_set.insert(branch_indices[strand_id][h]);
+      }
+    }
+
+    for (auto& index : index_set) {
+      std::cout << index << ", ";
+    }
+    std::cout << std::endl;
+  }
+
+  // re-order transforms by height and branch
+  std::vector<std::vector<glm::mat4>> transforms_by_height_and_branch(maxSegmentCount + 1);
+
+  auto get_branch_transforms = [&](size_t branch_index, int h) {
+    if (h >= profile_to_model_transforms.size()) {
+      EVOENGINE_ERROR("Segment index out of bounds!");
+      return;
+    }
+
+    const auto& strand_ids = strands_by_branch_id[h][branch_index];
+
+    if (strand_ids.empty()) {
+      return;
+    }
+
+    std::function<glm::vec3(size_t)> get_point = [&](size_t idx) {
+      size_t strand_id = strand_ids[idx];
+      size_t segment_handle = strand_guide_points[strand_id][h].segment_handle;
+      const auto& segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
+      return glm::vec3(segment_data.profile_position.x, 0.0f, segment_data.profile_position.y);
+    };
+
+    std::optional<std::array<size_t, 3>> triple_opt = FindNonCollinearTriple(get_point, strand_ids.size());
+
+    glm::vec3 p0_profile, p1_profile, p2_profile;
+    glm::vec3 p0_global, p1_global, p2_global;
+
+    if (!triple_opt.has_value()) {
+      // use normal to get a transformation
+      // find non-identical pair
+      std::optional<std::array<size_t, 2>> pair_opt = FindNonIdenticalPair(get_point, strand_ids.size());
+
+      // get normal from first segment
+      StrandSegmentHandle first_segment_handle = strand_guide_points[strand_ids[0]][h].segment_handle;
+      const auto& first_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
+      const auto& first_segment = uniformly_subdivided_strand_group.PeekStrandSegment(first_segment_handle);
+      const auto& strand = uniformly_subdivided_strand_group.PeekStrand(first_segment.GetStrandHandle());
+      StrandSegmentHandle next_segment_handle = first_segment.GetNextHandle();
+
+      float normal_sign = 1.0f;
+      glm::vec3 normal_global;
+
+      if (h != 0) {
+        // TODO: is this always safe? We could have a strand with only one segment.
+        if (next_segment_handle == -1) {
+          next_segment_handle = first_segment.GetPrevHandle();
+          normal_sign = -1.0f;
+        }
+
+        const auto& next_segment = uniformly_subdivided_strand_group.PeekStrandSegment(next_segment_handle);
+
+        normal_global = normal_sign * glm::normalize(next_segment.end_position - first_segment.end_position);
+      } else {
+        // use strand start position instead
+        normal_global = normal_sign * glm::normalize(strand.start_position - first_segment.end_position);
+      }
+
+      glm::vec3 u_global;
+      glm::vec3 v_global;
+
+      glm::vec3 u_profile;
+      glm::vec3 v_profile;
+
+      if (!pair_opt.has_value()) {
+        // all points identical, use normal and two arbitrary orthogonal vectors
+        u_global = glm::normalize(glm::cross(normal_global, glm::vec3(1.0f, 0.0f, 0.0f)));
+        if (glm::length(u_global) < glm::epsilon<float>()) {
+          u_global = glm::normalize(glm::cross(normal_global, glm::vec3(0.0f, 0.0f, 1.0f)));
+        }
+        v_global = glm::normalize(glm::cross(normal_global, u_global));
+
+        if (h != 0) {
+          p0_global = first_segment.end_position;
+        } else {
+          p0_global = strand.start_position;
+        }
+        p1_global = p0_global + u_global;
+        p0_profile = glm::vec3(first_segment_data.profile_position.x, 0.0f, first_segment_data.profile_position.y);
+        p1_profile = p0_profile + glm::vec3(1.0f, 0.0f, 0.0f);
+      } else {
+        const auto& pair = pair_opt.value();
+        // use the pair to define u direction
+        size_t p0_idx = pair[0];
+        size_t p1_idx = pair[1];
+
+        const glm::vec2& p0_profile_2d =
+            uniformly_subdivided_strand_group
+                .PeekStrandSegmentData(strand_guide_points[strand_ids[p0_idx]][h].segment_handle)
+                .profile_position;
+        p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
+
+        const glm::vec2& p1_profile_2d =
+            uniformly_subdivided_strand_group
+                .PeekStrandSegmentData(strand_guide_points[strand_ids[p1_idx]][h].segment_handle)
+                .profile_position;
+        p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
+
+        if (h != 0) {
+          p0_global = uniformly_subdivided_strand_group
+                          .PeekStrandSegment(strand_guide_points[strand_ids[p0_idx]][h].segment_handle)
+                          .end_position;
+          p1_global = uniformly_subdivided_strand_group
+                          .PeekStrandSegment(strand_guide_points[strand_ids[p1_idx]][h].segment_handle)
+                          .end_position;
+        } else {
+          auto& p0_strand = strands[uniformly_subdivided_strand_group
+                                        .PeekStrandSegment(strand_guide_points[strand_ids[p0_idx]][h].segment_handle)
+                                        .GetStrandHandle()];
+          auto& p1_strand = strands[uniformly_subdivided_strand_group
+                                        .PeekStrandSegment(strand_guide_points[strand_ids[p1_idx]][h].segment_handle)
+                                        .GetStrandHandle()];
+
+          p0_global = p0_strand.start_position;
+          p1_global = p1_strand.start_position;
+        }
+
+        u_profile = glm::normalize(p1_profile - p0_profile);
+        u_global = glm::normalize(p1_global - p0_global);
+        v_profile = glm::normalize(glm::cross(normal_global, u_profile));
+        v_global = glm::normalize(glm::cross(normal_global, u_global));
+      }
+
+      p2_global = p0_global + v_global;
+      p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);  // TODO: is this correct?
+    } else {
+      const auto& triple = triple_opt.value();
+
+      // now get the end positions and profile positions of the three segments
+      const glm::vec2 p0_profile_2d =
+          uniformly_subdivided_strand_group
+              .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+              .profile_position;
+      p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
+
+      const glm::vec2& p1_profile_2d =
+          uniformly_subdivided_strand_group
+              .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+              .profile_position;
+      p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
+
+      const glm::vec2& p2_profile_2d =
+          uniformly_subdivided_strand_group
+              .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+              .profile_position;
+      p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
+
+      if (h != 0) {
+        p0_global = uniformly_subdivided_strand_group
+                        .PeekStrandSegment(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+                        .end_position;
+        p1_global = uniformly_subdivided_strand_group
+                        .PeekStrandSegment(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+                        .end_position;
+        p2_global = uniformly_subdivided_strand_group
+                        .PeekStrandSegment(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+                        .end_position;
+      } else {
+        auto& p0_strand = strands[uniformly_subdivided_strand_group
+                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+                                      .GetStrandHandle()];
+        auto& p1_strand = strands[uniformly_subdivided_strand_group
+                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+                                      .GetStrandHandle()];
+        auto& p2_strand = strands[uniformly_subdivided_strand_group
+                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+                                      .GetStrandHandle()];
+        p0_global = p0_strand.start_position;
+        p1_global = p1_strand.start_position;
+        p2_global = p2_strand.start_position;
+      }
+    }
+
+    /*debug_file << segment_index << "," << p0_profile.x << "," << p0_profile.y << "," << p0_profile.z << ","
+               << p0_global.x << "," << p0_global.y << "," << p0_global.z << "," << p1_profile.x << "," << p1_profile.y
+               << "," << p1_profile.z << "," << p1_global.x << "," << p1_global.y << "," << p1_global.z << ","
+               << p2_profile.x << "," << p2_profile.y << "," << p2_profile.z << "," << p2_global.x << "," << p2_global.y
+               << "," << p2_global.z << "\n";*/
+
+    transforms_by_height_and_branch[h][branch_index] =
+        ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
+  };
+
+  Jobs::RunParallelFor(maxSegmentCount + 1, [&](const size_t h) {
+    transforms_by_height_and_branch[h].resize(strands_by_branch_id[h].size());
+    for (size_t branch_index = 0; branch_index < transforms_by_height_and_branch[h].size(); branch_index++)
+      get_branch_transforms(branch_index, h);
+  });
+
   // Proof of concept, just assume we have one trunk with no branches and all strands have the same length
   // construct cubic hermite spline for each strand
   std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
   for (const auto& guide_points : strand_guide_points) {
-    strand_splines.push_back(kinDS::CubicHermiteSpline<2>(guide_points.first));
+    // extract support points
+    std::vector<kinDS::VoronoiPoint<2>> support_points;
+    support_points.reserve(guide_points.size());
+    for (auto& gp : guide_points) {
+      support_points.emplace_back(gp.profile_position);
+    }
+    strand_splines.push_back(kinDS::CubicHermiteSpline<2>(support_points));
   }
 
   RunMeshingAlgorithm(strand_splines, random_subdivisions_by_strand, randomly_subdivided_segment_handles,
-                      profile_to_model_transforms, initialize_parameters.root_transform);
+                      transforms_by_height_and_branch, initialize_parameters.root_transform, branch_indices,
+                      strands_by_branch_id);
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitializationGraphicsPipeline(

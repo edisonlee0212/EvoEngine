@@ -36,7 +36,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene, Entity& owner) override;
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const DynamicStrandsInitializeParameters& initialize_parameters,
-                 const DynamicStrandsVisualizationParameters& visualization_parameters);
+                 const DynamicStrandsVisualizationParameters& visualization_parameters) override;
 
   // everything specific to kinetic voronoi meshing
   struct SegmentMeshletsRenderParameters {
@@ -149,6 +149,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   void RunMeshingAlgorithm(std::vector<kinDS::CubicHermiteSpline<2>> strand_splines,
                            std::vector<std::vector<double>>& subdivisions_by_strand,
                            std::vector<std::vector<int>>& physics_strand_to_segment_indices,
-                           std::vector<glm::mat4>& profile_to_global_transforms, const GlobalTransform& root_transform);
+                           const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
+                           const GlobalTransform& root_transform,
+                           const std::vector<std::vector<size_t>>& branch_indices,
+                           std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id);
 };
 }  // namespace eco_sys_lab_plugin

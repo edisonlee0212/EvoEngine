@@ -28,7 +28,7 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
                                 std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
                                 std::vector<kinDS::CubicHermiteSpline<2>> strand_splines) {
   // TODO: Here we could only extract the boundary mesh and use it
-  kinDS::KineticDelaunay kinetic_delaunay(strand_splines, 10.0, true);
+  /*kinDS::KineticDelaunay kinetic_delaunay(strand_splines, 10.0, true);
 
   kinetic_delaunay.init();
   kinDS::SegmentBuilder mesh_builder(kinetic_delaunay);
@@ -61,7 +61,7 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
 
   // TODO: We should probably remove this entire file
   // We no longer need this
-  /* Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
+  Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
     auto intersect_relation = boundary_intersector.ClassifyMeshRelation(meshes[mesh_index]);
 
     if (intersect_relation == kinDS::MeshIntersection::MeshRelation::INSIDE) {
@@ -75,7 +75,7 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
       // partially intersecting, compute intersection}
       meshes[mesh_index] = boundary_intersector.Intersect(meshes[mesh_index]);
     }
-  });*/
+  });
 
   // for now, just combine all meshes into one
   kinDS::VoronoiMesh combined_mesh;
@@ -98,7 +98,7 @@ static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::
   }
   for (const auto& idx : combined_mesh.getTriangles()) {
     index_pairs.push_back(std::make_pair(static_cast<unsigned int>(idx), 0));
-  }
+  }*/
 }
 
 void VoronoiMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,

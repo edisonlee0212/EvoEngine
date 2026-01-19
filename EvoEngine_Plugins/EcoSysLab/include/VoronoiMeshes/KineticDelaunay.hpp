@@ -107,6 +107,8 @@ class KineticDelaunay {
   std::vector<std::vector<size_t>> branches;  // track which vertices/splines belong to which branch
   std::vector<VoronoiPoint<2>> dummy_boundary;
   bool add_dummy_boundary;
+  const std::vector<std::vector<size_t>> branch_indices;
+  std::vector<std::vector<std::vector<size_t>>> strands_by_branch_id;
 
   /* Compare to Leonidas Guibas and Jorge Stolfi. 1985. Primitives for the manipulation of general subdivisions and the
    * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74–123. https://doi.org/10.1145/282918.282923
@@ -521,9 +523,27 @@ class KineticDelaunay {
     }
   }
 
+  size_t getBranchIndex(size_t strand_id, size_t t) const {
+    return branch_indices[strand_id][t];
+  }
+
+  const std::vector<std::vector<size_t>>& getBranches(size_t t) const {
+    return strands_by_branch_id[t];
+  }
+
+  const std::vector<size_t>& getBranchStrands(size_t t, size_t branch_id) {
+    strands_by_branch_id[t][branch_id];
+  }
+
  public:
-  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines, double cutoff, bool add_dummy_splines)
-      : splines(splines), cutoff(cutoff), add_dummy_boundary(add_dummy_splines) {
+  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines, double cutoff, bool add_dummy_splines,
+                  const std::vector<std::vector<size_t>>& branch_indices,
+                  const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id)
+      : splines(splines),
+        cutoff(cutoff),
+        add_dummy_boundary(add_dummy_splines),
+        branch_indices(branch_indices),
+        strands_by_branch_id(strands_by_branch_id) {
     if (add_dummy_splines) {
       // first compute a bounding box:
       VoronoiPoint<2> p_min{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
