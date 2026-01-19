@@ -109,9 +109,12 @@ bool isManifold(const MeshCGAL_internal& mesh) {
   auto eindex = get(CGAL::edge_index, mesh);
   auto findex = get(CGAL::face_index, mesh);
 
-  auto origin_map_pair = mesh.property_map<CGAL::Surface_mesh<Point_CGAL>::Face_index, Origin>("f:origin");
-  bool has_origin = origin_map_pair.second;
-  auto origin_map = origin_map_pair.first;
+  auto origin_map_opt = mesh.property_map<CGAL::Surface_mesh<Point_CGAL>::Face_index, Origin>("f:origin");
+
+  bool has_origin = origin_map_opt.has_value();
+  auto origin_map =
+      has_origin ? *origin_map_opt
+                 : CGAL::Surface_mesh<Point_CGAL>::Property_map<CGAL::Surface_mesh<Point_CGAL>::Face_index, Origin>{};
 
   for (auto e : edges(mesh)) {
     int count = 0;
