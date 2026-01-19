@@ -14,6 +14,40 @@ struct BoundaryPoint {
   VoronoiPoint<2> p;
 };
 
+static VoronoiPoint<2> polygonCentroid(const std::vector<BoundaryPoint>& polygon) {
+  double A = 0.0;
+  VoronoiPoint<2> C{0.0, 0.0};
+
+  const size_t n = polygon.size();
+  for (size_t i = 0; i < n; ++i) {
+    const VoronoiPoint<2>& p = polygon[i].p;
+    const VoronoiPoint<2>& q = polygon[(i + 1) % n].p;
+
+    double cross = p % q;
+    A += cross;
+    C += (p + q) * cross;
+  }
+
+  A *= 0.5;
+
+  if (std::abs(A) < 1e-12)
+    return C;  // degenerate polygon
+
+  return C / (6.0 * A);
+}
+
+static std::vector<size_t> buildComponentMap(const std::vector<std::vector<size_t>>& components, size_t vertex_count) {
+  std::vector<size_t> component_map(vertex_count);
+
+  for (size_t i = 0; i < components.size(); i++) {
+    for (const auto v : components[i]) {
+      component_map[v] = i;
+    }
+  }
+
+  return component_map;
+}
+
 /**
  * \brief Class for computing the Delaunay triangulation of a set of cubic Hermite splines.
  *
@@ -95,6 +129,18 @@ class KineticDelaunay {
     }
   };
 
+  struct ComponentData {
+    std::vector<std::vector<size_t>> components;
+    std::vector<size_t> component_map;
+    // [component_index][boundary_no][point_no] - the first boundary is the outer one, any additional ones are holes in
+    // the polygon
+    std::vector<std::vector<std::vector<BoundaryPoint>>> component_boundaries;
+    std::vector<VoronoiPoint<2>> component_centroids;
+    std::vector<double> component_last_updated;
+  };
+
+  ComponentData component_data;
+
  private:
   typedef std::priority_queue<Event> EventQueue;
 
@@ -105,12 +151,12 @@ class KineticDelaunay {
   size_t sections_advanced = 0;               // Counter for the number of sections advanced
   double cutoff;                              // Cutoff radius for boundary events
   std::vector<bool> face_inside;              // Tracks whether faces are inside or outside the boundary
-  std::vector<size_t> branch_ids;             // track branch ID for each vertex/spline
   std::vector<std::vector<size_t>> branches;  // track which vertices/splines belong to which branch
   std::vector<VoronoiPoint<2>> dummy_boundary;
   bool add_dummy_boundary;
-  const std::vector<std::vector<size_t>> branch_indices;
-  std::vector<std::vector<std::vector<size_t>>> strands_by_branch_id;
+  const std::vector<std::vector<size_t>> branch_indices;  // Create a branch index lookup using [strand_id][h]
+  std::vector<std::vector<std::vector<size_t>>>
+      strands_by_branch_id;  // Maintain the branches as [h][branch_id][strand_no]
 
   /* Compare to Leonidas Guibas and Jorge Stolfi. 1985. Primitives for the manipulation of general subdivisions and the
    * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74–123. https://doi.org/10.1145/282918.282923
@@ -603,23 +649,52 @@ class KineticDelaunay {
     return false;
   }
 
-  /*std::vector<VoronoiPoint<2>> getPointsAt(double t) const {
-    std::vector<VoronoiPoint<2>> points;
-    points.reserve(splines.size());
-    for (const auto& spline : splines) {
-      points.push_back(spline.evaluate(t));  // Get the first point of each spline
-    }
-    return points;
-  }*/
+  VoronoiPoint<2> getPointAt(size_t v, double t) const {
+    // get point transformed such that all points in the same component match
+    size_t component_id = component_data.component_map[v];
+    size_t representative_vertex = component_data.components[component_id].front();
+    size_t reference_branch = branch_indices[std::ceil(t)][representative_vertex];
 
-  VoronoiPoint<2> getPointAt(double t, size_t v) const {
-    return branch_trajs.evaluate(v, t);
-    // splines[v].evaluate(t);  // Get the first point of each spline
+    return branch_trajs.evaluateTransformed(v, t, reference_branch);
   }
 
-  /*const CubicHermiteSpline<2>& getSpline(size_t v) const {
-    return splines[v];
-  }*/
+  VoronoiPoint<2> getPointAt(double t, size_t v) const {
+    return getPointAt(v, t);
+  }
+
+  void computeComponentData(double t) {
+    auto& graph = getGraph();
+    component_data.components = extractConnectedComponents();
+    EVOENGINE_LOG("Extracted " << component_data.components.size() << " components.");
+    component_data.component_map = buildComponentMap(component_data.components, graph.getVertexCount());
+    component_data.component_boundaries.resize(component_data.components.size());
+
+    std::vector<bool> he_visited(graph.getHalfEdges().size(), false);
+
+    for (size_t component_index = 0; component_index < component_data.components.size(); component_index++) {
+      component_data.component_boundaries[component_index] =
+          extractComponentBoundaries(component_data.components[component_index], t, he_visited);
+    }
+
+    component_data.component_centroids.resize(component_data.components.size());
+    for (size_t component_index = 0; component_index < component_data.components.size(); component_index++) {
+      if (!component_data.component_boundaries[component_index].empty()) {
+        component_data.component_centroids[component_index] =
+            polygonCentroid(component_data.component_boundaries[component_index][0]);
+      } else {
+        // compute centroid from points in the component
+        VoronoiPoint<2> centroid{0.0, 0.0};
+        for (auto& v : component_data.components[component_index]) {
+          VoronoiPoint<2> p = getPointAt(t, v);
+          centroid += p;
+        }
+        component_data.component_centroids[component_index] =
+            centroid / double(component_data.components[component_index].size());
+      }
+    }
+
+    component_data.component_last_updated.resize(component_data.components.size(), t);
+  }
 
   const HalfEdgeDelaunayGraph& init() {
     graph.init(branch_trajs.getPoints());
@@ -639,7 +714,7 @@ class KineticDelaunay {
           outer_face = true;
           break;
         }
-        // points.push_back(splines[v].evaluate(0.0));
+        // assume that only one plane as frame of reference exists
         points.push_back(branch_trajs.evaluate(v, 0.0));
       }
 
@@ -653,6 +728,7 @@ class KineticDelaunay {
         setFaceInside(face_index, true);
       }
     }
+    computeComponentData(0.0);
 
     return graph;
   }
@@ -684,6 +760,10 @@ class KineticDelaunay {
                                          evo_engine::ProgressBar::Display::Absolute);
     for (size_t i = 0; i < section_count; ++i) {
       progress_bar.Update(i);
+
+      // check if we can split the components into different branches
+      // for ()
+
       assert(i == sections_advanced);  // Ensure we are advancing one section at a time
       if (i != 0)
         event_handler.betweenSections(i);  // Call the event handler for the section
@@ -800,7 +880,7 @@ class KineticDelaunay {
       if (origin == -1) {
         EVOENGINE_ERROR("Followed infinite edge.");
       }
-      VoronoiPoint<2> pos = branch_trajs.evaluate(origin, t);  // splines[origin].evaluate(t);
+      VoronoiPoint<2> pos = getPointAt(origin, t);
       boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
       he_id = nextOnComponentBoundaryId(he_id);
     } while (he_id != start_he_id);
@@ -868,8 +948,7 @@ class KineticDelaunay {
       const size_t& v = component[i];
 
       // Get position and check if it's the minimum x
-      VoronoiPoint<2> pos =
-          branch_trajs.evaluate(v, t);  // splines[v].evaluate(t);  // Evaluate at t=0 for starting point
+      VoronoiPoint<2> pos = getPointAt(v, t);  // Evaluate at t=0 for starting point
       if (pos[0] < min_x) {
         min_x = pos[0];
         start_vertex_id = v;
@@ -929,7 +1008,7 @@ class KineticDelaunay {
     return next_he_id;
   }
 
-  size_t split(size_t branch_id, const std::vector<size_t>& new_subbranch) {
+  /*size_t split(size_t branch_id, const std::vector<size_t>& new_subbranch) {
     size_t new_branch_id = branches.size();
 
     for (size_t strand_id : new_subbranch) {
@@ -950,6 +1029,6 @@ class KineticDelaunay {
     // TODO: separate the triangles
 
     return new_branch_id;
-  }
+  }*/
 };
 }  // namespace kinDS

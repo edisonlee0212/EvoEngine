@@ -5,16 +5,6 @@
 
 namespace kinDS {
 
-struct ComponentData {
-  std::vector<std::vector<size_t>> components;
-  std::vector<size_t> component_map;
-  // [component_index][boundary_no][point_no] - the first boundary is the outer one, any additional ones are holes in
-  // the polygon
-  std::vector<std::vector<std::vector<BoundaryPoint>>> component_boundaries;
-  std::vector<VoronoiPoint<2>> component_centroids;
-  std::vector<double> component_last_updated;
-};
-
 class SegmentBuilder : public KineticDelaunay::EventHandler {
  private:
   // Maps strand IDs to their corresponding segment indices in correct order
@@ -29,7 +19,6 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   // Maps corner indices (correspoding to outgoing half-edge inside the cell) to the index of the cutoff mesh, -1 if no
   // cutoff mesh exists
   std::vector<int> corner_to_cutoff_mesh_indices;
-  ComponentData component_data;
 
   // We no longer use these two factors, they are instead adjusted dynamically in the shader at runtime
   double uv_height_factor = 1.0;
@@ -48,7 +37,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   // Map half-edges to a vertex index in the boundary mesh if a flip created a new boundary edge
   std::vector<int> half_edge_to_boundary_vertex_index;
 
-  const KineticDelaunay& kin_del;
+  KineticDelaunay& kin_del;
   bool finalized = false;  // Flag to indicate if the mesh has been finalized
   std::vector<std::pair<size_t, double>> subdivisions;
   size_t subdivision_index = 0;
@@ -95,8 +84,8 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   void accumulateSegmentProperties();
 
  public:
-  SegmentBuilder(const KineticDelaunay& kin_del, std::vector<std::pair<size_t, double>> subdivisions);
-  SegmentBuilder(const KineticDelaunay& kin_del);
+  SegmentBuilder(KineticDelaunay& kin_del, std::vector<std::pair<size_t, double>> subdivisions);
+  SegmentBuilder(KineticDelaunay& kin_del);
 
   void init() override;
 
@@ -126,7 +115,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
                                                              const std::vector<BoundaryPoint>& boundary_polygon,
                                                              const VoronoiPoint<2>& centroid);
 
-  ComponentData computeComponentData(double t) const;
+  KineticDelaunay::ComponentData computeComponentData(double t) const;
 
   void splitComponent(size_t component_id, const std::vector<std::vector<size_t>>& new_components, double t);
 };
