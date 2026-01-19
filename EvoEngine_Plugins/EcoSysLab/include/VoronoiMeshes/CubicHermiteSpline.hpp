@@ -45,9 +45,6 @@ class CubicHermiteSpline {
     points.insert(points.end(), newPoints.begin(), newPoints.end());
   }
 
-  Trajectory<dim> getPiecePolynomial(size_t index, size_t reference_branch_id) const {
-  }
-
   Trajectory<dim> getPiecePolynomial(size_t index) const {
     if (index >= points.size() - 1) {
       throw std::out_of_range("Index out of range for piece polynomial.");

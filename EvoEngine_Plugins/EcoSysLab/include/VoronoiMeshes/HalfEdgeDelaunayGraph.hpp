@@ -40,7 +40,7 @@ class HalfEdgeDelaunayGraph {
  public:
   HalfEdgeDelaunayGraph() = default;
 
-  void init(const std::vector<CubicHermiteSpline<2>>& splines);
+  void init(const std::vector<std::vector<VoronoiPoint<2>>>& splines);
   // Flips an edge between two triangles by rotating it counter-clockwise in its quadrilateral
   void flipEdge(size_t he_id);
   // Other methods to manipulate and query the triangulation can be added here.

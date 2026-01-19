@@ -309,13 +309,13 @@ void HalfEdgeDelaunayGraph::printDebug() const {
   }
 }
 
-void HalfEdgeDelaunayGraph::init(const std::vector<CubicHermiteSpline<2>>& splines) {
+void HalfEdgeDelaunayGraph::init(const std::vector<std::vector<VoronoiPoint<2>>>& splines) {
   vertex_count = splines.size();
   vertex_to_half_edge.assign(vertex_count, -1);
   std::vector<float> coords;
   coords.reserve(splines.size() * 2);  // Reserve space for x and y coordinates
   for (const auto& spline : splines) {
-    VoronoiPoint<2> point = spline.evaluate(0.0);
+    VoronoiPoint<2> point = spline.front();
     coords.push_back(point[0]);
     coords.push_back(point[1]);
   }

@@ -146,7 +146,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;*/
 
-  void RunMeshingAlgorithm(std::vector<kinDS::CubicHermiteSpline<2>> strand_splines,
+  void RunMeshingAlgorithm(const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& support_points,
                            std::vector<std::vector<double>>& subdivisions_by_strand,
                            std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                            const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,

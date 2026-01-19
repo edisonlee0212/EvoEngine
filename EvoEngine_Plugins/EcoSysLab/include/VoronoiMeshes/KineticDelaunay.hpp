@@ -1,6 +1,7 @@
 #pragma once
 #include <format>
 #include <queue>
+#include "BranchTrajectories.hpp"
 #include "CubicHermiteSpline.hpp"
 #include "HalfEdgeDelaunayGraph.hpp"
 #include "Polynomial.hpp"
@@ -97,7 +98,8 @@ class KineticDelaunay {
  private:
   typedef std::priority_queue<Event> EventQueue;
 
-  std::vector<CubicHermiteSpline<2>> splines;
+  // std::vector<CubicHermiteSpline<2>> splines;
+  BranchTrajectories branch_trajs;
   HalfEdgeDelaunayGraph graph;
   EventQueue events;
   size_t sections_advanced = 0;               // Counter for the number of sections advanced
@@ -203,9 +205,9 @@ class KineticDelaunay {
 
     std::vector<Trajectory<2>> trajs;
 
-    trajs.push_back(splines[u].getPiecePolynomial(section));
-    trajs.push_back(splines[v].getPiecePolynomial(section));
-    trajs.push_back(splines[w].getPiecePolynomial(section));
+    trajs.push_back(branch_trajs.getPiecePolynomial(u, section));
+    trajs.push_back(branch_trajs.getPiecePolynomial(v, section));
+    trajs.push_back(branch_trajs.getPiecePolynomial(w, section));
 
     Polynomial event_trigger =
         rightAngled(trajs[0][0], trajs[0][1], trajs[1][0], trajs[1][1], trajs[2][0], trajs[2][1]);
@@ -260,9 +262,9 @@ class KineticDelaunay {
 
     std::vector<Trajectory<2>> trajs;
 
-    trajs.push_back(splines[u].getPiecePolynomial(section));
-    trajs.push_back(splines[v].getPiecePolynomial(section));
-    trajs.push_back(splines[w].getPiecePolynomial(section));
+    trajs.push_back(branch_trajs.getPiecePolynomial(u, section));
+    trajs.push_back(branch_trajs.getPiecePolynomial(v, section));
+    trajs.push_back(branch_trajs.getPiecePolynomial(w, section));
 
     Polynomial event_trigger =
         circumradiusEquals(trajs[0][0], trajs[0][1], trajs[1][0], trajs[1][1], trajs[2][0], trajs[2][1], cutoff);
@@ -336,9 +338,9 @@ class KineticDelaunay {
       // print the triangle vertices:
       // std::cout << "Triangle vertices: " << a << ", " << b << ", " << c << std::endl;
 
-      trajs.push_back(splines[a].getPiecePolynomial(section));
-      trajs.push_back(splines[b].getPiecePolynomial(section));
-      trajs.push_back(splines[c].getPiecePolynomial(section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(a, section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(b, section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(c, section));
 
       event_trigger = ccw(trajs[0][0], trajs[0][1], trajs[1][0], trajs[1][1], trajs[2][0], trajs[2][1]);
     } else {
@@ -350,10 +352,10 @@ class KineticDelaunay {
       // print the quadrilateral vertices:
       // std::cout << "Quadrilateral vertices: " << a << ", " << b << ", " << c << ", " << d << std::endl;
 
-      trajs.push_back(splines[a].getPiecePolynomial(section));
-      trajs.push_back(splines[b].getPiecePolynomial(section));
-      trajs.push_back(splines[c].getPiecePolynomial(section));
-      trajs.push_back(splines[d].getPiecePolynomial(section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(a, section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(b, section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(c, section));
+      trajs.push_back(branch_trajs.getPiecePolynomial(d, section));
 
       event_trigger = inCircle(trajs[0][0], trajs[0][1], trajs[1][0], trajs[1][1], trajs[2][0], trajs[2][1],
                                trajs[3][0], trajs[3][1]);
@@ -519,6 +521,7 @@ class KineticDelaunay {
         case Event::BOUNDARY:
           handleBoundaryEvent(event_handler, event);
           break;
+          // TODO: right angle events
       }
     }
   }
@@ -532,14 +535,14 @@ class KineticDelaunay {
   }
 
   const std::vector<size_t>& getBranchStrands(size_t t, size_t branch_id) {
-    strands_by_branch_id[t][branch_id];
+    return strands_by_branch_id[t][branch_id];
   }
 
  public:
-  KineticDelaunay(const std::vector<CubicHermiteSpline<2>>& splines, double cutoff, bool add_dummy_splines,
+  KineticDelaunay(const BranchTrajectories& branch_trajs, double cutoff, bool add_dummy_splines,
                   const std::vector<std::vector<size_t>>& branch_indices,
                   const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id)
-      : splines(splines),
+      : branch_trajs(branch_trajs),
         cutoff(cutoff),
         add_dummy_boundary(add_dummy_splines),
         branch_indices(branch_indices),
@@ -549,8 +552,7 @@ class KineticDelaunay {
       VoronoiPoint<2> p_min{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
       VoronoiPoint<2> p_max{-std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
 
-      for (auto& spline : splines) {
-        const auto& points = spline.getPoints();
+      for (const auto& points : branch_trajs.getPoints()) {
         for (const auto& p : points) {
           for (int dim = 0; dim < 2; dim++) {
             if (p[dim] < p_min[dim]) {
@@ -582,44 +584,45 @@ class KineticDelaunay {
           {p_min[0] - dist_from_bb, p_max[1]}                                // left_top
       };
 
-      size_t length = splines[0].pointCount();
+      size_t length = branch_trajs.getHeight() + 1;
 
       for (const auto& p : dummy_boundary) {
-        CubicHermiteSpline<2> new_spline;
+        std::vector<VoronoiPoint<2>> new_spline;
         for (size_t i = 0; i < length; i++) {
-          new_spline.addControlPoint(p);
+          new_spline.push_back(p);
         }
-        this->splines.push_back(new_spline);
+        this->branch_trajs.addTrajectory(new_spline);
       }
     }
   }
 
   bool isDummyBoundary(size_t v) {
     if (add_dummy_boundary) {
-      return v >= splines.size() - 12;
+      return v >= branch_trajs.getPoints().size() - 12;
     }
     return false;
   }
 
-  std::vector<VoronoiPoint<2>> getPointsAt(double t) const {
+  /*std::vector<VoronoiPoint<2>> getPointsAt(double t) const {
     std::vector<VoronoiPoint<2>> points;
     points.reserve(splines.size());
     for (const auto& spline : splines) {
       points.push_back(spline.evaluate(t));  // Get the first point of each spline
     }
     return points;
-  }
+  }*/
 
   VoronoiPoint<2> getPointAt(double t, size_t v) const {
-    return splines[v].evaluate(t);  // Get the first point of each spline
+    return branch_trajs.evaluate(v, t);
+    // splines[v].evaluate(t);  // Get the first point of each spline
   }
 
-  const CubicHermiteSpline<2>& getSpline(size_t v) const {
+  /*const CubicHermiteSpline<2>& getSpline(size_t v) const {
     return splines[v];
-  }
+  }*/
 
   const HalfEdgeDelaunayGraph& init() {
-    graph.init(splines);
+    graph.init(branch_trajs.getPoints());
     sections_advanced = 0;  // Reset the section counter
 
     face_inside.resize(graph.getFaces().size(), false);
@@ -636,7 +639,8 @@ class KineticDelaunay {
           outer_face = true;
           break;
         }
-        points.push_back(splines[v].evaluate(0.0));
+        // points.push_back(splines[v].evaluate(0.0));
+        points.push_back(branch_trajs.evaluate(v, 0.0));
       }
 
       if (outer_face) {
@@ -654,7 +658,7 @@ class KineticDelaunay {
   }
 
   const HalfEdgeDelaunayGraph& advanceOneSection(EventHandler& event_handler) {
-    size_t section_count = splines[0].pointCount() - 1;
+    size_t section_count = branch_trajs.getHeight();
     assert(sections_advanced < section_count);  // Ensure we do not exceed the number of sections
     // EVOENGINE_LOG("Advancing to section " << (sections_advanced + 1) << " of " << section_count);
     precomputeStep(static_cast<double>(sections_advanced));
@@ -669,14 +673,14 @@ class KineticDelaunay {
   }
 
   size_t getSectionCount() const {
-    return splines[0].pointCount() - 1;  // Assuming all splines have the same number of points
+    return branch_trajs.getHeight();
   }
 
   // Computes the Delaunay triangulation of the given splines
   void compute(EventHandler& event_handler) {
     size_t section_count = getSectionCount();  // Assuming all splines have the same number of points
 
-    evo_engine::ProgressBar progress_bar(0, splines.size(), "Computing Kinetic Voronoi Sections",
+    evo_engine::ProgressBar progress_bar(0, branch_trajs.getHeight(), "Computing Kinetic Voronoi Sections",
                                          evo_engine::ProgressBar::Display::Absolute);
     for (size_t i = 0; i < section_count; ++i) {
       progress_bar.Update(i);
@@ -796,7 +800,7 @@ class KineticDelaunay {
       if (origin == -1) {
         EVOENGINE_ERROR("Followed infinite edge.");
       }
-      VoronoiPoint<2> pos = splines[origin].evaluate(t);
+      VoronoiPoint<2> pos = branch_trajs.evaluate(origin, t);  // splines[origin].evaluate(t);
       boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
       he_id = nextOnComponentBoundaryId(he_id);
     } while (he_id != start_he_id);
@@ -864,7 +868,8 @@ class KineticDelaunay {
       const size_t& v = component[i];
 
       // Get position and check if it's the minimum x
-      VoronoiPoint<2> pos = splines[v].evaluate(t);  // Evaluate at t=0 for starting point
+      VoronoiPoint<2> pos =
+          branch_trajs.evaluate(v, t);  // splines[v].evaluate(t);  // Evaluate at t=0 for starting point
       if (pos[0] < min_x) {
         min_x = pos[0];
         start_vertex_id = v;

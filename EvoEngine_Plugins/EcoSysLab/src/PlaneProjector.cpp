@@ -3,6 +3,8 @@
 #include <cassert>
 #include <cmath>
 
+using namespace kinDS;
+
 static const float EPS = 1e-8f;
 
 PlaneProjector::PlaneProjector(const glm::mat4& planeAToWorld, const glm::mat4& planeBToWorld) {
@@ -74,7 +76,7 @@ glm::vec3 PlaneProjector::applyTransform(const glm::vec3& x) const {
   }
 }
 
-void PlaneProjector::worldToLocalB(const glm::vec3& x, float& c, float& d) const {
+glm::vec2 PlaneProjector::worldToLocalB(const glm::vec3& x) const {
   glm::vec3 w = x - m_oB;
 
   float uu = glm::dot(m_uB, m_uB);
@@ -87,12 +89,14 @@ void PlaneProjector::worldToLocalB(const glm::vec3& x, float& c, float& d) const
   float det = uu * vv - uv * uv;
   assert(std::abs(det) > EPS);
 
-  c = (wu * vv - wv * uv) / det;
-  d = (wv * uu - wu * uv) / det;
+  float c = (wu * vv - wv * uv) / det;
+  float d = (wv * uu - wu * uv) / det;
+
+  return glm::vec2(c, d);
 }
 
-void PlaneProjector::project(float a, float b, float& c, float& d) const {
-  glm::vec3 xA = localAToWorld(a, b);
+glm::vec2 PlaneProjector::project(const glm::vec2& v) const {
+  glm::vec3 xA = localAToWorld(v.x, v.y);
   glm::vec3 xW = applyTransform(xA);
-  worldToLocalB(xW, c, d);
+  return worldToLocalB(xW);
 }

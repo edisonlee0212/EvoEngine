@@ -3,14 +3,15 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+namespace kinDS {
 class PlaneProjector {
  public:
   // Construct from plane-local -> world transforms
   // Local coordinates are (u, 0, v)
   PlaneProjector(const glm::mat4& planeAToWorld, const glm::mat4& planeBToWorld);
 
-  // Project local (a, b) on plane A to local (c, d) on plane B
-  void project(float a, float b, float& c, float& d) const;
+  // Project local v on plane A to local return value on plane B
+  glm::vec2 project(const glm::vec2& v) const;
 
  private:
   // Extract origin + spanning vectors from transform
@@ -38,5 +39,6 @@ class PlaneProjector {
   // Helpers
   glm::vec3 localAToWorld(float a, float b) const;
   glm::vec3 applyTransform(const glm::vec3& x) const;
-  void worldToLocalB(const glm::vec3& x, float& c, float& d) const;
+  glm::vec2 worldToLocalB(const glm::vec3& x) const;
 };
+}  // namespace kinDS

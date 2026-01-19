@@ -243,7 +243,8 @@ glm::vec3 ToVec3(const kinDS::VoronoiPoint<3>& a) {
 }
 
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
-    std::vector<kinDS::CubicHermiteSpline<2>> strand_splines, std::vector<std::vector<double>>& subdivisions_by_strand,
+    const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& support_points,
+    std::vector<std::vector<double>>& subdivisions_by_strand,
     std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
     const std::vector<std::vector<size_t>>& branch_indices,
@@ -264,15 +265,17 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   // sort subdivisions into a single array
   std::vector<std::pair<size_t, double>> subdivisions = MergeSortedVectors(subdivisions_by_strand);
 
+  kinDS::BranchTrajectories trajectories(support_points, transforms_by_height_and_branch, branch_indices,
+                                         strands_by_branch_id);
+
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
-  kinDS::KineticDelaunay kinetic_delaunay(strand_splines,
-                                          render_settings.segment_meshlet_render_parameters.alpha_cutoff, true,
-                                          branch_indices, strands_by_branch_id);
+  kinDS::KineticDelaunay kinetic_delaunay(trajectories, render_settings.segment_meshlet_render_parameters.alpha_cutoff,
+                                          true, branch_indices, strands_by_branch_id);
 
   kinetic_delaunay.init();
   kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, subdivisions);
   mesh_builder.init();
-  auto points = kinetic_delaunay.getPointsAt(0.0);
+  // auto points = kinetic_delaunay.getPointsAt(0.0);
 
   size_t section_count = kinetic_delaunay.getSectionCount();
 
@@ -284,7 +287,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       mesh_builder.betweenSections(i);
     kinetic_delaunay.advanceOneSection(mesh_builder);
 
-    points = kinetic_delaunay.getPointsAt(static_cast<double>(i + 1));
+    // points = kinetic_delaunay.getPointsAt(static_cast<double>(i + 1));
   }
   section_progress_bar.Finish();
 
@@ -1332,7 +1335,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
   // Proof of concept, just assume we have one trunk with no branches and all strands have the same length
   // construct cubic hermite spline for each strand
-  std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
+  std::vector<std::vector<kinDS::VoronoiPoint<2>>> strand_splines;
   for (const auto& guide_points : strand_guide_points) {
     // extract support points
     std::vector<kinDS::VoronoiPoint<2>> support_points;
@@ -1340,7 +1343,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     for (auto& gp : guide_points) {
       support_points.emplace_back(gp.profile_position);
     }
-    strand_splines.push_back(kinDS::CubicHermiteSpline<2>(support_points));
+    strand_splines.push_back(support_points);
   }
 
   RunMeshingAlgorithm(strand_splines, random_subdivisions_by_strand, randomly_subdivided_segment_handles,
