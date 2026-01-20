@@ -7,6 +7,44 @@
 
 namespace kinDS {
 
+static VoronoiPoint<3> ProfileToModelCoordinatesBranch(
+    const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms, kinDS::VoronoiPoint<3> point, float t,
+    const std::vector<size_t>& branch_indices, float w = 1.0f) {
+  size_t lower_section_index = static_cast<size_t>(std::max(0.0f, glm::floor(t)));
+
+  size_t upper_section_index = std::min(profile_to_model_transforms.size() - 1, static_cast<size_t>(glm::ceil(t)));
+
+  // check range
+  auto coord_str = std::to_string(t);
+  if (lower_section_index >= profile_to_model_transforms.size()) {
+    std::cout << ("ProfileToModelCoordinates: lower bound of point z-coordinate out of range: " + coord_str).c_str()
+              << std::endl;
+  }
+  if (upper_section_index >= profile_to_model_transforms.size()) {
+    std::cout << ("ProfileToModelCoordinates: upper bound of point z-coordinate out of range: " + coord_str).c_str()
+              << std::endl;
+  }
+
+  // only set second coordinate to 0 for points, not for normal vectors
+  // TODO: I actually wanted to get rid of this coordinate swap at some point
+  glm::vec4 local_pos(point[0], (1.0f - w) * point[2], point[1], w);
+  size_t lower_branch_index = branch_indices[lower_section_index];
+  glm::vec4 global_pos = profile_to_model_transforms[lower_section_index][lower_branch_index] * local_pos;
+
+  if (upper_section_index != lower_section_index) {
+    size_t upper_branch_index = branch_indices[upper_section_index];
+    glm::vec4 upper_global_pos = profile_to_model_transforms[upper_section_index][upper_branch_index] * local_pos;
+    double frac = t - static_cast<double>(lower_section_index);
+    global_pos = glm::mix(global_pos, upper_global_pos, frac);
+  }
+
+  if (w == 0.0f) {
+    global_pos = glm::normalize(global_pos);
+  }
+
+  return {global_pos.x, global_pos.y, global_pos.z};
+}
+
 /**
  * This class handles the trajectories of strands according to branches, allowing to easily get points in a different
  * frame of reference as needed
@@ -120,6 +158,14 @@ class BranchTrajectories {
     return lower * (1.0 - frac) + upper * frac;
   }
 
+  VoronoiPoint<3> getPointInObjectSpace(size_t strand_id, double t) const {
+    VoronoiPoint<2> v = evaluate(strand_id, t);
+
+    VoronoiPoint<3> v_3d{v[0], 0.0, v[1]};
+    return ProfileToModelCoordinatesBranch(transforms_by_height_and_branch, v_3d, t, branch_indices[strand_id]);
+  }
+
+  // TODO: also adjust to different reference frame
   std::array<Polynomial, 2> getPiecePolynomial(size_t strand_id, size_t index) const {
     if (strand_id >= support_points.size()) {
       throw std::out_of_range("Strand id " + std::to_string(strand_id) + " out of range.");

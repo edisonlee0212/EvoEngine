@@ -662,6 +662,10 @@ class KineticDelaunay {
     return getPointAt(v, t);
   }
 
+  VoronoiPoint<3> getPointInObjectSpace(size_t v, double t) const {
+    return branch_trajs.getPointInObjectSpace(v, t);
+  }
+
   void computeComponentData(double t) {
     auto& graph = getGraph();
     component_data.components = extractConnectedComponents();
