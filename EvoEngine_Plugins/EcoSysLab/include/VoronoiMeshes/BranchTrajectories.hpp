@@ -28,6 +28,10 @@ static VoronoiPoint<3> ProfileToModelCoordinatesBranch(
   // only set second coordinate to 0 for points, not for normal vectors
   // TODO: I actually wanted to get rid of this coordinate swap at some point
   glm::vec4 local_pos(point[0], (1.0f - w) * point[2], point[1], w);
+  if (lower_section_index >= branch_indices.size()) {
+    std::cout << ("ProfileToModelCoordinates: lower bound of point z-coordinate out of range: " + coord_str).c_str()
+              << ", index: " << lower_section_index << ", size: " << branch_indices.size() << std::endl;
+  }
   size_t lower_branch_index = branch_indices[lower_section_index];
   glm::vec4 global_pos = profile_to_model_transforms[lower_section_index][lower_branch_index] * local_pos;
 
@@ -162,6 +166,10 @@ class BranchTrajectories {
     VoronoiPoint<2> v = evaluate(strand_id, t);
 
     VoronoiPoint<3> v_3d{v[0], 0.0, v[1]};
+    return ProfileToModelCoordinatesBranch(transforms_by_height_and_branch, v_3d, t, branch_indices[strand_id]);
+  }
+
+  VoronoiPoint<3> transformToObjectSpace(VoronoiPoint<3>& v_3d, size_t strand_id, double t) const {
     return ProfileToModelCoordinatesBranch(transforms_by_height_and_branch, v_3d, t, branch_indices[strand_id]);
   }
 

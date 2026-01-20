@@ -8,6 +8,7 @@ void HalfEdgeDelaunayGraph::build(const std::vector<size_t>& index_buffer) {
   assert(index_buffer.size() % 3 == 0 && "Input must be a triangle index buffer.");
   const int num_tris = index_buffer.size() / 3;
 
+  // TODO: update to account for components
   // note that the following reserves are off by one compared to Euler's formula because there is an implicit vertex at
   // infinity that is not counted in the vertex count
   half_edges.clear();
@@ -325,6 +326,39 @@ void HalfEdgeDelaunayGraph::init(const std::vector<std::vector<VoronoiPoint<2>>>
   build(delaunator.triangles);
 }
 
+void kinDS::HalfEdgeDelaunayGraph::update(const std::vector<std::vector<VoronoiPoint<2>>>& splines, size_t index,
+                                          std::vector<std::vector<size_t>> components) {
+  vertex_count = splines.size();
+  vertex_to_half_edge.assign(vertex_count, -1);
+
+  std::vector<size_t> index_buffer;
+
+  for (auto& c : components) {
+    std::vector<float> coords;
+    coords.reserve(c.size() * 2);  // Reserve space for x and y coordinates
+    for (const auto& v : c) {
+      VoronoiPoint<2> point = splines[index][v];
+      coords.push_back(point[0]);
+      coords.push_back(point[1]);
+    }
+
+    Delaunator::Delaunator2D delaunator(coords);
+
+    for (size_t i : delaunator.triangles) {
+      index_buffer.emplace_back(c[i]);
+    }
+  }
+
+  // copy old data:
+  auto old_triangles = triangles;
+  auto old_half_edges = half_edges;
+
+  build(index_buffer);
+
+  // reorder to match old triangulation
+  reorder_from_old(old_triangles, old_half_edges);
+}
+
 VoronoiPoint<2> HalfEdgeDelaunayGraph::circumcenter(const VoronoiPoint<2>& a, const VoronoiPoint<2>& b,
                                                     const VoronoiPoint<2>& c) {
   // Calculate the circumcenter of the triangle formed by points a, b, c
@@ -495,4 +529,100 @@ const std::vector<HalfEdgeDelaunayGraph::Triangle>& HalfEdgeDelaunayGraph::getFa
 
 size_t HalfEdgeDelaunayGraph::getVertexCount() const {
   return vertex_count;
+}
+
+static std::array<size_t, 3> canonical_triangle_key(const std::array<size_t, 3>& v) {
+  std::array<size_t, 3> k = v;
+  std::sort(k.begin(), k.end());
+  return k;
+}
+
+void HalfEdgeDelaunayGraph::reorder_from_old(const std::vector<Triangle>& old_triangles,
+                                             const std::vector<HalfEdge>& old_half_edges) {
+  // --- Step 1: build map from triangle key -> old triangle index
+  std::unordered_map<std::array<size_t, 3>, size_t, TriangleKeyHash> old_tri_map;
+
+  for (size_t ti = 0; ti < old_triangles.size(); ++ti) {
+    std::array<size_t, 3> verts;
+    for (int i = 0; i < 3; ++i) {
+      verts[i] = old_half_edges[old_triangles[ti].half_edges[i]].origin;
+    }
+    old_tri_map[canonical_triangle_key(verts)] = ti;
+  }
+
+  // --- New containers
+  std::vector<Triangle> new_triangles(triangles.size());
+  std::vector<HalfEdge> new_half_edges(half_edges.size());
+
+  std::vector<int> tri_remap(triangles.size(), -1);
+  std::vector<int> he_remap(half_edges.size(), -1);
+
+  size_t next_tri = 0;
+  size_t next_he = 0;
+
+  // --- Step 2: match unchanged triangles
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    std::array<size_t, 3> verts;
+    for (int i = 0; i < 3; ++i) {
+      verts[i] = half_edges[triangles[ti].half_edges[i]].origin;
+    }
+
+    auto key = canonical_triangle_key(verts);
+    auto it = old_tri_map.find(key);
+    if (it == old_tri_map.end())
+      continue;
+
+    size_t old_ti = it->second;
+    tri_remap[ti] = static_cast<int>(old_ti);
+
+    // Map half-edges one-to-one
+    for (int i = 0; i < 3; ++i) {
+      size_t new_he = triangles[ti].half_edges[i];
+      size_t old_he = old_triangles[old_ti].half_edges[i];
+      he_remap[new_he] = static_cast<int>(old_he);
+    }
+  }
+
+  // --- Step 3: assign new indices for unmatched triangles
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    if (tri_remap[ti] != -1)
+      continue;
+
+    tri_remap[ti] = static_cast<int>(next_tri);
+    next_tri++;
+    for (int i = 0; i < 3; ++i) {
+      he_remap[triangles[ti].half_edges[i]] = static_cast<int>(next_he);
+      next_he++;
+    }
+  }
+
+  // --- Step 4: rewrite triangles
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    Triangle t;
+    for (int i = 0; i < 3; ++i) {
+      t.half_edges[i] = static_cast<size_t>(he_remap[triangles[ti].half_edges[i]]);
+    }
+    new_triangles[tri_remap[ti]] = t;
+  }
+
+  // --- Step 5: rewrite half-edges
+  for (size_t hi = 0; hi < half_edges.size(); ++hi) {
+    HalfEdge he = half_edges[hi];
+    he.next = he_remap[he.next];
+    he.face = tri_remap[he.face];
+    new_half_edges[he_remap[hi]] = he;
+  }
+
+  triangles.swap(new_triangles);
+  half_edges.swap(new_half_edges);
+
+  vertex_to_half_edge.assign(vertex_count, size_t(-1));
+
+  for (size_t he = 0; he < half_edges.size(); ++he) {
+    size_t v = half_edges[he].origin;
+    // First outgoing half-edge wins
+    if (vertex_to_half_edge[v] == size_t(-1)) {
+      vertex_to_half_edge[v] = he;
+    }
+  }
 }

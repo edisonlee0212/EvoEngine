@@ -20,6 +20,16 @@ class HalfEdgeDelaunayGraph {
     std::array<size_t, 3> half_edges;
   };
 
+  struct TriangleKeyHash {
+    size_t operator()(const std::array<size_t, 3>& k) const noexcept {
+      size_t h = 1469598103934665603ull;  // FNV-1a offset basis
+      for (size_t v : k) {
+        h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+      }
+      return h;
+    }
+  };
+
  private:
   size_t vertex_count = 0;  // Number of vertices in the triangulation
   std::vector<Triangle> triangles;
@@ -41,6 +51,9 @@ class HalfEdgeDelaunayGraph {
   HalfEdgeDelaunayGraph() = default;
 
   void init(const std::vector<std::vector<VoronoiPoint<2>>>& splines);
+
+  void update(const std::vector<std::vector<VoronoiPoint<2>>>& splines, size_t index,
+              std::vector<std::vector<size_t>> components);
   // Flips an edge between two triangles by rotating it counter-clockwise in its quadrilateral
   void flipEdge(size_t he_id);
   // Other methods to manipulate and query the triangulation can be added here.
@@ -89,6 +102,8 @@ class HalfEdgeDelaunayGraph {
   const std::vector<HalfEdge>& getHalfEdges() const;
   const std::vector<Triangle>& getFaces() const;
   size_t getVertexCount() const;
+
+  void reorder_from_old(const std::vector<Triangle>& old_triangles, const std::vector<HalfEdge>& old_half_edges);
 
   // ---------------- Iterator definition ----------------
   class IncidentEdgeIterator {

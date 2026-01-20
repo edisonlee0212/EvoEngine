@@ -157,6 +157,7 @@ class KineticDelaunay {
   const std::vector<std::vector<size_t>> branch_indices;  // Create a branch index lookup using [strand_id][h]
   std::vector<std::vector<std::vector<size_t>>>
       strands_by_branch_id;  // Maintain the branches as [h][branch_id][strand_no]
+  size_t prev_component_count = 1;
 
   /* Compare to Leonidas Guibas and Jorge Stolfi. 1985. Primitives for the manipulation of general subdivisions and the
    * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74–123. https://doi.org/10.1145/282918.282923
@@ -666,6 +667,10 @@ class KineticDelaunay {
     return branch_trajs.getPointInObjectSpace(v, t);
   }
 
+  const BranchTrajectories& getBranchTrajectories() const {
+    return branch_trajs;
+  }
+
   void computeComponentData(double t) {
     auto& graph = getGraph();
     component_data.components = extractConnectedComponents();
@@ -741,6 +746,13 @@ class KineticDelaunay {
     size_t section_count = branch_trajs.getHeight();
     assert(sections_advanced < section_count);  // Ensure we do not exceed the number of sections
     // EVOENGINE_LOG("Advancing to section " << (sections_advanced + 1) << " of " << section_count);
+
+    // update delaunay graph according to the components
+    // For now we assume they can never be merged again
+    if (component_data.components.size() > prev_component_count) {
+      graph.update(branch_trajs.getPoints(), sections_advanced, component_data.components);
+    }
+
     precomputeStep(static_cast<double>(sections_advanced));
     handleEvents(event_handler);
     sections_advanced++;
@@ -764,9 +776,6 @@ class KineticDelaunay {
                                          evo_engine::ProgressBar::Display::Absolute);
     for (size_t i = 0; i < section_count; ++i) {
       progress_bar.Update(i);
-
-      // check if we can split the components into different branches
-      // for ()
 
       assert(i == sections_advanced);  // Ensure we are advancing one section at a time
       if (i != 0)
@@ -894,6 +903,7 @@ class KineticDelaunay {
 
   std::vector<std::vector<BoundaryPoint>> extractComponentBoundaries(const std::vector<size_t>& component, double t,
                                                                      std::vector<bool>& he_visited) const {
+    // EVOENGINE_LOG("Extracting component boundaries at t = " << t);
     if (component.size() < 3) {
       return {{}};
     }
@@ -1011,28 +1021,5 @@ class KineticDelaunay {
 
     return next_he_id;
   }
-
-  /*size_t split(size_t branch_id, const std::vector<size_t>& new_subbranch) {
-    size_t new_branch_id = branches.size();
-
-    for (size_t strand_id : new_subbranch) {
-      branch_ids[strand_id] = new_branch_id;
-    }
-
-    std::vector<size_t> old_branch;
-
-    for (size_t strand_id : branches[branch_id]) {
-      if (branch_ids[strand_id] == branch_id) {
-        old_branch.push_back(strand_id);
-      }
-    }
-
-    branches[branch_id] = old_branch;
-    branches.push_back(new_subbranch);
-
-    // TODO: separate the triangles
-
-    return new_branch_id;
-  }*/
 };
 }  // namespace kinDS

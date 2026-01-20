@@ -19,6 +19,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   // Maps corner indices (correspoding to outgoing half-edge inside the cell) to the index of the cutoff mesh, -1 if no
   // cutoff mesh exists
   std::vector<int> corner_to_cutoff_mesh_indices;
+  bool create_transformed_mesh;
 
   // We no longer use these two factors, they are instead adjusted dynamically in the shader at runtime
   double uv_height_factor = 1.0;
@@ -58,12 +59,12 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
    */
   size_t addBoundaryTriangle(size_t u, size_t v, size_t w);
 
-  size_t addBoundaryVertex(VoronoiPoint<3> vertex, VoronoiPoint<2> centroid);
+  size_t addBoundaryVertex(VoronoiPoint<3> vertex, VoronoiPoint<2> centroid, size_t strand_id, double t);
 
   size_t addMeshletTriangle(VoronoiMesh& mesh, size_t u, size_t v, size_t w);
 
   size_t addMeshletVertex(VoronoiMesh& mesh, const std::vector<BoundaryPoint>& boundary_polygon,
-                          const VoronoiPoint<2>& centroid, const VoronoiPoint<3>& vertex);
+                          const VoronoiPoint<2>& centroid, VoronoiPoint<3> vertex, size_t strand_id, double t);
 
   void addVoronoiTriangulationToBoundaryMesh(double t, bool invert_orientation, double offset);
 
@@ -84,8 +85,9 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   void accumulateSegmentProperties();
 
  public:
-  SegmentBuilder(KineticDelaunay& kin_del, std::vector<std::pair<size_t, double>> subdivisions);
-  SegmentBuilder(KineticDelaunay& kin_del);
+  SegmentBuilder(KineticDelaunay& kin_del, std::vector<std::pair<size_t, double>> subdivisions,
+                 bool create_transformed_mesh);
+  SegmentBuilder(KineticDelaunay& kin_del, bool create_transformed_mesh);
 
   void init() override;
 

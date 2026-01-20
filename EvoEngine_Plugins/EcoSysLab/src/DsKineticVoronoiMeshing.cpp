@@ -265,15 +265,17 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   // sort subdivisions into a single array
   std::vector<std::pair<size_t, double>> subdivisions = MergeSortedVectors(subdivisions_by_strand);
 
-  kinDS::BranchTrajectories trajectories(support_points, transforms_by_height_and_branch, branch_indices,
-                                         strands_by_branch_id);
+  ;
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
-  kinDS::KineticDelaunay kinetic_delaunay(trajectories, render_settings.segment_meshlet_render_parameters.alpha_cutoff,
-                                          true, branch_indices, strands_by_branch_id);
+  kinDS::KineticDelaunay kinetic_delaunay(
+      kinDS::BranchTrajectories(support_points, transforms_by_height_and_branch, branch_indices, strands_by_branch_id),
+      render_settings.segment_meshlet_render_parameters.alpha_cutoff, false, branch_indices, strands_by_branch_id);
+
+  bool transform_mesh_at_construction = false;
 
   kinetic_delaunay.init();
-  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, subdivisions);
+  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay, subdivisions, transform_mesh_at_construction);
   mesh_builder.init();
   // auto points = kinetic_delaunay.getPointsAt(0.0);
 
@@ -453,8 +455,13 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
         GpuSegmentMeshletVertex vertex;
 
         // Convert from profile to global 3D position
-        vertex.x0 = root_transform.TransformPoint(
-            ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
+
+        if (!transform_mesh_at_construction) {
+          vertex.x0 = root_transform.TransformPoint(
+              ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
+        } else {
+          vertex.x0 = root_transform.TransformPoint(glm::vec3(v[0], v[1], v[2]));
+        }
         vertex.x = vertex.x0;
         vertex.segment_index = physics_segment_id;
         segment_meshlet_vertices.push_back(vertex);
@@ -516,11 +523,17 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
         // Just assume the transformations (without translations) are orthogonal
         for (size_t j = 0; j < 3; j++) {
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
-          triangle.normal0[j] = triangle.normal[j] =
-              glm::vec4(root_transform.TransformVector(ProfileToModelCoordinates(
-                            normal_transforms_by_height_and_branch, mesh.getNormal(triangle_vertex_index + j),
-                            mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)),
-                        0.0f);
+          auto normal = mesh.getNormal(triangle_vertex_index + j);
+          if (!transform_mesh_at_construction) {
+            triangle.normal0[j] = triangle.normal[j] =
+                glm::vec4(root_transform.TransformVector(ProfileToModelCoordinates(
+                              normal_transforms_by_height_and_branch, normal,
+                              mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)),
+                          0.0f);
+          } else {
+            triangle.normal0[j] = triangle.normal[j] =
+                glm::vec4(root_transform.TransformVector(glm::vec3(normal[0], normal[1], normal[2])), 0.0f);
+          }
 
           if (mesh.hasValidUVIndex(triangle_vertex_index + j)) {
             triangle.uv[j] = glm::vec4(ToVec3(mesh.getUV(triangle_vertex_index + j)), 0.0);
@@ -582,8 +595,13 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
         if (branch_indices.size() <= strand_id) {
           EVOENGINE_ERROR("strand id out if bounds: " << strand_id << " vector length is: " << branch_indices.size());
         }
-        glm::vec3 global_pos = root_transform.TransformPoint(
-            ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
+        glm::vec3 global_pos;
+        if (!transform_mesh_at_construction) {
+          global_pos = root_transform.TransformPoint(
+              ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
+        } else {
+          global_pos = root_transform.TransformPoint(glm::vec3(v[0], v[1], v[2]));
+        }
         transformed_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
       }
 
@@ -596,10 +614,16 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
         for (size_t j = 0; j < 3; j++) {
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
-
-          glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
-              normal_transforms_by_height_and_branch, mesh.getNormal(triangle_vertex_index + j),
-              mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)));
+          auto untransformed_normal = mesh.getNormal(triangle_vertex_index + j);
+          glm::vec3 normal;
+          if (!transform_mesh_at_construction) {
+            normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
+                normal_transforms_by_height_and_branch, untransformed_normal,
+                mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)));
+          } else {
+            normal = glm::vec3(root_transform.TransformVector(
+                glm::vec3(untransformed_normal[0], untransformed_normal[1], untransformed_normal[2])));
+          }
           size_t normal_index = transformed_mesh.addNormal(normal.x, normal.y, normal.z);
 
           if (mesh.hasValidUVIndex(triangle_vertex_index + j)) {
@@ -1073,11 +1097,14 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
   for (size_t h = 1; h < maxSegmentCount + 1; h++) {
     // Now iterate over each branch and check if we need to split it
     strands_by_branch_id[h].resize(strands_by_branch_id[h - 1].size());
+
+    // EVOENGINE_LOG("------------------ Height: " << h)
+
     for (size_t branch_id = 0; branch_id < strands_by_branch_id[h - 1].size(); branch_id++) {
       auto& branch_strands = strands_by_branch_id[h - 1][branch_id];
       // branch might end early:
       if (branch_strands.empty()) {
-        EVOENGINE_LOG("Branch with id " << branch_id << " ended at height " << h);
+        // EVOENGINE_LOG("Branch with id " << branch_id << " ended at height " << h);
         continue;
       }
 
@@ -1090,7 +1117,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
         const auto& guide_points = strand_guide_points[strand_id];
 
         if (h >= guide_points.size()) {
-          EVOENGINE_LOG("Strand " << strand_id << " ended early at height " << h);
+          // EVOENGINE_LOG("Strand " << strand_id << " ended early at height " << h);
           continue;  // strand ends here
         }
 
@@ -1099,10 +1126,12 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
         auto it = node_to_branch_map.find(node_handle);
         if (it != node_to_branch_map.end()) {
           size_t branch_index = it->second;
+          // EVOENGINE_LOG("strand " << strand_id << " belongs to already found branch " << branch_index);
           branch_indices[strand_id].push_back(branch_index);
           strands_by_branch_id[h][branch_index].push_back(strand_id);
         } else {
-          size_t branch_index = strands_by_branch_id.size();
+          size_t branch_index = strands_by_branch_id[h].size();
+          // EVOENGINE_LOG("strand " << strand_id << " belongs to newly discovered branch " << branch_index);
           node_to_branch_map[node_handle] = branch_index;
           strands_by_branch_id[h].push_back({strand_id});
           branch_indices[strand_id].push_back(branch_index);
@@ -1112,7 +1141,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
   }
 
   // For debugging, output the node index for each height:
-  for (size_t h = 0; h < maxSegmentCount + 1; h++) {
+  /*for (size_t h = 0; h < maxSegmentCount + 1; h++) {
     std::cout << "Node handles at height " << h << ": ";
 
     // collect in a set to not list duplicates
@@ -1143,7 +1172,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       std::cout << index << ", ";
     }
     std::cout << std::endl;
-  }
+  }*/
 
   // re-order transforms by height and branch
   std::vector<std::vector<glm::mat4>> transforms_by_height_and_branch(maxSegmentCount + 1);
