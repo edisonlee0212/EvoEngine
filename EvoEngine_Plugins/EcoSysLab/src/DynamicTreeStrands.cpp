@@ -327,8 +327,8 @@ void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>(materials);
 
   //initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-  initialize_parameters.max_segment_length = 0.01f;
-  initialize_parameters.min_segment_length = 0.005f; //OAK TRUNK SETTINGS
+  //initialize_parameters.max_segment_length = 0.01f;
+  //initialize_parameters.min_segment_length = 0.005f; //OAK TRUNK SETTINGS
 
   dynamic_strands->Init(initialize_parameters.meshing_type);
   leaf_drop = std::make_shared<DsLeafDrop>();

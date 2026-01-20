@@ -455,6 +455,12 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       changed = true;
     }
 
+    bool moisture_breaking_bool = (moisture_breaking_rod != 0);
+    if (ImGui::Checkbox("Simulate moisture breaking?", &moisture_breaking_bool)) {
+      moisture_breaking_rod = moisture_breaking_bool ? 1u : 0u;
+      changed = true;
+    }
+
     ImGui::TreePop();
   }
   bool apply_ground_damping = (apply_damping != 0);
