@@ -432,3 +432,53 @@ kinDS::MeshIntersection::MeshRelation kinDS::MeshIntersection::ClassifyMeshRelat
   return MeshRelation::UNDEFINED;
 #endif
 }
+
+MatchResult MeshIntersection::MatchPointOnSurface(const VoronoiPoint<3>& p, double epsilon) {
+#ifdef USE_CGAL
+  const CGAL::Surface_mesh<Point_3>& mesh = boundary_mesh.mesh;
+  Point_3 query(p[0], p[1], p[2]);
+
+  auto result = tree.closest_point_and_primitive(query);
+  const Point_3& closest = result.first;
+  CGAL::Surface_mesh<Point_3>::Face_index f = result.second;
+  auto origin = boundary_mesh.fidx[f];
+
+  double dist2 = CGAL::squared_distance(query, closest);
+  if (dist2 > epsilon * epsilon)
+    return {};
+
+  // Extract triangle vertices from face
+  auto h = halfedge(f, mesh);
+  auto v0 = target(h, mesh);
+  h = next(h, mesh);
+  auto v1 = target(h, mesh);
+  h = next(h, mesh);
+  auto v2 = target(h, mesh);
+
+  const Point_3& a = mesh.point(v0);
+  const Point_3& b = mesh.point(v1);
+  const Point_3& c = mesh.point(v2);
+
+  // Barycentric coordinates
+  Kernel::Vector_3 v0v = b - a;
+  Kernel::Vector_3 v1v = c - a;
+  Kernel::Vector_3 v2v = query - a;
+
+  double d00 = v0v * v0v;
+  double d01 = v0v * v1v;
+  double d11 = v1v * v1v;
+  double d20 = v2v * v0v;
+  double d21 = v2v * v1v;
+
+  double denom = d00 * d11 - d01 * d01;
+  if (std::abs(denom) < 1e-14)
+    return {};
+
+  double v = (d11 * d20 - d01 * d21) / denom;
+  double w = (d00 * d21 - d01 * d20) / denom;
+  double u = 1.0 - v - w;
+
+  return {true, origin.face_id, u, v, w};
+#endif
+  return {};
+}

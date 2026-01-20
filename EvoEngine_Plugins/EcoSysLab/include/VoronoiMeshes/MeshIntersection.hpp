@@ -25,10 +25,19 @@ using Traits = CGAL::AABB_traits<Kernel, Primitive>;
 using TreeCGAL = CGAL::AABB_tree<Traits>;
 namespace PMP = CGAL::Polygon_mesh_processing;
 
+typedef Kernel::Triangle_3 Triangle_3;
+typedef std::vector<Triangle_3> TriangleList;
+
 struct FaceProperties {
   int face_id;
   int test0;
   size_t test1;
+};
+
+struct MatchResult {
+  bool hit = false;
+  size_t triangle_index;
+  double u, v, w;  // barycentric
 };
 
 // Small POD to record origin
@@ -98,6 +107,8 @@ class MeshIntersection {
 
   std::pair<VoronoiMesh, std::vector<int>> Intersect(const VoronoiMesh& mesh,
                                                      const std::vector<int>& neighbor_segments = {});
+
+  MatchResult MatchPointOnSurface(const VoronoiPoint<3>& p, double epsilon = 1e-6);
 
   enum class MeshRelation { INSIDE, OUTSIDE, INTERSECTING, UNDEFINED };
 

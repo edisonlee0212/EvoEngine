@@ -64,6 +64,7 @@ class VoronoiMesh {
 
   // Merge duplicate vertices (within epsilon) and update triangle indices
   void mergeDuplicateVertices(double epsilon = 0.0);
+  void patchHoles(std::function<void(size_t)> tri_callback, std::function<void(size_t, size_t)> vertex_callback);
 
   // compute normals
   void computeNormals(NormalMode normal_mode = PerVertex);

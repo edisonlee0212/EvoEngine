@@ -9,6 +9,20 @@
 
 #pragma pop_macro("Success")
 
+#ifdef USE_CGAL
+#  include <CGAL/Polygon_mesh_processing/triangulate_hole.h>
+#  include <CGAL/Simple_cartesian.h>
+#  include <CGAL/Surface_mesh.h>
+
+#  include <vector>
+
+namespace PMP = CGAL::Polygon_mesh_processing;
+
+typedef CGAL::Simple_cartesian<double> Kernel;
+typedef Kernel::Point_3 Point_3;
+typedef CGAL::Surface_mesh<Point_3> Surface_mesh;
+#endif
+
 using namespace kinDS;
 
 std::array<double, 3> barycentricCoordinates(const VoronoiPoint<3>& A, const VoronoiPoint<3>& B,
@@ -198,6 +212,65 @@ void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   }
 
   vertices.swap(newVerts);
+}
+
+void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
+                             std::function<void(size_t, size_t)> vertex_callback) {
+#ifdef USE_CGAL
+  Surface_mesh mesh;
+
+  // --- 1. Copy vertices (1:1 mapping) ---
+  std::vector<Surface_mesh::Vertex_index> vmap(vertices.size());
+
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    const auto& v = vertices[i];
+    vmap[i] = mesh.add_vertex(Point_3(v[0], v[1], v[2]));
+  }
+
+  // --- 2. Copy faces ---
+  const size_t original_face_count = triangles.size() / 3;
+
+  for (size_t i = 0; i < triangles.size(); i += 3) {
+    mesh.add_face(vmap[triangles[i + 0]], vmap[triangles[i + 1]], vmap[triangles[i + 2]]);
+  }
+
+  // --- 3. Fill holes ---
+  for (auto h : mesh.halfedges()) {
+    if (mesh.is_border(h)) {
+      PMP::triangulate_hole(mesh, h, PMP::parameters::use_delaunay_triangulation(true));
+    }
+  }
+
+  // --- 4. Append ONLY new triangles ---
+  size_t face_index = 0;
+  for (auto f : mesh.faces()) {
+    if (face_index++ < original_face_count)
+      continue;
+
+    auto h = mesh.halfedge(f);
+    size_t tri_index = triangles.size() / 3;
+
+    std::array<size_t, 3> v_indices;
+
+    for (int i = 0; i < 3; ++i) {
+      v_indices[i] = mesh.target(h).idx();
+      triangles.push_back(v_indices[i]);
+
+      /*if (normal_mode == PerTriangleCorner) {
+        normals.push_back(VoronoiVector<3>{0.0, 0.0, 0.0});
+      }*/
+      size_t uv_index = uvs.size() - 1 + i;
+      // uvs.push_back(VoronoiPoint<3>{0.0, 0.0, 0.0});
+      uv_indices.push_back(uv_index);
+      h = mesh.next(h);
+    }
+
+    tri_callback(tri_index);
+    for (int i = 0; i < 3; ++i) {
+      vertex_callback(v_indices[i], tri_index);
+    }
+  }
+#endif
 }
 
 std::vector<VoronoiVector<3>> kinDS::VoronoiMesh::computeVertexNormals() {

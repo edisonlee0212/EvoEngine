@@ -350,6 +350,125 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
   intersection_progress_bar.Finish();
 
+  // Find empty meshes and try to fix them by expanding neighboring meshes
+  std::vector<size_t> empty_mesh_indices;
+  for (size_t mesh_index = 0; mesh_index < meshes.size(); mesh_index++) {
+    if (meshes[mesh_index].getVertexCount() == 0) {
+      empty_mesh_indices.push_back(mesh_index);
+    }
+  }
+
+  // go through all triangles of all meshes and check their neighbor indices
+  // if a neighbor index corresponds to an empty mesh, try to copy the triangle into the corresponding empty mesh
+  for (size_t mesh_index = 0; mesh_index < meshes.size(); mesh_index++) {
+    if (std::binary_search(empty_mesh_indices.begin(), empty_mesh_indices.end(), mesh_index)) {
+      continue;
+    }
+
+    auto& mesh = meshes[mesh_index];
+    auto& neighbor_indices = meshing_neighbor_indices[mesh_index];
+    const auto& triangles = mesh.getTriangles();
+
+    for (size_t triangle_index = 0; triangle_index < triangles.size(); triangle_index += 3) {
+      int neighbor_mesh_index = neighbor_indices[triangle_index / 3];
+      if (neighbor_mesh_index >= 0) {
+        // indices are sorted, so we can use binary search
+        if (std::binary_search(empty_mesh_indices.begin(), empty_mesh_indices.end(), neighbor_mesh_index)) {
+          kinDS::VoronoiMesh& neighbor_mesh = meshes[neighbor_mesh_index];
+
+          size_t v0_index = triangles[triangle_index];
+          size_t v1_index = triangles[triangle_index + 1];
+          size_t v2_index = triangles[triangle_index + 2];
+
+          kinDS::VoronoiPoint<3> v0 = mesh.getVertices()[v0_index];
+          kinDS::VoronoiPoint<3> v1 = mesh.getVertices()[v1_index];
+          kinDS::VoronoiPoint<3> v2 = mesh.getVertices()[v2_index];
+
+          kinDS::VoronoiPoint<3> t0 = mesh.getUV(triangle_index);
+          kinDS::VoronoiPoint<3> t1 = mesh.getUV(triangle_index + 1);
+          kinDS::VoronoiPoint<3> t2 = mesh.getUV(triangle_index + 2);
+
+          // TODO: normals, uvs, other
+          size_t new_v0_index = neighbor_mesh.addVertex(v0);
+          size_t new_v1_index = neighbor_mesh.addVertex(v1);
+          size_t new_v2_index = neighbor_mesh.addVertex(v2);
+
+          size_t new_t0_index = neighbor_mesh.addUV(t0);
+          size_t new_t1_index = neighbor_mesh.addUV(t1);
+          size_t new_t2_index = neighbor_mesh.addUV(t2);
+
+          // invert order to maintain consistent orientation
+          neighbor_mesh.addTriangle(new_v1_index, new_v0_index, new_v2_index, new_t0_index, new_t1_index, new_t2_index);
+          meshing_neighbor_indices[neighbor_mesh_index].push_back(mesh_index);
+        }
+      }
+    }
+  }
+
+  // merge vertices and check how many could be (partially) fixed
+  size_t fixed_mesh_count = 0;
+  for (size_t mesh_index : empty_mesh_indices) {
+    auto& mesh = meshes[mesh_index];
+
+    if (mesh.getVertexCount() == 0) {
+      continue;
+    }
+
+    mesh.mergeDuplicateVertices(1e-6);
+    mesh.removeDegenerateTriangles();
+    mesh.removeIsolatedVertices();
+    mesh.computeNormals(kinDS::PerTriangleCorner);
+
+    mesh.patchHoles(
+        [&](size_t tri_index) {
+          meshing_neighbor_indices[mesh_index].push_back(-2);
+          // TODO: copy from neighbor mesh
+        },
+        [&](size_t v_index, size_t tri_index) {
+          auto& v = mesh.getVertices()[v_index];
+          // query point in boundary mesh
+          auto match = boundary_intersector.MatchPointOnSurface(v);
+          if (!match.hit) {
+            // mark as not bark
+            meshing_neighbor_indices[mesh_index][tri_index] = -1;
+            mesh.addUV({0, 0, 0});
+            mesh.addNormal({0, 0, 0});
+          } else {
+            size_t matched_triangle_index = match.triangle_index;
+
+            // use barycentric coordinates to interpolate normal and uv from boundary mesh
+
+            // first get boundary triangle vertices
+            const auto& boundary_triangles = boundary_mesh.getTriangles();
+            size_t bt0_index = boundary_triangles[matched_triangle_index * 3];
+            size_t bt1_index = boundary_triangles[matched_triangle_index * 3 + 1];
+            size_t bt2_index = boundary_triangles[matched_triangle_index * 3 + 2];
+
+            // get normals
+            auto n0 = boundary_mesh.getNormal(bt0_index);
+            auto n1 = boundary_mesh.getNormal(bt1_index);
+            auto n2 = boundary_mesh.getNormal(bt2_index);
+
+            // get uvs
+            auto uv0 = boundary_mesh.getUV(bt0_index);
+            auto uv1 = boundary_mesh.getUV(bt1_index);
+            auto uv2 = boundary_mesh.getUV(bt2_index);
+
+            // interpolate
+            auto n = n0 * match.u + n1 * match.v + n2 * match.w;
+            n = n.normalized();
+
+            auto uv = uv0 * match.u + uv1 * match.v + uv2 * match.w;
+            mesh.addUV(uv);
+            mesh.addNormal(n);
+          }
+        });
+
+    fixed_mesh_count++;
+  }
+
+  EVOENGINE_LOG("Fixed " << fixed_mesh_count << " out of " << empty_mesh_indices.size() << " meshes.");
+
   const auto& meshing_strand_to_segment_indices = mesh_builder.getStrandToSegmentIndices();
 
   size_t max_meshing_id = 0;
@@ -514,7 +633,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
         triangle.vertex_index1 = static_cast<unsigned int>(triangles[triangle_vertex_index + 1] + vertex_offset);
         triangle.vertex_index2 = static_cast<unsigned int>(triangles[triangle_vertex_index + 2] + vertex_offset);
         int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
-        if (meshing_neighbor_segment_index >= 0) {
+        if (meshing_neighbor_segment_index >= static_cast<long>(meshing_to_physics_segment_indices.size())) {
+          EVOENGINE_ERROR("meshing_neighbor_segment_index out of bounds: " << meshing_neighbor_segment_index
+                                                                           << "; upper bound is: "
+                                                                           << meshing_to_physics_segment_indices.size())
+        } else if (meshing_neighbor_segment_index >= 0) {
           triangle.neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
         } else {
           triangle.neighbor_segment_index = meshing_neighbor_segment_index;
