@@ -430,7 +430,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
           auto match = boundary_intersector.MatchPointOnSurface(v);
           if (!match.hit) {
             // mark as not bark
-            meshing_neighbor_indices[mesh_index][tri_index] = -1;
+            // meshing_neighbor_indices[mesh_index][tri_index] = -1;
             mesh.addUV({0, 0, 0});
             mesh.addNormal({0, 0, 0});
           } else {

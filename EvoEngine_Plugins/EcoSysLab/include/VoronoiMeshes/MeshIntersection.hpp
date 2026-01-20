@@ -34,12 +34,6 @@ struct FaceProperties {
   size_t test1;
 };
 
-struct MatchResult {
-  bool hit = false;
-  size_t triangle_index;
-  double u, v, w;  // barycentric
-};
-
 // Small POD to record origin
 struct Origin {
   int mesh_index;       // 0 -> m1, 1 -> m2
@@ -100,6 +94,12 @@ struct RecordingVisitor : public PMP::Corefinement::Default_visitor<MeshCGAL_int
 };
 
 #endif
+
+struct MatchResult {
+  bool hit = false;
+  size_t triangle_index;
+  double u, v, w;  // barycentric
+};
 
 class MeshIntersection {
  public:
