@@ -294,7 +294,10 @@ void kinDS::SegmentBuilder::finishMesh(size_t he_id, double t, const std::vector
 
 SegmentBuilder::SegmentBuilder(KineticDelaunay& kin_del, std::vector<std::pair<size_t, double>> subdivisions,
                                bool create_transformed_mesh)
-    : kin_del(kin_del), subdivisions(std::move(subdivisions)), create_transformed_mesh(create_transformed_mesh) {
+    : kin_del(kin_del),
+      subdivisions(std::move(subdivisions)),
+      create_transformed_mesh(create_transformed_mesh),
+      boundary_mesh({"bark", "interior"}) {
   // Assert that the subdivisions are sorted by time
   assert(std::is_sorted(this->subdivisions.begin(), this->subdivisions.end(), [](const auto& a, const auto& b) {
     return a.second < b.second;
@@ -302,7 +305,7 @@ SegmentBuilder::SegmentBuilder(KineticDelaunay& kin_del, std::vector<std::pair<s
 }
 
 SegmentBuilder::SegmentBuilder(KineticDelaunay& kin_del, bool create_transformed_mesh)
-    : kin_del(kin_del), create_transformed_mesh(create_transformed_mesh) {
+    : kin_del(kin_del), create_transformed_mesh(create_transformed_mesh), boundary_mesh({"bark", "interior"}) {
 }
 
 void SegmentBuilder::startNewMesh(size_t half_edge_id, double t) {
@@ -439,7 +442,7 @@ size_t kinDS::SegmentBuilder::addBoundaryTriangle(size_t u, size_t v, size_t w) 
   /*EVOENGINE_LOG("UVs after adjustment: u(" + std::to_string(uv_u[0]) + ", " + std::to_string(uv_u[1]) + "), v(" +
                 std::to_string(uv_v[0]) + ", " + std::to_string(uv_v[1]) + "), w(" + std::to_string(uv_w[0]) + ", " +
                 std::to_string(uv_w[1]) + ")");*/
-  return boundary_mesh.addTriangle(u, v, w, uv_index_u, uv_index_v, uv_index_w);
+  return boundary_mesh.addTriangle(u, v, w, uv_index_u, uv_index_v, uv_index_w, 0);
 }
 
 size_t kinDS::SegmentBuilder::addBoundaryVertex(VoronoiPoint<3> vertex, VoronoiPoint<2> centroid, size_t strand_id,
@@ -546,7 +549,7 @@ void kinDS::SegmentBuilder::addVoronoiTriangulationToBoundaryMesh(double t, bool
 
     // as an exception, we directly add the triangle here to have access to the UV indices
     boundary_mesh.addTriangle(index_offset + vertices[0], index_offset + vertices[1], index_offset + vertices[2],
-                              uv_indices[0], uv_indices[1], uv_indices[2]);
+                              uv_indices[0], uv_indices[1], uv_indices[2], 1);
   }
 }
 

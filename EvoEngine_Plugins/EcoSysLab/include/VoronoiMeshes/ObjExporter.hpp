@@ -13,7 +13,19 @@ class ObjExporter {
     const auto& uv_indices = mesh.getUVIndices();
     const auto& normals = mesh.getNormals();
 
+    size_t material_id = -1;
+    const auto& material_ids = mesh.getMaterialIDs();
     for (size_t i = 3 * lb; i < 3 * ub; i += 3) {
+      // Check if we need to switch material
+      if (!material_ids.empty()) {
+        size_t current_material_id = material_ids[i / 3];
+        if (current_material_id != material_id) {
+          material_id = current_material_id;
+          if (material_id < mesh.getMaterialNames().size()) {
+            file << "usemtl " << mesh.getMaterialNames()[material_id] << "\n";
+          }
+        }
+      }
       file << "f";
 
       for (size_t j = 0; j < 3; j++) {
@@ -43,15 +55,45 @@ class ObjExporter {
     }
   }
 
- public:
-  static void writeMesh(const VoronoiMesh& mesh, const std::string& filename) {
-    std::ofstream file(filename);
+  static void writeMtl(const std::filesystem::path& mtl_path) {
+    std::ofstream file(mtl_path);
     if (!file.is_open()) {
-      throw std::runtime_error("Failed to open file for writing: " + filename);
+      throw std::runtime_error("Failed to open MTL file");
     }
+
+    // TODO: Define proper materials or perhaps pass them as arguments
+
+    // Bark material
+    file << "newmtl bark\n";
+    file << "Ka 0.2 0.1 0.05\n";
+    file << "Kd 0.4 0.25 0.1\n";
+    file << "Ks 0.0 0.0 0.0\n";
+    file << "d 1.0\n\n";
+
+    // Interior material
+    file << "newmtl interior\n";
+    file << "Ka 0.8 0.8 0.8\n";
+    file << "Kd 0.8 0.8 0.8\n";
+    file << "Ks 0.0 0.0 0.0\n";
+    file << "d 1.0\n";
+
+    file.close();
+  }
+
+ public:
+  static void writeMesh(const VoronoiMesh& mesh, const std::filesystem::path& obj_path, double uv_height_factor = 1.0,
+                        double uv_circum_factor = 1.0) {
+    std::ofstream file(obj_path);
+    if (!file.is_open()) {
+      throw std::runtime_error("Failed to open file for writing: " + obj_path.filename().string());
+    }
+    std::filesystem::path mtl_path = obj_path;
+    mtl_path.replace_extension(".mtl");
+    writeMtl(mtl_path);
 
     // Write some metadata
     file << "# Exported by kinDS ObjExporter\n";
+    file << "mtllib " << mtl_path.filename() << "\n\n";
 
     // Write vertices
     file << "# Vertices\n";
@@ -67,8 +109,20 @@ class ObjExporter {
 
     // Write UVs
     file << "# UVs\n";
-    for (const auto& uv : mesh.getUVs()) {
-      file << "vt " << uv[0] << " " << uv[1] << "\n";
+    for (size_t i = 0; i < mesh.getTriangleCount(); i++) {
+      int material = mesh.getMaterialIDs()[i];
+
+      for (size_t j = 0; j < 3; j++) {
+        auto uv = mesh.getUV(3 * i + j);
+
+        if (material == 0) {
+          uv[0] *= uv_circum_factor;
+          uv[1] *= uv_height_factor;
+        } else {
+          uv[2] *= uv_height_factor;
+        }
+        file << "vt " << uv[0] << " " << uv[1] << " " << uv[2] << "\n";
+      }
     }
 
     // Write faces

@@ -15,7 +15,6 @@
 #include "ProgressBar.hpp"
 #include "SegmentBuilder.hpp"
 #include "Shader.hpp"
-#include "VoronoiMesh.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -242,6 +241,49 @@ glm::vec3 ToVec3(const kinDS::VoronoiPoint<3>& a) {
   return glm::vec3(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]));
 }
 
+kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
+    const kinDS::VoronoiMesh& boundary_mesh, const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
+    const std::vector<std::vector<glm::mat4>>& normal_transforms_by_height_and_branch,
+    const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices) {
+  // Always use strand ID 0 for boundary mesh export for now
+  // TODO: find a way to obtain the correct strand ID
+  kinDS::VoronoiMesh transformed_boundary_mesh(boundary_mesh.getMaterialNames(),
+                                               kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
+
+  const auto& vertices = boundary_mesh.getVertices();
+  for (size_t i = 0; i < vertices.size(); i++) {
+    const auto& v = vertices[i];
+    // v is a relative position in 2D, we need to convert it to 3D
+    glm::vec3 global_pos = root_transform.TransformPoint(
+        ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[0]));
+    transformed_boundary_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
+  }
+
+  const auto& triangles = boundary_mesh.getTriangles();
+  for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+    size_t material_id = boundary_mesh.getMaterialIDs()[triangle_vertex_index / 3];
+    size_t dest_tri_vertex_index = 3 * transformed_boundary_mesh.addTriangle(
+                                           triangles[triangle_vertex_index], triangles[triangle_vertex_index + 1],
+                                           triangles[triangle_vertex_index + 2], material_id);
+
+    for (size_t j = 0; j < 3; j++) {
+      auto source_tri_vertex_index = boundary_mesh.getTriangles()[triangle_vertex_index + j];
+
+      glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
+          normal_transforms_by_height_and_branch, boundary_mesh.getNormal(triangle_vertex_index + j),
+          boundary_mesh.getVertices()[source_tri_vertex_index][2], branch_indices[0], 0.0f)));
+      size_t normal_index = transformed_boundary_mesh.addNormal(normal.x, normal.y, normal.z);
+
+      if (boundary_mesh.hasValidUVIndex(triangle_vertex_index + j)) {
+        size_t uv_index = transformed_boundary_mesh.addUV(boundary_mesh.getUV(triangle_vertex_index + j));
+        transformed_boundary_mesh.getUVIndices()[dest_tri_vertex_index + j] = uv_index;
+      }
+    }
+  }
+
+  return transformed_boundary_mesh;
+}
+
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& support_points,
     std::vector<std::vector<double>>& subdivisions_by_strand,
@@ -264,8 +306,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
   // sort subdivisions into a single array
   std::vector<std::pair<size_t, double>> subdivisions = MergeSortedVectors(subdivisions_by_strand);
-
-  ;
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
   kinDS::KineticDelaunay kinetic_delaunay(
@@ -622,45 +662,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
       const auto& triangles = mesh.getTriangles();
 
-      // for debugging, output all segment ids of the pair from both sources
-      /*EVOENGINE_LOG("Physics simulation neighbors:")
-      std::ostringstream oss;
-      oss << '[';
-      for (int pair_handle : segment_data_list[physics_segment_id].pair_handles) {
-        int neighbor_segment_id = -1;
-        if (pair_handle == -1) {
-          continue;
-        }
-
-        if (segment_pairs[pair_handle].segment0_handle == physics_segment_id) {
-          neighbor_segment_id = segment_pairs[pair_handle].segment1_handle;
-        } else if (segment_pairs[pair_handle].segment1_handle == physics_segment_id) {
-          neighbor_segment_id = segment_pairs[pair_handle].segment0_handle;
-        }
-
-        oss << neighbor_segment_id << ", ";
-      }
-
-      std::string s = oss.str();
-      s.replace(s.size() - 2, 2, "]");
-      std::cout << s << std::endl;
-
-      EVOENGINE_LOG("Meshing neighbors:")
-      std::set<int> neighbor_set;
-      for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
-        int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
-        if (meshing_neighbor_segment_index >= 0) {
-          int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
-          neighbor_set.insert(physics_neighbor_segment_index);
-        }
-      }
-
-      std::cout << '[';
-      for (auto& index : neighbor_set) {
-        std::cout << index << ", ";
-      }
-      std::cout << ']' << std::endl;*/
-
       for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
         GpuSegmentMeshletTriangle triangle;
         triangle.vertex_index0 = static_cast<unsigned int>(triangles[triangle_vertex_index] + vertex_offset);
@@ -729,12 +730,16 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     }
   }
 
+  transformed_boundary_mesh =
+      TransformBoundaryMesh(boundary_mesh, transforms_by_height_and_branch, normal_transforms_by_height_and_branch,
+                            root_transform, branch_indices);
+
   if (!debug_export_meshes) {
     EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
     return;
   }
   EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
-  kinDS::VoronoiMesh transformed_mesh(kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
+  kinDS::VoronoiMesh transformed_mesh({}, kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
   for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
     for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
       // Get mesh using the segment id from the meshing algorithm.
@@ -791,40 +796,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       }
     }
   }
-
-  // comment this out for now, strand id can not be obtained
-  /*kinDS::VoronoiMesh transformed_boundary_mesh(kinDS::PerTriangleCorner);  // also build transformed mesh for
-  debugging
-
-  const auto& vertices = boundary_mesh.getVertices();
-  for (size_t i = 0; i < vertices.size(); i++) {
-    const auto& v = vertices[i];
-    // v is a relative position in 2D, we need to convert it to 3D
-    glm::vec3 global_pos = root_transform.TransformPoint(
-        ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
-    transformed_boundary_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
-  }
-
-  const auto& triangles = boundary_mesh.getTriangles();
-  for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
-    size_t dest_tri_vertex_index = 3 * transformed_boundary_mesh.addTriangle(triangles[triangle_vertex_index],
-                                                                             triangles[triangle_vertex_index + 1],
-                                                                             triangles[triangle_vertex_index + 2]);
-
-    for (size_t j = 0; j < 3; j++) {
-      auto source_tri_vertex_index = boundary_mesh.getTriangles()[triangle_vertex_index + j];
-
-      glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
-          normal_transforms_by_height_and_branch, boundary_mesh.getNormal(triangle_vertex_index + j),
-          boundary_mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)));
-      size_t normal_index = transformed_boundary_mesh.addNormal(normal.x, normal.y, normal.z);
-
-      if (boundary_mesh.hasValidUVIndex(triangle_vertex_index + j)) {
-        size_t uv_index = transformed_boundary_mesh.addUV(boundary_mesh.getUV(triangle_vertex_index + j));
-        transformed_boundary_mesh.getUVIndices()[dest_tri_vertex_index + j] = uv_index;
-      }
-    }
-  }*/
 
   // for now, just combine all meshes into one
   kinDS::VoronoiMesh combined_mesh;
@@ -1697,7 +1668,14 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
                                render_settings.segment_meshlet_render_parameters.fracture_distance);
       },
       false);
-
+  FileUtils::SaveFile(
+      "Export Boundary OBJ", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, path,
+                                      render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                      render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+      },
+      false);
   return false;
 }
 

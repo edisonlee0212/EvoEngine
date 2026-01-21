@@ -3,6 +3,7 @@
 
 #include "CubicHermiteSpline.hpp"
 #include "DsMeshing.hpp"
+#include "VoronoiMesh.hpp"
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
@@ -118,6 +119,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_segment_meshlet_vertices_buffer;
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
 
+  kinDS::VoronoiMesh transformed_boundary_mesh;
+
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
                                              Entity& owner);
@@ -145,6 +148,12 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const SmallSegmentsVisualizationRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;*/
+
+  kinDS::VoronoiMesh TransformBoundaryMesh(
+      const kinDS::VoronoiMesh& boundary_mesh,
+      const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
+      const std::vector<std::vector<glm::mat4>>& normal_transforms_by_height_and_branch,
+      const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices);
 
   void RunMeshingAlgorithm(const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& support_points,
                            std::vector<std::vector<double>>& subdivisions_by_strand,

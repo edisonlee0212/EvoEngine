@@ -67,12 +67,12 @@ size_t VoronoiMesh::addVertex(const VoronoiPoint<3>& p) {
   return index;
 }
 
-size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3) {
+size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, int material_id) {
   return addTriangle(v1, v2, v3, std::numeric_limits<size_t>::max(), std::numeric_limits<size_t>::max(),
-                     std::numeric_limits<size_t>::max());
+                     std::numeric_limits<size_t>::max(), material_id);
 }
 
-size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, size_t uv2, size_t uv3) {
+size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, size_t uv2, size_t uv3, int material_id) {
   size_t index = triangles.size() / 3;
 
   // Check vertex indices
@@ -86,6 +86,8 @@ size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, siz
   uv_indices.push_back(uv1);
   uv_indices.push_back(uv2);
   uv_indices.push_back(uv3);
+
+  material_ids.push_back(material_id);
 
   return index;
 }
@@ -215,7 +217,7 @@ void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
 }
 
 void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
-                             std::function<void(size_t, size_t)> vertex_callback) {
+                             std::function<void(size_t, size_t)> vertex_callback, int material_id) {
 #ifdef USE_CGAL
   Surface_mesh mesh;
 
@@ -260,7 +262,7 @@ void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
       }
       h = mesh.next(h);
     }
-    addTriangle(v_indices[0], v_indices[1], v_indices[2]);
+    addTriangle(v_indices[0], v_indices[1], v_indices[2], material_id);
 
     tri_callback(tri_index);
     for (int i = 0; i < 3; ++i) {
@@ -452,11 +454,13 @@ void VoronoiMesh::removeDegenerateTriangles() {
   const size_t n_triangles = triangles.size() / 3;
   std::vector<size_t> new_triangles;
   std::vector<size_t> new_uv_indices;
+  std::vector<int> new_material_ids;
 
   new_triangles.reserve(triangles.size());
   if (!uv_indices.empty()) {
     new_uv_indices.reserve(uv_indices.size());
   }
+  new_material_ids.reserve(material_ids.size());
 
   for (size_t t = 0; t < n_triangles; ++t) {
     size_t i0 = triangles[3 * t + 0];
@@ -475,6 +479,8 @@ void VoronoiMesh::removeDegenerateTriangles() {
         new_uv_indices.push_back(uv_indices[3 * t + 1]);
         new_uv_indices.push_back(uv_indices[3 * t + 2]);
       }
+
+      new_material_ids.push_back(material_ids[t]);
     }
   }
 
@@ -482,6 +488,7 @@ void VoronoiMesh::removeDegenerateTriangles() {
   if (!uv_indices.empty()) {
     uv_indices.swap(new_uv_indices);
   }
+  material_ids.swap(new_material_ids);
 
   // Optionally: warn if triangles were removed
   size_t removed = n_triangles - (triangles.size() / 3);
