@@ -182,7 +182,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
     std::vector<Region> regions;
-    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
+    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/800, 0.1f, 1.8f, 10,
                                      /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
                                      3000.f);  // ZY: 800 for pull operator test
 

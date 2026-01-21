@@ -360,7 +360,7 @@ void main() {
          }
          if (uvec4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
              uvec4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
-           if (segments[segment1_handle].HC < HC_threshold &&
+           if (segments[segment1_handle].HC < HC_threshold ||
                segments[segment0_handle].HC < HC_threshold)  //ZY: Switch to || for non-tree cases
            {
              segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
