@@ -1496,10 +1496,22 @@ void SegmentBuilder::finalize(double t) {
     meshlet.computeNormals(NormalMode::PerTriangleCorner);
   }
 
-  boundary_mesh.mergeDuplicateVertices();
+  auto remap1 = boundary_mesh.mergeDuplicateVertices();
   boundary_mesh.removeDegenerateTriangles();
-  boundary_mesh.removeIsolatedVertices();
+  auto remap2 = boundary_mesh.removeIsolatedVertices();
   boundary_mesh.computeNormals(NormalMode::PerTriangleCorner);
+
+  // Update boundary vertex to strand id mapping
+  std::vector<size_t> new_boundary_vertex_to_strand_id;
+  new_boundary_vertex_to_strand_id.resize(boundary_mesh.getVertices().size());
+  for (size_t old_index = 0; old_index < boundary_vertex_to_strand_id.size(); ++old_index) {
+    size_t new_index = remap2[remap1[old_index]];
+    if (new_index != size_t(-1)) {
+      new_boundary_vertex_to_strand_id[new_index] = boundary_vertex_to_strand_id[old_index];
+    }
+  }
+
+  boundary_vertex_to_strand_id.swap(new_boundary_vertex_to_strand_id);
 
   finalized = true;  // Set the finalized flag to true
 }

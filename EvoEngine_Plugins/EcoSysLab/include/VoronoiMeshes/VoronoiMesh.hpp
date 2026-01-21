@@ -68,7 +68,7 @@ class VoronoiMesh {
   void flipOrientation();
 
   // Merge duplicate vertices (within epsilon) and update triangle indices
-  void mergeDuplicateVertices(double epsilon = 0.0);
+  std::vector<size_t> mergeDuplicateVertices(double epsilon = 0.0);
   void patchHoles(std::function<void(size_t)> tri_callback, std::function<void(size_t, size_t)> vertex_callback,
                   int material_id = -1);
 
@@ -100,7 +100,7 @@ class VoronoiMesh {
     return material_names;
   }
 
-  void removeIsolatedVertices();
+  std::vector<size_t> removeIsolatedVertices();
 
   void removeDegenerateTriangles();
 

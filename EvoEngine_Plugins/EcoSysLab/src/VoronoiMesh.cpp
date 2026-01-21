@@ -174,7 +174,7 @@ void VoronoiMesh::flipOrientation() {
   }
 }
 
-void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
+std::vector<size_t> VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   const double inv_eps = (epsilon > 0.0) ? 1.0 / epsilon : 0.0;
   std::unordered_map<VoronoiPoint<3>, size_t, VoronoiMesh::Vec3iHash> grid;
   std::vector<VoronoiPoint<3>> newVerts;
@@ -214,6 +214,8 @@ void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   }
 
   vertices.swap(newVerts);
+
+  return remap;
 }
 
 #ifdef USE_CGAL
@@ -419,7 +421,7 @@ std::vector<size_t>& VoronoiMesh::getUVIndices() {
   return uv_indices;
 }
 
-void VoronoiMesh::removeIsolatedVertices() {
+std::vector<size_t> VoronoiMesh::removeIsolatedVertices() {
   const size_t n_vertices = vertices.size();
 
   // 1. Mark used vertices
@@ -444,7 +446,7 @@ void VoronoiMesh::removeIsolatedVertices() {
 
   // Early out: nothing to remove
   if (new_count == n_vertices) {
-    return;
+    return remap;
   }
 
   // 3. Compact vertex data
@@ -475,6 +477,8 @@ void VoronoiMesh::removeIsolatedVertices() {
   for (size_t& idx : triangles) {
     idx = remap[idx];
   }
+
+  return remap;
 }
 
 void VoronoiMesh::removeDegenerateTriangles() {
