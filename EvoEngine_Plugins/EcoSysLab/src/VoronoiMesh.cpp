@@ -248,26 +248,23 @@ void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
       continue;
 
     auto h = mesh.halfedge(f);
-    size_t tri_index = triangles.size() / 3;
-
+    size_t corner_index = triangles.size();
+    size_t tri_index = corner_index / 3;
     std::array<size_t, 3> v_indices;
 
     for (int i = 0; i < 3; ++i) {
       v_indices[i] = mesh.target(h).idx();
-      triangles.push_back(v_indices[i]);
 
-      /*if (normal_mode == PerTriangleCorner) {
+      if (normal_mode == PerTriangleCorner) {
         normals.push_back(VoronoiVector<3>{0.0, 0.0, 0.0});
-      }*/
-      size_t uv_index = uvs.size() - 1 + i;
-      // uvs.push_back(VoronoiPoint<3>{0.0, 0.0, 0.0});
-      uv_indices.push_back(uv_index);
+      }
       h = mesh.next(h);
     }
+    addTriangle(v_indices[0], v_indices[1], v_indices[2]);
 
     tri_callback(tri_index);
     for (int i = 0; i < 3; ++i) {
-      vertex_callback(v_indices[i], tri_index);
+      vertex_callback(v_indices[i], corner_index + i);
     }
   }
 #endif
@@ -360,8 +357,33 @@ const std::vector<size_t>& VoronoiMesh::getUVIndices() const {
   return uv_indices;
 }
 
+void VoronoiMesh::printStatistics() const {
+  EVOENGINE_LOG("\nuv_indices.size(): " << uv_indices.size() << "\ntriangles.size(): " << triangles.size()
+                                        << "\nuvs.size(): " << uvs.size() << "\nvertices.size():" << vertices.size());
+}
+
 bool kinDS::VoronoiMesh::hasValidUVIndex(size_t triangle_vertex_index) const {
+  if (triangle_vertex_index >= uv_indices.size()) {
+    EVOENGINE_ERROR("triangle_vertex_index: " << triangle_vertex_index << "\nuv_indices.size(): " << uv_indices.size()
+                                              << "\ntriangles.size(): " << triangles.size() << "\nuvs.size(): "
+                                              << uvs.size() << "\nvertices.size():" << vertices.size());
+    throw std::out_of_range("Triangle vertex index out of range when checking UV index.");
+  }
   return uv_indices[triangle_vertex_index] < uvs.size();
+}
+
+std::vector<size_t> kinDS::VoronoiMesh::findTriangleCorners(size_t vertex_index, bool stop_early) const {
+  std::vector<size_t> corner_indices;
+
+  for (size_t i = 0; i < triangles.size(); i++) {
+    if (triangles[i] == vertex_index) {
+      corner_indices.push_back(i);
+      if (stop_early) {
+      }
+    }
+  }
+
+  return corner_indices;
 }
 
 std::vector<size_t>& VoronoiMesh::getUVIndices() {
@@ -478,6 +500,32 @@ const VoronoiVector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_ind
 
 const VoronoiVector<3>& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
   return uvs[uv_indices[triangle_vertex_index]];
+}
+
+void kinDS::VoronoiMesh::setNormal(const VoronoiVector<3>& normal, size_t triangle_vertex_index) {
+  if (normal_mode == PerTriangleCorner) {
+    if (triangle_vertex_index >= normals.size()) {
+      throw std::out_of_range("Triangle vertex index out of range when setting normal.");
+    }
+    normals[triangle_vertex_index] = normal;
+  } else {
+    size_t vertex_index = triangles[triangle_vertex_index];
+    if (vertex_index >= normals.size()) {
+      throw std::out_of_range("Vertex index out of range when setting normal.");
+    }
+    normals[vertex_index] = normal;
+  }
+}
+
+void kinDS::VoronoiMesh::setUV(const VoronoiVector<3>& uv, size_t triangle_vertex_index) {
+  size_t uv_index = uv_indices[triangle_vertex_index];
+  if (uv_index >= uvs.size()) {
+    uv_index = uvs.size();
+    uvs.emplace_back(uv);
+    uv_indices[triangle_vertex_index] = uv_index;
+    return;
+  }
+  uvs[uv_index] = uv;
 }
 
 NormalMode kinDS::VoronoiMesh::getNormalMode() const {

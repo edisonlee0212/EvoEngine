@@ -80,7 +80,9 @@ class VoronoiMesh {
   std::vector<VoronoiVector<3>>& getNormals();
   const std::vector<VoronoiVector<3>>& getUVs() const;
   const std::vector<size_t>& getUVIndices() const;
+  void printStatistics() const;
   bool hasValidUVIndex(size_t triangle_vertex_index) const;
+  std::vector<size_t> findTriangleCorners(size_t vertex_index, bool stop_early = false) const;
 
   std::vector<size_t>& getUVIndices();
 
@@ -95,6 +97,9 @@ class VoronoiMesh {
    */
   const VoronoiVector<3>& getNormal(size_t triangle_vertex_index) const;
   const VoronoiVector<3>& getUV(size_t triangle_vertex_index) const;
+
+  void setNormal(const VoronoiVector<3>& normal, size_t triangle_vertex_index);
+  void setUV(const VoronoiVector<3>& uv, size_t triangle_vertex_index);
 
   NormalMode getNormalMode() const;
 

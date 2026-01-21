@@ -414,25 +414,62 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       continue;
     }
 
+    EVOENGINE_LOG("Fixing mesh " << mesh_index);
+    mesh.printStatistics();
+
     mesh.mergeDuplicateVertices(1e-6);
     mesh.removeDegenerateTriangles();
     mesh.removeIsolatedVertices();
     mesh.computeNormals(kinDS::PerTriangleCorner);
+
+    mesh.printStatistics();
 
     mesh.patchHoles(
         [&](size_t tri_index) {
           meshing_neighbor_indices[mesh_index].push_back(-2);
           // TODO: copy from neighbor mesh
         },
-        [&](size_t v_index, size_t tri_index) {
+        [&](size_t v_index, size_t corner_index) {
           auto& v = mesh.getVertices()[v_index];
           // query point in boundary mesh
           auto match = boundary_intersector.MatchPointOnSurface(v);
           if (!match.hit) {
-            // mark as not bark
-            // meshing_neighbor_indices[mesh_index][tri_index] = -1;
-            mesh.addUV({0, 0, 0});
-            mesh.addNormal({0, 0, 0});
+            //   mark as not bark
+            //   meshing_neighbor_indices[mesh_index][tri_index] = -1;
+
+            // get properties from neighbor mesh
+            // EVOENGINE_LOG("Callback for v_index " << v_index);
+            std::vector<size_t> corner_indices = mesh.findTriangleCorners(v_index);
+            // EVOENGINE_LOG("Found " << corner_indices.size() << " corresponding corner indices.");
+            if (corner_indices.empty()) {
+              // EVOENGINE_ERROR("Could not find neighboring vertex!");
+              mesh.setUV({0, 0, 0}, corner_index);
+              mesh.setNormal({0, 0, 0}, corner_index);
+              return;
+            }
+
+            size_t neighbor_corner_index = corner_indices[0];
+            auto uv = mesh.getUV(neighbor_corner_index);
+
+            // the UV we got here is not in polar coordinates that are suitable for the bark
+            kinDS::VoronoiVector<2> coords{uv[0], uv[1]};
+            double angle = std::atan2(coords[1] - 0.5, coords[0] - 0.5);
+
+            kinDS::VoronoiVector<3> new_uv{angle / (2 * glm::pi<double>()), uv[2], uv[2]};
+            // EVOENGINE_LOG("Setting new UV to: " << new_uv[0] << ", " << new_uv[1] << ", " << new_uv[2]);
+            mesh.setUV(new_uv, corner_index);
+            // compute normal from the triangle, we don't have better information here
+            size_t triangle_index = neighbor_corner_index / 3;
+            size_t t0_index = mesh.getTriangles()[triangle_index * 3];
+            size_t t1_index = mesh.getTriangles()[triangle_index * 3 + 1];
+            size_t t2_index = mesh.getTriangles()[triangle_index * 3 + 2];
+            auto p0 = mesh.getVertices()[t0_index];
+            auto p1 = mesh.getVertices()[t1_index];
+            auto p2 = mesh.getVertices()[t2_index];
+            auto n = -((p1 - p0) % (p2 - p0)).normalized();
+
+            mesh.setNormal(n, corner_index);
+
           } else {
             size_t matched_triangle_index = match.triangle_index;
 
@@ -440,9 +477,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
             // first get boundary triangle vertices
             const auto& boundary_triangles = boundary_mesh.getTriangles();
-            size_t bt0_index = boundary_triangles[matched_triangle_index * 3];
-            size_t bt1_index = boundary_triangles[matched_triangle_index * 3 + 1];
-            size_t bt2_index = boundary_triangles[matched_triangle_index * 3 + 2];
+            size_t bt0_index = matched_triangle_index * 3;
+            size_t bt1_index = matched_triangle_index * 3 + 1;
+            size_t bt2_index = matched_triangle_index * 3 + 2;
 
             // get normals
             auto n0 = boundary_mesh.getNormal(bt0_index);
@@ -459,11 +496,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
             n = n.normalized();
 
             auto uv = uv0 * match.u + uv1 * match.v + uv2 * match.w;
-            mesh.addUV(uv);
-            mesh.addNormal(n);
+            mesh.setUV(uv, corner_index);
+            mesh.setNormal(n, corner_index);
           }
         });
-
+    mesh.printStatistics();
     fixed_mesh_count++;
   }
 
@@ -562,6 +599,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       // Note that this is different from the original segment id from the strand model because it is assigned in the
       // order of creation of the segments.
       size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      if (meshing_segment_id >= meshes.size()) {
+        EVOENGINE_ERROR("meshing_segment_id out of bounds: " << meshing_segment_id
+                                                             << "; upper bound is: " << meshes.size())
+        continue;
+      }
       auto& mesh = meshes[meshing_segment_id];
       int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
       // get original segment id from strand model

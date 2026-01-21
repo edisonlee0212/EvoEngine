@@ -207,9 +207,6 @@ bool isManifold(const MeshCGAL_internal& mesh) {
 
 kinDS::MeshIntersection::MeshIntersection(const VoronoiMesh& static_mesh) : boundary_mesh_voronoi(static_mesh) {
   // All neighbor segments are -1
-  boundary_mesh_voronoi.mergeDuplicateVertices();
-  boundary_mesh_voronoi.removeDegenerateTriangles();
-  boundary_mesh_voronoi.removeIsolatedVertices();
   std::vector<int> neighbor_segments(boundary_mesh_voronoi.getTriangleCount(), -1);
 
   boundary_mesh = voronoiMeshToCgalMesh(boundary_mesh_voronoi, neighbor_segments, 0);

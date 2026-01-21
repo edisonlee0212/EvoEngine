@@ -1491,6 +1491,10 @@ void SegmentBuilder::finalize(double t) {
   for (auto& meshlet : meshes) {
     meshlet.computeNormals(NormalMode::PerTriangleCorner);
   }
+
+  boundary_mesh.mergeDuplicateVertices();
+  boundary_mesh.removeDegenerateTriangles();
+  boundary_mesh.removeIsolatedVertices();
   boundary_mesh.computeNormals(NormalMode::PerTriangleCorner);
 
   finalized = true;  // Set the finalized flag to true
