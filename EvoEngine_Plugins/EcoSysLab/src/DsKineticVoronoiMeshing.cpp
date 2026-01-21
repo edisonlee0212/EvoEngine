@@ -300,7 +300,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
   auto& boundary_mesh = mesh_builder.getBoundaryMesh();
 
-  bool debug_export_meshes = true;
+  bool debug_export_meshes = false;
 
   if (debug_export_meshes) {
     kinDS::ObjExporter::writeMesh(boundary_mesh, "boundary_mesh.obj");
@@ -310,13 +310,13 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   // Build an AABB-tree of the boundary-mesh to prefilter
   kinDS::MeshIntersection boundary_intersector(boundary_mesh);
 
-  ProgressBar intersection_progress_bar(0, meshes.size(), "Computing Mesh Intersections",
-                                        ProgressBar::Display::Absolute, 50);
+  // ProgressBar intersection_progress_bar(0, meshes.size(), "Computing Mesh Intersections",
+  //                                       ProgressBar::Display::Absolute, 50);
 
   std::atomic<int> progress_counter{0};
   Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
     progress_counter.fetch_add(1, std::memory_order_relaxed);
-    intersection_progress_bar.Update(progress_counter);
+    // intersection_progress_bar.Update(progress_counter);
     auto intersect_relation = boundary_intersector.ClassifyMeshRelation(meshes[mesh_index], true);
 
     switch (intersect_relation) {
@@ -348,7 +348,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     }
   });
 
-  intersection_progress_bar.Finish();
+  // intersection_progress_bar.Finish();
 
   // Find empty meshes and try to fix them by expanding neighboring meshes
   std::vector<size_t> empty_mesh_indices;
@@ -414,15 +414,10 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       continue;
     }
 
-    EVOENGINE_LOG("Fixing mesh " << mesh_index);
-    mesh.printStatistics();
-
     mesh.mergeDuplicateVertices(1e-6);
     mesh.removeDegenerateTriangles();
     mesh.removeIsolatedVertices();
     mesh.computeNormals(kinDS::PerTriangleCorner);
-
-    mesh.printStatistics();
 
     mesh.patchHoles(
         [&](size_t tri_index) {
@@ -438,11 +433,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
             //   meshing_neighbor_indices[mesh_index][tri_index] = -1;
 
             // get properties from neighbor mesh
-            // EVOENGINE_LOG("Callback for v_index " << v_index);
             std::vector<size_t> corner_indices = mesh.findTriangleCorners(v_index);
-            // EVOENGINE_LOG("Found " << corner_indices.size() << " corresponding corner indices.");
             if (corner_indices.empty()) {
-              // EVOENGINE_ERROR("Could not find neighboring vertex!");
+              EVOENGINE_ERROR("Could not find neighboring vertex!");
               mesh.setUV({0, 0, 0}, corner_index);
               mesh.setNormal({0, 0, 0}, corner_index);
               return;
@@ -456,7 +449,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
             double angle = std::atan2(coords[1] - 0.5, coords[0] - 0.5);
 
             kinDS::VoronoiVector<3> new_uv{angle / (2 * glm::pi<double>()), uv[2], uv[2]};
-            // EVOENGINE_LOG("Setting new UV to: " << new_uv[0] << ", " << new_uv[1] << ", " << new_uv[2]);
+
             mesh.setUV(new_uv, corner_index);
             // compute normal from the triangle, we don't have better information here
             size_t triangle_index = neighbor_corner_index / 3;
@@ -500,7 +493,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
             mesh.setNormal(n, corner_index);
           }
         });
-    mesh.printStatistics();
     fixed_mesh_count++;
   }
 
