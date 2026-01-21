@@ -244,7 +244,8 @@ glm::vec3 ToVec3(const kinDS::VoronoiPoint<3>& a) {
 kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
     const kinDS::VoronoiMesh& boundary_mesh, const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
     const std::vector<std::vector<glm::mat4>>& normal_transforms_by_height_and_branch,
-    const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices) {
+    const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices,
+    const std::vector<size_t>& boundary_vertex_to_strand_id) {
   // Always use strand ID 0 for boundary mesh export for now
   // TODO: find a way to obtain the correct strand ID
   kinDS::VoronoiMesh transformed_boundary_mesh(boundary_mesh.getMaterialNames(),
@@ -252,10 +253,11 @@ kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
 
   const auto& vertices = boundary_mesh.getVertices();
   for (size_t i = 0; i < vertices.size(); i++) {
+    size_t strand_id = boundary_vertex_to_strand_id[i];
     const auto& v = vertices[i];
     // v is a relative position in 2D, we need to convert it to 3D
     glm::vec3 global_pos = root_transform.TransformPoint(
-        ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[0]));
+        ProfileToModelCoordinates(transforms_by_height_and_branch, v, v[2], branch_indices[strand_id]));
     transformed_boundary_mesh.addVertex(global_pos[0], global_pos[1], global_pos[2]);
   }
 
@@ -269,9 +271,10 @@ kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
     for (size_t j = 0; j < 3; j++) {
       auto source_tri_vertex_index = boundary_mesh.getTriangles()[triangle_vertex_index + j];
 
+      size_t strand_id = boundary_vertex_to_strand_id[source_tri_vertex_index];
       glm::vec3 normal = glm::vec3(root_transform.TransformVector(ProfileToModelCoordinates(
           normal_transforms_by_height_and_branch, boundary_mesh.getNormal(triangle_vertex_index + j),
-          boundary_mesh.getVertices()[source_tri_vertex_index][2], branch_indices[0], 0.0f)));
+          boundary_mesh.getVertices()[source_tri_vertex_index][2], branch_indices[strand_id], 0.0f)));
       size_t normal_index = transformed_boundary_mesh.addNormal(normal.x, normal.y, normal.z);
 
       if (boundary_mesh.hasValidUVIndex(triangle_vertex_index + j)) {
@@ -302,6 +305,17 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
           glm::transpose(glm::inverse(transforms_by_height_and_branch[i][j]));
       normal_transforms_by_height_and_branch[i][j][3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     }
+  }
+
+  std::vector<float> bottom_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
+  std::vector<float> top_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
+
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); strand_id++) {
+    int bottom_segment_id = physics_strand_to_segment_indices[strand_id].front();
+    int top_segment_id = physics_strand_to_segment_indices[strand_id].back();
+
+    bottom_boundary_distances_by_strand_id[strand_id] = dynamic_strands->segments[bottom_segment_id].boundary_distance;
+    top_boundary_distances_by_strand_id[strand_id] = dynamic_strands->segments[top_segment_id].boundary_distance;
   }
 
   // sort subdivisions into a single array
@@ -339,6 +353,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   auto [meshes, meshing_neighbor_indices] = mesh_builder.extractSegmentMeshlets();
 
   auto& boundary_mesh = mesh_builder.getBoundaryMesh();
+  auto& boundary_vertex_to_strand_id = mesh_builder.getBoundaryVertexToStrandId();
 
   bool debug_export_meshes = false;
 
@@ -391,152 +406,156 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   // intersection_progress_bar.Finish();
 
   // Find empty meshes and try to fix them by expanding neighboring meshes
-  std::vector<size_t> empty_mesh_indices;
-  for (size_t mesh_index = 0; mesh_index < meshes.size(); mesh_index++) {
-    if (meshes[mesh_index].getVertexCount() == 0) {
-      empty_mesh_indices.push_back(mesh_index);
-    }
-  }
-
-  // go through all triangles of all meshes and check their neighbor indices
-  // if a neighbor index corresponds to an empty mesh, try to copy the triangle into the corresponding empty mesh
-  for (size_t mesh_index = 0; mesh_index < meshes.size(); mesh_index++) {
-    if (std::binary_search(empty_mesh_indices.begin(), empty_mesh_indices.end(), mesh_index)) {
-      continue;
+  bool fix_missing_meshes = false;
+  if (fix_missing_meshes) {
+    std::vector<size_t> empty_mesh_indices;
+    for (size_t mesh_index = 0; mesh_index < meshes.size(); mesh_index++) {
+      if (meshes[mesh_index].getVertexCount() == 0) {
+        empty_mesh_indices.push_back(mesh_index);
+      }
     }
 
-    auto& mesh = meshes[mesh_index];
-    auto& neighbor_indices = meshing_neighbor_indices[mesh_index];
-    const auto& triangles = mesh.getTriangles();
+    // go through all triangles of all meshes and check their neighbor indices
+    // if a neighbor index corresponds to an empty mesh, try to copy the triangle into the corresponding empty mesh
+    for (size_t mesh_index = 0; mesh_index < meshes.size(); mesh_index++) {
+      if (std::binary_search(empty_mesh_indices.begin(), empty_mesh_indices.end(), mesh_index)) {
+        continue;
+      }
 
-    for (size_t triangle_index = 0; triangle_index < triangles.size(); triangle_index += 3) {
-      int neighbor_mesh_index = neighbor_indices[triangle_index / 3];
-      if (neighbor_mesh_index >= 0) {
-        // indices are sorted, so we can use binary search
-        if (std::binary_search(empty_mesh_indices.begin(), empty_mesh_indices.end(), neighbor_mesh_index)) {
-          kinDS::VoronoiMesh& neighbor_mesh = meshes[neighbor_mesh_index];
+      auto& mesh = meshes[mesh_index];
+      auto& neighbor_indices = meshing_neighbor_indices[mesh_index];
+      const auto& triangles = mesh.getTriangles();
 
-          size_t v0_index = triangles[triangle_index];
-          size_t v1_index = triangles[triangle_index + 1];
-          size_t v2_index = triangles[triangle_index + 2];
+      for (size_t triangle_index = 0; triangle_index < triangles.size(); triangle_index += 3) {
+        int neighbor_mesh_index = neighbor_indices[triangle_index / 3];
+        if (neighbor_mesh_index >= 0) {
+          // indices are sorted, so we can use binary search
+          if (std::binary_search(empty_mesh_indices.begin(), empty_mesh_indices.end(), neighbor_mesh_index)) {
+            kinDS::VoronoiMesh& neighbor_mesh = meshes[neighbor_mesh_index];
 
-          kinDS::VoronoiPoint<3> v0 = mesh.getVertices()[v0_index];
-          kinDS::VoronoiPoint<3> v1 = mesh.getVertices()[v1_index];
-          kinDS::VoronoiPoint<3> v2 = mesh.getVertices()[v2_index];
+            size_t v0_index = triangles[triangle_index];
+            size_t v1_index = triangles[triangle_index + 1];
+            size_t v2_index = triangles[triangle_index + 2];
 
-          kinDS::VoronoiPoint<3> t0 = mesh.getUV(triangle_index);
-          kinDS::VoronoiPoint<3> t1 = mesh.getUV(triangle_index + 1);
-          kinDS::VoronoiPoint<3> t2 = mesh.getUV(triangle_index + 2);
+            kinDS::VoronoiPoint<3> v0 = mesh.getVertices()[v0_index];
+            kinDS::VoronoiPoint<3> v1 = mesh.getVertices()[v1_index];
+            kinDS::VoronoiPoint<3> v2 = mesh.getVertices()[v2_index];
 
-          // TODO: normals, uvs, other
-          size_t new_v0_index = neighbor_mesh.addVertex(v0);
-          size_t new_v1_index = neighbor_mesh.addVertex(v1);
-          size_t new_v2_index = neighbor_mesh.addVertex(v2);
+            kinDS::VoronoiPoint<3> t0 = mesh.getUV(triangle_index);
+            kinDS::VoronoiPoint<3> t1 = mesh.getUV(triangle_index + 1);
+            kinDS::VoronoiPoint<3> t2 = mesh.getUV(triangle_index + 2);
 
-          size_t new_t0_index = neighbor_mesh.addUV(t0);
-          size_t new_t1_index = neighbor_mesh.addUV(t1);
-          size_t new_t2_index = neighbor_mesh.addUV(t2);
+            // TODO: normals, uvs, other
+            size_t new_v0_index = neighbor_mesh.addVertex(v0);
+            size_t new_v1_index = neighbor_mesh.addVertex(v1);
+            size_t new_v2_index = neighbor_mesh.addVertex(v2);
 
-          // invert order to maintain consistent orientation
-          neighbor_mesh.addTriangle(new_v1_index, new_v0_index, new_v2_index, new_t0_index, new_t1_index, new_t2_index);
-          meshing_neighbor_indices[neighbor_mesh_index].push_back(mesh_index);
+            size_t new_t0_index = neighbor_mesh.addUV(t0);
+            size_t new_t1_index = neighbor_mesh.addUV(t1);
+            size_t new_t2_index = neighbor_mesh.addUV(t2);
+
+            // invert order to maintain consistent orientation
+            neighbor_mesh.addTriangle(new_v1_index, new_v0_index, new_v2_index, new_t0_index, new_t1_index,
+                                      new_t2_index);
+            meshing_neighbor_indices[neighbor_mesh_index].push_back(mesh_index);
+          }
         }
       }
     }
-  }
 
-  // merge vertices and check how many could be (partially) fixed
-  size_t fixed_mesh_count = 0;
-  for (size_t mesh_index : empty_mesh_indices) {
-    auto& mesh = meshes[mesh_index];
+    // merge vertices and check how many could be (partially) fixed
+    size_t fixed_mesh_count = 0;
+    for (size_t mesh_index : empty_mesh_indices) {
+      auto& mesh = meshes[mesh_index];
 
-    if (mesh.getVertexCount() == 0) {
-      continue;
+      if (mesh.getVertexCount() == 0) {
+        continue;
+      }
+
+      mesh.mergeDuplicateVertices(1e-6);
+      mesh.removeDegenerateTriangles();
+      mesh.removeIsolatedVertices();
+      mesh.computeNormals(kinDS::PerTriangleCorner);
+
+      mesh.patchHoles(
+          [&](size_t tri_index) {
+            meshing_neighbor_indices[mesh_index].push_back(-2);
+            // TODO: copy from neighbor mesh
+          },
+          [&](size_t v_index, size_t corner_index) {
+            auto& v = mesh.getVertices()[v_index];
+            // query point in boundary mesh
+            auto match = boundary_intersector.MatchPointOnSurface(v);
+            if (!match.hit) {
+              //   mark as not bark
+              //   meshing_neighbor_indices[mesh_index][tri_index] = -1;
+
+              // get properties from neighbor mesh
+              std::vector<size_t> corner_indices = mesh.findTriangleCorners(v_index);
+              if (corner_indices.empty()) {
+                EVOENGINE_ERROR("Could not find neighboring vertex!");
+                mesh.setUV({0, 0, 0}, corner_index);
+                mesh.setNormal({0, 0, 0}, corner_index);
+                return;
+              }
+
+              size_t neighbor_corner_index = corner_indices[0];
+              auto uv = mesh.getUV(neighbor_corner_index);
+
+              // the UV we got here is not in polar coordinates that are suitable for the bark
+              kinDS::VoronoiVector<2> coords{uv[0], uv[1]};
+              double angle = std::atan2(coords[1] - 0.5, coords[0] - 0.5);
+
+              kinDS::VoronoiVector<3> new_uv{angle / (2 * glm::pi<double>()), uv[2], uv[2]};
+
+              mesh.setUV(new_uv, corner_index);
+              // compute normal from the triangle, we don't have better information here
+              size_t triangle_index = neighbor_corner_index / 3;
+              size_t t0_index = mesh.getTriangles()[triangle_index * 3];
+              size_t t1_index = mesh.getTriangles()[triangle_index * 3 + 1];
+              size_t t2_index = mesh.getTriangles()[triangle_index * 3 + 2];
+              auto p0 = mesh.getVertices()[t0_index];
+              auto p1 = mesh.getVertices()[t1_index];
+              auto p2 = mesh.getVertices()[t2_index];
+              auto n = -((p1 - p0) % (p2 - p0)).normalized();
+
+              mesh.setNormal(n, corner_index);
+
+            } else {
+              size_t matched_triangle_index = match.triangle_index;
+
+              // use barycentric coordinates to interpolate normal and uv from boundary mesh
+
+              // first get boundary triangle vertices
+              const auto& boundary_triangles = boundary_mesh.getTriangles();
+              size_t bt0_index = matched_triangle_index * 3;
+              size_t bt1_index = matched_triangle_index * 3 + 1;
+              size_t bt2_index = matched_triangle_index * 3 + 2;
+
+              // get normals
+              auto n0 = boundary_mesh.getNormal(bt0_index);
+              auto n1 = boundary_mesh.getNormal(bt1_index);
+              auto n2 = boundary_mesh.getNormal(bt2_index);
+
+              // get uvs
+              auto uv0 = boundary_mesh.getUV(bt0_index);
+              auto uv1 = boundary_mesh.getUV(bt1_index);
+              auto uv2 = boundary_mesh.getUV(bt2_index);
+
+              // interpolate
+              auto n = n0 * match.u + n1 * match.v + n2 * match.w;
+              n = n.normalized();
+
+              auto uv = uv0 * match.u + uv1 * match.v + uv2 * match.w;
+              mesh.setUV(uv, corner_index);
+              mesh.setNormal(n, corner_index);
+            }
+          });
+      fixed_mesh_count++;
     }
 
-    mesh.mergeDuplicateVertices(1e-6);
-    mesh.removeDegenerateTriangles();
-    mesh.removeIsolatedVertices();
-    mesh.computeNormals(kinDS::PerTriangleCorner);
-
-    mesh.patchHoles(
-        [&](size_t tri_index) {
-          meshing_neighbor_indices[mesh_index].push_back(-2);
-          // TODO: copy from neighbor mesh
-        },
-        [&](size_t v_index, size_t corner_index) {
-          auto& v = mesh.getVertices()[v_index];
-          // query point in boundary mesh
-          auto match = boundary_intersector.MatchPointOnSurface(v);
-          if (!match.hit) {
-            //   mark as not bark
-            //   meshing_neighbor_indices[mesh_index][tri_index] = -1;
-
-            // get properties from neighbor mesh
-            std::vector<size_t> corner_indices = mesh.findTriangleCorners(v_index);
-            if (corner_indices.empty()) {
-              EVOENGINE_ERROR("Could not find neighboring vertex!");
-              mesh.setUV({0, 0, 0}, corner_index);
-              mesh.setNormal({0, 0, 0}, corner_index);
-              return;
-            }
-
-            size_t neighbor_corner_index = corner_indices[0];
-            auto uv = mesh.getUV(neighbor_corner_index);
-
-            // the UV we got here is not in polar coordinates that are suitable for the bark
-            kinDS::VoronoiVector<2> coords{uv[0], uv[1]};
-            double angle = std::atan2(coords[1] - 0.5, coords[0] - 0.5);
-
-            kinDS::VoronoiVector<3> new_uv{angle / (2 * glm::pi<double>()), uv[2], uv[2]};
-
-            mesh.setUV(new_uv, corner_index);
-            // compute normal from the triangle, we don't have better information here
-            size_t triangle_index = neighbor_corner_index / 3;
-            size_t t0_index = mesh.getTriangles()[triangle_index * 3];
-            size_t t1_index = mesh.getTriangles()[triangle_index * 3 + 1];
-            size_t t2_index = mesh.getTriangles()[triangle_index * 3 + 2];
-            auto p0 = mesh.getVertices()[t0_index];
-            auto p1 = mesh.getVertices()[t1_index];
-            auto p2 = mesh.getVertices()[t2_index];
-            auto n = -((p1 - p0) % (p2 - p0)).normalized();
-
-            mesh.setNormal(n, corner_index);
-
-          } else {
-            size_t matched_triangle_index = match.triangle_index;
-
-            // use barycentric coordinates to interpolate normal and uv from boundary mesh
-
-            // first get boundary triangle vertices
-            const auto& boundary_triangles = boundary_mesh.getTriangles();
-            size_t bt0_index = matched_triangle_index * 3;
-            size_t bt1_index = matched_triangle_index * 3 + 1;
-            size_t bt2_index = matched_triangle_index * 3 + 2;
-
-            // get normals
-            auto n0 = boundary_mesh.getNormal(bt0_index);
-            auto n1 = boundary_mesh.getNormal(bt1_index);
-            auto n2 = boundary_mesh.getNormal(bt2_index);
-
-            // get uvs
-            auto uv0 = boundary_mesh.getUV(bt0_index);
-            auto uv1 = boundary_mesh.getUV(bt1_index);
-            auto uv2 = boundary_mesh.getUV(bt2_index);
-
-            // interpolate
-            auto n = n0 * match.u + n1 * match.v + n2 * match.w;
-            n = n.normalized();
-
-            auto uv = uv0 * match.u + uv1 * match.v + uv2 * match.w;
-            mesh.setUV(uv, corner_index);
-            mesh.setNormal(n, corner_index);
-          }
-        });
-    fixed_mesh_count++;
+    EVOENGINE_LOG("Fixed " << fixed_mesh_count << " out of " << empty_mesh_indices.size() << " meshes.");
   }
-
-  EVOENGINE_LOG("Fixed " << fixed_mesh_count << " out of " << empty_mesh_indices.size() << " meshes.");
 
   const auto& meshing_strand_to_segment_indices = mesh_builder.getStrandToSegmentIndices();
 
@@ -730,9 +749,22 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     }
   }
 
+  boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
+  for (size_t i = 0; i < boundary_mesh.getVertexCount(); i++) {
+    size_t strand_id = boundary_vertex_to_strand_id[i];
+
+    // as a heuristic, just use the bottom boundary distance if height is <= 0, otherwise use the top boundary distance
+    float height = boundary_mesh.getVertices()[i][2];
+    if (height <= 0.0f) {
+      boundary_distances_by_vertex[i] = bottom_boundary_distances_by_strand_id[strand_id];
+    } else {
+      boundary_distances_by_vertex[i] = top_boundary_distances_by_strand_id[strand_id];
+    }
+  }
+
   transformed_boundary_mesh =
       TransformBoundaryMesh(boundary_mesh, transforms_by_height_and_branch, normal_transforms_by_height_and_branch,
-                            root_transform, branch_indices);
+                            root_transform, branch_indices, boundary_vertex_to_strand_id);
 
   if (!debug_export_meshes) {
     EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
@@ -1671,9 +1703,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   FileUtils::SaveFile(
       "Export Boundary OBJ", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
-        kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, path,
-                                      render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                                      render_settings.segment_meshlet_render_parameters.uv_circum_factor);
+        kinDS::ObjExporter::writeMesh(
+            transformed_boundary_mesh, path, render_settings.segment_meshlet_render_parameters.uv_height_factor,
+            render_settings.segment_meshlet_render_parameters.uv_circum_factor, boundary_distances_by_vertex);
       },
       false);
   return false;

@@ -81,8 +81,45 @@ class ObjExporter {
   }
 
  public:
+  static void writeJson(const std::filesystem::path& json_path,
+                        const std::vector<float>& boundary_distances_by_vertex) {
+    std::ofstream file(json_path);
+
+    if (!file.is_open()) {
+      throw std::runtime_error("Failed to open JSON file");
+    }
+
+    auto write_values = [](std::ofstream& file, const std::string& key,
+                           const std::function<std::string(size_t index)>& get_value, size_t size, bool last = false) {
+      file << "  \"" << key << "\": [\n";
+      for (size_t i = 0; i < size; ++i) {
+        file << "    " << get_value(i);
+        if (i < size - 1) {
+          file << ",";
+        }
+        file << "\n";
+      }
+
+      if (!last) {
+        file << "  ],\n";
+      } else {
+        file << "  ]\n";
+      }
+    };
+
+    file << "{\n";
+
+    write_values(
+        file, "boundary_distance",
+        [&](size_t index) {
+          return std::to_string(boundary_distances_by_vertex[index]);
+        },
+        boundary_distances_by_vertex.size(), true);
+
+    file << "}\n";
+  }
   static void writeMesh(const VoronoiMesh& mesh, const std::filesystem::path& obj_path, double uv_height_factor = 1.0,
-                        double uv_circum_factor = 1.0) {
+                        double uv_circum_factor = 1.0, const std::vector<float>& boundary_distances_by_vertex = {}) {
     std::ofstream file(obj_path);
     if (!file.is_open()) {
       throw std::runtime_error("Failed to open file for writing: " + obj_path.filename().string());
@@ -90,6 +127,12 @@ class ObjExporter {
     std::filesystem::path mtl_path = obj_path;
     mtl_path.replace_extension(".mtl");
     writeMtl(mtl_path);
+
+    if (!boundary_distances_by_vertex.empty()) {
+      std::filesystem::path json_path = obj_path;
+      json_path.replace_extension(".json");
+      writeJson(json_path, boundary_distances_by_vertex);
+    }
 
     // Write some metadata
     file << "# Exported by kinDS ObjExporter\n";

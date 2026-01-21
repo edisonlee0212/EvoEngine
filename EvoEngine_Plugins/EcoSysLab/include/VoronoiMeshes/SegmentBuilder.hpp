@@ -31,6 +31,7 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
   // for the boundary
   VoronoiMesh boundary_mesh;  // Mesh for the boundary cuts
   std::vector<std::pair<size_t, size_t>> boundary_mesh_last_left_and_right_vertex;
+  std::vector<size_t> boundary_vertex_to_strand_id;
 
   // UVs must be adjusted to avoid seams, these are the raw UVs before adjustment
   std::vector<VoronoiPoint<2>> boundary_mesh_raw_uvs;
@@ -111,13 +112,13 @@ class SegmentBuilder : public KineticDelaunay::EventHandler {
 
   const VoronoiMesh& getBoundaryMesh() const;
 
+  const std::vector<size_t>& getBoundaryVertexToStrandId() const;
+
   const std::vector<std::vector<size_t>>& getStrandToSegmentIndices() const;
 
   std::vector<VoronoiPoint<3>> computeClampedVoronoiVertices(size_t strand_id, double t,
                                                              const std::vector<BoundaryPoint>& boundary_polygon,
                                                              const VoronoiPoint<2>& centroid);
-
-  KineticDelaunay::ComponentData computeComponentData(double t) const;
 
   void splitComponent(size_t component_id, const std::vector<std::vector<size_t>>& new_components, double t);
 };

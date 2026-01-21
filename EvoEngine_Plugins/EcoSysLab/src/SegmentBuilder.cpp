@@ -455,6 +455,7 @@ size_t kinDS::SegmentBuilder::addBoundaryVertex(VoronoiPoint<3> vertex, VoronoiP
   }
 
   size_t index = boundary_mesh.addVertex(vertex);
+  boundary_vertex_to_strand_id.push_back(strand_id);
   boundary_mesh_raw_uvs.resize(index + 1, VoronoiPoint<2>{});
   boundary_mesh_raw_uvs[index] = raw_uv;
 
@@ -1537,6 +1538,10 @@ std::pair<std::vector<VoronoiMesh>, std::vector<std::vector<int>>> kinDS::Segmen
 
 const VoronoiMesh& kinDS::SegmentBuilder::getBoundaryMesh() const {
   return boundary_mesh;
+}
+
+const std::vector<size_t>& kinDS::SegmentBuilder::getBoundaryVertexToStrandId() const {
+  return boundary_vertex_to_strand_id;
 }
 
 const std::vector<std::vector<size_t>>& kinDS::SegmentBuilder::getStrandToSegmentIndices() const {

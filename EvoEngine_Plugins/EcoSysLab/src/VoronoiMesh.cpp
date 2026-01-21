@@ -216,6 +216,22 @@ void VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   vertices.swap(newVerts);
 }
 
+#ifdef USE_CGAL
+std::vector<Surface_mesh::Halfedge_index> get_boundary_cycle(Surface_mesh::Halfedge_index h, const Surface_mesh& mesh) {
+  std::vector<Surface_mesh::Halfedge_index> cycle;
+
+  Surface_mesh::Halfedge_index start = h;
+  Surface_mesh::Halfedge_index cur = h;
+
+  do {
+    cycle.push_back(cur);
+    cur = mesh.next(cur);
+  } while (cur != start);
+
+  return cycle;
+}
+#endif
+
 void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
                              std::function<void(size_t, size_t)> vertex_callback, int material_id) {
 #ifdef USE_CGAL
@@ -237,10 +253,21 @@ void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
   }
 
   // --- 3. Fill holes ---
+  std::unordered_set<Surface_mesh::Halfedge_index> visited;
   for (auto h : mesh.halfedges()) {
-    if (mesh.is_border(h)) {
-      PMP::triangulate_hole(mesh, h, PMP::parameters::use_delaunay_triangulation(true));
-    }
+    if (!mesh.is_border(h) || visited.count(h))
+      continue;
+
+    auto cycle = get_boundary_cycle(h, mesh);
+
+    // Mark all halfedges in this cycle as visited
+    for (auto hh : cycle)
+      visited.insert(hh);
+
+    if (cycle.size() < 3)
+      continue;
+
+    PMP::triangulate_hole(mesh, h, PMP::parameters::use_delaunay_triangulation(true));
   }
 
   // --- 4. Append ONLY new triangles ---

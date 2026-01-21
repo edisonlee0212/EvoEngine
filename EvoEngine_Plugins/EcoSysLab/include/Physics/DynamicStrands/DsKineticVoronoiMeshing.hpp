@@ -120,6 +120,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
 
   kinDS::VoronoiMesh transformed_boundary_mesh;
+  std::vector<float> boundary_distances_by_vertex;
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
@@ -153,7 +154,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const kinDS::VoronoiMesh& boundary_mesh,
       const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
       const std::vector<std::vector<glm::mat4>>& normal_transforms_by_height_and_branch,
-      const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices);
+      const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices,
+      const std::vector<size_t>& boundary_vertex_to_strand_id);
 
   void RunMeshingAlgorithm(const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& support_points,
                            std::vector<std::vector<double>>& subdivisions_by_strand,
