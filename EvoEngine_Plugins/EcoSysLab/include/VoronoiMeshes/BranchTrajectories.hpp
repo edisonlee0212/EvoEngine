@@ -6,6 +6,9 @@
 
 namespace kinDS {
 
+template <size_t dim>
+using Trajectory = std::array<Polynomial, dim>;
+
 static glm::dvec3 ProfileToModelCoordinatesBranch(
     const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms, glm::dvec3 point, float t,
     const std::vector<size_t>& branch_indices, float w = 1.0f) {

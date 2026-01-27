@@ -1,7 +1,6 @@
 #pragma once
 #include <array>
 #include <vector>
-#include "CubicHermiteSpline.hpp"
 #include "Delaunator2D.hpp"
 
 namespace kinDS {

@@ -3,7 +3,6 @@
 #include <glm/gtx/exterior_product.hpp>
 #include <queue>
 #include "BranchTrajectories.hpp"
-#include "CubicHermiteSpline.hpp"
 #include "HalfEdgeDelaunayGraph.hpp"
 #include "Polynomial.hpp"
 #include "ProgressBar.hpp"
@@ -145,7 +144,6 @@ class KineticDelaunay {
  private:
   typedef std::priority_queue<Event> EventQueue;
 
-  // std::vector<CubicHermiteSpline<2>> splines;
   BranchTrajectories branch_trajs;
   HalfEdgeDelaunayGraph graph;
   EventQueue events;

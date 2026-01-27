@@ -1,5 +1,4 @@
 #include "VoronoiMeshGenerator.hpp"
-#include "CubicHermiteSpline.hpp"
 #include "KineticDelaunay.hpp"
 #include "ObjExporter.hpp"
 #include "SegmentBuilder.hpp"
@@ -25,80 +24,8 @@ void printStrandGuidePoints(const std::vector<std::vector<glm::dvec2>>& strand_g
 }
 
 static void RunMeshingAlgorithm(std::vector<Vertex>& vertices, std::vector<glm::vec2>& tex_coords,
-                                std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
-                                std::vector<kinDS::CubicHermiteSpline<2>> strand_splines) {
+                                std::vector<std::pair<unsigned int, unsigned int>>& index_pairs) {
   // TODO: Here we could only extract the boundary mesh and use it
-  /*kinDS::KineticDelaunay kinetic_delaunay(strand_splines, 10.0, true);
-
-  kinetic_delaunay.init();
-  kinDS::SegmentBuilder mesh_builder(kinetic_delaunay);
-  mesh_builder.init();
-  auto points = kinetic_delaunay.getPointsAt(0.0);
-
-  size_t section_count = kinetic_delaunay.getSectionCount();
-
-  evo_engine::ProgressBar progress_bar(0, section_count, "Computing Kinetic Voronoi Sections",
-                                       evo_engine::ProgressBar::Display::Absolute);
-  for (size_t i = 0; i < section_count; ++i) {
-    progress_bar.Update(i);
-    if (i != 0)
-      mesh_builder.betweenSections(i);
-    kinetic_delaunay.advanceOneSection(mesh_builder);
-
-    points = kinetic_delaunay.getPointsAt(static_cast<double>(i + 1));
-  }
-  progress_bar.Finish();
-
-  mesh_builder.finalize(section_count);
-
-  auto [meshes, neighbor_segments] = mesh_builder.extractSegmentMeshlets();
-
-  auto& boundary_mesh = mesh_builder.getBoundaryMesh();
-
-  // intersect all meshes with the boundary mesh and save the result
-
-  kinDS::MeshIntersection boundary_intersector(boundary_mesh);
-
-  // TODO: We should probably remove this entire file
-  // We no longer need this
-  Jobs::RunParallelFor(meshes.size(), [&](const size_t mesh_index) {
-    auto intersect_relation = boundary_intersector.ClassifyMeshRelation(meshes[mesh_index]);
-
-    if (intersect_relation == kinDS::MeshIntersection::MeshRelation::INSIDE) {
-      // fully inside, no need to compute intersection
-      return;
-    } else if (intersect_relation == kinDS::MeshIntersection::MeshRelation::OUTSIDE) {
-      // fully outside, result is empty mesh
-      meshes[mesh_index] = kinDS::VoronoiMesh();
-      return;
-    } else {
-      // partially intersecting, compute intersection}
-      meshes[mesh_index] = boundary_intersector.Intersect(meshes[mesh_index]);
-    }
-  });
-
-  // for now, just combine all meshes into one
-  kinDS::VoronoiMesh combined_mesh;
-  for (const auto& mesh : meshes) {
-    combined_mesh += mesh;
-  }
-
-  // export combined mesh
-  combined_mesh.mergeDuplicateVertices(0.0001);
-  kinDS::ObjExporter::writeMesh(combined_mesh, "meshtest.obj");
-
-  // convert to output format
-
-  for (const auto& v : combined_mesh.getVertices()) {
-    // v is a relative position in 2D, we need to convert it to 3D
-
-    Vertex vertex;
-    vertex.position = glm::vec3(v[0], v[2], v[1]);
-    vertices.push_back(vertex);
-  }
-  for (const auto& idx : combined_mesh.getTriangles()) {
-    index_pairs.push_back(std::make_pair(static_cast<unsigned int>(idx), 0));
-  }*/
 }
 
 void VoronoiMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
@@ -162,12 +89,12 @@ void VoronoiMeshGenerator::Generate(const StrandModel& strand_model, std::vector
   // printStrandGuidePoints(strand_guide_points);
 
   // construct cubic hermite spline for each strand
-  std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
+  /*std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
   for (const auto& guide_points : strand_guide_points) {
     strand_splines.push_back(kinDS::CubicHermiteSpline<2>(guide_points));
   }
 
-  RunMeshingAlgorithm(vertices, tex_coords, index_pairs, strand_splines);
+  RunMeshingAlgorithm(vertices, tex_coords, index_pairs, strand_splines);*/
 }
 
 void VoronoiMeshGenerator::Generate(const DtsStrandGroup& randomly_subdivided_strands, const StrandModel& strand_model,
@@ -196,11 +123,11 @@ void VoronoiMeshGenerator::Generate(const DtsStrandGroup& randomly_subdivided_st
   }
 
   // construct cubic hermite spline for each strand
-  std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
+  /*std::vector<kinDS::CubicHermiteSpline<2>> strand_splines;
   for (const auto& guide_points : strand_guide_points) {
     strand_splines.push_back(kinDS::CubicHermiteSpline<2>(guide_points));
   }
 
-  RunMeshingAlgorithm(vertices, tex_coords, index_pairs, strand_splines);
+  RunMeshingAlgorithm(vertices, tex_coords, index_pairs, strand_splines);*/
 }
 }  // namespace eco_sys_lab_plugin
