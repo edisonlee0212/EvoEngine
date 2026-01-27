@@ -1,7 +1,6 @@
 #pragma once
 #include <algorithm>
 #include <vector>
-#include "VoronoiPoint.hpp"
 
 namespace kinDS {
 
@@ -9,10 +8,10 @@ enum NormalMode { PerVertex, PerTriangleCorner };
 
 class VoronoiMesh {
  private:
-  std::vector<VoronoiPoint<3>> vertices;    // Stores vertex coordinates
+  std::vector<glm::dvec3> vertices;         // Stores vertex coordinates
   std::vector<size_t> triangles;            // Stores indices of vertices forming triangles
-  std::vector<VoronoiVector<3>> normals;    // Stores normal vectors for each triangle or vertex depending on node
-  std::vector<VoronoiVector<3>> uvs;        // Stores texture coordinates
+  std::vector<glm::dvec3> normals;          // Stores normal vectors for each triangle or vertex depending on node
+  std::vector<glm::dvec3> uvs;              // Stores texture coordinates
   std::vector<size_t> uv_indices;           // Stores indices of texture coordinates for face corners
   std::vector<size_t> group_offsets;        // Offsets for groups of triangles, if needed
   std::vector<std::string> material_names;  // Stores material names - needed for exporting
@@ -21,7 +20,7 @@ class VoronoiMesh {
   NormalMode normal_mode;
 
   struct Vec3iHash {
-    std::size_t operator()(const VoronoiPoint<3>& v) const noexcept {
+    std::size_t operator()(const glm::dvec3& v) const noexcept {
       std::size_t h1 = std::hash<int>{}(v[0]);
       std::size_t h2 = std::hash<int>{}(v[1]);
       std::size_t h3 = std::hash<int>{}(v[2]);
@@ -33,9 +32,9 @@ class VoronoiMesh {
   VoronoiMesh(std::vector<std::string> material_names = {}, NormalMode normal_mode = PerTriangleCorner)
       : material_names(std::move(material_names)), normal_mode(normal_mode) {};
 
-  VoronoiMesh(std::vector<VoronoiPoint<3>> vertices, std::vector<size_t> triangles,
-              std::vector<std::string> material_names = {}, std::vector<VoronoiVector<3>> normals = {},
-              std::vector<VoronoiVector<3>> uvs = {}, std::vector<size_t> uv_indices = {},
+  VoronoiMesh(std::vector<glm::dvec3> vertices, std::vector<size_t> triangles,
+              std::vector<std::string> material_names = {}, std::vector<glm::dvec3> normals = {},
+              std::vector<glm::dvec3> uvs = {}, std::vector<size_t> uv_indices = {},
               NormalMode normal_mode = PerTriangleCorner)
       : vertices(std::move(vertices)),
         triangles(std::move(triangles)),
@@ -55,13 +54,13 @@ class VoronoiMesh {
 
   // methods to manipulate the mesh, such as adding vertices, triangles, normals, and UVs
   size_t addVertex(double x, double y, double z);
-  size_t addVertex(const VoronoiPoint<3>& p);
+  size_t addVertex(const glm::dvec3& p);
   size_t addTriangle(size_t v1, size_t v2, size_t v3, int material_id = -1);
   size_t addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, size_t uv2, size_t uv3, int material_id = -1);
   size_t addNormal(double nx, double ny, double nz);
-  size_t addNormal(const VoronoiVector<3>& n);
+  size_t addNormal(const glm::dvec3& n);
   size_t addUV(double u, double v, double w);
-  size_t addUV(VoronoiVector<3> uv);
+  size_t addUV(glm::dvec3 uv);
   void startNewGroup();
   void setGroupOffsets(const std::vector<size_t>& offsets);
   VoronoiMesh& operator+=(const VoronoiMesh& other);
@@ -75,16 +74,16 @@ class VoronoiMesh {
   // compute normals
   void computeNormals(NormalMode normal_mode = PerVertex);
 
-  std::array<double, 3> computeBarycentricCoordinates(size_t triangle_index, VoronoiPoint<3>& point) const;
+  std::array<double, 3> computeBarycentricCoordinates(size_t triangle_index, glm::dvec3& point) const;
 
   // Methods to retrieve mesh data
-  const std::vector<VoronoiPoint<3>>& getVertices() const;
-  std::vector<VoronoiPoint<3>>& getVertices();
+  const std::vector<glm::dvec3>& getVertices() const;
+  std::vector<glm::dvec3>& getVertices();
   const std::vector<size_t>& getTriangles() const;
   std::vector<size_t>& getTriangles();
-  const std::vector<VoronoiVector<3>>& getNormals() const;
-  std::vector<VoronoiVector<3>>& getNormals();
-  const std::vector<VoronoiVector<3>>& getUVs() const;
+  const std::vector<glm::dvec3>& getNormals() const;
+  std::vector<glm::dvec3>& getNormals();
+  const std::vector<glm::dvec3>& getUVs() const;
   const std::vector<size_t>& getUVIndices() const;
   void printStatistics() const;
   bool hasValidUVIndex(size_t triangle_vertex_index) const;
@@ -109,11 +108,11 @@ class VoronoiMesh {
    * @param triangle_vertex_index index corresponding to the indices in the triangle buffer
    * @return
    */
-  const VoronoiVector<3>& getNormal(size_t triangle_vertex_index) const;
-  const VoronoiVector<3>& getUV(size_t triangle_vertex_index) const;
+  const glm::dvec3& getNormal(size_t triangle_vertex_index) const;
+  const glm::dvec3& getUV(size_t triangle_vertex_index) const;
 
-  void setNormal(const VoronoiVector<3>& normal, size_t triangle_vertex_index);
-  void setUV(const VoronoiVector<3>& uv, size_t triangle_vertex_index);
+  void setNormal(const glm::dvec3& normal, size_t triangle_vertex_index);
+  void setUV(const glm::dvec3& uv, size_t triangle_vertex_index);
 
   NormalMode getNormalMode() const;
 
@@ -133,6 +132,6 @@ class VoronoiMesh {
   void checkForDegenerateTriangles() const;
 
  private:
-  std::vector<VoronoiVector<3>> computeVertexNormals();
+  std::vector<glm::dvec3> computeVertexNormals();
 };
 }  // namespace kinDS

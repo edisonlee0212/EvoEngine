@@ -1,6 +1,5 @@
 #pragma once
 #include "Polynomial.hpp"
-#include "VoronoiPoint.hpp"
 
 namespace kinDS {
 template <size_t dim>
@@ -9,11 +8,11 @@ using Trajectory = std::array<Polynomial, dim>;
 template <size_t dim>
 class CubicHermiteSpline {
  private:
-  std::vector<VoronoiPoint<dim>> points;  // Control points
+  std::vector<glm::vec<dim, double>> points;  // Control points
   static const bool use_linear = true;
 
-  static Trajectory<dim> createPiece(const VoronoiPoint<dim>& P0, const VoronoiPoint<dim>& M0,
-                                     const VoronoiPoint<dim>& P1, const VoronoiPoint<dim>& M1) {
+  static Trajectory<dim> createPiece(const glm::vec<dim, double>& P0, const glm::vec<dim, double>& M0,
+                                     const glm::vec<dim, double>& P1, const glm::vec<dim, double>& M1) {
     Trajectory<dim> result{};
 
     if (!use_linear) {
@@ -34,14 +33,14 @@ class CubicHermiteSpline {
  public:
   CubicHermiteSpline() = default;
 
-  CubicHermiteSpline(const std::vector<VoronoiPoint<dim>>& controlPoints) : points(controlPoints) {
+  CubicHermiteSpline(const std::vector<glm::vec<dim, double>>& controlPoints) : points(controlPoints) {
   }
 
-  void addControlPoint(const VoronoiPoint<dim>& point) {
+  void addControlPoint(const glm::vec<dim, double>& point) {
     points.push_back(point);
   }
 
-  void addControlPoints(const std::vector<VoronoiPoint<dim>>& newPoints) {
+  void addControlPoints(const std::vector<glm::vec<dim, double>>& newPoints) {
     points.insert(points.end(), newPoints.begin(), newPoints.end());
   }
 
@@ -53,7 +52,7 @@ class CubicHermiteSpline {
     const auto& P1 = points[index + 1];
 
     // Calculate tangents (M0, M1) as needed
-    VoronoiPoint<dim> M0, M1;
+    glm::vec<dim, double> M0, M1;
     for (size_t i = 0; i < dim; ++i) {
       M0[i] = (index > 0) ? (P1[i] - points[index - 1][i]) / 2.0 : (P1[i] - P0[i]) / 2.0;
       M1[i] = (index < points.size() - 2) ? (points[index + 2][i] - P0[i]) / 2.0 : (P1[i] - P0[i]) / 2.0;
@@ -62,7 +61,7 @@ class CubicHermiteSpline {
     return createPiece(P0, M0, P1, M1);
   }
 
-  VoronoiPoint<dim> evaluate(double t) const {
+  glm::vec<dim, double> evaluate(double t) const {
     if (points.empty()) {
       throw std::runtime_error("No control points defined.");
     }
@@ -79,14 +78,14 @@ class CubicHermiteSpline {
 
     double localT = t - segment;
     auto piece = getPiecePolynomial(segment);
-    VoronoiPoint<dim> result{};
+    glm::vec<dim, double> result{};
     for (size_t i = 0; i < dim; ++i) {
       result[i] = piece[i](localT);
     }
     return result;
   }
 
-  const std::vector<VoronoiPoint<dim>> getPoints() const {
+  const std::vector<glm::vec<dim, double>> getPoints() const {
     return points;
   }
 

@@ -200,7 +200,7 @@ std::optional<std::array<size_t, 2>> FindNonIdenticalPair(std::function<glm::vec
 }
 
 glm::vec3 ProfileToModelCoordinates(const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms,
-                                    kinDS::VoronoiPoint<3> point, float t, const std::vector<size_t>& branch_indices,
+                                    glm::dvec3 point, float t, const std::vector<size_t>& branch_indices,
                                     float w = 1.0f) {
   size_t lower_section_index = static_cast<size_t>(std::max(0.0f, glm::floor(t)));
 
@@ -237,7 +237,7 @@ glm::vec3 ProfileToModelCoordinates(const std::vector<std::vector<glm::mat4>>& p
   return glm::vec3(global_pos);
 }
 
-glm::vec3 ToVec3(const kinDS::VoronoiPoint<3>& a) {
+glm::vec3 ToVec3(const glm::dvec3& a) {
   return glm::vec3(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]));
 }
 
@@ -288,7 +288,7 @@ kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
 }
 
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
-    const std::vector<std::vector<kinDS::VoronoiPoint<2>>>& support_points,
+    const std::vector<std::vector<glm::dvec2>>& support_points,
     std::vector<std::vector<double>>& subdivisions_by_strand,
     std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
@@ -437,13 +437,13 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
             size_t v1_index = triangles[triangle_index + 1];
             size_t v2_index = triangles[triangle_index + 2];
 
-            kinDS::VoronoiPoint<3> v0 = mesh.getVertices()[v0_index];
-            kinDS::VoronoiPoint<3> v1 = mesh.getVertices()[v1_index];
-            kinDS::VoronoiPoint<3> v2 = mesh.getVertices()[v2_index];
+            glm::dvec3 v0 = mesh.getVertices()[v0_index];
+            glm::dvec3 v1 = mesh.getVertices()[v1_index];
+            glm::dvec3 v2 = mesh.getVertices()[v2_index];
 
-            kinDS::VoronoiPoint<3> t0 = mesh.getUV(triangle_index);
-            kinDS::VoronoiPoint<3> t1 = mesh.getUV(triangle_index + 1);
-            kinDS::VoronoiPoint<3> t2 = mesh.getUV(triangle_index + 2);
+            glm::dvec3 t0 = mesh.getUV(triangle_index);
+            glm::dvec3 t1 = mesh.getUV(triangle_index + 1);
+            glm::dvec3 t2 = mesh.getUV(triangle_index + 2);
 
             // TODO: normals, uvs, other
             size_t new_v0_index = neighbor_mesh.addVertex(v0);
@@ -503,10 +503,10 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
               auto uv = mesh.getUV(neighbor_corner_index);
 
               // the UV we got here is not in polar coordinates that are suitable for the bark
-              kinDS::VoronoiVector<2> coords{uv[0], uv[1]};
+              glm::dvec2 coords{uv[0], uv[1]};
               double angle = std::atan2(coords[1] - 0.5, coords[0] - 0.5);
 
-              kinDS::VoronoiVector<3> new_uv{angle / (2 * glm::pi<double>()), uv[2], uv[2]};
+              glm::dvec3 new_uv{angle / (2 * glm::pi<double>()), uv[2], uv[2]};
 
               mesh.setUV(new_uv, corner_index);
               // compute normal from the triangle, we don't have better information here
@@ -517,7 +517,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
               auto p0 = mesh.getVertices()[t0_index];
               auto p1 = mesh.getVertices()[t1_index];
               auto p2 = mesh.getVertices()[t2_index];
-              auto n = -((p1 - p0) % (p2 - p0)).normalized();
+              auto n = glm::normalize(-glm::cross(p1 - p0, p2 - p0));
 
               mesh.setNormal(n, corner_index);
 
@@ -544,7 +544,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
               // interpolate
               auto n = n0 * match.u + n1 * match.v + n2 * match.w;
-              n = n.normalized();
+              n = glm::normalize(n);
 
               auto uv = uv0 * match.u + uv1 * match.v + uv2 * match.w;
               mesh.setUV(uv, corner_index);
@@ -953,7 +953,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
   struct GuidePoint {
-    kinDS::VoronoiPoint<2> profile_position;
+    glm::dvec2 profile_position;
     SkeletonNodeHandle node_handle;
     StrandSegmentHandle segment_handle;
   };
@@ -993,8 +993,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     auto node_handle = first_uniform_segment_data.node_handle;
 
     // First 2 particles within same strand will always have same profile position/polar coordinate.
-    kinDS::VoronoiPoint<2> profile_position{first_uniform_segment_data.profile_position.x,
-                                            first_uniform_segment_data.profile_position.y};
+    glm::dvec2 profile_position{first_uniform_segment_data.profile_position.x,
+                                first_uniform_segment_data.profile_position.y};
     GuidePoint guide_point;
     guide_point.profile_position = profile_position;
     guide_point.node_handle = node_handle;
@@ -1012,8 +1012,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
       const auto& uniform_segment = uniformly_subdivided_strand_group.PeekStrandSegment(segment_handle);
       auto node_handle = uniform_segment_data.node_handle;
-      kinDS::VoronoiPoint<2> profile_position{uniform_segment_data.profile_position.x,
-                                              uniform_segment_data.profile_position.y};
+      glm::dvec2 profile_position{uniform_segment_data.profile_position.x, uniform_segment_data.profile_position.y};
 
       /* if (uniform_segment_data.segment_index != strand_guide_points[strand_index].size()) {
         EVOENGINE_WARNING(std::string("Deviation detected in guide point generation: guide point no. " +
@@ -1524,10 +1523,10 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
   // Proof of concept, just assume we have one trunk with no branches and all strands have the same length
   // construct cubic hermite spline for each strand
-  std::vector<std::vector<kinDS::VoronoiPoint<2>>> strand_splines;
+  std::vector<std::vector<glm::dvec2>> strand_splines;
   for (const auto& guide_points : strand_guide_points) {
     // extract support points
-    std::vector<kinDS::VoronoiPoint<2>> support_points;
+    std::vector<glm::dvec2> support_points;
     support_points.reserve(guide_points.size());
     for (auto& gp : guide_points) {
       support_points.emplace_back(gp.profile_position);

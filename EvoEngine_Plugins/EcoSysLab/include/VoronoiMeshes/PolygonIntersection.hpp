@@ -6,7 +6,7 @@
 #include "KineticDelaunay.hpp"
 
 namespace kinDS {
-using Pt = VoronoiPoint<2>;
+using Pt = glm::dvec2;
 
 struct ClippedSegment {
   Pt p0, p1;

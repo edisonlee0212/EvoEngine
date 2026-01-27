@@ -108,7 +108,7 @@ class MeshIntersection {
   std::pair<VoronoiMesh, std::vector<int>> Intersect(const VoronoiMesh& mesh,
                                                      const std::vector<int>& neighbor_segments = {});
 
-  MatchResult MatchPointOnSurface(const VoronoiPoint<3>& p, double epsilon = 1e-6);
+  MatchResult MatchPointOnSurface(const glm::dvec3& p, double epsilon = 1e-6);
 
   enum class MeshRelation { INSIDE, OUTSIDE, INTERSECTING, UNDEFINED };
 

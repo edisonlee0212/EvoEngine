@@ -1,5 +1,6 @@
 #pragma once
 #include <format>
+#include <glm/gtx/exterior_product.hpp>
 #include <queue>
 #include "BranchTrajectories.hpp"
 #include "CubicHermiteSpline.hpp"
@@ -11,19 +12,19 @@ namespace kinDS {
 struct BoundaryPoint {
   size_t vertex_id;
   size_t he_id;
-  VoronoiPoint<2> p;
+  glm::dvec2 p;
 };
 
-static VoronoiPoint<2> polygonCentroid(const std::vector<BoundaryPoint>& polygon) {
+static glm::dvec2 polygonCentroid(const std::vector<BoundaryPoint>& polygon) {
   double A = 0.0;
-  VoronoiPoint<2> C{0.0, 0.0};
+  glm::dvec2 C{0.0, 0.0};
 
   const size_t n = polygon.size();
   for (size_t i = 0; i < n; ++i) {
-    const VoronoiPoint<2>& p = polygon[i].p;
-    const VoronoiPoint<2>& q = polygon[(i + 1) % n].p;
+    const glm::dvec2& p = polygon[i].p;
+    const glm::dvec2& q = polygon[(i + 1) % n].p;
 
-    double cross = p % q;
+    double cross = glm::cross(p, q);
     A += cross;
     C += (p + q) * cross;
   }
@@ -64,11 +65,11 @@ class KineticDelaunay {
     double time;           // Time of the event
     size_t half_edge_id;   // Half-edge index associated with the event
     double creation_time;  // Time when the event was created, used do check validity after a quadrilateral is updated
-    VoronoiPoint<2> position;  // Position of the event
+    glm::dvec2 position;   // Position of the event
 
     enum Type { SWAP, BOUNDARY, RIGHT_ANGLED } type;
 
-    Event(double t, size_t he_id, double creation_time, VoronoiPoint<2> position, Type type)
+    Event(double t, size_t he_id, double creation_time, glm::dvec2 position, Type type)
         : time(t), half_edge_id(he_id), creation_time(creation_time), position(position), type(type) {
     }
 
@@ -135,7 +136,7 @@ class KineticDelaunay {
     // [component_index][boundary_no][point_no] - the first boundary is the outer one, any additional ones are holes in
     // the polygon
     std::vector<std::vector<std::vector<BoundaryPoint>>> component_boundaries;
-    std::vector<VoronoiPoint<2>> component_centroids;
+    std::vector<glm::dvec2> component_centroids;
     std::vector<double> component_last_updated;
   };
 
@@ -152,7 +153,7 @@ class KineticDelaunay {
   double cutoff;                              // Cutoff radius for boundary events
   std::vector<bool> face_inside;              // Tracks whether faces are inside or outside the boundary
   std::vector<std::vector<size_t>> branches;  // track which vertices/splines belong to which branch
-  std::vector<VoronoiPoint<2>> dummy_boundary;
+  std::vector<glm::dvec2> dummy_boundary;
   bool add_dummy_boundary;
   const std::vector<std::vector<size_t>> branch_indices;  // Create a branch index lookup using [strand_id][h]
   std::vector<std::vector<std::vector<size_t>>>
@@ -207,7 +208,7 @@ class KineticDelaunay {
     return (ax - cx) * (bx - cx) + (ay - cy) * (by - cy);
   }
 
-  double circumradius(const VoronoiPoint<2>& p0, const VoronoiPoint<2>& p1, const VoronoiPoint<2>& p2) {
+  double circumradius(const glm::dvec2& p0, const glm::dvec2& p1, const glm::dvec2& p2) {
     const double x0 = p0[0], y0 = p0[1];
     const double x1 = p1[0], y1 = p1[1];
     const double x2 = p2[0], y2 = p2[1];
@@ -271,7 +272,7 @@ class KineticDelaunay {
         double event_time = root + section;
         // std::cout << "Root found at t = " << event_time << std::endl;
 
-        VoronoiPoint<2> center{};
+        glm::dvec2 center{};
 
         for (const auto& traj : trajs) {
           center[0] += traj[0](root);
@@ -328,7 +329,7 @@ class KineticDelaunay {
         double event_time = root + section;
         // std::cout << "Root found at t = " << event_time << std::endl;
 
-        VoronoiPoint<2> center{};
+        glm::dvec2 center{};
 
         for (const auto& traj : trajs) {
           center[0] += traj[0](root);
@@ -421,7 +422,7 @@ class KineticDelaunay {
         double event_time = root + section;
         // std::cout << "Root found at t = " << event_time << std::endl;
 
-        VoronoiPoint<2> center{};
+        glm::dvec2 center{};
 
         for (const auto& traj : trajs) {
           center[0] += traj[0](root);
@@ -596,8 +597,8 @@ class KineticDelaunay {
         strands_by_branch_id(strands_by_branch_id) {
     if (add_dummy_splines) {
       // first compute a bounding box:
-      VoronoiPoint<2> p_min{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
-      VoronoiPoint<2> p_max{-std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
+      glm::dvec2 p_min{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
+      glm::dvec2 p_max{-std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()};
 
       for (const auto& points : branch_trajs.getPoints()) {
         for (const auto& p : points) {
@@ -634,7 +635,7 @@ class KineticDelaunay {
       size_t length = branch_trajs.getHeight() + 1;
 
       for (const auto& p : dummy_boundary) {
-        std::vector<VoronoiPoint<2>> new_spline;
+        std::vector<glm::dvec2> new_spline;
         for (size_t i = 0; i < length; i++) {
           new_spline.push_back(p);
         }
@@ -650,7 +651,7 @@ class KineticDelaunay {
     return false;
   }
 
-  VoronoiPoint<2> getPointAt(size_t v, double t) const {
+  glm::dvec2 getPointAt(size_t v, double t) const {
     // get point transformed such that all points in the same component match
     size_t component_id = component_data.component_map[v];
     size_t representative_vertex = component_data.components[component_id].front();
@@ -659,11 +660,11 @@ class KineticDelaunay {
     return branch_trajs.evaluateTransformed(v, t, reference_branch);
   }
 
-  VoronoiPoint<2> getPointAt(double t, size_t v) const {
+  glm::dvec2 getPointAt(double t, size_t v) const {
     return getPointAt(v, t);
   }
 
-  VoronoiPoint<3> getPointInObjectSpace(size_t v, double t) const {
+  glm::dvec3 getPointInObjectSpace(size_t v, double t) const {
     return branch_trajs.getPointInObjectSpace(v, t);
   }
 
@@ -692,9 +693,9 @@ class KineticDelaunay {
             polygonCentroid(component_data.component_boundaries[component_index][0]);
       } else {
         // compute centroid from points in the component
-        VoronoiPoint<2> centroid{0.0, 0.0};
+        glm::dvec2 centroid{0.0, 0.0};
         for (auto& v : component_data.components[component_index]) {
-          VoronoiPoint<2> p = getPointAt(t, v);
+          glm::dvec2 p = getPointAt(t, v);
           centroid += p;
         }
         component_data.component_centroids[component_index] =
@@ -716,7 +717,7 @@ class KineticDelaunay {
 
       // compute circumradius at t = 0 and check if within cutoff
       auto vertices = graph.adjacentTriangleVertices(tri.half_edges[0]);
-      std::vector<VoronoiPoint<2>> points;
+      std::vector<glm::dvec2> points;
       bool outer_face = false;
       for (const auto& v : vertices) {
         if (v == -1) {
@@ -816,7 +817,7 @@ class KineticDelaunay {
     return component;
   }
 
-  const std::vector<VoronoiPoint<2>>& getDummyBoundary() const {
+  const std::vector<glm::dvec2>& getDummyBoundary() const {
     return dummy_boundary;
   }
 
@@ -893,7 +894,7 @@ class KineticDelaunay {
       if (origin == -1) {
         EVOENGINE_ERROR("Followed infinite edge.");
       }
-      VoronoiPoint<2> pos = getPointAt(origin, t);
+      glm::dvec2 pos = getPointAt(origin, t);
       boundary_points.emplace_back(BoundaryPoint{origin, he_id, pos});
       he_id = nextOnComponentBoundaryId(he_id);
     } while (he_id != start_he_id);
@@ -962,7 +963,7 @@ class KineticDelaunay {
       const size_t& v = component[i];
 
       // Get position and check if it's the minimum x
-      VoronoiPoint<2> pos = getPointAt(v, t);  // Evaluate at t=0 for starting point
+      glm::dvec2 pos = getPointAt(v, t);  // Evaluate at t=0 for starting point
       if (pos[0] < min_x) {
         min_x = pos[0];
         start_vertex_id = v;

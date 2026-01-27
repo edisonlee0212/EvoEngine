@@ -50,19 +50,18 @@ class HalfEdgeDelaunayGraph {
  public:
   HalfEdgeDelaunayGraph() = default;
 
-  void init(const std::vector<std::vector<VoronoiPoint<2>>>& splines);
+  void init(const std::vector<std::vector<glm::dvec2>>& splines);
 
-  void update(const std::vector<std::vector<VoronoiPoint<2>>>& splines, size_t index,
+  void update(const std::vector<std::vector<glm::dvec2>>& splines, size_t index,
               std::vector<std::vector<size_t>> components);
   // Flips an edge between two triangles by rotating it counter-clockwise in its quadrilateral
   void flipEdge(size_t he_id);
   // Other methods to manipulate and query the triangulation can be added here.
   void printDebug() const;
 
-  static VoronoiPoint<2> circumcenter(const VoronoiPoint<2>& a, const VoronoiPoint<2>& b, const VoronoiPoint<2>& c);
+  static glm::dvec2 circumcenter(const glm::dvec2& a, const glm::dvec2& b, const glm::dvec2& c);
 
-  std::vector<std::pair<VoronoiPoint<2>, bool>> computeCircumcenters(
-      const std::vector<VoronoiPoint<2>>& vertices) const;
+  std::vector<std::pair<glm::dvec2, bool>> computeCircumcenters(const std::vector<glm::dvec2>& vertices) const;
 
   // utils
 

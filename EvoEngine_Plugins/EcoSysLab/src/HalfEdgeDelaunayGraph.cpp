@@ -310,13 +310,13 @@ void HalfEdgeDelaunayGraph::printDebug() const {
   }
 }
 
-void HalfEdgeDelaunayGraph::init(const std::vector<std::vector<VoronoiPoint<2>>>& splines) {
+void HalfEdgeDelaunayGraph::init(const std::vector<std::vector<glm::dvec2>>& splines) {
   vertex_count = splines.size();
   vertex_to_half_edge.assign(vertex_count, -1);
   std::vector<float> coords;
   coords.reserve(splines.size() * 2);  // Reserve space for x and y coordinates
   for (const auto& spline : splines) {
-    VoronoiPoint<2> point = spline.front();
+    glm::dvec2 point = spline.front();
     coords.push_back(point[0]);
     coords.push_back(point[1]);
   }
@@ -326,7 +326,7 @@ void HalfEdgeDelaunayGraph::init(const std::vector<std::vector<VoronoiPoint<2>>>
   build(delaunator.triangles);
 }
 
-void kinDS::HalfEdgeDelaunayGraph::update(const std::vector<std::vector<VoronoiPoint<2>>>& splines, size_t index,
+void kinDS::HalfEdgeDelaunayGraph::update(const std::vector<std::vector<glm::dvec2>>& splines, size_t index,
                                           std::vector<std::vector<size_t>> components) {
   vertex_count = splines.size();
   vertex_to_half_edge.assign(vertex_count, -1);
@@ -337,7 +337,7 @@ void kinDS::HalfEdgeDelaunayGraph::update(const std::vector<std::vector<VoronoiP
     std::vector<float> coords;
     coords.reserve(c.size() * 2);  // Reserve space for x and y coordinates
     for (const auto& v : c) {
-      VoronoiPoint<2> point = splines[index][v];
+      glm::dvec2 point = splines[index][v];
       coords.push_back(point[0]);
       coords.push_back(point[1]);
     }
@@ -359,14 +359,13 @@ void kinDS::HalfEdgeDelaunayGraph::update(const std::vector<std::vector<VoronoiP
   reorder_from_old(old_triangles, old_half_edges);
 }
 
-VoronoiPoint<2> HalfEdgeDelaunayGraph::circumcenter(const VoronoiPoint<2>& a, const VoronoiPoint<2>& b,
-                                                    const VoronoiPoint<2>& c) {
+glm::dvec2 HalfEdgeDelaunayGraph::circumcenter(const glm::dvec2& a, const glm::dvec2& b, const glm::dvec2& c) {
   // Calculate the circumcenter of the triangle formed by points a, b, c
   double D = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
   if (D == 0) {
     // Degenerate case, return a point at infinity
     EVOENGINE_ERROR("Circumcenter calculation failed due to zero denominator. Points may be collinear.");
-    return VoronoiPoint<2>{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
+    return glm::dvec2{std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity()};
   }
   double Ux = ((a[0] * a[0] + a[1] * a[1]) * (b[1] - c[1]) + (b[0] * b[0] + b[1] * b[1]) * (c[1] - a[1]) +
                (c[0] * c[0] + c[1] * c[1]) * (a[1] - b[1])) /
@@ -377,11 +376,11 @@ VoronoiPoint<2> HalfEdgeDelaunayGraph::circumcenter(const VoronoiPoint<2>& a, co
   return {Ux, Uy};
 }
 
-std::vector<std::pair<VoronoiPoint<2>, bool>> HalfEdgeDelaunayGraph::computeCircumcenters(
-    const std::vector<VoronoiPoint<2>>& vertices) const {
+std::vector<std::pair<glm::dvec2, bool>> HalfEdgeDelaunayGraph::computeCircumcenters(
+    const std::vector<glm::dvec2>& vertices) const {
   // give either the position of the circumcenter or a direction vector if the triangle is infinite, the boolean
   // indicates if the circumcenter is infinite
-  std::vector<std::pair<VoronoiPoint<2>, bool>> circumcenters(triangles.size());
+  std::vector<std::pair<glm::dvec2, bool>> circumcenters(triangles.size());
 
   for (size_t triangle_id = 0; triangle_id < triangles.size(); triangle_id++) {
     const Triangle& triangle = triangles[triangle_id];
@@ -391,33 +390,33 @@ std::vector<std::pair<VoronoiPoint<2>, bool>> HalfEdgeDelaunayGraph::computeCirc
 
     // Filter for infinity vertices
     if (he0.origin == -1) {
-      const VoronoiPoint<2>& v1 = vertices[he1.origin];
-      const VoronoiPoint<2>& v2 = vertices[he2.origin];
-      const VoronoiPoint<2> dir = v2 - v1;
-      circumcenters[triangle_id] = {VoronoiPoint<2>{dir[1], -dir[0]}, true};
+      const glm::dvec2& v1 = vertices[he1.origin];
+      const glm::dvec2& v2 = vertices[he2.origin];
+      const glm::dvec2 dir = v2 - v1;
+      circumcenters[triangle_id] = {glm::dvec2(dir[1], -dir[0]), true};
       continue;
     }
 
     if (he1.origin == -1) {
-      const VoronoiPoint<2>& v0 = vertices[he0.origin];
-      const VoronoiPoint<2>& v2 = vertices[he2.origin];
-      const VoronoiPoint<2> dir = v0 - v2;
-      circumcenters[triangle_id] = {VoronoiPoint<2>{dir[1], -dir[0]}, true};
+      const glm::dvec2& v0 = vertices[he0.origin];
+      const glm::dvec2& v2 = vertices[he2.origin];
+      const glm::dvec2 dir = v0 - v2;
+      circumcenters[triangle_id] = {glm::dvec2{dir[1], -dir[0]}, true};
       continue;
     }
 
     if (he2.origin == -1) {
-      const VoronoiPoint<2>& v0 = vertices[he0.origin];
-      const VoronoiPoint<2>& v1 = vertices[he1.origin];
-      const VoronoiPoint<2> dir = v1 - v0;
-      circumcenters[triangle_id] = {VoronoiPoint<2>{dir[1], -dir[0]}, true};
+      const glm::dvec2& v0 = vertices[he0.origin];
+      const glm::dvec2& v1 = vertices[he1.origin];
+      const glm::dvec2 dir = v1 - v0;
+      circumcenters[triangle_id] = {glm::dvec2{dir[1], -dir[0]}, true};
       continue;
     }
 
     // Get the vertices of the triangle
-    const VoronoiPoint<2>& v0 = vertices[he0.origin];
-    const VoronoiPoint<2>& v1 = vertices[he1.origin];
-    const VoronoiPoint<2>& v2 = vertices[he2.origin];
+    const glm::dvec2& v0 = vertices[he0.origin];
+    const glm::dvec2& v1 = vertices[he1.origin];
+    const glm::dvec2& v2 = vertices[he2.origin];
     // Compute the circumcenter of the triangle
     circumcenters[triangle_id] = {circumcenter(v0, v1, v2), false};
   }

@@ -6,6 +6,7 @@
 #undef Success
 
 #include "Dense"
+#include "glm/gtx/norm.hpp"
 
 #pragma pop_macro("Success")
 
@@ -25,19 +26,19 @@ typedef CGAL::Surface_mesh<Point_3> Surface_mesh;
 
 using namespace kinDS;
 
-std::array<double, 3> barycentricCoordinates(const VoronoiPoint<3>& A, const VoronoiPoint<3>& B,
-                                             const VoronoiPoint<3>& C, const VoronoiPoint<3>& P) {
+std::array<double, 3> barycentricCoordinates(const glm::dvec3& A, const glm::dvec3& B, const glm::dvec3& C,
+                                             const glm::dvec3& P) {
   // Vectors
-  const VoronoiVector<3> v0 = B - A;
-  const VoronoiVector<3> v1 = C - A;
-  const VoronoiVector<3> v2 = P - A;
+  const glm::dvec3 v0 = B - A;
+  const glm::dvec3 v1 = C - A;
+  const glm::dvec3 v2 = P - A;
 
   // Dot products
-  const double d00 = v0 * v0;
-  const double d01 = v0 * v1;
-  const double d11 = v1 * v1;
-  const double d20 = v2 * v0;
-  const double d21 = v2 * v1;
+  const double d00 = glm::dot(v0, v0);
+  const double d01 = glm::dot(v0, v1);
+  const double d11 = glm::dot(v1, v1);
+  const double d20 = glm::dot(v2, v0);
+  const double d21 = glm::dot(v2, v1);
 
   // Compute barycentric coordinates
   const double denom = d00 * d11 - d01 * d01;
@@ -57,11 +58,11 @@ std::array<double, 3> barycentricCoordinates(const VoronoiPoint<3>& A, const Vor
 
 size_t VoronoiMesh::addVertex(double x, double y, double z) {
   size_t index = vertices.size();
-  vertices.emplace_back(VoronoiPoint<3>{x, y, z});
+  vertices.emplace_back(glm::dvec3{x, y, z});
   return index;
 }
 
-size_t VoronoiMesh::addVertex(const VoronoiPoint<3>& p) {
+size_t VoronoiMesh::addVertex(const glm::dvec3& p) {
   size_t index = vertices.size();
   vertices.emplace_back(p);
   return index;
@@ -93,20 +94,20 @@ size_t VoronoiMesh::addTriangle(size_t v1, size_t v2, size_t v3, size_t uv1, siz
 }
 
 size_t VoronoiMesh::addNormal(double nx, double ny, double nz) {
-  return addNormal(VoronoiVector<3>{nx, ny, nz});
+  return addNormal(glm::dvec3{nx, ny, nz});
 }
 
-size_t VoronoiMesh::addNormal(const VoronoiVector<3>& n) {
+size_t VoronoiMesh::addNormal(const glm::dvec3& n) {
   size_t index = normals.size();
   normals.emplace_back(n);
   return index;
 }
 
 size_t VoronoiMesh::addUV(double u, double v, double w) {
-  return addUV(VoronoiVector<3>{u, v, w});
+  return addUV(glm::dvec3{u, v, w});
 }
 
-size_t VoronoiMesh::addUV(VoronoiVector<3> uv) {
+size_t VoronoiMesh::addUV(glm::dvec3 uv) {
   size_t index = uvs.size();
   uvs.emplace_back(uv);
   return index;
@@ -176,8 +177,8 @@ void VoronoiMesh::flipOrientation() {
 
 std::vector<size_t> VoronoiMesh::mergeDuplicateVertices(double epsilon) {
   const double inv_eps = (epsilon > 0.0) ? 1.0 / epsilon : 0.0;
-  std::unordered_map<VoronoiPoint<3>, size_t, VoronoiMesh::Vec3iHash> grid;
-  std::vector<VoronoiPoint<3>> newVerts;
+  std::unordered_map<glm::dvec3, size_t, VoronoiMesh::Vec3iHash> grid;
+  std::vector<glm::dvec3> newVerts;
   newVerts.reserve(vertices.size());
 
   std::vector<size_t> remap(vertices.size(), size_t(-1));
@@ -186,7 +187,7 @@ std::vector<size_t> VoronoiMesh::mergeDuplicateVertices(double epsilon) {
     const auto& v = vertices[i];
 
     // Quantize vertex for approximate matching
-    VoronoiPoint<3> key;
+    glm::dvec3 key;
     if (epsilon > 0.0) {
       key[0] = static_cast<int>(std::llround(v[0] * inv_eps));
       key[1] = static_cast<int>(std::llround(v[1] * inv_eps));
@@ -287,7 +288,7 @@ void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
       v_indices[i] = mesh.target(h).idx();
 
       if (normal_mode == PerTriangleCorner) {
-        normals.push_back(VoronoiVector<3>{0.0, 0.0, 0.0});
+        normals.push_back(glm::dvec3{0.0, 0.0, 0.0});
       }
       h = mesh.next(h);
     }
@@ -301,23 +302,23 @@ void VoronoiMesh::patchHoles(std::function<void(size_t)> tri_callback,
 #endif
 }
 
-std::vector<VoronoiVector<3>> kinDS::VoronoiMesh::computeVertexNormals() {
-  std::vector<VoronoiVector<3>> vertex_normals(vertices.size(), VoronoiVector<3>{0.0, 0.0, 0.0});
+std::vector<glm::dvec3> kinDS::VoronoiMesh::computeVertexNormals() {
+  std::vector<glm::dvec3> vertex_normals(vertices.size(), glm::dvec3{0.0, 0.0, 0.0});
   // Accumulate triangle normals into vertex normals
   for (size_t i = 0; i + 2 < triangles.size(); i += 3) {
     size_t i0 = triangles[i];
     size_t i1 = triangles[i + 1];
     size_t i2 = triangles[i + 2];
 
-    const VoronoiPoint<3>& p0 = vertices[i0];
-    const VoronoiPoint<3>& p1 = vertices[i1];
-    const VoronoiPoint<3>& p2 = vertices[i2];
+    const glm::dvec3& p0 = vertices[i0];
+    const glm::dvec3& p1 = vertices[i1];
+    const glm::dvec3& p2 = vertices[i2];
 
-    VoronoiVector<3> e1 = p1 - p0;
-    VoronoiVector<3> e2 = p2 - p0;
+    glm::dvec3 e1 = p1 - p0;
+    glm::dvec3 e2 = p2 - p0;
 
     // Unnormalized triangle normal (area-weighted)
-    VoronoiVector<3> triNormal = e1 % e2;
+    glm::dvec3 triNormal = glm::cross(e1, e2);
 
     vertex_normals[i0] += triNormal;
     vertex_normals[i1] += triNormal;
@@ -325,9 +326,9 @@ std::vector<VoronoiVector<3>> kinDS::VoronoiMesh::computeVertexNormals() {
   }
 
   // Normalize the accumulated vertex normals
-  for (VoronoiVector<3>& n : vertex_normals) {
-    if (n.len_sqr() > 0.0) {
-      n = n.normalized();
+  for (glm::dvec3& n : vertex_normals) {
+    if (glm::length2(n) != 0.0) {
+      n = glm::normalize(n);
     }
   }
 
@@ -341,8 +342,8 @@ void kinDS::VoronoiMesh::computeNormals(NormalMode normal_mode) {
   if (normal_mode == PerVertex) {
     normals = computeVertexNormals();
   } else if (normal_mode == PerTriangleCorner) {
-    std::vector<VoronoiVector<3>> vertex_normals = computeVertexNormals();
-    normals.resize(triangles.size(), VoronoiVector<3>{0.0, 0.0, 0.0});
+    std::vector<glm::dvec3> vertex_normals = computeVertexNormals();
+    normals.resize(triangles.size(), glm::dvec3{0.0, 0.0, 0.0});
 
     for (size_t i = 0; i < triangles.size(); i++) {
       normals[i] = vertex_normals[triangles[i]];
@@ -351,16 +352,16 @@ void kinDS::VoronoiMesh::computeNormals(NormalMode normal_mode) {
 }
 
 std::array<double, 3> kinDS::VoronoiMesh::computeBarycentricCoordinates(size_t triangle_index,
-                                                                        VoronoiPoint<3>& point) const {
+                                                                        glm::dvec3& point) const {
   return barycentricCoordinates(vertices[triangles[3 * triangle_index]], vertices[triangles[3 * triangle_index + 1]],
                                 vertices[triangles[3 * triangle_index + 2]], point);
 }
 
-const std::vector<kinDS::VoronoiPoint<3>>& VoronoiMesh::getVertices() const {
+const std::vector<glm::dvec3>& VoronoiMesh::getVertices() const {
   return vertices;
 }
 
-std::vector<VoronoiPoint<3>>& kinDS::VoronoiMesh::getVertices() {
+std::vector<glm::dvec3>& kinDS::VoronoiMesh::getVertices() {
   return vertices;
 }
 
@@ -372,15 +373,15 @@ std::vector<size_t>& kinDS::VoronoiMesh::getTriangles() {
   return triangles;
 }
 
-const std::vector<VoronoiVector<3>>& VoronoiMesh::getNormals() const {
+const std::vector<glm::dvec3>& VoronoiMesh::getNormals() const {
   return normals;
 }
 
-std::vector<VoronoiVector<3>>& VoronoiMesh::getNormals() {
+std::vector<glm::dvec3>& VoronoiMesh::getNormals() {
   return normals;
 }
 
-const std::vector<VoronoiVector<3>>& VoronoiMesh::getUVs() const {
+const std::vector<glm::dvec3>& VoronoiMesh::getUVs() const {
   return uvs;
 }
 
@@ -450,7 +451,7 @@ std::vector<size_t> VoronoiMesh::removeIsolatedVertices() {
   }
 
   // 3. Compact vertex data
-  std::vector<VoronoiPoint<3>> new_vertices;
+  std::vector<glm::dvec3> new_vertices;
   new_vertices.reserve(new_count);
 
   for (size_t i = 0; i < n_vertices; ++i) {
@@ -462,7 +463,7 @@ std::vector<size_t> VoronoiMesh::removeIsolatedVertices() {
 
   // 4. Compact per-vertex normals if needed
   if (normal_mode == PerVertex) {
-    std::vector<VoronoiVector<3>> new_normals;
+    std::vector<glm::dvec3> new_normals;
     new_normals.reserve(new_count);
 
     for (size_t i = 0; i < n_vertices; ++i) {
@@ -528,7 +529,7 @@ void VoronoiMesh::removeDegenerateTriangles() {
   }
 }
 
-const VoronoiVector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_index) const {
+const glm::dvec3& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_index) const {
   if (normal_mode == PerTriangleCorner) {
     return normals[triangle_vertex_index];
   } else {
@@ -536,11 +537,11 @@ const VoronoiVector<3>& kinDS::VoronoiMesh::getNormal(size_t triangle_vertex_ind
   }
 }
 
-const VoronoiVector<3>& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
+const glm::dvec3& kinDS::VoronoiMesh::getUV(size_t triangle_vertex_index) const {
   return uvs[uv_indices[triangle_vertex_index]];
 }
 
-void kinDS::VoronoiMesh::setNormal(const VoronoiVector<3>& normal, size_t triangle_vertex_index) {
+void kinDS::VoronoiMesh::setNormal(const glm::dvec3& normal, size_t triangle_vertex_index) {
   if (normal_mode == PerTriangleCorner) {
     if (triangle_vertex_index >= normals.size()) {
       throw std::out_of_range("Triangle vertex index out of range when setting normal.");
@@ -555,7 +556,7 @@ void kinDS::VoronoiMesh::setNormal(const VoronoiVector<3>& normal, size_t triang
   }
 }
 
-void kinDS::VoronoiMesh::setUV(const VoronoiVector<3>& uv, size_t triangle_vertex_index) {
+void kinDS::VoronoiMesh::setUV(const glm::dvec3& uv, size_t triangle_vertex_index) {
   size_t uv_index = uv_indices[triangle_vertex_index];
   if (uv_index >= uvs.size()) {
     uv_index = uvs.size();

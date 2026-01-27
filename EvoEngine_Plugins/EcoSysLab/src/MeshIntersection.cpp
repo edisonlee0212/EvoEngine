@@ -239,7 +239,7 @@ kinDS::MeshIntersection::MeshIntersection(const VoronoiMesh& static_mesh) {
 void interpolateProperties(const VoronoiMesh& original_mesh, VoronoiMesh& new_mesh, size_t original_face_id,
                            std::array<size_t, 3> new_tri) {
   std::array<size_t, 3> old_tri;
-  std::array<VoronoiVector<3>, 3> old_normals;
+  std::array<glm::dvec3, 3> old_normals;
 
   bool interpolate_uv = true;
   for (size_t i = 0; i < 3; i++) {
@@ -262,9 +262,8 @@ void interpolateProperties(const VoronoiMesh& original_mesh, VoronoiMesh& new_me
         original_mesh.computeBarycentricCoordinates(original_face_id, new_mesh.getVertices()[new_tri[i]]);
 
     // compute new normals and UVs by interpolating from old mesh
-    VoronoiVector<3> interpolated_normal = barycentric_coords[0] * old_normals[0] +
-                                           barycentric_coords[1] * old_normals[1] +
-                                           barycentric_coords[2] * old_normals[2];
+    glm::dvec3 interpolated_normal = barycentric_coords[0] * old_normals[0] + barycentric_coords[1] * old_normals[1] +
+                                     barycentric_coords[2] * old_normals[2];
     size_t normal_index = new_mesh.addNormal(interpolated_normal);
 
     if (interpolate_uv) {
@@ -383,11 +382,11 @@ kinDS::MeshIntersection::MeshRelation kinDS::MeshIntersection::ClassifyMeshRelat
   // ---------- 1. Triangle-M0 intersection using the tree ----------
 
   for (size_t i = 0; i < mesh.getTriangles().size(); i += 3) {
-    const VoronoiPoint<3>& p0 = mesh.getVertices()[mesh.getTriangles()[i]];
+    const glm::dvec3& p0 = mesh.getVertices()[mesh.getTriangles()[i]];
     Kernel::Point_3 p0_cgal(p0[0], p0[1], p0[2]);
-    const VoronoiPoint<3>& p1 = mesh.getVertices()[mesh.getTriangles()[i + 1]];
+    const glm::dvec3& p1 = mesh.getVertices()[mesh.getTriangles()[i + 1]];
     Kernel::Point_3 p1_cgal(p1[0], p1[1], p1[2]);
-    const VoronoiPoint<3>& p2 = mesh.getVertices()[mesh.getTriangles()[i + 2]];
+    const glm::dvec3& p2 = mesh.getVertices()[mesh.getTriangles()[i + 2]];
     Kernel::Point_3 p2_cgal(p2[0], p2[1], p2[2]);
 
     CGAL::Triangle_3<Kernel> tri(p0_cgal, p1_cgal, p2_cgal);
@@ -403,7 +402,7 @@ kinDS::MeshIntersection::MeshRelation kinDS::MeshIntersection::ClassifyMeshRelat
 
   // ---------- 2. No intersections --> classify inside/outside ----------
   for (size_t i = 0; i < mesh.getTriangles().size(); i += 3) {
-    const VoronoiPoint<3>& p = mesh.getVertices()[mesh.getTriangles()[i]];
+    const glm::dvec3& p = mesh.getVertices()[mesh.getTriangles()[i]];
     Kernel::Point_3 p_cgal(p[0], p[1], p[2]);
 
     CGAL::Bounded_side bs = side(p_cgal);
@@ -430,7 +429,7 @@ kinDS::MeshIntersection::MeshRelation kinDS::MeshIntersection::ClassifyMeshRelat
 #endif
 }
 
-MatchResult MeshIntersection::MatchPointOnSurface(const VoronoiPoint<3>& p, double epsilon) {
+MatchResult MeshIntersection::MatchPointOnSurface(const glm::dvec3& p, double epsilon) {
 #ifdef USE_CGAL
   const CGAL::Surface_mesh<Point_3>& mesh = boundary_mesh.mesh;
   Point_3 query(p[0], p[1], p[2]);

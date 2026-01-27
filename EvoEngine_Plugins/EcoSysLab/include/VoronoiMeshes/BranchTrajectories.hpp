@@ -3,12 +3,11 @@
 
 #include "PlaneProjector.hpp"
 #include "Polynomial.hpp"
-#include "VoronoiPoint.hpp"
 
 namespace kinDS {
 
-static VoronoiPoint<3> ProfileToModelCoordinatesBranch(
-    const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms, kinDS::VoronoiPoint<3> point, float t,
+static glm::dvec3 ProfileToModelCoordinatesBranch(
+    const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms, glm::dvec3 point, float t,
     const std::vector<size_t>& branch_indices, float w = 1.0f) {
   size_t lower_section_index = static_cast<size_t>(std::max(0.0f, glm::floor(t)));
 
@@ -55,7 +54,7 @@ static VoronoiPoint<3> ProfileToModelCoordinatesBranch(
  */
 class BranchTrajectories {
  private:
-  std::vector<std::vector<VoronoiPoint<2>>> support_points;
+  std::vector<std::vector<glm::dvec2>> support_points;
   std::vector<std::vector<glm::mat4>> transforms_by_height_and_branch;
 
   // Create a branch index lookup using [strand_id][h]
@@ -64,7 +63,7 @@ class BranchTrajectories {
   size_t height = 0;
 
  public:
-  BranchTrajectories(const std::vector<std::vector<VoronoiPoint<2>>>& support_points,
+  BranchTrajectories(const std::vector<std::vector<glm::dvec2>>& support_points,
                      const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
                      const std::vector<std::vector<size_t>>& branch_indices,
                      const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id)
@@ -79,7 +78,7 @@ class BranchTrajectories {
     }
   }
 
-  const std::vector<std::vector<VoronoiPoint<2>>>& getPoints() const {
+  const std::vector<std::vector<glm::dvec2>>& getPoints() const {
     return support_points;
   }
 
@@ -87,13 +86,13 @@ class BranchTrajectories {
     return height;
   }
 
-  size_t addTrajectory(const std::vector<kinDS::VoronoiPoint<2>>& traj) {
+  size_t addTrajectory(const std::vector<glm::dvec2>& traj) {
     size_t index = support_points.size();
     support_points.push_back(traj);
     return index;
   }
 
-  VoronoiPoint<2> evaluate(size_t strand_id, double t) const {
+  glm::dvec2 evaluate(size_t strand_id, double t) const {
     if (t < 0) {
       throw std::runtime_error("Parameter t out of bounds");
     }
@@ -111,13 +110,13 @@ class BranchTrajectories {
       throw std::runtime_error("Parameter t out of bounds");
     }
 
-    const VoronoiPoint<2>& lower = support_points[strand_id][lower_index];
-    const VoronoiPoint<2>& upper = support_points[strand_id][upper_index];
+    const glm::dvec2& lower = support_points[strand_id][lower_index];
+    const glm::dvec2& upper = support_points[strand_id][upper_index];
 
     return lower * (1.0 - frac) + upper * frac;
   }
 
-  VoronoiPoint<2> getPointTransformed(size_t strand_id, size_t index, size_t reference_branch) const {
+  glm::dvec2 getPointTransformed(size_t strand_id, size_t index, size_t reference_branch) const {
     size_t actual_branch;
     // dummy strands might not be mapped to a branch:
     if (strand_id >= branch_indices.size()) {
@@ -126,7 +125,7 @@ class BranchTrajectories {
       actual_branch = branch_indices[strand_id][index];
     }
 
-    VoronoiPoint<2> point = support_points[strand_id][index];
+    glm::dvec2 point = support_points[strand_id][index];
     if (actual_branch == reference_branch) {
       return point;
     }
@@ -135,10 +134,10 @@ class BranchTrajectories {
                                    transforms_by_height_and_branch[index][reference_branch]);
 
     auto result = plane_projector.project(glm::vec2(point[0], point[1]));
-    return VoronoiPoint<2>{result.x, result.y};
+    return glm::dvec2{result.x, result.y};
   }
 
-  VoronoiPoint<2> evaluateTransformed(size_t strand_id, double t, size_t reference_branch) const {
+  glm::dvec2 evaluateTransformed(size_t strand_id, double t, size_t reference_branch) const {
     if (t < 0) {
       throw std::runtime_error("Parameter t out of bounds");
     }
@@ -156,20 +155,20 @@ class BranchTrajectories {
       throw std::runtime_error("Parameter t out of bounds");
     }
 
-    const VoronoiPoint<2>& lower = getPointTransformed(strand_id, lower_index, reference_branch);
-    const VoronoiPoint<2>& upper = getPointTransformed(strand_id, upper_index, reference_branch);
+    const glm::dvec2& lower = getPointTransformed(strand_id, lower_index, reference_branch);
+    const glm::dvec2& upper = getPointTransformed(strand_id, upper_index, reference_branch);
 
     return lower * (1.0 - frac) + upper * frac;
   }
 
-  VoronoiPoint<3> getPointInObjectSpace(size_t strand_id, double t) const {
-    VoronoiPoint<2> v = evaluate(strand_id, t);
+  glm::dvec3 getPointInObjectSpace(size_t strand_id, double t) const {
+    glm::dvec2 v = evaluate(strand_id, t);
 
-    VoronoiPoint<3> v_3d{v[0], 0.0, v[1]};
+    glm::dvec3 v_3d{v[0], 0.0, v[1]};
     return ProfileToModelCoordinatesBranch(transforms_by_height_and_branch, v_3d, t, branch_indices[strand_id]);
   }
 
-  VoronoiPoint<3> transformToObjectSpace(VoronoiPoint<3>& v_3d, size_t strand_id, double t) const {
+  glm::dvec3 transformToObjectSpace(glm::dvec3& v_3d, size_t strand_id, double t) const {
     return ProfileToModelCoordinatesBranch(transforms_by_height_and_branch, v_3d, t, branch_indices[strand_id]);
   }
 
