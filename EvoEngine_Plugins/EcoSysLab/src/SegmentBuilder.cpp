@@ -1,6 +1,5 @@
 #include "SegmentBuilder.hpp"
 #include <glm/gtx/exterior_product.hpp>
-#include "PolygonIntersection.hpp"
 
 using namespace kinDS;
 
