@@ -288,14 +288,26 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
     }
 
     if (sorghum_point_cloud_point_settings.type_index) {
+      //if (leaf_search != leaf_mesh_renderer_handles.end()) {
+      //  type_indices.emplace_back(0);
+      //} else if (stem_search != stem_mesh_renderer_handles.end()) {
+      //  type_indices.emplace_back(1);
+      //} else if (panicle_search != panicle_mesh_renderer_handles.end()) {
+      //  type_indices.emplace_back(2);
+      //} else if (sample.handle == ground_mesh_renderer_handle) {
+      //  type_indices.emplace_back(3);
+      //} else {
+      //  type_indices.emplace_back(-1);
+      //}
+
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
-        type_indices.emplace_back(0);
+        type_indices.emplace_back(1);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
         type_indices.emplace_back(1);
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
-        type_indices.emplace_back(2);
+        type_indices.emplace_back(1);
       } else if (sample.handle == ground_mesh_renderer_handle) {
-        type_indices.emplace_back(3);
+        type_indices.emplace_back(0);
       } else {
         type_indices.emplace_back(-1);
       }
