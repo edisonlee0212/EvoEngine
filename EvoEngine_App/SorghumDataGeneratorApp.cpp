@@ -209,15 +209,19 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
   data_generation_parameters.sorghum_point_cloud_point_settings.instance_index = true;
   data_generation_parameters.sorghum_point_cloud_point_settings.type_index = true;
   data_generation_parameters.sorghum_point_cloud_point_settings.leaf_index = true;
-  data_generation_parameters.sorghum_mesh_generator_settings.leaf_separated = true;
+  data_generation_parameters.sorghum_mesh_generator_settings.leaf_separated = false;
   data_generation_parameters.avoid_occlusion = avoid_occlusion;
   data_generation_parameters.generate_ground_mesh = generate_ground;
   int index = 0;
   const auto scene = Application::GetActiveScene();
 
-  const bool save_temporary_sorghum_descriptors = true;
+  const bool save_temporary_sorghum_descriptors = false;
 
-  for (int i = 0; i < output_size; i++) {
+  const bool save_skeleton = true;
+  const int start_index = 0; 
+
+  for (int i = start_index; i < output_size+start_index; i++) {
+    std::cout << "generating Sorghum_" << std::to_string(i) << std::endl;
     std::string name = "Sorghum_" + std::to_string(i);
     const std::string prefix = "Sorghum_" + std::to_string(i);
     const auto sorghum_entity = DatasetGenerator::CreateSorghumEntity(sorghum_generator_path, i);
@@ -232,6 +236,160 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
 
       temporary_sorghum_descriptor->Export(data_generation_parameters.output_folder /
                                            (data_generation_parameters.output_file_name + ".sorghum"));
+    }
+
+    if (save_skeleton) {
+      auto temporary_sorghum_descriptor =
+          scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock()->sorghum_descriptor.Get<SorghumDescriptor>();
+      auto save_path =
+          data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + "_spline.yml");
+      try {
+        std::filesystem::path yaml_path = save_path;
+        yaml_path.replace_extension(".yml");
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        out << YAML::Key << "Sorghums" << YAML::BeginSeq;
+
+        if (scene->IsEntityValid(sorghum_entity)) {
+
+          out << YAML::BeginMap;
+          {
+            out << YAML::Key << "Instance Index" << YAML::Value << sorghum_entity.GetIndex();
+            out << YAML::Key << "Leaves" << YAML::BeginSeq;
+
+            // get the tilt angle of the stem
+            auto stem_direction = normalize(temporary_sorghum_descriptor->stem.spline.segments[0].front);
+
+            glm::vec3 center_point(0,0,0);
+            for (const auto& leaf : temporary_sorghum_descriptor->leaves) {
+              SorghumSpline leaf_spline;
+              leaf_spline.segments = leaf.spline.segments;
+              auto stem_part = leaf_spline.GetStemPart();
+              auto point = stem_part[0].position;
+              point.y = 0;
+              center_point += point;
+            }
+
+            center_point /= temporary_sorghum_descriptor->leaves.size();
+            std::cout << "center point: "<< center_point.x << "," << center_point.y << "," << center_point.z << "," << std::endl;
+
+            for (const auto& leaf : temporary_sorghum_descriptor->leaves) {
+              out << YAML::BeginMap;
+
+              SorghumSpline leaf_spline;
+              leaf_spline.segments = leaf.spline.segments;
+
+              
+              auto segments = leaf_spline.RebuildFixedSizeSegments(64);
+
+              auto stem_part = leaf_spline.GetStemPart();
+
+              auto stem_part_length = stem_part.size();
+
+              auto leaf_part = leaf_spline.GetLeafPart();
+
+
+              /////////////////////////////////////////
+              // extend leaf to the center of the coordinate 
+              auto p1 = leaf_part[0].position;
+              auto p2 = leaf_part[1].position;
+              auto c = center_point;
+              auto d = stem_direction;
+
+              auto u = p1 - p2;
+              auto w = p2 - c;
+
+              float a = glm::dot(u, u);
+              float b = glm::dot(u, d);
+              float c2 = glm::dot(d, d);
+              float e = glm::dot(u, w);
+              float f = glm::dot(d, w);
+
+              float denom = a * c2 - b * b;
+              float s = 0.0f, t = 0.0f;
+
+              if (denom > 1e-6f) {  
+                s = (b * f - c2 * e) / denom;
+                t = (a * f - b * e) / denom;
+              }
+
+
+              glm::vec3 intersection = p2 + s * u;
+
+              SorghumSplineSegment seg;
+              seg.position = intersection;
+              seg.theta = leaf_part[0].theta;
+              seg.up = leaf_part[0].up;
+              seg.front = leaf_part[0].front;
+              leaf_part.insert(leaf_part.begin(), seg);
+
+
+
+              
+              for (int j = 0; j < stem_part_length; j++) {
+                auto& segment = stem_part[j];
+                auto y_target = segment.position.y;
+
+                auto t = (y_target - c.y) / d.y;
+
+                auto p = c + t * d;
+
+                segment.position.x = p.x;
+                segment.position.z = p.z;
+
+              }
+              ////////////////////////////////
+
+              stem_part.insert(stem_part.end(), leaf_part.begin(), leaf_part.end());
+
+              SorghumSpline spline;
+              spline.segments = stem_part;
+
+              segments = spline.RebuildFixedSizeSegments(64);
+
+              std::vector<glm::vec3> points(segments.size());
+              std::vector<glm::vec3> left_points(segments.size());
+              std::vector<glm::vec3> right_points(segments.size());
+
+              for (uint32_t node_index = 0; node_index < points.size(); node_index++) {
+                const auto& segment = segments[node_index];
+                points[node_index] = segment.position;
+                left_points[node_index] = segment.GetLeafPoint(-segment.theta);
+                right_points[node_index] = segment.GetLeafPoint(segment.theta);
+              }
+
+              out << YAML::Key << "Leaf Index" << YAML::Value << leaf.index + 1;
+
+              out << YAML::Key << "Center Points" << YAML::Value << YAML::BeginSeq;
+              for (const auto& p : points)
+                out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
+              out << YAML::EndSeq;
+
+              out << YAML::Key << "Left Points" << YAML::Value << YAML::BeginSeq;
+              for (const auto& p : left_points)
+                out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
+              out << YAML::EndSeq;
+
+              out << YAML::Key << "Right Points" << YAML::Value << YAML::BeginSeq;
+              for (const auto& p : right_points)
+                out << YAML::Flow << YAML::BeginSeq << p.x << p.y << p.z << YAML::EndSeq;
+              out << YAML::EndSeq;
+              out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+          }
+          out << YAML::EndMap;
+        }
+        
+        
+        out << YAML::EndSeq;
+        out << YAML::EndMap;
+        std::ofstream output_file(yaml_path.string());
+        output_file << out.c_str();
+        output_file.flush();
+      } catch (const std::exception& e) {
+        EVOENGINE_ERROR("Failed to save!");
+      }
     }
     scene->DeleteEntity(sorghum_entity);
     index++;
@@ -264,9 +422,10 @@ int main() {
 
   run_windowless(capture_settings->capture_mode, project_path);
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
-  const auto output_folder_path = std::filesystem::current_path() / "SorghumData";
-  sorghum_field_point_cloud(1, 8, 0.75f, 0, 0, capture_settings, sg_relative_path, output_folder_path);
-  sorghum_mesh_point_cloud(1, true, false, capture_settings, sg_relative_path, output_folder_path);
+  //const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Sample0.sorghum";
+  const auto output_folder_path = std::filesystem::path("E:/SorghumData");
+  //sorghum_field_point_cloud(1, 8, 0.75f, 0, 0, capture_settings, sg_relative_path, output_folder_path);
+  sorghum_mesh_point_cloud(500, true, false, capture_settings, sg_relative_path, output_folder_path);
 
 
   EVOENGINE_LOG("Generation Finished!")

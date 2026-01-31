@@ -39,6 +39,19 @@ bool CheckSoil(std::shared_ptr<Soil>& soil, bool generate_ground_mesh) {
     EVOENGINE_ERROR("No soil in scene!");
     return false;
   }
+  // add soil descriptor to the soil
+
+  
+  const auto soil_relative_path = std::filesystem::path("Soils") / "PlayGround.soil";
+
+  const auto absolute_path = ProjectManager::GetAssetsFolderPath() / soil_relative_path;
+
+  const auto soil_descriptor =
+      std::dynamic_pointer_cast<SoilDescriptor>(ProjectManager::GetOrCreateAsset(soil_relative_path));
+
+
+  soil->soil_descriptor_ref = soil_descriptor;
+
   soil->RandomOffset(0, 99999);
   if (generate_ground_mesh)
     soil->GenerateMesh(0.0f, 0.0f);
