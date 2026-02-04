@@ -29,8 +29,6 @@ static std::vector<double> rayCast(const std::vector<BoundaryPoint>& polygon, co
   if (lenCP < 1e-12)
     return {};
 
-  double t_max = 0.0;
-
   std::vector<double> hits;
   const size_t n = polygon.size();
   for (size_t i = 0; i < n; ++i) {
@@ -52,8 +50,6 @@ static std::vector<double> rayCast(const std::vector<glm::dvec2>& polygon, const
 
   if (lenCP < 1e-12)
     return {};
-
-  double t_max = 0.0;
 
   std::vector<double> hits;
   const size_t n = polygon.size();
