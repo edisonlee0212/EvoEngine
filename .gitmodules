@@ -64,3 +64,6 @@
 [submodule "Resources/LogGradingProject"]
 	path = Resources/LogGradingProject
 	url = https://github.com/edisonlee0212/LogGradingProject.git
+[submodule "Extern/3rdParty/kinDS"]
+	path = Extern/3rdParty/kinDS
+	url = https://github.com/nikolasschwarz/2d-kinetic-alpha-shapes

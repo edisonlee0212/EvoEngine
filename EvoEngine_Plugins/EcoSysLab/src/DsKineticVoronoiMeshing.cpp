@@ -8,13 +8,13 @@
 #include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
 #include "DynamicStrands.hpp"
-#include "KineticDelaunay.hpp"
-#include "MeshIntersection.hpp"
-#include "ObjExporter.hpp"
 #include "Platform/Platform.hpp"
 #include "ProgressBar.hpp"
-#include "SegmentBuilder.hpp"
 #include "Shader.hpp"
+#include "kinDS/kinDS/KineticDelaunay.hpp"
+#include "kinDS/kinDS/MeshIntersection.hpp"
+#include "kinDS/kinDS/ObjExporter.hpp"
+#include "kinDS/kinDS/SegmentBuilder.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -1534,6 +1534,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     strand_splines.push_back(support_points);
   }
 
+  kinDS::logger.setLogLevel(kinDS::LogLevel::Debug, false);
   RunMeshingAlgorithm(strand_splines, random_subdivisions_by_strand, randomly_subdivided_segment_handles,
                       transforms_by_height_and_branch, initialize_parameters.root_transform, branch_indices,
                       strands_by_branch_id);

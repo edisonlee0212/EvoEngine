@@ -1,6 +1,6 @@
 #pragma once
 #include "DsMeshing.hpp"
-#include "VoronoiMesh.hpp"
+#include "kinDS/kinDS/VoronoiMesh.hpp"
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
