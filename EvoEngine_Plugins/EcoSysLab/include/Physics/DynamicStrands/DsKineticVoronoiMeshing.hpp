@@ -2,6 +2,9 @@
 #include "DsMeshing.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
 
+namespace kinDS {
+class StrandTree;
+}
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
@@ -118,6 +121,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   kinDS::VoronoiMesh transformed_boundary_mesh;
   std::vector<float> boundary_distances_by_vertex;
+  std::shared_ptr<kinDS::StrandTree> strand_tree;
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,

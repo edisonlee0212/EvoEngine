@@ -272,10 +272,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   }
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
-  kinDS::StrandTree strand_tree(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
-                                transforms_by_height_and_branch, branch_indices, strands_by_branch_id);
+  strand_tree =
+      std::make_shared<kinDS::StrandTree>(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
+                                          transforms_by_height_and_branch, branch_indices, strands_by_branch_id);
 
-  kinDS::TreeMesher tree_mesher(strand_tree, [&](size_t count, std::function<void(size_t)> func) {
+  kinDS::TreeMesher tree_mesher(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
     Jobs::RunParallelFor(count, [&](size_t i) {
       func(i);
     });
@@ -1414,6 +1415,15 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
             render_settings.segment_meshlet_render_parameters.uv_circum_factor, boundary_distances_by_vertex);
       },
       false);
+
+  if (strand_tree) {
+    FileUtils::SaveFile(
+        "Export Strand Tree", "TXT", {".txt"},
+        [&](const std::filesystem::path& path) {
+          strand_tree->saveToFile(path);
+        },
+        false);
+  }
   return false;
 }
 
