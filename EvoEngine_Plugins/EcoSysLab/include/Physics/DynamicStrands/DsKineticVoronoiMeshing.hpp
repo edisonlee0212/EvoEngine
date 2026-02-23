@@ -1,5 +1,6 @@
 #pragma once
 #include "DsMeshing.hpp"
+#include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
 
 namespace kinDS {
@@ -153,15 +154,17 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   kinDS::VoronoiMesh TransformBoundaryMesh(
       const kinDS::VoronoiMesh& boundary_mesh,
-      const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
-      const std::vector<std::vector<glm::mat4>>& normal_transforms_by_height_and_branch,
+      const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
+      const std::vector<std::vector<glm::dmat4>>& normal_transforms_by_height_and_branch,
       const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices,
       const std::vector<size_t>& boundary_vertex_to_strand_id);
+
+  void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
 
   void RunMeshingAlgorithm(const std::vector<std::vector<glm::dvec2>>& support_points,
                            std::vector<std::vector<double>>& subdivisions_by_strand,
                            std::vector<std::vector<int>>& physics_strand_to_segment_indices,
-                           const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
+                           const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
                            const GlobalTransform& root_transform,
                            const std::vector<std::vector<size_t>>& branch_indices,
                            std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id);

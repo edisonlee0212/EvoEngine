@@ -15,7 +15,6 @@
 #include "kinDS/kinDS/MeshIntersection.hpp"
 #include "kinDS/kinDS/ObjExporter.hpp"
 #include "kinDS/kinDS/SegmentBuilder.hpp"
-#include "kinDS/kinDS/TreeMesher.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -56,22 +55,22 @@ using namespace eco_sys_lab_plugin;
  * @param q1 Corresponding target point to p1.
  * @param q2 Corresponding target point to p2.
  *
- * @return glm::mat4 The affine transformation matrix T such that T * p = q.
+ * @return glm::dmat4 The affine transformation matrix T such that T * p = q.
  *
  * @throws Undefined behavior if the three source or target points are collinear
  *         (i.e., they do not span a plane).
  */
-glm::mat4 ComputeAffineFromCoplanarPoints(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2,
-                                          const glm::vec3& q0, const glm::vec3& q1, const glm::vec3& q2) {
+glm::dmat4 ComputeAffineFromCoplanarPoints(const glm::vec3& p0, const glm::vec3& p1, const glm::vec3& p2,
+                                           const glm::vec3& q0, const glm::vec3& q1, const glm::vec3& q2) {
   // --- Source basis ---
-  glm::vec3 u = p1 - p0;
-  glm::vec3 v = p2 - p0;
-  glm::vec3 n = glm::normalize(glm::cross(u, v));
+  glm::dvec3 u = p1 - p0;
+  glm::dvec3 v = p2 - p0;
+  glm::dvec3 n = glm::normalize(glm::cross(u, v));
 
   // --- Target basis ---
-  glm::vec3 up = q1 - q0;
-  glm::vec3 vp = q2 - q0;
-  glm::vec3 np = glm::normalize(glm::cross(up, vp));
+  glm::dvec3 up = q1 - q0;
+  glm::dvec3 vp = q2 - q0;
+  glm::dvec3 np = glm::normalize(glm::cross(up, vp));
 
   // (Optional) ensure consistent orientation.
   // If dot(n, np) < 0, flip np.
@@ -79,12 +78,12 @@ glm::mat4 ComputeAffineFromCoplanarPoints(const glm::vec3& p0, const glm::vec3& 
     np = -np;
 
   // Build basis matrices B and B'
-  glm::mat3 B;
+  glm::dmat3 B;
   B[0] = u;  // column 0
   B[1] = v;  // column 1
   B[2] = n;  // column 2
 
-  glm::mat3 Bp;
+  glm::dmat3 Bp;
   Bp[0] = up;
   Bp[1] = vp;
   Bp[2] = np;
@@ -96,7 +95,7 @@ glm::mat4 ComputeAffineFromCoplanarPoints(const glm::vec3& p0, const glm::vec3& 
   glm::vec3 t = q0 - A * p0;
 
   // Assemble full 4x4 affine transform
-  glm::mat4 T(1.0f);
+  glm::dmat4 T(1.0f);
   T[0][0] = A[0][0];
   T[1][0] = A[1][0];
   T[2][0] = A[2][0];
@@ -162,7 +161,7 @@ std::optional<std::array<size_t, 2>> FindNonIdenticalPair(std::function<glm::vec
   return std::optional<std::array<size_t, 2>>();  // all points identical
 }
 
-glm::vec3 ProfileToModelCoordinates(const std::vector<std::vector<glm::mat4>>& profile_to_model_transforms,
+glm::vec3 ProfileToModelCoordinates(const std::vector<std::vector<glm::dmat4>>& profile_to_model_transforms,
                                     glm::dvec3 point, float t, const std::vector<size_t>& branch_indices,
                                     float w = 1.0f) {
   size_t lower_section_index = static_cast<size_t>(std::max(0.0f, glm::floor(t)));
@@ -205,8 +204,9 @@ glm::vec3 ToVec3(const glm::dvec3& a) {
 }
 
 kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
-    const kinDS::VoronoiMesh& boundary_mesh, const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch,
-    const std::vector<std::vector<glm::mat4>>& normal_transforms_by_height_and_branch,
+    const kinDS::VoronoiMesh& boundary_mesh,
+    const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
+    const std::vector<std::vector<glm::dmat4>>& normal_transforms_by_height_and_branch,
     const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices,
     const std::vector<size_t>& boundary_vertex_to_strand_id) {
   // Always use strand ID 0 for boundary mesh export for now
@@ -250,11 +250,77 @@ kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
   return transformed_boundary_mesh;
 }
 
+void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher) {
+  auto& meshes = tree_mesher.getSegmentMeshlets();
+  std::vector<std::vector<glm::dmat4>> normal_transforms_by_height_and_branch =
+      strand_tree->getNormalTransformsByHeightAndBranch();
+  auto& boundary_mesh = tree_mesher.getBoundaryMesh();
+
+  const auto& meshing_neighbor_indices = tree_mesher.getMeshingNeighborIndices();
+  const auto& meshing_to_physics_segment_indices = tree_mesher.getMeshingToPhysicsSegmentIndices();
+  const auto& meshing_strand_to_segment_indices = tree_mesher.getMeshingStrandToSegmentIndices();
+  std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = dynamic_strands->segment_data_list;
+  std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = dynamic_strands->segment_pairs;
+
+  segment_pairs.clear();
+
+  std::vector<size_t> pair_handle_offsets(segment_data_list.size(), 0);
+
+  // clear existing pair handles in segment data
+  for (auto& segment_data : segment_data_list) {
+    for (auto& pair_handle : segment_data.pair_handles) {
+      pair_handle = -1;
+    }
+  }
+
+  for (size_t strand_id = 0; strand_id < strand_tree->getPhysicsStrandToSegmentIndices().size(); ++strand_id) {
+    for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
+      size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      auto& mesh = meshes[meshing_segment_id];
+      int physics_segment_id = strand_tree->getPhysicsStrandToSegmentIndices()[strand_id][segment_no];
+      const auto& triangles = mesh.getTriangles();
+
+      std::set<int> neighbor_set;
+      for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+        int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+        if (meshing_neighbor_segment_index >= 0) {
+          int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
+          if (physics_neighbor_segment_index != -1) {
+            neighbor_set.insert(physics_neighbor_segment_index);
+          }
+        }
+      }
+
+      // create a new segment pair for each neighbor if the neighbor index is greater to avoid duplicates from
+      // symmetry
+      for (auto& physics_neighbor_segment_index : neighbor_set) {
+        if (physics_neighbor_segment_index > physics_segment_id) {
+          DynamicStrands::GpuSegmentPair segment_pair;
+          segment_pair.segment0_handle = physics_segment_id;
+          segment_pair.segment1_handle = physics_neighbor_segment_index;
+
+          // TODO: other properties
+
+          int pair_handle = static_cast<int>(segment_pairs.size());
+          segment_data_list[physics_segment_id].pair_handles[pair_handle_offsets[physics_segment_id]] = pair_handle;
+          pair_handle_offsets[physics_segment_id]++;
+
+          segment_data_list[physics_neighbor_segment_index]
+              .pair_handles[pair_handle_offsets[physics_neighbor_segment_index]] = pair_handle;
+          pair_handle_offsets[physics_neighbor_segment_index]++;
+
+          segment_pairs.emplace_back(segment_pair);
+        }
+      }
+    }
+  }
+}
+
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     const std::vector<std::vector<glm::dvec2>>& support_points,
     std::vector<std::vector<double>>& subdivisions_by_strand,
     std::vector<std::vector<int>>& physics_strand_to_segment_indices,
-    const std::vector<std::vector<glm::mat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
+    const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
     const std::vector<std::vector<size_t>>& branch_indices,
     std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
   bool recompute_segment_pairs = false;  // TODO: expose as option?
@@ -282,9 +348,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     });
   });
 
-  std::vector<std::vector<glm::mat4>> normal_transforms_by_height_and_branch = tree_mesher.computeNormalTransforms();
   auto& meshes = tree_mesher.runMeshingAlgorithm();
-
+  std::vector<std::vector<glm::dmat4>> normal_transforms_by_height_and_branch =
+      strand_tree->getNormalTransformsByHeightAndBranch();
   auto& boundary_mesh = tree_mesher.getBoundaryMesh();
 
   const auto& meshing_neighbor_indices = tree_mesher.getMeshingNeighborIndices();
@@ -294,58 +360,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = dynamic_strands->segment_pairs;
 
   if (recompute_segment_pairs) {  // TODO: use first two indices for vertical neighbors.
-    segment_pairs.clear();
-
-    std::vector<size_t> pair_handle_offsets(segment_data_list.size(), 0);
-
-    // clear existing pair handles in segment data
-    for (auto& segment_data : segment_data_list) {
-      for (auto& pair_handle : segment_data.pair_handles) {
-        pair_handle = -1;
-      }
-    }
-
-    for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
-      for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
-        size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
-        auto& mesh = meshes[meshing_segment_id];
-        int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
-        const auto& triangles = mesh.getTriangles();
-
-        std::set<int> neighbor_set;
-        for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
-          int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
-          if (meshing_neighbor_segment_index >= 0) {
-            int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
-            if (physics_neighbor_segment_index != -1) {
-              neighbor_set.insert(physics_neighbor_segment_index);
-            }
-          }
-        }
-
-        // create a new segment pair for each neighbor if the neighbor index is greater to avoid duplicates from
-        // symmetry
-        for (auto& physics_neighbor_segment_index : neighbor_set) {
-          if (physics_neighbor_segment_index > physics_segment_id) {
-            DynamicStrands::GpuSegmentPair segment_pair;
-            segment_pair.segment0_handle = physics_segment_id;
-            segment_pair.segment1_handle = physics_neighbor_segment_index;
-
-            // TODO: other properties
-
-            int pair_handle = static_cast<int>(segment_pairs.size());
-            segment_data_list[physics_segment_id].pair_handles[pair_handle_offsets[physics_segment_id]] = pair_handle;
-            pair_handle_offsets[physics_segment_id]++;
-
-            segment_data_list[physics_neighbor_segment_index]
-                .pair_handles[pair_handle_offsets[physics_neighbor_segment_index]] = pair_handle;
-            pair_handle_offsets[physics_neighbor_segment_index]++;
-
-            segment_pairs.emplace_back(segment_pair);
-          }
-        }
-      }
-    }
+    RecomputeSegmentPairs(tree_mesher);
   }
 
   for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
@@ -772,7 +787,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
         });
   }
 
-  std::vector<glm::mat4> profile_to_model_transforms(maxSegmentCount + 1);
+  std::vector<glm::dmat4> profile_to_model_transforms(maxSegmentCount + 1);
 
   // create a file for debugging global vs profile positions
   /*std::ofstream debug_file("profile_to_global_debug.csv");
@@ -1041,7 +1056,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
   }*/
 
   // re-order transforms by height and branch
-  std::vector<std::vector<glm::mat4>> transforms_by_height_and_branch(maxSegmentCount + 1);
+  std::vector<std::vector<glm::dmat4>> transforms_by_height_and_branch(maxSegmentCount + 1);
 
   auto get_branch_transforms = [&](size_t branch_index, int h) {
     if (h >= profile_to_model_transforms.size()) {
