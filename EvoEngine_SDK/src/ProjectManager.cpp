@@ -402,24 +402,31 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         ImGui::SameLine();
 
         ImGui::BeginChild("2", ImVec2(size2 - 5.0f, h), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
-        if (ImGui::ImageButton(editor_layer->editor_icons_["RefreshButton"]->GetImTextureId(), {16, 16}, {0, 1},
-                               {1, 0})) {
+        ImGui::PushID(static_cast<ImTextureID>(
+            static_cast<intptr_t>(editor_layer->editor_icons_["RefreshButton"]->GetImTextureId())));
+        ImGui::PushID(static_cast<ImTextureID>(
+            static_cast<intptr_t>(editor_layer->editor_icons_["BackButton"]->GetImTextureId())));
+
+        if (ImGui::ImageButton("RefreshButton", editor_layer->editor_icons_["RefreshButton"]->GetImTextureId(),
+                               {16, 16}, {0, 1}, {1, 0})) {
           DispatchScanAssetsTask();
         }
         ImGui::SameLine();
         if (current_focused_folder != project_manager.assets_folder_) {
-          if (ImGui::ImageButton(editor_layer->editor_icons_["BackButton"]->GetImTextureId(), {16, 16}, {0, 1},
-                                 {1, 0})) {
+          if (ImGui::ImageButton("BackButton", editor_layer->editor_icons_["BackButton"]->GetImTextureId(), {16, 16},
+                                 {0, 1}, {1, 0})) {
             project_manager.current_focused_folder_ = current_focused_folder->parent_;
           }
         } else {
           ImGui::BeginDisabled();
-          if (ImGui::ImageButton(editor_layer->editor_icons_["BackButton"]->GetImTextureId(), {16, 16}, {0, 1},
-                                 {1, 0})) {
+          if (ImGui::ImageButton("BackButton", editor_layer->editor_icons_["BackButton"]->GetImTextureId(), {16, 16},
+                                 {0, 1}, {1, 0})) {
             project_manager.current_focused_folder_ = current_focused_folder->parent_;
           }
           ImGui::EndDisabled();
         }
+        ImGui::PopID();
+        ImGui::PopID();
         static bool show_extension = false;
         ImGui::SameLine();
         ImGui::Checkbox("Ext", &show_extension);
@@ -481,31 +488,31 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         ImGui::Columns(column_count, nullptr, false);
         if (!updated) {
           for (auto& i : current_focused_folder->children_) {
-            const std::string tag = "##Folder" + std::to_string(i.second->handle_);
+            const std::string icon_tag = "##Icon" + std::to_string(i.second->handle_);
             const auto& thumbnail_tex = editor_layer->editor_icons_["Folder"];
             glm::vec2 resolution = thumbnail_tex->GetResolution();
             resolution *= thumbnail_size_padding.x / glm::max(resolution.x, resolution.y);
-            ImGui::ImageButton(tag.c_str(), thumbnail_tex->GetImTextureId(), {resolution.x, resolution.y}, {0, 1},
+            ImGui::ImageButton(icon_tag.c_str(), thumbnail_tex->GetImTextureId(), {resolution.x, resolution.y}, {0, 1},
                                {1, 0});
 
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
               ImGui::SetDragDropPayload("Folder", &i.second->handle_, sizeof(Handle));
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), ("Folder" + tag).c_str());
+              ImGui::TextColored(ImVec4(0, 0, 1, 1), ("Folder" + icon_tag).c_str());
               ImGui::EndDragDropSource();
             }
             if (i.second->GetHandle() != 0) {
-              if (ImGui::BeginPopupContextItem(tag.c_str())) {
-                if (ImGui::BeginMenu(("Rename" + tag).c_str())) {
+              if (ImGui::BeginPopupContextItem(icon_tag.c_str())) {
+                if (ImGui::BeginMenu(("Rename" + icon_tag).c_str())) {
                   static char new_name[256] = {0};
-                  ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
-                  if (ImGui::Button(("Confirm" + tag).c_str())) {
+                  ImGui::InputText(("New name" + icon_tag).c_str(), new_name, 256);
+                  if (ImGui::Button(("Confirm" + icon_tag).c_str())) {
                     i.second->Rename(std::string(new_name));
                     memset(new_name, 0, 256);
                     ImGui::CloseCurrentPopup();
                   }
                   ImGui::EndMenu();
                 }
-                if (ImGui::Button(("Remove" + tag).c_str())) {
+                if (ImGui::Button(("Remove" + icon_tag).c_str())) {
                   i.second->parent_.lock()->DeleteChild(i.second->handle_);
                   updated = true;
                   ImGui::CloseCurrentPopup();
@@ -593,7 +600,8 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             if (item_hovered)
               ImGui::PushStyleColor(ImGuiCol_Text, {1, 1, 0, 1});
             ImGui::BeginDisabled();
-            ImGui::ButtonEx("Folder", {thumbnail_size_padding.x + 8, 20});
+            const std::string button_tag = "Folder##Button" + std::to_string(i.second->handle_);
+            ImGui::Button(button_tag.c_str(), {thumbnail_size_padding.x + 8, 20});
             ImGui::EndDisabled();
             ImGui::TextWrapped(i.second->name_.c_str());
             if (item_hovered)
@@ -611,12 +619,13 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             if (focused_asset_handle == i.first.GetValue()) {
               item_focused = true;
             }
-            const std::string tag = "##" + i.second->GetAssetTypeName() + std::to_string(i.first.GetValue());
+            auto type_text = i.second->GetAssetTypeName();
+            const std::string icon_tag = "##Icon" + std::to_string(i.first.GetValue());
 
             const auto thumbnail_tex = i.second->GetThumbnail();
             glm::vec2 resolution = thumbnail_tex->GetResolution();
             resolution *= thumbnail_size_padding.x / glm::max(resolution.x, resolution.y);
-            ImGui::ImageButton(tag.c_str(), thumbnail_tex->GetImTextureId(), {resolution.x, resolution.y}, {0, 1},
+            ImGui::ImageButton(icon_tag.c_str(), thumbnail_tex->GetImTextureId(), {resolution.x, resolution.y}, {0, 1},
                                {1, 0});
             bool item_hovered = false;
             if (ImGui::IsItemHovered()) {
@@ -633,14 +642,14 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
               ImGui::EndDragDropSource();
             }
 
-            if (ImGui::BeginPopupContextItem(tag.c_str())) {
+            if (ImGui::BeginPopupContextItem(icon_tag.c_str())) {
               if (ImGui::Button("Duplicate")) {
                 i.second->GetFolder().lock()->Duplicate(i.second->GetAssetHandle());
               }
-              if (i.second->GetAssetTypeName() != "Binary" && ImGui::BeginMenu(("Rename" + tag).c_str())) {
+              if (i.second->GetAssetTypeName() != "Binary" && ImGui::BeginMenu(("Rename" + icon_tag).c_str())) {
                 static char new_name[256] = {};
-                ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
-                if (ImGui::Button(("Confirm" + tag).c_str())) {
+                ImGui::InputText(("New name" + icon_tag).c_str(), new_name, 256);
+                if (ImGui::Button(("Confirm" + icon_tag).c_str())) {
                   auto ptr = AssetManager::GetAssetImpl(i.second->asset_handle_);
                   ptr->SetPathAndSave(ptr->GetAssetsFolderRelativePath().replace_filename(
                       std::string(new_name) + ptr->GetFileRecord().lock()->GetAssetExtension()));
@@ -648,7 +657,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                 }
                 ImGui::EndMenu();
               }
-              if (ImGui::Button(("Delete" + tag).c_str())) {
+              if (ImGui::Button(("Delete" + icon_tag).c_str())) {
                 current_focused_folder->RemoveFile(i.first);
                 ImGui::EndPopup();
                 break;
@@ -662,13 +671,14 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             else if (item_hovered)
               ImGui::PushStyleColor(ImGuiCol_Text, {1, 1, 0, 1});
             ImGui::BeginDisabled();
-            std::string type_text = i.second->GetAssetTypeName();
+
             if (type_text == "Binary") {
               type_text = "??? (";
               type_text.append(i.second->asset_extension_);
               type_text.append(")");
             }
-            ImGui::ButtonEx(type_text.c_str(), {thumbnail_size_padding.x + 8, 20});
+            const std::string button_tag = type_text + "##Button" + std::to_string(i.first.GetValue());
+            ImGui::Button(button_tag.c_str(), {thumbnail_size_padding.x + 8, 20});
             ImGui::EndDisabled();
             if (show_extension) {
               ImGui::TextWrapped(file_name.string().c_str());

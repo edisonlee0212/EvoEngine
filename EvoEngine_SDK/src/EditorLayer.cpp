@@ -233,35 +233,55 @@ void EditorLayer::PreUpdate() {
       ImGui::EndMenu();
     }
     ImGui::Separator();
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2((float)2, (float)2));
     switch (Application::GetApplicationStatus()) {
       case Application::ExecutionStatus::NotPlaying: {
-        if (ImGui::ImageButton(editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
+        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
+
+        if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
           Application::Play();
         }
-        if (ImGui::ImageButton(editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
           Application::Step();
         }
+
+        ImGui::PopID();
+        ImGui::PopID();
         break;
       }
       case Application::ExecutionStatus::Playing: {
-        if (ImGui::ImageButton(editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PauseButton"]->GetImTextureId());
+        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
+
+        if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                               {1, 0})) {
           Application::Pause();
         }
-        if (ImGui::ImageButton(editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
           Application::Stop();
         }
+        ImGui::PopID();
+        ImGui::PopID();
         break;
       }
       case Application::ExecutionStatus::Pause: {
-        if (ImGui::ImageButton(editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["PlayButton"]->GetImTextureId())));
+        ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["StepButton"]->GetImTextureId())));
+        ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["StopButton"]->GetImTextureId())));
+        if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
           Application::Play();
         }
-        if (ImGui::ImageButton(editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
           Application::Step();
         }
-        if (ImGui::ImageButton(editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0}, 2)) {
+        if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
           Application::Stop();
         }
+        ImGui::PopID();
+        ImGui::PopID();
+        ImGui::PopID();
         break;
       }
       case Application::ExecutionStatus::Uninitialized:
@@ -271,8 +291,10 @@ void EditorLayer::PreUpdate() {
       case Application::ExecutionStatus::OnDestroy:
         break;
     }
+    ImGui::PopStyleVar();
     ImGui::EndMainMenuBar();
   }
+
   ImGui::PopStyleVar(1);
   mouse_scene_window_position_ = glm::vec2(FLT_MAX, -FLT_MAX);
   if (show_scene_window) {
@@ -1234,9 +1256,9 @@ void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sam
                                   const VkImageLayout image_layout) {
   if (!Application::GetLayer<EditorLayer>())
     return;
-  if (target != VK_NULL_HANDLE)
-    ImGui_ImplVulkan_RemoveTexture(static_cast<VkDescriptorSet>(target));
-  target = ImGui_ImplVulkan_AddTexture(image_sampler, image_view, image_layout);
+  if (target != 0)
+    ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(target));
+  target = reinterpret_cast<ImTextureID>(ImGui_ImplVulkan_AddTexture(image_sampler, image_view, image_layout));
 }
 
 Entity EditorLayer::GetSelectedEntity() const {

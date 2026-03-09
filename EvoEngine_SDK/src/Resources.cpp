@@ -149,7 +149,7 @@ void Resources::Initialize() {
   LoadPrimitives();
 
   GeometryStorage::DeviceSync();
-
+  TextureStorage::DeviceSync();
   missing_texture = CreateResource<Texture2D>();
   missing_texture->LoadInternal(std::filesystem::path("./DefaultResources") / "Textures/texture-missing.png");
 

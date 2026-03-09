@@ -47,7 +47,7 @@ class Texture2DStorage {
   std::shared_ptr<ImageView> image_view = {};  ///< GPU image view resource.
   std::shared_ptr<Sampler> sampler = {};       ///< GPU sampler resource.
 
-  ImTextureID im_texture_id = VK_NULL_HANDLE;  ///< ImGui texture ID for rendering.
+  ImTextureID im_texture_id = 0;  ///< ImGui texture ID for rendering.
 
   /**
    * @brief Retrieves the Vulkan image layout of the texture.
