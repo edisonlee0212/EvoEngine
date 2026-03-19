@@ -20,6 +20,9 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   /// Number of leaves per internode.
   int leaf_count = 2;
 
+  /// Probability [0..1] that an internode spawns leaves.
+  float leaf_spawn_chance = 0.05f;
+
   /// Variance in leaf positioning.
   SingleDistribution<float> stem_length = {0.01f, 0.0f};
 
@@ -53,6 +56,8 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
 
   /// Reference to the leaf material asset.
   AssetRef leaf_material_ref;
+
+    float leaf_source_strength = 1.0f;
 
   /**
    * @brief Serializes the foliage descriptor to a YAML emitter.

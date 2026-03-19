@@ -53,6 +53,9 @@ class RootModel : public PlantModel {
 
   void DistributeVigor(const RootGrowthController& root_growth_controller, Vigor vigor);
 
+  void CalculateSourceSinkStrength(const RootGrowthController& root_growth_controller,
+                                   const ClimateModel& climate_model, float delta_time);
+
   /**
    * @brief Provides direct access to the root skeleton for modifications.
    * @return A reference to the root skeleton.

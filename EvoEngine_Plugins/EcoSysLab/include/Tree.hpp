@@ -9,6 +9,7 @@
 #include "RadialBoundingVolume.hpp"
 #include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
+#include "TreeModel/ProceduralStrandModel/ProceduralStrandModel.hpp"
 #include "StrandModelMeshGenerator.hpp"
 #include "TreeControllers.hpp"
 #include "TreeDescriptor.hpp"
@@ -236,7 +237,10 @@ class Tree : public IPrivateComponent {
 
   ShootModel shoot_model{};  ///< The procedural tree model instance.
   RootModel root_model{};
-  StrandModel shoot_strand_model{};  ///< The strand-based model representation.
+  StrandModel shoot_strand_model{};  ///< The strand-based model representation (post-hoc rebuild).
+
+  ProceduralStrandModel procedural_strand_model{};  ///< Unified model for incremental strand co-evolution with growth.
+  bool procedural_strand_renderer_dirty = false;  ///< Deferred renderer refresh flag (set during growth, consumed on main thread).
 
   /**
    * @brief Handles the inspection of tree properties in the editor.
@@ -282,6 +286,27 @@ class Tree : public IPrivateComponent {
    * @brief Clears the strand renderer.
    */
   void ClearStrandRenderer() const;
+
+  /**
+   * @brief Initializes the procedural strand renderer for viewport visualization.
+   *
+   * Applies 2D→3D profile conversion, builds a Strands asset, and creates a
+   * StrandsRenderer entity. If one already exists it is replaced.
+   */
+  void InitializeProceduralStrandRenderer();
+
+  /**
+   * @brief Updates an existing procedural strand renderer with fresh strand data.
+   *
+   * Applies profiles and regenerates the Strands asset without recreating the entity.
+   * If no procedural strand renderer entity exists, this is a no-op.
+   */
+  void UpdateProceduralStrandRenderer();
+
+  /**
+   * @brief Clears the procedural strand renderer entity.
+   */
+  void ClearProceduralStrandRenderer() const;
 
   /**
    * @brief Initializes strand particles for simulation.

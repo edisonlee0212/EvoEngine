@@ -4,6 +4,7 @@
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
 #include "Times.hpp"
+#include "Input.hpp"
 using namespace evo_engine;
 
 void PlayerController::OnCreate() {
@@ -19,28 +20,37 @@ void PlayerController::LateUpdate() {
   const auto front = rotation * glm::vec3(0, 0, -1);
   const auto right = rotation * glm::vec3(1, 0, 0);
   auto moved = false;
+  
+  float current_velocity = velocity;
+  if (scene->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+    current_velocity *= 5.0f;
+  } else if (scene->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+    current_velocity *= 0.2f;
+  }
+
   if (scene->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-    position += front * static_cast<float>(Times::DeltaTime()) * velocity;
+    position += front * static_cast<float>(Times::DeltaTime()) * current_velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-    position -= front * static_cast<float>(Times::DeltaTime()) * velocity;
+    position -= front * static_cast<float>(Times::DeltaTime()) * current_velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-    position -= right * static_cast<float>(Times::DeltaTime()) * velocity;
+    position -= right * static_cast<float>(Times::DeltaTime()) * current_velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-    position += right * static_cast<float>(Times::DeltaTime()) * velocity;
+    position += right * static_cast<float>(Times::DeltaTime()) * current_velocity;
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-    position.y += velocity * static_cast<float>(Times::DeltaTime());
+  // Allow E/Q movement even when left mouse not held (already implemented)
+  if (scene->GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold) {
+    position.y += current_velocity * static_cast<float>(Times::DeltaTime());
     moved = true;
   }
-  if (scene->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-    position.y -= velocity * static_cast<float>(Times::DeltaTime());
+  if (scene->GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold) {
+    position.y -= current_velocity * static_cast<float>(Times::DeltaTime());
     moved = true;
   }
   if (moved) {
@@ -60,11 +70,28 @@ void PlayerController::LateUpdate() {
     last_x_ = mouse_position.x;
     last_y_ = mouse_position.y;
   }
+  // Right mouse button rotation
   if (scene->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold) {
     if (x_offset != 0 || y_offset != 0) {
       moved = true;
       scene_camera_yaw_angle_ += x_offset * sensitivity;
       scene_camera_pitch_angle_ += y_offset * sensitivity;
+
+      if (scene_camera_pitch_angle_ > 89.0f)
+        scene_camera_pitch_angle_ = 89.0f;
+      if (scene_camera_pitch_angle_ < -89.0f)
+        scene_camera_pitch_angle_ = -89.0f;
+
+      transform.SetRotation(Camera::ProcessMouseMovement(scene_camera_yaw_angle_, scene_camera_pitch_angle_, false));
+    }
+  }
+  // Middle mouse drag: also rotate, with double sensitivity
+  if (scene->GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold) {
+    if (x_offset != 0 || y_offset != 0) {
+      moved = true;
+      const float middle_sensitivity = sensitivity * 2.0f;
+      scene_camera_yaw_angle_ += x_offset * middle_sensitivity;
+      scene_camera_pitch_angle_ += y_offset * middle_sensitivity;
 
       if (scene_camera_pitch_angle_ > 89.0f)
         scene_camera_pitch_angle_ = 89.0f;
@@ -89,13 +116,13 @@ void PlayerController::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "scene_camera_pitch_angle_" << YAML::Value << scene_camera_pitch_angle_;
 }
 void PlayerController::Deserialize(const YAML::Node& in) {
-  if (in["velocity"])
+  if (in["velocity"]) 
     velocity = in["velocity"].as<float>();
-  if (in["sensitivity"])
+  if (in["sensitivity"]) 
     sensitivity = in["sensitivity"].as<float>();
-  if (in["scene_camera_yaw_angle_"])
+  if (in["scene_camera_yaw_angle_"]) 
     scene_camera_yaw_angle_ = in["scene_camera_yaw_angle_"].as<float>();
-  if (in["scene_camera_pitch_angle_"])
+  if (in["scene_camera_pitch_angle_"]) 
     scene_camera_pitch_angle_ = in["scene_camera_pitch_angle_"].as<float>();
 }
 bool PlayerController::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

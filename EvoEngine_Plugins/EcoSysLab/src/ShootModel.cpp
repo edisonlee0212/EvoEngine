@@ -2,8 +2,11 @@
 // Created by lllll on 10/21/2022.
 //
 #include "ShootModel.hpp"
+#include <iostream>
+#include "RootModel.hpp"
 #include "SkeletonSerializer.hpp"
 #include "Soil.hpp"
+
 using namespace eco_sys_lab_plugin;
 
 void ShootOrgan::Reset() {
@@ -95,9 +98,33 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
     EVOENGINE_ERROR("ShootModel not initialized!")
     return false;
   }
+
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
+  growth_events_.clear();
+  pruning_occurred_ = false;
+
+  // [FIX] Moved Year Change / Reset Logic to the START of the frame.
+  // This ensures leaves are reset, formulated, and THEN updated (in the loops below)
+  // within the same frame, preventing the "White Frame" (empty render) issue.
   bool structure_changed = false;
+  const int year = climate_model.time / 365.f;
+  if (year != age_in_year_) {
+    ResetOrgans();
+    age_in_year_ = year;
+    const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
+    for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
+      if (foliage_controller.Initialized()) {
+        FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
+      }
+      if (reproduction_controller.Initialized()) {
+        FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+      }
+    }
+    structure_changed = true;
+  }
+
+  
   {
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
@@ -122,27 +149,17 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
       }
     }
   }
-  const int year = climate_model.time / 365.f;
-  if (year != age_in_year_) {
-    ResetOrgans();
-    age_in_year_ = year;
-    const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
-    for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
-      if (foliage_controller.Initialized()) {
-        FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
-      }
-      if (reproduction_controller.Initialized()) {
-        FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
-      }
-    }
-    structure_changed = true;
-  }
+  
   if (pruning && shoot_pruning_controller.Initialized()) {
     CalculateGrowthData(shoot_growth_controller);
     if (PruneInternodes(global_transform, climate_model, soil_model, shoot_growth_controller,
                         shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
       structure_changed = true;
+      // Pruning uses swap-and-pop node removal which reassigns handles.
+      // Growth events recorded before pruning contain stale handles and must be discarded.
+      pruning_occurred_ = true;
+      growth_events_.clear();
     }
   }
   CalculateGrowthData(shoot_growth_controller);
@@ -166,6 +183,8 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
 
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
+  growth_events_.clear();
+  pruning_occurred_ = false;
   bool tree_structure_changed = false;
   auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
   {
@@ -204,6 +223,8 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
                         shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
       tree_structure_changed = true;
+      pruning_occurred_ = true;
+      growth_events_.clear();
     }
   }
   CalculateGrowthData(shoot_growth_controller);
@@ -238,6 +259,7 @@ void ShootModel::Initialize(const ShootGrowthController& shoot_growth_controller
                                    tree_growth_settings.space_colonization_detection_distance_factor);
   }
 
+  CalculateGrowthData(shoot_growth_controller);  // Ensure counts are synced
   initialized_ = true;
 }
 
@@ -530,6 +552,7 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
     }
     // Create new internode
     const auto new_internode_handle = shoot_skeleton_.Extend(internode_handle, false);
+    growth_events_.push_back({internode_handle, new_internode_handle, false});
     auto& old_internode = shoot_skeleton_.RefNode(internode_handle);
     auto& new_internode = shoot_skeleton_.RefNode(new_internode_handle);
 
@@ -542,6 +565,8 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
     new_internode.data.inhibitor_sink = 0.0f;
     new_internode.data.internode_length = glm::clamp(extended_length, 0.0f, internode_length);
     new_internode.info.root_distance = old_internode.info.root_distance + new_internode.data.internode_length;
+
+    new_internode.data.max_carbohydrate_mass = 0.f;
 
     if (internode_handle != 0) {
       shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, old_internode, new_internode,
@@ -717,6 +742,7 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
 
         // Create new internode
         const auto new_internode_handle = shoot_skeleton_.Extend(internode_handle, true);
+        growth_events_.push_back({internode_handle, new_internode_handle, true});
         const auto& old_internode = shoot_skeleton_.PeekNode(internode_handle);
         auto& new_internode = shoot_skeleton_.RefNode(new_internode_handle);
         new_internode.data = {};
@@ -725,6 +751,7 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
         new_internode.info.order = old_internode.info.order + 1;
         new_internode.data.internode_length = 0.0f;
         new_internode.info.root_distance = old_internode.info.root_distance;
+        new_internode.data.max_carbohydrate_mass = 0.f;
 
         shoot_growth_controller.tropism(random_engine_, shoot_skeleton_.data, old_internode, new_internode,
                                         desired_global_rotation);
@@ -799,6 +826,7 @@ bool ShootModel::GrowReproductiveModules(float delta_time, const ClimateModel& c
         if (flower.pollination_time <= 0.f) {
           auto& fruit = internode.data.fruits[flower.fruit_index];
           if (fruit.status == OrganStatus::Inactive && fruit.maturity == 0.f) {
+            fruit.Reset();
             if (reproduction_controller.fruit_formulation(random_engine_, global_transform, fruit, climate_model,
                                                           shoot_skeleton_, internode)) {
               fruit.status = OrganStatus::Dormant;
@@ -1073,6 +1101,48 @@ bool ShootModel::PruneInternodes(const glm::mat4& global_transform, const Climat
   return root_to_end_pruned || end_to_root_pruned;
 }
 
+void ShootModel::CalculateSourceSinkStrength(const ShootGrowthController& shoot_growth_controller,
+                                             const FoliageController& foliage_controller,
+                                             const ShootReproductionController& reproduction_controller,
+                                             const ClimateModel& climate_model, float delta_time) {
+  for (auto& internode : shoot_skeleton_.RefRawNodes()) {
+    auto& data = internode.data;
+
+    if (true) {
+      data.carbohydrate_source = 0.0f;
+    }
+    data.carbohydrate_sink = 0.0f;
+    if (foliage_controller.update_carbohydrate_state) {
+      for (auto& leaf : data.leaves) {
+        foliage_controller.update_carbohydrate_state(random_engine_, shoot_skeleton_.data, internode, leaf, delta_time);
+      }
+    }
+    if (reproduction_controller.calculate_flower_sink_strength) {
+      for (auto& flower : data.flowers) {
+        reproduction_controller.calculate_flower_sink_strength(random_engine_, shoot_skeleton_.data, internode, flower);
+      }
+    }
+    if (reproduction_controller.calculate_fruit_sink_strength) {
+      for (auto& fruit : data.fruits) {
+        reproduction_controller.calculate_fruit_sink_strength(random_engine_, shoot_skeleton_.data, internode, fruit);
+      }
+    }
+    if (shoot_growth_controller.update_carbohydrate_state) {
+      shoot_growth_controller.update_carbohydrate_state(random_engine_, shoot_skeleton_, internode, climate_model,
+                                                        delta_time);
+    }
+    if (data.force_sink) {
+      const float multiplier = data.force_sink_multiplier > 1.0f ? data.force_sink_multiplier : 1.0f;
+      // Add a base artificial sink (scaled by delta_time) so it works even if base sink is 0
+      const float base_artificial_sink = 1.0f * delta_time;
+      data.carbohydrate_sink = (data.carbohydrate_sink + base_artificial_sink + data.max_carbohydrate_mass * delta_time) * multiplier;
+      
+      // Make this node highly conductive so it acts as an open pipe and pulls rapidly from the local neighborhood
+      data.conductance = (data.conductance + 1.0f) * multiplier;
+    }
+  }
+}
+
 ShootSkeleton& ShootModel::RefShootSkeleton() {
   return shoot_skeleton_;
 }
@@ -1195,6 +1265,8 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
 
             auto extra_mass = std::vector<float>(node_size);
             auto density = std::vector<float>(node_size);
+            auto force_sink = std::vector<int>(node_size);
+            auto force_sink_multiplier = std::vector<float>(node_size);
 
             for (int node_index = 0; node_index < node_size; node_index++) {
               const auto& node = shoot_skeleton_.PeekRawNodes().at(node_index);
@@ -1208,6 +1280,8 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
 
               extra_mass.at(node_index) = node.data.extra_mass;
               density.at(node_index) = node.data.density;
+              force_sink.at(node_index) = node.data.force_sink ? 1 : 0;
+              force_sink_multiplier.at(node_index) = node.data.force_sink_multiplier;
             }
             if (node_size != 0) {
               skeleton_out << YAML::Key << "node.data.internode_length" << YAML::Value
@@ -1238,6 +1312,12 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
               skeleton_out << YAML::Key << "node.data.density" << YAML::Value
                            << YAML::Binary(reinterpret_cast<const unsigned char*>(density.data()),
                                            density.size() * sizeof(float));
+              skeleton_out << YAML::Key << "node.data.force_sink" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(force_sink.data()),
+                                           force_sink.size() * sizeof(int));
+              skeleton_out << YAML::Key << "node.data.force_sink_multiplier" << YAML::Value
+                           << YAML::Binary(reinterpret_cast<const unsigned char*>(force_sink_multiplier.data()),
+                                           force_sink_multiplier.size() * sizeof(float));
             }
           });
     }
@@ -1246,7 +1326,7 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::EndMap;
 }
 
-void ShootModel::Load(const std::string& name, const YAML::Node& in) {
+  void ShootModel::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     if (const auto& in_tree_model = in[name]) {
       const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];
@@ -1439,6 +1519,28 @@ void ShootModel::Load(const std::string& name, const YAML::Node& in) {
               for (size_t i = 0; i < list.size(); i++) {
                 auto& node = shoot_skeleton_.RefNode(i);
                 node.data.density = list[i];
+              }
+            }
+
+            if (skeleton_in["node.data.force_sink"]) {
+              auto list = std::vector<int>();
+              const auto data = skeleton_in["node.data.force_sink"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(int));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.force_sink = list[i] == 1;
+              }
+            }
+
+            if (skeleton_in["node.data.force_sink_multiplier"]) {
+              auto list = std::vector<float>();
+              const auto data = skeleton_in["node.data.force_sink_multiplier"].as<YAML::Binary>();
+              list.resize(data.size() / sizeof(float));
+              std::memcpy(list.data(), data.data(), data.size());
+              for (size_t i = 0; i < list.size(); i++) {
+                auto& node = shoot_skeleton_.RefNode(i);
+                node.data.force_sink_multiplier = list[i];
               }
             }
           });

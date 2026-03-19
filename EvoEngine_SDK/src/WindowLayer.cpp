@@ -5,6 +5,10 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+
+#include <filesystem>
+#include <fstream>
+
 using namespace evo_engine;
 
 void WindowLayer::FramebufferSizeCallback(GLFWwindow* window, int width, int height) {
@@ -40,14 +44,43 @@ void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
   }
 }
 
+static constexpr const char* window_state_file = "window_state.ini";
+
+static void SaveWindowState(GLFWwindow* window) {
+  int x, y, w, h;
+  glfwGetWindowPos(window, &x, &y);
+  glfwGetWindowSize(window, &w, &h);
+  std::ofstream f(window_state_file);
+  if (f.is_open()) {
+    f << x << " " << y << " " << w << " " << h << "\n";
+  }
+}
+
+static bool LoadWindowState(int& x, int& y, int& w, int& h) {
+  std::ifstream f(window_state_file);
+  if (!f.is_open())
+    return false;
+  f >> x >> y >> w >> h;
+  return !f.fail() && w > 0 && h > 0;
+}
+
 void WindowLayer::OnCreate() {
   if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer) {
     throw std::runtime_error("RenderLayer not present!");
+  }
+
+  int x, y, w, h;
+  if (LoadWindowState(x, y, w, h)) {
+    glfwSetWindowPos(window_, x, y);
+    glfwSetWindowSize(window_, w, h);
+    window_size_ = {w, h};
+    restored_from_state_ = true;
   }
 }
 
 void WindowLayer::OnDestroy() {
 #pragma region Windows
+  SaveWindowState(window_);
   glfwDestroyWindow(window_);
   glfwTerminate();
 #pragma endregion
@@ -173,5 +206,9 @@ GLFWwindow* WindowLayer::GetGlfwWindow() const {
 }
 
 void WindowLayer::ResizeWindow(int x, int y) const {
+  if (restored_from_state_) {
+    restored_from_state_ = false;
+    return;
+  }
   glfwSetWindowSize(window_, x, y);
 }

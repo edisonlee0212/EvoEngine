@@ -15,8 +15,13 @@ void Jobs::Initialize(const size_t worker_size) {
 
 void Jobs::RunParallelFor(const size_t size, const std::function<void(size_t i)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return;
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -37,8 +42,13 @@ void Jobs::RunParallelFor(const size_t size, const std::function<void(size_t i)>
 
 void Jobs::RunParallelFor(const size_t size, const std::function<void(size_t, size_t)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return;
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -59,8 +69,13 @@ void Jobs::RunParallelFor(const size_t size, const std::function<void(size_t, si
 
 JobHandle Jobs::ScheduleParallelFor(const size_t size, const std::function<void(size_t)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return {};
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -82,8 +97,13 @@ JobHandle Jobs::ScheduleParallelFor(const size_t size, const std::function<void(
 JobHandle Jobs::ScheduleParallelFor(const size_t size, const std::function<void(size_t, size_t)>& func,
                                     size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return {};
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -105,8 +125,13 @@ JobHandle Jobs::ScheduleParallelFor(const size_t size, const std::function<void(
 void Jobs::RunParallelFor(const std::vector<JobHandle>& dependencies, const size_t size,
                           const std::function<void(size_t)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return;
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -128,8 +153,13 @@ void Jobs::RunParallelFor(const std::vector<JobHandle>& dependencies, const size
 void Jobs::RunParallelFor(const std::vector<JobHandle>& dependencies, const size_t size,
                           const std::function<void(size_t, size_t)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return;
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -151,8 +181,13 @@ void Jobs::RunParallelFor(const std::vector<JobHandle>& dependencies, const size
 JobHandle Jobs::ScheduleParallelFor(const std::vector<JobHandle>& dependencies, const size_t size,
                                     const std::function<void(size_t)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return {};
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;
@@ -174,8 +209,13 @@ JobHandle Jobs::ScheduleParallelFor(const std::vector<JobHandle>& dependencies, 
 JobHandle Jobs::ScheduleParallelFor(const std::vector<JobHandle>& dependencies, const size_t size,
                                     const std::function<void(size_t, size_t)>& func, size_t worker_size) {
   auto& jobs = GetInstance();
-  if (worker_size == 0)
+  if (size == 0)
+    return {};
+  if (worker_size == 0) {
     worker_size = GetWorkerSize();
+    if (worker_size == 0)
+      worker_size = 1;
+  }
   const auto thread_load = size / worker_size;
   const auto load_reminder = size % worker_size;
   std::vector<JobHandle> job_handles;

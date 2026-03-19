@@ -6,6 +6,7 @@
 #include "GraphicsResources.hpp"
 #include "ISingleton.hpp"
 #include "RayTracingPipeline.hpp"
+#include <mutex>
 
 #define ENABLE_EXTERNAL_MEMORY true
 
@@ -301,6 +302,9 @@ class Platform final {
 
   /// Command buffer used for immediate execution of commands.
   std::shared_ptr<CommandBuffer> immediate_submit_command_buffer{};
+
+  /// Guards one-time command buffer recording/submission against concurrent callers.
+  std::mutex immediate_submit_mutex_;
 
   /// Map of named buffer synchronization actions.
   std::unordered_map<std::string, std::function<void()>> buffer_sync_actions{};

@@ -55,6 +55,20 @@ void ProjectManager::SetupDefaultScene() {
     uint64_t scene_handle = 0;
     if (in["start_scene_handle"])
       scene_handle = in["start_scene_handle"].as<uint64_t>();
+    if (in["EditorLayer"]) {
+      if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+        editor_layer->Deserialize(in["EditorLayer"]);
+      }
+    }
+    if (in["Layers"]) {
+      const auto& layers = in["Layers"];
+      for (const auto& layer : Application::GetLayers()) {
+        const auto layer_name = layer->GetLayerName();
+        if (layers[layer_name]) {
+          layer->Deserialize(layers[layer_name]);
+        }
+      }
+    }
     if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
       scene = std::dynamic_pointer_cast<Scene>(temp);
       SetStartScene(scene);
@@ -126,9 +140,24 @@ void ProjectManager::SaveProject() {
   if (const auto directory = project_manager.project_path_.parent_path(); !std::filesystem::exists(directory)) {
     std::filesystem::create_directories(directory);
   }
+  if (const auto active_scene = Application::GetActiveScene(); active_scene && !active_scene->IsTemporary()) {
+    active_scene->Save();
+  }
   YAML::Emitter out;
   out << YAML::BeginMap;
   out << YAML::Key << "start_scene_handle" << YAML::Value << project_manager.start_scene_->GetHandle();
+  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    out << YAML::Key << "EditorLayer" << YAML::Value << YAML::BeginMap;
+    editor_layer->Serialize(out);
+    out << YAML::EndMap;
+  }
+  out << YAML::Key << "Layers" << YAML::Value << YAML::BeginMap;
+  for (const auto& layer : Application::GetLayers()) {
+    out << YAML::Key << layer->GetLayerName() << YAML::Value << YAML::BeginMap;
+    layer->Serialize(out);
+    out << YAML::EndMap;
+  }
+  out << YAML::EndMap;
   out << YAML::EndMap;
   std::ofstream file_out(project_manager.project_path_.string());
   file_out << out.c_str();

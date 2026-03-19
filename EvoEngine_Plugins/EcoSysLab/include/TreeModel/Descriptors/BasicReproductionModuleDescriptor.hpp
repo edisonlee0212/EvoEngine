@@ -14,10 +14,13 @@ using namespace evo_engine;
 class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
  public:
   float flower_size = 0.05f;
-  float fruit_size = 0.1f;
+  float fruit_size = 0.05f;
 
-  /// Number of flowers/fruit per internode.
+  /// Number of flowers/fruit per internode when spawned.
   int count_per_internode = 1;
+
+  /// Probability [0..1] that an internode spawns a flower/fruit module.
+  float module_spawn_chance = 0.025f;
 
   /// Variance in leaf positioning.
   SingleDistribution<float> stem_length = {0.01f, 0.0f};
@@ -50,6 +53,9 @@ class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
   SingleDistribution<float> fruit_activation_temperature = {20.f, 1.f};
   SingleDistribution<float> fruit_hang_time = {10.f, 1.f};
   SingleDistribution<float> fruit_growth_rate = {0.01f, 0.01f};
+
+  float flower_sink_strength = 1.0f;
+  float fruit_sink_strength = 1.0f;
 
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.

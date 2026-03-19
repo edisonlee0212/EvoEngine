@@ -4,6 +4,8 @@
 
 #include "RootModel.hpp"
 
+#include <cmath>
+
 using namespace eco_sys_lab_plugin;
 
 void RootModel::CalculateThickness(const RootGrowthController& root_growth_controller) {
@@ -250,6 +252,34 @@ bool RootModel::Grow(float delta_time, const glm::mat4& global_transform, const 
 
   iteration_++;
   return structure_changed;
+}
+
+void RootModel::CalculateSourceSinkStrength(const RootGrowthController& root_growth_controller,
+                                            const ClimateModel& climate_model, float delta_time) {
+  if (!initialized_)
+    return;
+
+  auto& raw_nodes = root_skeleton_.RefRawNodes();
+  for (auto& node : raw_nodes) {
+    auto& data = node.data;
+    data.carbohydrate_sink = 0.0f;
+
+    if (!std::isfinite(data.conductance) || data.conductance < 0.0f) {
+      data.conductance = 0.0f;
+    }
+
+    if (root_growth_controller.calculate_root_node_sink_strength) {
+      root_growth_controller.calculate_root_node_sink_strength(random_engine_, root_skeleton_, node, climate_model,
+                                                               delta_time);
+    }
+
+    if (node.GetHandle() == 0) {
+      if (!std::isfinite(data.carbohydrate_source))
+        data.carbohydrate_source = 0.0f;
+    } else {
+      data.carbohydrate_source = 0.0f;
+    }
+  }
 }
 
 bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthController& root_growth_controller,

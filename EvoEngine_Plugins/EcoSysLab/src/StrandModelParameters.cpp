@@ -72,10 +72,23 @@ bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor
     changed = true;
   if (ImGui::DragInt("Boundary point distance", &boundary_point_distance, 1, 3, 30))
     changed = true;
-  if (ImGui::ColorEdit4("Boundary color", &boundary_point_color.x))
-    changed = true;
-  if (ImGui::ColorEdit4("Content color", &content_point_color.x))
-    changed = true;
+  if (ImGui::TreeNodeEx("Tissue colors", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::ColorEdit4("Bark (living)", &boundary_point_color.x))
+      changed = true;
+    if (ImGui::ColorEdit4("Bark (dead)", &bark_dead_color.x))
+      changed = true;
+    if (ImGui::ColorEdit4("Sapwood", &content_point_color.x))
+      changed = true;
+    if (ImGui::ColorEdit4("Heartwood", &heartwood_color.x))
+      changed = true;
+    if (ImGui::ColorEdit4("Wound", &wound_color.x))
+      changed = true;
+    if (ImGui::ColorEdit4("Callus", &callus_color.x))
+      changed = true;
+    if (ImGui::DragFloat("Wound healing rate", &wound_healing_rate, 0.01f, 0.0f, 1.0f))
+      changed = true;
+    ImGui::TreePop();
+  }
   return changed;
 }
 
@@ -93,7 +106,12 @@ void StrandModelParameters::Save(const std::string& name, YAML::Emitter& out) co
   out << YAML::Key << "node_max_count" << YAML::Value << node_max_count;
   out << YAML::Key << "boundary_point_distance" << YAML::Value << boundary_point_distance;
   out << YAML::Key << "boundary_point_color" << YAML::Value << boundary_point_color;
+  out << YAML::Key << "bark_dead_color" << YAML::Value << bark_dead_color;
   out << YAML::Key << "content_point_color" << YAML::Value << content_point_color;
+  out << YAML::Key << "heartwood_color" << YAML::Value << heartwood_color;
+  out << YAML::Key << "wound_color" << YAML::Value << wound_color;
+  out << YAML::Key << "callus_color" << YAML::Value << callus_color;
+  out << YAML::Key << "wound_healing_rate" << YAML::Value << wound_healing_rate;
   out << YAML::Key << "side_push_factor" << YAML::Value << side_push_factor;
   out << YAML::Key << "apical_side_push_factor" << YAML::Value << apical_side_push_factor;
   out << YAML::Key << "rotation_push_factor" << YAML::Value << rotation_push_factor;
@@ -135,8 +153,18 @@ void StrandModelParameters::Load(const std::string& name, const YAML::Node& in) 
       boundary_point_distance = in_settings["boundary_point_distance"].as<int>();
     if (in_settings["boundary_point_color"])
       boundary_point_color = in_settings["boundary_point_color"].as<glm::vec4>();
+    if (in_settings["bark_dead_color"])
+      bark_dead_color = in_settings["bark_dead_color"].as<glm::vec4>();
     if (in_settings["content_point_color"])
       content_point_color = in_settings["content_point_color"].as<glm::vec4>();
+    if (in_settings["heartwood_color"])
+      heartwood_color = in_settings["heartwood_color"].as<glm::vec4>();
+    if (in_settings["wound_color"])
+      wound_color = in_settings["wound_color"].as<glm::vec4>();
+    if (in_settings["callus_color"])
+      callus_color = in_settings["callus_color"].as<glm::vec4>();
+    if (in_settings["wound_healing_rate"])
+      wound_healing_rate = in_settings["wound_healing_rate"].as<float>();
     if (in_settings["side_push_factor"])
       side_push_factor = in_settings["side_push_factor"].as<float>();
     if (in_settings["apical_side_push_factor"])

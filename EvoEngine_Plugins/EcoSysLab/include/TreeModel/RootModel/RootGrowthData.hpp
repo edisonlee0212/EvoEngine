@@ -42,6 +42,17 @@ struct RootNodeGrowthData {
 
   float horizontal_tropism;
   float vertical_tropism;
+
+  float carbohydrate_source = 0.0f;
+  float carbohydrate_sink = 0.0f;
+  float carbohydrate_storage = 0.0f;
+
+  float max_carbohydrate_mass = 0.f;
+  float carbohydrate_mass = 0.0f;
+  float next_concentration = 0.0f;
+  float conductance = 0.0f;
+  float net_flow_balance = 0.0f;
+  bool is_overflown = false;
 };
 
 /**

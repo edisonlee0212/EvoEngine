@@ -357,6 +357,7 @@ void Application::End() {
 void Application::Terminate() {
   auto& application = GetInstance();
   const bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
+  ProjectManager::SaveProject();
   for (auto i = application.layers_.rbegin(); i != application.layers_.rend(); ++i) {
     (*i)->OnDestroy();
   }
@@ -391,11 +392,11 @@ void Application::Attach(const std::shared_ptr<Scene>& scene) {
   }
 
   application.active_scene_ = scene;
-  for (auto& func : application.post_attach_scene_functions_) {
-    func(scene);
-  }
   for (const auto& layer : application.layers_) {
     layer->scene_ = scene;
+  }
+  for (auto& func : application.post_attach_scene_functions_) {
+    func(scene);
   }
 }
 

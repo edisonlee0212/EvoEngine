@@ -137,6 +137,55 @@ void BasicRootDescriptor::PrepareController(RootGrowthController& root_growth_co
       flushing_rate *= glm::exp(-root_node.data.inhibitor_sink);
     return flushing_rate;
   };
+
+  root_growth_controller.calculate_root_node_sink_strength = [&](std::mt19937& random_engine,
+                                                                 RootSkeleton& root_skeleton,
+                                                                 SkeletonNode<RootNodeGrowthData>& node,
+                                                                 const ClimateModel& climate_model, float delta_time) {
+    auto& info = node.info;
+    auto& data = node.data;
+
+    data.max_carbohydrate_mass = glm::max(info.volume * 1e6f, 1e-6f);
+    float saturation = data.carbohydrate_mass / data.max_carbohydrate_mass;
+    saturation = glm::clamp(saturation, 0.0f, 1.0f);
+
+    if (conductance_model == 0) {
+      if (info.length > 0.0f) {
+        const float area = glm::pi<float>() * info.thickness * info.thickness;
+        data.conductance = (area / info.length) * 1e6f * conductance_multiplier;
+      } else {
+        data.conductance = 0.0f;
+      }
+    } else if (conductance_model == 1) {
+      float ratio = 1.0f;
+      if (node.GetParentHandle() != -1) {
+        const auto& parent = root_skeleton.RefNode(node.GetParentHandle());
+        const float parent_th = glm::max(parent.info.thickness, 1e-9f);
+        ratio = glm::clamp(info.thickness / parent_th, 0.0f, 1.0f);
+      }
+      data.conductance = data.max_carbohydrate_mass * conductance_multiplier * glm::pow(ratio, pipe_model_exponent);
+    } else {
+      data.conductance = data.max_carbohydrate_mass * conductance_multiplier;
+    }
+    if (!std::isfinite(data.conductance) || data.conductance < 0.0f)
+      data.conductance = 0.0f;
+
+    float metabolic_scaling = 0.2f + 1.8f * (saturation * saturation);
+    data.carbohydrate_sink += data.max_carbohydrate_mass * respiration_rate * metabolic_scaling * delta_time;
+
+    if (!std::isfinite(data.carbohydrate_sink) || data.carbohydrate_sink < 0.0f) {
+      data.carbohydrate_sink = std::isfinite(data.carbohydrate_sink) ? glm::max(0.0f, data.carbohydrate_sink) : 0.0f;
+    }
+
+    if (!std::isfinite(data.carbohydrate_source))
+      data.carbohydrate_source = 0.0f;
+
+    if (!std::isfinite(data.carbohydrate_mass))
+      data.carbohydrate_mass = 0.0f;
+    data.carbohydrate_mass = glm::clamp(data.carbohydrate_mass, 0.0f, data.max_carbohydrate_mass);
+
+    data.net_flow_balance = 0.0f;
+  };
 }
 
 void BasicRootDescriptor::Serialize(YAML::Emitter& out) const {
@@ -165,6 +214,13 @@ void BasicRootDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "tropism_intensity" << YAML::Value << tropism_intensity;
   out << YAML::Key << "tropism_switch_probability" << YAML::Value << tropism_switch_probability;
   out << YAML::Key << "tropism_switch_base_distance_factor" << YAML::Value << tropism_switch_base_distance_factor;
+
+  out << YAML::Key << "conductance_model" << YAML::Value << conductance_model;
+  out << YAML::Key << "pipe_model_exponent" << YAML::Value << pipe_model_exponent;
+  out << YAML::Key << "respiration_rate" << YAML::Value << respiration_rate;
+  out << YAML::Key << "conductance_multiplier" << YAML::Value << conductance_multiplier;
+  out << YAML::Key << "carbohydrate_sink_multiplier" << YAML::Value << carbohydrate_sink_multiplier;
+  out << YAML::Key << "spring_reactivation_rate" << YAML::Value << spring_reactivation_rate;
 }
 
 void BasicRootDescriptor::Deserialize(const YAML::Node& in) {
@@ -212,6 +268,19 @@ void BasicRootDescriptor::Deserialize(const YAML::Node& in) {
     tropism_switch_probability = in["tropism_switch_probability"].as<float>();
   if (in["tropism_switch_base_distance_factor"])
     tropism_switch_base_distance_factor = in["tropism_switch_base_distance_factor"].as<float>();
+
+  if (in["conductance_model"])
+    conductance_model = in["conductance_model"].as<int>();
+  if (in["pipe_model_exponent"])
+    pipe_model_exponent = in["pipe_model_exponent"].as<float>();
+  if (in["respiration_rate"])
+    respiration_rate = in["respiration_rate"].as<float>();
+  if (in["conductance_multiplier"])
+    conductance_multiplier = in["conductance_multiplier"].as<float>();
+  if (in["carbohydrate_sink_multiplier"])
+    carbohydrate_sink_multiplier = in["carbohydrate_sink_multiplier"].as<float>();
+  if (in["spring_reactivation_rate"])
+    spring_reactivation_rate = in["spring_reactivation_rate"].as<float>();
 }
 
 bool BasicRootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -254,6 +323,22 @@ bool BasicRootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     changed = ImGui::DragFloat2("Soil Friction/Speed", &soil_density_friction.x, 0.01f) || changed;
     changed = ImGui::DragFloat("Tropism intensity", &tropism_intensity, 0.01f) || changed;
     changed = ImGui::DragFloat2("Tropism switch prob/dist", &tropism_switch_probability, 0.01f) || changed;
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Source/Sink Solver", ImGuiTreeNodeFlags_DefaultOpen)) {
+    changed = ImGui::DragFloat("Respiration Rate (%)", &respiration_rate, 0.001f, 0.0f, 1.0f, "%.3f") || changed;
+    changed = ImGui::DragFloat("Conductance Multiplier (Turnover/Day)", &conductance_multiplier, 0.1f, 0.0f, 100.0f,
+                               "%.6f") ||
+              changed;
+    const char* items[] = {"Area / Length", "Pipe Model", "Multiplier Only"};
+    changed = ImGui::Combo("Conductance Model", &conductance_model, items, IM_ARRAYSIZE(items)) || changed;
+    if (conductance_model == 1) {
+      changed = ImGui::DragFloat("Pipe Model Exponent", &pipe_model_exponent, 0.1f, 0.1f, 8.0f) || changed;
+    }
+    changed = ImGui::DragFloat("Sink Multiplier", &carbohydrate_sink_multiplier, 0.1f, 0.0f, 100.0f) || changed;
+    changed =
+        ImGui::DragFloat("Spring Reactivation Rate", &spring_reactivation_rate, 0.01f, 0.0f, 1.0f, "%.3f") || changed;
     ImGui::TreePop();
   }
 

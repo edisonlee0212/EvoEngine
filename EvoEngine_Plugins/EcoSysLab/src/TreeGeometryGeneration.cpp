@@ -1138,6 +1138,106 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
   material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
 }
 
+void Tree::InitializeProceduralStrandRenderer() {
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+
+  ClearProceduralStrandRenderer();
+
+  if (!procedural_strand_model.enabled)
+    return;
+
+  procedural_strand_model.ApplyProfiles(strand_model_parameters);
+  const auto strands_asset = procedural_strand_model.GenerateStrands(strand_model_parameters.node_max_count);
+  if (!strands_asset)
+    return;
+
+  const auto strands_entity = scene->CreateEntity("Procedural Strands");
+  scene->SetParent(strands_entity, owner);
+
+  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
+  renderer->strands = strands_asset;
+
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  renderer->material = material;
+  material->vertex_color_only = true;
+  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+}
+
+void Tree::UpdateProceduralStrandRenderer() {
+  if (!procedural_strand_model.enabled)
+    return;
+
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+  const auto children = scene->GetChildren(owner);
+
+  Entity strands_entity{};
+  for (const auto& child : children) {
+    if (scene->GetEntityName(child) == "Procedural Strands") {
+      strands_entity = child;
+      break;
+    }
+  }
+
+  procedural_strand_model.ApplyProfiles(strand_model_parameters);
+
+  if (!procedural_strand_model.skeleton.data.HasStrandData())
+    return;
+
+  std::vector<glm::uint> strands_list;
+  std::vector<StrandPoint> points;
+  procedural_strand_model.skeleton.data.strand_data->strand_group.BuildStrands(
+      strands_list, points, strand_model_parameters.node_max_count);
+  if (strands_list.empty() || points.size() < 4)
+    return;
+  strands_list.emplace_back(points.size());
+
+  StrandPointAttributes strand_point_attributes{};
+  strand_point_attributes.color = true;
+
+  // Auto-create the "Procedural Strands" entity if it doesn't exist yet.
+  if (strands_entity.GetIndex() == 0) {
+    strands_entity = scene->CreateEntity("Procedural Strands");
+    scene->SetParent(strands_entity, owner);
+    const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
+
+    const auto strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
+    strands_asset->SetStrands(strand_point_attributes, strands_list, points);
+    renderer->strands = strands_asset;
+
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    renderer->material = material;
+    material->vertex_color_only = true;
+    material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+    return;
+  }
+
+  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
+
+  // Reuse the existing Strands asset so its RangeDescriptor prev_frame values
+  // (set by GeometryStorage::DeviceSync earlier this frame) remain valid for
+  // rendering.  Creating a new asset each frame causes prev_frame_index_count=0
+  // at draw time because DeviceSync runs before Simulate in the frame pipeline.
+  auto strands_asset = renderer->strands.Get<Strands>();
+  if (!strands_asset) {
+    strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
+    renderer->strands = strands_asset;
+  }
+  strands_asset->SetStrands(strand_point_attributes, strands_list, points);
+}
+
+void Tree::ClearProceduralStrandRenderer() const {
+  const auto scene = GetScene();
+  const auto self = GetOwner();
+  const auto children = scene->GetChildren(self);
+  for (const auto& child : children) {
+    if (scene->GetEntityName(child) == "Procedural Strands") {
+      scene->DeleteEntity(child);
+    }
+  }
+}
+
 void Tree::InitializeStrandModelMeshRenderer(
     const StrandModelMeshGeneratorSettings& strand_model_mesh_generator_settings) {
   ClearStrandModelMeshRenderer();

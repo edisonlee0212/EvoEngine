@@ -9,6 +9,11 @@
 #include "Strands.hpp"
 #include "Tree.hpp"
 
+namespace YAML {
+class Emitter;
+class Node;
+}
+
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
@@ -293,6 +298,14 @@ class EcoSysLabLayer : public ILayer {
   bool auto_generate_strands_after_editing_ = false;       ///< Automatically generates strands after editing.
   bool auto_generate_strand_mesh_after_editing_ = false;   ///< Automatically generates strand meshes after editing.
 
+  bool auto_update_strand_renderer_ = false;               ///< Periodically rebuild strand renderers.
+  float auto_update_strand_renderer_interval_ = 5.0f;      ///< Seconds between strand renderer rebuilds.
+  bool auto_update_strand_model_mesh_ = false;             ///< Periodically rebuild strand model meshes.
+  float auto_update_strand_model_mesh_interval_ = 5.0f;    ///< Seconds between strand model mesh rebuilds.
+
+  double next_strand_renderer_update_time_ = 0.0;
+  double next_strand_model_mesh_update_time_ = 0.0;
+
   friend class ShootVisualizer;
   friend class RootVisualizer;
   friend class Tree;
@@ -379,6 +392,10 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<ParticleInfoList> lighting_grid_particle_info_list_;  ///< Stores data for lighting grid rendering.
 
   float simulated_time_;         ///< The current simulated time.
+  bool auto_time_grow_ = false;  ///< Whether auto-growth mode is currently active.
+  float auto_time_target_ = 0.f; ///< Target simulation time for auto-growth.
+  float extra_time_years_ = 4.f; ///< UI value for grow duration in years.
+
   std::vector<Fruit> fruits_;    ///< Stores fruit entities.
   std::vector<Leaf> leaves_;     ///< Stores leaf entities.
   std::vector<Flower> flowers_;  ///< Stores leaf entities.
@@ -419,6 +436,18 @@ class EcoSysLabLayer : public ILayer {
    * @param editor_layer The editor layer instance.
    */
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
+  /**
+   * @brief Serializes EcoSysLab editor/runtime UI state.
+   * @param out YAML emitter.
+   */
+  void Serialize(YAML::Emitter& out) const override;
+
+  /**
+   * @brief Deserializes EcoSysLab editor/runtime UI state.
+   * @param in YAML node.
+   */
+  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Handles the inspection of dynamic strand settings in the editor.

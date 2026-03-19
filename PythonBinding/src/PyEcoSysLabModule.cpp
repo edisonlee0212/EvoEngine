@@ -38,7 +38,7 @@ std::filesystem::path get_default_project_path() {
   }
   resource_folder_path = std::filesystem::absolute(resource_folder_path);
 
-  return resource_folder_path / "EcoSysLabProject" / "test.eveproj";
+  return resource_folder_path / "EcoSysLabProject" / "SourceSink.eveproj";
 }
 
 void engine_run_windowless(const std::filesystem::path& project_path) {

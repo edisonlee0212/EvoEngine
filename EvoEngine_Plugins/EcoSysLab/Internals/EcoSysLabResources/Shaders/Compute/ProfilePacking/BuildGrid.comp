@@ -1,0 +1,33 @@
+#extension GL_ARB_shading_language_include : enable
+
+#define PROFILE_PACKING_SET 0
+#include "ProfilePacking.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_particles;
+  uint total_profiles;
+};
+
+void main() {
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= total_particles)
+    return;
+
+  if (particles[idx].enable == 0)
+    return;
+
+  uint profile_idx = find_profile(idx, total_profiles);
+  if (profiles[profile_idx].is_active == 0)
+    return;
+
+  int cell_idx = get_grid_cell_index(profile_idx, particles[idx].position);
+
+  // Atomic insert into cell (capped at GRID_CELL_CAPACITY).
+  uint slot = atomicAdd(grid_cells[cell_idx].count, 1);
+  if (slot < GRID_CELL_CAPACITY) {
+    int local_handle = int(idx - profiles[profile_idx].particle_offset);
+    grid_cells[cell_idx].handles[slot] = local_handle;
+  }
+}

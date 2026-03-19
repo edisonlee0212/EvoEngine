@@ -151,6 +151,16 @@ class BasicShootDescriptor : public IShootDescriptor {
    */
   float apical_dominance_loss = 0.08f;
 
+  int conductance_model = 1;
+  float pipe_model_exponent = 2.0f;
+  float respiration_rate = 0.01f;
+  float conductance_multiplier = 1.0f;
+
+  bool pruning_force_sink_enabled = true;
+  float pruning_force_sink_multiplier = 100.0f;
+  int pruning_force_sink_depth = 0;
+  float pruning_force_sink_depth_decay = 1.0f;
+
 #pragma endregion
 
   /**

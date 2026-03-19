@@ -82,9 +82,16 @@ class BasicRootDescriptor : public IRootDescriptor {
   /**
    * \brief Reduction of apical dominance as it propagates through the tree structure.
    */
-  float apical_dominance_loss = 0.08f;
+  float apical_dominance_loss = 0.01f;
 
-  float tropism_intensity;
+  int conductance_model = 0;
+  float pipe_model_exponent = 4.0f;
+  float respiration_rate = 0.f;
+  float conductance_multiplier = 0.0f;
+  float carbohydrate_sink_multiplier = 0.0f;
+  float spring_reactivation_rate = 0.0f;
+
+  float tropism_intensity = 0.5f;
   float tropism_switch_probability;
   float tropism_switch_base_distance_factor;
 

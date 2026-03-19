@@ -667,7 +667,27 @@ Buffer::~Buffer() {
 
 void Buffer::CopyFromBuffer(const Buffer& src_buffer, const VkDeviceSize size, const VkDeviceSize src_offset,
                             const VkDeviceSize dst_offset) {
-  Resize(size);
+  if (size == 0)
+    return;
+
+  if (src_offset + size > src_buffer.size_) {
+    throw std::runtime_error("Buffer::CopyFromBuffer source range exceeds source buffer size.");
+  }
+
+  if (&src_buffer == this) {
+    const VkDeviceSize src_end = src_offset + size;
+    const VkDeviceSize dst_end = dst_offset + size;
+    const bool overlaps = src_offset < dst_end && dst_offset < src_end;
+    if (overlaps) {
+      throw std::runtime_error("Buffer::CopyFromBuffer overlapping self-copy is not allowed.");
+    }
+  }
+
+  const VkDeviceSize required_dst_size = dst_offset + size;
+  if (required_dst_size > size_) {
+    Resize(required_dst_size);
+  }
+
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     VkBufferCopy copy_region{};
     copy_region.size = size;

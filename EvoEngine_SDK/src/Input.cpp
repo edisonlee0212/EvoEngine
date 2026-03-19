@@ -24,11 +24,43 @@ void Input::MouseButtonCallBack(GLFWwindow* window, const int button, const int 
   if (action == GLFW_PRESS) {
     input.pressed_keys_[button] = KeyActionType::Press;
     Dispatch({button, KeyActionType::Press});
+
+    // If middle or right mouse pressed -> start capture (hide + lock)
+    if ((button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT)) {
+      // remember button request
+      input.cursor_capture_buttons_.insert(button);
+      if (!input.cursor_captured_) {
+        if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+          double sx, sy;
+          glfwGetCursorPos(window_layer->GetGlfwWindow(), &sx, &sy);
+          input.saved_cursor_pos_ = glm::vec2(static_cast<float>(sx), static_cast<float>(sy));
+          glfwSetInputMode(window_layer->GetGlfwWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+          ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+          input.cursor_captured_ = true;
+        }
+      }
+    }
   } else if (action == GLFW_RELEASE) {
     if (input.pressed_keys_.find(button) != input.pressed_keys_.end()) {
       // Dispatch hold if the key is already pressed.
       input.pressed_keys_.erase(button);
       Dispatch({button, KeyActionType::Release});
+    }
+
+    // stop capture for this button
+    if ((button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT)) {
+      input.cursor_capture_buttons_.erase(button);
+      if (input.cursor_capture_buttons_.empty() && input.cursor_captured_) {
+        if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+          glfwSetInputMode(window_layer->GetGlfwWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+          ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+          // restore cursor position
+          double rx = input.saved_cursor_pos_.x;
+          double ry = input.saved_cursor_pos_.y;
+          glfwSetCursorPos(window_layer->GetGlfwWindow(), rx, ry);
+          input.cursor_captured_ = false;
+        }
+      }
     }
   }
 }
@@ -68,8 +100,9 @@ void Input::PreUpdate() {
     glfwPollEvents();
     double x = FLT_MIN;
     double y = FLT_MIN;
+    // If cursor is captured, glfwGetCursorPos returns virtual position; still use it as delta source.
     glfwGetCursorPos(window_layer->GetGlfwWindow(), &x, &y);
-    input.mouse_position_ = {x, y};
+    input.mouse_position_ = {static_cast<float>(x), static_cast<float>(y)};
   }
 }
 
@@ -83,4 +116,8 @@ Input::KeyActionType Input::GetKey(const int key) {
   if (const auto search = input.pressed_keys_.find(key); search != input.pressed_keys_.end())
     return search->second;
   return KeyActionType::Release;
+}
+
+bool Input::IsCursorCaptured() {
+  return GetInstance().cursor_captured_;
 }

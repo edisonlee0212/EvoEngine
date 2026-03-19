@@ -17,6 +17,7 @@
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
+#include <yaml-cpp/yaml.h>
 using namespace evo_engine;
 void EditorLayer::OnCreate() {
   const auto window_layer = Application::GetLayer<WindowLayer>();
@@ -182,24 +183,229 @@ void EditorLayer::OnCreate() {
   editor_camera.rotation = default_scene_camera_rotation;
 }
 
+void EditorLayer::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "enable_inspection" << YAML::Value << enable_inspection;
+  out << YAML::Key << "show_console_window" << YAML::Value << show_console_window;
+  out << YAML::Key << "show_scene_camera_debug" << YAML::Value << show_scene_camera_debug;
+  out << YAML::Key << "show_scene_window" << YAML::Value << show_scene_window;
+  out << YAML::Key << "show_camera_window" << YAML::Value << show_camera_window;
+  out << YAML::Key << "show_camera_info" << YAML::Value << show_camera_info;
+  out << YAML::Key << "show_play_buttons" << YAML::Value << show_play_buttons;
+  out << YAML::Key << "show_scene_info" << YAML::Value << show_scene_info;
+  out << YAML::Key << "show_entity_explorer_window" << YAML::Value << show_entity_explorer_window;
+  out << YAML::Key << "show_entity_inspector_window" << YAML::Value << show_entity_inspector_window;
+  out << YAML::Key << "main_camera_focus_override" << YAML::Value << main_camera_focus_override;
+  out << YAML::Key << "scene_camera_focus_override" << YAML::Value << scene_camera_focus_override;
+  out << YAML::Key << "selected_hierarchy_display_mode" << YAML::Value << selected_hierarchy_display_mode;
+  out << YAML::Key << "velocity" << YAML::Value << velocity;
+  out << YAML::Key << "sensitivity" << YAML::Value << sensitivity;
+  out << YAML::Key << "apply_transform_to_main_camera" << YAML::Value << apply_transform_to_main_camera;
+  out << YAML::Key << "default_scene_camera_rotation" << YAML::Value << default_scene_camera_rotation;
+  out << YAML::Key << "default_scene_camera_position" << YAML::Value << default_scene_camera_position;
+  
+  out << YAML::Key << "lock_entity_selection" << YAML::Value << lock_entity_selection_;
+  out << YAML::Key << "highlight_selection" << YAML::Value << highlight_selection_;
+  out << YAML::Key << "enable_gizmos" << YAML::Value << enable_gizmos;
+  out << YAML::Key << "enable_view_gizmos" << YAML::Value << enable_view_gizmos;
+  out << YAML::Key << "transform_read_only" << YAML::Value << transform_read_only;
+  out << YAML::Key << "enable_console_logs" << YAML::Value << enable_console_logs_;
+  out << YAML::Key << "enable_console_errors" << YAML::Value << enable_console_errors_;
+  out << YAML::Key << "enable_console_warnings" << YAML::Value << enable_console_warnings_;
+  out << YAML::Key << "main_camera_resolution_x" << YAML::Value << main_camera_resolution_x;
+  out << YAML::Key << "main_camera_resolution_y" << YAML::Value << main_camera_resolution_y;
+  out << YAML::Key << "main_camera_allow_auto_resize" << YAML::Value << main_camera_allow_auto_resize;
+  out << YAML::Key << "scene_camera_resolution_multiplier" << YAML::Value << scene_camera_resolution_multiplier;
+  out << YAML::Key << "main_camera_resolution_multiplier" << YAML::Value << main_camera_resolution_multiplier_;
+  out << YAML::Key << "local_position_selected" << YAML::Value << local_position_selected_;
+  out << YAML::Key << "local_rotation_selected" << YAML::Value << local_rotation_selected_;
+  out << YAML::Key << "local_scale_selected" << YAML::Value << local_scale_selected_;
+
+  if (editor_cameras_.find(scene_camera_handle_) != editor_cameras_.end()) {
+    auto& cam = editor_cameras_.at(scene_camera_handle_);
+    out << YAML::Key << "scene_camera_position" << YAML::Value << cam.position;
+    out << YAML::Key << "scene_camera_rotation" << YAML::Value << cam.rotation;
+    if (cam.camera) {
+      out << YAML::Key << "scene_camera_settings" << YAML::Value << YAML::BeginMap;
+      cam.camera->Serialize(out);
+      out << YAML::EndMap;
+    }
+  }
+
+  uint64_t entity_handle = 0;
+  if (const auto scene = Application::GetActiveScene()) {
+    if (scene->IsEntityValid(selected_entity_)) {
+      entity_handle = scene->GetEntityHandle(selected_entity_).GetValue();
+    }
+  }
+  out << YAML::Key << "selected_entity" << YAML::Value << entity_handle;
+
+  uint64_t asset_handle = 0;
+  if (inspecting_asset) {
+    asset_handle = inspecting_asset->GetHandle().GetValue();
+  }
+  out << YAML::Key << "inspecting_asset" << YAML::Value << asset_handle;
+
+  if (const char* ini_settings = ImGui::SaveIniSettingsToMemory()) {
+    out << YAML::Key << "ImGuiIni" << YAML::Value << std::string(ini_settings);
+  }
+}
+
+void EditorLayer::Deserialize(const YAML::Node& in) {
+  if (in["enable_inspection"])
+    enable_inspection = in["enable_inspection"].as<bool>();
+  if (in["show_console_window"])
+    show_console_window = in["show_console_window"].as<bool>();
+  if (in["show_scene_camera_debug"])
+    show_scene_camera_debug = in["show_scene_camera_debug"].as<bool>();
+  if (in["show_scene_window"])
+    show_scene_window = in["show_scene_window"].as<bool>();
+  if (in["show_camera_window"])
+    show_camera_window = in["show_camera_window"].as<bool>();
+  if (in["show_camera_info"])
+    show_camera_info = in["show_camera_info"].as<bool>();
+  if (in["show_play_buttons"])
+    show_play_buttons = in["show_play_buttons"].as<bool>();
+  if (in["show_scene_info"])
+    show_scene_info = in["show_scene_info"].as<bool>();
+  if (in["show_entity_explorer_window"])
+    show_entity_explorer_window = in["show_entity_explorer_window"].as<bool>();
+  if (in["show_entity_inspector_window"])
+    show_entity_inspector_window = in["show_entity_inspector_window"].as<bool>();
+  if (in["main_camera_focus_override"])
+    main_camera_focus_override = in["main_camera_focus_override"].as<bool>();
+  if (in["scene_camera_focus_override"])
+    scene_camera_focus_override = in["scene_camera_focus_override"].as<bool>();
+  if (in["selected_hierarchy_display_mode"])
+    selected_hierarchy_display_mode = in["selected_hierarchy_display_mode"].as<int>();
+  if (in["velocity"])
+    velocity = in["velocity"].as<float>();
+  if (in["sensitivity"])
+    sensitivity = in["sensitivity"].as<float>();
+  if (in["apply_transform_to_main_camera"])
+    apply_transform_to_main_camera = in["apply_transform_to_main_camera"].as<bool>();
+
+  if (in["lock_entity_selection"])
+    lock_entity_selection_ = in["lock_entity_selection"].as<bool>();
+  if (in["highlight_selection"])
+    highlight_selection_ = in["highlight_selection"].as<bool>();
+  if (in["enable_gizmos"])
+    enable_gizmos = in["enable_gizmos"].as<bool>();
+  if (in["enable_view_gizmos"])
+    enable_view_gizmos = in["enable_view_gizmos"].as<bool>();
+  if (in["transform_read_only"])
+    transform_read_only = in["transform_read_only"].as<bool>();
+  if (in["enable_console_logs"])
+    enable_console_logs_ = in["enable_console_logs"].as<bool>();
+  if (in["enable_console_errors"])
+    enable_console_errors_ = in["enable_console_errors"].as<bool>();
+  if (in["enable_console_warnings"])
+    enable_console_warnings_ = in["enable_console_warnings"].as<bool>();
+  if (in["main_camera_resolution_x"])
+    main_camera_resolution_x = in["main_camera_resolution_x"].as<int>();
+  if (in["main_camera_resolution_y"])
+    main_camera_resolution_y = in["main_camera_resolution_y"].as<int>();
+  if (in["main_camera_allow_auto_resize"])
+    main_camera_allow_auto_resize = in["main_camera_allow_auto_resize"].as<bool>();
+  if (in["scene_camera_resolution_multiplier"])
+    scene_camera_resolution_multiplier = in["scene_camera_resolution_multiplier"].as<float>();
+  if (in["main_camera_resolution_multiplier"])
+    main_camera_resolution_multiplier_ = in["main_camera_resolution_multiplier"].as<float>();
+  if (in["local_position_selected"])
+    local_position_selected_ = in["local_position_selected"].as<bool>();
+  if (in["local_rotation_selected"])
+    local_rotation_selected_ = in["local_rotation_selected"].as<bool>();
+  if (in["local_scale_selected"])
+    local_scale_selected_ = in["local_scale_selected"].as<bool>();
+
+  if (in["default_scene_camera_rotation"])
+    default_scene_camera_rotation = in["default_scene_camera_rotation"].as<glm::quat>();
+  if (in["default_scene_camera_position"])
+    default_scene_camera_position = in["default_scene_camera_position"].as<glm::vec3>();
+
+  if (in["scene_camera_position"]) {
+    auto pos = in["scene_camera_position"].as<glm::vec3>();
+    default_scene_camera_position = pos;
+    if (editor_cameras_.find(scene_camera_handle_) != editor_cameras_.end()) {
+      editor_cameras_[scene_camera_handle_].position = pos;
+    }
+  }
+  if (in["scene_camera_rotation"]) {
+    auto rot = in["scene_camera_rotation"].as<glm::quat>();
+    default_scene_camera_rotation = rot;
+    if (editor_cameras_.find(scene_camera_handle_) != editor_cameras_.end()) {
+      editor_cameras_[scene_camera_handle_].rotation = rot;
+    }
+  }
+  
+  if (in["scene_camera_settings"]) {
+    if (editor_cameras_.find(scene_camera_handle_) != editor_cameras_.end() && editor_cameras_[scene_camera_handle_].camera) {
+      editor_cameras_[scene_camera_handle_].camera->Deserialize(in["scene_camera_settings"]);
+    }
+  }
+
+  if (in["selected_entity"]) {
+    uint64_t handle = in["selected_entity"].as<uint64_t>();
+    if (handle != 0) {
+      Application::RegisterPostAttachSceneFunction([handle](const std::shared_ptr<Scene>& scene) {
+        if (auto editor_layer = Application::GetLayer<EditorLayer>()) {
+          if (auto entity = scene->GetEntity(Handle(handle)); scene->IsEntityValid(entity)) {
+            editor_layer->SetSelectedEntity(entity);
+          }
+        }
+      });
+    }
+  }
+
+  if (in["inspecting_asset"]) {
+    uint64_t handle = in["inspecting_asset"].as<uint64_t>();
+    if (handle != 0) {
+      Application::RegisterPostAttachSceneFunction([handle](const std::shared_ptr<Scene>& scene) {
+        if (auto editor_layer = Application::GetLayer<EditorLayer>()) {
+          if (auto asset = AssetManager::GetAssetImpl(Handle(handle))) {
+            editor_layer->inspecting_asset = asset;
+          }
+        }
+      });
+    }
+  }
+
+  if (in["ImGuiIni"]) {
+    const std::string ini_settings = in["ImGuiIni"].as<std::string>();
+    ImGui::LoadIniSettingsFromMemory(ini_settings.c_str(), ini_settings.size());
+  }
+}
+
 void EditorLayer::OnDestroy() {
-  editor_cameras_.clear();
-  gizmo_mesh_tasks_.clear();
-  gizmo_instanced_mesh_tasks_.clear();
-  gizmo_strands_tasks_.clear();
-  vmaUnmapMemory(Platform::GetVmaAllocator(), entity_index_read_buffer_->GetVmaAllocation());
-  entity_index_read_buffer_.reset();
-  ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
-  ImNodes::DestroyContext();
-  ImGui::DestroyContext();
+  try {
+    Platform::WaitForDeviceIdle();
+    editor_cameras_.clear();
+    gizmo_mesh_tasks_.clear();
+    gizmo_instanced_mesh_tasks_.clear();
+    gizmo_strands_tasks_.clear();
+    vmaUnmapMemory(Platform::GetVmaAllocator(), entity_index_read_buffer_->GetVmaAllocation());
+    entity_index_read_buffer_.reset();
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImNodes::DestroyContext();
+    ImGui::DestroyContext();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to unload resources: " + std::string(e.what()));
+  } catch (...) {
+    EVOENGINE_ERROR("Unknown error during EditorLayer::OnDestroy");
+  }
 }
 
 void EditorLayer::PreUpdate() {
   InitializeImGui();
+
+  const bool save_shortcut_pressed =
+      (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
+       Input::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) &&
+      Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Press;
+
   const auto scene = Application::GetActiveScene();
   if (lock_camera) {
-    auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+    auto& [sceneCameraRotation, sceneCameraPosition, scene_camera] = editor_cameras_.at(scene_camera_handle_);
     const float elapsed_time = static_cast<float>(Times::Now()) - transition_timer_;
     float a = 1.0f - glm::pow(1.0 - elapsed_time / transition_time_, 4.0f);
     if (elapsed_time >= transition_time_)
@@ -321,7 +527,7 @@ void EditorLayer::PreUpdate() {
 
   if (scene && apply_transform_to_main_camera && !Application::IsPlaying()) {
     if (const auto camera = scene->main_camera.Get<Camera>(); camera && scene->IsEntityValid(camera->GetOwner())) {
-      auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+      auto& [sceneCameraRotation, sceneCameraPosition, scene_camera] = editor_cameras_.at(scene_camera_handle_);
       GlobalTransform global_transform;
       global_transform.SetPosition(sceneCameraPosition);
       global_transform.SetRotation(sceneCameraRotation);
@@ -427,6 +633,7 @@ void EditorLayer::PreUpdate() {
   }
   if (show_entity_inspector_window) {
     ImGui::Begin("Entity Inspector");
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
     if (scene) {
       ImGui::Text("Selection:");
       ImGui::SameLine();
@@ -554,6 +761,7 @@ void EditorLayer::PreUpdate() {
     } else {
       ImGui::Text("No Scene!");
     }
+    ImGui::PopItemWidth();
     ImGui::End();
   }
   if (show_console_window) {
@@ -626,7 +834,9 @@ void EditorLayer::PreUpdate() {
     for (const auto& layer : Application::GetLayers()) {
       if (layer->enable_inspection) {
         ImGui::Begin(layer->layer_name_.c_str());
+        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
         layer->OnInspect(editor_layer);
+        ImGui::PopItemWidth();
         ImGui::End();
       }
     }
@@ -635,6 +845,10 @@ void EditorLayer::PreUpdate() {
   Resources::OnInspect(editor_layer);
   AssetManager::OnInspect(editor_layer);
   ProjectManager::OnInspect(editor_layer);
+
+  if (save_shortcut_pressed) {
+    ProjectManager::SaveProject();
+  }
 }
 void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Scene Window", &show_scene_window);
@@ -655,7 +869,7 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::Button("Reset camera")) {
       MoveCamera(default_scene_camera_rotation, default_scene_camera_position);
     }
-    auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+    auto& [sceneCameraRotation, sceneCameraPosition, scene_camera] = editor_cameras_.at(scene_camera_handle_);
     if (ImGui::Button("Set default camera position")) {
       default_scene_camera_position = sceneCameraPosition;
       default_scene_camera_rotation = sceneCameraRotation;
@@ -666,7 +880,7 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::DragFloat("Resolution", &scene_camera_resolution_multiplier, 0.1f, 0.1f, 4.0f);
 
     if (ImGui::TreeNode("Camera settings")) {
-      sceneCamera->OnInspect(editor_layer);
+      scene_camera->OnInspect(editor_layer);
       ImGui::TreePop();
     }
 
@@ -821,8 +1035,6 @@ void EditorLayer::SceneCameraWindow() {
     if (scene) {
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
       ImVec2 view_port_size;
-      // Using a Child allow to fill all the space of the window.
-      // It also allows customization
       static int corner = 1;
       if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
@@ -833,7 +1045,6 @@ void EditorLayer::SceneCameraWindow() {
         scene_camera_resolution_y_ = view_port_size.y * scene_camera_resolution_multiplier;
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
         if (scene_camera && scene_camera->rendered_) {
-          // Because I use the texture from OpenGL, I need to invert the V from the UV.
           ImGui::Image(scene_camera->GetRenderTexture()->GetColorImTextureId(),
                        ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
           CameraWindowDragAndDrop();
@@ -885,10 +1096,12 @@ void EditorLayer::SceneCameraWindow() {
         if (scene_camera_window_focused_) {
 #pragma region Scene Camera Controller
           static bool is_dragging_previously = false;
+          bool mouse_out_of_bounds = mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
+                                     mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y;
           bool mouse_drag = true;
-          if (mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
-              mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y ||
-              Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
+          if (Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
+            mouse_drag = false;
+          } else if (!is_dragging_previously && mouse_out_of_bounds) {
             mouse_drag = false;
           }
           static float prev_x = 0;
@@ -906,23 +1119,31 @@ void EditorLayer::SceneCameraWindow() {
           if (mouse_drag && !lock_camera) {
             glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
             const glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
+
+            float current_velocity = velocity;
+            if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+              current_velocity *= 5.0f;
+            } else if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+              current_velocity *= 0.2f;
+            }
+
             if (Input::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-              sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * current_velocity;
             }
             if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-              sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * current_velocity;
             }
             if (Input::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-              sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * current_velocity;
             }
             if (Input::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-              sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * current_velocity;
             }
-            if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-              sceneCameraPosition.y += velocity * static_cast<float>(Times::DeltaTime());
+            if (Input::GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold) {
+              sceneCameraPosition.y += current_velocity * static_cast<float>(Times::DeltaTime());
             }
-            if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-              sceneCameraPosition.y -= velocity * static_cast<float>(Times::DeltaTime());
+            if (Input::GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold) {
+              sceneCameraPosition.y -= current_velocity * static_cast<float>(Times::DeltaTime());
             }
             if (x_offset != 0.0f || y_offset != 0.0f) {
               front = glm::rotate(front, glm::radians(-x_offset * sensitivity), glm::vec3(0, 1, 0));
@@ -933,54 +1154,133 @@ void EditorLayer::SceneCameraWindow() {
               const glm::vec3 up = glm::normalize(glm::cross(right, front));
               sceneCameraRotation = glm::quatLookAt(front, up);
             }
-#pragma endregion
           }
+
+          if (!lock_camera && scene->IsEntityValid(selected_entity_)) {
+            const auto selected_bound = scene->GetEntityBoundingBox(selected_entity_);
+            const auto selected_center = selected_bound.Center();
+
+            const bool middle_mouse_orbit = Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold;
+            if (middle_mouse_orbit) {
+              const auto& mouse_delta = ImGui::GetIO().MouseDelta;
+              if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f) {
+                auto offset = sceneCameraPosition - selected_center;
+                float distance = glm::length(offset);
+                distance = glm::max(distance, 0.001f);
+                offset = glm::rotate(offset, glm::radians(-mouse_delta.x * sensitivity), glm::vec3(0, 1, 0));
+
+                const auto view_dir = glm::normalize(selected_center - sceneCameraPosition);
+                auto orbit_right = glm::cross(view_dir, glm::vec3(0, 1, 0));
+                if (glm::length(orbit_right) > glm::epsilon<float>()) {
+                  orbit_right = glm::normalize(orbit_right);
+                  const auto candidate_offset = glm::rotate(offset, glm::radians(-mouse_delta.y * sensitivity), orbit_right);
+                  const auto candidate_dir = glm::normalize(-candidate_offset);
+                  if (glm::abs(glm::dot(candidate_dir, glm::vec3(0, 1, 0))) < 0.99f) {
+                    offset = candidate_offset;
+                  }
+                }
+
+                sceneCameraPosition = selected_center + offset;
+                const auto front = glm::normalize(selected_center - sceneCameraPosition);
+                const auto right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+                const auto up = glm::normalize(glm::cross(right, front));
+                sceneCameraRotation = glm::quatLookAt(front, up);
+              }
+            }
+
+            if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
+              const bool right_mouse_held = Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold;
+              if (right_mouse_held) {
+                velocity = glm::max(0.001f, velocity * (1.0f + scroll * 0.1f));
+              } else {
+                const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
+                auto offset = sceneCameraPosition - selected_center;
+                float distance = glm::length(offset);
+                float move_amount = scroll * glm::max(0.2f, distance * 0.1f);
+                if (move_amount > distance - 0.01f) {
+                  move_amount = distance - 0.01f;
+                }
+                sceneCameraPosition += front * move_amount;
+              }
+            }
+          } else if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
+            const bool right_mouse_held = Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold;
+            if (right_mouse_held) {
+              velocity = glm::max(0.001f, velocity * (1.0f + scroll * 0.1f));
+            } else if (!lock_camera) {
+              const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
+              const float move_amount = scroll * glm::max(0.2f, velocity * 0.5f);
+              sceneCameraPosition += front * move_amount;
+            }
+          }
+
+          if (!lock_camera && Input::GetKey(GLFW_KEY_KP_DECIMAL) == Input::KeyActionType::Press) {
+            if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold || Input::GetKey(GLFW_KEY_RIGHT_SHIFT) == Input::KeyActionType::Hold) {
+              scene_camera->camera_settings = CameraSettings();
+              MoveCamera(default_scene_camera_rotation, default_scene_camera_position, 0.2f);
+            } else if (scene->IsEntityValid(selected_entity_)) {
+              const auto bound = scene->GetEntityBoundingBox(selected_entity_);
+              const auto center = bound.Center();
+              float radius = glm::length(bound.Size()) * 0.5f;
+              radius = glm::max(radius, 0.1f);
+
+              const float aspect = glm::max(scene_camera->GetSizeRatio(), 0.001f);    
+              const float fov_y = glm::radians(scene_camera->camera_settings.fov * 0.5f);
+              const float half_fov_y = glm::max(0.001f, fov_y * 0.5f);
+              const float half_fov_x = glm::atan(glm::tan(half_fov_y) * aspect);
+              const float distance_y = radius / glm::tan(half_fov_y);
+              const float distance_x = radius / glm::tan(half_fov_x);
+              const float fit_distance = glm::max(distance_x, distance_y) * 1.15f;
+
+              const glm::vec3 backward = sceneCameraRotation * glm::vec3(0, 0, 1);
+              MoveCamera(sceneCameraRotation, center + backward * fit_distance, 0.2f);
+            }
+          }
+#pragma endregion
         }
-      }
 #pragma region Gizmos and Entity Selection
-      gizmo_using_ = false;
-      gizmo_displaying_ = false;
-      if (enable_gizmos) {
-        ImGuizmo::SetOrthographic(false);
-        ImGuizmo::SetDrawlist();
-        float view_manipulate_left = ImGui::GetWindowPos().x;
-        float view_manipulate_top = ImGui::GetWindowPos().y;
-        ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
-        glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
-        glm::mat4 camera_projection = scene_camera->GetProjection();
-        const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
-                        : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
-                                                   : ImGuizmo::OPERATION::SCALE;
-        if (scene->IsEntityValid(selected_entity_)) {
-          auto transform = scene->GetDataComponent<Transform>(selected_entity_);
-          GlobalTransform parent_global_transform;
-          if (Entity parent_entity = scene->GetParent(selected_entity_); parent_entity.GetIndex() != 0) {
-            parent_global_transform = scene->GetDataComponent<GlobalTransform>(scene->GetParent(selected_entity_));
-          }
-          auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_entity_);
+        gizmo_using_ = false;
+        gizmo_displaying_ = false;
+        if (enable_gizmos) {
+          ImGuizmo::SetOrthographic(false);
+          ImGuizmo::SetDrawlist();
+          float view_manipulate_left = ImGui::GetWindowPos().x;
+          float view_manipulate_top = ImGui::GetWindowPos().y;
+          ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
+          glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
+          glm::mat4 camera_projection = scene_camera->GetProjection();
+          const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
+                          : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
+                                                     : ImGuizmo::OPERATION::SCALE;
+          if (scene->IsEntityValid(selected_entity_)) {
+            auto transform = scene->GetDataComponent<Transform>(selected_entity_);
+            GlobalTransform parent_global_transform;
+            if (Entity parent_entity = scene->GetParent(selected_entity_); parent_entity.GetIndex() != 0) {
+              parent_global_transform = scene->GetDataComponent<GlobalTransform>(scene->GetParent(selected_entity_));
+            }
+            auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_entity_);
 
-          ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
-                               glm::value_ptr(global_transform.value));
-          gizmo_displaying_ = true;
-          if (ImGuizmo::IsUsing()) {
-            transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
-            scene->SetDataComponent(selected_entity_, transform);
-            transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
-            previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
-            gizmo_using_ = true;
+            ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
+                                 glm::value_ptr(global_transform.value));
+            gizmo_displaying_ = true;
+            if (ImGuizmo::IsUsing()) {
+              transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
+              scene->SetDataComponent(selected_entity_, transform);
+              transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
+              previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
+              gizmo_using_ = true;
+            }
+          }
+          if (enable_view_gizmos) {
+            ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
+                                     ImVec2(96, 96), 0);
+            GlobalTransform gl;
+            gl.value = glm::inverse(camera_view);
+            sceneCameraRotation = gl.GetRotation();
           }
         }
-        if (enable_view_gizmos) {
-          ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
-                                   ImVec2(96, 96), 0);
-          GlobalTransform gl;
-          gl.value = glm::inverse(camera_view);
-          sceneCameraRotation = gl.GetRotation();
-        }
-      }
 #pragma endregion
-
-      ImGui::EndChild();
+      }  // end BeginChild
       scene_camera->SetRequireRendering(
           !(ImGui::GetCurrentWindowRead()->Hidden && !ImGui::GetCurrentWindowRead()->Collapsed));
       ImGui::PopStyleVar();
@@ -992,6 +1292,7 @@ void EditorLayer::SceneCameraWindow() {
 
 #pragma endregion
 }
+
 bool EditorLayer::IsGizmosDisplaying() const {
   return gizmo_displaying_;
 }
@@ -1130,6 +1431,35 @@ void EditorLayer::MainCameraWindow() {
 }
 
 void EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
+  if (input_event.key_action == Input::KeyActionType::Press) {
+    switch (input_event.key) {
+      case GLFW_KEY_SPACE:
+        switch (Application::GetApplicationStatus()) {
+          case Application::ExecutionStatus::NotPlaying:
+            Application::Play();
+            break;
+          case Application::ExecutionStatus::Playing:
+            Application::Pause();
+            break;
+          case Application::ExecutionStatus::Pause:
+            Application::Play();
+            break;
+          default:
+            break;
+        }
+        break;
+      case GLFW_KEY_ESCAPE:
+        Application::Stop();
+        break;
+      case GLFW_KEY_S:
+        if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+          ProjectManager::SaveProject();
+        }
+        break;
+      default:
+        break;
+    }
+  }
   // If main camera is focused, we pass the event to the scene.
   if (main_camera_window_focused_ && Application::IsPlaying()) {
     const auto active_scene = Application::GetActiveScene();
@@ -1248,6 +1578,12 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
     return;
   selected_entity_hierarchy_list_.clear();
   const auto scene = GetScene();
+  if (!scene) {
+    selected_entity_ = Entity();
+    lock_entity_selection_ = false;
+    selection_alpha_ = 0;
+    return;
+  }
   const auto previous_descendants = scene->GetDescendants(selected_entity_);
   for (const auto& i : previous_descendants) {
     scene->GetEntityMetadata(i).ancestor_selected = false;
@@ -1489,7 +1825,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
   const glm::vec2 resolution = target_camera->GetSize();
   glm::vec2 point = resolution;
   point.x = mouse_position.x;
-  point.y -= mouse_position.y;
+  point.y = resolution.y - mouse_position.y;
   if (point.x >= 0 && point.x < resolution.x && point.y >= 0 && point.y < resolution.y) {
     VkBufferImageCopy image_copy;
     image_copy.bufferOffset = 0;
@@ -1538,7 +1874,7 @@ bool EditorLayer::RenameEntity(const Entity& entity) {
       if (ImGui::BeginMenu(("Rename" + tag).c_str())) {
         static char new_name[256];
         ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
-        if (ImGui::Button(("Confirm" + tag).c_str())) {
+        if (ImGui::Button("Confirm")) {
           scene->SetEntityName(entity, std::string(new_name));
           memset(new_name, 0, 256);
         }
@@ -1697,7 +2033,7 @@ void EditorLayer::CameraWindowDragAndDrop() const {
 
 void EditorLayer::MoveCamera(const glm::quat& target_rotation, const glm::vec3& target_position,
                              const float& transition_time) {
-  auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+  auto& [sceneCameraRotation, sceneCameraPosition, scene_camera] = editor_cameras_.at(scene_camera_handle_);
   previous_rotation_ = sceneCameraRotation;
   previous_position_ = sceneCameraPosition;
   transition_time_ = transition_time;

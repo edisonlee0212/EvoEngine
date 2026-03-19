@@ -381,7 +381,9 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
   target_segment_range->handle_ = handle;
   target_segment_range->offset = storage.segments_.size();
   target_segment_range->range = 0;
-  target_segment_range->index_count = segments.size();
+  target_segment_range->index_count = 0;
+
+  uint32_t invalid_segment_count = 0;
 
   while (current_segment_index < segments.size()) {
     target_strand_meshlet_range->range++;
@@ -399,6 +401,12 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
     while (current_strand_meshlet.segment_size < Platform::Constants::meshlet_max_triangles_size &&
            current_segment_index < segments.size()) {
       const auto& current_segment = segments[current_segment_index];
+      if (current_segment.x >= strand_points.size() || current_segment.y >= strand_points.size() ||
+          current_segment.z >= strand_points.size() || current_segment.w >= strand_points.size()) {
+        invalid_segment_count++;
+        current_segment_index++;
+        continue;
+      }
       uint32_t new_strand_points_amount = 0;
       auto search_x = assigned_strand_points.find(current_segment.x);
       if (search_x == assigned_strand_points.end())
@@ -485,7 +493,23 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
       global_segment.w = current_strand_meshlet_segment.w + current_strand_meshlet.strand_point_chunk_index *
                                                                 Platform::Constants::meshlet_max_vertices_size;
       target_segment_range->range++;
+      target_segment_range->index_count++;
     }
+
+    if (current_strand_meshlet.segment_size == 0) {
+      storage.strand_meshlets_.pop_back();
+      storage.strand_point_data_chunks_.pop_back();
+      target_strand_meshlet_range->range--;
+    }
+  }
+
+  if (invalid_segment_count > 0) {
+    EVOENGINE_WARNING("GeometryStorage::AllocateStrands skipped " + std::to_string(invalid_segment_count) +
+                      " invalid strand segments.");
+  }
+
+  if (target_strand_meshlet_range->range == 0 || target_segment_range->range == 0) {
+    throw std::runtime_error("GeometryStorage::AllocateStrands failed: no valid segments after validation.");
   }
 
   storage.strand_meshlet_range_descriptor_.push_back(target_strand_meshlet_range);

@@ -383,7 +383,7 @@ void StrandModel::MergeTask(float max_root_distance, SkeletonNodeHandle node_han
           polar_position.y += glm::radians(junction_twist_angle);
           node_particle.SetPolarPosition(polar_position);
           node_particle.SetPolarPosition(node_particle.GetPosition());
-          node_particle.enable = true;
+          node_particle.status = ParticleStatus::kActive;
           node_particle.main_child = false;
           node_particle.corresponding_child_node_handle = child_handle;
         }
@@ -396,7 +396,7 @@ void StrandModel::MergeTask(float max_root_distance, SkeletonNodeHandle node_han
           polar_position.y += glm::radians(junction_twist_angle);
           node_particle.SetPolarPosition(polar_position);
           node_particle.SetPolarPosition(node_particle.GetPosition());
-          node_particle.enable = false;
+          node_particle.status = ParticleStatus::kDisabled;
           node_particle.main_child = false;
           node_particle.corresponding_child_node_handle = child_handle;
         }

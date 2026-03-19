@@ -2,6 +2,11 @@
 #pragma once
 #include "Input.hpp"
 
+namespace YAML {
+class Emitter;
+class Node;
+}
+
 namespace evo_engine {
 
 /**
@@ -50,6 +55,11 @@ class ILayer {
    * @brief Grants Application class access to private and protected members of ILayer.
    */
   friend class Application;
+
+  /**
+   * @brief Grants ProjectManager access to private serialization hooks.
+   */
+  friend class ProjectManager;
 
   /**
    * @brief Grants EditorLayer class access to private and protected members of ILayer.
@@ -118,6 +128,25 @@ class ILayer {
    * @param editor_layer A shared pointer to the EditorLayer managing the editor interface.
    */
   virtual void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  }
+
+  /**
+   * @brief Serializes layer state into the project file.
+   *
+   * Layers can override this to persist UI/runtime configuration that should be restored
+   * when a project is reopened.
+   *
+   * @param out YAML emitter used to write layer state.
+   */
+  virtual void Serialize(YAML::Emitter& out) const {
+  }
+
+  /**
+   * @brief Deserializes layer state from the project file.
+   *
+   * @param in YAML node containing the serialized state for this layer.
+   */
+  virtual void Deserialize(const YAML::Node& in) {
   }
 
   /**

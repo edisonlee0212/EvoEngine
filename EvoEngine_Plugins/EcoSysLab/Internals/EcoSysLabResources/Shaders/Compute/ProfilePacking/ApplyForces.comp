@@ -1,0 +1,40 @@
+#extension GL_ARB_shading_language_include : enable
+
+#define PROFILE_PACKING_SET 0
+#include "ProfilePacking.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_particles;
+  uint total_profiles;
+  float center_attraction_strength;
+};
+
+void main() {
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= total_particles)
+    return;
+
+  // Only active particles (enable==1) receive forces.
+  // Frozen particles (enable==2) are immovable obstacles — skip force application.
+  if (particles[idx].enable != 1)
+    return;
+
+  uint profile_idx = find_profile(idx, total_profiles);
+  if (profiles[profile_idx].is_active == 0)
+    return;
+
+  // Center attraction: accelerate toward the profile center (origin).
+  // Scale by distance so particles near center feel almost no inward pull
+  // (prevents central clumping) while distant particles are still attracted.
+  vec2 pos = particles[idx].position;
+  vec2 accel = vec2(0.0);
+  float dist = length(pos);
+  if (dist > 1e-6) {
+    accel = center_attraction_strength * dist * normalize(-pos);
+  }
+
+  particles[idx].acceleration = accel;
+  particles[idx].delta_position = vec2(0.0);
+}

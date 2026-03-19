@@ -34,6 +34,43 @@ std::vector<glm::uint>& Strands::UnsafeGetSegments() {
 }
 
 void Strands::PrepareStrands(const StrandPointAttributes& strand_point_attributes) {
+  if (strand_points_.size() < 4) {
+    EVOENGINE_ERROR("Strands::PrepareStrands requires at least 4 strand points.");
+    if (version_ != 0) {
+      GeometryStorage::FreeStrands(GetHandle());
+    }
+    segments_.clear();
+    return;
+  }
+
+  std::vector<glm::uint> valid_segment_raw_indices;
+  valid_segment_raw_indices.reserve(segment_raw_indices_.size());
+  uint32_t invalid_segment_count = 0;
+  for (const auto start_index : segment_raw_indices_) {
+    if (start_index + 3u < strand_points_.size()) {
+      valid_segment_raw_indices.emplace_back(start_index);
+    } else {
+      invalid_segment_count++;
+    }
+  }
+
+  if (invalid_segment_count > 0) {
+    EVOENGINE_WARNING("Strands::PrepareStrands filtered " + std::to_string(invalid_segment_count) +
+                      " invalid segment indices.");
+  }
+
+  if (valid_segment_raw_indices.empty()) {
+    EVOENGINE_ERROR("Strands::PrepareStrands has no valid segments after validation.");
+    if (version_ != 0) {
+      GeometryStorage::FreeStrands(GetHandle());
+    }
+    segment_raw_indices_.clear();
+    segments_.clear();
+    return;
+  }
+
+  segment_raw_indices_ = std::move(valid_segment_raw_indices);
+
   segments_.resize(segment_raw_indices_.size());
   Jobs::RunParallelFor(segment_raw_indices_.size(), [&](unsigned i) {
     segments_[i].x = segment_raw_indices_[i];

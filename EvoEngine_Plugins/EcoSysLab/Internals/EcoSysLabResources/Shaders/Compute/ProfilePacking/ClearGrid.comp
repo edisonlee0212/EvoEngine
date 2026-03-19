@@ -1,0 +1,18 @@
+#extension GL_ARB_shading_language_include : enable
+
+#define PROFILE_PACKING_SET 0
+#include "ProfilePacking.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_grid_cells;
+};
+
+void main() {
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= total_grid_cells)
+    return;
+
+  grid_cells[idx].count = 0;
+}

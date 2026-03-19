@@ -1,0 +1,48 @@
+#extension GL_ARB_shading_language_include : enable
+
+#define PROFILE_PACKING_SET 0
+#include "ProfilePacking.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_particles;
+  uint total_profiles;
+  float dt;
+  float damping;
+  float max_speed;
+};
+
+void main() {
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= total_particles)
+    return;
+
+  ProfileParticle p = particles[idx];
+  // Only active particles (enable==1) undergo Verlet integration.
+  // Frozen (2) and disabled (0) particles keep their positions.
+  if (p.enable != 1)
+    return;
+
+  uint profile_idx = find_profile(idx, total_profiles);
+  if (profiles[profile_idx].is_active == 0)
+    return;
+
+  // Apply collision delta.
+  vec2 pos = p.position + p.delta_position;
+
+  // Verlet integration (matches Particle2D::Update).
+  vec2 last_v = pos - p.last_position - damping * (pos - p.last_position);
+  vec2 last_pos = pos;
+  vec2 target_v = last_v + p.acceleration * dt * dt;
+  float speed = length(target_v);
+
+  if (speed > 1e-6) {
+    target_v = min(max_speed * dt, speed) * normalize(target_v);
+    pos = pos + target_v;
+  }
+
+  particles[idx].position = pos;
+  particles[idx].last_position = last_pos;
+  particles[idx].acceleration = vec2(0.0);
+}

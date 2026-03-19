@@ -474,8 +474,14 @@ void Camera::Serialize(YAML::Emitter& out) const {
 void Camera::Deserialize(const YAML::Node& in) {
   if (in["use_clear_color"])
     camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
-  if (in["clear_color"])
-    camera_settings.clear_color = glm::vec4(in["clear_color"].as<glm::vec3>(), 1.0f);
+  if (in["clear_color"]) {
+    auto color_node = in["clear_color"];
+    if (color_node.IsSequence() && color_node.size() == 4) {
+      camera_settings.clear_color = color_node.as<glm::vec4>();
+    } else if (color_node.IsSequence() && color_node.size() == 3) {
+      camera_settings.clear_color = glm::vec4(color_node.as<glm::vec3>(), 1.0f);
+    }
+  }
   if (in["near_distance"])
     camera_settings.near_distance = in["near_distance"].as<float>();
   if (in["far_distance"])

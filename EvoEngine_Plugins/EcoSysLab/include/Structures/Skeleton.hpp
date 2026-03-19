@@ -1014,6 +1014,7 @@ void Skeleton<SkeletonData, FlowData, NodeData>::Clone(
     flows_[i].handle_ = src_skeleton.flows_[i].handle_;
     flows_[i].nodes_ = src_skeleton.flows_[i].nodes_;
     flows_[i].parent_handle_ = src_skeleton.flows_[i].parent_handle_;
+    flows_[i].child_handles_ = src_skeleton.flows_[i].child_handles_;
     flows_[i].apical_ = src_skeleton.flows_[i].apical_;
   }
   max_node_index_ = src_skeleton.max_node_index_;

@@ -15,7 +15,7 @@ struct StrandModelParameters {
   /**
    * @brief Strength of attraction force pulling strands towards the center.
    */
-  float center_attraction_strength = 40000;
+  float center_attraction_strength = 1000;  // Linear spring (F = k*dist); old constant-magnitude default was 40000
 
   /**
    * @brief Factor determining the maximum number of simulation iterations per cell.
@@ -67,15 +67,17 @@ struct StrandModelParameters {
    */
   int boundary_point_distance = 6;
 
-  /**
-   * @brief Color used to represent boundary points.
-   */
-  glm::vec4 boundary_point_color = glm::vec4(0.6f, 0.3f, 0, 1);
+  /// Color for living bark (boundary) strands.
+  glm::vec4 boundary_point_color = glm::vec4(0.45f, 0.22f, 0.06f, 1.0f);
 
-  /**
-   * @brief Color used to represent content points.
-   */
-  glm::vec4 content_point_color = glm::vec4(0, 0.3, 0.0f, 1);
+  /// Color for dead/dry bark strands.
+  glm::vec4 bark_dead_color = glm::vec4(0.25f, 0.13f, 0.05f, 1.0f);
+
+  /// Color for sapwood (active xylem) strands.
+  glm::vec4 content_point_color = glm::vec4(0.62f, 0.55f, 0.35f, 1.0f);
+
+  /// Color for heartwood (inactive, dark core) strands.
+  glm::vec4 heartwood_color = glm::vec4(0.22f, 0.12f, 0.04f, 1.0f);
 
   /**
    * @brief Factor controlling the lateral push exerted on strands.
@@ -121,6 +123,10 @@ struct StrandModelParameters {
    * @brief Distribution governing the likelihood of cladoptosis.
    */
   PlottedDistribution<float> cladoptosis_distribution{};
+
+  glm::vec4 wound_color = glm::vec4(0.3f, 0.2f, 0.1f, 1.0f);
+  glm::vec4 callus_color = glm::vec4(0.5f, 0.4f, 0.3f, 1.0f);
+  float wound_healing_rate = 0.1f;
 
   /**
    * @brief Physics settings applied to strand profiles.

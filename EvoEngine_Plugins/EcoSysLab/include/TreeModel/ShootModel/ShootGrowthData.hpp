@@ -40,6 +40,13 @@ struct ShootOrgan {
   glm::vec3 scale = glm::vec3(1.0f);
   OrganStatus status = OrganStatus::Inactive;
 
+  float carbohydrate_source = 0.0f;
+  float carbohydrate_sink = 0.0f;
+  float carbohydrate_storage = 0.0f;
+  // Persistent sink override used for long-term pruning sink dominance.
+  bool force_sink = false;
+  float force_sink_multiplier = 1.0f;
+
   /**
    * @brief Resets the reproductive module to its initial state.
    */
@@ -158,6 +165,40 @@ struct InternodeGrowthData {
   float desired_growth_rate = 0.0f;                ///< Desired rate of growth (not serialized).
   float growth_rate = 0.0f;                        ///< Actual growth rate (not serialized).
   float space_occupancy = 0.0f;                    ///< Space occupied by this internode.
+
+  float carbohydrate_source = 0.0f;
+  float carbohydrate_sink = 0.0f;
+  float carbohydrate_storage = 0.0f;
+  bool force_sink = false;
+  float force_sink_multiplier = 1.0f;
+
+  float max_carbohydrate_mass = 0.0f;
+  /**
+   * @brief The carbohydrate "pressure" or "voltage" at this node.
+   * This is the value that will be solved iteratively.
+   */
+  float carbohydrate_mass = 0.0f;
+
+  /**
+   * @brief A temporary buffer to hold the concentration for the next iteration.
+   * This is essential for a stable numerical solver.
+   */
+  float next_concentration = 0.0f;
+
+  /**
+   * @brief The transport efficiency (1 / resistance) of this internode.
+   * Calculated based on length and thickness (Area / Length).
+   */
+  float conductance = 0.0f;
+
+  /**
+   * @brief The final net gain or loss of carbohydrates from flow.
+   * This will be calculated by the solver and used for growth.
+   */
+  float net_flow_balance = 0.0f;
+
+  // Visualization flag: set true when overflow clamp triggers in pressure-flow solver.
+  bool is_overflown = false;
 };
 
 /**

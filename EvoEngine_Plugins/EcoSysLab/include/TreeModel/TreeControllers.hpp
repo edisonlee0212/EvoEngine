@@ -131,9 +131,19 @@ struct ShootGrowthController : ITreeController {
   std::function<float(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data, float growth_inhibitor,
                       const SkeletonNode<InternodeGrowthData>& internode)>
       growth_inhibitor_transport;
+
+  /**
+   * \brief Updates the carbohydrate state of the internode.
+   */
+  std::function<void(std::mt19937& random_engine, ShootSkeleton& shoot_skeleton,
+                     SkeletonNode<InternodeGrowthData>& internode, const ClimateModel& climate_model, float delta_time)>
+      update_carbohydrate_state;
 };
 
 struct FoliageController : ITreeController {
+  std::function<void(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                     const SkeletonNode<InternodeGrowthData>& internode, Leaf& leaf, float delta_time)>
+      update_carbohydrate_state;
   /**
    * \brief Calculate how many leaves for current node.
    */
@@ -158,6 +168,12 @@ struct FoliageController : ITreeController {
 };
 
 struct ShootReproductionController : ITreeController {
+  std::function<void(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                     const SkeletonNode<InternodeGrowthData>& internode, Flower& flower)>
+      calculate_flower_sink_strength;
+  std::function<void(std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
+                     const SkeletonNode<InternodeGrowthData>& internode, Fruit& fruit)>
+      calculate_fruit_sink_strength;
   /**
    * \brief Calculate how many modules for current node.
    */
@@ -318,6 +334,14 @@ struct RootGrowthController : ITreeController {
   std::function<float(std::mt19937& random_engine, const RootGrowthData& root_growth_data,
                       const SkeletonNode<RootNodeGrowthData>& root_node)>
       lateral_node_flushing_rate;
+
+  /**
+   * @brief Calculate the sink strength of a root node for carbohydrate consumption.
+   */
+  std::function<void(std::mt19937& random_engine, RootSkeleton& root_skeleton,
+                     SkeletonNode<RootNodeGrowthData>& root_node, const ClimateModel& climate_model,
+                     float delta_time)>
+      calculate_root_node_sink_strength;
 };
 
 struct FineRootController : ITreeController {};

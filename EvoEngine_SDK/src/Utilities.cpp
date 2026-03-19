@@ -132,6 +132,8 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
     ofn.nFilterIndex = 1;
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
     ofn.lpstrTitle = title;
+    
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (GetOpenFileNameA(&ofn) == TRUE) {
       std::string ret_val = ofn.lpstrFile;
       const std::string search = "\\";
@@ -147,6 +149,8 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
       if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
+    if (hr == S_OK || hr == S_FALSE) 
+        CoUninitialize();
   }
 #else
   std::stringstream fileExtensions;

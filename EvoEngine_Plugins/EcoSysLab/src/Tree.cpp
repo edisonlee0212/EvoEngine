@@ -20,6 +20,420 @@
 
 using namespace eco_sys_lab_plugin;
 
+static void CalculateSourceSinkStrengthCombined(ShootModel* shoot_model, RootModel* root_model,
+                                                const ShootGrowthController* shoot_growth_controller,
+                                                const FoliageController* foliage_controller,
+                                                const ShootReproductionController* reproduction_controller,
+                                                const RootGrowthController* root_growth_controller,
+                                                const ClimateModel* climate_model, float delta_time) {
+  if (shoot_model && shoot_growth_controller) {
+    shoot_model->CalculateSourceSinkStrength(
+        *shoot_growth_controller, foliage_controller ? *foliage_controller : FoliageController{},
+        reproduction_controller ? *reproduction_controller : ShootReproductionController{}, *climate_model, delta_time);
+  }
+  if (root_model && root_growth_controller && climate_model) {
+    root_model->CalculateSourceSinkStrength(*root_growth_controller, *climate_model, delta_time);
+  }
+}
+
+// --------------------------------------------------------------------------------
+// [NEW] Unified Coupled Solver Structures
+// --------------------------------------------------------------------------------
+struct SolverNodeData {
+  float pressure = 0.0f;       // Current pressure (v)
+  float next_pressure = 0.0f;  // v at t+1
+  float capacity = 1.0f;       // C
+  float conductance = 0.0f;    // K (to parent)
+
+  // Folding coefficients: v_child = A * v_parent + B
+  float A = 0.0f;
+  float B = 0.0f;
+
+  float G_sum = 0.0f;  // Diagonal
+  float RHS = 0.0f;    // Right Hand Side
+};
+
+// --------------------------------------------------------------------------------
+// Helper: Folding Logic (Generic)
+// --------------------------------------------------------------------------------
+// Prepares G_sum and RHS for a single node, including its children's folded data.
+// Returns {A, B} for this node to pass to its parent.
+static std::pair<float, float> FoldNode(SolverNodeData& node_i, float carbohydrate_source, float carbohydrate_sink,
+                                        float delta_time, float theta, float eps, float K_parent, float v_parent_old) {
+  // 1. Base Equation Setup
+  const float dt_term = node_i.capacity / delta_time;
+  node_i.G_sum += dt_term;  // Add to existing G_sum (which might have children's A terms)
+  node_i.RHS += dt_term * node_i.pressure;
+
+  // Add Net Source/Sink
+  float net_mass_change = carbohydrate_source - carbohydrate_sink;
+  node_i.RHS += net_mass_change / delta_time;
+
+  // 2. Parent Influence
+  // Implicit Part (Theta)
+  node_i.G_sum += theta * K_parent;
+  // Explicit Part (1-Theta)
+  node_i.RHS += (1.0f - theta) * K_parent * (v_parent_old - node_i.pressure);
+
+  // 3. Compute A/B Coefficients
+  float A = 0.0f;
+  float B = 0.0f;
+  if (node_i.G_sum > eps) {
+    A = (theta * K_parent) / node_i.G_sum;
+    B = node_i.RHS / node_i.G_sum;
+  } else {
+    B = node_i.pressure;
+  }
+  return {A, B};
+}
+
+// Add module-level season parameters (default: active season = Mar 1 (60) to Nov 30 (334))
+static int season_start_day = 60;  // inclusive
+static int season_end_day   = 334; // inclusive
+
+static void SolveCoupledSystemCrankNicolson(ShootModel* shoot_model, RootModel* root_model, const ClimateModel& climate_model, float delta_time) {
+
+  // Calendar-based transport gating via day-of-year
+  const float days = climate_model.time * 365.0f;
+  const int day_in_year = static_cast<int>(glm::floor(glm::mod(days, 365.0f)));
+  const bool in_active_season = (season_start_day <= season_end_day)
+                                ? (day_in_year >= season_start_day && day_in_year <= season_end_day)
+                                : (day_in_year >= season_start_day || day_in_year <= season_end_day); // supports wrap-around
+
+  if (!in_active_season) {
+    if (shoot_model) {
+      for (auto& n : shoot_model->RefShootSkeleton().RefRawNodes()) {
+        n.data.conductance = 0.0f;
+      }
+    }
+    if (root_model) {
+      for (auto& n : root_model->RefRootSkeleton().RefRawNodes()) {
+        n.data.conductance = 0.0f;
+      }
+    }
+  }
+
+  // --- STABILITY FIX ---
+  const float theta = 1.0f;
+  const float eps = 1e-9f;
+
+  // --- 1. Data Preparation ---
+  static std::vector<SolverNodeData> shoot_solver_data;
+  static std::vector<SolverNodeData> root_solver_data;
+
+  auto prepare_data = [&](auto& skeleton, std::vector<SolverNodeData>& buffer) {
+    auto& raw = skeleton.RefRawNodes();
+    if (buffer.size() < raw.size())
+      buffer.resize(raw.size());
+    for (size_t i = 0; i < raw.size(); ++i) {
+      auto& b = raw[i];
+      auto& s = buffer[i];
+      s.capacity = glm::max(b.data.max_carbohydrate_mass, 1e-6f);
+      s.conductance = std::isfinite(b.data.conductance) && b.data.conductance > 0.0f ? b.data.conductance : 0.0f;
+      s.pressure = s.capacity > 0.0f ? (b.data.carbohydrate_mass / s.capacity) : 0.0f;
+      if (!std::isfinite(s.pressure))
+        s.pressure = 0.0f;
+      s.G_sum = 0.0f;
+      s.RHS = 0.0f;
+      s.A = 0.0f;
+      s.B = 0.0f;
+      s.next_pressure = s.pressure;
+    }
+  };
+
+  // Find ALL base nodes (nodes with no parent)
+  auto find_base_indices = [&](auto& skeleton) -> std::vector<int> {
+    std::vector<int> base_indices;
+    auto& raw = skeleton.RefRawNodes();
+    const auto& sorted = skeleton.PeekSortedNodeList();
+    for (auto h : sorted) {
+      if (raw[h].GetParentHandle() == -1)
+        base_indices.push_back(static_cast<int>(h));
+    }
+    return base_indices;
+  };
+
+  if (shoot_model)
+    prepare_data(shoot_model->RefShootSkeleton(), shoot_solver_data);
+  if (root_model)
+    prepare_data(root_model->RefRootSkeleton(), root_solver_data);
+
+  // Get all base indices for both skeletons
+  std::vector<int> shoot_base_indices;
+  std::vector<int> root_base_indices;
+  
+  if (shoot_model && !shoot_model->RefShootSkeleton().RefRawNodes().empty()) {
+    shoot_base_indices = find_base_indices(shoot_model->RefShootSkeleton());
+  }
+  if (root_model && !root_model->RefRootSkeleton().RefRawNodes().empty()) {
+    root_base_indices = find_base_indices(root_model->RefRootSkeleton());
+  }
+
+  // For backward compatibility, keep single index references (use first base if available)
+  const int shoot_base_idx = shoot_base_indices.empty() ? -1 : shoot_base_indices[0];
+  const int root_base_idx = root_base_indices.empty() ? -1 : root_base_indices[0];
+
+  // --- 2. Phase A: Fold Shoot (Leaves -> Trunk Base) ---
+  // Store folded coefficients for each shoot base node
+  std::vector<float> shoot_base_A_list;
+  std::vector<float> shoot_base_B_list;
+  std::vector<float> K_interface_list;
+
+  if (shoot_model && !shoot_model->RefShootSkeleton().RefRawNodes().empty()) {
+    auto& skeleton = shoot_model->RefShootSkeleton();
+    const auto& sorted = skeleton.PeekSortedNodeList();
+    auto& raw = skeleton.RefRawNodes();
+
+    for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
+      const SkeletonNodeHandle h = *it;
+      auto& s_node = shoot_solver_data[h];
+      auto& b_node = raw[h];
+
+      float K_p = 0.0f;
+      float v_p_old = 0.0f;
+
+      if (b_node.GetParentHandle() != -1) {
+        K_p = s_node.conductance;
+        v_p_old = shoot_solver_data[b_node.GetParentHandle()].pressure;
+      } else if (root_model && !root_base_indices.empty()) {
+        // This is a shoot base node - connect to root base(s)
+        // For now, connect to first root base (could be extended to weighted average)
+        K_p = s_node.conductance;
+        v_p_old = root_solver_data[root_base_indices[0]].pressure;
+      }
+
+      // Fold
+      {
+        const float dt_term = s_node.capacity / delta_time;
+        s_node.G_sum += dt_term;
+        s_node.RHS += dt_term * s_node.pressure;
+
+        const float net_mass_change = b_node.data.carbohydrate_source - b_node.data.carbohydrate_sink;
+        s_node.RHS += net_mass_change / delta_time;
+
+        s_node.G_sum += theta * K_p;
+        s_node.RHS += (1.0f - theta) * K_p * (v_p_old - s_node.pressure);
+
+        if (s_node.G_sum > eps) {
+          s_node.A = (theta * K_p) / s_node.G_sum;
+          s_node.B = s_node.RHS / s_node.G_sum;
+        } else {
+          s_node.A = 0.0f;
+          s_node.B = s_node.pressure;
+        }
+      }
+
+      // Apply to parent or collect base coefficients
+      if (b_node.GetParentHandle() != -1) {
+        auto& parent_s = shoot_solver_data[b_node.GetParentHandle()];
+        const float K_child = s_node.conductance;
+        parent_s.G_sum += theta * K_child;
+        parent_s.G_sum -= theta * K_child * s_node.A;
+        parent_s.RHS += theta * K_child * s_node.B;
+        parent_s.RHS -= (1.0f - theta) * K_child * (v_p_old - s_node.pressure);
+      } else {
+        // This is a base node - store its folded coefficients
+        shoot_base_A_list.push_back(s_node.A);
+        shoot_base_B_list.push_back(s_node.B);
+        K_interface_list.push_back(s_node.conductance);
+      }
+    }
+  }
+
+  // --- 3. Phase B: Fold Root (Tips -> Root Base) ---
+  if (root_model && !root_model->RefRootSkeleton().RefRawNodes().empty()) {
+    auto& skeleton = root_model->RefRootSkeleton();
+    const auto& sorted = skeleton.PeekSortedNodeList();
+    auto& raw = skeleton.RefRawNodes();
+
+    // Inject ALL shoot base nodes' folded data into root base nodes
+    // Distribute shoot influence across root bases proportionally
+    if (shoot_model && !shoot_base_indices.empty() && !root_base_indices.empty()) {
+      // Calculate total interface conductance for normalization
+      float total_K_interface = 0.0f;
+      for (const auto& K : K_interface_list) {
+        total_K_interface += K;
+      }
+      
+      // For each root base, inject the combined shoot influence
+      for (size_t rb_idx = 0; rb_idx < root_base_indices.size(); ++rb_idx) {
+        const int root_base_handle = root_base_indices[rb_idx];
+        auto& root_base_s = root_solver_data[root_base_handle];
+        const float v_root_old = root_base_s.pressure;
+        
+        // Weight for this root base (equal distribution among root bases)
+        const float root_weight = 1.0f / static_cast<float>(root_base_indices.size());
+        
+        // Inject influence from all shoot bases
+        for (size_t sb_idx = 0; sb_idx < shoot_base_indices.size(); ++sb_idx) {
+          const int shoot_base_handle = shoot_base_indices[sb_idx];
+          const float v_shoot_old = shoot_solver_data[shoot_base_handle].pressure;
+          const float K_interface = K_interface_list[sb_idx] * root_weight;
+          const float shoot_A = shoot_base_A_list[sb_idx];
+          const float shoot_B = shoot_base_B_list[sb_idx];
+
+          root_base_s.G_sum += theta * K_interface;
+          root_base_s.G_sum -= theta * K_interface * shoot_A;
+          root_base_s.RHS += theta * K_interface * shoot_B;
+          root_base_s.RHS -= (1.0f - theta) * K_interface * (v_root_old - v_shoot_old);
+        }
+      }
+    }
+
+    for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
+      const SkeletonNodeHandle h = *it;
+      auto& s_node = root_solver_data[h];
+      auto& b_node = raw[h];
+
+      float K_p = 0.0f;
+      float v_p_old = 0.0f;
+      if (b_node.GetParentHandle() != -1) {
+        K_p = s_node.conductance;
+        v_p_old = root_solver_data[b_node.GetParentHandle()].pressure;
+      }
+
+      // Fold
+      {
+        const float dt_term = s_node.capacity / delta_time;
+        s_node.G_sum += dt_term;
+        s_node.RHS += dt_term * s_node.pressure;
+
+        const float net_mass_change = b_node.data.carbohydrate_source - b_node.data.carbohydrate_sink;
+        s_node.RHS += net_mass_change / delta_time;
+
+        s_node.G_sum += theta * K_p;
+        s_node.RHS += (1.0f - theta) * K_p * (v_p_old - s_node.pressure);
+
+        if (s_node.G_sum > eps) {
+          s_node.A = (theta * K_p) / s_node.G_sum;
+          s_node.B = s_node.RHS / s_node.G_sum;
+        } else {
+          s_node.A = 0.0f;
+          s_node.B = s_node.pressure;
+        }
+      }
+
+      // Apply to parent
+      if (b_node.GetParentHandle() != -1) {
+        auto& parent_s = root_solver_data[b_node.GetParentHandle()];
+        const float K_child = s_node.conductance;
+        parent_s.G_sum += theta * K_child;
+        parent_s.G_sum -= theta * K_child * s_node.A;
+        parent_s.RHS += theta * K_child * s_node.B;
+        parent_s.RHS -= (1.0f - theta) * K_child * (v_p_old - s_node.pressure);
+      }
+    }
+  }
+
+  // --- 4. Phase C: Unfold Root (Root Base -> Tips) ---
+  // Store the new pressures for all root base nodes
+  std::vector<float> v_root_base_new_list;
+  
+  if (root_model && !root_model->RefRootSkeleton().RefRawNodes().empty()) {
+    auto& skeleton = root_model->RefRootSkeleton();
+    const auto& sorted = skeleton.PeekSortedNodeList();
+    auto& raw = skeleton.RefRawNodes();
+
+    for (const auto& h : sorted) {
+      auto& s_node = root_solver_data[h];
+      auto& b_node = raw[h];
+
+      if (b_node.GetParentHandle() == -1) {
+        // This is a root base node
+        s_node.next_pressure = s_node.B;
+        v_root_base_new_list.push_back(s_node.next_pressure);
+      } else {
+        const float v_p = root_solver_data[b_node.GetParentHandle()].next_pressure;
+        s_node.next_pressure = s_node.A * v_p + s_node.B;
+      }
+
+      // Clamp write-back
+      float unclamped_mass = s_node.next_pressure * s_node.capacity;
+      if (!std::isfinite(unclamped_mass))
+        unclamped_mass = 0.0f;
+      const float max_mass = glm::max(b_node.data.max_carbohydrate_mass, 1e-6f);
+      const float new_mass = glm::clamp(unclamped_mass, 0.0f, max_mass);
+
+      const float bio_delta = b_node.data.carbohydrate_source - b_node.data.carbohydrate_sink;
+      b_node.data.net_flow_balance = (new_mass - b_node.data.carbohydrate_mass) - bio_delta;
+      b_node.data.carbohydrate_mass = new_mass;
+      b_node.data.next_concentration = (s_node.capacity > 0.0f) ? (new_mass / s_node.capacity) : 0.0f;
+    }
+  }
+
+  // Calculate average root base pressure for shoot unfolding
+  float v_root_base_avg = 0.0f;
+  if (!v_root_base_new_list.empty()) {
+    for (const auto& v : v_root_base_new_list) {
+      v_root_base_avg += v;
+    }
+    v_root_base_avg /= static_cast<float>(v_root_base_new_list.size());
+  }
+
+  // --- 5. Phase D: Unfold Shoot (Trunk Base -> Leaves) ---
+  if (shoot_model && !shoot_model->RefShootSkeleton().RefRawNodes().empty()) {
+    auto& skeleton = shoot_model->RefShootSkeleton();
+    const auto& sorted = skeleton.PeekSortedNodeList();
+    auto& raw = skeleton.RefRawNodes();
+
+    for (const auto& h : sorted) {
+      auto& s_node = shoot_solver_data[h];
+      auto& b_node = raw[h];
+
+      if (b_node.GetParentHandle() == -1) {
+        // This is a shoot base node - use average root base pressure
+        s_node.next_pressure = s_node.A * v_root_base_avg + s_node.B;
+      } else {
+        const float v_p = shoot_solver_data[b_node.GetParentHandle()].next_pressure;
+        s_node.next_pressure = s_node.A * v_p + s_node.B;
+      }
+
+      // Clamp write-back
+      float unclamped_mass = s_node.next_pressure * s_node.capacity;
+      if (!std::isfinite(unclamped_mass))
+        unclamped_mass = 0.0f;
+      const float max_mass = glm::max(b_node.data.max_carbohydrate_mass, 1e-6f);
+      const float new_mass = glm::clamp(unclamped_mass, 0.0f, max_mass);
+
+      const float bio_delta = b_node.data.carbohydrate_source - b_node.data.carbohydrate_sink;
+      b_node.data.net_flow_balance = (new_mass - b_node.data.carbohydrate_mass) - bio_delta;
+      b_node.data.carbohydrate_mass = new_mass;
+      b_node.data.next_concentration = (s_node.capacity > 0.0f) ? (new_mass / s_node.capacity) : 0.0f;
+    }
+  }
+
+  // Logging
+  static float log_timer = 0.0f;
+  log_timer += delta_time;
+  if (log_timer > 1.0f) {
+    float total_mass = 0.0f;
+    float total_sink = 0.0f;
+    float total_source = 0.0f;
+
+    auto sum_stats = [&](auto& skeleton) {
+      for (const auto& n : skeleton.RefRawNodes()) {
+        total_mass += n.data.carbohydrate_mass;
+        total_sink += n.data.carbohydrate_sink;
+        total_source += n.data.carbohydrate_source;
+      }
+    };
+    if (shoot_model)
+      sum_stats(shoot_model->RefShootSkeleton());
+    if (root_model)
+      sum_stats(root_model->RefRootSkeleton());
+
+    EVOENGINE_LOG("[System Stats] Total Mass: " + std::to_string(total_mass) +
+                  " | Sink: " + std::to_string(total_sink) + " | Source: " + std::to_string(total_source) +
+                  " | Root bases: " + std::to_string(root_base_indices.size()) +
+                  " | Shoot bases: " + std::to_string(shoot_base_indices.size()));
+    log_timer = 0.0f;
+  }
+}
+
+static void DistributeCarbohydratesCombined(ShootModel* shoot_model, RootModel* root_model, const ClimateModel& climate_model, float delta_time) {
+  SolveCoupledSystemCrankNicolson(shoot_model, root_model, climate_model, delta_time);
+}
+
 TreeStatistics Tree::GetTreeStatistics() const {
   TreeStatistics ret_val{};
   const auto& skeleton = shoot_model.PeekShootSkeleton();
@@ -28,14 +442,26 @@ TreeStatistics Tree::GetTreeStatistics() const {
 }
 
 void Tree::Reset() {
+  const bool keep_proc_enabled = procedural_strand_model.enabled;
+  const bool keep_gpu_profile_packing = procedural_strand_model.gpu_profile_packing;
+  const int keep_gpu_packing_iterations = procedural_strand_model.gpu_packing_iterations;
+  const int keep_proc_seed = procedural_strand_model.seed;
+
   ClearSkeletalGraph();
   ClearGeometryEntities();
   ClearStrandModelMeshRenderer();
   ClearStrandRenderer();
+  ClearProceduralStrandRenderer();
   ClearAnimatedGeometryEntities();
   shoot_model.Clear();
   root_model.Clear();
   shoot_strand_model = {};
+  procedural_strand_model.Reset();
+  procedural_strand_model.enabled = keep_proc_enabled;
+  procedural_strand_model.gpu_profile_packing = keep_gpu_profile_packing;
+  procedural_strand_model.gpu_packing_iterations = keep_gpu_packing_iterations;
+  procedural_strand_model.seed = keep_proc_seed;
+  procedural_strand_renderer_dirty = false;
   shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
   shoot_visualizer.Reset(shoot_model);
   root_visualizer.Reset(root_model);
@@ -114,6 +540,14 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::TreeNode("Tree settings")) {
         if (ImGui::DragFloat("Start time", &start_time, 0.01f, 0.0f, 100.f))
           changed = true;
+
+        ImGui::Separator();
+        ImGui::Text("Transport Active Season (Day-of-Year)");
+        ImGui::DragInt("Season start day", &season_start_day, 1.0f, 0, 364);
+        ImGui::DragInt("Season end day", &season_end_day, 1.0f, 0, 364);
+        season_start_day = glm::clamp(season_start_day, 0, 364);
+        season_end_day = glm::clamp(season_end_day, 0, 364);
+
         ImGui::Checkbox("Enable History", &enable_history);
         if (enable_history) {
           ImGui::DragInt("History per iteration", &history_iteration, 1, 1, 1000);
@@ -305,6 +739,38 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::SameLine();
   if (ImGui::Button("Clear StrandRenderer")) {
     ClearStrandRenderer();
+  }
+
+  if (ImGui::TreeNodeEx("Procedural Strand Model", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Checkbox("Enable", &procedural_strand_model.enabled);
+    ImGui::Checkbox("GPU Profile Packing", &procedural_strand_model.gpu_profile_packing);
+    ImGui::SameLine();
+    ImGui::DragInt("Iterations##ProcStrand", &procedural_strand_model.gpu_packing_iterations, 1, 1, 500);
+    ImGui::Text(("Strands: " + std::to_string(procedural_strand_model.skeleton.data.HasStrandData()
+                                                  ? procedural_strand_model.skeleton.data.strand_data->strand_group
+                                                        .PeekStrands().size()
+                                                  : 0))
+                    .c_str());
+    if (ImGui::Button("Enable from Current Tree")) {
+      procedural_strand_model.Enable(shoot_model.PeekShootSkeleton(), strand_model_parameters);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Disable##ProcStrand")) {
+      procedural_strand_model.Disable();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset##ProcStrand")) {
+      procedural_strand_model.Reset();
+      ClearProceduralStrandRenderer();
+    }
+    if (ImGui::Button("Build Procedural Strands")) {
+      InitializeProceduralStrandRenderer();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear Procedural Strands")) {
+      ClearProceduralStrandRenderer();
+    }
+    ImGui::TreePop();
   }
   if (ImGui::Button("Build Strand Particles")) {
     InitializeStrandParticles();
@@ -515,6 +981,23 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
       if (!shoot_model.PeekShootSkeleton().PeekSortedNodeList().empty())
         root_model.shoot_skeleton_base_thickness = shoot_model.PeekShootSkeleton().PeekNode(0).info.thickness;
     }
+
+    // Procedural strand update: run every growth step so elongation/thickness changes
+    // are reflected even when topology is unchanged.
+    if (procedural_strand_model.enabled) {
+      // If procedural mode was preserved across reset/load but has not been initialised yet,
+      // rebuild from the current shoot skeleton before applying incremental events.
+      if (!procedural_strand_model.skeleton.data.HasStrandData()) {
+        if (!shoot_model.PeekShootSkeleton().PeekRawNodes().empty()) {
+          procedural_strand_model.Enable(shoot_model.PeekShootSkeleton(), strand_model_parameters);
+        }
+      } else {
+        procedural_strand_model.OnGrowthStep(shoot_model.PeekShootSkeleton(), shoot_model.PeekGrowthEvents(),
+                                             shoot_model.PruningOccurred(), strand_model_parameters);
+      }
+      // Defer renderer updates to the main thread (TryGrow can run inside worker jobs).
+      procedural_strand_renderer_dirty = true;
+    }
   }
 
   if (root_growth_controller_.Initialized()) {
@@ -531,6 +1014,19 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
       root_visualizer.need_update = true;
     }
   }
+
+  // Centralized source/sink update and distribution for both systems.
+  CalculateSourceSinkStrengthCombined(shoot_growth_controller_.Initialized() ? &shoot_model : nullptr,
+                                      root_growth_controller_.Initialized() ? &root_model : nullptr,
+                                      shoot_growth_controller_.Initialized() ? &shoot_growth_controller_ : nullptr,
+                                      &foliage_controller_, &shoot_reproduction_controller_,
+                                      root_growth_controller_.Initialized() ? &root_growth_controller_ : nullptr,
+                                      &c->climate_model, simulation_settings.delta_time);
+
+  DistributeCarbohydratesCombined(shoot_growth_controller_.Initialized() ? &shoot_model : nullptr,
+                                  root_growth_controller_.Initialized() ? &root_model : nullptr, c->climate_model,
+                                  simulation_settings.delta_time);
+
   if (enable_history && shoot_model.iteration_ % history_iteration == 0) {
     shoot_model.Step();
     root_model.Step();
@@ -547,19 +1043,57 @@ void Tree::Serialize(YAML::Emitter& out) const {
   tree_descriptor_ref.Save("tree_descriptor_ref", out);
 
   strand_model_parameters.Save("strand_model_parameters", out);
+  procedural_strand_model.Save("procedural_strand_model", out);
   tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
   shoot_strand_model.Save("shoot_strand_model", out);
   shoot_model.Save("shoot_model", out);
+
+  out << YAML::Key << "shoot_visualization_mode" << YAML::Value << shoot_visualizer.tree_visualizer_color_settings.visualization_mode;
+  out << YAML::Key << "shoot_color_multiplier" << YAML::Value << shoot_visualizer.tree_visualizer_color_settings.color_multiplier;
+  out << YAML::Key << "shoot_visualization" << YAML::Value << shoot_visualizer.visualization;
+  out << YAML::Key << "shoot_leaf_visualization" << YAML::Value << shoot_visualizer.leaf_visualization_;
+  out << YAML::Key << "shoot_flower_visualization" << YAML::Value << shoot_visualizer.flower_visualization_;
+  out << YAML::Key << "shoot_fruit_visualization" << YAML::Value << shoot_visualizer.fruit_visualization_;
+  out << YAML::Key << "shoot_profile_gui" << YAML::Value << shoot_visualizer.profile_gui;
+  out << YAML::Key << "shoot_tree_hierarchy_gui" << YAML::Value << shoot_visualizer.tree_hierarchy_gui;
+
+  out << YAML::Key << "root_visualization_mode" << YAML::Value << root_visualizer.root_visualizer_color_settings.visualization_mode;
+  out << YAML::Key << "root_color_multiplier" << YAML::Value << root_visualizer.root_visualizer_color_settings.color_multiplier;
+  out << YAML::Key << "root_visualization" << YAML::Value << root_visualizer.visualization;
+  out << YAML::Key << "root_profile_gui" << YAML::Value << root_visualizer.profile_gui;
+  out << YAML::Key << "root_tree_hierarchy_gui" << YAML::Value << root_visualizer.tree_hierarchy_gui;
+
+  out << YAML::Key << "shoot_model_history_limit" << YAML::Value << shoot_model.history_limit;
+  out << YAML::Key << "root_model_history_limit" << YAML::Value << root_model.history_limit;
 }
 
 void Tree::Deserialize(const YAML::Node& in) {
   tree_descriptor_ref.Load("tree_descriptor_ref", in);
 
   strand_model_parameters.Load("strand_model_parameters", in);
+  procedural_strand_model.Load("procedural_strand_model", in);
   tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
 
   shoot_strand_model.Load("shoot_strand_model", in);
   shoot_model.Load("shoot_model", in);
+
+  if (in["shoot_visualization_mode"]) shoot_visualizer.tree_visualizer_color_settings.visualization_mode = in["shoot_visualization_mode"].as<int>();
+  if (in["shoot_color_multiplier"]) shoot_visualizer.tree_visualizer_color_settings.color_multiplier = in["shoot_color_multiplier"].as<float>();
+  if (in["shoot_visualization"]) shoot_visualizer.visualization = in["shoot_visualization"].as<bool>();
+  if (in["shoot_leaf_visualization"]) shoot_visualizer.leaf_visualization_ = in["shoot_leaf_visualization"].as<bool>();
+  if (in["shoot_flower_visualization"]) shoot_visualizer.flower_visualization_ = in["shoot_flower_visualization"].as<bool>();
+  if (in["shoot_fruit_visualization"]) shoot_visualizer.fruit_visualization_ = in["shoot_fruit_visualization"].as<bool>();
+  if (in["shoot_profile_gui"]) shoot_visualizer.profile_gui = in["shoot_profile_gui"].as<bool>();
+  if (in["shoot_tree_hierarchy_gui"]) shoot_visualizer.tree_hierarchy_gui = in["shoot_tree_hierarchy_gui"].as<bool>();
+
+  if (in["root_visualization_mode"]) root_visualizer.root_visualizer_color_settings.visualization_mode = in["root_visualization_mode"].as<int>();
+  if (in["root_color_multiplier"]) root_visualizer.root_visualizer_color_settings.color_multiplier = in["root_color_multiplier"].as<float>();
+  if (in["root_visualization"]) root_visualizer.visualization = in["root_visualization"].as<bool>();
+  if (in["root_profile_gui"]) root_visualizer.profile_gui = in["root_profile_gui"].as<bool>();
+  if (in["root_tree_hierarchy_gui"]) root_visualizer.tree_hierarchy_gui = in["root_tree_hierarchy_gui"].as<bool>();
+
+  if (in["shoot_model_history_limit"]) shoot_model.history_limit = in["shoot_model_history_limit"].as<int>();
+  if (in["root_model_history_limit"]) root_model.history_limit = in["root_model_history_limit"].as<int>();
 }
 
 void Tree::RegisterVoxel() {

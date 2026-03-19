@@ -1,4 +1,3 @@
-
 #pragma once
 #include "ILayer.hpp"
 
@@ -47,6 +46,14 @@ class WindowLayer final : public ILayer {
    * @brief Size of the window in pixels.
    */
   glm::ivec2 window_size_ = {1, 1};
+
+  /**
+   * @brief Set to true when position and size have been restored from a saved
+   * state, so the subsequent default ResizeWindow call in Application::Initialize
+   * is suppressed.
+   */
+  mutable bool restored_from_state_ = false;
+
 #pragma endregion
 
   /**

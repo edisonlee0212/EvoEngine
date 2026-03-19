@@ -272,8 +272,7 @@ void eco_sys_lab_plugin::ModulusGraph::SetOutput(NodeGraphNodeHandle output_node
   // Set node positions
   const auto editor_layer = Application::GetLayer<EditorLayer>();
   if (editor_layer) {
-    ImNodesEditorContext* prev_editor_context = nullptr;
-    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
+    ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
     ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
     ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
@@ -1220,58 +1219,44 @@ void IDynamicTreeStrands::DeserializeImpl(const YAML::Node& in) {
         }
         switch (data.type) {
           case NodeType::Unknown:
-            ImGui::Text("Unknown");
             break;
           case NodeType::InputSegment:
-            ImGui::Text("Segment");
             data.node_impl = std::make_shared<InputNode>();
             break;
           case NodeType::InputParticle:
-            ImGui::Text("Particle");
             data.node_impl = std::make_shared<InputNode>();
             break;
           case NodeType::OutputDensity:
-            ImGui::Text("Density");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputStretchShearModulus:
-            ImGui::Text("Stretch Shear Modulus");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputBendingModulus:
-            ImGui::Text("Bending Modulus");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputTwistingModulus:
-            ImGui::Text("Twisting Modulus");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputSheerStretchStrength:
-            ImGui::Text("Sheer Stretch Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputBendingStrength:
-            ImGui::Text("Bending Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputTwistingStrength:
-            ImGui::Text("Twisting Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputBundleStrength:
-            ImGui::Text("Bundle Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputConnectivityStrength:
-            ImGui::Text("Connectivity Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputTrunk:
-            ImGui::Text("Trunk");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::Constant:
-            ImGui::Text("Constant");
             data.node_impl = std::make_shared<ConstantNode>();
             break;
           case NodeType::Add:

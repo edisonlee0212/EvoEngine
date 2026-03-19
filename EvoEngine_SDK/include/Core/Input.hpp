@@ -1,6 +1,7 @@
-
 #pragma once
 #include "ISingleton.hpp"
+#include <glm/glm.hpp>
+#include <set>
 
 namespace evo_engine {
 
@@ -37,6 +38,11 @@ class Input final {
    */
   static glm::vec2 GetMousePosition();
 
+  /**
+   * @brief Returns whether the cursor is currently captured (hidden/locked).
+   */
+  static bool IsCursorCaptured();
+
  private:
   friend class Platform;    /**< Grants Platform class access to private members of Input. */
   friend class Application; /**< Grants Application class access to private members of Input. */
@@ -44,6 +50,11 @@ class Input final {
 
   std::unordered_map<int, KeyActionType> pressed_keys_ = {}; /**< Stores the state of keys pressed. */
   glm::vec2 mouse_position_ = glm::vec2(0.0f);               /**< Stores the current mouse position. */
+
+  // Cursor capture (hide / lock) support
+  bool cursor_captured_ = false;             /**< Whether cursor is currently captured. */
+  glm::vec2 saved_cursor_pos_ = glm::vec2(0);/**< Saved cursor position to restore after release. */
+  std::set<int> cursor_capture_buttons_;     /**< Buttons that requested capture (MIDDLE/RIGHT). */
 
   /**
    * @brief Callback function to handle keyboard events.
@@ -62,7 +73,7 @@ class Input final {
    * @param action The action performed on the button (Press, Release, etc.).
    * @param mods Bit field describing which modifier keys were held down.
    */
-  static void MouseButtonCallBack(GLFWwindow* window, int button, int action, int mods);
+  static void MouseButtonCallBack(GLFWwindow* window, const int button, const int action, int mods);
 
   /**
    * @brief Dispatches an InputEvent to the input system.

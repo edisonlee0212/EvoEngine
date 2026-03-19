@@ -272,7 +272,7 @@ template <typename T>
 void StrandModelProfile<T>::SolveCollision(ParticleHandle p1_handle, ParticleHandle p2_handle) {
   auto& p1 = particles_2d_.at(p1_handle);
   const auto& p2 = particles_2d_.at(p2_handle);
-  if (!p1.enable || !p2.enable)
+  if (!p1.IsEnabled() || !p2.IsEnabled())
     return;
 
   const auto difference = p1.position_ - p2.position_;
@@ -300,7 +300,7 @@ void StrandModelProfile<T>::Update(const std::function<void(ParticleGrid2D& grid
   const auto start_time = Times::Now();
 
   for (auto& particle : particles_2d_) {
-    if (particle.enable)
+    if (particle.IsEnabled())
       modify_particle_func(particle);
     particle.delta_position_ = glm::vec2(0);
   }
@@ -308,7 +308,7 @@ void StrandModelProfile<T>::Update(const std::function<void(ParticleGrid2D& grid
   CheckCollisions(modify_grid_func);
 
   for (auto& particle : particles_2d_) {
-    if (particle.enable)
+    if (particle.IsEnabled())
       particle.position_ += particle.delta_position_;
 
     UpdateSettings update_settings{};
@@ -334,7 +334,7 @@ void StrandModelProfile<T>::CalculateMinMax() {
     min_ = glm::min(particle.position_, min_);
     max_ = glm::max(particle.position_, max_);
 
-    if (particle.enable) {
+    if (particle.IsEnabled()) {
       enabled_particle_size++;
       mass_center_ += particle.position_;
       max_distance_to_center_ = glm::max(max_distance_to_center_, glm::length(particle.position_));
@@ -362,13 +362,13 @@ void StrandModelProfile<T>::CheckCollisions(
 
   for (ParticleHandle i = 0; i < particles_2d_.size(); i++) {
     const auto& particle = particles_2d_[i];
-    if (particle.enable)
+    if (particle.IsEnabled())
       particle_grid_2d.RegisterParticle(particle.position_, i);
   }
 
   for (ParticleHandle particle_handle = 0; particle_handle < particles_2d_.size(); particle_handle++) {
     const auto& particle = particles_2d_[particle_handle];
-    if (!particle.enable)
+    if (!particle.IsEnabled())
       continue;
 
     const auto& coordinate = particle_grid_2d.GetCoordinate(particle.position_);
@@ -609,7 +609,7 @@ float StrandModelProfile<T>::GetDeltaTime() const {
 template <typename ParticleData>
 void StrandModelProfile<ParticleData>::SetEnableAllParticles(const bool value) {
   for (auto& particle : particles_2d_) {
-    particle.enable = value;
+    particle.status = value ? ParticleStatus::kActive : ParticleStatus::kDisabled;
   }
 }
 

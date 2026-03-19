@@ -7,6 +7,21 @@ namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
 /**
+ * @brief Tri-state status for 2D profile particles.
+ *
+ * Disabled particles are fully skipped (no physics, no collision).
+ * Active particles undergo full physics simulation.
+ * Frozen particles act as immovable collision obstacles — they block active particles
+ * but do not move themselves. This prevents interior profile drift while keeping
+ * the boundary mobile for new strand routing.
+ */
+enum class ParticleStatus : uint8_t {
+  kDisabled = 0,  ///< Fully skipped (no physics, no collision obstacle).
+  kActive = 1,    ///< Full physics simulation.
+  kFrozen = 2     ///< Immovable collision obstacle — blocks active particles but does not move.
+};
+
+/**
  * @struct UpdateSettings
  * @brief Contains settings for updating particle properties.
  */
@@ -76,7 +91,17 @@ class Particle2D {
    */
   [[nodiscard]] float GetDistanceToBoundary() const;
 
-  bool enable = true;  ///< Flag indicating whether the particle is active.
+  /**
+   * @brief Particle physics status.
+   *
+   * kDisabled(0) = fully skipped; kActive(1) = full physics; kFrozen(2) = immovable obstacle.
+   * Implicit conversion to bool is true for both Active and Frozen, preserving existing
+   * boolean tests (e.g. `if (particle.enable)`) which treat both states as "present".
+   */
+  ParticleStatus status = ParticleStatus::kActive;
+
+  /// @brief Legacy-compatible enable check. Returns true when the particle is Active or Frozen.
+  [[nodiscard]] bool IsEnabled() const { return status != ParticleStatus::kDisabled; }
 
   /**
    * @brief Checks if the particle is a boundary particle.

@@ -12,6 +12,8 @@ using namespace evo_engine;
  * @brief Represents the procedural structure and behavior of a tree model.
  */
 class ShootModel : public PlantModel {
+  struct GrowthEvent;
+
 #pragma region Tree Growth
   /**
    * @brief Prunes internodes that do not contribute positively to the tree's growth.
@@ -119,6 +121,14 @@ class ShootModel : public PlantModel {
   ShootSkeleton shoot_skeleton_;             ///< The skeletal structure representing the shoot.
   std::deque<ShootSkeleton> shoot_history_;  ///< History of previous shoot skeleton states.
 
+  /// Records topology additions during a single Grow() step.
+  std::vector<GrowthEvent> growth_events_;
+
+  /// True if PruneInternodes removed any nodes during the last Grow() call.
+  /// When true, growth_events_ are stale (handles invalidated by swap-and-pop removal)
+  /// and must not be used for incremental replay.
+  bool pruning_occurred_ = false;
+
   /**
    * @brief Resets the reproductive modules in the tree.
    */
@@ -134,6 +144,30 @@ class ShootModel : public PlantModel {
   uint32_t fruit_count_ = 0;
 
  public:
+  /**
+   * @brief Records a topology addition (Extend) during a Grow() step.
+   */
+  struct GrowthEvent {
+    SkeletonNodeHandle parent_handle;  ///< The parent node that was extended.
+    SkeletonNodeHandle new_handle;     ///< The newly created node handle.
+    bool branching;                    ///< True if this was a branching event, false for prolongation.
+  };
+
+  /**
+   * @brief Returns the growth events recorded during the last Grow() call.
+   */
+  [[nodiscard]] const std::vector<GrowthEvent>& PeekGrowthEvents() const { return growth_events_; }
+
+  /**
+   * @brief Returns true if pruning occurred during the last Grow() call.
+   * When true, growth events are invalidated and must not be used for incremental replay.
+   */
+  [[nodiscard]] bool PruningOccurred() const { return pruning_occurred_; }
+
+  void CalculateSourceSinkStrength(const ShootGrowthController& shoot_growth_controller,
+                                   const FoliageController& foliage_controller,
+                                   const ShootReproductionController& reproduction_controller,
+                                   const ClimateModel& climate_model, float delta_time);
   /**
    * @brief Initializes the tree model with the given shoot growth controller.
    * @param shoot_growth_controller The controller that regulates shoot growth.

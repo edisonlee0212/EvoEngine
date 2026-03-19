@@ -14,6 +14,7 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include/Volumes
 	${ECOSYSLAB_DIRECTORY}/include/ClimateModel
 	${ECOSYSLAB_DIRECTORY}/include/SoilModel
+	${ECOSYSLAB_DIRECTORY}/include/TreeModel/ProceduralStrandModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/StrandModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/ShootModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/RootModel
@@ -25,8 +26,13 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include/VoronoiMeshes
 	)
 set(ECOSYSLAB_INCLUDES ${ECOSYSLAB_INCLUDES} PARENT_SCOPE)
-file(GLOB_RECURSE ECOSYSLAB_HEADERS ${ECOSYSLAB_DIRECTORY}/include/*.hpp)
-file(GLOB_RECURSE ECOSYSLAB_SOURCES ${ECOSYSLAB_DIRECTORY}/src/*.cpp)
+file(GLOB_RECURSE ECOSYSLAB_HEADERS CONFIGURE_DEPENDS ${ECOSYSLAB_DIRECTORY}/include/*.hpp)
+file(GLOB_RECURSE ECOSYSLAB_SOURCES CONFIGURE_DEPENDS ${ECOSYSLAB_DIRECTORY}/src/*.cpp)
+
+# Ensure this TU is always linked (fixes unresolved GpuProfileSimulator symbols).
+list(APPEND ECOSYSLAB_SOURCES
+	${ECOSYSLAB_DIRECTORY}/src/GpuProfileSimulator.cpp
+)
 
 add_library(EcoSysLabPlugin
 	STATIC

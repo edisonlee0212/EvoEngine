@@ -1,4 +1,3 @@
-
 #pragma once
 #include "Application.hpp"
 #include "Camera.hpp"
@@ -316,6 +315,9 @@ class EditorLayer : public ILayer {
    * @return True if the local scale is selected, false otherwise.
    */
   [[nodiscard]] bool LocalScaleSelected() const;
+
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
 
 #pragma region ImGui Helpers
   /**

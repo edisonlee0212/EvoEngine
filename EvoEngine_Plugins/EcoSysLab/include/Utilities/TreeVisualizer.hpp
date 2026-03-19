@@ -11,6 +11,8 @@
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
+class BasicFoliageDescriptor;
+
 /**
  * @brief Enumeration for different shoot visualization modes.
  */
@@ -27,6 +29,9 @@ enum class ShootVisualizerMode {
   IsMaxChild,                   ///< Visualize based on max child node property.
   AllocatedVigor,               ///< Visualize based on allocated vigor.
   SaggingStress,                ///< Visualize based on sagging stress.
+  SourceSink_Concentration,     ///< Visualize based on source sink concentration.
+  SourceSink_Flux,              ///< Visualize based on source sink flux.
+  MaxCarbohydrateCapacity,      ///< Visualize based on max carbohydrate capacity.
   Locked                        ///< Locked visualization mode.
 };
 
@@ -42,6 +47,9 @@ enum class RootVisualizerMode {
   GrowthRate,         ///< Visualize based on growth rate.
   IsMaxChild,         ///< Visualize based on max child node property.
   AllocatedVigor,     ///< Visualize based on allocated vigor.
+  SourceSink_Concentration,     ///< Visualize based on source sink concentration.
+  SourceSink_Flux,              ///< Visualize based on source sink flux.
+  MaxCarbohydrateCapacity,      ///< Visualize based on max carbohydrate capacity.
   Locked              ///< Locked visualization mode.
 };
 
@@ -68,6 +76,14 @@ class TreeVisualizer {
   std::vector<glm::vec4> random_colors_;  ///< Stores generated random colors.
 
   std::shared_ptr<ParticleInfoList> node_matrices_;  ///< Stores internode transformation matrices.
+  std::shared_ptr<ParticleInfoList>
+      base_skeleton_matrices_;  ///< Stores base skeleton internode transformation matrices.
+  std::shared_ptr<ParticleInfoList> leaf_matrices_;    ///< Stores leaf transformation matrices.
+  std::shared_ptr<ParticleInfoList> flower_matrices_;  ///< Stores flower transformation matrices.
+  std::shared_ptr<ParticleInfoList> fruit_matrices_;   ///< Stores fruit transformation matrices.
+
+  static glm::vec4 GetFluxColor(float net_flow, float max_flux);
+  static glm::vec4 GetConcentrationColor(float concentration, float max_concentration_capacity);
 
  public:
   std::vector<SkeletonNodeHandle> selected_node_hierarchy_list;  ///< List of selected internode hierarchy nodes.
@@ -316,6 +332,20 @@ void TreeVisualizer::SetSelectedNode(const Skeleton<SkeletonData, FlowData, Node
  * @brief Class for visualizing tree structures and internodes.
  */
 class ShootVisualizer : public TreeVisualizer {
+ public:
+  bool leaf_visualization_ = true;
+  bool flower_visualization_ = true;
+  bool fruit_visualization_ = true;
+
+  float global_max_flux_ = 0.0f;
+  float global_min_capacity_ = FLT_MAX;
+  float global_max_capacity_ = 0.0f;
+  const RootSkeleton* stats_root_skeleton_ = nullptr;
+  void CalculateStatistics(const ShootSkeleton& skeleton);
+  void SetStatsRootSkeleton(const RootSkeleton& skeleton) {
+    stats_root_skeleton_ = &skeleton;
+  }
+
   /**
    * @brief Draws the GUI for inspecting an internode.
    * @param tree_model Reference to the tree model.
@@ -365,8 +395,11 @@ class ShootVisualizer : public TreeVisualizer {
    * @brief Visualizes the given tree model.
    * @param model The tree model to visualize.
    * @param global_transform The global transformation matrix.
+   * @param root_model Optional root model for shared statistics.
    */
-  void Visualize(const ShootModel& model, const GlobalTransform& global_transform);
+  void Visualize(const ShootModel& model, const GlobalTransform& global_transform,
+                 const RootModel* root_model = nullptr, const StrandModel* strand_model = nullptr,
+                 const std::shared_ptr<BasicFoliageDescriptor>& foliage_descriptor = nullptr);
 
   /**
    * @brief Visualizes the given strand model.
@@ -386,9 +419,23 @@ class ShootVisualizer : public TreeVisualizer {
    * @param particle_info_list Shared pointer to the list of particles.
    */
   void SyncMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list);
+
+  void SyncFoliageMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                          const StrandModel* strand_model = nullptr,
+                          const std::shared_ptr<BasicFoliageDescriptor>& foliage_descriptor = nullptr);
+  void SyncFlowerMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list);
+  void SyncFruitMatrices(const ShootSkeleton& skeleton, const std::shared_ptr<ParticleInfoList>& particle_info_list);
+
 };
 
 class RootVisualizer : public TreeVisualizer {
+  float global_max_flux_ = 0.0f;
+  float global_min_capacity_ = FLT_MAX;
+  float global_max_capacity_ = 0.0f;
+  const ShootSkeleton* stats_shoot_skeleton_ = nullptr;
+  void CalculateStatistics(const RootSkeleton& skeleton);
+  void SetStatsShootSkeleton(const ShootSkeleton& skeleton) { stats_shoot_skeleton_ = &skeleton; }
+
   /**
    * @brief Draws the GUI for inspecting an internode.
    * @param root_model Reference to the tree model.
@@ -438,8 +485,10 @@ class RootVisualizer : public TreeVisualizer {
    * @brief Visualizes the given tree model.
    * @param model The tree model to visualize.
    * @param global_transform The global transformation matrix.
+   * @param shoot_model Optional shoot model for shared statistics.
    */
-  void Visualize(const RootModel& model, const GlobalTransform& global_transform);
+  void Visualize(const RootModel& model, const GlobalTransform& global_transform,
+                 const ShootModel* shoot_model = nullptr);
   /**
    * @brief Synchronizes transformation matrices between skeleton and internode list.
    * @param skeleton Reference to the shoot skeleton.

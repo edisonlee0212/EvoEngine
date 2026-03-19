@@ -4,10 +4,41 @@
 
 #include "TreeVisualizer.hpp"
 #include "Application.hpp"
+#include "BasicFoliageDescriptor.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "ProfileConstraints.hpp"
 #include "Utilities.hpp"
 using namespace eco_sys_lab_plugin;
+
+glm::vec4 TreeVisualizer::GetFluxColor(float net_flow, float max_flux) {
+  if (max_flux < 1e-9f)
+    return glm::vec4(1.0f);  // Zero flux -> White
+  float t = glm::clamp(net_flow / max_flux, -1.0f, 1.0f);
+
+  if (std::abs(t) < 0.01f)
+    return glm::vec4(1.0f);  // Noise filter -> White
+
+  if (t > 0) {  // Sink (Blue)
+    return glm::mix(glm::vec4(1, 1, 1, 1), glm::vec4(0, 0, 1, 1), t);
+  } else {  // Source (Red)
+    return glm::mix(glm::vec4(1, 1, 1, 1), glm::vec4(1, 0, 0, 1), -t);
+  }
+}
+
+glm::vec4 TreeVisualizer::GetConcentrationColor(float concentration, float max_concentration_capacity) {
+  // Safety check: Avoid divide by zero
+  if (max_concentration_capacity <= 1e-9f)
+    return glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);  // Error/Blue
+
+  // Per-Node Saturation Calculation
+  float saturation = glm::clamp(concentration / max_concentration_capacity, 0.0f, 1.0f);
+
+  if (saturation < 0.5f) {  // Red -> White
+    return glm::mix(glm::vec4(1, 0, 0, 1), glm::vec4(1, 1, 1, 1), saturation * 2.0f);
+  } else {  // White -> Green
+    return glm::mix(glm::vec4(1, 1, 1, 1), glm::vec4(0, 1, 0, 1), (saturation - 0.5f) * 2.0f);
+  }
+}
 
 void ShootVisualizer::PeekNodeInspectionGui(const ShootSkeleton& skeleton, const SkeletonNodeHandle node_handle,
                                             const unsigned& hierarchy_level) {
@@ -82,14 +113,17 @@ void TreeVisualizer::ClearSelections() {
 }
 
 bool ShootVisualizer::OnInspect(ShootModel& model) {
+  ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
   bool updated = false;
+
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Max descendant light intensity", "Light intensity", "Light direction",
                     "Desired growth rate", "Growth potential", "Growth rate", "Is max child", "Allocated vigor",
-                    "Sagging stress", "Locked"},
+                    "Sagging stress", "Source/Sink", "NetFlow", "Max carb capacity", "Locked"},
                    tree_visualizer_color_settings.visualization_mode)) {
     need_update = true;
   }
+
   if (ImGui::TreeNodeEx("Checkpoints")) {
     if (ImGui::SliderInt("Current checkpoint", &checkpoint_iteration, 0, model.CurrentIteration())) {
       checkpoint_iteration = glm::clamp(checkpoint_iteration, 0, model.CurrentIteration());
@@ -126,6 +160,9 @@ bool ShootVisualizer::OnInspect(ShootModel& model) {
     }
 
     ImGui::Checkbox("Visualization", &visualization);
+    ImGui::Checkbox("Leaf Visualization", &leaf_visualization_);
+    ImGui::Checkbox("Flower Visualization", &flower_visualization_);
+    ImGui::Checkbox("Fruit Visualization", &fruit_visualization_);
     ImGui::Checkbox("Profile", &profile_gui);
     ImGui::Checkbox("Tree Hierarchy", &tree_hierarchy_gui);
 
@@ -166,16 +203,30 @@ bool ShootVisualizer::OnInspect(ShootModel& model) {
     }
     ImGui::TreePop();
   }
+  ImGui::PopItemWidth();
   return updated;
 }
 
-void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& global_transform) {
-  const auto& tree_skeleton = model.PeekShootSkeleton(checkpoint_iteration);
+void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& global_transform,
+                                const RootModel* root_model /*= nullptr*/,
+                                const StrandModel* strand_model /*= nullptr*/,
+                                const std::shared_ptr<BasicFoliageDescriptor>& foliage_descriptor /*= nullptr*/) {
+  if (root_model) {
+    SetStatsRootSkeleton(root_model->PeekRootSkeleton(root_model->CurrentIteration()));
+    need_update = true;  // ensure recalculation if capacities changed.
+  }
+
+  const auto& shoot_skeleton = model.PeekShootSkeleton(checkpoint_iteration);
   if (visualization) {
     const auto editor_layer = Application::GetLayer<EditorLayer>();
     const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
     if (need_update) {
-      SyncMatrices(tree_skeleton, node_matrices_);
+      const StrandModel* foliage_strand_model = checkpoint_iteration == model.CurrentIteration() ? strand_model : nullptr;
+      CalculateStatistics(shoot_skeleton);
+      SyncMatrices(shoot_skeleton, node_matrices_);
+      SyncFoliageMatrices(shoot_skeleton, leaf_matrices_, foliage_strand_model, foliage_descriptor);
+      SyncFlowerMatrices(shoot_skeleton, flower_matrices_);
+      SyncFruitMatrices(shoot_skeleton, fruit_matrices_);
       need_update = false;
     }
     GizmoSettings gizmo_settings;
@@ -183,11 +234,18 @@ void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& 
     gizmo_settings.depth_test = true;
     gizmo_settings.depth_write = true;
     if (!node_matrices_->PeekParticleInfoList().empty()) {
+      float alpha = 1.0f;
+      if (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode) ==
+          ShootVisualizerMode::SourceSink_Concentration) {
+        alpha = 0.7f;
+        gizmo_settings.depth_write = false;
+      }
       editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
                                                   eco_sys_lab_layer->visualization_camera_, node_matrices_,
-                                                  global_transform.value, 1.0f, gizmo_settings);
+                                                  global_transform.value, alpha, gizmo_settings);
+      gizmo_settings.depth_write = true;
       if (selected_node_handle != -1) {
-        const auto& node = tree_skeleton.PeekNode(selected_node_handle);
+        const auto& node = shoot_skeleton.PeekNode(selected_node_handle);
         auto rotation = node.info.global_rotation;
         rotation *= glm::quat(glm::vec3(glm::radians(90.0f), 0.0f, 0.0f));
         const glm::mat4 rotation_transform = glm::mat4_cast(rotation);
@@ -200,6 +258,20 @@ void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& 
         editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, eco_sys_lab_layer->visualization_camera_, color,
                                     matrix, 1, gizmo_settings);
       }
+    }
+    if (leaf_visualization_ && !leaf_matrices_->PeekParticleInfoList().empty()) {
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::quad, eco_sys_lab_layer->visualization_camera_,
+                                                  leaf_matrices_, global_transform.value, 1.0f, gizmo_settings);
+    }
+    if (flower_visualization_ && !flower_matrices_->PeekParticleInfoList().empty()) {
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::sphere,
+                                                  eco_sys_lab_layer->visualization_camera_, flower_matrices_,
+                                                  global_transform.value, 1.0f, gizmo_settings);
+    }
+    if (fruit_visualization_ && !fruit_matrices_->PeekParticleInfoList().empty()) {
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::sphere,
+                                                  eco_sys_lab_layer->visualization_camera_, fruit_matrices_,
+                                                  global_transform.value, 1.0f, gizmo_settings);
     }
   }
 }
@@ -527,6 +599,10 @@ void ShootVisualizer::Reset(const ShootModel& model) {
   selected_node_hierarchy_list.clear();
   checkpoint_iteration = model.CurrentIteration();
   node_matrices_->SetParticleInfos({});
+  base_skeleton_matrices_->SetParticleInfos({});
+  leaf_matrices_->SetParticleInfos({});
+  flower_matrices_->SetParticleInfos({});
+  fruit_matrices_->SetParticleInfos({});
   need_update = true;
 }
 
@@ -623,15 +699,219 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
             glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
             glm::clamp(glm::pow(node.data.growth_rate, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
         break;
+      case ShootVisualizerMode::SourceSink_Concentration:
+        // DIRECT USE of node data. No globals. No smoothing.
+        matrices[i].instance_color =
+            GetConcentrationColor(node.data.carbohydrate_mass, node.data.max_carbohydrate_mass);
+        break;
+
+      case ShootVisualizerMode::SourceSink_Flux:
+        // Uses global_max_flux_ for scaling, but per-node flow
+        matrices[i].instance_color = GetFluxColor(node.data.net_flow_balance, global_max_flux_);
+        break;
+      case ShootVisualizerMode::MaxCarbohydrateCapacity: {
+        float cap = node.data.max_carbohydrate_mass;
+        float n = 1.0f;
+        if (global_max_capacity_ > global_min_capacity_)
+          n = (cap - global_min_capacity_) / (global_max_capacity_ - global_min_capacity_);
+        matrices[i].instance_color = glm::vec4(glm::vec3(glm::clamp(n, 0.0f, 1.0f)), 1.0f);
+        break;
+      }
       default:
         matrices[i].instance_color = random_colors_[node.info.order];
         break;
+    }
+    // Override with orange if overflow was detected in solver.
+    if (node.data.is_overflown) {
+      matrices[i].instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);  // Orange
     }
     matrices[i].instance_color.a = 1.0f;
     if (selected_node_handle != -1)
       matrices[i].instance_color.a = 1.0f;
   });
   particle_info_list->SetParticleInfos(matrices);
+}
+
+void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
+                                          const std::shared_ptr<ParticleInfoList>& particle_info_list,
+                                          const StrandModel* strand_model /*= nullptr*/,
+                                          const std::shared_ptr<BasicFoliageDescriptor>& foliage_descriptor
+                                              /*= nullptr*/) {
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
+  std::vector<ParticleInfo> matrices;
+
+  if (leaf_visualization_) {
+    if (foliage_descriptor) {
+      const bool use_strand_model =
+          strand_model && strand_model->strand_model_skeleton.PeekRawNodes().size() == skeleton.PeekRawNodes().size();
+      const auto tree_dim = use_strand_model
+                                ? (strand_model->strand_model_skeleton.max - strand_model->strand_model_skeleton.min)
+                                : (skeleton.max - skeleton.min);
+
+      for (const auto node_handle : sorted_node_list) {
+        std::vector<glm::mat4> leaf_transforms;
+        if (use_strand_model) {
+          const auto& strand_node_info = strand_model->strand_model_skeleton.PeekNode(node_handle).info;
+          foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, strand_node_info, glm::length(tree_dim));
+        } else {
+          const auto& shoot_node_info = skeleton.PeekNode(node_handle).info;
+          foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, shoot_node_info, glm::length(tree_dim));
+        }
+
+        for (const auto& leaf_transform : leaf_transforms) {
+          ParticleInfo info;
+          info.instance_matrix.value = leaf_transform;
+          switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
+            case ShootVisualizerMode::SourceSink_Concentration:
+              info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
+              break;
+            default:
+              info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
+              break;
+          }
+          matrices.push_back(info);
+        }
+      }
+      particle_info_list->SetParticleInfos(matrices);
+      return;
+    }
+
+    for (const auto node_handle : sorted_node_list) {
+      const auto& node = skeleton.PeekNode(node_handle);
+      for (const auto& leaf : node.data.leaves) {
+        if (leaf.status == OrganStatus::Inactive)
+          continue;
+
+        ParticleInfo info;
+        info.instance_matrix.value =
+            glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * 0.5f);
+
+        switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
+          case ShootVisualizerMode::SourceSink_Concentration:
+            info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
+            break;
+          default:
+            info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
+            break;
+        }
+        matrices.push_back(info);
+      }
+    }
+  }
+  particle_info_list->SetParticleInfos(matrices);
+}
+
+void ShootVisualizer::SyncFlowerMatrices(const ShootSkeleton& skeleton,
+                                         const std::shared_ptr<ParticleInfoList>& particle_info_list) {
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
+  std::vector<ParticleInfo> matrices;
+  if (flower_visualization_) {
+    for (const auto node_handle : sorted_node_list) {
+      const auto& node = skeleton.PeekNode(node_handle);  // We get the parent node here
+      for (const auto& flower : node.data.flowers) {
+        if (flower.status == OrganStatus::Inactive)
+          continue;
+        ParticleInfo info;
+        info.instance_matrix.value =
+            glm::translate(flower.position) * glm::mat4_cast(flower.rotation) * glm::scale(flower.scale);
+
+        switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
+          case ShootVisualizerMode::SourceSink_Concentration:
+            info.instance_color = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
+            break;
+          default:
+            info.instance_color = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
+            break;
+        }
+        matrices.push_back(info);
+      }
+    }
+  }
+  particle_info_list->SetParticleInfos(matrices);
+}
+
+void ShootVisualizer::SyncFruitMatrices(const ShootSkeleton& skeleton,
+                                        const std::shared_ptr<ParticleInfoList>& particle_info_list) {
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
+  std::vector<ParticleInfo> matrices;
+  if (fruit_visualization_) {
+    for (const auto node_handle : sorted_node_list) {
+      const auto& node = skeleton.PeekNode(node_handle);
+      for (const auto& fruit : node.data.fruits) {
+        if (fruit.status == OrganStatus::Inactive)
+          continue;
+
+        ParticleInfo info;
+        info.instance_matrix.value =
+            glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale * 0.25f);
+
+        switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
+          case ShootVisualizerMode::SourceSink_Concentration:
+            info.instance_color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+            break;
+          default:
+            info.instance_color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+            break;
+        }
+        matrices.push_back(info);
+      }
+    }
+  }
+  particle_info_list->SetParticleInfos(matrices);
+}
+
+void ShootVisualizer::CalculateStatistics(const ShootSkeleton& skeleton) {
+  global_max_flux_ = 0.0f;
+  global_min_capacity_ = FLT_MAX;
+  global_max_capacity_ = 0.0f;
+
+  auto accumulate = [&](auto& nodes) {
+    for (const auto& node : nodes) {
+      global_max_flux_ = std::max(global_max_flux_, std::abs(node.data.net_flow_balance));
+      const float cap = node.data.max_carbohydrate_mass;
+      if (cap > 0.0f) {
+        global_min_capacity_ = std::min(global_min_capacity_, cap);
+        global_max_capacity_ = std::max(global_max_capacity_, cap);
+      }
+    }
+  };
+
+  accumulate(skeleton.PeekRawNodes());
+  if (stats_root_skeleton_) {  // include root data
+    accumulate(stats_root_skeleton_->PeekRawNodes());
+  }
+
+  if (global_min_capacity_ == FLT_MAX) {
+    global_min_capacity_ = 0.0f;
+    global_max_capacity_ = 0.0f;
+  }
+}
+
+void RootVisualizer::CalculateStatistics(const RootSkeleton& skeleton) {
+  global_max_flux_ = 0.0f;
+  global_min_capacity_ = FLT_MAX;
+  global_max_capacity_ = 0.0f;
+
+  auto accumulate = [&](auto& nodes) {
+    for (const auto& node : nodes) {
+      global_max_flux_ = std::max(global_max_flux_, std::abs(node.data.net_flow_balance));
+      const float cap = node.data.max_carbohydrate_mass;
+      if (cap > 0.0f) {
+        global_min_capacity_ = std::min(global_min_capacity_, cap);
+        global_max_capacity_ = std::max(global_max_capacity_, cap);
+      }
+    }
+  };
+
+  accumulate(skeleton.PeekRawNodes());
+  if (stats_shoot_skeleton_) {  // include shoot data
+    accumulate(stats_shoot_skeleton_->PeekRawNodes());
+  }
+
+  if (global_min_capacity_ == FLT_MAX) {
+    global_min_capacity_ = 0.0f;
+    global_max_capacity_ = 0.0f;
+  }
 }
 
 bool RootVisualizer::DrawNodeInspectionGui(RootModel& root_model, SkeletonNodeHandle node_handle, bool& deleted,
@@ -799,10 +1079,11 @@ bool RootVisualizer::InspectRootNode(RootSkeleton& skeleton, SkeletonNodeHandle 
 }
 
 bool RootVisualizer::OnInspect(RootModel& model) {
+  ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Desired growth rate", "Growth potential", "Growth rate",
-                    "Is max child", "Allocated vigor", "Locked"},
+                    "Is max child", "Allocated vigor", "Source/Sink", "NetFlow", "Max carb capacity", "Locked"},
                    root_visualizer_color_settings.visualization_mode)) {
     need_update = true;
   }
@@ -882,15 +1163,23 @@ bool RootVisualizer::OnInspect(RootModel& model) {
     }
     ImGui::TreePop();
   }
+  ImGui::PopItemWidth();
   return updated;
 }
 
-void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& global_transform) {
+void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& global_transform,
+                               const ShootModel* shoot_model /*= nullptr*/) {
+  if (shoot_model) {
+    SetStatsShootSkeleton(shoot_model->PeekShootSkeleton(shoot_model->CurrentIteration()));
+    need_update = true;
+  }
+
   const auto& root_skeleton = model.PeekRootSkeleton(checkpoint_iteration);
   if (visualization) {
     const auto editor_layer = Application::GetLayer<EditorLayer>();
     const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
     if (need_update) {
+      CalculateStatistics(root_skeleton);
       SyncMatrices(root_skeleton, node_matrices_);
       need_update = false;
     }
@@ -899,9 +1188,16 @@ void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& gl
     gizmo_settings.depth_test = true;
     gizmo_settings.depth_write = true;
     if (!node_matrices_->PeekParticleInfoList().empty()) {
+      float alpha = 1.0f;
+      if (static_cast<RootVisualizerMode>(root_visualizer_color_settings.visualization_mode) ==
+          RootVisualizerMode::SourceSink_Concentration) {
+        alpha = 0.7f;
+        gizmo_settings.depth_write = false;
+      }
       editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
                                                   eco_sys_lab_layer->visualization_camera_, node_matrices_,
-                                                  global_transform.value, 1.0f, gizmo_settings);
+                                                  global_transform.value, alpha, gizmo_settings);
+      gizmo_settings.depth_write = true;
       if (selected_node_handle != -1) {
         const auto& node = root_skeleton.PeekNode(selected_node_handle);
         auto rotation = node.info.global_rotation;
@@ -994,6 +1290,22 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
             glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
             glm::clamp(glm::pow(node.data.growth_rate, root_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
         break;
+      case RootVisualizerMode::SourceSink_Concentration:
+        matrices[i].instance_color =
+            GetConcentrationColor(node.data.carbohydrate_mass, node.data.max_carbohydrate_mass);
+        break;
+      case RootVisualizerMode::SourceSink_Flux:
+        matrices[i].instance_color =
+            GetFluxColor(node.data.net_flow_balance, global_max_flux_);
+        break;
+      case RootVisualizerMode::MaxCarbohydrateCapacity: {
+        float cap = node.data.max_carbohydrate_mass;
+        float n = 1.0f;
+        if (global_max_capacity_ > global_min_capacity_)
+          n = (cap - global_min_capacity_) / (global_max_capacity_ - global_min_capacity_);
+        matrices[i].instance_color = glm::vec4(glm::vec3(glm::clamp(n, 0.0f, 1.0f)), 1.0f);
+        break;
+      }
       default:
         matrices[i].instance_color = random_colors_[node.info.order];
         break;
@@ -1018,6 +1330,9 @@ void TreeVisualizer::Clear() {
   selected_node_hierarchy_list.clear();
   checkpoint_iteration = 0;
   node_matrices_->SetParticleInfos({});
+  leaf_matrices_->SetParticleInfos({});
+  flower_matrices_->SetParticleInfos({});
+  fruit_matrices_->SetParticleInfos({});
 }
 
 bool TreeVisualizer::Initialized() const {
@@ -1026,4 +1341,8 @@ bool TreeVisualizer::Initialized() const {
 
 void TreeVisualizer::Initialize() {
   node_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  base_skeleton_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  leaf_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  flower_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  fruit_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
 }

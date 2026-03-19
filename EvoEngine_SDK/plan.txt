@@ -1,0 +1,148 @@
+Plan: Integrate Strand Model into Skeleton Growth Model
+TL;DR: Merge the currently separate two-phase pipeline (grow skeleton → post-hoc generate strands) into a unified developmental strand model where strands grow incrementally alongside the skeleton. This enables biologically plausible cambial growth, bark formation, wound response, and real-time rendering with optimal CPU/GPU partitioning.
+
+Current Architecture: The Problem
+The system currently has two separate phases that don't co-evolve:
+
+ShootSkeleton (Skeleton<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>) — CPU-only growth via ShootModel::Grow(). Nodes = internodes with buds, leaves, resource flow. Growth: bud fate → elongation → branching → thickening → resource distribution. Max ~65K nodes.
+
+StrandModel — generated after growth completes, using a second, separate skeleton (Skeleton<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>). Each node gets a 2D cross-section profile with particles packed via CPU physics. Particles map to strands. The entire strand model is rebuilt when tree structure changes.
+
+DynamicStrands — GPU physics + meshlet-based rendering. Already has compute shaders for constraint solving and a full Vulkan pipeline with GpuSegment, GpuParticle, etc.
+
+Key problems: Strands don't represent developmental history. Rebuilding the full strand model is expensive. Two separate skeletons with duplicated topology. No incremental growth. Profile packing (2D particle physics) is a CPU bottleneck.
+
+Data Structure Architecture: Three Options
+Option A: Unified Skeleton (Recommended)
+Single skeleton: Skeleton<UnifiedGrowthData, UnifiedFlowData, UnifiedNodeData> where UnifiedNodeData merges InternodeGrowthData + StrandModelNodeData (profile, particle_map, constraints, etc.)
+Pros: Single topology, no sync issues, natural co-evolution, strand data lazily initialized only when enabled
+Cons: Larger node data footprint; need a strand_model_enabled flag to skip strand ops when unwanted
+Option B: Parallel Skeletons with Incremental Sync
+Keep ShootSkeleton and StrandModelSkeleton separate but sync incrementally per growth step
+Pros: Clean separation, can run growth-only mode with zero strand overhead
+Cons: Sync complexity, risk of inconsistency, double topology traversal
+Option C: Strand-First Architecture
+Replace skeleton entirely — growth operates on strand bundles. Branching = bundle splitting; elongation = strand extension
+Pros: Most biologically accurate (vascular cambium IS the growth engine)
+Cons: Massive rewrite, existing growth algorithms (bud fate, resource flow, environmental queries) don't map cleanly, performance concerns with strand-level growth decisions
+Recommendation: Option A with lazy initialization. Strand fields in node data are empty/unused unless strand model is enabled. This preserves backward compatibility while enabling tight co-evolution.
+
+CPU vs GPU Partitioning
+Operation	Where	Rationale
+Bud fate determination	CPU	Stochastic, depends on octree spatial queries and environmental sampling
+Skeleton topology (Extend, Remove)	CPU	Graph mutations with parent/child rewiring, small per-step
+New strand allocation & extension	CPU	Topology changes (allocate handles, set up segments)
+Profile initialization for new nodes	CPU	Copy parent profile, allocate particles — one-time per node
+Resource/carbohydrate flow	CPU	Coupled Crank-Nicolson solver, complex dependencies
+2D profile packing simulation	GPU compute	Currently CPU bottleneck; highly parallel — one workgroup per node profile
+Profile merging at branch junctions	GPU compute	Parallel 2D physics with collision
+Strand constraint solving	GPU compute	Already implemented in DynamicStrands physics shaders
+Strand meshlet generation	GPU	Already implemented
+Strand rendering	GPU	Meshlet-based, existing pipeline
+Spatial hashing / collision	GPU	Already implemented for DynamicStrands
+Incremental Growth Algorithm (Per Step)
+CPU: Bud Fate & Elongation — existing ShootModel::Grow() logic produces new internodes
+CPU: Strand Topology Update — for each new internode:
+Copy parent node's profile as initial state for new node
+Allocate new strand segments extending parent's strands into new node
+For branching: partition parent profile particles between child branches (spatial split based on bud direction)
+GPU Compute: Profile Repack — run 2D particle packing on modified profiles only (new nodes + branch junctions)
+GPU Compute: Strand Position Update — update strand segment positions from repacked profile particle positions
+GPU: Render — incremental meshlet rebuild for dirty strands, then render
+Complexity drops from O(total_nodes) per update to O(new_nodes) per growth step.
+
+Biological Phenomena Enabled
+Cambial growth (secondary thickening): Add new particles at profile boundary each growth step — each layer = one annual ring
+Bark formation: Track boundary particles; outer layers transition to bark with distinct material properties
+Wound response: Remove particles at wound site; profile simulation naturally fills the gap (wound callus)
+Reaction wood: Asymmetric particle addition based on gravity vector / mechanical stress
+Branch junction wood grain: Profile merging at junctions naturally produces the grain deflection patterns seen in real wood
+Growth rings: Particles carry their birth-year; cross-section slicing directly reveals annual ring structure
+Heartwood/sapwood transition: Inner particles flagged as heartwood after age threshold — different conductance, color
+Taper: Profile particle count naturally decreases toward branch tips
+Performance Strategy
+Profile packing on GPU (critical):
+
+~100-1000 particles per profile × up to 65K nodes = potentially 65M particles
+Cannot simulate all profiles every frame — need selective dispatch:
+Only simulate profiles on actively growing nodes (tips + cambial zone)
+Freeze profiles for mature wood (no further packing needed)
+Coarsen profiles for distant/occluded branches
+Strand rendering:
+
+Append-only buffer for new segments (temporal coherence)
+Mark dirty regions, only rebuild meshlets for changed strands
+Most strands unchanged between frames → minimal GPU work
+Memory budget (medium tree, ~10K nodes):
+
+Profiles: 10K nodes × 200 particles × ~64 bytes = ~128MB
+Strands: 10K strands × 100 segments × ~128 bytes = ~128MB
+Total GPU: ~256MB — feasible for modern GPUs
+For forests: LOD + instancing for distant trees (separate scope)
+Steps
+Phase 1: Data Structure Unification
+
+Create UnifiedNodeData combining InternodeGrowthData + StrandModelNodeData fields with lazy init
+Create UnifiedSkeletonData combining ShootGrowthData + StrandModelSkeletonData
+Update ShootSkeleton typedef to use unified types
+Remove StrandModelSkeleton as separate type
+Update Tree class with strand_model_enabled flag
+Phase 2: Incremental Strand Growth (CPU) depends on Phase 1
+6. Modify ShootModel::Grow() to call strand update after topology changes
+7. Implement InitializeStrandsForNewNode() — copy parent profile on Extend()
+8. Implement SplitProfileForBranching() — partition particles by spatial position relative to bud
+9. Implement ExtendStrands() — append new segments to existing strands
+10. Implement AddCambialLayer() — add boundary particles for secondary growth (parallel with 9)
+
+Phase 3: GPU Profile Simulation depends on Phase 1
+11. Port 2D profile packing physics to GLSL compute shader
+12. Create GPU buffer layout for per-node profiles
+13. Implement selective dispatch (only active/growing profiles)
+14. Implement branch junction merge compute shader
+
+Phase 4: Rendering Pipeline Integration depends on Phases 2+3
+15. Incremental strand buffer updates (append-only + update-in-place)
+16. Connect GPU profile output to strand segment positions
+17. Dirty-region meshlet rebuild
+18. LOD for strand rendering
+
+Phase 5: Biological Extensions depends on Phases 2+3
+19. Annual ring tracking via particle age/layer metadata
+20. Bark layer identification and material properties
+21. Wound response (particle removal + profile regrowth)
+22. Reaction wood (asymmetric cambial addition)
+
+Relevant Files
+Skeleton.hpp — Skeleton template, Extend/Remove/SortLists
+ShootGrowthData.hpp — InternodeGrowthData, StrandModelNodeData, both skeleton typedefs
+StrandModel.hpp — PackTask, MergeTask, profile simulation
+StrandModelData.hpp — StrandModelStrandSegmentData with node_handle, profile_particle_handle
+StrandGroup.hpp — StrandGroup template, Strand, StrandSegment
+StrandModelProfile.hpp — 2D profile particle system
+Physics2D.hpp — Profile packing physics (to port to GPU)
+ParticleGrid2D.hpp — Spatial grid for profile particle collision
+DynamicStrands.hpp — GPU structs (GpuSegment, GpuParticle)
+Tree.hpp / Tree.cpp — Tree class, TryGrow, coupled solver
+ShootModel.cpp — Grow(), GrowInternode(), ElongateInternode()
+StrandModel.cpp — Current post-hoc strand generation
+TreeGeometryGeneration.cpp — Geometry pipelines
+DynamicStrandsPhysics.glsl — GPU physics shaders
+GeometryStorage.hpp — StrandPointDataChunk, StrandMeshlet
+Verification
+After Phase 1: Existing growth produces identical node positions/rotations/thickness (regression test)
+After Phase 2: Grow 1 step → verify strand count matches new profile particles, strand segments link to correct skeleton nodes
+After Phase 3: GPU profile packing matches CPU reference (position error < epsilon)
+After Phase 4: Growing tree renders continuously at >30fps for 10K+ node tree without rebuild artifacts
+After Phase 5: Cross-section view shows annual rings; wound placed at step N heals over subsequent steps
+Decisions
+Unified skeleton (Option A) with lazy strand init — avoids sync complexity
+Profile packing → GPU compute — critical for performance
+Incremental strand growth — O(new_nodes) per step, not O(total_nodes)
+Cambial growth via particle addition — biologically plausible developmental history
+Excluded: Root strand model (addable later), forest LOD (separate project), leaf/flower strands
+Open Design Questions
+Profile particle count scaling: As trees mature, profiles grow with cambial layers. Cap at max_particles_per_profile and merge older inner particles into heartwood summary? Recommendation: Yes — merge inner particles after age threshold to keep profiles bounded (~500-1000 particles max).
+
+Strand routing at branch junctions: When a branch forms, which strands route from parent trunk into child? Recommendation: Spatial partitioning — particles on the bud-facing side of the parent profile route to the child branch. This matches biological vascular strand routing in real trees.
+
+GPU buffer management for growth: Pre-allocate with max capacity, or dynamic reallocation? Recommendation: Pre-allocate at 2× estimated max (based on max_node_count × avg_strands_per_node), with rare fallback reallocation. GPU buffer realloc is expensive but growth is bounded.

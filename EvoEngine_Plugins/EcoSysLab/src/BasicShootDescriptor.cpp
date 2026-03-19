@@ -1,5 +1,6 @@
 #include "BasicShootDescriptor.hpp"
 
+#include <cmath>
 #include "ShootModel.hpp"
 
 using namespace eco_sys_lab_plugin;
@@ -157,10 +158,105 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
   };
 
   shoot_growth_controller.growth_inhibitor_transport =
-      [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data, const float growth_inhibitor,
+      [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data, float growth_inhibitor,
           const SkeletonNode<InternodeGrowthData>& internode) {
-        return growth_inhibitor * glm::clamp(1.f - apical_dominance_loss, 0.0f, 1.f);
+        // Example implementation: apply apical_dominance_loss to the inhibitor value
+        return growth_inhibitor * (1.0f - apical_dominance_loss);
       };
+
+  // Update the Source/Sink Logic
+  shoot_growth_controller.update_carbohydrate_state = [&](std::mt19937& random_engine, ShootSkeleton& shoot_skeleton,
+                                                          SkeletonNode<InternodeGrowthData>& internode,
+                                                          const ClimateModel& climate_model, float delta_time) {
+    auto& data = internode.data;
+    auto& info = internode.info;
+
+    // 1. Capacity
+    data.max_carbohydrate_mass = glm::max(info.volume * 1e6f, 1e-6f);
+    float saturation = data.carbohydrate_mass / data.max_carbohydrate_mass;
+    saturation = glm::clamp(saturation, 0.0f, 1.0f);
+
+    auto clamp_mass = [&](float m) -> float {
+      if (!std::isfinite(m))
+        return 0.0f;
+      return glm::clamp(m, 0.0f, data.max_carbohydrate_mass);
+    };
+
+    // 2. Leaf Production (With Feedback Inhibition)
+    // As saturation approaches 1.0, production drops to 0.
+    float production_feedback = 1.0f - glm::pow(saturation, 2.0f);  // Non-linear dropoff
+    for (const auto& leaf : data.leaves) {
+      if (leaf.status == OrganStatus::Flushed) {
+        const float production =
+            (leaf.carbohydrate_source * delta_time) * data.max_carbohydrate_mass * production_feedback;
+        data.carbohydrate_mass = clamp_mass(data.carbohydrate_mass + production);
+      }
+    }
+
+    // 3. Fruit Consumption (Standard)
+    for (const auto& fruit : data.fruits) {
+      if (fruit.status == OrganStatus::Flushed) {
+        const float consumption = (fruit.carbohydrate_sink * delta_time) * data.max_carbohydrate_mass;
+        data.carbohydrate_mass = clamp_mass(data.carbohydrate_mass - consumption);
+      }
+    }
+
+    if (!std::isfinite(data.carbohydrate_mass)) {
+      data.carbohydrate_mass = 0.0f;
+    }
+
+    // 4. Respiration (Non-Linear "Luxury Consumption")
+    // Burn more when full to push system towards equilibrium.
+    // Rate scales from 0.2x at low saturation to 1.8x at high saturation.
+    float metabolic_scaling = 0.2f + 1.8f * (saturation * saturation);
+    data.carbohydrate_sink += data.max_carbohydrate_mass * respiration_rate * metabolic_scaling * delta_time;
+
+    // Safety
+    if (!std::isfinite(data.carbohydrate_sink) || data.carbohydrate_sink < 0.0f) {
+      data.carbohydrate_sink = std::isfinite(data.carbohydrate_sink) ? glm::max(0.0f, data.carbohydrate_sink) : 0.0f;
+    }
+
+    // 5. Conductance (Flow)
+    float base_turnover_rate = conductance_multiplier;
+
+    if (conductance_model == 0) {
+      if (info.length > 0.0f) {
+        float area = glm::pi<float>() * info.thickness * info.thickness;
+        data.conductance = (area / info.length) * 1e6f * conductance_multiplier;
+      } else {
+        data.conductance = 0.0f;
+      }
+    } else if (conductance_model == 1) {  // Pipe Model
+      float thickness_ratio = 1.0f;
+      if (internode.GetParentHandle() != -1) {
+        const auto& parent_node = shoot_skeleton.RefNode(internode.GetParentHandle());
+        const float parent_thickness = glm::max(parent_node.info.thickness, 1e-9f);
+        thickness_ratio = glm::clamp(info.thickness / parent_thickness, 0.0f, 1.0f);
+      }
+      data.conductance =
+          data.max_carbohydrate_mass * base_turnover_rate * glm::pow(thickness_ratio, pipe_model_exponent);
+    } else {
+      data.conductance = data.max_carbohydrate_mass * base_turnover_rate;
+    }
+
+    /*// Winter source: make every root node a source during winter (DecFeb)
+    {
+      // climate_model.time is in years; convert to day-of-year
+      const float days = climate_model.time * 365.0f;
+      const float day_in_year = glm::mod(days, 365.0f);
+      const bool is_winter = (day_in_year < 59.0f) || (day_in_year >= 210.0f);  // JanFeb and Dec
+
+      if (is_winter) {
+        data.conductance = 0.0f;
+      }
+    }*/
+
+    // Safety
+    if (!std::isfinite(data.conductance) || data.conductance < 0.0f) {
+      data.conductance = 0.0f;
+    }
+    data.net_flow_balance = 0.0f;
+  };
 }
 
 void BasicShootDescriptor::Serialize(YAML::Emitter& out) const {
@@ -197,6 +293,16 @@ void BasicShootDescriptor::Serialize(YAML::Emitter& out) const {
 
   out << YAML::Key << "apical_dominance" << YAML::Value << apical_dominance;
   out << YAML::Key << "apical_dominance_loss" << YAML::Value << apical_dominance_loss;
+
+  out << YAML::Key << "conductance_model" << YAML::Value << conductance_model;
+  out << YAML::Key << "pipe_model_exponent" << YAML::Value << pipe_model_exponent;
+  out << YAML::Key << "respiration_rate" << YAML::Value << respiration_rate;
+  out << YAML::Key << "conductance_multiplier" << YAML::Value << conductance_multiplier;
+
+  out << YAML::Key << "pruning_force_sink_enabled" << YAML::Value << pruning_force_sink_enabled;
+  out << YAML::Key << "pruning_force_sink_multiplier" << YAML::Value << pruning_force_sink_multiplier;
+  out << YAML::Key << "pruning_force_sink_depth" << YAML::Value << pruning_force_sink_depth;
+  out << YAML::Key << "pruning_force_sink_depth_decay" << YAML::Value << pruning_force_sink_depth_decay;
 }
 
 void BasicShootDescriptor::Deserialize(const YAML::Node& in) {
@@ -257,6 +363,24 @@ void BasicShootDescriptor::Deserialize(const YAML::Node& in) {
     apical_dominance = in["apical_dominance"].as<float>();
   if (in["apical_dominance_loss"])
     apical_dominance_loss = in["apical_dominance_loss"].as<float>();
+
+  if (in["conductance_model"])
+    conductance_model = in["conductance_model"].as<int>();
+  if (in["pipe_model_exponent"])
+    pipe_model_exponent = in["pipe_model_exponent"].as<float>();
+  if (in["respiration_rate"])
+    respiration_rate = in["respiration_rate"].as<float>();
+  if (in["conductance_multiplier"])
+    conductance_multiplier = in["conductance_multiplier"].as<float>();
+
+  if (in["pruning_force_sink_enabled"])
+    pruning_force_sink_enabled = in["pruning_force_sink_enabled"].as<bool>();
+  if (in["pruning_force_sink_multiplier"])
+    pruning_force_sink_multiplier = in["pruning_force_sink_multiplier"].as<float>();
+  if (in["pruning_force_sink_depth"])
+    pruning_force_sink_depth = in["pruning_force_sink_depth"].as<int>();
+  if (in["pruning_force_sink_depth_decay"])
+    pruning_force_sink_depth_decay = in["pruning_force_sink_depth_decay"].as<float>();
 }
 
 bool BasicShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -322,5 +446,28 @@ bool BasicShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_
     ImGui::TreePop();
   }
 
+  if (ImGui::TreeNodeEx("Source/Sink Solver", ImGuiTreeNodeFlags_DefaultOpen)) {
+    changed = ImGui::DragFloat("Respiration Rate (%)", &respiration_rate, 0.001f, 0.0f, 1.0f, "%.6f") || changed;
+    changed = ImGui::DragFloat("Conductance Multiplier (Turnover/Day)", &conductance_multiplier, 0.1f, 0.0f, 100.0f,
+                               "%.6f") ||
+              changed;
+    const char* items[] = {"Area / Length", "Pipe Model", "Multiplier Only"};
+    changed = ImGui::Combo("Conductance Model", &conductance_model, items, IM_ARRAYSIZE(items)) || changed;
+    if (conductance_model == 1) {
+      changed = ImGui::DragFloat("Pipe Model Exponent", &pipe_model_exponent, 0.1f, 0.1f, 8.0f) || changed;
+    }
+
+    ImGui::Separator();
+    changed = ImGui::Checkbox("Enable Pruning Force Sink", &pruning_force_sink_enabled) || changed;
+    changed = ImGui::DragFloat("Pruning Sink Multiplier", &pruning_force_sink_multiplier, 1.0f, 1.0f, 5000.0f,
+                               "%.3f") ||
+              changed;
+    changed = ImGui::DragInt("Pruning Sink Depth", &pruning_force_sink_depth, 1, 0, 32) || changed;
+    changed = ImGui::DragFloat("Pruning Sink Depth Decay", &pruning_force_sink_depth_decay, 0.01f, 0.0f, 1.0f,
+                               "%.3f") ||
+              changed;
+
+    ImGui::TreePop();
+  }
   return changed;
 }

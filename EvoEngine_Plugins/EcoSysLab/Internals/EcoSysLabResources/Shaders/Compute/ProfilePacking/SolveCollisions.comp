@@ -1,0 +1,81 @@
+#extension GL_ARB_shading_language_include : enable
+
+#define PROFILE_PACKING_SET 0
+#include "ProfilePacking.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_particles;
+  uint total_profiles;
+};
+
+void main() {
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= total_particles)
+    return;
+
+  ProfileParticle p = particles[idx];
+  // Only active particles (enable==1) accumulate collision deltas.
+  // Frozen particles (enable==2) act as obstacles via the grid but don't get pushed.
+  if (p.enable != 1)
+    return;
+
+  uint profile_idx = find_profile(idx, total_profiles);
+  ProfileInfo info = profiles[profile_idx];
+  if (info.is_active == 0)
+    return;
+
+  // Grid coordinate for this particle.
+  ivec2 coord = ivec2(floor((p.position - info.grid_min_bound) / info.grid_cell_size));
+  coord = clamp(coord, ivec2(0), ivec2(info.grid_resolution_x - 1, info.grid_resolution_y - 1));
+
+  vec2 accumulated_delta = vec2(0.0);
+  int local_handle = int(idx - info.particle_offset);
+  float softness = info.particle_softness;
+
+  // Check 3x3 neighbor cells.
+  for (int dx = -1; dx <= 1; dx++) {
+    for (int dy = -1; dy <= 1; dy++) {
+      int nx = coord.x + dx;
+      int ny = coord.y + dy;
+      if (nx < 0 || ny < 0 || nx >= info.grid_resolution_x || ny >= info.grid_resolution_y)
+        continue;
+
+      int cell_idx = int(info.grid_offset) + ny * info.grid_resolution_x + nx;
+      uint cell_count = min(grid_cells[cell_idx].count, GRID_CELL_CAPACITY);
+
+      for (uint i = 0; i < cell_count; i++) {
+        int other_local = grid_cells[cell_idx].handles[i];
+        if (other_local == local_handle)
+          continue;
+
+        uint other_global = info.particle_offset + uint(other_local);
+        ProfileParticle other = particles[other_global];
+        if (other.enable == 0)
+          continue;
+
+        vec2 diff = p.position - other.position;
+        float dist = length(diff);
+        float min_dist = 2.0;  // particle diameter = 2 * thickness(1.0)
+
+        if (dist < min_dist) {
+          vec2 axis;
+          if (dist < 1e-6) {
+            // Particles are at the same position — push apart along a direction
+            // that varies per pair so they spread in 2D, not a single line.
+            float angle = float(local_handle * 7 + other_local * 13) * 2.3999632;  // golden-angle-ish
+            axis = (local_handle >= other_local) ? vec2(cos(angle), sin(angle))
+                                                 : vec2(-cos(angle), -sin(angle));
+          } else {
+            axis = diff / dist;
+          }
+          float delta = min_dist - dist;
+          accumulated_delta += (1.0 - softness) * 0.5 * delta * axis;
+        }
+      }
+    }
+  }
+
+  particles[idx].delta_position = accumulated_delta;
+}
