@@ -3,18 +3,18 @@
 #  include "BtfMeshRenderer.hpp"
 #  include "RayTracerLayer.hpp"
 #endif
-#include <SorghumLayer.hpp>
+#include <MaizeLayer.hpp>
 #include "ClassRegistry.hpp"
 #include "Platform.hpp"
 #include "SkyIlluminance.hpp"
-#include "SorghumGenerator.hpp"
 #include "MaizeGenerator.hpp"
+#include "MaizeGrowthStages.hpp"
 #include "Times.hpp"
 
 #include "Material.hpp"
-#include "Sorghum.hpp"
-#include "SorghumCoordinates.hpp"
-#include "SorghumDescriptor.hpp"
+#include "Maize.hpp" // Component
+// #include "MaizeCoordinates.hpp" // Not created
+#include "MaizeDescriptor.hpp"
 #ifdef CUDA_MODULE_PLUGIN
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
@@ -22,22 +22,18 @@
 using namespace digital_agriculture_plugin;
 using namespace evo_engine;
 
-AssetRegistration<SorghumDescriptor> sorghum_descriptor_registry("SorghumDescriptor", {".sorghum"});
-PrivateComponentRegistration<Sorghum> sorghum_registry("Sorghum");
+// Registrations
+AssetRegistration<MaizeDescriptor> maize_descriptor_registry("MaizeDescriptor", {".maize"});
+PrivateComponentRegistration<Maize> maize_registry("Maize");
 
-AssetRegistration<SorghumGrowthStages> sgt_registry("SorghumGrowthStages", {".sgs"});
-AssetRegistration<SorghumState> ss_registry("SorghumState", {".ss"});
+AssetRegistration<MaizeGrowthStages> mgt_registry("MaizeGrowthStages", {".mgs"});
+AssetRegistration<MaizeState> ms_registry("MaizeState", {".ms"});
 
-AssetRegistration<SorghumGenerator> sdg_registry("SorghumGenerator", {".sg"});
-AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
-#ifdef CUDA_MODULE_PLUGIN
-AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
-AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfgroup"});
-#endif
-AssetRegistration<SkyIlluminance> si_registry("SkyIlluminance", {".skyilluminance"});
-AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorghumcoords"});
+AssetRegistration<MaizeGenerator> mg_registry("MaizeGenerator", {".mg"}); // Assuming user wants separation
 
-void SorghumLayer::OnCreate() {
+// AssetRegistration<MaizeField> mf_registry("MaizeField", {".maizefield"}); // Not creating MaizeField yet
+
+void MaizeLayer::OnCreate() {
   if (!leaf_material.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     leaf_material = material;
@@ -75,19 +71,19 @@ void SorghumLayer::OnCreate() {
   }
 }
 
-void SorghumLayer::GenerateMeshForAllSorghums(
-    const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) const {
+void MaizeLayer::GenerateMeshForAllMaizes(
+    const MaizeMeshGeneratorSettings& maize_mesh_generator_settings) const {
   const auto scene = GetScene();
-  if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-      sorghum_entities && !sorghum_entities->empty()) {
-    for (const auto& sorghum_entity : *sorghum_entities) {
-      const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-      sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
+  if (const std::vector<Entity>* maize_entities = scene->UnsafeGetPrivateComponentOwnersList<Maize>();
+      maize_entities && !maize_entities->empty()) {
+    for (const auto& maize_entity : *maize_entities) {
+      const auto maize = scene->GetOrSetPrivateComponent<Maize>(maize_entity).lock();
+      maize->GenerateGeometryEntities(maize_mesh_generator_settings);
     }
   }
 }
 
-void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void MaizeLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
 #ifdef CUDA_MODULE_PLUGIN
   if (ImGui::TreeNodeEx("Illumination Estimation")) {
@@ -117,15 +113,16 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         ImGui::DragFloat("Probe size", &node_render_size, 0.001f, 0.0f, 1.f);
         ImGui::DragFloat("Energy scale factor", &energy_scale_factor, 0.01f, 0.0f, 100.f);
         if (ImGui::Button("Refresh debug info")) {
-          if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>()) {
+          if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Maize>()) {
             std::vector<ParticleInfo> particle_infos;
-            for (const auto sorghum_entity : *owners) {
+            for (const auto maize_entity : *owners) {
               if (const auto tie =
-                      scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock()) {
+                      scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(maize_entity).lock()) {
+                const auto& probes = tie->PeekProbes(); 
                 const auto start_index = particle_infos.size();
-                particle_infos.resize(start_index + tie->PeekProbes().light_probes.size());
-                for (int i = 0; i < tie->PeekProbes().light_probes.size(); i++) {
-                  const auto& probe = tie->PeekProbes().light_probes.at(i);
+                particle_infos.resize(start_index + probes.light_probes.size());
+                for (int i = 0; i < probes.light_probes.size(); i++) {
+                  const auto& probe = probes.light_probes.at(i);
                   auto& matrix = particle_infos[start_index + i].instance_matrix;
                   matrix.value = glm::translate(probe.GetCenter()) * glm::scale(glm::vec3(node_render_size));
                   particle_infos[start_index + i].instance_color =
@@ -153,9 +150,9 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 #endif
   ImGui::Separator();
-  sorghum_mesh_generator_settings.OnInspect(editor_layer);
-  if (ImGui::Button("Generate mesh for all sorghums")) {
-    GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
+  maize_mesh_generator_settings.OnInspect(editor_layer);
+  if (ImGui::Button("Generate mesh for all maizes")) {
+    GenerateMeshForAllMaizes(maize_mesh_generator_settings);
   }
   if (ImGui::DragFloat("Vertical subdivision max unit length", &vertical_subdivision_length, 0.001f, 0.001f, 1.0f,
                        "%.4f")) {
@@ -175,10 +172,10 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     auto tex = leaf_albedo_texture.Get<Texture2D>();
     if (tex) {
       leaf_material.Get<Material>()->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
-      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-          sorghum_entities && !sorghum_entities->empty()) {
-        for (const auto& sorghum_entity : *sorghum_entities) {
-          for (const auto child : scene->GetChildren(sorghum_entity)) {
+      if (const std::vector<Entity>* maize_entities = scene->UnsafeGetPrivateComponentOwnersList<Maize>();
+          maize_entities && !maize_entities->empty()) {
+        for (const auto& maize_entity : *maize_entities) {
+          for (const auto child : scene->GetChildren(maize_entity)) {
             if (scene->HasPrivateComponent<MeshRenderer>(child)) {
               scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetAlbedoTexture(
                   leaf_albedo_texture.Get<Texture2D>());
@@ -193,10 +190,10 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     auto tex = leaf_normal_texture.Get<Texture2D>();
     if (tex) {
       leaf_material.Get<Material>()->SetNormalTexture(leaf_normal_texture.Get<Texture2D>());
-      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-          sorghum_entities && !sorghum_entities->empty()) {
-        for (const auto& sorghum_entity : *sorghum_entities) {
-          for (const auto child : scene->GetChildren(sorghum_entity)) {
+      if (const std::vector<Entity>* maize_entities = scene->UnsafeGetPrivateComponentOwnersList<Maize>();
+          maize_entities && !maize_entities->empty()) {
+        for (const auto& maize_entity : *maize_entities) {
+          for (const auto child : scene->GetChildren(maize_entity)) {
             if (scene->HasPrivateComponent<MeshRenderer>(child)) {
               scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetNormalTexture(
                   leaf_albedo_texture.Get<Texture2D>());
@@ -208,9 +205,9 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   FileUtils::SaveFile(
-      "Export OBJ for all sorghums", "3D Model", {".obj"},
+      "Export OBJ for all maizes", "3D Model", {".obj"},
       [this](const std::filesystem::path& path) {
-        ExportAllSorghumsModel(path.string());
+        ExportAllMaizesModel(path.string());
       },
       false);
 
@@ -239,17 +236,17 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 #endif
 }
 
-void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsigned& start_index) {
+void MaizeLayer::ExportMaize(const Entity& maize, std::ofstream& of, unsigned& start_index) {
   const auto scene = Application::GetActiveScene();
-  const std::string start = "#Sorghum\n";
+  const std::string start = "#Maize\n";
   of.write(start.c_str(), start.size());
   of.flush();
-  const auto position = scene->GetDataComponent<GlobalTransform>(sorghum).GetPosition();
+  const auto position = scene->GetDataComponent<GlobalTransform>(maize).GetPosition();
 
-  const auto stem_mesh = scene->GetOrSetPrivateComponent<MeshRenderer>(sorghum).lock()->mesh.Get<Mesh>();
+  const auto stem_mesh = scene->GetOrSetPrivateComponent<MeshRenderer>(maize).lock()->mesh.Get<Mesh>();
   ObjExportHelper(position, stem_mesh, of, start_index);
 
-  scene->ForEachDescendant(sorghum, [&](const Entity child) {
+  scene->ForEachDescendant(maize, [&](const Entity child) {
     if (!scene->HasPrivateComponent<MeshRenderer>(child))
       return;
     const auto leaf_mesh = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->mesh.Get<Mesh>();
@@ -257,7 +254,7 @@ void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsig
   });
 }
 
-void SorghumLayer::ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mesh>& mesh, std::ofstream& of,
+void MaizeLayer::ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mesh>& mesh, std::ofstream& of,
                                    unsigned& start_index) {
   if (mesh && !mesh->UnsafeGetTriangles().empty()) {
     std::string header = "#Vertices: " + std::to_string(mesh->GetVerticesAmount()) +
@@ -306,33 +303,33 @@ void SorghumLayer::ObjExportHelper(glm::vec3 position, const std::shared_ptr<Mes
   }
 }
 
-void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) const {
+void MaizeLayer::ExportAllMaizesModel(const std::string& filename) const {
   std::ofstream of;
   of.open(filename, std::ofstream::out | std::ofstream::trunc);
   if (of.is_open()) {
-    std::string start = "#Sorghum field, by Bosheng Li";
+    std::string start = "#Maize field, by Bosheng Li";
     start += "\n";
     of.write(start.c_str(), start.size());
     of.flush();
     const auto scene = GetScene();
-    if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-        sorghum_entities && !sorghum_entities->empty()) {
+    if (const std::vector<Entity>* maize_entities = scene->UnsafeGetPrivateComponentOwnersList<Maize>();
+        maize_entities && !maize_entities->empty()) {
       unsigned start_index = 1;
-      for (const auto& sorghum_entity : *sorghum_entities) {
-        ExportSorghum(sorghum_entity, of, start_index);
+      for (const auto& maize_entity : *maize_entities) {
+        ExportMaize(maize_entity, of, start_index);
       }
     }
     of.close();
-    EVOENGINE_LOG("Sorghums saved as " + filename);
+    EVOENGINE_LOG("Maizes saved as " + filename);
   } else {
     EVOENGINE_ERROR("Can't open file!");
   }
 }
 
 #ifdef CUDA_MODULE_PLUGIN
-void SorghumLayer::CalculateIlluminationFrameByFrame() {
+void MaizeLayer::CalculateIlluminationFrameByFrame() {
   const auto scene = GetScene();
-  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Maize>();
   if (!owners)
     return;
   processing_entities.clear();
@@ -341,9 +338,9 @@ void SorghumLayer::CalculateIlluminationFrameByFrame() {
   processing_index = processing_entities.size();
   processing = true;
 }
-void SorghumLayer::CalculateIllumination() {
+void MaizeLayer::CalculateIllumination() {
   const auto scene = GetScene();
-  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Maize>();
   if (!owners)
     return;
   processing_entities.clear();
@@ -364,7 +361,7 @@ void SorghumLayer::CalculateIllumination() {
   }
 }
 #endif
-void SorghumLayer::Update() {
+void MaizeLayer::Update() {
   const auto scene = GetScene();
 #ifdef CUDA_MODULE_PLUGIN
   if (processing) {

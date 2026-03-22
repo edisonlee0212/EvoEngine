@@ -18,6 +18,7 @@ using namespace eco_sys_lab_plugin;
 
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
 #  include "SorghumLayer.hpp"
+#  include "MaizeLayer.hpp"
 using namespace digital_agriculture_plugin;
 #endif
 #include "EditorLayer.hpp"
@@ -80,6 +81,7 @@ int main() {
 
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>("Sorghum Layer")->enable_inspection = true;
+  Application::PushLayer<MaizeLayer>("Maize Layer")->enable_inspection = true;
 #endif
 #ifdef ECOSYSLAB_PLUGIN
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
