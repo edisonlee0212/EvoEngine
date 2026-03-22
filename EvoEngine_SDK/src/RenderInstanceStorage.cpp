@@ -588,6 +588,13 @@ void RenderInstanceStorage::MaterialInfoBlock::Apply(const std::shared_ptr<Mater
   roughness_val = target_material->material_properties.roughness;
   ao_val = 1.0f;
   emission_val = target_material->material_properties.emission;
+  if (const auto displacement_texture = target_material->GetDisplacementTexture();
+      displacement_texture && displacement_texture->GetVkSampler()) {
+    displacement_texture_index = displacement_texture->GetTextureStorageIndex();
+  } else {
+    displacement_texture_index = -1;
+  }
+  displacement_intensity = target_material->material_properties.displacement_intensity;
 }
 
 bool RenderInstanceStorage::MaterialInfoBlock::operator!=(const MaterialInfoBlock& other) const {
@@ -623,6 +630,10 @@ bool RenderInstanceStorage::MaterialInfoBlock::operator!=(const MaterialInfoBloc
   if (ao_val != other.ao_val)
     return true;
   if (emission_val != other.emission_val)
+    return true;
+  if (displacement_texture_index != other.displacement_texture_index)
+    return true;
+  if (displacement_intensity != other.displacement_intensity)
     return true;
   return false;
 }

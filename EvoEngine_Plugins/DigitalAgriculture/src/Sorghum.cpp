@@ -438,4 +438,19 @@ void Sorghum::GrowCropToGdd(const float target_gdd, const float daily_temperatur
     crop_shoot_model.Grow(daily_temperature);
   }
 }
+
+void Sorghum::GrowCropByGdd(const float delta_gdd, const float daily_temperature) {
+  const auto cd = crop_descriptor.Get<CropDescriptor>();
+  if (!cd)
+    return;
+
+  // Initialize only on first call; preserve state for subsequent incremental steps.
+  if (!crop_shoot_model.IsInitialized()) {
+    crop_shoot_model.Initialize(cd);
+  }
+
+  // Inject the exact per-frame GDD directly — one call per frame, no remainder
+  // bookkeeping needed.  GrowByDeltaGdd accepts any delta including sub-step values.
+  crop_shoot_model.GrowByDeltaGdd(delta_gdd);
+}
 #endif

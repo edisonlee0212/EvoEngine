@@ -13,6 +13,9 @@ struct Instance {
 
   int material_index_1;  // secondary material (-1 = unused)
   int material_index_2;  // tertiary material  (-1 = unused)
+
+  int padding_0;  // std430 padding: mat4 forces 16-byte struct alignment → stride must be 112
+  int padding_1;
 };
 
 layout(set = EE_INSTANCES_BLOCK_SET, binding = EE_INSTANCES_BLOCK_BINDING) readonly buffer EE_INSTANCE_BLOCK {

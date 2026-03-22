@@ -35,6 +35,7 @@ void Material::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(metallic_texture_);
   list.push_back(roughness_texture_);
   list.push_back(ao_texture_);
+  list.push_back(displacement_texture_);
 }
 
 bool DrawSettings::OnInspect() {
@@ -171,6 +172,7 @@ Material::~Material() {
   metallic_texture_.Clear();
   roughness_texture_.Clear();
   ao_texture_.Clear();
+  displacement_texture_.Clear();
 }
 
 void Material::SetAlbedoTexture(const std::shared_ptr<Texture2D>& texture) {
@@ -198,6 +200,11 @@ void Material::SetAoTexture(const std::shared_ptr<Texture2D>& texture) {
   need_update_ = true;
 }
 
+void Material::SetDisplacementTexture(const std::shared_ptr<Texture2D>& texture) {
+  displacement_texture_ = texture;
+  need_update_ = true;
+}
+
 std::shared_ptr<Texture2D> Material::GetAlbedoTexture() {
   return albedo_texture_.Get<Texture2D>();
 }
@@ -216,6 +223,10 @@ std::shared_ptr<Texture2D> Material::GetRoughnessTexture() {
 
 std::shared_ptr<Texture2D> Material::GetAoTexture() {
   return ao_texture_.Get<Texture2D>();
+}
+
+std::shared_ptr<Texture2D> Material::GetDisplacementTexture() {
+  return displacement_texture_.Get<Texture2D>();
 }
 
 bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -305,6 +316,12 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (editor_layer->DragAndDropButton<Texture2D>(ao_texture_, "AO Tex")) {
       changed = true;
     }
+    if (editor_layer->DragAndDropButton<Texture2D>(displacement_texture_, "Displacement Tex")) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Displacement Intensity##Material", &material_properties.displacement_intensity, 0.01f, 0.0f, 10.0f)) {
+      changed = true;
+    }
 
     static AssetRef rma_texture_ref{};
     if (editor_layer->DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
@@ -364,6 +381,7 @@ void SaveMaterialProperties(const std::string& name, const MaterialProperties& m
   out << YAML::Key << "transmission" << YAML::Value << material_properties.transmission;
   out << YAML::Key << "transmission_roughness" << YAML::Value << material_properties.transmission_roughness;
   out << YAML::Key << "emission" << YAML::Value << material_properties.emission;
+  out << YAML::Key << "displacement_intensity" << YAML::Value << material_properties.displacement_intensity;
   out << YAML::EndMap;
 }
 void LoadMaterialProperties(const std::string& name, MaterialProperties& material_properties, const YAML::Node& in) {
@@ -401,6 +419,8 @@ void LoadMaterialProperties(const std::string& name, MaterialProperties& materia
       material_properties.transmission_roughness = in_material_properties["transmission_roughness"].as<float>();
     if (in_material_properties["emission"])
       material_properties.emission = in_material_properties["emission"].as<float>();
+    if (in_material_properties["displacement_intensity"])
+      material_properties.displacement_intensity = in_material_properties["displacement_intensity"].as<float>();
   }
 }
 void Material::Serialize(YAML::Emitter& out) const {
@@ -409,6 +429,7 @@ void Material::Serialize(YAML::Emitter& out) const {
   metallic_texture_.Save("metallic_texture_", out);
   roughness_texture_.Save("roughness_texture_", out);
   ao_texture_.Save("ao_texture_", out);
+  displacement_texture_.Save("displacement_texture_", out);
 
   draw_settings.Save("draw_settings", out);
   SaveMaterialProperties("material_properties", material_properties, out);
@@ -421,6 +442,7 @@ void Material::Deserialize(const YAML::Node& in) {
   metallic_texture_.Load("metallic_texture_", in);
   roughness_texture_.Load("roughness_texture_", in);
   ao_texture_.Load("ao_texture_", in);
+  displacement_texture_.Load("displacement_texture_", in);
 
   draw_settings.Load("draw_settings", in);
   LoadMaterialProperties("material_properties", material_properties, in);

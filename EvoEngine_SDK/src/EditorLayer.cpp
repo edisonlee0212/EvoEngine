@@ -487,7 +487,7 @@ void EditorLayer::PreUpdate() {
       if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
         // Using a Child allow to fill all the space of the window.
         // It also allows customization
-        if (scene_camera_window_focused_) {
+        if (scene_camera_window_focused_ || scene_camera_window_hovered_) {
           const auto mp = ImGui::GetMousePos();
           const auto wp = ImGui::GetWindowPos();
           mouse_scene_window_position_ = glm::vec2(mp.x - wp.x, mp.y - wp.y);
@@ -506,7 +506,7 @@ void EditorLayer::PreUpdate() {
       if (ImGui::BeginChild("MainCameraRenderer", ImVec2(0, 0), false)) {
         // Using a Child allow to fill all the space of the window.
         // It also allows customization
-        if (main_camera_window_focused_) {
+        if (main_camera_window_focused_ || main_camera_window_hovered_) {
           auto mp = ImGui::GetMousePos();
           auto wp = ImGui::GetWindowPos();
           mouse_camera_window_position_ = glm::vec2(mp.x - wp.x, mp.y - wp.y);
@@ -1031,6 +1031,7 @@ void EditorLayer::SceneCameraWindow() {
 #pragma region Scene Window
 
   scene_camera_window_focused_ = false;
+  scene_camera_window_hovered_ = false;
   if (ImGui::Begin("Scene")) {
     if (scene) {
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -1039,6 +1040,22 @@ void EditorLayer::SceneCameraWindow() {
       if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
           scene_camera_window_focused_ = true;
+        }
+        if (ImGui::IsWindowHovered()) {
+          scene_camera_window_hovered_ = true;
+        }
+        const bool scene_activate_click = scene_camera_window_hovered_ &&
+                                          (Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press ||
+                                           Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press ||
+                                           Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Press);
+        if (scene_activate_click) {
+          ImGui::SetWindowFocus();
+          scene_camera_window_focused_ = true;
+        }
+        {
+          const auto mp = ImGui::GetMousePos();
+          const auto wp = ImGui::GetWindowPos();
+          mouse_scene_window_position_ = glm::vec2(mp.x - wp.x, mp.y - wp.y);
         }
         view_port_size = ImGui::GetWindowSize();
         scene_camera_resolution_x_ = view_port_size.x * scene_camera_resolution_multiplier;
@@ -1093,7 +1110,7 @@ void EditorLayer::SceneCameraWindow() {
           }
           ImGui::EndChild();
         }
-        if (scene_camera_window_focused_) {
+        if (scene_camera_window_focused_ || scene_camera_window_hovered_) {
 #pragma region Scene Camera Controller
           static bool is_dragging_previously = false;
           bool mouse_out_of_bounds = mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
@@ -1156,43 +1173,55 @@ void EditorLayer::SceneCameraWindow() {
             }
           }
 
-          if (!lock_camera && scene->IsEntityValid(selected_entity_)) {
+          bool has_selected_center = false;
+          glm::vec3 selected_center(0.0f);
+          glm::vec3 orbit_center(0.0f);
+          if (scene->IsEntityValid(selected_entity_)) {
             const auto selected_bound = scene->GetEntityBoundingBox(selected_entity_);
-            const auto selected_center = selected_bound.Center();
+            selected_center = selected_bound.Center();
+            has_selected_center = true;
+            orbit_center = selected_center;
+            last_orbit_target_entity_ = selected_entity_;
+          } else if (scene->IsEntityValid(last_orbit_target_entity_)) {
+            orbit_center = scene->GetEntityBoundingBox(last_orbit_target_entity_).Center();
+          }
 
-            const bool middle_mouse_orbit = Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold;
-            if (middle_mouse_orbit) {
-              const auto& mouse_delta = ImGui::GetIO().MouseDelta;
-              if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f) {
-                auto offset = sceneCameraPosition - selected_center;
-                float distance = glm::length(offset);
-                distance = glm::max(distance, 0.001f);
-                offset = glm::rotate(offset, glm::radians(-mouse_delta.x * sensitivity), glm::vec3(0, 1, 0));
+          const bool middle_mouse_orbit = Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold;
+          if (!lock_camera && middle_mouse_orbit) {
+            const auto& mouse_delta = ImGui::GetIO().MouseDelta;
+            if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f) {
+              const float orbit_sensitivity = sensitivity * 2.0f;
+              auto offset = sceneCameraPosition - orbit_center;
+              float distance = glm::length(offset);
+              distance = glm::max(distance, 0.001f);
+              offset = glm::rotate(offset, glm::radians(-mouse_delta.x * orbit_sensitivity), glm::vec3(0, 1, 0));
 
-                const auto view_dir = glm::normalize(selected_center - sceneCameraPosition);
-                auto orbit_right = glm::cross(view_dir, glm::vec3(0, 1, 0));
-                if (glm::length(orbit_right) > glm::epsilon<float>()) {
-                  orbit_right = glm::normalize(orbit_right);
-                  const auto candidate_offset = glm::rotate(offset, glm::radians(-mouse_delta.y * sensitivity), orbit_right);
-                  const auto candidate_dir = glm::normalize(-candidate_offset);
-                  if (glm::abs(glm::dot(candidate_dir, glm::vec3(0, 1, 0))) < 0.99f) {
-                    offset = candidate_offset;
-                  }
+              const auto view_dir = glm::normalize(orbit_center - sceneCameraPosition);
+              auto orbit_right = glm::cross(view_dir, glm::vec3(0, 1, 0));
+              if (glm::length(orbit_right) > glm::epsilon<float>()) {
+                orbit_right = glm::normalize(orbit_right);
+                const auto candidate_offset =
+                    glm::rotate(offset, glm::radians(-mouse_delta.y * orbit_sensitivity), orbit_right);
+                const auto candidate_dir = glm::normalize(-candidate_offset);
+                if (glm::abs(glm::dot(candidate_dir, glm::vec3(0, 1, 0))) < 0.99f) {
+                  offset = candidate_offset;
                 }
-
-                sceneCameraPosition = selected_center + offset;
-                const auto front = glm::normalize(selected_center - sceneCameraPosition);
-                const auto right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
-                const auto up = glm::normalize(glm::cross(right, front));
-                sceneCameraRotation = glm::quatLookAt(front, up);
               }
-            }
 
+              sceneCameraPosition = orbit_center + offset;
+              const auto front = glm::normalize(orbit_center - sceneCameraPosition);
+              const auto right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+              const auto up = glm::normalize(glm::cross(right, front));
+              sceneCameraRotation = glm::quatLookAt(front, up);
+            }
+          }
+
+          if (scene_camera_window_hovered_) {
             if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
               const bool right_mouse_held = Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold;
               if (right_mouse_held) {
                 velocity = glm::max(0.001f, velocity * (1.0f + scroll * 0.1f));
-              } else {
+              } else if (has_selected_center) {
                 const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
                 auto offset = sceneCameraPosition - selected_center;
                 float distance = glm::length(offset);
@@ -1201,16 +1230,11 @@ void EditorLayer::SceneCameraWindow() {
                   move_amount = distance - 0.01f;
                 }
                 sceneCameraPosition += front * move_amount;
+              } else if (!lock_camera) {
+                const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
+                const float move_amount = scroll * glm::max(0.2f, velocity * 0.5f);
+                sceneCameraPosition += front * move_amount;
               }
-            }
-          } else if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
-            const bool right_mouse_held = Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold;
-            if (right_mouse_held) {
-              velocity = glm::max(0.001f, velocity * (1.0f + scroll * 0.1f));
-            } else if (!lock_camera) {
-              const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
-              const float move_amount = scroll * glm::max(0.2f, velocity * 0.5f);
-              sceneCameraPosition += front * move_amount;
             }
           }
 
@@ -1307,6 +1331,7 @@ void EditorLayer::MainCameraWindow() {
   const auto scene = GetScene();
 #pragma region Window
   main_camera_window_focused_ = false;
+  main_camera_window_hovered_ = false;
   if (ImGui::Begin("Camera")) {
     if (scene) {
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -1316,6 +1341,22 @@ void EditorLayer::MainCameraWindow() {
       if (ImGui::BeginChild("MainCameraRenderer", ImVec2(0, 0), false)) {
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) {
           main_camera_window_focused_ = true;
+        }
+        if (ImGui::IsWindowHovered()) {
+          main_camera_window_hovered_ = true;
+        }
+        const bool main_activate_click = main_camera_window_hovered_ &&
+                                         (Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press ||
+                                          Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press ||
+                                          Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Press);
+        if (main_activate_click) {
+          ImGui::SetWindowFocus();
+          main_camera_window_focused_ = true;
+        }
+        {
+          const auto mp = ImGui::GetMousePos();
+          const auto wp = ImGui::GetWindowPos();
+          mouse_camera_window_position_ = glm::vec2(mp.x - wp.x, mp.y - wp.y);
         }
         const ImVec2 view_port_size = ImGui::GetWindowSize();
         main_camera_resolution_x = view_port_size.x * main_camera_resolution_multiplier_;
@@ -1379,11 +1420,11 @@ void EditorLayer::MainCameraWindow() {
           ImGui::EndChild();
         }
 
-        if (main_camera_window_focused_ && !lock_entity_selection_ &&
+        if ((main_camera_window_focused_ || main_camera_window_hovered_) && !lock_entity_selection_ &&
             Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
           SetSelectedEntity(Entity());
         }
-        if (!Application::IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
+        if (!Application::IsPlaying() && (main_camera_window_focused_ || main_camera_window_hovered_) && !lock_entity_selection_ &&
             Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
             !(mouse_camera_window_position_.x < 0 || mouse_camera_window_position_.y < 0 ||
               mouse_camera_window_position_.x > view_port_size.x ||
@@ -1517,6 +1558,14 @@ bool EditorLayer::MainCameraWindowFocused() const {
   return main_camera_window_focused_;
 }
 
+bool EditorLayer::SceneCameraWindowHovered() const {
+  return scene_camera_window_hovered_;
+}
+
+bool EditorLayer::MainCameraWindowHovered() const {
+  return main_camera_window_hovered_;
+}
+
 void EditorLayer::RegisterEditorCamera(const std::shared_ptr<Camera>& camera) {
   if (editor_cameras_.find(camera->GetHandle()) == editor_cameras_.end()) {
     editor_cameras_[camera->GetHandle()] = {};
@@ -1601,6 +1650,7 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
   if (!scene->IsEntityValid(entity))
     return;
   selected_entity_ = entity;
+  last_orbit_target_entity_ = entity;
   const auto descendants = scene->GetDescendants(selected_entity_);
 
   for (const auto& i : descendants) {
@@ -1778,11 +1828,11 @@ void EditorLayer::MouseEntitySelection() {
       view_port_size = ImGui::GetWindowSize();
     }
 #pragma region Gizmos and Entity Selection
-    if (scene_camera_window_focused_ && !lock_entity_selection_ &&
+    if ((scene_camera_window_focused_ || scene_camera_window_hovered_) && !lock_entity_selection_ &&
         Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
       SetSelectedEntity(Entity());
     }
-    if (scene_camera_window_focused_ && !lock_entity_selection_ && !gizmo_using_ &&
+    if ((scene_camera_window_focused_ || scene_camera_window_hovered_) && !lock_entity_selection_ && !gizmo_using_ &&
         Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
         !(mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
           mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y)) {

@@ -27,16 +27,28 @@ void Input::MouseButtonCallBack(GLFWwindow* window, const int button, const int 
 
     // If middle or right mouse pressed -> start capture (hide + lock)
     if ((button == GLFW_MOUSE_BUTTON_MIDDLE || button == GLFW_MOUSE_BUTTON_RIGHT)) {
-      // remember button request
-      input.cursor_capture_buttons_.insert(button);
-      if (!input.cursor_captured_) {
-        if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
-          double sx, sy;
-          glfwGetCursorPos(window_layer->GetGlfwWindow(), &sx, &sy);
-          input.saved_cursor_pos_ = glm::vec2(static_cast<float>(sx), static_cast<float>(sy));
-          glfwSetInputMode(window_layer->GetGlfwWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-          ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-          input.cursor_captured_ = true;
+      bool allow_capture = true;
+      if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+        const bool scene_view_active =
+            editor_layer->SceneCameraWindowFocused() || editor_layer->SceneCameraWindowHovered();
+        const bool main_view_active =
+            editor_layer->MainCameraWindowFocused() || editor_layer->MainCameraWindowHovered();
+        allow_capture = scene_view_active || main_view_active;
+      }
+      if (allow_capture) {
+        // remember button request
+        input.cursor_capture_buttons_.insert(button);
+        if (!input.cursor_captured_) {
+          if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+            double sx, sy;
+            glfwGetCursorPos(window_layer->GetGlfwWindow(), &sx, &sy);
+            input.saved_cursor_pos_ = glm::vec2(static_cast<float>(sx), static_cast<float>(sy));
+            glfwSetInputMode(window_layer->GetGlfwWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            // Drop the current mouse position immediately to avoid one-frame hover highlight on unrelated UI.
+            ImGui::GetIO().MousePos = ImVec2(-FLT_MAX, -FLT_MAX);
+            input.cursor_captured_ = true;
+          }
         }
       }
     }

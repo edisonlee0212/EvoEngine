@@ -48,10 +48,13 @@ struct CropLeafData {
   float sheath_length = 0.0f;      ///< Current length of the leaf sheath wrapping the stem.
 
   // --- Shape parameters (reuse existing DigitalAgriculture conventions) ---
-  float roll_angle = 0.0f;         ///< Phyllotactic roll angle around the stem (radians).
-  float branching_angle = 0.0f;    ///< Insertion angle from the stem axis (radians).
-  float curling = 0.0f;            ///< Transverse curling (0 = flat, 1 = fully rolled).
-  float bending = 0.0f;            ///< Gravity-induced bending along the midrib.
+  float roll_angle = 0.0f;         ///< Phyllotactic roll angle around the stem (degrees).
+  float branching_angle = 0.0f;    ///< Current insertion angle from the stem axis (degrees). Animated from 0 to max.
+  float max_branching_angle = 0.0f;///< Final (genotype) insertion angle (degrees).
+  float curling = 0.0f;            ///< Transverse curling (degrees, 0-90).
+  float bending = 0.0f;            ///< Gravity-induced bending along the midrib (degrees, -180 to 180).
+  float bending_acceleration = 0.5f; ///< Bending curvature acceleration (0-1).
+  float bending_smoothness = 0.5f;   ///< Bending curvature smoothness (0-1).
   float waviness = 0.0f;           ///< Amplitude of waviness along the blade.
   float waviness_frequency = 0.0f; ///< Spatial frequency of waviness.
 
@@ -157,6 +160,7 @@ struct CropSkeletonData {
 
   // --- Developmental phases ---
   bool stem_elongation_started = false;  ///< True once the plant transitions to stem elongation.
+  float stem_elongation_start_gdd = 0.0f;///< Cumulative GDD at which stem elongation began.
   bool flowering_started = false;        ///< True once reproductive development begins.
   bool grain_filling_started = false;    ///< True once grain fill begins (for carbon partitioning).
 

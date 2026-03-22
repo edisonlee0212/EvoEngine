@@ -60,7 +60,8 @@ class Material final : public IAsset {
   AssetRef normal_texture_;     ///< Reference to the normal map texture.
   AssetRef metallic_texture_;   ///< Reference to the metallic texture.
   AssetRef roughness_texture_;  ///< Reference to the roughness texture.
-  AssetRef ao_texture_;         ///< Reference to the ambient occlusion texture.
+  AssetRef ao_texture_;            ///< Reference to the ambient occlusion texture.
+  AssetRef displacement_texture_;  ///< Reference to the displacement/height map texture.
 
  public:
   /**
@@ -133,6 +134,18 @@ class Material final : public IAsset {
    * @return A shared pointer to the ambient occlusion texture.
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GetAoTexture();
+
+  /**
+   * @brief Sets the displacement/height map texture for the material.
+   * @param texture A shared pointer to the texture to be set.
+   */
+  void SetDisplacementTexture(const std::shared_ptr<Texture2D>& texture);
+
+  /**
+   * @brief Retrieves the displacement/height map texture.
+   * @return A shared pointer to the displacement texture.
+   */
+  [[nodiscard]] std::shared_ptr<Texture2D> GetDisplacementTexture();
 
   bool vertex_color_only = false;  ///< When true, only vertex colors are used for rendering this material.
 

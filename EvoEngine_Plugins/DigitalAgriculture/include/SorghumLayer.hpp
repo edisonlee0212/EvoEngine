@@ -7,6 +7,8 @@
 #include "PointCloud.hpp"
 #include "SorghumDescriptor.hpp"
 #include "SorghumField.hpp"
+#include <cstdint>
+#include <unordered_map>
 
 namespace digital_agriculture_plugin {
 using namespace evo_engine;
@@ -100,6 +102,13 @@ class SorghumLayer : public ILayer {
 
   /** @brief Color of the skeleton structure. */
   glm::vec3 skeleton_color = glm::vec3(0);
+
+  /** @brief Whether Ctrl+F auto-growth is enabled for crop-driven sorghums. */
+  bool auto_increase_crop_target_gdd_ = false;
+  /** @brief Auto-growth speed in GDD per second. At 300 GDD/s the full 600 GDD lifecycle takes ~2 s. */
+  float crop_target_gdd_increase_speed_ = 300.0f;
+  /** @brief Daily temperature (C) used while auto-growing crop models. */
+  float crop_growth_daily_temperature_ = 25.0f;
 
   /**
    * @brief Called when the layer is created.

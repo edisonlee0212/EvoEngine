@@ -76,6 +76,8 @@ void EcoSysLabLayer::OnCreate() {
   if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
     editor_layer->RegisterEditorCamera(visualization_camera_);
   }
+
+  Soil::InitializeTerrainPipeline();
 }
 
 void EcoSysLabLayer::Serialize(YAML::Emitter& out) const {
@@ -1472,6 +1474,21 @@ void EcoSysLabLayer::Update() {
     }
   } else {
     next_strand_model_mesh_update_time_ = 0.0;
+  }
+
+  // Register terrain tessellation render instances for all active Soil entities
+  if (const auto scene = GetScene()) {
+    if (const auto* soil_entities = scene->UnsafeGetPrivateComponentOwnersList<Soil>()) {
+      for (const auto& entity : *soil_entities) {
+        if (scene->IsEntityEnabled(entity)) {
+          if (auto soil = scene->GetOrSetPrivateComponent<Soil>(entity).lock()) {
+            if (soil->IsEnabled()) {
+              soil->RegisterTerrainRenderInstance();
+            }
+          }
+        }
+      }
+    }
   }
 
   RegisterStrandRenderingProcedure();

@@ -156,6 +156,12 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 #endif
   ImGui::Separator();
+  ImGui::Checkbox("Auto increase crop Target GDD (Ctrl+F)", &auto_increase_crop_target_gdd_);
+  ImGui::DragFloat("Crop Target GDD increase speed", &crop_target_gdd_increase_speed_, 1.0f, 0.0f, 5000.0f,
+                   "%.2f gdd/s");
+  crop_target_gdd_increase_speed_ = glm::max(0.0f, crop_target_gdd_increase_speed_);
+  ImGui::DragFloat("Crop growth daily temperature (C)", &crop_growth_daily_temperature_, 0.5f, 0.0f, 45.0f);
+
   sorghum_mesh_generator_settings.OnInspect(editor_layer);
   if (ImGui::Button("Generate mesh for all sorghums")) {
     GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
@@ -369,6 +375,46 @@ void SorghumLayer::CalculateIllumination() {
 #endif
 void SorghumLayer::Update() {
   const auto scene = GetScene();
+
+  if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
+      EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
+    if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
+      auto_increase_crop_target_gdd_ = false;
+      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+          sorghum_entities && !sorghum_entities->empty()) {
+        for (const auto& sorghum_entity : *sorghum_entities) {
+          const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+          if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+            continue;
+          }
+          sorghum->GrowCropToGdd(0.0f, crop_growth_daily_temperature_);
+          sorghum->sorghum_descriptor.Clear();
+          sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
+        }
+      }
+    }
+    if (EditorLayer::GetKey(GLFW_KEY_F) == Input::KeyActionType::Press) {
+      auto_increase_crop_target_gdd_ = !auto_increase_crop_target_gdd_;
+    }
+  }
+
+  if (auto_increase_crop_target_gdd_ && crop_target_gdd_increase_speed_ > 0.0f) {
+    if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+        sorghum_entities && !sorghum_entities->empty()) {
+      const float delta_gdd = crop_target_gdd_increase_speed_ * static_cast<float>(Times::DeltaTime());
+      for (const auto& sorghum_entity : *sorghum_entities) {
+        const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+        if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+          continue;
+        }
+        // Incremental: advance from the model's current state, no full replay.
+        sorghum->GrowCropByGdd(delta_gdd, crop_growth_daily_temperature_);
+        sorghum->sorghum_descriptor.Clear();
+        sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
+      }
+    }
+  }
+
 #ifdef CUDA_MODULE_PLUGIN
   if (processing) {
     processing_index--;

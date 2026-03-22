@@ -6,8 +6,13 @@
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
 #include "HeightField.hpp"
+#include "RenderLayer.hpp"
+#include "Shader.hpp"
+#include "Vertex.hpp"
 
 using namespace eco_sys_lab_plugin;
+
+std::shared_ptr<GraphicsPipeline> Soil::terrain_tessellation_pipeline;
 
 bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
@@ -18,6 +23,9 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (sd) {
     if (ImGui::Button("Generate surface mesh")) {
       GenerateMesh();
+    }
+    if (ImGui::Button("Generate tessellated terrain")) {
+      GenerateTerrainMesh();
     }
     // Show some general properties:
 
@@ -726,4 +734,251 @@ void Soil::FixedUpdate() {
       temporal_progression_ = false;
     }
   }
+}
+
+// =====================================================================
+// Terrain tessellation pipeline & rendering
+// =====================================================================
+
+void Soil::InitializeTerrainPipeline() {
+  if (terrain_tessellation_pipeline)
+    return;
+
+  terrain_tessellation_pipeline = std::make_shared<GraphicsPipeline>();
+
+  terrain_tessellation_pipeline->vertex_shader = Shader::CreateTemporary(
+      ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardTerrain.vert");
+
+  terrain_tessellation_pipeline->tessellation_control_shader = Shader::CreateTemporary(
+      ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./DefaultResources") /
+          "Shaders/Graphics/TessellationControl/Standard/StandardTerrain.tesc");
+
+  terrain_tessellation_pipeline->tessellation_evaluation_shader = Shader::CreateTemporary(
+      ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./DefaultResources") /
+          "Shaders/Graphics/TessellationEvaluation/Standard/StandardTerrain.tese");
+
+  terrain_tessellation_pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./DefaultResources") /
+          "Shaders/Graphics/Fragment/Standard/StandardTerrainDeferred.frag");
+
+  terrain_tessellation_pipeline->geometry_type = GeometryType::Mesh;
+  terrain_tessellation_pipeline->tessellation_patch_control_points = 4;
+  terrain_tessellation_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  terrain_tessellation_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+  terrain_tessellation_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  terrain_tessellation_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+
+  auto& push_constant_range = terrain_tessellation_pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RenderInstancePushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+
+  terrain_tessellation_pipeline->Initialize();
+}
+
+Entity Soil::GenerateTerrainMesh(const std::shared_ptr<Texture2D>& displacement_texture,
+                                 float displacement_intensity) {
+  const auto sd = soil_descriptor_ref.Get<SoilDescriptor>();
+  if (!sd) {
+    EVOENGINE_ERROR("No soil descriptor!");
+    return {};
+  }
+  const auto height_field = sd->height_field.Get<HeightField>();
+  if (!height_field) {
+    EVOENGINE_ERROR("No height field!");
+    return {};
+  }
+
+  // Generate quad patches from the height field grid.
+  // Each grid cell becomes a quad patch with 4 control points.
+  const auto resolution = glm::uvec2(sd->soil_parameters.m_voxelResolution.x,
+                                     sd->soil_parameters.m_voxelResolution.z);
+  const float unit_size = sd->soil_parameters.m_deltaX;
+  const glm::vec2 start(sd->soil_parameters.m_boundingBoxMin.x,
+                         sd->soil_parameters.m_boundingBoxMin.z);
+  const int precision = height_field->precision_level;
+  const unsigned res_x = resolution.x * precision;
+  const unsigned res_z = resolution.y * precision;
+
+  // Generate vertices on the grid
+  std::vector<Vertex> vertices;
+  vertices.reserve(res_x * res_z);
+  for (unsigned i = 0; i < res_x; i++) {
+    for (unsigned j = 0; j < res_z; j++) {
+      Vertex v{};
+      v.position.x = start.x + unit_size * i / precision;
+      v.position.z = start.y + unit_size * j / precision;
+      v.position.y = height_field->GetValue({v.position.x, v.position.z});
+      v.tex_coord = glm::vec2(static_cast<float>(i) / (res_x - 1),
+                              static_cast<float>(j) / (res_z - 1));
+      v.normal = glm::vec3(0, 1, 0);
+      v.tangent = glm::vec3(1, 0, 0);
+      vertices.push_back(v);
+    }
+  }
+
+  // Compute smooth normals and tangents from the grid
+  for (unsigned i = 0; i < res_x; i++) {
+    for (unsigned j = 0; j < res_z; j++) {
+      auto& vert = vertices[i * res_z + j];
+      // Finite differences for normal
+      float hL = (i > 0) ? vertices[(i - 1) * res_z + j].position.y : vert.position.y;
+      float hR = (i < res_x - 1) ? vertices[(i + 1) * res_z + j].position.y : vert.position.y;
+      float hD = (j > 0) ? vertices[i * res_z + (j - 1)].position.y : vert.position.y;
+      float hU = (j < res_z - 1) ? vertices[i * res_z + (j + 1)].position.y : vert.position.y;
+      float dx = (i > 0 && i < res_x - 1) ? 2.0f * unit_size / precision : unit_size / precision;
+      float dz = (j > 0 && j < res_z - 1) ? 2.0f * unit_size / precision : unit_size / precision;
+      glm::vec3 n = glm::normalize(glm::vec3(-(hR - hL) / dx, 1.0f, -(hU - hD) / dz));
+      vert.normal = n;
+      // Tangent along the X-axis, re-orthogonalized
+      glm::vec3 t = glm::normalize(glm::vec3(1.0f, (hR - hL) / dx, 0.0f));
+      t = glm::normalize(t - glm::dot(t, n) * n);
+      vert.tangent = t;
+    }
+  }
+
+  // Generate quad-patch indices: every 4 indices = 1 quad patch
+  // Winding: BL, BR, TR, TL (CCW when viewed from above)
+  std::vector<uint32_t> indices;
+  const unsigned num_quads_x = res_x - 1;
+  const unsigned num_quads_z = res_z - 1;
+  indices.reserve(num_quads_x * num_quads_z * 4);
+  for (unsigned i = 0; i < num_quads_x; i++) {
+    for (unsigned j = 0; j < num_quads_z; j++) {
+      uint32_t bl = i * res_z + j;
+      uint32_t br = (i + 1) * res_z + j;
+      uint32_t tr = (i + 1) * res_z + (j + 1);
+      uint32_t tl = i * res_z + (j + 1);
+      indices.push_back(bl);
+      indices.push_back(br);
+      indices.push_back(tr);
+      indices.push_back(tl);
+    }
+  }
+
+  // Upload vertices to GPU buffer
+  {
+    VkBufferCreateInfo buffer_create_info{};
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.size = sizeof(Vertex) * vertices.size();
+    buffer_create_info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    terrain_vertex_buffer_ = std::make_shared<Buffer>(buffer_create_info, alloc_info);
+    terrain_vertex_buffer_->UploadVector(vertices);
+    terrain_vertex_count_ = static_cast<uint32_t>(vertices.size());
+  }
+
+  // Upload indices to GPU buffer
+  {
+    VkBufferCreateInfo buffer_create_info{};
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.size = sizeof(uint32_t) * indices.size();
+    buffer_create_info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    terrain_index_buffer_ = std::make_shared<Buffer>(buffer_create_info, alloc_info);
+    terrain_index_buffer_->UploadVector(indices);
+    terrain_index_count_ = static_cast<uint32_t>(indices.size());
+  }
+
+  // Create material with displacement texture
+  terrain_material_ = AssetManager::CreateTemporaryAsset<Material>();
+  terrain_material_->material_properties.displacement_intensity = displacement_intensity;
+  if (displacement_texture) {
+    terrain_material_->SetDisplacementTexture(displacement_texture);
+  }
+
+  // Apply first soil layer's PBR textures to the terrain material
+  if (auto& soil_layer_descriptors = sd->soil_layer_descriptors; !soil_layer_descriptors.empty()) {
+    if (auto first_descriptor = soil_layer_descriptors[0].Get<SoilLayerDescriptor>()) {
+      terrain_material_->SetAlbedoTexture(first_descriptor->albedo_texture.Get<Texture2D>());
+      terrain_material_->SetNormalTexture(first_descriptor->normal_texture.Get<Texture2D>());
+      terrain_material_->SetRoughnessTexture(first_descriptor->roughness_texture.Get<Texture2D>());
+      terrain_material_->SetMetallicTexture(first_descriptor->metallic_texture.Get<Texture2D>());
+      // Use the soil layer's height texture as displacement if none was provided
+      if (!displacement_texture) {
+        terrain_material_->SetDisplacementTexture(first_descriptor->height_texture.Get<Texture2D>());
+      }
+    }
+  }
+
+  terrain_mesh_ready_ = true;
+
+  // Also create a regular mesh entity for scene hierarchy visibility
+  const auto scene = Application::GetActiveScene();
+  const auto self = GetOwner();
+  Entity terrain_entity;
+  for (const auto& child : scene->GetChildren(self)) {
+    if (scene->GetEntityName(child) == "Terrain Mesh") {
+      terrain_entity = child;
+      break;
+    }
+  }
+  if (terrain_entity.GetIndex() != 0)
+    scene->DeleteEntity(terrain_entity);
+  terrain_entity = scene->CreateEntity("Terrain Mesh");
+  scene->SetParent(terrain_entity, self);
+
+  return terrain_entity;
+}
+
+void Soil::RegisterTerrainRenderInstance() {
+  if (!terrain_mesh_ready_ || !terrain_vertex_buffer_ || !terrain_index_buffer_ || !terrain_material_)
+    return;
+  if (!terrain_tessellation_pipeline || !terrain_tessellation_pipeline->Initialized())
+    return;
+
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (!render_layer)
+    return;
+
+  const auto scene = Application::GetActiveScene();
+  const auto owner = GetOwner();
+  const auto current_render_storage = render_layer->GetCurrentRenderInstanceStorage();
+
+  // Register this soil instance + material so the engine assigns instance/material indices
+  current_render_storage->RegisterRenderInstance(scene, owner, GetHandle(), terrain_material_);
+
+  const auto instance_index = current_render_storage->GetRenderInstanceIndex(GetHandle());
+  const auto vertex_buffer = terrain_vertex_buffer_;
+  const auto index_buffer = terrain_index_buffer_;
+  const auto index_count = terrain_index_count_;
+  const auto pipeline = terrain_tessellation_pipeline;
+
+  render_layer->DeferredRenderingAllCameras(
+      [=](const VkCommandBuffer vk_command_buffer,
+          const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+          const RenderLayer::DeferredRenderingView& view) -> uint32_t {
+        pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+        pipeline->states.SetViewportScissor(view.viewport);
+        pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+        pipeline->states.cull_mode = VK_CULL_MODE_BACK_BIT;
+
+        pipeline->Bind(vk_command_buffer);
+        pipeline->BindDescriptorSet(
+            vk_command_buffer, 0,
+            RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+
+        RenderInstancePushConstant push_constant;
+        push_constant.camera_index = view.camera_index;
+        push_constant.instance_index = instance_index;
+        pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        pipeline->states.ApplyAllStates(vk_command_buffer);
+
+        // Bind custom vertex buffer
+        VkBuffer vk_vertex_buffer = vertex_buffer->GetVkBuffer();
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &vk_vertex_buffer, &offset);
+        vkCmdBindIndexBuffer(vk_command_buffer, index_buffer->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(vk_command_buffer, index_count, 1, 0, 0, 0);
+
+        return index_count / 4;  // Return patch count as primitive count
+      });
 }

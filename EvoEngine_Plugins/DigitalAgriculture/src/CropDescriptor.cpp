@@ -3,7 +3,17 @@
 namespace digital_agriculture_plugin {
 
 void CropDescriptor::OnCreate() {
-  // Phenology defaults (sorghum-like cultivar).
+  // ============================================================================
+  // Defaults calibrated to Season 11 sorghum generator.
+  //
+  // Season 11 describes a vegetative-stage sorghum (~14 leaves, ~0.6 m height,
+  // no panicle).  With plastochron=40 GDD, that corresponds to roughly GDD 600.
+  // The genotype maxima below are set so that a fully-developed leaf matches
+  // the Season 11 dimensions, and the whole-plant growth from seedling to
+  // maturity is biologically plausible for a short-statured grain sorghum.
+  // ============================================================================
+
+  // -- Phenology --
   base_temperature = 8.0f;
   plastochron_gdd = 40.0f;
   final_leaf_number = 16;
@@ -15,64 +25,82 @@ void CropDescriptor::OnCreate() {
   leaf_growth_duration_gdd = 120.0f;
   senescence_onset_gdd = 100.0f;
 
-  // Leaf geometry — PlottedDistribution with mean curve over normalized rank.
-  max_leaf_length.mean = {0.0f, 2.5f, Curve2D(0.165f, 0.247f)};
+  // -- Leaf geometry (per-rank) --
+  // Season 11 leaf_length: [0, 1.16] curve ~(0.254 -> 0.55 peak -> 0.519).
+  // Bottom leaves ~0.30 m, mid-rank leaves ~0.64 m, flag leaf ~0.60 m.
+  max_leaf_length.mean = {0.0f, 1.16f, Curve2D(0.254f, 0.519f)};
   max_leaf_length.deviation = {0.0f, 0.0f, Curve2D(0.0f, 0.0f)};
 
-  max_leaf_width.mean = {0.0f, 0.075f, Curve2D(0.5f, 0.5f)};
-  max_leaf_width.deviation = {0.0f, 0.0f, Curve2D(0.0f, 0.0f)};
+  // Season 11 leaf_width: [0, 0.1] flat 0.5 => 0.05 m at all ranks.
+  max_leaf_width.mean = {0.0f, 0.1f, Curve2D(0.5f, 0.5f)};
+  max_leaf_width.deviation = {0.0f, 0.06f, Curve2D(0.5f, 0.5f)};
 
-  leaf_sheath_length.mean = {0.0f, 0.15f, Curve2D(0.3f, 0.7f)};
+  // Sheath length ~10-20% of blade length, increasing basipetally.
+  leaf_sheath_length.mean = {0.0f, 0.18f, Curve2D(0.3f, 0.7f)};
   leaf_sheath_length.deviation = {0.0f, 0.0f, Curve2D(0.0f, 0.0f)};
 
-  // Leaf shape parameters.
+  // -- Leaf shape (per-rank) — from Season 11 --
+  // Roll angle: mean centred at 0 (midpoint of [-1,1]), deviation increases acropetally.
   leaf_roll_angle.mean = {-1.0f, 1.0f, Curve2D(0.5f, 0.5f)};
-  leaf_roll_angle.deviation = {0.0f, 6.0f, Curve2D(0.3f, 1.0f)};
+  leaf_roll_angle.deviation = {0.0f, 8.0f, Curve2D(0.3f, 1.0f)};
 
+  // Branching angle: ~27 deg bottom to ~11 deg top.
   leaf_branching_angle.mean = {0.0f, 55.0f, Curve2D(0.5f, 0.2f)};
-  leaf_branching_angle.deviation = {0.0f, 3.0f, Curve2D(0.67f, 0.225f)};
+  leaf_branching_angle.deviation = {0.0f, 2.0f, Curve2D(0.565f, 0.239f)};
 
+  // Curling: 27 deg at bottom, 63 deg at top.
   leaf_curling.mean = {0.0f, 90.0f, Curve2D(0.3f, 0.7f)};
-  leaf_curling.deviation = {0.0f, 1.0f, Curve2D(0.0f, 0.0f)};
+  leaf_curling.deviation = {0.0f, 0.0f, Curve2D(0.0f, 0.0f)};
 
-  leaf_bending.mean = {-180.0f, 180.0f, Curve2D(0.5f, 0.5f)};
-  leaf_bending.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
+  // Bending: lower leaves droop (~98 deg), top leaves nearly erect (~-1 deg).
+  leaf_bending.mean = {-180.0f, 180.0f, Curve2D(0.773f, 0.497f)};
+  leaf_bending.deviation = {0.0f, 1.0f, Curve2D(0.5f, 0.5f)};
 
-  leaf_bending_acceleration.mean = {0.0f, 1.0f, Curve2D(0.5f, 0.5f)};
+  // Bending acceleration ~0.8 throughout.
+  leaf_bending_acceleration.mean = {0.0f, 1.0f, Curve2D(0.781f, 0.813f)};
   leaf_bending_acceleration.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
 
   leaf_bending_smoothness.mean = {0.0f, 1.0f, Curve2D(0.5f, 0.5f)};
   leaf_bending_smoothness.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
 
-  leaf_waviness.mean = {0.0f, 20.0f, Curve2D(0.5f, 0.5f)};
-  leaf_waviness.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
+  // Waviness: Season 11 is very subtle (~0.03 m amplitude).
+  leaf_waviness.mean = {0.0f, 0.15f, Curve2D(0.193f, 0.194f)};
+  leaf_waviness.deviation = {0.0f, 0.2f, Curve2D(0.496f, 0.501f)};
 
-  leaf_waviness_frequency.mean = {0.0f, 1.0f, Curve2D(0.5f, 0.5f)};
-  leaf_waviness_frequency.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
+  leaf_waviness_frequency.mean = {0.0f, 0.1f, Curve2D(0.5f, 0.5f)};
+  leaf_waviness_frequency.deviation = {0.0f, 0.1f, Curve2D(0.5f, 0.5f)};
 
-  // Internode geometry.
-  max_internode_length.mean = {0.0f, 0.45f, Curve2D(0.5f, 0.5f)};
-  max_internode_length.deviation = {0.0f, 0.15f, Curve2D(0.5f, 0.5f)};
+  // -- Internode geometry --
+  // Calibrated so 16 internodes yield ~1.14 m (45 in) total height at maturity.
+  // Lower internodes shorter (0.25 * 0.14 = 0.035 m), upper longer (0.75 * 0.14 = 0.105 m).
+  // Sum ≈ 16 * 0.14 * 0.5 = 1.12 m.
+  max_internode_length.mean = {0.0f, 0.14f, Curve2D(0.25f, 0.75f)};
+  max_internode_length.deviation = {0.0f, 0.01f, Curve2D(0.5f, 0.5f)};
 
+  // Season 11 stem_width = 0.014 (half-width); diameter = 0.028.
   max_internode_diameter.mean = {0.0f, 0.028f, Curve2D(0.5f, 0.5f)};
   max_internode_diameter.deviation = {0.0f, 0.0f, Curve2D(0.0f, 0.0f)};
 
-  // Stem.
+  // -- Stem --
   stem_tilt_angle.mean = 0.0f;
-  stem_tilt_angle.deviation = 0.0f;
+  stem_tilt_angle.deviation = 1.5f;
 
-  // Along-organ shape curves.
-  width_along_stem = Curve2D(1.0f, 0.1f);
-  width_along_leaf = Curve2D(0.5f, 0.1f);
+  // -- Along-organ shape curves (from Season 11) --
+  // Stem tapers from full width at base to ~69% at top.
+  width_along_stem = Curve2D(1.0f, 0.688f);
+  // Leaf blade: starts ~32% of max width at ligule, tapers to near zero at tip.
+  width_along_leaf = Curve2D(0.315f, 0.016f);
+  // Uniform curling along the leaf (Season 11 generator uses {1,1}).
   curling_along_leaf = Curve2D(1.0f, 1.0f);
+  // Waviness rises toward the tip.
   waviness_along_leaf = Curve2D(0.0f, 0.5f);
 
-  // Panicle (none by default).
+  // -- Panicle (absent at Season 11 stage, appears at flowering) --
   panicle_size.mean = glm::vec2(0.0f);
   panicle_seed_amount.mean = 0.0f;
   panicle_seed_radius.mean = 0.002f;
 
-  // Carbon.
+  // -- Carbon --
   specific_leaf_area = 20.0f;
   max_stem_reserve_fraction = 0.3f;
 }

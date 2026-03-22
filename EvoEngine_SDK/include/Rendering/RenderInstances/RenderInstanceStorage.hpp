@@ -144,6 +144,9 @@ class RenderInstanceStorage {
     int32_t material_index_1 = -1;  ///< Secondary material index (e.g. adolescent strands). -1 = unused.
     int32_t material_index_2 = -1;  ///< Tertiary material index (e.g. young strands). -1 = unused.
 
+    int32_t padding_0 = 0;  ///< Padding to match GLSL std430 array stride (mat4 forces 16-byte struct alignment).
+    int32_t padding_1 = 0;  ///< Padding to match GLSL std430 array stride.
+
     /**
      * @brief Compares two InstanceInfoBlock objects for inequality.
      * @param other The other InstanceInfoBlock object to compare.
@@ -174,6 +177,11 @@ class RenderInstanceStorage {
     alignas(4) float roughness_val = 0.5f;  ///< Roughness value.
     alignas(4) float ao_val = 1.0f;         ///< Ambient occlusion value.
     alignas(4) float emission_val = 0.0f;   ///< Emission value.
+
+    alignas(4) int displacement_texture_index = -1;  ///< Displacement map texture index.
+    alignas(4) float displacement_intensity = 0.1f;  ///< Displacement intensity/scale.
+    alignas(4) int padding_mat_0 = 0;
+    alignas(4) int padding_mat_1 = 0;
 
     /**
      * @brief Applies the material settings to the target material.

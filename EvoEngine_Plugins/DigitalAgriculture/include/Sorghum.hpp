@@ -93,10 +93,19 @@ class Sorghum final : public IPrivateComponent {
 #ifdef ECOSYSLAB_PLUGIN
   /**
    * @brief Grow the crop model to the specified cumulative GDD and regenerate geometry.
+   * Reinitializes from zero each call — suitable for the interactive slider.
    * @param target_gdd Target cumulative growing degree-days.
    * @param daily_temperature Daily mean temperature used for each growth step (°C).
    */
   void GrowCropToGdd(float target_gdd, float daily_temperature = 25.0f);
+
+  /**
+   * @brief Advance the crop model by delta_gdd from its current state (incremental).
+   * Does NOT reinitialize — designed for per-frame timelapse playback.
+   * @param delta_gdd GDD to advance from the current cumulative GDD.
+   * @param daily_temperature Daily mean temperature used for each growth step (°C).
+   */
+  void GrowCropByGdd(float delta_gdd, float daily_temperature = 25.0f);
 #endif
 };
 

@@ -3,6 +3,8 @@
 #include "HeightField.hpp"
 #include "SoilDescriptor.hpp"
 #include "VoxelSoilModel.hpp"
+#include "GraphicsPipeline.hpp"
+#include "Platform.hpp"
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
@@ -141,5 +143,47 @@ class Soil : public IPrivateComponent {
    * \return An Entity representing the generated box.
    */
   Entity GenerateFullBox(float water_factor, float nutrient_factor, bool ground_surface);
+
+  // ── Terrain tessellation rendering ──
+
+  /// Static terrain tessellation pipeline (shared across all Soil instances).
+  static std::shared_ptr<GraphicsPipeline> terrain_tessellation_pipeline;
+
+  /// Initializes the terrain tessellation pipeline. Call once at startup (e.g. from EcoSysLabLayer::OnCreate).
+  static void InitializeTerrainPipeline();
+
+  /**
+   * \brief Generates a tessellated terrain mesh from the height field.
+   *
+   * Creates a quad-patch grid for hardware tessellation with displacement mapping.
+   * The generated mesh entity uses the deferred rendering hook for tessellated rendering.
+   * \param displacement_texture Optional high-res displacement texture.
+   * \param displacement_intensity Scale factor for displacement (default 0.1).
+   * \return An Entity representing the tessellated terrain.
+   */
+  Entity GenerateTerrainMesh(const std::shared_ptr<Texture2D>& displacement_texture = nullptr,
+                             float displacement_intensity = 0.1f);
+
+  /**
+   * \brief Registers the terrain for tessellated deferred rendering this frame.
+   *
+   * Call each frame (e.g. in LateUpdate) to inject the tessellated terrain into
+   * the deferred pass through RenderLayer::DeferredRenderingAllCameras.
+   */
+  void RegisterTerrainRenderInstance();
+
+ private:
+  /// Custom vertex buffer for terrain quad patches.
+  std::shared_ptr<Buffer> terrain_vertex_buffer_;
+  /// Custom index buffer for terrain quad patches (4 indices per patch).
+  std::shared_ptr<Buffer> terrain_index_buffer_;
+  /// Number of quad-patch indices (= num_quads * 4).
+  uint32_t terrain_index_count_ = 0;
+  /// Number of vertices in the terrain mesh.
+  uint32_t terrain_vertex_count_ = 0;
+  /// Material for the tessellated terrain.
+  std::shared_ptr<Material> terrain_material_;
+  /// Whether terrain mesh has been generated.
+  bool terrain_mesh_ready_ = false;
 };
 }  // namespace eco_sys_lab_plugin

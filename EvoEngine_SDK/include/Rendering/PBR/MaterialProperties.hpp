@@ -102,6 +102,13 @@ struct MaterialProperties {
    * @brief Amount of light emitted by the material.
    */
   float emission = 0.0f;
+
+  /**
+   * @brief Intensity/scale of displacement mapping.
+   *
+   * Controls how strongly the displacement map offsets geometry.
+   */
+  float displacement_intensity = 0.1f;
 };
 
 }  // namespace evo_engine

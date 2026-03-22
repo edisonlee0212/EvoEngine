@@ -61,11 +61,22 @@ class CropShootModel {
    *
    * @param daily_mean_temperature Daily mean temperature (°C).
    *
-   * Internally computes delta-GDD, initiates new phytomers if the plastochron
-   * threshold is crossed, elongates leaves and internodes, and updates
-   * phenological phases.
+   * Internally computes delta-GDD from temperature, initiates new phytomers if
+   * the plastochron threshold is crossed, elongates leaves and internodes, and
+   * updates phenological phases.
    */
   void Grow(float daily_mean_temperature);
+
+  /**
+   * @brief Advance the model by an arbitrary delta_gdd directly.
+   *
+   * Unlike Grow(), this does not derive GDD from temperature — it applies
+   * @p delta_gdd as-is.  Use this for smooth per-frame timelapse playback
+   * where you want the visual to update every frame, not once per daily step.
+   *
+   * @param delta_gdd GDD to add this step (can be any positive value, including sub-step).
+   */
+  void GrowByDeltaGdd(float delta_gdd);
 
   // ------------------------------------------------------------------
   // Access
@@ -117,6 +128,12 @@ class CropShootModel {
    * @brief Accumulate GDD and return the delta for this timestep.
    */
   float AccumulateGdd(float daily_mean_temperature);
+
+  /**
+   * @brief Core growth step shared by Grow() and GrowByDeltaGdd().
+   * Advances cumulative_gdd, checks phenology, and delegates to organ/phytomer helpers.
+   */
+  void AdvanceByDeltaGdd(float delta_gdd);
 
   /**
    * @brief Initiate new phytomers if plastochron threshold is crossed.

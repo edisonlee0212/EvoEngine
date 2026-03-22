@@ -18,6 +18,11 @@ struct MaterialProperties {
   float roughness;
   float ambient_occulusion;
   float emission;
+
+  int displacement_map_index;
+  float displacement_intensity;
+  int padding_mat_0;
+  int padding_mat_1;
 };
 
 layout(set = EE_MATERIALS_BLOCK_SET, binding = EE_MATERIALS_BLOCK_BINDING) readonly buffer EE_MATERIAL_BLOCK {
