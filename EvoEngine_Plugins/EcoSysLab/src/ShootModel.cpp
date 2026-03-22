@@ -102,6 +102,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
   growth_events_.clear();
+  pruning_event_batches_.clear();
   pruning_occurred_ = false;
 
   // [FIX] Moved Year Change / Reset Logic to the START of the frame.
@@ -184,6 +185,7 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
   current_delta_time_ = delta_time;
   shoot_skeleton_.data.age += current_delta_time_;
   growth_events_.clear();
+  pruning_event_batches_.clear();
   pruning_occurred_ = false;
   bool tree_structure_changed = false;
   auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
@@ -1050,7 +1052,10 @@ bool ShootModel::PruneInternodes(const glm::mat4& global_transform, const Climat
         root_to_end_pruned = true;
       }
     }
-    shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    if (!pruning_node_handles.empty()) {
+      pruning_event_batches_.emplace_back(pruning_node_handles);
+      shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    }
   }
 
   bool end_to_root_pruned = false;
@@ -1095,7 +1100,10 @@ bool ShootModel::PruneInternodes(const glm::mat4& global_transform, const Climat
       }
     }
 
-    shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    if (!pruning_node_handles.empty()) {
+      pruning_event_batches_.emplace_back(pruning_node_handles);
+      shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    }
   }
   shoot_skeleton_.CalculateDistanceVolumeLevel();
   return root_to_end_pruned || end_to_root_pruned;
@@ -1184,6 +1192,8 @@ void ShootModel::Reverse(int iteration) {
 void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   {
+    out << YAML::Key << "seed" << YAML::Value << seed;
+
     out << YAML::Key << "shoot_skeleton" << YAML::Value << YAML::BeginMap;
     {
       SkeletonSerializer<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Serialize(
@@ -1212,6 +1222,7 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
                 node_out << YAML::Key << "P" << YAML::Value << leaf.position;
                 node_out << YAML::Key << "C" << YAML::Value << leaf.scale;
                 node_out << YAML::Key << "S" << YAML::Value << static_cast<unsigned>(leaf.status);
+                node_out << YAML::Key << "MI" << YAML::Value << leaf.mesh_index;
               }
               node_out << YAML::EndMap;
             }
@@ -1329,6 +1340,9 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
   void ShootModel::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     if (const auto& in_tree_model = in[name]) {
+      if (in_tree_model["seed"])
+        seed = in_tree_model["seed"].as<int>();
+
       const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];
       SkeletonSerializer<ShootGrowthData, ShootStemGrowthData, InternodeGrowthData>::Deserialize(
           in_shoot_skeleton, shoot_skeleton_,
@@ -1368,6 +1382,8 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
                   leaf.scale = in_leaf["C"].as<glm::vec3>();
                 if (in_leaf["S"])
                   leaf.status = static_cast<OrganStatus>(in_leaf["S"].as<unsigned>());
+                if (in_leaf["MI"])
+                  leaf.mesh_index = in_leaf["MI"].as<uint32_t>();
               }
             }
 

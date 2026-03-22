@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "ShootGrowthData.hpp"
 
 #include <optional>
@@ -14,7 +14,7 @@ using namespace evo_engine;
  * is enabled. This avoids sync issues between two separate skeletons and enables
  * co-evolution of growth and strand topology.
  */
-struct ProceduralStrandModelNodeData {
+struct DevelopmentalStrandModelNodeData {
   InternodeGrowthData internode_data{};
   std::optional<StrandModelNodeData> strand_data{};
 
@@ -38,7 +38,7 @@ struct ProceduralStrandModelNodeData {
 /**
  * @brief Unified flow data combining shoot stem growth data with optional strand model flow data.
  */
-struct ProceduralStrandModelFlowData {
+struct DevelopmentalStrandModelFlowData {
   ShootStemGrowthData stem_data{};
   std::optional<StrandModelFlowData> strand_data{};
 };
@@ -50,7 +50,7 @@ struct ProceduralStrandModelFlowData {
  * StrandModelSkeletonData (strand group, particle count) is lazily initialized
  * when the procedural strand model is enabled.
  */
-struct ProceduralStrandModelSkeletonData {
+struct DevelopmentalStrandModelSkeletonData {
   ShootGrowthData shoot_data{};
   std::optional<StrandModelSkeletonData> strand_data{};
 
@@ -79,7 +79,7 @@ struct ProceduralStrandModelSkeletonData {
  * When enabled, strand data is lazily initialized on nodes as they are created or when
  * incremental strand growth begins.
  */
-typedef Skeleton<ProceduralStrandModelSkeletonData, ProceduralStrandModelFlowData, ProceduralStrandModelNodeData>
-    ProceduralStrandModelSkeleton;
+typedef Skeleton<DevelopmentalStrandModelSkeletonData, DevelopmentalStrandModelFlowData, DevelopmentalStrandModelNodeData>
+    DevelopmentalStrandModelSkeleton;
 
 }  // namespace eco_sys_lab_plugin

@@ -54,8 +54,12 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   SingleDistribution<float> damage_rate = {0.07f, 0.01f};
   SingleDistribution<float> hang_time = {10.f, 1.f};
 
-  /// Reference to the leaf material asset.
+  /// Reference to the leaf material asset (fallback when leaf_material_variants is empty).
   AssetRef leaf_material_ref;
+
+  /// Material variants for leaf quads. Each leaf randomly selects one entry.
+  /// If empty, falls back to leaf_material_ref.
+  std::vector<AssetRef> leaf_material_variants;
 
     float leaf_source_strength = 1.0f;
 

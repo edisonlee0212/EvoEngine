@@ -438,6 +438,8 @@ StrandHandle StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::Alloca
 template <typename StrandGroupData, typename StrandData, typename StrandSegmentData>
 void StrandGroup<StrandGroupData, StrandData, StrandSegmentData>::RegulateRotations() {
   for (const auto& strand : strands_) {
+    if (strand.strand_segment_handles_.size() < 2)
+      continue;
     for (uint32_t i = 0; i < strand.strand_segment_handles_.size() - 1; i++) {
       const auto& prev_segment = strand_segments_[strand.strand_segment_handles_[i]];
       auto& segment = strand_segments_[strand.strand_segment_handles_[i + 1]];

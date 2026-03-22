@@ -645,8 +645,20 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             const auto thumbnail_tex = i.second->GetThumbnail();
             glm::vec2 resolution = thumbnail_tex->GetResolution();
             resolution *= thumbnail_size_padding.x / glm::max(resolution.x, resolution.y);
-            ImGui::ImageButton(tag.c_str(), thumbnail_tex->GetImTextureId(), {resolution.x, resolution.y}, {0, 1},
-                               {1, 0});
+            ImTextureID thumbnail_id = thumbnail_tex ? thumbnail_tex->GetImTextureId() : nullptr;
+            if (!thumbnail_id) {
+              if (const auto fallback_tex = EditorLayer::FindIcon("Binary")) {
+                thumbnail_id = fallback_tex->GetImTextureId();
+                const auto fallback_resolution = fallback_tex->GetResolution();
+                resolution = glm::vec2(fallback_resolution) *
+                             (thumbnail_size_padding.x / glm::max(fallback_resolution.x, fallback_resolution.y));
+              }
+            }
+            if (thumbnail_id) {
+              ImGui::ImageButton(tag.c_str(), thumbnail_id, {resolution.x, resolution.y}, {0, 1}, {1, 0});
+            } else {
+              ImGui::Button(tag.c_str(), {resolution.x, resolution.y});
+            }
             bool item_hovered = false;
             if (ImGui::IsItemHovered()) {
               item_hovered = true;

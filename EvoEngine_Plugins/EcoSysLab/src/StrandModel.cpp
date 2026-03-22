@@ -825,6 +825,8 @@ float StrandModel::InterpolateStrandSegmentRadius(StrandSegmentHandle strand_seg
 void StrandModel::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   {
+    out << YAML::Key << "seed" << YAML::Value << seed;
+
     out << YAML::Key << "strand_model_skeleton" << YAML::Value << YAML::BeginMap;
     {
       SkeletonSerializer<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Serialize(
@@ -938,6 +940,9 @@ void StrandModel::Save(const std::string& name, YAML::Emitter& out) const {
 void StrandModel::Load(const std::string& name, const YAML::Node& in) {
   if (in[name]) {
     if (const auto& in_strand_model = in[name]) {
+      if (in_strand_model["seed"])
+        seed = in_strand_model["seed"].as<int>();
+
       const auto& in_strand_model_skeleton = in_strand_model["strand_model_skeleton"];
       SkeletonSerializer<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::Deserialize(
           in_strand_model_skeleton, strand_model_skeleton,

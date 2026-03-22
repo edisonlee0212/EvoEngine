@@ -23,8 +23,12 @@ layout (location = 0) out TES_OUT {
 layout(location = 5) patch in uint currentInstanceIndexIn;
 layout(location = 5) out uint currentInstanceIndexOut;
 
+layout(location = 6) patch in int materialCategoryIn;
+layout(location = 6) out int materialCategoryOut;
+
 void main(){
 	currentInstanceIndexOut = currentInstanceIndexIn;
+	materialCategoryOut = materialCategoryIn;
 	vec3 position, normal, tangent, tempV;
 	float thickness, tex_coord, tempF;
 	EE_SPLINE_INTERPOLATION(tcs_in[0].FragPos, tcs_in[1].FragPos, tcs_in[2].FragPos, tcs_in[3].FragPos, position, tangent, gl_TessCoord.x);

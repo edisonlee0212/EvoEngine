@@ -234,16 +234,10 @@ void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& 
     gizmo_settings.depth_test = true;
     gizmo_settings.depth_write = true;
     if (!node_matrices_->PeekParticleInfoList().empty()) {
-      float alpha = 1.0f;
-      if (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode) ==
-          ShootVisualizerMode::SourceSink_Concentration) {
-        alpha = 0.7f;
-        gizmo_settings.depth_write = false;
-      }
       editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
                                                   eco_sys_lab_layer->visualization_camera_, node_matrices_,
-                                                  global_transform.value, alpha, gizmo_settings);
-      gizmo_settings.depth_write = true;
+                                                  global_transform.value, 1.0f, gizmo_settings);
+
       if (selected_node_handle != -1) {
         const auto& node = shoot_skeleton.PeekNode(selected_node_handle);
         auto rotation = node.info.global_rotation;
@@ -740,6 +734,46 @@ void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
   const auto& sorted_node_list = skeleton.PeekSortedNodeList();
   std::vector<ParticleInfo> matrices;
 
+  // Helper: compute analytical leaf color from per-node data and per-leaf data.
+  const auto mode = static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode);
+  const float color_mult = tree_visualizer_color_settings.color_multiplier;
+  auto leaf_color_from_node = [&](const SkeletonNode<InternodeGrowthData>& node,
+                                  const Leaf* leaf) -> glm::vec4 {
+    switch (mode) {
+      case ShootVisualizerMode::LightIntensity:
+        return glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
+                        glm::clamp(glm::pow(node.data.light_intake, color_mult), 0.0f, 1.0f));
+      case ShootVisualizerMode::GrowthRate:
+        if (leaf)
+          return glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                          glm::clamp(leaf->maturity, 0.0f, 1.0f));
+        return glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                        glm::clamp(glm::pow(node.data.growth_rate, color_mult), 0.0f, 1.0f));
+      case ShootVisualizerMode::SaggingStress:
+        if (leaf)
+          return glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                          glm::clamp(1.0f - leaf->health, 0.0f, 1.0f));
+        return glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                        glm::clamp(glm::pow(node.data.sagging_stress, color_mult), 0.0f, 1.0f));
+      case ShootVisualizerMode::SourceSink_Concentration:
+        if (leaf)
+          return GetConcentrationColor(leaf->carbohydrate_storage,
+                                       leaf->carbohydrate_source > 0.0f ? leaf->carbohydrate_source : 1.0f);
+        return GetConcentrationColor(node.data.carbohydrate_mass, node.data.max_carbohydrate_mass);
+      case ShootVisualizerMode::SourceSink_Flux:
+        return GetFluxColor(node.data.net_flow_balance, global_max_flux_);
+      default: {
+        // Default: green tinted by maturity (bright green when young, dark green when mature).
+        if (leaf) {
+          const float m = glm::clamp(leaf->maturity, 0.0f, 1.0f);
+          const float h = glm::clamp(leaf->health, 0.0f, 1.0f);
+          return glm::vec4(glm::mix(glm::vec3(0.6f, 0.9f, 0.2f), glm::vec3(0.1f, 0.5f, 0.05f), m) * h, 1.0f);
+        }
+        return glm::vec4(0.2f, 0.7f, 0.1f, 1.0f);
+      }
+    }
+  };
+
   if (leaf_visualization_) {
     if (foliage_descriptor) {
       const bool use_strand_model =
@@ -749,26 +783,20 @@ void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
                                 : (skeleton.max - skeleton.min);
 
       for (const auto node_handle : sorted_node_list) {
+        const auto& node = skeleton.PeekNode(node_handle);
         std::vector<glm::mat4> leaf_transforms;
         if (use_strand_model) {
           const auto& strand_node_info = strand_model->strand_model_skeleton.PeekNode(node_handle).info;
           foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, strand_node_info, glm::length(tree_dim));
         } else {
-          const auto& shoot_node_info = skeleton.PeekNode(node_handle).info;
-          foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, shoot_node_info, glm::length(tree_dim));
+          foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, node.info, glm::length(tree_dim));
         }
 
+        const auto color = leaf_color_from_node(node, nullptr);
         for (const auto& leaf_transform : leaf_transforms) {
           ParticleInfo info;
           info.instance_matrix.value = leaf_transform;
-          switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
-            case ShootVisualizerMode::SourceSink_Concentration:
-              info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
-              break;
-            default:
-              info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
-              break;
-          }
+          info.instance_color = color;
           matrices.push_back(info);
         }
       }
@@ -785,15 +813,7 @@ void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
         ParticleInfo info;
         info.instance_matrix.value =
             glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * 0.5f);
-
-        switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
-          case ShootVisualizerMode::SourceSink_Concentration:
-            info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
-            break;
-          default:
-            info.instance_color = glm::vec4(1.0f, 0.5f, 0.0f, 1.0f);
-            break;
-        }
+        info.instance_color = leaf_color_from_node(node, &leaf);
         matrices.push_back(info);
       }
     }
@@ -1188,16 +1208,10 @@ void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& gl
     gizmo_settings.depth_test = true;
     gizmo_settings.depth_write = true;
     if (!node_matrices_->PeekParticleInfoList().empty()) {
-      float alpha = 1.0f;
-      if (static_cast<RootVisualizerMode>(root_visualizer_color_settings.visualization_mode) ==
-          RootVisualizerMode::SourceSink_Concentration) {
-        alpha = 0.7f;
-        gizmo_settings.depth_write = false;
-      }
       editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
                                                   eco_sys_lab_layer->visualization_camera_, node_matrices_,
-                                                  global_transform.value, alpha, gizmo_settings);
-      gizmo_settings.depth_write = true;
+                                                  global_transform.value, 1.0f, gizmo_settings);
+
       if (selected_node_handle != -1) {
         const auto& node = root_skeleton.PeekNode(selected_node_handle);
         auto rotation = node.info.global_rotation;
@@ -1329,6 +1343,7 @@ void TreeVisualizer::Clear() {
   selected_node_handle = -1;
   selected_node_hierarchy_list.clear();
   checkpoint_iteration = 0;
+  need_update = true;
   node_matrices_->SetParticleInfos({});
   leaf_matrices_->SetParticleInfos({});
   flower_matrices_->SetParticleInfos({});
@@ -1345,4 +1360,5 @@ void TreeVisualizer::Initialize() {
   leaf_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   flower_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   fruit_matrices_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  initialized_ = true;
 }

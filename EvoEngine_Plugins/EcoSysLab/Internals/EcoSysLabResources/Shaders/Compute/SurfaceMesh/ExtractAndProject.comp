@@ -1,0 +1,244 @@
+// ExtractAndProject.comp — Pass 1: Extract boundary contours, sort by angle,
+// project 2D particle positions to 3D world space, and write engine Vertex structs.
+//
+// Profiles with fewer than MIN_RING_VERTS boundary particles get an analytical
+// circular ring (like CylindricalMeshGenerator) so that thin branches still produce
+// valid tube geometry instead of degenerate triangles.
+//
+// Dispatch: one workgroup per profile (gl_NumWorkGroups.x = total_profiles).
+// Each workgroup handles all particles of one profile.
+
+#extension GL_ARB_shading_language_include : enable
+
+#define SURFACE_MESH_SET 0
+#include "SurfaceMeshGeneration.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_profiles;
+  uint max_vertices;
+};
+
+// Minimum boundary particles needed to use the actual contour.
+// Below this we generate a synthetic circular ring.
+#define MIN_RING_VERTS 4
+// Vertex count for the synthetic ring when falling back.
+#define SYNTH_RING_VERTS 8
+
+// Shared memory for boundary particle extraction and angular sorting.
+#define MAX_BOUNDARY_PER_PROFILE 1024
+
+shared uint s_boundary_count;
+shared uint s_vertex_base;
+shared uint s_ring_count;      // actual number of ring vertices (may differ from boundary_cnt)
+shared bool s_use_synth_ring;  // true = analytical ring, false = boundary contour
+shared float s_angles[MAX_BOUNDARY_PER_PROFILE];
+shared uint s_global_indices[MAX_BOUNDARY_PER_PROFILE];
+shared uint s_sorted_indices[MAX_BOUNDARY_PER_PROFILE];
+
+// Parallel reduction for centroid computation.
+shared vec2 s_partial_sums[256];
+
+void main() {
+  uint profile_idx = gl_WorkGroupID.x;
+  uint lid = gl_LocalInvocationID.x;
+
+  if (profile_idx >= total_profiles)
+    return;
+
+  // --- Phase 0: Initialize shared counters ---
+  if (lid == 0) {
+    s_boundary_count = 0;
+    s_use_synth_ring = false;
+  }
+  barrier();
+
+  uint p_offset = profiles[profile_idx].particle_offset;
+  uint p_count = profiles[profile_idx].particle_count;
+
+  // Get node_handle from the first particle (all particles share the same node in a profile).
+  int node_handle = -1;
+  if (p_count > 0)
+    node_handle = particles[p_offset].node_handle;
+
+  // Need the skeleton node early to decide analytical-ring fallback.
+  if (node_handle < 0) {
+    if (lid == 0) {
+      contour_infos[profile_idx].vertex_offset = 0;
+      contour_infos[profile_idx].vertex_count = 0;
+      contour_infos[profile_idx].node_handle = node_handle;
+    }
+    return;
+  }
+  SkeletonNode sn = skeleton_nodes[node_handle];
+
+  // --- Phase 1: Collect boundary particles (enable == 1) ---
+  for (uint i = lid; i < p_count; i += gl_WorkGroupSize.x) {
+    uint gi = p_offset + i;
+    if (particles[gi].enable == 1) {
+      uint slot = atomicAdd(s_boundary_count, 1);
+      if (slot < MAX_BOUNDARY_PER_PROFILE)
+        s_global_indices[slot] = gi;
+    }
+  }
+  barrier();
+
+  uint boundary_cnt = min(s_boundary_count, MAX_BOUNDARY_PER_PROFILE);
+
+  // Decide: use real boundary contour or analytical ring.
+  if (lid == 0) {
+    if (boundary_cnt < MIN_RING_VERTS) {
+      s_use_synth_ring = true;
+      s_ring_count = SYNTH_RING_VERTS;
+    } else {
+      s_use_synth_ring = false;
+      s_ring_count = boundary_cnt;
+    }
+  }
+  barrier();
+
+  bool use_synth = s_use_synth_ring;
+  uint ring_count = s_ring_count;
+
+  // If no particles at all (and no total_particle_count), skip.
+  if (ring_count == 0 || (use_synth && sn.total_particle_count == 0)) {
+    if (lid == 0) {
+      contour_infos[profile_idx].vertex_offset = 0;
+      contour_infos[profile_idx].vertex_count = 0;
+      contour_infos[profile_idx].node_handle = node_handle;
+    }
+    return;
+  }
+
+  // --- Phases 2-4: Sort boundary particles by angle (skipped for synth ring) ---
+  if (!use_synth) {
+    // Phase 2: Compute centroid of boundary particles.
+    vec2 local_sum = vec2(0.0);
+    for (uint i = lid; i < boundary_cnt; i += gl_WorkGroupSize.x) {
+      local_sum += particles[s_global_indices[i]].position;
+    }
+    s_partial_sums[lid] = local_sum;
+    barrier();
+
+    for (uint stride = gl_WorkGroupSize.x / 2; stride > 0; stride >>= 1) {
+      if (lid < stride)
+        s_partial_sums[lid] += s_partial_sums[lid + stride];
+      barrier();
+    }
+    vec2 center_pos = s_partial_sums[0] / float(boundary_cnt);
+
+    // Phase 3: Compute angles.
+    for (uint i = lid; i < boundary_cnt; i += gl_WorkGroupSize.x) {
+      vec2 pos = particles[s_global_indices[i]].position;
+      s_angles[i] = atan(pos.y - center_pos.y, pos.x - center_pos.x);
+    }
+    barrier();
+
+    // Phase 4: Rank-sort by angle.
+    for (uint i = lid; i < boundary_cnt; i += gl_WorkGroupSize.x) {
+      float my_angle = s_angles[i];
+      uint rank = 0;
+      for (uint j = 0; j < boundary_cnt; j++) {
+        if (s_angles[j] < my_angle || (s_angles[j] == my_angle && j < i))
+          rank++;
+      }
+      s_sorted_indices[rank] = s_global_indices[i];
+    }
+    barrier();
+  }
+
+  // --- Phase 5: Allocate contiguous block in global vertex buffer ---
+  if (lid == 0)
+    s_vertex_base = atomicAdd(total_vertices, ring_count);
+  barrier();
+
+  if (s_vertex_base + ring_count > max_vertices) {
+    if (lid == 0) {
+      contour_infos[profile_idx].vertex_offset = 0;
+      contour_infos[profile_idx].vertex_count = 0;
+      contour_infos[profile_idx].node_handle = node_handle;
+    }
+    return;
+  }
+
+  // --- Phase 6: Write vertex data ---
+  vec4 q = sn.regulated_global_rotation;
+  vec3 up    = quat_rotate(q, vec3(0.0, 1.0, 0.0));
+  vec3 left  = quat_rotate(q, vec3(1.0, 0.0, 0.0));
+
+  float radius = sn.strand_radius;
+  // Place ring at the START of the internode so stitching covers the parent segment.
+  vec3 ring_center = sn.global_position;
+  vec3 end_pos = sn.global_end_position;
+
+  vec3 tangent = vec3(0.0, 1.0, 0.0);
+  float seg_len = length(end_pos - ring_center);
+  if (seg_len > 1e-6)
+    tangent = (end_pos - ring_center) / seg_len;
+
+  float norm_root_dist = sn.root_distance / max(sn.max_root_distance, 1e-6);
+
+  // Developmental metadata: bark.
+  float tissue_type = 2.0;
+  float wound_state = 0.0;
+  vec4 color = mix(vec4(0.45, 0.35, 0.15, 1.0), vec4(0.25, 0.15, 0.05, 1.0), norm_root_dist);
+
+  if (use_synth) {
+    // --- Analytical circular ring ---
+    // Approximate cross-section radius: disc-packing of total_particle_count discs
+    // of radius 1 has outer radius ≈ sqrt(total_particle_count).
+    float profile_radius = max(1.0, sqrt(float(sn.total_particle_count)));
+
+    for (uint i = lid; i < ring_count; i += gl_WorkGroupSize.x) {
+      float angle = 2.0 * 3.14159265359 * float(i) / float(ring_count);
+      float cx = profile_radius * cos(angle);
+      float cy = profile_radius * sin(angle);
+
+      vec3 pos3d = ring_center + radius * (cx * left + cy * up);
+      vec3 outward = pos3d - ring_center;
+      float outward_len = length(outward);
+      vec3 normal = (outward_len > 1e-6) ? outward / outward_len : up;
+
+      uint vi = s_vertex_base + i;
+      vertices[vi].position = pos3d;
+      vertices[vi].vertex_info1 = tissue_type;
+      vertices[vi].normal = normal;
+      vertices[vi].vertex_info2 = wound_state;
+      vertices[vi].tangent = tangent;
+      vertices[vi].vertex_info3 = norm_root_dist;
+      vertices[vi].color = color;
+      vertices[vi].tex_coord = vec2(float(i) / float(ring_count), norm_root_dist);
+      vertices[vi].vertex_info4 = vec2(0.0, 1.0);
+    }
+  } else {
+    // --- Real boundary contour ---
+    for (uint i = lid; i < ring_count; i += gl_WorkGroupSize.x) {
+      uint gi = s_sorted_indices[i];
+      vec2 pos2d = particles[gi].position;
+
+      vec3 pos3d = ring_center + radius * (pos2d.x * left + pos2d.y * up);
+      vec3 outward = pos3d - ring_center;
+      float outward_len = length(outward);
+      vec3 normal = (outward_len > 1e-6) ? outward / outward_len : up;
+
+      uint vi = s_vertex_base + i;
+      vertices[vi].position = pos3d;
+      vertices[vi].vertex_info1 = tissue_type;
+      vertices[vi].normal = normal;
+      vertices[vi].vertex_info2 = wound_state;
+      vertices[vi].tangent = tangent;
+      vertices[vi].vertex_info3 = norm_root_dist;
+      vertices[vi].color = color;
+      vertices[vi].tex_coord = vec2(float(i) / float(ring_count), norm_root_dist);
+      vertices[vi].vertex_info4 = vec2(float(particles[gi].birth_step), 1.0);
+    }
+  }
+
+  // --- Phase 7: Write ContourInfo ---
+  if (lid == 0) {
+    contour_infos[profile_idx].vertex_offset = s_vertex_base;
+    contour_infos[profile_idx].vertex_count = ring_count;
+    contour_infos[profile_idx].node_handle = node_handle;
+  }
+}

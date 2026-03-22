@@ -128,6 +128,13 @@ struct StrandModelParameters {
   glm::vec4 callus_color = glm::vec4(0.5f, 0.4f, 0.3f, 1.0f);
   float wound_healing_rate = 0.1f;
 
+  /// Cross-section strand count below which a segment is classified as "light" (thin branch).
+  int light_strand_threshold = 10;
+
+  /// Cross-section strand count below which a segment is classified as "medium" (intermediate branch).
+  /// count >= medium_strand_threshold → dark (thick trunk).
+  int medium_strand_threshold = 25;
+
   /**
    * @brief Physics settings applied to strand profiles.
    */

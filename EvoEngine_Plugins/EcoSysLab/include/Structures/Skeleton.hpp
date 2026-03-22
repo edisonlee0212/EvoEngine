@@ -712,20 +712,43 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
   std::map<uint32_t, SkeletonFlowHandle> collected_flow_handle_set{};
 
   std::queue<SkeletonNodeHandle> processing_node_handles;
+  std::unordered_set<SkeletonNodeHandle> visited_node_handles;
   for (const auto& i : node_handles) {
-    processing_node_handles.emplace(i);
+    if (i >= 0 && i < static_cast<int>(nodes_.size())) {
+      processing_node_handles.emplace(i);
+    }
   }
   while (!processing_node_handles.empty()) {
     auto node_handle = processing_node_handles.front();
     processing_node_handles.pop();
-    collected_node_handle_set[sorted_node_indices.at(node_handle)] = node_handle;
+
+    if (node_handle < 0 || node_handle >= static_cast<int>(nodes_.size())) {
+      continue;
+    }
+    if (!visited_node_handles.insert(node_handle).second) {
+      continue;
+    }
+
+    const auto sorted_node_it = sorted_node_indices.find(node_handle);
+    if (sorted_node_it == sorted_node_indices.end()) {
+      continue;
+    }
+    collected_node_handle_set[sorted_node_it->second] = node_handle;
 
     const auto& node = nodes_[node_handle];
-    if (const auto& flow = flows_[node.flow_handle_]; !flow.nodes_.empty() && flow.nodes_.front() == node_handle) {
-      collected_flow_handle_set[sorted_flow_indices.at(node.flow_handle_)] = node.flow_handle_;
+    if (node.flow_handle_ >= 0 && node.flow_handle_ < static_cast<int>(flows_.size())) {
+      const auto& flow = flows_[node.flow_handle_];
+      if (!flow.nodes_.empty() && flow.nodes_.front() == node_handle) {
+        const auto sorted_flow_it = sorted_flow_indices.find(node.flow_handle_);
+        if (sorted_flow_it != sorted_flow_indices.end()) {
+          collected_flow_handle_set[sorted_flow_it->second] = node.flow_handle_;
+        }
+      }
     }
     for (const auto& child_node_handle : node.child_handles_) {
-      processing_node_handles.push(child_node_handle);
+      if (child_node_handle >= 0 && child_node_handle < static_cast<int>(nodes_.size())) {
+        processing_node_handles.push(child_node_handle);
+      }
     }
   }
 

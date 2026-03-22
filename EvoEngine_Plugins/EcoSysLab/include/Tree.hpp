@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "BasicPruningDescriptor.hpp"
 #include "RootModel.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
@@ -9,7 +9,7 @@
 #include "RadialBoundingVolume.hpp"
 #include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
-#include "TreeModel/ProceduralStrandModel/ProceduralStrandModel.hpp"
+#include "TreeModel/DevelopmentalStrandModel/DevelopmentalStrandModel.hpp"
 #include "StrandModelMeshGenerator.hpp"
 #include "TreeControllers.hpp"
 #include "TreeDescriptor.hpp"
@@ -239,8 +239,9 @@ class Tree : public IPrivateComponent {
   RootModel root_model{};
   StrandModel shoot_strand_model{};  ///< The strand-based model representation (post-hoc rebuild).
 
-  ProceduralStrandModel procedural_strand_model{};  ///< Unified model for incremental strand co-evolution with growth.
-  bool procedural_strand_renderer_dirty = false;  ///< Deferred renderer refresh flag (set during growth, consumed on main thread).
+  DevelopmentalStrandModel developmental_strand_model{};  ///< Unified model for incremental strand co-evolution with growth.
+  bool developmental_strand_renderer_dirty = false;  ///< Deferred renderer refresh flag (set during growth, consumed on main thread).
+  bool developmental_strand_foliage_enabled = true;  ///< Whether to render instanced foliage on procedural strands.
 
   /**
    * @brief Handles the inspection of tree properties in the editor.
@@ -288,12 +289,22 @@ class Tree : public IPrivateComponent {
   void ClearStrandRenderer() const;
 
   /**
+   * @brief Generates instanced foliage particle data from the developmental skeleton.
+   *
+   * Iterates all nodes in the developmental skeleton, uses the BasicFoliageDescriptor
+   * to compute leaf transformation matrices, and packs them into a ParticleInfoList
+   * suitable for instanced quad rendering.
+   * @return Shared pointer to the generated ParticleInfoList, or nullptr if unavailable.
+   */
+  std::vector<std::shared_ptr<ParticleInfoList>> GenerateDevelopmentalFoliageParticles();
+
+  /**
    * @brief Initializes the procedural strand renderer for viewport visualization.
    *
    * Applies 2D→3D profile conversion, builds a Strands asset, and creates a
    * StrandsRenderer entity. If one already exists it is replaced.
    */
-  void InitializeProceduralStrandRenderer();
+  void InitializeDevelopmentalStrandRenderer();
 
   /**
    * @brief Updates an existing procedural strand renderer with fresh strand data.
@@ -301,12 +312,12 @@ class Tree : public IPrivateComponent {
    * Applies profiles and regenerates the Strands asset without recreating the entity.
    * If no procedural strand renderer entity exists, this is a no-op.
    */
-  void UpdateProceduralStrandRenderer();
+  void UpdateDevelopmentalStrandRenderer();
 
   /**
    * @brief Clears the procedural strand renderer entity.
    */
-  void ClearProceduralStrandRenderer() const;
+  void ClearDevelopmentalStrandRenderer() const;
 
   /**
    * @brief Initializes strand particles for simulation.

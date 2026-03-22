@@ -94,7 +94,7 @@ int main() {
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
-      std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "SourceSink.eveproj");
+      std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
   Application::Initialize(application_configs);
 
 #ifdef PHYSX_PHYSICS_PLUGIN

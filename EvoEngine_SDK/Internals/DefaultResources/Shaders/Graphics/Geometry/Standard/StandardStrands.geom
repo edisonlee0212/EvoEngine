@@ -26,10 +26,14 @@ const float PI2 = 6.28318531;
 layout(location = 5) in uint currentInstanceIndexIn[];
 layout(location = 5) out uint currentInstanceIndexOut;
 
+layout(location = 6) in int materialCategoryIn[];
+layout(location = 6) out flat int materialCategoryOut;
+
 void main(){
 	
 	mat4 cameraProjectionView = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 	uint instanceIndex = currentInstanceIndexIn[0];
+	int matCategory = materialCategoryIn[0];
 	mat4 model = EE_INSTANCES[instanceIndex].model;
 	mat4 inverseModel = inverse(model);
 	
@@ -75,6 +79,7 @@ void main(){
 
 			//Source Vertex
 			currentInstanceIndexOut = instanceIndex;
+			materialCategoryOut = matCategory;
 			gs_out.FragPos = newPS;
 			gs_out.Normal = normalize(newPS - worldPosS);
 			gs_out.Tangent = tS;
@@ -84,6 +89,7 @@ void main(){
 
 			//Target Vertex
 			currentInstanceIndexOut = instanceIndex;
+			materialCategoryOut = matCategory;
 			gs_out.FragPos = newPT;
 			gs_out.Normal = normalize(newPT - worldPosT);
 			gs_out.Tangent = tT;

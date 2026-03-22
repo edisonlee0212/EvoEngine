@@ -10,6 +10,9 @@ struct Instance {
   int info_index;
   uint entity_index;
   uint64_t renderer_handle;
+
+  int material_index_1;  // secondary material (-1 = unused)
+  int material_index_2;  // tertiary material  (-1 = unused)
 };
 
 layout(set = EE_INSTANCES_BLOCK_SET, binding = EE_INSTANCES_BLOCK_BINDING) readonly buffer EE_INSTANCE_BLOCK {

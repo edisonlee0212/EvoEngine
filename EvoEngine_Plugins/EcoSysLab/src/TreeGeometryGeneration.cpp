@@ -1,4 +1,4 @@
-#include "BasicBarkDescriptor.hpp"
+﻿#include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
 #include "TransformGraph.hpp"
 #include "Tree.hpp"
@@ -437,6 +437,71 @@ std::shared_ptr<ParticleInfoList> Tree::GenerateFoliageParticleInfoList(
   }
   ret_val->SetParticleInfos(particle_infos);
   return ret_val;
+}
+
+std::vector<std::shared_ptr<ParticleInfoList>> Tree::GenerateDevelopmentalFoliageParticles() {
+  if (!developmental_strand_model.enabled)
+    return {};
+
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+  const auto owner_global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
+  const auto world_to_local = glm::inverse(owner_global_transform);
+
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
+  if (!td)
+    return {};
+  auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>();
+  if (!fd)
+    fd = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
+
+  const auto& skeleton = developmental_strand_model.skeleton;
+  const auto& node_list = skeleton.PeekSortedNodeList();
+  if (node_list.empty())
+    return {};
+
+  const auto tree_dim = skeleton.max - skeleton.min;
+  const float tree_size = glm::length(tree_dim);
+
+  const size_t pool_size = fd->leaf_material_variants.size();
+  const size_t bucket_count = pool_size > 0 ? pool_size : 1;
+  std::vector<std::vector<ParticleInfo>> per_mesh_infos(bucket_count);
+
+  for (const auto& node_handle : node_list) {
+    const auto& node = skeleton.PeekNode(node_handle);
+    std::vector<glm::mat4> leaf_matrices;
+    fd->GenerateFoliageMatrices(leaf_matrices, node.info, tree_size);
+    for (const auto& mat : leaf_matrices) {
+      ParticleInfo pi;
+      // GenerateFoliageMatrices returns world-space transforms; instanced rendering
+      // applies the entity model again, so convert to owner-local here.
+      pi.instance_matrix.value = world_to_local * mat;
+      pi.instance_color = node.info.color;
+
+      uint32_t bucket = 0;
+      if (pool_size > 0) {
+        const glm::vec3 pos(mat[3]);
+        const float hash_val =
+            glm::fract(glm::sin(glm::dot(pos, glm::vec3(17.1537f, 43.5819f, 91.3467f))) * 28947.6813f);
+        bucket = static_cast<uint32_t>(hash_val * static_cast<float>(pool_size)) %
+                 static_cast<uint32_t>(pool_size);
+      }
+      per_mesh_infos[bucket].push_back(pi);
+    }
+  }
+
+  std::vector<std::shared_ptr<ParticleInfoList>> result;
+  result.reserve(bucket_count);
+  for (auto& infos : per_mesh_infos) {
+    if (infos.empty()) {
+      result.push_back(nullptr);
+    } else {
+      auto pil = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+      pil->SetParticleInfos(infos);
+      result.push_back(pil);
+    }
+  }
+  return result;
 }
 
 std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
@@ -1138,101 +1203,290 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
   material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
 }
 
-void Tree::InitializeProceduralStrandRenderer() {
+void Tree::InitializeDevelopmentalStrandRenderer() {
   const auto scene = GetScene();
   const auto owner = GetOwner();
 
-  ClearProceduralStrandRenderer();
+  ClearDevelopmentalStrandRenderer();
 
-  if (!procedural_strand_model.enabled)
+  if (!developmental_strand_model.enabled)
     return;
 
-  procedural_strand_model.ApplyProfiles(strand_model_parameters);
-  const auto strands_asset = procedural_strand_model.GenerateStrands(strand_model_parameters.node_max_count);
+  developmental_strand_model.ApplyProfiles(strand_model_parameters);
+  const auto strands_asset = developmental_strand_model.GenerateStrands(strand_model_parameters.node_max_count);
   if (!strands_asset)
     return;
 
-  const auto strands_entity = scene->CreateEntity("Procedural Strands");
+  const auto strands_entity = scene->CreateEntity("Developmental Strands");
   scene->SetParent(strands_entity, owner);
 
   const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
   renderer->strands = strands_asset;
 
-  const auto material = AssetManager::CreateTemporaryAsset<Material>();
-  renderer->material = material;
-  material->vertex_color_only = true;
-  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  // Dark brown (thick trunk, 25+ strands).
+  const auto material_old = AssetManager::CreateTemporaryAsset<Material>();
+  renderer->material = material_old;
+  material_old->material_properties.albedo_color = glm::vec3(0.25f, 0.13f, 0.05f);
+  material_old->material_properties.roughness = 0.95f;
+  material_old->material_properties.metallic = 0.0f;
+
+  // Medium brown (intermediate branch, 10-25 strands).
+  const auto material_adolescent = AssetManager::CreateTemporaryAsset<Material>();
+  renderer->material_adolescent = material_adolescent;
+  material_adolescent->material_properties.albedo_color = glm::vec3(0.45f, 0.30f, 0.15f);
+  material_adolescent->material_properties.roughness = 0.7f;
+  material_adolescent->material_properties.metallic = 0.0f;
+
+  // Light brown (thin branch, 0-10 strands).
+  const auto material_young = AssetManager::CreateTemporaryAsset<Material>();
+  renderer->material_young = material_young;
+  material_young->material_properties.albedo_color = glm::vec3(0.6f, 0.45f, 0.25f);
+  material_young->material_properties.roughness = 0.5f;
+  material_young->material_properties.metallic = 0.0f;
+
+  // --- Instanced foliage ---
+  if (developmental_strand_foliage_enabled) {
+    const auto foliage_lists = GenerateDevelopmentalFoliageParticles();
+    std::shared_ptr<BasicFoliageDescriptor> fd_foliage;
+    if (const auto td2 = tree_descriptor_ref.Get<TreeDescriptor>())
+      fd_foliage = td2->foliage_descriptor.Get<BasicFoliageDescriptor>();
+
+    for (size_t i = 0; i < foliage_lists.size(); i++) {
+      if (!foliage_lists[i])
+        continue;
+        const std::string entity_name =
+            fd_foliage && !fd_foliage->leaf_material_variants.empty()
+            ? "Developmental Foliage " + std::to_string(i)
+            : "Developmental Foliage";
+      const auto foliage_entity = scene->CreateEntity(entity_name);
+      scene->SetParent(foliage_entity, owner);
+      const auto particles = scene->GetOrSetPrivateComponent<Particles>(foliage_entity).lock();
+      particles->particle_info_list = foliage_lists[i];
+      particles->mesh = Resources::Primitives::quad;
+
+      // Determine source material for this bucket.
+      std::shared_ptr<Material> src_material;
+      if (fd_foliage && i < fd_foliage->leaf_material_variants.size())
+        src_material = fd_foliage->leaf_material_variants[i].Get<Material>();
+      if (!src_material && fd_foliage)
+        src_material = fd_foliage->leaf_material_ref.Get<Material>();
+
+      const auto leaf_material = AssetManager::CreateTemporaryAsset<Material>();
+      if (src_material) {
+        leaf_material->SetAlbedoTexture(src_material->GetAlbedoTexture());
+        leaf_material->SetNormalTexture(src_material->GetNormalTexture());
+        leaf_material->SetRoughnessTexture(src_material->GetRoughnessTexture());
+        leaf_material->SetMetallicTexture(src_material->GetMetallicTexture());
+        leaf_material->material_properties = src_material->material_properties;
+      } else {
+        leaf_material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+        leaf_material->material_properties.roughness = 1.0f;
+        leaf_material->material_properties.metallic = 0.0f;
+      }
+      // Keep developmental foliage from acting as opaque cards that fully hide strand geometry.
+      leaf_material->draw_settings.blending = true;
+      leaf_material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
+      particles->material = leaf_material;
+    }
+  }
 }
 
-void Tree::UpdateProceduralStrandRenderer() {
-  if (!procedural_strand_model.enabled)
+void Tree::UpdateDevelopmentalStrandRenderer() {
+  if (!developmental_strand_model.enabled)
     return;
 
   const auto scene = GetScene();
   const auto owner = GetOwner();
   const auto children = scene->GetChildren(owner);
 
-  Entity strands_entity{};
-  for (const auto& child : children) {
-    if (scene->GetEntityName(child) == "Procedural Strands") {
-      strands_entity = child;
-      break;
+  EVOENGINE_LOG("UpdateDevelopmentalStrandRenderer: children=" + std::to_string(children.size()) +
+                " foliage_enabled=" + std::to_string(developmental_strand_foliage_enabled) +
+                " gpu_resident=" + std::to_string(developmental_strand_model.gpu_resident_rendering))
+
+  // --- GPU-resident path: download the surface mesh and display via MeshRenderer ---
+  if (developmental_strand_model.gpu_resident_rendering) {
+    std::vector<Vertex> vertices;
+    std::vector<glm::uvec3> triangles;
+    if (developmental_strand_model.gpu_profile_simulator.DownloadSurfaceMesh(vertices, triangles)) {
+      Entity mesh_entity{};
+      for (const auto& child : children) {
+        if (scene->GetEntityName(child) == "Procedural Surface Mesh") {
+          mesh_entity = child;
+          break;
+        }
+      }
+
+      if (mesh_entity.GetIndex() == 0) {
+        mesh_entity = scene->CreateEntity("Procedural Surface Mesh");
+        scene->SetParent(mesh_entity, owner);
+      }
+
+      const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(mesh_entity).lock();
+
+      auto mesh = mesh_renderer->mesh.Get<Mesh>();
+      if (!mesh) {
+        mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+        mesh_renderer->mesh = mesh;
+      }
+
+      VertexAttributes attributes{};
+      attributes.tex_coord = true;
+      mesh->SetVertices(attributes, vertices, triangles);
+
+      if (!mesh_renderer->material.Get<Material>()) {
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
+        material->vertex_color_only = true;
+        material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+        mesh_renderer->material = material;
+      }
+    }
+  } else {
+    Entity strands_entity{};
+    for (const auto& child : children) {
+      if (scene->GetEntityName(child) == "Developmental Strands") {
+        strands_entity = child;
+        break;
+      }
+    }
+
+    developmental_strand_model.ApplyProfiles(strand_model_parameters);
+
+    EVOENGINE_LOG("  strands_entity found=" + std::to_string(strands_entity.GetIndex() != 0) +
+                  " HasStrandData=" + std::to_string(developmental_strand_model.skeleton.data.HasStrandData()))
+
+    if (developmental_strand_model.skeleton.data.HasStrandData()) {
+      std::vector<glm::uint> strands_list;
+      std::vector<StrandPoint> points;
+      developmental_strand_model.skeleton.data.strand_data->strand_group.BuildStrands(
+          strands_list, points, strand_model_parameters.node_max_count);
+      if (!strands_list.empty() && points.size() >= 4) {
+        strands_list.emplace_back(points.size());
+
+        StrandPointAttributes strand_point_attributes{};
+        strand_point_attributes.color = true;
+
+        // Auto-create the "Developmental Strands" entity if it doesn't exist yet.
+        if (strands_entity.GetIndex() == 0) {
+          strands_entity = scene->CreateEntity("Developmental Strands");
+          scene->SetParent(strands_entity, owner, false);
+          scene->SetDataComponent<Transform>(strands_entity, Transform{});
+          const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
+
+          const auto strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
+          strands_asset->SetStrands(strand_point_attributes, strands_list, points);
+          renderer->strands = strands_asset;
+
+          EVOENGINE_LOG("  [NEW] strands_entity created. strands=" + std::to_string(strands_list.size()) +
+                        " points=" + std::to_string(points.size()) +
+                        " seg_amount=" + std::to_string(strands_asset->GetSegmentAmount()))
+
+          // Dark brown (thick trunk, 25+ strands).
+          const auto material_old = AssetManager::CreateTemporaryAsset<Material>();
+          renderer->material = material_old;
+          material_old->material_properties.albedo_color = glm::vec3(0.25f, 0.13f, 0.05f);
+          material_old->material_properties.roughness = 0.95f;
+          material_old->material_properties.metallic = 0.0f;
+
+          // Medium brown (intermediate branch, 10-25 strands).
+          const auto material_adolescent = AssetManager::CreateTemporaryAsset<Material>();
+          renderer->material_adolescent = material_adolescent;
+          material_adolescent->material_properties.albedo_color = glm::vec3(0.45f, 0.30f, 0.15f);
+          material_adolescent->material_properties.roughness = 0.7f;
+          material_adolescent->material_properties.metallic = 0.0f;
+
+          // Light brown (thin branch, 0-10 strands).
+          const auto material_young = AssetManager::CreateTemporaryAsset<Material>();
+          renderer->material_young = material_young;
+          material_young->material_properties.albedo_color = glm::vec3(0.6f, 0.45f, 0.25f);
+          material_young->material_properties.roughness = 0.5f;
+          material_young->material_properties.metallic = 0.0f;
+        } else {
+          scene->SetDataComponent<Transform>(strands_entity, Transform{});
+          const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
+
+          // Reuse the existing Strands asset so its RangeDescriptor prev_frame values
+          // (set by GeometryStorage::DeviceSync earlier this frame) remain valid for
+          // rendering.  Creating a new asset each frame causes prev_frame_index_count=0
+          // at draw time because DeviceSync runs before Simulate in the frame pipeline.
+          auto strands_asset = renderer->strands.Get<Strands>();
+          if (!strands_asset) {
+            strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
+            renderer->strands = strands_asset;
+          }
+          strands_asset->SetStrands(strand_point_attributes, strands_list, points);
+        }
+
+        EVOENGINE_LOG("  [REUSE/DONE] strands=" + std::to_string(strands_list.size()) +
+                      " points=" + std::to_string(points.size()))
+      }
     }
   }
 
-  procedural_strand_model.ApplyProfiles(strand_model_parameters);
-
-  if (!procedural_strand_model.skeleton.data.HasStrandData())
-    return;
-
-  std::vector<glm::uint> strands_list;
-  std::vector<StrandPoint> points;
-  procedural_strand_model.skeleton.data.strand_data->strand_group.BuildStrands(
-      strands_list, points, strand_model_parameters.node_max_count);
-  if (strands_list.empty() || points.size() < 4)
-    return;
-  strands_list.emplace_back(points.size());
-
-  StrandPointAttributes strand_point_attributes{};
-  strand_point_attributes.color = true;
-
-  // Auto-create the "Procedural Strands" entity if it doesn't exist yet.
-  if (strands_entity.GetIndex() == 0) {
-    strands_entity = scene->CreateEntity("Procedural Strands");
-    scene->SetParent(strands_entity, owner);
-    const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
-
-    const auto strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
-    strands_asset->SetStrands(strand_point_attributes, strands_list, points);
-    renderer->strands = strands_asset;
-
-    const auto material = AssetManager::CreateTemporaryAsset<Material>();
-    renderer->material = material;
-    material->vertex_color_only = true;
-    material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
-    return;
+  // --- Update instanced foliage (runs for both GPU and CPU paths) ---
+  // Always remove stale foliage entities first; recreate only when enabled.
+  int diag_foliage_deleted = 0;
+  for (const auto& child : children) {
+    if (scene->GetEntityName(child).find("Developmental Foliage") == 0) {
+      scene->DeleteEntity(child);
+      diag_foliage_deleted++;
+    }
   }
+  EVOENGINE_LOG("  foliage_deleted=" + std::to_string(diag_foliage_deleted))
 
-  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(strands_entity).lock();
+  if (developmental_strand_foliage_enabled) {
 
-  // Reuse the existing Strands asset so its RangeDescriptor prev_frame values
-  // (set by GeometryStorage::DeviceSync earlier this frame) remain valid for
-  // rendering.  Creating a new asset each frame causes prev_frame_index_count=0
-  // at draw time because DeviceSync runs before Simulate in the frame pipeline.
-  auto strands_asset = renderer->strands.Get<Strands>();
-  if (!strands_asset) {
-    strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
-    renderer->strands = strands_asset;
+    const auto foliage_lists = GenerateDevelopmentalFoliageParticles();
+    std::shared_ptr<BasicFoliageDescriptor> fd_foliage;
+    if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>())
+      fd_foliage = td->foliage_descriptor.Get<BasicFoliageDescriptor>();
+
+    for (size_t i = 0; i < foliage_lists.size(); i++) {
+      if (!foliage_lists[i])
+        continue;
+        const std::string entity_name =
+            fd_foliage && !fd_foliage->leaf_material_variants.empty()
+            ? "Developmental Foliage " + std::to_string(i)
+            : "Developmental Foliage";
+      const auto foliage_entity = scene->CreateEntity(entity_name);
+      scene->SetParent(foliage_entity, owner, false);
+      scene->SetDataComponent<Transform>(foliage_entity, Transform{});
+      const auto particles = scene->GetOrSetPrivateComponent<Particles>(foliage_entity).lock();
+      particles->particle_info_list = foliage_lists[i];
+      particles->mesh = Resources::Primitives::quad;
+
+      // Determine source material for this bucket.
+      std::shared_ptr<Material> src_material;
+      if (fd_foliage && i < fd_foliage->leaf_material_variants.size())
+        src_material = fd_foliage->leaf_material_variants[i].Get<Material>();
+      if (!src_material && fd_foliage)
+        src_material = fd_foliage->leaf_material_ref.Get<Material>();
+
+      const auto leaf_material = AssetManager::CreateTemporaryAsset<Material>();
+      if (src_material) {
+        leaf_material->SetAlbedoTexture(src_material->GetAlbedoTexture());
+        leaf_material->SetNormalTexture(src_material->GetNormalTexture());
+        leaf_material->SetRoughnessTexture(src_material->GetRoughnessTexture());
+        leaf_material->SetMetallicTexture(src_material->GetMetallicTexture());
+        leaf_material->material_properties = src_material->material_properties;
+      } else {
+        leaf_material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+        leaf_material->material_properties.roughness = 1.0f;
+        leaf_material->material_properties.metallic = 0.0f;
+      }
+      particles->material = leaf_material;
+    }
+    EVOENGINE_LOG("  foliage_created=" + std::to_string(foliage_lists.size()))
   }
-  strands_asset->SetStrands(strand_point_attributes, strands_list, points);
 }
 
-void Tree::ClearProceduralStrandRenderer() const {
+void Tree::ClearDevelopmentalStrandRenderer() const {
   const auto scene = GetScene();
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
   for (const auto& child : children) {
-    if (scene->GetEntityName(child) == "Procedural Strands") {
+    const auto name = scene->GetEntityName(child);
+    if (name == "Developmental Strands" || name.find("Developmental Foliage") == 0 ||
+        name == "Procedural Surface Mesh") {
       scene->DeleteEntity(child);
     }
   }

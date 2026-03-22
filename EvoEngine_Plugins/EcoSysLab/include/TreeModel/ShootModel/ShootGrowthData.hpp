@@ -62,6 +62,9 @@ struct Leaf : ShootOrgan {
   float damage_rate = 0;
   float damage_temperature = 0;
   glm::vec3 position_offset = glm::vec3(0.0f);
+
+  /// Index into BasicFoliageDescriptor::leaf_material_variants. Assigned at formulation, persistent for lifetime.
+  uint32_t mesh_index = 0;
 };
 
 struct Flower : ShootOrgan {
@@ -248,6 +251,10 @@ struct StrandModelNodeData {
   float twist_angle = 0.0f;            ///< Twist angle applied to strands.
   int packing_iteration = 0;           ///< Number of packing iterations performed.
   bool split = false;                  ///< Whether the strand has been split.
+  bool is_wound_profile = false;  ///< True if this node is a wound site from pruning (not a natural growth tip).
+
+  StrandHandle wound_cap_strand_handle = -1;                  ///< Handle to the boundary ring strand at wound profiles (-1 = none).
+  std::vector<ParticleHandle> wound_cap_ring_particle_handles; ///< Ordered boundary particle handles forming the wound ring.
 
   float strand_radius = 0.002f;  ///< Radius of the strands.
   int strand_count = 0;          ///< Number of strands.

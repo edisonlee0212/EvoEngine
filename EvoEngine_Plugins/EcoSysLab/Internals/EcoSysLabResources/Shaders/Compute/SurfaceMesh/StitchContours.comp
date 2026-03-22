@@ -1,0 +1,116 @@
+// StitchContours.comp — Pass 2: Connect adjacent profile contours into triangle strips.
+//
+// Dispatch: one workgroup per profile (gl_NumWorkGroups.x = total_profiles).
+// Each workgroup stitches its contour ring with its parent's contour ring.
+// Root profiles (parent_handle < 0) are skipped (no parent to stitch with).
+
+#extension GL_ARB_shading_language_include : enable
+
+#define SURFACE_MESH_SET 0
+#include "SurfaceMeshGeneration.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint total_profiles;
+  uint max_triangles;
+};
+
+// Maximum triangles per skeleton edge that can be stitched.
+// Two rings of M and N vertices produce M + N triangles.
+#define MAX_STITCH_TRIS 2048
+
+shared uint s_tri_base;
+shared uint s_num_tris;
+shared uint s_tri_data[MAX_STITCH_TRIS * 3];
+
+void main() {
+  uint profile_idx = gl_WorkGroupID.x;
+  uint lid = gl_LocalInvocationID.x;
+
+  if (profile_idx >= total_profiles)
+    return;
+
+  ContourInfo child_ci = contour_infos[profile_idx];
+  if (child_ci.node_handle < 0 || child_ci.vertex_count == 0)
+    return;
+
+  // Look up parent.
+  int parent_handle = skeleton_nodes[child_ci.node_handle].parent_handle;
+  if (parent_handle < 0)
+    return;  // Root node — no parent edge.
+
+  uint parent_profile = skeleton_nodes[parent_handle].profile_index;
+  if (parent_profile == 0xFFFFFFFF)
+    return;  // Parent has no profile.
+
+  ContourInfo parent_ci = contour_infos[parent_profile];
+  if (parent_ci.vertex_count == 0)
+    return;
+
+  uint M = parent_ci.vertex_count;
+  uint N = child_ci.vertex_count;
+  uint num_tris = M + N;
+
+  if (num_tris > MAX_STITCH_TRIS)
+    num_tris = MAX_STITCH_TRIS;
+
+  // --- Thread 0 generates the dual-pointer stitching sequence ---
+  if (lid == 0) {
+    s_num_tris = num_tris;
+
+    uint pi = 0;  // parent ring pointer
+    uint ci = 0;  // child ring pointer
+    uint tri_idx = 0;
+
+    for (uint t = 0; t < num_tris; t++) {
+      uint p0 = parent_ci.vertex_offset + (pi % M);
+      uint p1 = parent_ci.vertex_offset + ((pi + 1) % M);
+      uint c0 = child_ci.vertex_offset  + (ci % N);
+      uint c1 = child_ci.vertex_offset  + ((ci + 1) % N);
+
+      // Advance the pointer with the smaller fractional progress around its ring.
+      bool advance_parent;
+      if (pi >= M) {
+        advance_parent = false;
+      } else if (ci >= N) {
+        advance_parent = true;
+      } else {
+        float p_frac = float(pi) / float(M);
+        float c_frac = float(ci) / float(N);
+        advance_parent = (p_frac <= c_frac);
+      }
+
+      if (advance_parent) {
+        // Triangle uses two parent vertices and one child vertex.
+        s_tri_data[tri_idx * 3 + 0] = p0;
+        s_tri_data[tri_idx * 3 + 1] = p1;
+        s_tri_data[tri_idx * 3 + 2] = c0;
+        pi++;
+      } else {
+        // Triangle uses two child vertices and one parent vertex.
+        s_tri_data[tri_idx * 3 + 0] = c0;
+        s_tri_data[tri_idx * 3 + 1] = c1;
+        s_tri_data[tri_idx * 3 + 2] = p0;
+        ci++;
+      }
+      tri_idx++;
+    }
+
+    // Allocate space in the global index buffer.
+    s_tri_base = atomicAdd(total_triangles, num_tris);
+    // Bounds check: if allocation exceeds buffer capacity, skip this edge.
+    if (s_tri_base + num_tris > max_triangles)
+      s_num_tris = 0;
+  }
+  barrier();
+
+  // --- All threads write triangles to index buffer in parallel ---
+  uint actual_tris = s_num_tris;
+  for (uint t = lid; t < actual_tris; t += gl_WorkGroupSize.x) {
+    uint base = (s_tri_base + t) * 3;
+    index_data[base + 0] = s_tri_data[t * 3 + 0];
+    index_data[base + 1] = s_tri_data[t * 3 + 1];
+    index_data[base + 2] = s_tri_data[t * 3 + 2];
+  }
+}

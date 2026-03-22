@@ -1678,8 +1678,6 @@ void Platform::PreUpdate() {
     for (auto& i : graphics.temporary_buffer_sync_actions)
       i();
     graphics.temporary_buffer_sync_actions.clear();
-    GeometryStorage::DeviceSync();
-    TextureStorage::DeviceSync();
     swap_chain_action();
   };
 

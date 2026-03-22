@@ -337,6 +337,8 @@ class ShootVisualizer : public TreeVisualizer {
   bool flower_visualization_ = true;
   bool fruit_visualization_ = true;
 
+ public:
+
   float global_max_flux_ = 0.0f;
   float global_min_capacity_ = FLT_MAX;
   float global_max_capacity_ = 0.0f;
@@ -429,6 +431,7 @@ class ShootVisualizer : public TreeVisualizer {
 };
 
 class RootVisualizer : public TreeVisualizer {
+ public:
   float global_max_flux_ = 0.0f;
   float global_min_capacity_ = FLT_MAX;
   float global_max_capacity_ = 0.0f;

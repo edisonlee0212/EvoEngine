@@ -269,10 +269,9 @@ void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm:
 void Texture2DStorage::Clear() {
   if (!Platform::Initialized())
     return;
-  if (im_texture_id != nullptr) {
-    ImGui_ImplVulkan_RemoveTexture(static_cast<VkDescriptorSet>(im_texture_id));
-    im_texture_id = nullptr;
-  }
+  // Keep descriptor lifetime conservative to avoid invalidating TextureIds that
+  // may still be referenced by in-flight ImGui draw data.
+  im_texture_id = nullptr;
   sampler.reset();
   image_view.reset();
   image.reset();
@@ -282,10 +281,9 @@ void CubemapStorage::Clear() {
   if (!Platform::Initialized())
     return;
   for (auto& im_texture_id : im_texture_ids) {
-    if (im_texture_id != nullptr) {
-      ImGui_ImplVulkan_RemoveTexture(static_cast<VkDescriptorSet>(im_texture_id));
-      im_texture_id = nullptr;
-    }
+    // Keep descriptor lifetime conservative to avoid invalidating TextureIds that
+    // may still be referenced by in-flight ImGui draw data.
+    im_texture_id = nullptr;
   }
   sampler.reset();
   image_view.reset();

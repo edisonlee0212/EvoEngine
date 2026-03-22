@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by lllll on 11/1/2022.
 //
 
@@ -370,6 +370,17 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
                           }
                         }
                       }
+
+                      // Keep procedural strand topology in sync with manual pruning immediately,
+                      // so the developmental renderer reflects the cut in the same frame.
+                      if (tree->developmental_strand_model.enabled) {
+                        tree->developmental_strand_model.ApplyPruningEvents(
+                            tree->shoot_model.PeekShootSkeleton(), {pruning_node_handles},
+                            tree->strand_model_parameters);
+                        tree->UpdateDevelopmentalStrandRenderer();
+                        tree->developmental_strand_renderer_dirty = false;
+                      }
+
                       shoot_visualizer.checkpoint_iteration = shoot_model.CurrentIteration();
                       shoot_visualizer.need_update = true;
                       may_need_geometry_generation = true;
@@ -636,9 +647,9 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       if (!tree->IsEnabled())
         continue;
 
-      if (tree->procedural_strand_renderer_dirty) {
-        tree->UpdateProceduralStrandRenderer();
-        tree->procedural_strand_renderer_dirty = false;
+      if (tree->developmental_strand_renderer_dirty) {
+        tree->UpdateDevelopmentalStrandRenderer();
+        tree->developmental_strand_renderer_dirty = false;
       }
 
       // Collect fruit and leaves here.

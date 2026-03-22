@@ -497,7 +497,7 @@ void RenderLayer::OnCreate() {
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") /
-            "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+            "Shaders/Graphics/Fragment/Standard/StandardStrandsDeferred.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
@@ -856,6 +856,12 @@ void RenderLayer::PrepareForRendering() {
   const auto scene = GetScene();
   if (!scene)
     return;
+
+  // Sync mutable geometry/texture storages here so updates performed during
+  // this frame's simulation/editor phase are visible to this frame's draw.
+  GeometryStorage::DeviceSync();
+  TextureStorage::DeviceSync();
+
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   auto& graphics = Platform::GetInstance();
   graphics.prim_count[current_frame_index] = 0;

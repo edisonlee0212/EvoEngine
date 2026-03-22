@@ -30,9 +30,21 @@ class StrandsRenderer : public IPrivateComponent {
   AssetRef strands;
 
   /**
-   * @brief Reference to the material asset.
+   * @brief Reference to the primary (old / mature bark) material asset.
    */
   AssetRef material;
+
+  /**
+   * @brief Reference to the adolescent (intermediate woody) material asset.
+   * When unset, falls back to the primary material.
+   */
+  AssetRef material_adolescent;
+
+  /**
+   * @brief Reference to the young (new green growth) material asset.
+   * When unset, falls back to the primary material.
+   */
+  AssetRef material_young;
 
   /**
    * @brief Displays the component properties in the inspector.

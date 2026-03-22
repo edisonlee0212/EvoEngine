@@ -89,6 +89,13 @@ bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor
       changed = true;
     ImGui::TreePop();
   }
+  if (ImGui::TreeNodeEx("Strand material thresholds", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::DragInt("Light threshold (strand count)", &light_strand_threshold, 1, 1, 1000))
+      changed = true;
+    if (ImGui::DragInt("Medium threshold (strand count)", &medium_strand_threshold, 1, 1, 1000))
+      changed = true;
+    ImGui::TreePop();
+  }
   return changed;
 }
 
@@ -112,6 +119,8 @@ void StrandModelParameters::Save(const std::string& name, YAML::Emitter& out) co
   out << YAML::Key << "wound_color" << YAML::Value << wound_color;
   out << YAML::Key << "callus_color" << YAML::Value << callus_color;
   out << YAML::Key << "wound_healing_rate" << YAML::Value << wound_healing_rate;
+  out << YAML::Key << "light_strand_threshold" << YAML::Value << light_strand_threshold;
+  out << YAML::Key << "medium_strand_threshold" << YAML::Value << medium_strand_threshold;
   out << YAML::Key << "side_push_factor" << YAML::Value << side_push_factor;
   out << YAML::Key << "apical_side_push_factor" << YAML::Value << apical_side_push_factor;
   out << YAML::Key << "rotation_push_factor" << YAML::Value << rotation_push_factor;
@@ -165,6 +174,10 @@ void StrandModelParameters::Load(const std::string& name, const YAML::Node& in) 
       callus_color = in_settings["callus_color"].as<glm::vec4>();
     if (in_settings["wound_healing_rate"])
       wound_healing_rate = in_settings["wound_healing_rate"].as<float>();
+    if (in_settings["light_strand_threshold"])
+      light_strand_threshold = in_settings["light_strand_threshold"].as<int>();
+    if (in_settings["medium_strand_threshold"])
+      medium_strand_threshold = in_settings["medium_strand_threshold"].as<int>();
     if (in_settings["side_push_factor"])
       side_push_factor = in_settings["side_push_factor"].as<float>();
     if (in_settings["apical_side_push_factor"])

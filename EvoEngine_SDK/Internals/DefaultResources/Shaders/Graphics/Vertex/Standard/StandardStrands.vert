@@ -21,6 +21,7 @@ layout(location = 0) out VS_OUT {
 } vs_out;
 
 layout(location = 5) out flat uint currentInstanceIndex;
+layout(location = 6) out flat int materialCategory;
 
 void main()
 {
@@ -29,4 +30,6 @@ void main()
 	vs_out.Thickness = inThickness;
 	vs_out.TexCoord = inTexCoord;
 	vs_out.Normal = vec3(EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(inNormal, 0.0));
+	// Encode age-based material category from color alpha: 0.0=old, 0.5=adolescent, 1.0=young
+	materialCategory = int(round(inColor.a * 2.0));
 }

@@ -22,8 +22,12 @@ layout (location = 0) out TCS_OUT {
 layout(location = 5) in uint currentInstanceIndexIn[];
 layout(location = 5) patch out uint currentInstanceIndexOut;
 
+layout(location = 6) in int materialCategoryIn[];
+layout(location = 6) patch out int materialCategoryOut;
+
 void main(){
 	currentInstanceIndexOut = currentInstanceIndexIn[gl_InvocationID];
+	materialCategoryOut = materialCategoryIn[gl_InvocationID];
 	if(gl_InvocationID == 0){
 		gl_TessLevelOuter[0] = 1;
 		gl_TessLevelOuter[1] = EE_STRANDS_SEGMENT_SUBDIVISION(vs_in[0].FragPos, vs_in[3].FragPos);

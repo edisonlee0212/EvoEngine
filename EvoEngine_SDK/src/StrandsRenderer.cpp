@@ -28,7 +28,11 @@ bool StrandsRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer
   bool changed = false;
   if (ImGui::Checkbox("Cast shadow##StrandsRenderer:", &cast_shadow))
     changed = true;
-  if (editor_layer->DragAndDropButton<Material>(material, "Material"))
+  if (editor_layer->DragAndDropButton<Material>(material, "Material (Old)"))
+    changed = true;
+  if (editor_layer->DragAndDropButton<Material>(material_adolescent, "Material (Adolescent)"))
+    changed = true;
+  if (editor_layer->DragAndDropButton<Material>(material_young, "Material (Young)"))
     changed = true;
   if (editor_layer->DragAndDropButton<Strands>(strands, "Strands"))
     changed = true;
@@ -56,6 +60,8 @@ void StrandsRenderer::Serialize(YAML::Emitter& out) const {
 
   strands.Save("strands", out);
   material.Save("material", out);
+  material_adolescent.Save("material_adolescent", out);
+  material_young.Save("material_young", out);
 }
 
 void StrandsRenderer::Deserialize(const YAML::Node& in) {
@@ -63,17 +69,21 @@ void StrandsRenderer::Deserialize(const YAML::Node& in) {
 
   strands.Load("strands", in);
   material.Load("material", in);
+  material_adolescent.Load("material_adolescent", in);
+  material_young.Load("material_young", in);
 }
 void StrandsRenderer::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
 }
 void StrandsRenderer::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(strands);
   list.push_back(material);
+  list.push_back(material_adolescent);
+  list.push_back(material_young);
 }
 void StrandsRenderer::OnDestroy() {
   strands.Clear();
   material.Clear();
-
-  material.Clear();
+  material_adolescent.Clear();
+  material_young.Clear();
   cast_shadow = true;
 }

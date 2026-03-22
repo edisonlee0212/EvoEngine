@@ -13,9 +13,12 @@ using namespace evo_engine;
 struct StrandModelStrandGroupData {};
 
 /**
- * \brief Represents data associated with an individual strand in the strand model.
+ * \brief Runtime flags for strand lifecycle state.
  */
-struct StrandModelStrandData {};
+struct StrandModelStrandData {
+  /// True once the strand has been cut by pruning and should no longer elongate.
+  bool growth_locked = false;
+};
 
 /**
  * \brief Tissue classification for particles and strand segments.
@@ -35,6 +38,20 @@ enum class WoundState : uint8_t {
   kWounded = 1,  ///< Freshly wounded (exposed tissue).
   kHealing = 2,  ///< Callus tissue forming over wound.
   kHealed = 3    ///< Wound fully sealed by callus.
+};
+
+/**
+ * \brief Age-based material category for procedural strands.
+ *
+ * Used to select one of three materials during rendering:
+ *   Old        – rough dark brown bark (thick, mature branches/trunk).
+ *   Adolescent – lighter brown, smoother woody surface.
+ *   Young      – light green, soft new growth.
+ */
+enum class StrandAgeCategory : uint8_t {
+  kOld = 0,         ///< Mature bark.
+  kAdolescent = 1,  ///< Intermediate woody growth.
+  kYoung = 2        ///< Newest soft growth.
 };
 
 /**
@@ -79,6 +96,13 @@ struct StrandModelStrandSegmentData {
    * Copied from the corresponding profile particle during ApplyProfiles().
    */
   WoundState wound_state = WoundState::kNone;
+
+  /**
+   * \brief Age-based material category for this segment.
+   * Determined during ApplyProfiles() based on birth_step relative to current_growth_step.
+   * Encoded in StrandPoint color.a for GPU material selection.
+   */
+  StrandAgeCategory age_category = StrandAgeCategory::kOld;
 };
 
 /**

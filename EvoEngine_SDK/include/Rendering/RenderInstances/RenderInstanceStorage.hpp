@@ -141,6 +141,9 @@ class RenderInstanceStorage {
     uint32_t entity_index = 0;   ///< Entity index associated with the instance.
     Handle renderer_handle = 0;  ///< Handle for the renderer.
 
+    int32_t material_index_1 = -1;  ///< Secondary material index (e.g. adolescent strands). -1 = unused.
+    int32_t material_index_2 = -1;  ///< Tertiary material index (e.g. young strands). -1 = unused.
+
     /**
      * @brief Compares two InstanceInfoBlock objects for inequality.
      * @param other The other InstanceInfoBlock object to compare.
@@ -351,6 +354,8 @@ class RenderInstanceStorage {
    */
   struct StrandsRenderInstance : IRenderInstance {
     std::shared_ptr<Strands> strands;  ///< Shared pointer to the strands to be rendered.
+    int32_t material_index_adolescent = -1;  ///< Material index for adolescent strands. -1 = use primary.
+    int32_t material_index_young = -1;       ///< Material index for young strands. -1 = use primary.
 
     /**
      * @brief Compares two StrandsRenderInstance objects for inequality.

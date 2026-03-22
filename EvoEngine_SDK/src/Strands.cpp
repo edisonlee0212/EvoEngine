@@ -361,6 +361,12 @@ void Strands::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsPipel
                           const int instances_count) const {
   if (instances_count == 0)
     return;
+  if (segment_range_->prev_frame_index_count == 0) {
+    EVOENGINE_WARNING("Strands::DrawIndexed called with prev_frame_index_count=0! index_count=" +
+                      std::to_string(segment_range_->index_count) +
+                      " prev_frame_offset=" + std::to_string(segment_range_->prev_frame_offset) +
+                      " offset=" + std::to_string(segment_range_->offset))
+  }
   global_pipeline_state.ApplyAllStates(vk_command_buffer);
   vkCmdDrawIndexed(vk_command_buffer, segment_range_->prev_frame_index_count * 4, instances_count,
                    segment_range_->prev_frame_offset * 4, 0, 0);

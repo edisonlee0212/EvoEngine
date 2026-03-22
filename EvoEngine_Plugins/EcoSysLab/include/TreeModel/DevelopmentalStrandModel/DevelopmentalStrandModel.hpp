@@ -1,21 +1,27 @@
-#pragma once
+﻿#pragma once
 #include "GpuProfileSimulator.hpp"
-#include "ProceduralStrandModelData.hpp"
+#include "DevelopmentalStrandModelData.hpp"
 #include "ShootModel.hpp"
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
+/// Controls how strand/mesh vertex colors are computed in ApplyProfiles / GPU download.
+enum class StrandColorMode : uint8_t {
+  kDefault,  ///< Tissue-type / wound-state coloring.
+  kAge       ///< Newest strands = white, oldest = black (based on birth_step).
+};
+
 /**
  * @brief Procedural strand model that co-evolves strands alongside skeleton growth.
  *
  * Unlike the existing StrandModel which rebuilds all strands post-hoc after growth completes,
- * ProceduralStrandModel maintains a unified skeleton where strand data lives alongside
+ * DevelopmentalStrandModel maintains a unified skeleton where strand data lives alongside
  * internode growth data. This enables incremental strand growth (O(new_nodes) per step
  * rather than O(total_nodes)), cambial layer tracking, and biological phenomena like
  * annual rings and wound response.
  */
-class ProceduralStrandModel {
+class DevelopmentalStrandModel {
   /// Random engine for stochastic strand operations.
   std::mt19937 random_engine_;
 
@@ -57,6 +63,18 @@ class ProceduralStrandModel {
    * @param params Strand model parameters (supplies end_node_strands, physics settings).
    */
   void AllocateNewStrandsForEndNode(SkeletonNodeHandle end_node_handle, const StrandModelParameters& params);
+
+  /**
+   * @brief Allocates a specific number of new strands from root to the given end node.
+   *
+   * Used when preserving strand density at pruning wounds: strands are terminated at
+   * the closest surviving parent instead of being removed all the way to root.
+   * @param end_node_handle The end (tip/wound) node that receives new terminal strands.
+   * @param strand_count Number of strands to allocate.
+   * @param params Strand model parameters (physics settings, seeding behavior).
+   */
+  void AllocateStrandsForEndNode(SkeletonNodeHandle end_node_handle, int strand_count,
+                                 const StrandModelParameters& params);
 
   /**
    * @brief Copies each particle's current (post-packing) position to its initial_position.
@@ -103,11 +121,22 @@ class ProceduralStrandModel {
   /// Whether to run profile packing on GPU (true) or skip it (false).
   bool gpu_profile_packing = true;
 
+  /// When true, skeleton transforms are uploaded to GPU and CPU-side
+  /// DownloadToSkeleton / ApplyProfiles / BuildStrands are skipped.
+  /// Rendering is handled entirely via GPU-resident surface generation (Phase 2).
+  bool gpu_resident_rendering = false;
+
   /// Number of GPU profile packing iterations per growth step.
   int gpu_packing_iterations = 50;
 
+  /// Active color mode for strand/mesh visualization.
+  StrandColorMode strand_color_mode = StrandColorMode::kDefault;
+
+  /// Returns the current growth step counter (for age-based coloring).
+  [[nodiscard]] uint16_t CurrentGrowthStep() const { return current_growth_step_; }
+
   /// The unified skeleton combining internode growth and strand model data.
-  ProceduralStrandModelSkeleton skeleton;
+  DevelopmentalStrandModelSkeleton skeleton;
 
   /// GPU profile packing simulator.
   GpuProfileSimulator gpu_profile_simulator;
@@ -146,7 +175,21 @@ class ProceduralStrandModel {
    * @param params Strand model parameters.
    */
   void OnGrowthStep(const ShootSkeleton& shoot_skeleton, const std::vector<ShootModel::GrowthEvent>& growth_events,
-                    bool pruning_occurred, const StrandModelParameters& params);
+                    const std::vector<std::vector<SkeletonNodeHandle>>& pruning_event_batches, bool pruning_occurred,
+                    const StrandModelParameters& params);
+
+  /**
+   * @brief Applies pruning incrementally without rebuilding the full strand topology.
+   *
+   * Removes strand segments at the pruned roots and all descendants, keeps upstream
+   * segments, and locks affected strands so they no longer elongate.
+   * @param shoot_skeleton The post-pruning shoot skeleton.
+   * @param pruning_root_events Root handles of pruned subtrees from the pre-pruning topology.
+   * @param params Strand model parameters.
+   */
+  void ApplyPruningEvents(const ShootSkeleton& shoot_skeleton,
+                          const std::vector<std::vector<SkeletonNodeHandle>>& pruning_event_batches,
+                          const StrandModelParameters& params);
 
   /**
    * @brief Re-synchronizes the procedural skeleton from the shoot skeleton after pruning.

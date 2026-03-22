@@ -1564,8 +1564,9 @@ void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sam
                                   const VkImageLayout image_layout) {
   if (!Application::GetLayer<EditorLayer>())
     return;
-  if (target != VK_NULL_HANDLE)
-    ImGui_ImplVulkan_RemoveTexture(static_cast<VkDescriptorSet>(target));
+  // Do not remove the previous descriptor here. ImGui draw data can still reference
+  // the old TextureId within the current frame, and immediate removal may cause
+  // invalid descriptor binds during ImGui_ImplVulkan_RenderDrawData.
   target = ImGui_ImplVulkan_AddTexture(image_sampler, image_view, image_layout);
 }
 

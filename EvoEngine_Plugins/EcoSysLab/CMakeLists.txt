@@ -1,4 +1,4 @@
-set(ECOSYSLAB_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+﻿set(ECOSYSLAB_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 set(ECOSYSLAB_INCLUDES
 	${3RDPARTY_DIR}/pinchot/pinchot/include
 	${ECOSYSLAB_DIRECTORY}
@@ -14,7 +14,7 @@ set(ECOSYSLAB_INCLUDES
 	${ECOSYSLAB_DIRECTORY}/include/Volumes
 	${ECOSYSLAB_DIRECTORY}/include/ClimateModel
 	${ECOSYSLAB_DIRECTORY}/include/SoilModel
-	${ECOSYSLAB_DIRECTORY}/include/TreeModel/ProceduralStrandModel
+	${ECOSYSLAB_DIRECTORY}/include/TreeModel/DevelopmentalStrandModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/StrandModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/ShootModel
 	${ECOSYSLAB_DIRECTORY}/include/TreeModel/RootModel

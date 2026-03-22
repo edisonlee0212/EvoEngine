@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by lllll on 10/24/2022.
 //
 #include "Tree.hpp"
@@ -442,26 +442,28 @@ TreeStatistics Tree::GetTreeStatistics() const {
 }
 
 void Tree::Reset() {
-  const bool keep_proc_enabled = procedural_strand_model.enabled;
-  const bool keep_gpu_profile_packing = procedural_strand_model.gpu_profile_packing;
-  const int keep_gpu_packing_iterations = procedural_strand_model.gpu_packing_iterations;
-  const int keep_proc_seed = procedural_strand_model.seed;
+  const bool keep_proc_enabled = developmental_strand_model.enabled;
+  const bool keep_gpu_profile_packing = developmental_strand_model.gpu_profile_packing;
+  const bool keep_gpu_resident_rendering = developmental_strand_model.gpu_resident_rendering;
+  const int keep_gpu_packing_iterations = developmental_strand_model.gpu_packing_iterations;
+  const int keep_proc_seed = developmental_strand_model.seed;
 
   ClearSkeletalGraph();
   ClearGeometryEntities();
   ClearStrandModelMeshRenderer();
   ClearStrandRenderer();
-  ClearProceduralStrandRenderer();
+  ClearDevelopmentalStrandRenderer();
   ClearAnimatedGeometryEntities();
   shoot_model.Clear();
   root_model.Clear();
   shoot_strand_model = {};
-  procedural_strand_model.Reset();
-  procedural_strand_model.enabled = keep_proc_enabled;
-  procedural_strand_model.gpu_profile_packing = keep_gpu_profile_packing;
-  procedural_strand_model.gpu_packing_iterations = keep_gpu_packing_iterations;
-  procedural_strand_model.seed = keep_proc_seed;
-  procedural_strand_renderer_dirty = false;
+  developmental_strand_model.Reset();
+  developmental_strand_model.enabled = keep_proc_enabled;
+  developmental_strand_model.gpu_profile_packing = keep_gpu_profile_packing;
+  developmental_strand_model.gpu_resident_rendering = keep_gpu_resident_rendering;
+  developmental_strand_model.gpu_packing_iterations = keep_gpu_packing_iterations;
+  developmental_strand_model.seed = keep_proc_seed;
+  developmental_strand_renderer_dirty = false;
   shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
   shoot_visualizer.Reset(shoot_model);
   root_visualizer.Reset(root_model);
@@ -742,33 +744,37 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   if (ImGui::TreeNodeEx("Procedural Strand Model", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Checkbox("Enable", &procedural_strand_model.enabled);
-    ImGui::Checkbox("GPU Profile Packing", &procedural_strand_model.gpu_profile_packing);
+    ImGui::Checkbox("Enable", &developmental_strand_model.enabled);
+    ImGui::Checkbox("GPU Profile Packing", &developmental_strand_model.gpu_profile_packing);
+    ImGui::Checkbox("GPU Resident Rendering", &developmental_strand_model.gpu_resident_rendering);
     ImGui::SameLine();
-    ImGui::DragInt("Iterations##ProcStrand", &procedural_strand_model.gpu_packing_iterations, 1, 1, 500);
-    ImGui::Text(("Strands: " + std::to_string(procedural_strand_model.skeleton.data.HasStrandData()
-                                                  ? procedural_strand_model.skeleton.data.strand_data->strand_group
+    ImGui::DragInt("Iterations##ProcStrand", &developmental_strand_model.gpu_packing_iterations, 1, 1, 500);
+    ImGui::Text(("Strands: " + std::to_string(developmental_strand_model.skeleton.data.HasStrandData()
+                                                  ? developmental_strand_model.skeleton.data.strand_data->strand_group
                                                         .PeekStrands().size()
                                                   : 0))
                     .c_str());
     if (ImGui::Button("Enable from Current Tree")) {
-      procedural_strand_model.Enable(shoot_model.PeekShootSkeleton(), strand_model_parameters);
+      developmental_strand_model.Enable(shoot_model.PeekShootSkeleton(), strand_model_parameters);
     }
     ImGui::SameLine();
     if (ImGui::Button("Disable##ProcStrand")) {
-      procedural_strand_model.Disable();
+      developmental_strand_model.Disable();
     }
     ImGui::SameLine();
     if (ImGui::Button("Reset##ProcStrand")) {
-      procedural_strand_model.Reset();
-      ClearProceduralStrandRenderer();
+      developmental_strand_model.Reset();
+      ClearDevelopmentalStrandRenderer();
     }
     if (ImGui::Button("Build Procedural Strands")) {
-      InitializeProceduralStrandRenderer();
+      InitializeDevelopmentalStrandRenderer();
     }
     ImGui::SameLine();
     if (ImGui::Button("Clear Procedural Strands")) {
-      ClearProceduralStrandRenderer();
+      ClearDevelopmentalStrandRenderer();
+    }
+    if (ImGui::Checkbox("Enable Procedural Foliage", &developmental_strand_foliage_enabled)) {
+      developmental_strand_renderer_dirty = true;
     }
     ImGui::TreePop();
   }
@@ -984,19 +990,20 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
 
     // Procedural strand update: run every growth step so elongation/thickness changes
     // are reflected even when topology is unchanged.
-    if (procedural_strand_model.enabled) {
+    if (developmental_strand_model.enabled) {
       // If procedural mode was preserved across reset/load but has not been initialised yet,
       // rebuild from the current shoot skeleton before applying incremental events.
-      if (!procedural_strand_model.skeleton.data.HasStrandData()) {
+      if (!developmental_strand_model.skeleton.data.HasStrandData()) {
         if (!shoot_model.PeekShootSkeleton().PeekRawNodes().empty()) {
-          procedural_strand_model.Enable(shoot_model.PeekShootSkeleton(), strand_model_parameters);
+          developmental_strand_model.Enable(shoot_model.PeekShootSkeleton(), strand_model_parameters);
         }
       } else {
-        procedural_strand_model.OnGrowthStep(shoot_model.PeekShootSkeleton(), shoot_model.PeekGrowthEvents(),
-                                             shoot_model.PruningOccurred(), strand_model_parameters);
+        developmental_strand_model.OnGrowthStep(
+          shoot_model.PeekShootSkeleton(), shoot_model.PeekGrowthEvents(),
+          shoot_model.PeekPruningEventBatches(), shoot_model.PruningOccurred(), strand_model_parameters);
       }
       // Defer renderer updates to the main thread (TryGrow can run inside worker jobs).
-      procedural_strand_renderer_dirty = true;
+      developmental_strand_renderer_dirty = true;
     }
   }
 
@@ -1043,7 +1050,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
   tree_descriptor_ref.Save("tree_descriptor_ref", out);
 
   strand_model_parameters.Save("strand_model_parameters", out);
-  procedural_strand_model.Save("procedural_strand_model", out);
+  developmental_strand_model.Save("developmental_strand_model", out);
   tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
   shoot_strand_model.Save("shoot_strand_model", out);
   shoot_model.Save("shoot_model", out);
@@ -1065,13 +1072,15 @@ void Tree::Serialize(YAML::Emitter& out) const {
 
   out << YAML::Key << "shoot_model_history_limit" << YAML::Value << shoot_model.history_limit;
   out << YAML::Key << "root_model_history_limit" << YAML::Value << root_model.history_limit;
+
+  out << YAML::Key << "developmental_strand_foliage_enabled" << YAML::Value << developmental_strand_foliage_enabled;
 }
 
 void Tree::Deserialize(const YAML::Node& in) {
   tree_descriptor_ref.Load("tree_descriptor_ref", in);
 
   strand_model_parameters.Load("strand_model_parameters", in);
-  procedural_strand_model.Load("procedural_strand_model", in);
+  developmental_strand_model.Load("developmental_strand_model", in);
   tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
 
   shoot_strand_model.Load("shoot_strand_model", in);
@@ -1094,6 +1103,8 @@ void Tree::Deserialize(const YAML::Node& in) {
 
   if (in["shoot_model_history_limit"]) shoot_model.history_limit = in["shoot_model_history_limit"].as<int>();
   if (in["root_model_history_limit"]) root_model.history_limit = in["root_model_history_limit"].as<int>();
+
+  if (in["developmental_strand_foliage_enabled"]) developmental_strand_foliage_enabled = in["developmental_strand_foliage_enabled"].as<bool>();
 }
 
 void Tree::RegisterVoxel() {

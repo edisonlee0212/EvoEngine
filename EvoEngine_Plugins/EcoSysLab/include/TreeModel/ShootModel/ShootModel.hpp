@@ -124,6 +124,10 @@ class ShootModel : public PlantModel {
   /// Records topology additions during a single Grow() step.
   std::vector<GrowthEvent> growth_events_;
 
+  /// Ordered pruning batches removed during a single Grow() step.
+  /// Each batch is captured immediately before a RemoveNodes() call.
+  std::vector<std::vector<SkeletonNodeHandle>> pruning_event_batches_;
+
   /// True if PruneInternodes removed any nodes during the last Grow() call.
   /// When true, growth_events_ are stale (handles invalidated by swap-and-pop removal)
   /// and must not be used for incremental replay.
@@ -157,6 +161,11 @@ class ShootModel : public PlantModel {
    * @brief Returns the growth events recorded during the last Grow() call.
    */
   [[nodiscard]] const std::vector<GrowthEvent>& PeekGrowthEvents() const { return growth_events_; }
+
+  /// Returns ordered pruning batches removed during the last Grow() call.
+  [[nodiscard]] const std::vector<std::vector<SkeletonNodeHandle>>& PeekPruningEventBatches() const {
+    return pruning_event_batches_;
+  }
 
   /**
    * @brief Returns true if pruning occurred during the last Grow() call.

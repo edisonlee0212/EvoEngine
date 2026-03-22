@@ -290,6 +290,10 @@ bool RenderInstanceStorage::StrandsRenderInstance::operator!=(const StrandsRende
     return true;
   if (polygon_mode != other.polygon_mode)
     return true;
+  if (material_index_adolescent != other.material_index_adolescent)
+    return true;
+  if (material_index_young != other.material_index_young)
+    return true;
   return false;
 }
 
@@ -302,6 +306,8 @@ void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& inst
   instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
   instance_info_block.entity_index = owner.GetIndex();
   instance_info_block.renderer_handle = renderer_handle;
+  instance_info_block.material_index_1 = material_index_adolescent;
+  instance_info_block.material_index_2 = material_index_young;
 }
 
 uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
@@ -535,6 +541,10 @@ bool RenderInstanceStorage::InstanceInfoBlock::operator!=(const InstanceInfoBloc
     return true;
   if (renderer_handle != other.renderer_handle)
     return true;
+  if (material_index_1 != other.material_index_1)
+    return true;
+  if (material_index_2 != other.material_index_2)
+    return true;
   return false;
 }
 
@@ -703,6 +713,7 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
   }
 
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<Particles>()) {
+    EVOENGINE_LOG("CollectEntityRenderers: Particles owners count=" + std::to_string(owners->size()))
     for (auto owner : *owners) {
       if (!target_scene->IsEntityEnabled(owner))
         continue;
@@ -716,6 +727,7 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
   }
 
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<StrandsRenderer>()) {
+    EVOENGINE_LOG("CollectEntityRenderers: StrandsRenderer owners count=" + std::to_string(owners->size()))
     for (auto owner : *owners) {
       if (!target_scene->IsEntityEnabled(owner))
         continue;
@@ -1490,8 +1502,15 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   auto material = strands_renderer->material.Get<Material>();
   auto strands = strands_renderer->strands.Get<Strands>();
   if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
-      !strands->segment_range_)
+      !strands->segment_range_) {
+    EVOENGINE_WARNING("RegisterEntity<StrandsRenderer> SKIPPED: enabled=" + std::to_string(strands_renderer->IsEnabled()) +
+                      " material=" + std::to_string(!!material) +
+                      " strands=" + std::to_string(!!strands) +
+                      " meshlet_range=" + std::to_string(strands ? !!strands->strand_meshlet_range_ : false) +
+                      " segment_range=" + std::to_string(strands ? !!strands->segment_range_ : false) +
+                      " entity=" + target_scene->GetEntityName(owner))
     return false;
+  }
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
   auto mesh_bound = strands->bound_;
@@ -1524,11 +1543,33 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
+  // Register adolescent material (falls back to primary when unset).
+  if (auto mat_adol = strands_renderer->material_adolescent.Get<Material>()) {
+    MaterialInfoBlock adol_info;
+    adol_info.Apply(mat_adol);
+    render_instance->material_index_adolescent = RegisterMaterial(mat_adol->GetHandle(), adol_info);
+  }
+
+  // Register young material (falls back to primary when unset).
+  if (auto mat_young = strands_renderer->material_young.Get<Material>()) {
+    MaterialInfoBlock young_info;
+    young_info.Apply(mat_young);
+    render_instance->material_index_young = RegisterMaterial(mat_young->GetHandle(), young_info);
+  }
+
   if (material->draw_settings.blending) {
     transparent_strands_render_instances->Register(render_instance);
   } else {
     deferred_strands_render_instances->Register(render_instance);
   }
+
+  EVOENGINE_LOG("RegisterEntity<StrandsRenderer> OK: entity=" + target_scene->GetEntityName(owner) +
+                " seg_idx=" + std::to_string(strands->segment_range_->index_count) +
+                " seg_prev_idx=" + std::to_string(strands->segment_range_->prev_frame_index_count) +
+                " seg_offset=" + std::to_string(strands->segment_range_->offset) +
+                " seg_prev_offset=" + std::to_string(strands->segment_range_->prev_frame_offset) +
+                " segments=" + std::to_string(strands->segments_.size()) +
+                " deferred=" + std::to_string(!material->draw_settings.blending))
 
   total_strands_segments += strands->segments_.size();
   return true;

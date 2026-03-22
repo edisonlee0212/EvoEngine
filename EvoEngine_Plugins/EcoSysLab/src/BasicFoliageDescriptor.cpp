@@ -17,6 +17,12 @@ void BasicFoliageDescriptor::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
   leaf_material_ref.Save("leaf_material_ref", out);
 
+  out << YAML::Key << "leaf_material_variants" << YAML::Value << YAML::BeginSeq;
+  for (const auto& material_ref : leaf_material_variants) {
+    material_ref.Serialize(out);
+  }
+  out << YAML::EndSeq;
+
   activation_temperature.Save("activation_temperature", out);
   activation_light_intensity.Save("activation_light_intensity", out);
   growth_rate.Save("growth_rate", out);
@@ -48,6 +54,20 @@ void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
   if (in["gravitropism"])
     gravitropism = in["gravitropism"].as<float>();
   leaf_material_ref.Load("leaf_material_ref", in);
+
+  leaf_material_variants.clear();
+  if (in["leaf_material_variants"]) {
+    for (const auto& node : in["leaf_material_variants"]) {
+      auto& material_ref = leaf_material_variants.emplace_back();
+      material_ref.Deserialize(node);
+    }
+  } else if (in["leaf_mesh_pool"]) {
+    // Backward compatibility: migrate old mesh pool by keeping only material_ref entries.
+    for (const auto& node : in["leaf_mesh_pool"]) {
+      auto& material_ref = leaf_material_variants.emplace_back();
+      material_ref.Load("material_ref", node);
+    }
+  }
 
   activation_temperature.Load("activation_temperature", in);
   activation_light_intensity.Load("activation_light_intensity", in);
@@ -92,12 +112,42 @@ bool BasicFoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& edito
   changed = ImGui::DragFloat("Gravitropism", &gravitropism, 0.001f, 0.0f, 1.0f) || changed;
   if (editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material"))
     changed = true;
+
+  if (ImGui::TreeNodeEx("Leaf Material Variants", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Add entry")) {
+      leaf_material_variants.emplace_back();
+      changed = true;
+    }
+    for (int i = 0; i < static_cast<int>(leaf_material_variants.size()); i++) {
+      ImGui::PushID(i);
+      if (ImGui::TreeNodeEx(("Entry " + std::to_string(i)).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (editor_layer->DragAndDropButton<Material>(leaf_material_variants[i], "Leaf Material Variant"))
+          changed = true;
+        if (ImGui::Button("Remove")) {
+          leaf_material_variants.erase(leaf_material_variants.begin() + i);
+          changed = true;
+          ImGui::TreePop();
+          ImGui::PopID();
+          i--;
+          continue;
+        }
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+    ImGui::TreePop();
+  }
+
   return changed;
 }
 
 void BasicFoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   if (leaf_material_ref.Get<Material>())
     list.push_back(leaf_material_ref);
+  for (auto& material_ref : leaf_material_variants) {
+    if (material_ref.Get<Material>())
+      list.push_back(material_ref);
+  }
 }
 
 void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_controller) const {
@@ -142,20 +192,22 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
       leaf.damage_temperature = damage_temperature.mean;
       leaf.damage_rate = damage_rate.mean;
 
-      // Reference (old randomized behavior):
-      // leaf.rotation = internode.info.global_rotation *
-      //                 glm::quat(glm::radians(glm::vec3(glm::gaussRand(0.0f, rotation_variance),
-      //                                                  branching_angle.GetValue(),
-      //                                                  glm::linearRand(0.0f, 360.0f))));
-      leaf.rotation = internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)));
-      auto front = leaf.rotation * glm::vec3(0, 0, -1);
-      auto up = leaf.rotation * glm::vec3(0, 1, 0);
+      // Start from bud/internode direction; branching is progressively applied during growth.
+      leaf.rotation = internode.info.global_rotation;
+
+      auto target_front =
+          (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+          glm::vec3(0, 0, -1);
+      auto target_up =
+          (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+          glm::vec3(0, 1, 0);
+      auto front = target_front;
+      auto up = target_up;
       ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
       if (const auto horizontal_direction = glm::vec3(front.x, 0.0f, front.z);
           glm::length(horizontal_direction) > glm::epsilon<float>()) {
         ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
       }
-      leaf.rotation = glm::quatLookAt(front, up);
 
         // Reference (old randomized behavior):
         // leaf.position_offset =
@@ -164,6 +216,17 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
         // leaf.leaf_stem_length = glm::abs(stem_length.GetValue());
         leaf.position_offset = glm::mix(glm::vec3(0.f), internode.info.GetGlobalEndPosition() - internode.info.global_position, 0.5f);
         leaf.leaf_stem_length = glm::abs(stem_length.mean);
+
+      // Assign a material variant index using a deterministic hash of the leaf's position offset.
+      if (!leaf_material_variants.empty()) {
+        const auto p = internode.info.global_position + leaf.position_offset;
+        const float hash_val =
+            glm::fract(glm::sin(glm::dot(p, glm::vec3(17.1537f, 43.5819f, 91.3467f))) * 28947.6813f);
+        leaf.mesh_index = static_cast<uint32_t>(hash_val * static_cast<float>(leaf_material_variants.size())) %
+                          static_cast<uint32_t>(leaf_material_variants.size());
+      } else {
+        leaf.mesh_index = 0;
+      }
     }
 
     return activation;
@@ -192,7 +255,26 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
       }
     }
 
-    const auto current_leaf_size = leaf_size * leaf.maturity;
+    const float branching_t = glm::smoothstep(0.0f, 1.0f, leaf.maturity);
+    const float elongation_t = glm::smoothstep(0.0f, 1.0f, leaf.maturity);
+    const float expansion_t = glm::smoothstep(0.0f, 1.0f, glm::clamp((leaf.maturity - 0.25f) / 0.75f, 0.0f, 1.0f));
+
+    const auto start_rotation = internode.info.global_rotation;
+    auto target_front =
+        (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+        glm::vec3(0, 0, -1);
+    auto target_up =
+        (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+        glm::vec3(0, 1, 0);
+    ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, target_front, target_up);
+    if (const auto horizontal_direction = glm::vec3(target_front.x, 0.0f, target_front.z);
+        glm::length(horizontal_direction) > glm::epsilon<float>()) {
+      ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, target_front, target_up);
+    }
+    const auto target_rotation = glm::quatLookAt(target_front, target_up);
+    leaf.rotation = glm::normalize(glm::slerp(start_rotation, target_rotation, branching_t));
+
+    const auto current_leaf_size = glm::vec2(leaf_size.x * expansion_t, leaf_size.y * elongation_t);
     const auto front = leaf.rotation * glm::vec3(0, 0, -1);
     const auto up = leaf.rotation * glm::vec3(0, 1, 0);
 
@@ -217,11 +299,12 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
 void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices,
                                                      const SkeletonNodeInfo& internode_info,
                                                      const float tree_size) const {
+  (void)tree_size;
   if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
       internode_info.end_distance <= max_end_distance) {
     const int generated_leaf_count = leaf_count * internode_info.leaves;
     for (int i = 0; i < generated_leaf_count; i++) {
-      const auto current_leaf_size = leaf_size * tree_size * 0.1f;
+      const auto current_leaf_size = leaf_size;
       // Reference (old randomized behavior):
       // glm::quat rotation =
       //     internode_info.global_rotation *
