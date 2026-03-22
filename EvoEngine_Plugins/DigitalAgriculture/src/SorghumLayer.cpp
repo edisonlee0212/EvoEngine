@@ -15,6 +15,7 @@
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
+#include "CropDescriptor.hpp"
 #ifdef CUDA_MODULE_PLUGIN
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
@@ -30,6 +31,8 @@ AssetRegistration<SorghumState> ss_registry("SorghumState", {".ss"});
 
 AssetRegistration<SorghumGenerator> sdg_registry("SorghumGenerator", {".sg"});
 AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
+
+AssetRegistration<CropDescriptor> crop_descriptor_registry("CropDescriptor", {".cropdesc"});
 #ifdef CUDA_MODULE_PLUGIN
 AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
 AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfgroup"});
