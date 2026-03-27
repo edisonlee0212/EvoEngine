@@ -25,6 +25,8 @@ void ShootModel::ResetOrgans() {
     for (auto& i : internode.data.leaves) {
       i.Reset();
     }
+    // Reset info.leaves so procedural rendering reflects no active leaves.
+    internode.info.leaves = 0.0f;
     for (auto& i : internode.data.fruits) {
       i.Reset();
     }
@@ -111,8 +113,42 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
   bool structure_changed = false;
   const int year = climate_model.time / 365.f;
   if (year != age_in_year_) {
-    ResetOrgans();
     age_in_year_ = year;
+    // At year boundary, add new leaf slots for any newly qualifying internodes.
+    // Existing alive leaves are kept — they die naturally through senescence.
+    if (foliage_controller.Initialized()) {
+      const auto& node_list_for_spawn = shoot_skeleton_.PeekSortedNodeList();
+      for (auto it = node_list_for_spawn.rbegin(); it != node_list_for_spawn.rend(); ++it) {
+        auto& inode = shoot_skeleton_.RefNode(*it);
+        // Recycle dead leaves so FormulateFoliage can reformulate them as new spring buds.
+        // Dead leaves (Inactive, maturity > 0) are reset to fresh state, modelling the same
+        // branch sites producing new leaf primordia each year.
+        for (auto& leaf : inode.data.leaves) {
+          if (leaf.status == OrganStatus::Inactive) {
+            leaf.Reset();
+          }
+        }
+        // Recycle dead flowers and fruits so they can bloom/fruit again next season.
+        for (auto& flower : inode.data.flowers) {
+          if (flower.status == OrganStatus::Inactive) {
+            flower.Reset();
+          }
+        }
+        for (auto& fruit : inode.data.fruits) {
+          if (fruit.status == OrganStatus::Inactive) {
+            fruit.Reset();
+          }
+        }
+        const auto desired = foliage_controller.leaf_count(random_engine_, shoot_skeleton_.data, inode);
+        const auto current = static_cast<int>(inode.data.leaves.size());
+        // Only grow the vector — never shrink it so living leaves are preserved.
+        if (desired > current) {
+          for (int li = current; li < desired; ++li) {
+            inode.data.leaves.emplace_back();
+          }
+        }
+      }
+    }
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
       if (foliage_controller.Initialized()) {
@@ -140,6 +176,15 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
   {
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
+      // Formulate any Inactive organs (e.g. on newly created internodes) so they become
+      // Dormant and can be activated by GrowFoliage/GrowReproductiveModules below.
+      // FormulateFoliage only touches Inactive leaves with maturity==0, so this is safe every frame.
+      if (foliage_controller.Initialized()) {
+        FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
+      }
+      if (reproduction_controller.Initialized()) {
+        FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+      }
       if (foliage_controller.Initialized() &&
           GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
         structure_changed = true;
@@ -201,6 +246,12 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
     }
   }
   for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
+    if (foliage_controller.Initialized()) {
+      FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
+    }
+    if (reproduction_controller.Initialized()) {
+      FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
+    }
     if (GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
       tree_structure_changed = true;
     }
@@ -210,9 +261,27 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
   }
   const int year = climate_model.time / 365.f;
   if (year != age_in_year_) {
-    ResetOrgans();
     age_in_year_ = year;
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
+    // Recycle dead leaves, flowers, and fruits at year boundary so they can be reformulated for the new spring.
+    for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
+      auto& inode = shoot_skeleton_.RefNode(*it);
+      for (auto& leaf : inode.data.leaves) {
+        if (leaf.status == OrganStatus::Inactive) {
+          leaf.Reset();
+        }
+      }
+      for (auto& flower : inode.data.flowers) {
+        if (flower.status == OrganStatus::Inactive) {
+          flower.Reset();
+        }
+      }
+      for (auto& fruit : inode.data.fruits) {
+        if (fruit.status == OrganStatus::Inactive) {
+          fruit.Reset();
+        }
+      }
+    }
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
       FormulateFoliage(climate_model, global_transform, *it, foliage_controller);
       FormulateReproductiveModules(climate_model, global_transform, *it, reproduction_controller);
@@ -391,7 +460,7 @@ void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_contr
         shoot_growth_controller.growth_potential(random_engine_, shoot_skeleton_, internode);
     max_grow_potential = glm::max(max_grow_potential, internode.data.growth_potential);
   }
-  float total_desired_growth_rate = 1.0f;
+  float total_desired_growth_rate = 0.0f;
   for (const auto& internode_handle : sorted_internode_list) {
     auto& node = shoot_skeleton_.RefNode(internode_handle);
     if (max_grow_potential > 0.0f)
@@ -399,7 +468,8 @@ void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_contr
     node.data.desired_growth_rate = node.data.light_intake * node.data.growth_potential;
     total_desired_growth_rate += node.data.desired_growth_rate;
   }
-  const float clamped_factor = vigor.value / total_desired_growth_rate;
+  const float clamped_factor =
+      total_desired_growth_rate > glm::epsilon<float>() ? vigor.value / total_desired_growth_rate : 0.0f;
   for (const auto& internode_handle : sorted_internode_list) {
     auto& node = shoot_skeleton_.RefNode(internode_handle);
     // You cannot give more than enough resources.
@@ -706,16 +776,22 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
                             shoot_growth_controller.base_internode_length *
                             shoot_growth_controller.internode_growth_rate;
         }
-        // Use up the vigor stored in this bud.
-        float collected_inhibitor = 0.0f;
-        graph_changed = ElongateInternode(elongate_length, internode_handle, shoot_growth_controller,
-                                          foliage_controller, reproduction_controller, collected_inhibitor) ||
-                        graph_changed;
-        auto& current_internode = shoot_skeleton_.RefNode(internode_handle);
+        // Only elongate when the internode has sufficient carbon reserves
+        // (at least "white" in SourceSink_Concentration: >= 50% capacity).
+        // Leaf formulation/budding still happens unconditionally in the separate GrowFoliage pass.
+        const bool has_carbon = internode_data.max_carbohydrate_mass <= 0.0f ||
+                                internode_data.carbohydrate_mass >= 0.5f * internode_data.max_carbohydrate_mass;
+        if (has_carbon) {
+          float collected_inhibitor = 0.0f;
+          graph_changed = ElongateInternode(elongate_length, internode_handle, shoot_growth_controller,
+                                            foliage_controller, reproduction_controller, collected_inhibitor) ||
+                          graph_changed;
+          auto& current_internode = shoot_skeleton_.RefNode(internode_handle);
 
-        current_internode.data.inhibitor_sink +=
-            glm::max(0.0f, shoot_growth_controller.growth_inhibitor_transport(random_engine_, shoot_skeleton_.data,
-                                                                              collected_inhibitor, current_internode));
+          current_internode.data.inhibitor_sink +=
+              glm::max(0.0f, shoot_growth_controller.growth_inhibitor_transport(random_engine_, shoot_skeleton_.data,
+                                                                                collected_inhibitor, current_internode));
+        }
       }
     }
   }
@@ -735,7 +811,9 @@ bool ShootModel::GrowInternode(const SkeletonNodeHandle internode_handle,
         flush_probability *=
             internode_data.growth_rate * current_delta_time_ / 365.f * shoot_growth_controller.internode_growth_rate;
       }
-      if (flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
+      const bool has_carbon_for_branch = internode_data.max_carbohydrate_mass <= 0.0f ||
+                                          internode_data.carbohydrate_mass >= 0.5f * internode_data.max_carbohydrate_mass;
+      if (has_carbon_for_branch && flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
         graph_changed = true;
         // Prepare information for new internode
         // Remove current lateral bud.
@@ -784,16 +862,36 @@ bool ShootModel::GrowFoliage(float delta_time, const ClimateModel& climate_model
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
   for (auto& leaf : internode.data.leaves) {
     if (leaf.status != OrganStatus::Inactive) {
+      const float prev_health = leaf.health;
       foliage_controller.leaf_growth(random_engine_, global_transform, delta_time, leaf, climate_model, shoot_skeleton_,
                                      internode);
       if (leaf.health == 0.f) {
-        leaf.hang_time -= delta_time;
-        if (leaf.hang_time <= 0.f) {
+        // Only count down hang_time on frames after the one where health first reached 0.
+        // This ensures the dead leaf is visible for at least one rendered frame before
+        // the countdown begins, preventing instant disappearance with large time steps.
+        if (prev_health == 0.f) {
+          leaf.hang_time -= delta_time;
+        }
+        if (leaf.hang_time <= 0.f && prev_health == 0.f) {
           leaf.status = OrganStatus::Inactive;
           shoot_skeleton_.data.dropped_leaves.emplace_back(leaf);
         }
       }
     }
+  }
+
+  // Update internode_info.leaves to reflect fraction of active (Flushed) leaves.
+  // This drives procedural rendering (GenerateFoliageMatrices) from simulation state.
+  const auto total_leaves = static_cast<int>(internode.data.leaves.size());
+  if (total_leaves > 0) {
+    int flushed_count = 0;
+    for (const auto& leaf : internode.data.leaves) {
+      if (leaf.status == OrganStatus::Flushed)
+        ++flushed_count;
+    }
+    internode.info.leaves = static_cast<float>(flushed_count) / static_cast<float>(total_leaves);
+  } else {
+    internode.info.leaves = 0.0f;
   }
 
   return status_changed;
@@ -802,7 +900,11 @@ bool ShootModel::GrowFoliage(float delta_time, const ClimateModel& climate_model
 void ShootModel::FormulateFoliage(const ClimateModel& climate_model, const glm::mat4& global_transform,
                                   SkeletonNodeHandle internode_handle, const FoliageController& foliage_controller) {
   auto& internode = shoot_skeleton_.RefNode(internode_handle);
-  for (auto& leaf : internode.data.leaves) {
+  const auto sibling_count = static_cast<uint32_t>(internode.data.leaves.size());
+  for (uint32_t i = 0; i < sibling_count; ++i) {
+    auto& leaf = internode.data.leaves[i];
+    leaf.leaf_index = i;
+    leaf.sibling_count = sibling_count;
     if (leaf.status == OrganStatus::Inactive && leaf.maturity == 0.f) {
       if (foliage_controller.leaf_formulation(random_engine_, global_transform, leaf, climate_model, shoot_skeleton_,
                                               internode)) {
@@ -846,11 +948,16 @@ bool ShootModel::GrowReproductiveModules(float delta_time, const ClimateModel& c
   }
   for (auto& fruit : internode.data.fruits) {
     if (fruit.status != OrganStatus::Inactive) {
+      const float prev_health = fruit.health;
       reproduction_controller.fruit_growth(random_engine_, global_transform, delta_time, fruit, climate_model,
                                            shoot_skeleton_, internode);
-      if (fruit.maturity >= 1.f) {
-        fruit.hang_time -= delta_time;
-        if (fruit.hang_time <= 0.f) {
+      if (fruit.health == 0.f) {
+        // Health-gated drop: only count down hang_time after health was already 0
+        // (one-frame visibility guarantee, matching foliage behavior).
+        if (prev_health == 0.f) {
+          fruit.hang_time -= delta_time;
+        }
+        if (fruit.hang_time <= 0.f && prev_health == 0.f) {
           fruit.status = OrganStatus::Inactive;
           shoot_skeleton_.data.dropped_fruits.emplace_back(fruit);
         }
@@ -994,6 +1101,7 @@ void ShootModel::Clear() {
   flower_count_ = 0;
   fruit_count_ = 0;
   iteration_ = 0;
+  age_in_year_ = 0;
 }
 
 int ShootModel::GetLeafCount() const {

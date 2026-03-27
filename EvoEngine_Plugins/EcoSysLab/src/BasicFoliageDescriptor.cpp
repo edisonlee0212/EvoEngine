@@ -29,6 +29,9 @@ void BasicFoliageDescriptor::Serialize(YAML::Emitter& out) const {
   damage_temperature.Save("damage_temperature", out);
   damage_rate.Save("damage_rate", out);
   hang_time.Save("hang_time", out);
+  senescence_temperature.Save("senescence_temperature", out);
+  senescence_rate.Save("senescence_rate", out);
+  out << YAML::Key << "senescence_daylight_threshold" << YAML::Value << senescence_daylight_threshold;
   out << YAML::Key << "leaf_source_strength" << YAML::Value << leaf_source_strength;
 }
 
@@ -75,6 +78,10 @@ void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
   damage_temperature.Load("damage_temperature", in);
   damage_rate.Load("damage_rate", in);
   hang_time.Load("hang_time", in);
+  senescence_temperature.Load("senescence_temperature", in);
+  senescence_rate.Load("senescence_rate", in);
+  if (in["senescence_daylight_threshold"])
+    senescence_daylight_threshold = in["senescence_daylight_threshold"].as<float>();
   if (in["leaf_source_strength"])
     leaf_source_strength = in["leaf_source_strength"].as<float>();
 }
@@ -82,23 +89,31 @@ void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
 bool BasicFoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
-  changed = activation_temperature.OnInspect("Activation temperature") | changed;
-  changed = activation_light_intensity.OnInspect("Activation light intensity") | changed;
-  changed = growth_rate.OnInspect("Growth rate") | changed;
-  changed = damage_temperature.OnInspect("Damage temperature") | changed;
-  changed = damage_rate.OnInspect("Damage rate") | changed;
-  changed = hang_time.OnInspect("Hang time") | changed;
+  changed = activation_temperature.OnInspect("Activation temp (C)", 0.01f, "Min temperature (C) for leaf activation") | changed;
+  changed = activation_light_intensity.OnInspect("Activation light intensity", 0.01f, "Min light intensity for leaf activation") | changed;
+  changed = growth_rate.OnInspect("Growth rate (frac/day)", 0.01f, "Fraction of full size per day (0.1 = 10 days to maturity)") | changed;
+  changed = damage_temperature.OnInspect("Frost damage temp (C)", 0.01f, "Temperature below which frost damage occurs") | changed;
+  changed = damage_rate.OnInspect("Frost damage rate (frac/day)", 0.01f, "Health loss fraction per day from frost") | changed;
+  changed = hang_time.OnInspect("Hang time (days)", 0.01f, "Days leaf persists after health reaches 0") | changed;
+  changed = senescence_temperature.OnInspect("Senescence temp (C)", 0.01f, "Temperature below which senescence begins") | changed;
+  changed = senescence_rate.OnInspect("Senescence rate (frac/day)", 0.01f, "Senescence progression fraction per day at full drive") | changed;
+  if (ImGui::DragFloat("Senescence daylight threshold (hrs)", &senescence_daylight_threshold, 0.1f, 0.0f, 24.0f))
+    changed = true;
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Below this daylight (hrs), senescence accelerates");
 
-  if (ImGui::DragFloat2("Leaf size", &leaf_size.x, 0.001f, 0.0f, 1.0f))
+  if (ImGui::DragFloat2("Leaf size (m)", &leaf_size.x, 0.001f, 0.0f, 1.0f))
     changed = true;
   if (ImGui::DragInt("Leaf per node (on spawn)", &leaf_count, 1, 0, 100))
     changed = true;
   if (ImGui::DragFloat("Leaf spawn chance", &leaf_spawn_chance, 0.001f, 0.0f, 1.0f))
     changed = true;
-  changed = stem_length.OnInspect("Stem length") | changed;
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Probability [0..1] each internode spawns leaves. Re-evaluated annually.");
+  changed = stem_length.OnInspect("Stem length (m)", 0.01f, "Leaf petiole length") | changed;
   if (ImGui::DragFloat("Rotation variance", &rotation_variance, 0.01f, 0.0f, 1.0f))
     changed = true;
-  changed = branching_angle.OnInspect("Branching angle") | changed;
+  changed = branching_angle.OnInspect("Branching angle (deg)") | changed;
   if (ImGui::DragFloat("Max node thickness", &max_node_thickness, 0.001f, 0.0f, 5.0f))
     changed = true;
   if (ImGui::DragFloat("Min root distance", &min_root_distance, 0.01f, 0.0f, 10.0f))
@@ -107,6 +122,8 @@ bool BasicFoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& edito
     changed = true;
   if (ImGui::DragFloat("Source Strength", &leaf_source_strength, 0.001f, 0.0f, 1000.0f, "%.6f"))
     changed = true;
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("Carbohydrate source multiplier (scaled by maturity * health * senescence)");
 
   changed = ImGui::DragFloat("Horizontal Tropism", &horizontal_tropism, 0.001f, 0.0f, 1.0f) || changed;
   changed = ImGui::DragFloat("Gravitropism", &gravitropism, 0.001f, 0.0f, 1.0f) || changed;
@@ -172,34 +189,31 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
                                             const ClimateModel& climate_model, const ShootSkeleton& shoot_skeleton,
                                             const SkeletonNode<InternodeGrowthData>& internode) {
     const bool activation = internode.info.end_distance < max_end_distance &&
-                            internode.info.root_distance > min_root_distance &&
+                            internode.info.root_distance >= min_root_distance &&
                             internode.info.thickness < max_node_thickness;
     if (activation) {
-      // Reference (old randomized behavior):
-      // leaf.activation_temperature = activation_temperature.GetValue();
-      // leaf.activation_light_intensity = activation_light_intensity.GetValue();
-      // leaf.hang_time = hang_time.GetValue();
-      // leaf.growth_rate = growth_rate.GetValue();
-      //
-      // leaf.damage_temperature = damage_temperature.GetValue();
-      // leaf.damage_rate = damage_rate.GetValue();
+      leaf.activation_temperature = activation_temperature.GetValue();
+      leaf.activation_light_intensity = activation_light_intensity.GetValue();
+      leaf.hang_time = hang_time.GetValue();
+      leaf.growth_rate = growth_rate.GetValue();
 
-      leaf.activation_temperature = activation_temperature.mean;
-      leaf.activation_light_intensity = activation_light_intensity.mean;
-      leaf.hang_time = hang_time.mean;
-      leaf.growth_rate = growth_rate.mean;
-
-      leaf.damage_temperature = damage_temperature.mean;
-      leaf.damage_rate = damage_rate.mean;
+      leaf.damage_temperature = damage_temperature.GetValue();
+      leaf.damage_rate = damage_rate.GetValue();
+      leaf.senescence = 0.0f;
 
       // Start from bud/internode direction; branching is progressively applied during growth.
       leaf.rotation = internode.info.global_rotation;
 
+      // Opposite phyllotaxis: evenly distribute leaves around the stem axis.
+      // For 2 leaves this gives 0° and 180° (opposite arrangement).
+      const float yaw = leaf.sibling_count > 0
+          ? 360.0f * static_cast<float>(leaf.leaf_index) / static_cast<float>(leaf.sibling_count)
+          : 0.0f;
       auto target_front =
-          (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+          (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, yaw)))) *
           glm::vec3(0, 0, -1);
       auto target_up =
-          (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+          (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, yaw)))) *
           glm::vec3(0, 1, 0);
       auto front = target_front;
       auto up = target_up;
@@ -209,13 +223,14 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
         ShootModel::ApplyTropism(glm::normalize(horizontal_direction), horizontal_tropism, front, up);
       }
 
-        // Reference (old randomized behavior):
-        // leaf.position_offset =
-        //     glm::mix(glm::vec3(0.f), internode.info.GetGlobalEndPosition() - internode.info.global_position,
-        //              glm::linearRand(0.f, 1.f));
-        // leaf.leaf_stem_length = glm::abs(stem_length.GetValue());
-        leaf.position_offset = glm::mix(glm::vec3(0.f), internode.info.GetGlobalEndPosition() - internode.info.global_position, 0.5f);
-        leaf.leaf_stem_length = glm::abs(stem_length.mean);
+      // Distribute leaves along the internode stem. Leaf 0 sits near the base,
+      // the last leaf sits near the tip — matching the biological pattern where
+      // the youngest leaf unfurls at the growing tip.
+      const float along_stem = leaf.sibling_count > 1
+          ? (static_cast<float>(leaf.leaf_index) + 1.0f) / (static_cast<float>(leaf.sibling_count) + 1.0f)
+          : 0.5f;
+      leaf.position_offset = glm::mix(glm::vec3(0.f), internode.info.GetGlobalEndPosition() - internode.info.global_position, along_stem);
+      leaf.leaf_stem_length = glm::abs(stem_length.GetValue());
 
       // Assign a material variant index using a deterministic hash of the leaf's position offset.
       if (!leaf_material_variants.empty()) {
@@ -250,8 +265,32 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
       }
     } else if (leaf.status == OrganStatus::Flushed) {
       leaf.maturity = glm::clamp(leaf.growth_rate * delta_time + leaf.maturity, 0.0f, 1.0f);
-      if (climate_model.GetTimeInYear() > 0.75f && temperature < leaf.damage_temperature) {
-        leaf.health = glm::clamp(leaf.health - leaf.damage_rate * delta_time, 0.0f, 1.0f);
+
+      // --- Climate-driven senescence (yellowing → browning → death) ---
+      // Only apply after the summer solstice (days are shortening). This prevents
+      // spring leaves from accumulating irreversible senescence damage due to cool
+      // early-season temperatures that are below the senescence threshold.
+      if (climate_model.GetTimeInYear() > 0.5f) {
+        const float daylight_hours = climate_model.GetDaylightHours(position);
+        const float temp_deficit = glm::max(0.0f, senescence_temperature.mean - temperature);
+        const float daylight_deficit = glm::max(0.0f, senescence_daylight_threshold - daylight_hours);
+        const float senescence_drive = glm::clamp(temp_deficit / glm::max(senescence_temperature.mean, 1.0f) +
+                                                   daylight_deficit / glm::max(senescence_daylight_threshold, 1.0f),
+                                                   0.0f, 1.0f);
+        if (senescence_drive > 0.0f) {
+          leaf.senescence = glm::clamp(leaf.senescence + senescence_rate.mean * senescence_drive * delta_time, 0.0f, 1.0f);
+        }
+
+        // Health degrades once senescence is well underway.
+        if (leaf.senescence > 0.3f) {
+          const float damage_from_senescence = (leaf.senescence - 0.3f) / 0.7f;
+          leaf.health = glm::clamp(leaf.health - senescence_rate.mean * damage_from_senescence * delta_time, 0.0f, 1.0f);
+        }
+
+        // Legacy direct cold-damage path (harsh freeze)
+        if (climate_model.GetTimeInYear() > 0.75f && temperature < leaf.damage_temperature) {
+          leaf.health = glm::clamp(leaf.health - leaf.damage_rate * delta_time, 0.0f, 1.0f);
+        }
       }
     }
 
@@ -260,11 +299,15 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
     const float expansion_t = glm::smoothstep(0.0f, 1.0f, glm::clamp((leaf.maturity - 0.25f) / 0.75f, 0.0f, 1.0f));
 
     const auto start_rotation = internode.info.global_rotation;
+    // Opposite phyllotaxis: same yaw distribution as formulation.
+    const float yaw = leaf.sibling_count > 0
+        ? 360.0f * static_cast<float>(leaf.leaf_index) / static_cast<float>(leaf.sibling_count)
+        : 0.0f;
     auto target_front =
-        (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+        (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, yaw)))) *
         glm::vec3(0, 0, -1);
     auto target_up =
-        (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, 0.0f)))) *
+        (internode.info.global_rotation * glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, yaw)))) *
         glm::vec3(0, 1, 0);
     ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, target_front, target_up);
     if (const auto horizontal_direction = glm::vec3(target_front.x, 0.0f, target_front.z);
@@ -278,8 +321,15 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
     const auto front = leaf.rotation * glm::vec3(0, 0, -1);
     const auto up = leaf.rotation * glm::vec3(0, 1, 0);
 
-    leaf.position = internode.info.global_position + leaf.position_offset +
-                    front * current_leaf_size.y * (1.f + leaf.leaf_stem_length);
+    // Track the internode's current geometry so position stays correct as the
+    // internode elongates. The youngest leaf (highest index) rides the tip.
+    const float along_stem = leaf.sibling_count > 1
+        ? (static_cast<float>(leaf.leaf_index) + 1.0f) / (static_cast<float>(leaf.sibling_count) + 1.0f)
+        : 0.5f;
+    const auto current_offset = glm::mix(glm::vec3(0.f),
+        internode.info.GetGlobalEndPosition() - internode.info.global_position, along_stem);
+    leaf.position = internode.info.global_position + current_offset +
+            front * (current_leaf_size.y + leaf.leaf_stem_length);
 
     leaf.scale = glm::vec3(current_leaf_size.x, 1.0f, current_leaf_size.y);
     if (glm::any(glm::isnan(leaf.position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up))) {
@@ -292,7 +342,10 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
   foliage_controller.update_carbohydrate_state =
       [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
           const SkeletonNode<InternodeGrowthData>& internode, Leaf& leaf, float delta_time) {
-        leaf.carbohydrate_source = leaf_source_strength * leaf.maturity * leaf.health;
+        const float senescence_factor = 1.0f - leaf.senescence;
+        // Leaves begin producing carbohydrate at 25% maturity, ramping linearly to full at 100%.
+        const float mature = glm::clamp((leaf.maturity - 0.25f) / 0.75f, 0.0f, 1.0f);
+        leaf.carbohydrate_source = leaf_source_strength * mature * leaf.health * senescence_factor;
       };
 }
 
@@ -331,7 +384,7 @@ void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& mat
                                    : 0.5f;
       auto foliage_position =
           glm::mix(internode_info.global_position, internode_info.GetGlobalEndPosition(), along_stem) +
-          front * (current_leaf_size.y + stem_length.mean * 0.1f);
+          front * (current_leaf_size.y + stem_length.mean);
       if (glm::any(glm::isnan(foliage_position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up)))
         continue;
       const auto leaf_transform = glm::translate(foliage_position) * glm::mat4_cast(glm::quatLookAt(front, up)) *

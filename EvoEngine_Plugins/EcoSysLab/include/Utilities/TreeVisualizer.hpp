@@ -334,7 +334,7 @@ void TreeVisualizer::SetSelectedNode(const Skeleton<SkeletonData, FlowData, Node
 class ShootVisualizer : public TreeVisualizer {
  public:
   bool leaf_visualization_ = true;
-  bool flower_visualization_ = true;
+  bool flower_visualization_ = false;
   bool fruit_visualization_ = true;
 
  public:

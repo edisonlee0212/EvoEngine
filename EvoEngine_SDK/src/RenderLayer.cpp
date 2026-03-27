@@ -444,7 +444,7 @@ void RenderLayer::OnCreate() {
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
     instanced_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferredInstanced.frag");
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);

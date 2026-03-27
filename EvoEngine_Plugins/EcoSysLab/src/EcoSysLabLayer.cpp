@@ -43,6 +43,29 @@ PrivateComponentRegistration<DynamicStrandsDemo> dynamic_strands_demo_registry("
 PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
 #endif
 
+namespace {
+constexpr const char* kMonthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+// Draw calendar + climate summary lines into the current ImGui context.
+// Expects simulated_time in days.  Fetches climate data from the model at origin.
+void DrawClimateOverlay(float simulated_time, const ClimateModel& cm) {
+  const int year = static_cast<int>(simulated_time / 365.f);
+  const float calendar_day_in_year = glm::mod(simulated_time + ClimateModel::spring_start_offset, 365.f);
+  const int month = glm::clamp(static_cast<int>(calendar_day_in_year / 30.416667f), 0, 11);
+  const int day = static_cast<int>(glm::mod(calendar_day_in_year, 30.416667f)) + 1;
+
+  ImGui::Text("Y%d %s %d  (sim day %.0f)", year + 1, kMonthNames[month], day, simulated_time);
+
+  const glm::vec3 origin(0.f);
+  const float hi = cm.GetHighTemp(origin);
+  const float lo = cm.GetLowTemp(origin);
+  const float daylight = cm.GetDaylightHours(origin);
+  const float avg = (hi + lo) * 0.5f;
+  ImGui::Text("Temp: %.0f/%.0f (avg %.1f)C  Day: %.1fh", lo, hi, avg, daylight);
+}
+}  // anonymous namespace
+
 void EcoSysLabLayer::OnCreate() {
   Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
   if (random_colors_.empty()) {
@@ -648,6 +671,11 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
 
   if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
       EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
+    if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
+      if (editor_layer->SceneCameraWindowFocused() || editor_layer->SceneCameraWindowHovered()) {
+        simulation_settings.delta_time = glm::max(0.1f, simulation_settings.delta_time + scroll * 0.1f);
+      }
+    }
     if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
       const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
       ResetAllTrees(tree_entities);
@@ -940,9 +968,14 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                                                   ImGuiWindowFlags_NoSavedSettings |
                                                   ImGuiWindowFlags_NoFocusOnAppearing;
         if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-            ImGui::BeginChild("Render Info", ImVec2(300, 150), child_flags, window_flags)) {
+            ImGui::BeginChild("Render Info", ImVec2(300, 200), child_flags, window_flags)) {
           ImGui::Text("Info & Settings");
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+          if (const auto climate_wp = FindClimate(); !climate_wp.expired()) {
+            const auto& cm = climate_wp.lock()->climate_model;
+            DrawClimateOverlay(simulated_time_, cm);
+          }
+          ImGui::Separator();
           ImGui::Checkbox("Background", &enable_visualization_background);
           uint32_t mode = static_cast<uint32_t>(visualization_camera_->camera_render_mode);
           if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
@@ -1045,6 +1078,25 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   ImGui::End();
   ImGui::PopStyleVar();
+
+  // --- Climate overlay anchored to the Scene viewport (top-left corner) ---
+  if (auto* scene_window = ImGui::FindWindowByName("Scene");
+      scene_window && !scene_window->Hidden && !scene_window->Collapsed) {
+    if (const auto climate_wp = FindClimate(); !climate_wp.expired()) {
+      const auto& cm = climate_wp.lock()->climate_model;
+      const ImVec2 scene_pos(scene_window->Pos.x + 8.f, scene_window->Pos.y + scene_window->TitleBarHeight + 8.f);
+      ImGui::SetNextWindowPos(scene_pos, ImGuiCond_Always);
+      ImGui::SetNextWindowBgAlpha(0.35f);
+      constexpr ImGuiWindowFlags overlay_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                                                  ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+                                                  ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+      if (ImGui::Begin("##SceneClimateOverlay", nullptr, overlay_flags)) {
+        DrawClimateOverlay(simulated_time_, cm);
+      }
+      ImGui::End();
+    }
+  }
+
   if (const auto selected_entity = editor_layer->GetSelectedEntity(); selected_entity != selected_tree) {
     if (scene->IsEntityValid(selected_entity) && scene->HasPrivateComponent<Tree>(selected_entity)) {
       selected_tree = selected_entity;
@@ -1205,7 +1257,7 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
       for (const auto& internode_handle : sorted_internode_list) {
         const auto& internode_data = branch_skeleton.PeekNode(internode_handle).data;
         for (const auto& leaf : internode_data.leaves) {
-          if (leaf.status != OrganStatus::Inactive) current_tree_leaf_count++;
+          if (leaf.status == OrganStatus::Flushed) current_tree_leaf_count++;
         }
         for (const auto& fruit : internode_data.fruits) {
           if (fruit.status != OrganStatus::Inactive) current_tree_fruit_count++;
@@ -1279,14 +1331,14 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
         for (const auto& internode_handle : sorted_internode_list) {
           const auto& internode_data = branch_skeleton.PeekNode(internode_handle).data;
           for (const auto& leaf : internode_data.leaves) {
-            if (leaf.status != OrganStatus::Inactive) {
+            if (leaf.status == OrganStatus::Flushed) {
               glm::mat4 leaf_transform =
                   glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * .5f);
               foliage_matrices[leaf_start_index + leaf_index].instance_matrix.value =
                   entity_global_transform.value * leaf_transform;
               foliage_matrices[leaf_start_index + leaf_index].instance_color =
-                  glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
-                                     glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaf.health),
+                  glm::vec4(glm::mix(glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f),
+                                     glm::vec3(1.0f, 0.95f, 0.15f), leaf.senescence),
                             0.5f);
               leaf_index++;
             }
@@ -1420,7 +1472,7 @@ void EcoSysLabLayer::UpdateGroundFruitAndLeaves() const {
     leaf_matrices[i].instance_matrix.SetScale(leaf_matrices[i].instance_matrix.GetScale() * 0.5f);
     leaf_matrices[i].instance_color =
         glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
-                           glm::vec3(159 / 255.0f, 100 / 255.0f, 66 / 255.0f), 1.0f - leaves_[i].leaf_health),
+                           glm::vec3(0.85f, 0.75f, 0.15f), 1.0f - leaves_[i].leaf_health),
                   0.5f);
   }
   ground_fruit_matrices_->SetParticleInfos(fruit_matrices);

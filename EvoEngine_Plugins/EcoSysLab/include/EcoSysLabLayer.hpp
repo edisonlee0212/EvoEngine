@@ -212,10 +212,10 @@ class EcoSysLabLayer : public ILayer {
 
     bool display_shoot_stem = true;      ///< Toggles the display of shoot stems.
     bool display_foliage = true;         ///< Toggles the display of foliage.
-    bool display_flowers = true;         ///< Toggles the display of flowers.
+    bool display_flowers = false;        ///< Toggles the display of flowers.
     bool display_fruits = true;          ///< Toggles the display of fruit.
     bool display_bounding_box = false;   ///< Toggles the display of bounding boxes.
-    bool display_ground_flowers = true;  ///< Toggles the display of fallen flowers.
+    bool display_ground_flowers = false; ///< Toggles the display of fallen flowers.
     bool display_ground_fruits = true;   ///< Toggles the display of fallen fruit.
     bool display_ground_leaves = true;   ///< Toggles the display of fallen leaves.
     bool show_shadow_grid = false;       ///< Toggles the display of the shadow grid.

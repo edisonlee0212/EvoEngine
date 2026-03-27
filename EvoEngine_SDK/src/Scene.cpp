@@ -8,9 +8,12 @@
 #include "Jobs.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
+#include "Particles.hpp"
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
+#include "StrandsRenderer.hpp"
 #include "UnknownPrivateComponent.hpp"
+#include <cmath>
 using namespace evo_engine;
 
 void Scene::Purge() {
@@ -1616,39 +1619,53 @@ Bound Scene::GetEntityBoundingBox(const Entity& entity) {
   auto descendants = GetDescendants(entity);
   descendants.emplace_back(entity);
   Bound ret_val{};
+  bool has_render_bound = false;
+
+  const auto expand_bound = [&](const Bound& bound, const glm::mat4& transform) {
+    Bound world_bound = bound;
+    world_bound.ApplyTransform(transform);
+    ret_val.min = glm::min(ret_val.min, world_bound.min);
+    ret_val.max = glm::max(ret_val.max, world_bound.max);
+    has_render_bound = true;
+  };
+
+  const auto is_valid_bound = [](const Bound& bound) {
+    const bool min_finite = std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z);
+    const bool max_finite = std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z);
+    const bool ordered = bound.min.x <= bound.max.x && bound.min.y <= bound.max.y && bound.min.z <= bound.max.z;
+    return min_finite && max_finite && ordered;
+  };
+
   for (const auto& walker : descendants) {
     auto gt = GetDataComponent<GlobalTransform>(walker);
     if (HasPrivateComponent<MeshRenderer>(walker)) {
       auto mesh_renderer = GetOrSetPrivateComponent<MeshRenderer>(walker).lock();
       if (const auto mesh = mesh_renderer->mesh.Get<Mesh>()) {
-        auto mesh_bound = mesh->GetBound();
-        mesh_bound.ApplyTransform(gt.value);
-        glm::vec3 center = mesh_bound.Center();
-
-        glm::vec3 size = mesh_bound.Size();
-        ret_val.min =
-            glm::vec3((glm::min)(ret_val.min.x, center.x - size.x), (glm::min)(ret_val.min.y, center.y - size.y),
-                      (glm::min)(ret_val.min.z, center.z - size.z));
-        ret_val.max =
-            glm::vec3((glm::max)(ret_val.max.x, center.x + size.x), (glm::max)(ret_val.max.y, center.y + size.y),
-                      (glm::max)(ret_val.max.z, center.z + size.z));
+        expand_bound(mesh->GetBound(), gt.value);
       }
     } else if (HasPrivateComponent<SkinnedMeshRenderer>(walker)) {
       auto mesh_renderer = GetOrSetPrivateComponent<SkinnedMeshRenderer>(walker).lock();
       if (const auto mesh = mesh_renderer->skinned_mesh.Get<SkinnedMesh>()) {
-        auto mesh_bound = mesh->GetBound();
-        mesh_bound.ApplyTransform(gt.value);
-        glm::vec3 center = mesh_bound.Center();
-
-        glm::vec3 size = mesh_bound.Size();
-        ret_val.min =
-            glm::vec3((glm::min)(ret_val.min.x, center.x - size.x), (glm::min)(ret_val.min.y, center.y - size.y),
-                      (glm::min)(ret_val.min.z, center.z - size.z));
-        ret_val.max =
-            glm::vec3((glm::max)(ret_val.max.x, center.x + size.x), (glm::max)(ret_val.max.y, center.y + size.y),
-                      (glm::max)(ret_val.max.z, center.z + size.z));
+        expand_bound(mesh->GetBound(), gt.value);
+      }
+    } else if (HasPrivateComponent<Particles>(walker)) {
+      const auto particles = GetOrSetPrivateComponent<Particles>(walker).lock();
+      if (is_valid_bound(particles->bounding_box)) {
+        expand_bound(particles->bounding_box, gt.value);
+      }
+    } else if (HasPrivateComponent<StrandsRenderer>(walker)) {
+      const auto strands_renderer = GetOrSetPrivateComponent<StrandsRenderer>(walker).lock();
+      if (const auto strands = strands_renderer->strands.Get<Strands>()) {
+        expand_bound(strands->GetBound(), gt.value);
       }
     }
+  }
+
+  if (!has_render_bound) {
+    const auto gt = GetDataComponent<GlobalTransform>(entity);
+    const auto position = gt.GetPosition();
+    ret_val.min = position;
+    ret_val.max = position;
   }
 
   return ret_val;

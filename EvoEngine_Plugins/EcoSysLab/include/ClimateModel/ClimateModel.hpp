@@ -15,9 +15,15 @@ struct ClimateParameters {};
 class ClimateModel {
  public:
   /**
-   * @brief Current simulation time in year.
+   * @brief Current simulation time in days.
    */
   float time = 0.0f;
+
+  /**
+   * @brief Calendar offset in days so that simulation day 0 corresponds to spring.
+   * Default is March 1 (~60.8 days into the year).
+   */
+  static constexpr float spring_start_offset = 2.f * (365.f / 12.f);
 
   float monthly_max_temp_mean[12] = {2, 5, 10, 16, 22, 27, 30, 29, 24, 17, 9, 4};
   float monthly_min_temp_mean[12] = {-5, -3, 1, 6, 11, 16, 18, 17, 13, 7, 1, -2};
@@ -43,6 +49,18 @@ class ClimateModel {
    * @return The temperature at the queried position.
    */
   [[nodiscard]] float GetLowTemp(const glm::vec3& position) const;
+
+ private:
+  /**
+   * @brief Continuously interpolates a 12-element monthly array at the current time.
+   *
+   * Each monthly value is treated as the value at the midpoint of that month.
+   * Linear interpolation between adjacent midpoints ensures a smooth, continuous
+   * curve with no discontinuities at month boundaries.
+   */
+  [[nodiscard]] float InterpolateMonthly(const float* monthly_values) const;
+
+ public:
 
   /**
    * \brief Samples the max relative humidity of current date at given position.

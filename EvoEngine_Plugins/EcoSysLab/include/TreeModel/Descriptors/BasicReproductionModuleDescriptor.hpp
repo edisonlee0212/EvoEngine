@@ -57,6 +57,15 @@ class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
   float flower_sink_strength = 1.0f;
   float fruit_sink_strength = 1.0f;
 
+  /// Minimum tree age in years before fruiting begins.
+  int min_fruiting_age = 3;
+
+  /// Temperature below which frost damages fruit.
+  float fruit_damage_temperature = -2.0f;
+
+  /// Health loss per day from frost damage.
+  float fruit_damage_rate = 0.5f;
+
   /**
    * \brief Prepares a ShootGrowthController using current growth parameters.
    * \param reproduction_controller The controller to configure.

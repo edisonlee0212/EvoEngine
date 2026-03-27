@@ -491,6 +491,9 @@ size_t Platform::GetMaxShadowCascadeAmount() {
 
 void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
   const auto& graphics = GetInstance();
+  if (graphics.device_lost_) {
+    throw std::runtime_error("Cannot submit GPU work: Vulkan device has been lost.");
+  }
   graphics.immediate_submit_command_buffer->Record(action);
 
   VkSubmitInfo submit_info{};
@@ -1671,6 +1674,8 @@ void Platform::PreUpdate() {
   auto& graphics = GetInstance();
   const auto window_layer = Application::GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
+    if (graphics.device_lost_)
+      return;
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
     CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
     for (auto& i : graphics.buffer_sync_actions)
@@ -1746,9 +1751,21 @@ void Platform::LateUpdate() {
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
 
-  CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
+  const auto wait_idle_result = CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
+  if (wait_idle_result == VK_ERROR_DEVICE_LOST) {
+    graphics.device_lost_ = true;
+    EVOENGINE_ERROR("Device lost detected in LateUpdate after vkDeviceWaitIdle. Terminating.");
+    Application::End();
+    return;
+  }
   const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-  CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
+  const auto fence_result = CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
+  if (fence_result == VK_ERROR_DEVICE_LOST) {
+    graphics.device_lost_ = true;
+    EVOENGINE_ERROR("Device lost detected in LateUpdate after vkWaitForFences. Terminating.");
+    Application::End();
+    return;
+  }
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
       Application::End();
@@ -1769,6 +1786,11 @@ bool Platform::MeshShaderEnabled() {
 bool Platform::Initialized() {
   const auto& graphics = GetInstance();
   return graphics.initialized;
+}
+
+bool Platform::DeviceLost() {
+  const auto& graphics = GetInstance();
+  return graphics.device_lost_;
 }
 
 uint32_t Platform::GetFrameCount() {

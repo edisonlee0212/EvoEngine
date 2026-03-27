@@ -45,6 +45,9 @@ class Platform final {
   /// Indicates whether the platform is initialized.
   bool initialized = false;
 
+  /// Indicates that the Vulkan device has been lost and no further GPU work should be submitted.
+  bool device_lost_ = false;
+
   /// List of required Vulkan layers.
   std::vector<std::string> required_layers_ = {};
 
@@ -326,6 +329,13 @@ class Platform final {
    * @return True if the platform is initialized, false otherwise.
    */
   static bool Initialized();
+
+  /**
+   * @brief Checks if the Vulkan device has been lost.
+   *
+   * @return True if the device was lost, false otherwise.
+   */
+  static bool DeviceLost();
 
   /**
    * @brief Gets the current frame count since initialization.

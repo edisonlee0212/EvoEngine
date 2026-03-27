@@ -1,9 +1,71 @@
 #include "FileManager.hpp"
 
+#include <stb_image.h>
 #include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
 using namespace evo_engine;
+
+namespace {
+std::shared_ptr<Texture2D> GenerateTextureThumbnailFromDisk(const std::filesystem::path& absolute_path) {
+  if (!std::filesystem::exists(absolute_path))
+    return {};
+
+  stbi_set_flip_vertically_on_load(true);
+  int width = 0;
+  int height = 0;
+  int components = 0;
+
+  const bool is_hdr = absolute_path.extension() == ".hdr" || absolute_path.extension() == ".exr";
+  std::vector<glm::vec4> src;
+
+  if (is_hdr) {
+    float* data = stbi_loadf(absolute_path.string().c_str(), &width, &height, &components, STBI_rgb_alpha);
+    if (!data || width <= 0 || height <= 0) {
+      if (data)
+        stbi_image_free(data);
+      return {};
+    }
+    src.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    memcpy(src.data(), data, sizeof(glm::vec4) * src.size());
+    stbi_image_free(data);
+  } else {
+    unsigned char* data = stbi_load(absolute_path.string().c_str(), &width, &height, &components, STBI_rgb_alpha);
+    if (!data || width <= 0 || height <= 0) {
+      if (data)
+        stbi_image_free(data);
+      return {};
+    }
+    src.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    for (size_t i = 0; i < src.size(); i++) {
+      src[i] = glm::vec4(static_cast<float>(data[i * 4]) / 255.0f, static_cast<float>(data[i * 4 + 1]) / 255.0f,
+                         static_cast<float>(data[i * 4 + 2]) / 255.0f, static_cast<float>(data[i * 4 + 3]) / 255.0f);
+    }
+    stbi_image_free(data);
+  }
+
+  const glm::uvec2 src_resolution{static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+  if (src_resolution.x == 0 || src_resolution.y == 0) {
+    return {};
+  }
+  const float max_dim = static_cast<float>(glm::max(src_resolution.x, src_resolution.y));
+  const float scale = glm::min(1.0f, 128.0f / max_dim);
+  glm::uvec2 dst_resolution{glm::max(1u, static_cast<uint32_t>(src_resolution.x * scale)),
+                            glm::max(1u, static_cast<uint32_t>(src_resolution.y * scale))};
+  std::vector<glm::vec4> dst;
+  if (dst_resolution != src_resolution) {
+    Texture2D::Resize(src, src_resolution, dst, dst_resolution);
+  } else {
+    dst = std::move(src);
+  }
+
+  const auto thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
+  if (!thumbnail)
+    return {};
+  thumbnail->SetRgbaChannelData(dst, dst_resolution, false);
+  return thumbnail;
+}
+}  // namespace
 
 std::string File::GetAssetTypeName() const {
   return asset_type_name_;
@@ -126,11 +188,38 @@ void File::Load(const std::filesystem::path& path) {
 }
 
 std::shared_ptr<Texture2D> File::GetThumbnail() {
-  // TODO: This should be handled by GetAssetFuture, so it doesn't block the master thread.
-  if (!thumbnail_ && asset_type_name_ != "Binary" && asset_type_name_ != "Scene" && asset_type_name_ != "Prefab" &&
-      asset_type_name_ != "Mesh") {
-    if (const auto asset = AssetManager::GetAssetImpl(asset_handle_)) {
-      thumbnail_ = asset->GenerateThumbnailTexture();
+  // Rate-limit thumbnail generation to avoid loading too many assets in one frame.
+  // Loading many assets (especially textures) in a single frame causes excessive
+  // GPU work during DeviceSync, which can trigger device-lost errors.
+  static uint32_t last_thumbnail_frame = 0;
+  static int thumbnails_this_frame = 0;
+  constexpr int max_thumbnails_per_frame = 1;
+  const uint32_t current_frame = Platform::Initialized() ? Platform::GetFrameCount() : 0;
+  if (current_frame != last_thumbnail_frame) {
+    last_thumbnail_frame = current_frame;
+    thumbnails_this_frame = 0;
+  }
+  if (!thumbnail_ && asset_type_name_ != "Texture2D") {
+    // Keep folder browsing lightweight and safe: avoid loading full assets
+    // (e.g. materials recursively loading large textures) just for thumbnails.
+    if (const auto icon = EditorLayer::FindIcon(asset_type_name_)) {
+      thumbnail_ = icon;
+    }
+  }
+  if (!thumbnail_ && asset_type_name_ == "Texture2D") {
+    // Use a small on-disk decode for folder thumbnails to avoid loading full assets.
+    thumbnail_ = GenerateTextureThumbnailFromDisk(GetAbsolutePath());
+  }
+  if (!thumbnail_ && asset_type_name_ == "Texture2D") {
+    if (thumbnails_this_frame < max_thumbnails_per_frame) {
+      try {
+        if (const auto asset = AssetManager::GetAssetImpl(asset_handle_)) {
+          thumbnail_ = asset->GenerateThumbnailTexture();
+          thumbnails_this_frame++;
+        }
+      } catch (const std::exception&) {
+        thumbnail_.reset();
+      }
     }
   }
   if (!thumbnail_) {

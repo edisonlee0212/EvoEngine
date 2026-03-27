@@ -756,20 +756,30 @@ void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
         return glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
                         glm::clamp(glm::pow(node.data.sagging_stress, color_mult), 0.0f, 1.0f));
       case ShootVisualizerMode::SourceSink_Concentration:
-        if (leaf)
-          return GetConcentrationColor(leaf->carbohydrate_storage,
-                                       leaf->carbohydrate_source > 0.0f ? leaf->carbohydrate_source : 1.0f);
+        if (leaf) {
+          // Leaves are carbohydrate sources; carbohydrate_storage is never populated by the
+          // solver for individual leaves. Show production efficiency instead: a fully mature
+          // healthy leaf is "full" (green), a senescing/damaged leaf trends toward "empty" (yellow).
+          const float efficiency = leaf->maturity * leaf->health * (1.0f - leaf->senescence);
+          return glm::mix(glm::vec4(1.0f, 0.95f, 0.15f, 1.0f), glm::vec4(0.3f, 0.85f, 0.15f, 1.0f), efficiency);
+        }
         return GetConcentrationColor(node.data.carbohydrate_mass, node.data.max_carbohydrate_mass);
       case ShootVisualizerMode::SourceSink_Flux:
+        if (leaf) {
+          return GetFluxColor(leaf->carbohydrate_source - leaf->carbohydrate_sink, global_max_flux_);
+        }
         return GetFluxColor(node.data.net_flow_balance, global_max_flux_);
       default: {
-        // Default: green tinted by maturity (bright green when young, dark green when mature).
+        // Senescence-aware coloring: green -> yellow.
         if (leaf) {
+          const float s = glm::clamp(leaf->senescence, 0.0f, 1.0f);
           const float m = glm::clamp(leaf->maturity, 0.0f, 1.0f);
-          const float h = glm::clamp(leaf->health, 0.0f, 1.0f);
-          return glm::vec4(glm::mix(glm::vec3(0.6f, 0.9f, 0.2f), glm::vec3(0.1f, 0.5f, 0.05f), m) * h, 1.0f);
+          const glm::vec3 healthy_color = glm::mix(glm::vec3(0.4f, 0.95f, 0.2f), glm::vec3(0.15f, 0.65f, 0.1f), m);
+          const glm::vec3 yellow(1.0f, 0.95f, 0.15f);
+          const glm::vec3 senescence_color = glm::mix(healthy_color, yellow, s);
+          return glm::vec4(senescence_color, 1.0f);
         }
-        return glm::vec4(0.2f, 0.7f, 0.1f, 1.0f);
+        return glm::vec4(0.3f, 0.85f, 0.15f, 1.0f);
       }
     }
   };
@@ -784,20 +794,62 @@ void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
 
       for (const auto node_handle : sorted_node_list) {
         const auto& node = skeleton.PeekNode(node_handle);
-        std::vector<glm::mat4> leaf_transforms;
-        if (use_strand_model) {
-          const auto& strand_node_info = strand_model->strand_model_skeleton.PeekNode(node_handle).info;
-          foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, strand_node_info, glm::length(tree_dim));
-        } else {
-          foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, node.info, glm::length(tree_dim));
+
+        // Build a per-node averaged leaf for senescence / source-sink coloring.
+        Leaf avg_leaf;
+        avg_leaf.health = 0.0f;  // ShootOrgan defaults to 1.0; zero before accumulation.
+        int active_leaf_count = 0;
+        for (const auto& l : node.data.leaves) {
+          if (l.status != OrganStatus::Flushed)
+            continue;
+          avg_leaf.senescence += l.senescence;
+          avg_leaf.health += l.health;
+          avg_leaf.maturity += l.maturity;
+          avg_leaf.carbohydrate_source += l.carbohydrate_source;
+          avg_leaf.carbohydrate_sink += l.carbohydrate_sink;
+          ++active_leaf_count;
+        }
+        if (active_leaf_count > 0) {
+          const float inv = 1.0f / static_cast<float>(active_leaf_count);
+          avg_leaf.senescence *= inv;
+          avg_leaf.health *= inv;
+          avg_leaf.maturity *= inv;
+          avg_leaf.carbohydrate_source *= inv;
+          avg_leaf.carbohydrate_sink *= inv;
+          avg_leaf.status = OrganStatus::Flushed;
+        } else if (!node.data.leaves.empty()) {
+          continue;  // All leaves dead — skip this node's foliage.
+        } else if (node.info.leaves <= 0.0f) {
+          continue;  // No simulation leaves on this node — skip procedural foliage.
         }
 
-        const auto color = leaf_color_from_node(node, nullptr);
-        for (const auto& leaf_transform : leaf_transforms) {
-          ParticleInfo info;
-          info.instance_matrix.value = leaf_transform;
-          info.instance_color = color;
-          matrices.push_back(info);
+        // When simulation leaf data exists, use it directly — it reflects actual maturity / growth_rate.
+        // Fall back to procedural GenerateFoliageMatrices only for nodes without simulation leaves.
+        if (active_leaf_count > 0) {
+          for (const auto& leaf : node.data.leaves) {
+            if (leaf.status != OrganStatus::Flushed)
+              continue;
+            ParticleInfo info;
+            info.instance_matrix.value =
+                glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * 0.5f);
+            info.instance_color = leaf_color_from_node(node, &leaf);
+            matrices.push_back(info);
+          }
+        } else {
+          std::vector<glm::mat4> leaf_transforms;
+          if (use_strand_model) {
+            const auto& strand_node_info = strand_model->strand_model_skeleton.PeekNode(node_handle).info;
+            foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, strand_node_info, glm::length(tree_dim));
+          } else {
+            foliage_descriptor->GenerateFoliageMatrices(leaf_transforms, node.info, glm::length(tree_dim));
+          }
+          const auto color = leaf_color_from_node(node, nullptr);
+          for (const auto& leaf_transform : leaf_transforms) {
+            ParticleInfo info;
+            info.instance_matrix.value = leaf_transform;
+            info.instance_color = color;
+            matrices.push_back(info);
+          }
         }
       }
       particle_info_list->SetParticleInfos(matrices);
@@ -807,7 +859,7 @@ void ShootVisualizer::SyncFoliageMatrices(const ShootSkeleton& skeleton,
     for (const auto node_handle : sorted_node_list) {
       const auto& node = skeleton.PeekNode(node_handle);
       for (const auto& leaf : node.data.leaves) {
-        if (leaf.status == OrganStatus::Inactive)
+        if (leaf.status != OrganStatus::Flushed)
           continue;
 
         ParticleInfo info;
@@ -866,12 +918,27 @@ void ShootVisualizer::SyncFruitMatrices(const ShootSkeleton& skeleton,
             glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale * 0.25f);
 
         switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
-          case ShootVisualizerMode::SourceSink_Concentration:
-            info.instance_color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+          case ShootVisualizerMode::SourceSink_Concentration: {
+            // Sink strength visualization: brighter red = stronger sink
+            const float sink_norm = glm::clamp(fruit.carbohydrate_sink, 0.0f, 1.0f);
+            info.instance_color = glm::vec4(sink_norm, 0.0f, 0.0f, 1.0f);
             break;
-          default:
-            info.instance_color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+          }
+          default: {
+            // Maturity-based coloring: green (unripe) -> yellow (ripening) -> red/orange (ripe)
+            const float m = glm::clamp(fruit.maturity, 0.0f, 1.0f);
+            const glm::vec3 green(0.2f, 0.6f, 0.1f);
+            const glm::vec3 yellow(0.9f, 0.8f, 0.1f);
+            const glm::vec3 red_orange(0.9f, 0.25f, 0.05f);
+            glm::vec3 color;
+            if (m < 0.5f) {
+              color = glm::mix(green, yellow, m * 2.0f);
+            } else {
+              color = glm::mix(yellow, red_orange, (m - 0.5f) * 2.0f);
+            }
+            info.instance_color = glm::vec4(color, 1.0f);
             break;
+          }
         }
         matrices.push_back(info);
       }

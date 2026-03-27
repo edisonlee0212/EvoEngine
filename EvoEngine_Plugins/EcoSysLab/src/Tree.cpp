@@ -776,6 +776,9 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::Checkbox("Enable Procedural Foliage", &developmental_strand_foliage_enabled)) {
       developmental_strand_renderer_dirty = true;
     }
+    if (ImGui::Checkbox("Enable Procedural Fruit", &developmental_strand_fruit_enabled)) {
+      developmental_strand_renderer_dirty = true;
+    }
     ImGui::TreePop();
   }
   if (ImGui::Button("Build Strand Particles")) {
@@ -1074,6 +1077,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "root_model_history_limit" << YAML::Value << root_model.history_limit;
 
   out << YAML::Key << "developmental_strand_foliage_enabled" << YAML::Value << developmental_strand_foliage_enabled;
+  out << YAML::Key << "developmental_strand_fruit_enabled" << YAML::Value << developmental_strand_fruit_enabled;
 }
 
 void Tree::Deserialize(const YAML::Node& in) {
@@ -1105,6 +1109,7 @@ void Tree::Deserialize(const YAML::Node& in) {
   if (in["root_model_history_limit"]) root_model.history_limit = in["root_model_history_limit"].as<int>();
 
   if (in["developmental_strand_foliage_enabled"]) developmental_strand_foliage_enabled = in["developmental_strand_foliage_enabled"].as<bool>();
+  if (in["developmental_strand_fruit_enabled"]) developmental_strand_fruit_enabled = in["developmental_strand_fruit_enabled"].as<bool>();
 }
 
 void Tree::RegisterVoxel() {

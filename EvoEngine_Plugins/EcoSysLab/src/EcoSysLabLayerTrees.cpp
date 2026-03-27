@@ -524,7 +524,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
     if (tree_visualization_settings_.display_ground_fruits && !ground_fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::sphere, visualization_camera_,
                                                   ground_fruit_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.display_ground_flowers &&

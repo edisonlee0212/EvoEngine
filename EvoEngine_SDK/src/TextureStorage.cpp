@@ -304,7 +304,7 @@ uint32_t TextureStorage::GetVersion() {
 }
 
 void TextureStorage::DeviceSync() {
-  if (!Platform::Initialized())
+  if (!Platform::Initialized() || Platform::DeviceLost())
     return;
   auto& storage = GetInstance();
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {

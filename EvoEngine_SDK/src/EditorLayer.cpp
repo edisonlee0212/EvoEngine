@@ -17,6 +17,7 @@
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
+#include <cmath>
 #include <yaml-cpp/yaml.h>
 using namespace evo_engine;
 void EditorLayer::OnCreate() {
@@ -1140,8 +1141,6 @@ void EditorLayer::SceneCameraWindow() {
             float current_velocity = velocity;
             if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
               current_velocity *= 5.0f;
-            } else if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-              current_velocity *= 0.2f;
             }
 
             if (Input::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
@@ -1176,14 +1175,23 @@ void EditorLayer::SceneCameraWindow() {
           bool has_selected_center = false;
           glm::vec3 selected_center(0.0f);
           glm::vec3 orbit_center(0.0f);
+          const auto is_finite_vec3 = [](const glm::vec3& value) {
+            return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+          };
           if (scene->IsEntityValid(selected_entity_)) {
             const auto selected_bound = scene->GetEntityBoundingBox(selected_entity_);
             selected_center = selected_bound.Center();
+            if (!is_finite_vec3(selected_center)) {
+              selected_center = scene->GetDataComponent<GlobalTransform>(selected_entity_).GetPosition();
+            }
             has_selected_center = true;
             orbit_center = selected_center;
             last_orbit_target_entity_ = selected_entity_;
           } else if (scene->IsEntityValid(last_orbit_target_entity_)) {
             orbit_center = scene->GetEntityBoundingBox(last_orbit_target_entity_).Center();
+            if (!is_finite_vec3(orbit_center)) {
+              orbit_center = scene->GetDataComponent<GlobalTransform>(last_orbit_target_entity_).GetPosition();
+            }
           }
 
           const bool middle_mouse_orbit = Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold;
@@ -1216,8 +1224,10 @@ void EditorLayer::SceneCameraWindow() {
             }
           }
 
-          if (scene_camera_window_hovered_) {
-            if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
+          if (scene_camera_window_hovered_ || mouse_drag) {
+            const bool ctrl_held = Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
+                                   Input::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold;
+            if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f && !ctrl_held) {
               const bool right_mouse_held = Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold;
               if (right_mouse_held) {
                 velocity = glm::max(0.001f, velocity * (1.0f + scroll * 0.1f));
@@ -1225,14 +1235,14 @@ void EditorLayer::SceneCameraWindow() {
                 const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
                 auto offset = sceneCameraPosition - selected_center;
                 float distance = glm::length(offset);
-                float move_amount = scroll * glm::max(0.2f, distance * 0.1f);
+                float move_amount = scroll * glm::max(0.05f, distance * 0.025f);
                 if (move_amount > distance - 0.01f) {
                   move_amount = distance - 0.01f;
                 }
                 sceneCameraPosition += front * move_amount;
               } else if (!lock_camera) {
                 const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
-                const float move_amount = scroll * glm::max(0.2f, velocity * 0.5f);
+                const float move_amount = scroll * glm::max(0.05f, velocity * 0.125f);
                 sceneCameraPosition += front * move_amount;
               }
             }

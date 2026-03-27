@@ -445,8 +445,6 @@ std::vector<std::shared_ptr<ParticleInfoList>> Tree::GenerateDevelopmentalFoliag
 
   const auto scene = GetScene();
   const auto owner = GetOwner();
-  const auto owner_global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
-  const auto world_to_local = glm::inverse(owner_global_transform);
 
   auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td)
@@ -467,26 +465,98 @@ std::vector<std::shared_ptr<ParticleInfoList>> Tree::GenerateDevelopmentalFoliag
   const size_t bucket_count = pool_size > 0 ? pool_size : 1;
   std::vector<std::vector<ParticleInfo>> per_mesh_infos(bucket_count);
 
-  for (const auto& node_handle : node_list) {
-    const auto& node = skeleton.PeekNode(node_handle);
-    std::vector<glm::mat4> leaf_matrices;
-    fd->GenerateFoliageMatrices(leaf_matrices, node.info, tree_size);
-    for (const auto& mat : leaf_matrices) {
-      ParticleInfo pi;
-      // GenerateFoliageMatrices returns world-space transforms; instanced rendering
-      // applies the entity model again, so convert to owner-local here.
-      pi.instance_matrix.value = world_to_local * mat;
-      pi.instance_color = node.info.color;
-
-      uint32_t bucket = 0;
-      if (pool_size > 0) {
-        const glm::vec3 pos(mat[3]);
-        const float hash_val =
-            glm::fract(glm::sin(glm::dot(pos, glm::vec3(17.1537f, 43.5819f, 91.3467f))) * 28947.6813f);
-        bucket = static_cast<uint32_t>(hash_val * static_cast<float>(pool_size)) %
-                 static_cast<uint32_t>(pool_size);
+  // Pre-compute per-node senescence colors and active-leaf status in parallel.
+  const auto node_count = static_cast<unsigned>(node_list.size());
+  struct NodeLeafState {
+    glm::vec4 color{1.0f};
+    bool has_active_leaves = false;  // true = at least one Flushed leaf
+    bool has_any_leaves = false;     // true = internode_data.leaves is non-empty
+  };
+  std::vector<NodeLeafState> node_states(node_count);
+  Jobs::RunParallelFor(node_count, [&](unsigned i) {
+    const auto& node = skeleton.PeekNode(node_list[i]);
+    const auto& sim_leaves = node.data.internode_data.leaves;
+    if (sim_leaves.empty()) {
+      node_states[i].color = node.info.color;
+      return;
+    }
+    node_states[i].has_any_leaves = true;
+    float total_s = 0.0f, total_h = 0.0f, total_m = 0.0f;
+    int active = 0;
+    for (const auto& leaf : sim_leaves) {
+      if (leaf.status == OrganStatus::Flushed) {
+        total_s += leaf.senescence;
+        total_h += leaf.health;
+        total_m += leaf.maturity;
+        ++active;
       }
-      per_mesh_infos[bucket].push_back(pi);
+    }
+    if (active == 0) {
+      // All leaves dead — mark so we skip foliage generation.
+      node_states[i].color = glm::vec4(0.0f);
+      return;
+    }
+    node_states[i].has_active_leaves = true;
+    const float s = glm::clamp(total_s / static_cast<float>(active), 0.0f, 1.0f);
+    const float h = glm::clamp(total_h / static_cast<float>(active), 0.0f, 1.0f);
+    const float m = glm::clamp(total_m / static_cast<float>(active), 0.0f, 1.0f);
+    const glm::vec3 healthy = glm::mix(glm::vec3(0.6f, 0.9f, 0.2f), glm::vec3(0.1f, 0.5f, 0.05f), m);
+    const glm::vec3 yellow(0.85f, 0.75f, 0.15f);
+    const glm::vec3 sc = glm::mix(healthy, yellow, s);
+    node_states[i].color = glm::vec4(sc, 1.0f);
+  });
+
+  for (size_t ni = 0; ni < node_list.size(); ni++) {
+    // Skip foliage for nodes with no active leaves (simulation-driven via info.leaves).
+    if (node_states[ni].has_any_leaves && !node_states[ni].has_active_leaves)
+      continue;
+
+    const auto& node = skeleton.PeekNode(node_list[ni]);
+    // info.leaves is updated by GrowFoliage to reflect the fraction of Flushed leaves.
+    // Skip nodes where simulation produced zero active leaves.
+    if (node.info.leaves <= 0.0f && node_states[ni].has_any_leaves)
+      continue;
+
+    // When simulation leaf data exists, use it directly so maturity / growth_rate are respected.
+    // Fall back to procedural GenerateFoliageMatrices only for nodes without simulation leaves.
+    if (node_states[ni].has_active_leaves) {
+      for (const auto& leaf : node.data.internode_data.leaves) {
+        if (leaf.status != OrganStatus::Flushed)
+          continue;
+        ParticleInfo pi;
+        pi.instance_matrix.value =
+            glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * 0.5f);
+        const float s = glm::clamp(leaf.senescence, 0.0f, 1.0f);
+        const float m = glm::clamp(leaf.maturity, 0.0f, 1.0f);
+        const glm::vec3 healthy = glm::mix(glm::vec3(0.6f, 0.9f, 0.2f), glm::vec3(0.1f, 0.5f, 0.05f), m);
+        const glm::vec3 yellow(0.85f, 0.75f, 0.15f);
+        const glm::vec3 sc = glm::mix(healthy, yellow, s);
+        pi.instance_color = glm::vec4(sc, 1.0f);
+
+        uint32_t bucket = 0;
+        if (pool_size > 0) {
+          bucket = leaf.mesh_index % static_cast<uint32_t>(pool_size);
+        }
+        per_mesh_infos[bucket].push_back(pi);
+      }
+    } else {
+      std::vector<glm::mat4> leaf_matrices;
+      fd->GenerateFoliageMatrices(leaf_matrices, node.info, tree_size);
+      for (const auto& mat : leaf_matrices) {
+        ParticleInfo pi;
+        pi.instance_matrix.value = mat;
+        pi.instance_color = node_states[ni].color;
+
+        uint32_t bucket = 0;
+        if (pool_size > 0) {
+          const glm::vec3 pos(mat[3]);
+          const float hash_val =
+              glm::fract(glm::sin(glm::dot(pos, glm::vec3(17.1537f, 43.5819f, 91.3467f))) * 28947.6813f);
+          bucket = static_cast<uint32_t>(hash_val * static_cast<float>(pool_size)) %
+                   static_cast<uint32_t>(pool_size);
+        }
+        per_mesh_infos[bucket].push_back(pi);
+      }
     }
   }
 
@@ -502,6 +572,60 @@ std::vector<std::shared_ptr<ParticleInfoList>> Tree::GenerateDevelopmentalFoliag
     }
   }
   return result;
+}
+
+std::shared_ptr<ParticleInfoList> Tree::GenerateDevelopmentalFruitParticles() {
+  if (!developmental_strand_model.enabled)
+    return nullptr;
+
+  auto td = tree_descriptor_ref.Get<TreeDescriptor>();
+  if (!td)
+    return nullptr;
+  auto rd = td->reproduction_module_descriptor.Get<IReproductionModuleDescriptor>();
+
+  const auto& skeleton = developmental_strand_model.skeleton;
+  const auto& node_list = skeleton.PeekSortedNodeList();
+  if (node_list.empty())
+    return nullptr;
+
+  const auto tree_dim = skeleton.max - skeleton.min;
+  const float tree_size = glm::length(tree_dim);
+
+  std::vector<ParticleInfo> particle_infos;
+
+  for (const auto& node_handle : node_list) {
+    const auto& node = skeleton.PeekNode(node_handle);
+    const auto& sim_fruits = node.data.internode_data.fruits;
+
+    if (!sim_fruits.empty()) {
+      // Use simulation-driven fruit instances with maturity-based coloring.
+      for (const auto& fruit : sim_fruits) {
+        if (fruit.status != OrganStatus::Flushed)
+          continue;
+        const float m = glm::clamp(fruit.maturity, 0.0f, 1.0f);
+        glm::vec3 color;
+        if (m < 0.5f) {
+          const float t = m / 0.5f;
+          color = glm::mix(glm::vec3(0.2f, 0.6f, 0.1f), glm::vec3(0.85f, 0.75f, 0.15f), t);
+        } else {
+          const float t = (m - 0.5f) / 0.5f;
+          color = glm::mix(glm::vec3(0.85f, 0.75f, 0.15f), glm::vec3(0.85f, 0.15f, 0.05f), t);
+        }
+        ParticleInfo pi;
+        pi.instance_matrix.value =
+            glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale);
+        pi.instance_color = glm::vec4(color, 1.0f);
+        particle_infos.push_back(pi);
+      }
+    }
+  }
+
+  if (particle_infos.empty())
+    return nullptr;
+
+  auto pil = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+  pil->SetParticleInfos(particle_infos);
+  return pil;
 }
 
 std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
@@ -740,7 +864,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+      material->material_properties.albedo_color = glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f);
       material->material_properties.roughness = 1.0f;
       material->material_properties.metallic = 0.0f;
     }
@@ -835,6 +959,42 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
   if (mesh_generator_settings.enable_fruit) {
     const auto fruit_entity = scene->CreateEntity("Animated Fruit Mesh");
     scene->SetParent(fruit_entity, self);
+
+    const auto particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+    std::vector<ParticleInfo> particle_infos;
+    const auto& node_list = skeleton.PeekSortedNodeList();
+    for (const auto& handle : node_list) {
+      const auto& node = skeleton.PeekNode(handle);
+      for (const auto& fruit : node.data.fruits) {
+        if (fruit.status != OrganStatus::Flushed)
+          continue;
+        const float m = glm::clamp(fruit.maturity, 0.0f, 1.0f);
+        glm::vec3 color;
+        if (m < 0.5f) {
+          color = glm::mix(glm::vec3(0.2f, 0.6f, 0.1f), glm::vec3(0.85f, 0.75f, 0.15f), m / 0.5f);
+        } else {
+          color = glm::mix(glm::vec3(0.85f, 0.75f, 0.15f), glm::vec3(0.85f, 0.15f, 0.05f), (m - 0.5f) / 0.5f);
+        }
+        ParticleInfo pi;
+        pi.instance_matrix.value =
+            glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale);
+        pi.instance_color = glm::vec4(color, 1.0f);
+        particle_infos.push_back(pi);
+      }
+    }
+    particle_info_list->SetParticleInfos(particle_infos);
+
+    if (!particle_infos.empty()) {
+      const auto particles = scene->GetOrSetPrivateComponent<Particles>(fruit_entity).lock();
+      particles->mesh = Resources::Primitives::sphere;
+      particles->particle_info_list = particle_info_list;
+
+      const auto fruit_material = AssetManager::CreateTemporaryAsset<Material>();
+      fruit_material->vertex_color_only = true;
+      fruit_material->material_properties.roughness = 0.6f;
+      fruit_material->material_properties.metallic = 0.0f;
+      particles->material = fruit_material;
+    }
   }
 }
 
@@ -992,7 +1152,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
         }
       }
       if (!copied_material) {
-        material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+        material->material_properties.albedo_color = glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f);
         material->material_properties.roughness = 1.0f;
         material->material_properties.metallic = 0.0f;
       }
@@ -1018,7 +1178,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
         }
       }
       if (!copied_material) {
-        material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+        material->material_properties.albedo_color = glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f);
         material->material_properties.roughness = 1.0f;
         material->material_properties.metallic = 0.0f;
       }
@@ -1029,6 +1189,42 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
   if (mesh_generator_settings.enable_fruit) {
     const auto fruit_entity = scene->CreateEntity("Fruit Mesh");
     scene->SetParent(fruit_entity, self);
+
+    const auto particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+    std::vector<ParticleInfo> particle_infos;
+    const auto& node_list = shoot_model.PeekShootSkeleton().PeekSortedNodeList();
+    for (const auto& handle : node_list) {
+      const auto& node = shoot_model.PeekShootSkeleton().PeekNode(handle);
+      for (const auto& fruit : node.data.fruits) {
+        if (fruit.status != OrganStatus::Flushed)
+          continue;
+        const float m = glm::clamp(fruit.maturity, 0.0f, 1.0f);
+        glm::vec3 color;
+        if (m < 0.5f) {
+          color = glm::mix(glm::vec3(0.2f, 0.6f, 0.1f), glm::vec3(0.85f, 0.75f, 0.15f), m / 0.5f);
+        } else {
+          color = glm::mix(glm::vec3(0.85f, 0.75f, 0.15f), glm::vec3(0.85f, 0.15f, 0.05f), (m - 0.5f) / 0.5f);
+        }
+        ParticleInfo pi;
+        pi.instance_matrix.value =
+            glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale);
+        pi.instance_color = glm::vec4(color, 1.0f);
+        particle_infos.push_back(pi);
+      }
+    }
+    particle_info_list->SetParticleInfos(particle_infos);
+
+    if (!particle_infos.empty()) {
+      const auto particles = scene->GetOrSetPrivateComponent<Particles>(fruit_entity).lock();
+      particles->mesh = Resources::Primitives::sphere;
+      particles->particle_info_list = particle_info_list;
+
+      const auto fruit_material = AssetManager::CreateTemporaryAsset<Material>();
+      fruit_material->vertex_color_only = true;
+      fruit_material->material_properties.roughness = 0.6f;
+      fruit_material->material_properties.metallic = 0.0f;
+      particles->material = fruit_material;
+    }
   }
 }
 #ifdef BILLBOARD_CLOUDS_PLUGIN
@@ -1279,14 +1475,34 @@ void Tree::InitializeDevelopmentalStrandRenderer() {
         leaf_material->SetMetallicTexture(src_material->GetMetallicTexture());
         leaf_material->material_properties = src_material->material_properties;
       } else {
-        leaf_material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+        leaf_material->material_properties.albedo_color = glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f);
         leaf_material->material_properties.roughness = 1.0f;
         leaf_material->material_properties.metallic = 0.0f;
       }
-      // Keep developmental foliage from acting as opaque cards that fully hide strand geometry.
-      leaf_material->draw_settings.blending = true;
+      // Developmental foliage relies on the deferred instanced pipeline which
+      // supports per-instance color tinting.  Alpha-test (discard below 0.5)
+      // in the fragment shader handles leaf-shape cutout.
+      leaf_material->draw_settings.blending = false;
       leaf_material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
       particles->material = leaf_material;
+    }
+  }
+
+  // --- Instanced fruit ---
+  if (developmental_strand_fruit_enabled) {
+    const auto fruit_pil = GenerateDevelopmentalFruitParticles();
+    if (fruit_pil) {
+      const auto fruit_entity = scene->CreateEntity("Developmental Fruit");
+      scene->SetParent(fruit_entity, owner);
+      const auto particles = scene->GetOrSetPrivateComponent<Particles>(fruit_entity).lock();
+      particles->particle_info_list = fruit_pil;
+      particles->mesh = Resources::Primitives::sphere;
+
+      const auto fruit_material = AssetManager::CreateTemporaryAsset<Material>();
+      fruit_material->vertex_color_only = true;
+      fruit_material->material_properties.roughness = 0.6f;
+      fruit_material->material_properties.metallic = 0.0f;
+      particles->material = fruit_material;
     }
   }
 }
@@ -1423,15 +1639,14 @@ void Tree::UpdateDevelopmentalStrandRenderer() {
   }
 
   // --- Update instanced foliage (runs for both GPU and CPU paths) ---
-  // Always remove stale foliage entities first; recreate only when enabled.
-  int diag_foliage_deleted = 0;
+  // Collect existing foliage entities for reuse instead of delete/recreate,
+  // which avoids a one-frame GlobalTransform lag that causes visual popping.
+  std::vector<Entity> existing_foliage_entities;
   for (const auto& child : children) {
     if (scene->GetEntityName(child).find("Developmental Foliage") == 0) {
-      scene->DeleteEntity(child);
-      diag_foliage_deleted++;
+      existing_foliage_entities.push_back(child);
     }
   }
-  EVOENGINE_LOG("  foliage_deleted=" + std::to_string(diag_foliage_deleted))
 
   if (developmental_strand_foliage_enabled) {
 
@@ -1440,42 +1655,138 @@ void Tree::UpdateDevelopmentalStrandRenderer() {
     if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>())
       fd_foliage = td->foliage_descriptor.Get<BasicFoliageDescriptor>();
 
+    // Build the list of non-null foliage buckets with their names.
+    struct FoliageBucket {
+      size_t index;
+      std::string name;
+      std::shared_ptr<ParticleInfoList> info_list;
+    };
+    std::vector<FoliageBucket> active_buckets;
     for (size_t i = 0; i < foliage_lists.size(); i++) {
       if (!foliage_lists[i])
         continue;
-        const std::string entity_name =
-            fd_foliage && !fd_foliage->leaf_material_variants.empty()
-            ? "Developmental Foliage " + std::to_string(i)
-            : "Developmental Foliage";
-      const auto foliage_entity = scene->CreateEntity(entity_name);
-      scene->SetParent(foliage_entity, owner, false);
-      scene->SetDataComponent<Transform>(foliage_entity, Transform{});
-      const auto particles = scene->GetOrSetPrivateComponent<Particles>(foliage_entity).lock();
-      particles->particle_info_list = foliage_lists[i];
-      particles->mesh = Resources::Primitives::quad;
-
-      // Determine source material for this bucket.
-      std::shared_ptr<Material> src_material;
-      if (fd_foliage && i < fd_foliage->leaf_material_variants.size())
-        src_material = fd_foliage->leaf_material_variants[i].Get<Material>();
-      if (!src_material && fd_foliage)
-        src_material = fd_foliage->leaf_material_ref.Get<Material>();
-
-      const auto leaf_material = AssetManager::CreateTemporaryAsset<Material>();
-      if (src_material) {
-        leaf_material->SetAlbedoTexture(src_material->GetAlbedoTexture());
-        leaf_material->SetNormalTexture(src_material->GetNormalTexture());
-        leaf_material->SetRoughnessTexture(src_material->GetRoughnessTexture());
-        leaf_material->SetMetallicTexture(src_material->GetMetallicTexture());
-        leaf_material->material_properties = src_material->material_properties;
-      } else {
-        leaf_material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
-        leaf_material->material_properties.roughness = 1.0f;
-        leaf_material->material_properties.metallic = 0.0f;
-      }
-      particles->material = leaf_material;
+      FoliageBucket bucket;
+      bucket.index = i;
+      bucket.name = fd_foliage && !fd_foliage->leaf_material_variants.empty()
+          ? "Developmental Foliage " + std::to_string(i)
+          : "Developmental Foliage";
+      bucket.info_list = foliage_lists[i];
+      active_buckets.push_back(std::move(bucket));
     }
-    EVOENGINE_LOG("  foliage_created=" + std::to_string(foliage_lists.size()))
+
+    // Delete excess existing entities if we need fewer than before.
+    while (existing_foliage_entities.size() > active_buckets.size()) {
+      scene->DeleteEntity(existing_foliage_entities.back());
+      existing_foliage_entities.pop_back();
+    }
+
+    for (size_t bi = 0; bi < active_buckets.size(); bi++) {
+      const auto& bucket = active_buckets[bi];
+      Entity foliage_entity{};
+
+      if (bi < existing_foliage_entities.size()) {
+        // Reuse existing entity — keeps its correct GlobalTransform.
+        foliage_entity = existing_foliage_entities[bi];
+        scene->SetDataComponent<Transform>(foliage_entity, Transform{});
+        const auto particles = scene->GetOrSetPrivateComponent<Particles>(foliage_entity).lock();
+
+        // Reuse the existing ParticleInfoList to avoid GPU descriptor churn.
+        auto pil = particles->particle_info_list.Get<ParticleInfoList>();
+        if (!pil) {
+          pil = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+          particles->particle_info_list = pil;
+        }
+        pil->SetParticleInfos(bucket.info_list->PeekParticleInfoList());
+      } else {
+        // Need a new entity for this bucket.
+        foliage_entity = scene->CreateEntity(bucket.name);
+        scene->SetParent(foliage_entity, owner, false);
+        scene->SetDataComponent<Transform>(foliage_entity, Transform{});
+        // Set GlobalTransform immediately so rendering this frame is correct.
+        scene->SetDataComponent<GlobalTransform>(foliage_entity,
+            scene->GetDataComponent<GlobalTransform>(owner));
+
+        const auto particles = scene->GetOrSetPrivateComponent<Particles>(foliage_entity).lock();
+        particles->particle_info_list = bucket.info_list;
+        particles->mesh = Resources::Primitives::quad;
+
+        // Determine source material for this bucket.
+        std::shared_ptr<Material> src_material;
+        if (fd_foliage && bucket.index < fd_foliage->leaf_material_variants.size())
+          src_material = fd_foliage->leaf_material_variants[bucket.index].Get<Material>();
+        if (!src_material && fd_foliage)
+          src_material = fd_foliage->leaf_material_ref.Get<Material>();
+
+        const auto leaf_material = AssetManager::CreateTemporaryAsset<Material>();
+        if (src_material) {
+          leaf_material->SetAlbedoTexture(src_material->GetAlbedoTexture());
+          leaf_material->SetNormalTexture(src_material->GetNormalTexture());
+          leaf_material->SetRoughnessTexture(src_material->GetRoughnessTexture());
+          leaf_material->SetMetallicTexture(src_material->GetMetallicTexture());
+          leaf_material->material_properties = src_material->material_properties;
+        } else {
+          leaf_material->material_properties.albedo_color = glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f);
+          leaf_material->material_properties.roughness = 1.0f;
+          leaf_material->material_properties.metallic = 0.0f;
+        }
+        particles->material = leaf_material;
+      }
+    }
+    EVOENGINE_LOG("  foliage reused=" + std::to_string(glm::min(existing_foliage_entities.size(), active_buckets.size()))
+                  + " created=" + std::to_string(active_buckets.size() > existing_foliage_entities.size()
+                      ? active_buckets.size() - existing_foliage_entities.size() : 0))
+  } else {
+    // Foliage disabled — remove any leftover entities.
+    for (const auto& entity : existing_foliage_entities) {
+      scene->DeleteEntity(entity);
+    }
+  }
+
+  // --- Update instanced fruit ---
+  Entity existing_fruit_entity{};
+  for (const auto& child : children) {
+    if (scene->GetEntityName(child) == "Developmental Fruit") {
+      existing_fruit_entity = child;
+      break;
+    }
+  }
+
+  if (developmental_strand_fruit_enabled) {
+    const auto fruit_pil = GenerateDevelopmentalFruitParticles();
+    if (fruit_pil) {
+      if (existing_fruit_entity.GetIndex() != 0) {
+        // Reuse existing entity.
+        scene->SetDataComponent<Transform>(existing_fruit_entity, Transform{});
+        const auto particles = scene->GetOrSetPrivateComponent<Particles>(existing_fruit_entity).lock();
+        auto pil = particles->particle_info_list.Get<ParticleInfoList>();
+        if (!pil) {
+          pil = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+          particles->particle_info_list = pil;
+        }
+        pil->SetParticleInfos(fruit_pil->PeekParticleInfoList());
+      } else {
+        // Create new fruit entity.
+        const auto fruit_entity = scene->CreateEntity("Developmental Fruit");
+        scene->SetParent(fruit_entity, owner, false);
+        scene->SetDataComponent<Transform>(fruit_entity, Transform{});
+        scene->SetDataComponent<GlobalTransform>(fruit_entity,
+            scene->GetDataComponent<GlobalTransform>(owner));
+
+        const auto particles = scene->GetOrSetPrivateComponent<Particles>(fruit_entity).lock();
+        particles->particle_info_list = fruit_pil;
+        particles->mesh = Resources::Primitives::sphere;
+
+        const auto fruit_material = AssetManager::CreateTemporaryAsset<Material>();
+        fruit_material->vertex_color_only = true;
+        fruit_material->material_properties.roughness = 0.6f;
+        fruit_material->material_properties.metallic = 0.0f;
+        particles->material = fruit_material;
+      }
+    } else if (existing_fruit_entity.GetIndex() != 0) {
+      scene->DeleteEntity(existing_fruit_entity);
+    }
+  } else if (existing_fruit_entity.GetIndex() != 0) {
+    scene->DeleteEntity(existing_fruit_entity);
   }
 }
 
@@ -1486,7 +1797,7 @@ void Tree::ClearDevelopmentalStrandRenderer() const {
   for (const auto& child : children) {
     const auto name = scene->GetEntityName(child);
     if (name == "Developmental Strands" || name.find("Developmental Foliage") == 0 ||
-        name == "Procedural Surface Mesh") {
+        name == "Developmental Fruit" || name == "Procedural Surface Mesh") {
       scene->DeleteEntity(child);
     }
   }
@@ -1552,7 +1863,7 @@ void Tree::InitializeStrandModelMeshRenderer(
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
+      material->material_properties.albedo_color = glm::vec3(90 / 255.0f, 230 / 255.0f, 40 / 255.0f);
       material->material_properties.roughness = 1.0f;
       material->material_properties.metallic = 0.0f;
     }

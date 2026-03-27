@@ -50,9 +50,21 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   SingleDistribution<float> activation_temperature = {7.5f, .5f};
   SingleDistribution<float> activation_light_intensity = {0.0f, 0.0f};
   SingleDistribution<float> growth_rate = {0.07f, 0.01f};
-  SingleDistribution<float> damage_temperature = {10.f, 0.5f};
+  SingleDistribution<float> damage_temperature = {-2.f, 1.f};
   SingleDistribution<float> damage_rate = {0.07f, 0.01f};
   SingleDistribution<float> hang_time = {10.f, 1.f};
+
+  /// Temperature below which senescence begins (°C).  For apple ~18 °C gives
+  /// a September/October onset with the default monthly climate profile.
+  SingleDistribution<float> senescence_temperature = {18.f, 1.f};
+
+  /// Rate at which senescence advances per simulation time unit when conditions are met.
+  /// Tuned so that with delta_time ≈ 30 days, senescence spans 3-4 growth steps.
+  SingleDistribution<float> senescence_rate = {0.08f, 0.01f};
+
+  /// Minimum daylight hours triggering senescence (short-day response).
+  /// 13 h places the onset in September for the default climate daylight profile.
+  float senescence_daylight_threshold = 13.0f;
 
   /// Reference to the leaf material asset (fallback when leaf_material_variants is empty).
   AssetRef leaf_material_ref;

@@ -242,6 +242,7 @@ class Tree : public IPrivateComponent {
   DevelopmentalStrandModel developmental_strand_model{};  ///< Unified model for incremental strand co-evolution with growth.
   bool developmental_strand_renderer_dirty = false;  ///< Deferred renderer refresh flag (set during growth, consumed on main thread).
   bool developmental_strand_foliage_enabled = true;  ///< Whether to render instanced foliage on procedural strands.
+  bool developmental_strand_fruit_enabled = true;    ///< Whether to render instanced fruit on procedural strands.
 
   /**
    * @brief Handles the inspection of tree properties in the editor.
@@ -297,6 +298,16 @@ class Tree : public IPrivateComponent {
    * @return Shared pointer to the generated ParticleInfoList, or nullptr if unavailable.
    */
   std::vector<std::shared_ptr<ParticleInfoList>> GenerateDevelopmentalFoliageParticles();
+
+  /**
+   * @brief Generates instanced fruit particle data from the developmental skeleton.
+   *
+   * Iterates all nodes in the developmental skeleton, uses simulation-driven
+   * fruit instances (maturity, position, rotation) for active fruits, and falls
+   * back to GenerateFruitMatrices() for procedural placement.
+   * @return Shared pointer to the generated ParticleInfoList, or nullptr if unavailable.
+   */
+  std::shared_ptr<ParticleInfoList> GenerateDevelopmentalFruitParticles();
 
   /**
    * @brief Initializes the procedural strand renderer for viewport visualization.

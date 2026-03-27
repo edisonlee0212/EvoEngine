@@ -176,39 +176,37 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
     float saturation = data.carbohydrate_mass / data.max_carbohydrate_mass;
     saturation = glm::clamp(saturation, 0.0f, 1.0f);
 
-    auto clamp_mass = [&](float m) -> float {
-      if (!std::isfinite(m))
-        return 0.0f;
-      return glm::clamp(m, 0.0f, data.max_carbohydrate_mass);
-    };
-
-    // 2. Leaf Production (With Feedback Inhibition)
+    // 2. Leaf Production → solver source (with feedback inhibition).
     // As saturation approaches 1.0, production drops to 0.
-    float production_feedback = 1.0f - glm::pow(saturation, 2.0f);  // Non-linear dropoff
+    const float production_feedback = 1.0f - glm::pow(saturation, 2.0f);
     for (const auto& leaf : data.leaves) {
       if (leaf.status == OrganStatus::Flushed) {
-        const float production =
-            (leaf.carbohydrate_source * delta_time) * data.max_carbohydrate_mass * production_feedback;
-        data.carbohydrate_mass = clamp_mass(data.carbohydrate_mass + production);
+        data.carbohydrate_source +=
+            leaf.carbohydrate_source * data.max_carbohydrate_mass * production_feedback * delta_time;
       }
     }
 
-    // 3. Fruit Consumption (Standard)
+    // 3. Fruit & Flower Consumption → solver sink.
     for (const auto& fruit : data.fruits) {
       if (fruit.status == OrganStatus::Flushed) {
-        const float consumption = (fruit.carbohydrate_sink * delta_time) * data.max_carbohydrate_mass;
-        data.carbohydrate_mass = clamp_mass(data.carbohydrate_mass - consumption);
+        data.carbohydrate_sink += fruit.carbohydrate_sink * data.max_carbohydrate_mass * delta_time;
+      }
+    }
+    for (const auto& flower : data.flowers) {
+      if (flower.status == OrganStatus::Flushed) {
+        data.carbohydrate_sink += flower.carbohydrate_sink * data.max_carbohydrate_mass * delta_time;
       }
     }
 
-    if (!std::isfinite(data.carbohydrate_mass)) {
-      data.carbohydrate_mass = 0.0f;
-    }
-
-    // 4. Respiration (Non-Linear "Luxury Consumption")
+    // 4. Respiration (Non-Linear "Luxury Consumption" with temperature-dependent dormancy)
     // Burn more when full to push system towards equilibrium.
     // Rate scales from 0.2x at low saturation to 1.8x at high saturation.
-    float metabolic_scaling = 0.2f + 1.8f * (saturation * saturation);
+    //
+    // Temperature-dependent dormancy: cold temperatures reduce metabolic rate,
+    // preserving stored carbohydrates through winter. These reserves serve as
+    // the mobilized starch that kickstarts leaf growth in spring.
+    const float dormancy_factor = glm::clamp(data.temperature / 15.0f, 0.05f, 1.0f);
+    float metabolic_scaling = (0.2f + 1.8f * (saturation * saturation)) * dormancy_factor;
     data.carbohydrate_sink += data.max_carbohydrate_mass * respiration_rate * metabolic_scaling * delta_time;
 
     // Safety

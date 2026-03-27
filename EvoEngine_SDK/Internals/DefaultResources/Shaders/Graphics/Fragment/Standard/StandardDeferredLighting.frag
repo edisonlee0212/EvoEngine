@@ -30,16 +30,29 @@ void main()
 	vec3 normal = 		texture(inNormal, fs_in.TexCoord).xyz;
 	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 
-	int material_index = int(round(texture(inMaterial, fs_in.TexCoord).z));
+	vec4 matSample = texture(inMaterial, fs_in.TexCoord);
+	int info_index = int(round(matSample.w));
+	int material_index = int(round(matSample.z));
 
-	vec2 tex_coord = texture(inMaterial, fs_in.TexCoord).xy;
-	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
+	vec4 albedo;
+	float roughness, metallic, emission, ao;
 
-	float roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, tex_coord, vec4(materialProperties.roughness, 0, 0, 0)).r;
-	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, tex_coord, vec4(materialProperties.metallic, 0, 0, 0)).r;
-	float emission = materialProperties.emission;
-	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, tex_coord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
+	if (info_index > 1) {
+		// Per-instance tinted color stored directly in outMaterial.rgb
+		albedo = vec4(matSample.rgb, 1.0);
+		roughness = 0.8;
+		metallic = 0.0;
+		emission = 0.0;
+		ao = 1.0;
+	} else {
+		vec2 tex_coord = matSample.xy;
+		MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
+		roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, tex_coord, vec4(materialProperties.roughness, 0, 0, 0)).r;
+		metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, tex_coord, vec4(materialProperties.metallic, 0, 0, 0)).r;
+		emission = materialProperties.emission;
+		ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, tex_coord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
+		albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
+	}
 
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;

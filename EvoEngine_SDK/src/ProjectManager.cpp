@@ -643,8 +643,14 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             const std::string tag = "##" + i.second->GetAssetTypeName() + std::to_string(i.first.GetValue());
 
             const auto thumbnail_tex = i.second->GetThumbnail();
-            glm::vec2 resolution = thumbnail_tex->GetResolution();
-            resolution *= thumbnail_size_padding.x / glm::max(resolution.x, resolution.y);
+            glm::vec2 resolution = {thumbnail_size_padding.x, thumbnail_size_padding.x};
+            if (thumbnail_tex) {
+              resolution = thumbnail_tex->GetResolution();
+              const float max_dim = glm::max(resolution.x, resolution.y);
+              if (max_dim > 0.0f) {
+                resolution *= thumbnail_size_padding.x / max_dim;
+              }
+            }
             ImTextureID thumbnail_id = thumbnail_tex ? thumbnail_tex->GetImTextureId() : nullptr;
             if (!thumbnail_id) {
               if (const auto fallback_tex = EditorLayer::FindIcon("Binary")) {

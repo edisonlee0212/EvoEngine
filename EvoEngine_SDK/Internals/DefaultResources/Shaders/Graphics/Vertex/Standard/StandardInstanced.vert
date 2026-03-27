@@ -19,10 +19,12 @@ layout(location = 0) out VS_OUT {
 } vs_out;
 
 layout(location = 5) out flat uint currentInstanceIndex;
+layout(location = 6) out vec4 instanceColor;
 
 void main()
 {
 	currentInstanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
+	instanceColor = EE_INSTANCED_DATA[gl_InstanceIndex].color;
 	mat4 matrix = EE_INSTANCES[currentInstanceIndex].model * EE_INSTANCED_DATA[gl_InstanceIndex].instance_matrix;
 	vs_out.FragPos = vec3(matrix * vec4(inPosition, 1.0));
 	vec3 N = normalize(vec3(matrix * vec4(inNormal,    0.0)));

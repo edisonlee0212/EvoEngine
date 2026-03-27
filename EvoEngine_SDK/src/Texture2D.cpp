@@ -1,5 +1,6 @@
 #include "Texture2D.hpp"
 
+#include <stb_image.h>
 #include <stb_image_write.h>
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
@@ -67,51 +68,101 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
     Deserialize(in);
     return true;
   }
-  hdr = false;
-  if (path.extension() == ".hdr")
-    hdr = true;
+  hdr = path.extension() == ".hdr" || path.extension() == ".exr";
   stbi_set_flip_vertically_on_load(true);
-  int width, height, nr_components;
+  int width = 0;
+  int height = 0;
+  int nr_components = 0;
 
   float actual_gamma = hdr ? 2.2f : 1.f;
 
   stbi_hdr_to_ldr_gamma(actual_gamma);
   stbi_ldr_to_hdr_gamma(actual_gamma);
 
-  void* data = stbi_loadf(path.string().c_str(), &width, &height, &nr_components, STBI_rgb_alpha);
+  red_channel = false;
+  green_channel = false;
+  blue_channel = false;
+  alpha_channel = false;
 
-  if (nr_components == 1) {
-    red_channel = true;
-    green_channel = false;
-    blue_channel = false;
-    alpha_channel = false;
-  } else if (nr_components == 2) {
-    red_channel = true;
-    green_channel = true;
-    blue_channel = false;
-    alpha_channel = false;
-  } else if (nr_components == 3) {
-    red_channel = true;
-    green_channel = true;
-    blue_channel = true;
-    alpha_channel = false;
-  } else if (nr_components == 4) {
-    red_channel = true;
-    green_channel = true;
-    blue_channel = true;
-    alpha_channel = true;
-  }
+  if (hdr) {
+    float* data = stbi_loadf(path.string().c_str(), &width, &height, &nr_components, STBI_rgb_alpha);
+    if (!data || width <= 0 || height <= 0) {
+      const char* reason = stbi_failure_reason();
+      EVOENGINE_ERROR("Texture failed to load at path: " + path.filename().string() +
+                      (reason ? (" (" + std::string(reason) + ")") : ""));
+      if (data)
+        stbi_image_free(data);
+      return false;
+    }
 
-  if (data) {
-    local_data_.resize(width * height);
-    memcpy(local_data_.data(), data, sizeof(glm::vec4) * width * height);
-    auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-    texture_storage.SetDataImmediately(local_data_, {width, height});
+    if (nr_components == 1) {
+      red_channel = true;
+      green_channel = false;
+      blue_channel = false;
+      alpha_channel = false;
+    } else if (nr_components == 2) {
+      red_channel = true;
+      green_channel = true;
+      blue_channel = false;
+      alpha_channel = false;
+    } else if (nr_components == 3) {
+      red_channel = true;
+      green_channel = true;
+      blue_channel = true;
+      alpha_channel = false;
+    } else {
+      red_channel = true;
+      green_channel = true;
+      blue_channel = true;
+      alpha_channel = true;
+    }
+
+    local_data_.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    memcpy(local_data_.data(), data, sizeof(glm::vec4) * static_cast<size_t>(width) * static_cast<size_t>(height));
+    stbi_image_free(data);
   } else {
-    EVOENGINE_ERROR("Texture failed to load at path: " + path.filename().string());
-    return false;
+    unsigned char* data = stbi_load(path.string().c_str(), &width, &height, &nr_components, STBI_rgb_alpha);
+    if (!data || width <= 0 || height <= 0) {
+      const char* reason = stbi_failure_reason();
+      EVOENGINE_ERROR("Texture failed to load at path: " + path.filename().string() +
+                      (reason ? (" (" + std::string(reason) + ")") : ""));
+      if (data)
+        stbi_image_free(data);
+      return false;
+    }
+
+    if (nr_components == 1) {
+      red_channel = true;
+      green_channel = false;
+      blue_channel = false;
+      alpha_channel = false;
+    } else if (nr_components == 2) {
+      red_channel = true;
+      green_channel = true;
+      blue_channel = false;
+      alpha_channel = false;
+    } else if (nr_components == 3) {
+      red_channel = true;
+      green_channel = true;
+      blue_channel = true;
+      alpha_channel = false;
+    } else {
+      red_channel = true;
+      green_channel = true;
+      blue_channel = true;
+      alpha_channel = true;
+    }
+
+    local_data_.resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+    for (size_t i = 0; i < static_cast<size_t>(width) * static_cast<size_t>(height); i++) {
+      local_data_[i] = glm::vec4(static_cast<float>(data[i * 4]) / 255.0f, static_cast<float>(data[i * 4 + 1]) / 255.0f,
+                                 static_cast<float>(data[i * 4 + 2]) / 255.0f,
+                                 static_cast<float>(data[i * 4 + 3]) / 255.0f);
+    }
+    stbi_image_free(data);
   }
-  stbi_image_free(data);
+  auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
+  texture_storage.SetDataImmediately(local_data_, {static_cast<uint32_t>(width), static_cast<uint32_t>(height)});
   return true;
 }
 

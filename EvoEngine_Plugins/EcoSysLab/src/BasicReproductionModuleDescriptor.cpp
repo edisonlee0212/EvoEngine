@@ -8,6 +8,10 @@ using namespace eco_sys_lab_plugin;
 void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionController& reproduction_controller) const {
   reproduction_controller.module_count = [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
                                              const SkeletonNode<InternodeGrowthData>& internode) {
+    // Trees must reach min_fruiting_age before producing reproductive modules.
+    const int tree_age_years = static_cast<int>(shoot_growth_data.age / 365.f);
+    if (tree_age_years < min_fruiting_age)
+      return 0;
     std::uniform_real_distribution<float> dis(0.0f, 1.0f);
     if (dis(random_engine) < glm::clamp(module_spawn_chance, 0.0f, 1.0f)) {
       return count_per_internode;
@@ -105,6 +109,9 @@ void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionContr
       fruit.position_offset =
           glm::mix(glm::vec3(0.f), internode.info.GetGlobalEndPosition() - internode.info.global_position,
                    glm::linearRand(0.f, 1.f));
+      fruit.stem_length = glm::abs(stem_length.GetValue());
+      fruit.damage_temperature = fruit_damage_temperature;
+      fruit.damage_rate = fruit_damage_rate;
       fruit.carbohydrate_sink = fruit_sink_strength;
     }
 
@@ -129,6 +136,16 @@ void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionContr
       }
     } else if (fruit.status == OrganStatus::Flushed) {
       fruit.maturity = glm::clamp(fruit.growth_rate * delta_time + fruit.maturity, 0.0f, 1.0f);
+
+      // Mature fruit decays health over time (ripening → over-ripe → drops).
+      if (fruit.maturity >= 1.0f) {
+        fruit.health = glm::clamp(fruit.health - fruit.growth_rate * delta_time, 0.0f, 1.0f);
+      }
+
+      // Frost damage: health loss from cold temperatures.
+      if (temperature < fruit.damage_temperature) {
+        fruit.health = glm::clamp(fruit.health - fruit.damage_rate * delta_time, 0.0f, 1.0f);
+      }
     }
 
     const auto current_fruit_size = fruit_size * fruit.maturity;
@@ -149,7 +166,7 @@ void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionContr
   reproduction_controller.calculate_flower_sink_strength =
       [&](std::mt19937& random_engine, const ShootGrowthData& shoot_growth_data,
           const SkeletonNode<InternodeGrowthData>& internode, Flower& flower) {
-        flower.carbohydrate_sink = 0.0;
+        flower.carbohydrate_sink = flower_sink_strength * flower.maturity * flower.health;
       };
 
   reproduction_controller.calculate_fruit_sink_strength =
@@ -183,6 +200,9 @@ void BasicReproductionModuleDescriptor::Serialize(YAML::Emitter& out) const {
 
   out << YAML::Key << "flower_sink_strength" << YAML::Value << flower_sink_strength;
   out << YAML::Key << "fruit_sink_strength" << YAML::Value << fruit_sink_strength;
+  out << YAML::Key << "min_fruiting_age" << YAML::Value << min_fruiting_age;
+  out << YAML::Key << "fruit_damage_temperature" << YAML::Value << fruit_damage_temperature;
+  out << YAML::Key << "fruit_damage_rate" << YAML::Value << fruit_damage_rate;
 }
 
 void BasicReproductionModuleDescriptor::Deserialize(const YAML::Node& in) {
@@ -231,6 +251,12 @@ void BasicReproductionModuleDescriptor::Deserialize(const YAML::Node& in) {
     flower_sink_strength = in["flower_sink_strength"].as<float>();
   if (in["fruit_sink_strength"])
     fruit_sink_strength = in["fruit_sink_strength"].as<float>();
+  if (in["min_fruiting_age"])
+    min_fruiting_age = in["min_fruiting_age"].as<int>();
+  if (in["fruit_damage_temperature"])
+    fruit_damage_temperature = in["fruit_damage_temperature"].as<float>();
+  if (in["fruit_damage_rate"])
+    fruit_damage_rate = in["fruit_damage_rate"].as<float>();
 }
 
 bool BasicReproductionModuleDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -248,8 +274,11 @@ bool BasicReproductionModuleDescriptor::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragFloat("Flower/Fruit spawn chance", &module_spawn_chance, 0.001f, 0.0f, 1.0f)) {
     changed = true;
   }
+  if (ImGui::DragInt("Min fruiting age (years)", &min_fruiting_age, 1, 0, 50)) {
+    changed = true;
+  }
   changed = stem_length.OnInspect("Stem length") || changed;
-  if (ImGui::DragFloat("Rotation variance", &rotation_variance, 0.01f, 0.0f, 1.0f)) {
+  if (ImGui::DragFloat("Rotation variance", &rotation_variance, 0.1f, 0.0f, 90.0f)) {
     changed = true;
   }
   changed = branching_angle.OnInspect("Branching angle") || changed;
@@ -262,9 +291,26 @@ bool BasicReproductionModuleDescriptor::OnInspect(const std::shared_ptr<EditorLa
   if (ImGui::DragFloat("Max end distance", &max_end_distance, 0.01f, 0.0f, 10.0f)) {
     changed = true;
   }
+  if (ImGui::TreeNodeEx("Flower Lifecycle", ImGuiTreeNodeFlags_DefaultOpen)) {
+    changed = flower_activation_temperature.OnInspect("Flower activation temperature") || changed;
+    changed = flower_growth_rate.OnInspect("Flower growth rate") || changed;
+    changed = flower_hang_time.OnInspect("Flower hang time") || changed;
+    changed = pollination_time.OnInspect("Pollination time") || changed;
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNodeEx("Fruit Lifecycle", ImGuiTreeNodeFlags_DefaultOpen)) {
+    changed = fruit_activation_temperature.OnInspect("Fruit activation temperature") || changed;
+    changed = fruit_growth_rate.OnInspect("Fruit growth rate") || changed;
+    changed = fruit_hang_time.OnInspect("Fruit hang time") || changed;
+    if (ImGui::DragFloat("Fruit damage temperature", &fruit_damage_temperature, 0.1f, -30.0f, 30.0f))
+      changed = true;
+    if (ImGui::DragFloat("Fruit damage rate", &fruit_damage_rate, 0.01f, 0.0f, 10.0f))
+      changed = true;
+    ImGui::TreePop();
+  }
   if (ImGui::TreeNodeEx("Source-Sink", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = ImGui::DragFloat("Flower Sink Strength", &flower_sink_strength, 1.0f, 0.0f, 1000.0f) || changed;
-    changed = ImGui::DragFloat("Fruit Sink Strength", &fruit_sink_strength, 1.0f, 0.0f, 1000.0f) || changed;
+    changed = ImGui::DragFloat("Flower Sink Strength", &flower_sink_strength, 0.01f, 0.0f, 100.0f) || changed;
+    changed = ImGui::DragFloat("Fruit Sink Strength", &fruit_sink_strength, 0.01f, 0.0f, 100.0f) || changed;
     ImGui::TreePop();
   }
 
@@ -277,4 +323,31 @@ bool BasicReproductionModuleDescriptor::OnInspect(const std::shared_ptr<EditorLa
 void BasicReproductionModuleDescriptor::GenerateFruitMatrices(std::vector<glm::mat4>& matrices,
                                                               const SkeletonNodeInfo& internode_info,
                                                               float tree_size) const {
+  if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
+      internode_info.end_distance <= max_end_distance) {
+    for (int i = 0; i < count_per_internode; i++) {
+      const float yaw = count_per_internode > 0
+                            ? (360.0f * static_cast<float>(i) / static_cast<float>(count_per_internode))
+                            : 0.0f;
+      glm::quat rotation =
+          internode_info.global_rotation *
+          glm::quat(glm::radians(glm::vec3(0.0f, branching_angle.mean, yaw)));
+      auto front = rotation * glm::vec3(0, 0, -1);
+      auto up = rotation * glm::vec3(0, 1, 0);
+      // Fruits hang downward due to gravity.
+      ShootModel::ApplyTropism(glm::vec3(0, -1, 0), gravitropism, front, up);
+
+      const float along_stem = count_per_internode > 0
+                                   ? (static_cast<float>(i) + 1.0f) / (static_cast<float>(count_per_internode) + 1.0f)
+                                   : 0.5f;
+      auto fruit_position =
+          glm::mix(internode_info.global_position, internode_info.GetGlobalEndPosition(), along_stem) +
+          front * (fruit_size + stem_length.mean);
+      if (glm::any(glm::isnan(fruit_position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up)))
+        continue;
+      const auto fruit_transform = glm::translate(fruit_position) * glm::mat4_cast(glm::quatLookAt(front, up)) *
+                                   glm::scale(glm::vec3(fruit_size));
+      matrices.emplace_back(fruit_transform);
+    }
+  }
 }

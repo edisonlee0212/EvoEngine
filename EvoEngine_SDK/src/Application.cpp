@@ -227,7 +227,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   AssetRegistration<procedural_noise::ProceduralNoise4D> procedural_noise_4d_registry("ProceduralNoise4D",
                                                                                       {".evenoise4d"});
 
-  AssetRegistration<Cubemap> cubemap_registry("Cubemap", {".evecubemap"});
+  AssetRegistration <Cubemap> cubemap_registry("Cubemap", {".evecubemap"});
   AssetRegistration<LightProbe> light_probe_registry("LightProbe", {".evelightprobe"});
   AssetRegistration<ReflectionProbe> reflection_probe_registry("ReflectionProbe", {".evereflectionprobe"});
   AssetRegistration<EnvironmentalMap> environmental_map_registry("EnvironmentalMap", {".eveenvironmentalmap"});

@@ -63,8 +63,17 @@ struct Leaf : ShootOrgan {
   float damage_temperature = 0;
   glm::vec3 position_offset = glm::vec3(0.0f);
 
+  /// Senescence progress [0,1]: 0 = healthy green, 1.0 = yellow.
+  /// Driven by climate (low temp / short daylight) and used for visual tinting.
+  float senescence = 0.0f;
+
   /// Index into BasicFoliageDescriptor::leaf_material_variants. Assigned at formulation, persistent for lifetime.
   uint32_t mesh_index = 0;
+
+  /// Index of this leaf among siblings on the same internode. Set during formulation.
+  uint32_t leaf_index = 0;
+  /// Total number of sibling leaves on the same internode. Set during formulation.
+  uint32_t sibling_count = 1;
 };
 
 struct Flower : ShootOrgan {
@@ -83,6 +92,8 @@ struct Fruit : ShootOrgan {
   float growth_rate = 0;
   float hang_time = 0;
   float stem_length = 0.f;
+  float damage_rate = 0;
+  float damage_temperature = 0;
   glm::vec3 position_offset = glm::vec3(0.0f);
 };
 
