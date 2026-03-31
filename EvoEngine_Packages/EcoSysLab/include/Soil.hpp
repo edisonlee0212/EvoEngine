@@ -41,6 +41,12 @@ class Soil : public IPrivateComponent {
   VoxelSoilModel soil_model;     ///< The voxel-based soil model.
   AssetRef soil_descriptor_ref;  ///< Reference to the associated soil descriptor.
 
+  AssetRef soil_albedo_texture;
+  AssetRef soil_normal_texture;
+  AssetRef soil_roughness_texture;
+  AssetRef soil_height_texture;
+  AssetRef soil_metallic_texture;
+
   /**
    * \brief Handles the inspection logic for the soil component.
    * \param editor_layer A shared pointer to the editor layer.

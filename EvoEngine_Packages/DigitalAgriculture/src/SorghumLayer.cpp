@@ -8,6 +8,7 @@
 #include "Platform.hpp"
 #include "SkyIlluminance.hpp"
 #include "SorghumGenerator.hpp"
+#include "CropDescriptor.hpp"
 #include "Times.hpp"
 
 #include "Material.hpp"
@@ -15,6 +16,7 @@
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
 #ifdef CUDA_MODULE_SERVICE
+#  include "SorghumFieldGrid.hpp"
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
 #endif
@@ -28,9 +30,11 @@ void SorghumLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<SorghumState>("SorghumState", {".ss"});
   application.RegisterAsset<SorghumGenerator>("SorghumGenerator", {".sg"});
   application.RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
+  application.RegisterAsset<CropDescriptor>("CropDescriptor", {".cropdesc"});
 #ifdef CUDA_MODULE_SERVICE
   application.RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"});
   application.RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"});
+
 #endif
   application.RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"});
   application.RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"});
@@ -152,6 +156,14 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 #endif
   ImGui::Separator();
+  ImGui::Checkbox("Auto increase crop Target GDD (Ctrl+F)", &auto_increase_crop_target_gdd_);
+  ImGui::DragFloat("Crop Target GDD increase speed", &crop_target_gdd_increase_speed_, 1.0f, 0.0f, 5000.0f,
+                   "%.2f gdd/s");
+  crop_target_gdd_increase_speed_ = glm::max(0.0f, crop_target_gdd_increase_speed_);
+  ImGui::DragFloat("Crop growth daily temperature (C)", &crop_growth_daily_temperature_, 0.5f, 0.0f, 45.0f);
+  ImGui::DragFloat("Mesh rebuild interval (s)", &mesh_regen_interval_, 0.01f, 0.0f, 1.0f, "%.2f");
+  mesh_regen_interval_ = glm::max(0.0f, mesh_regen_interval_);
+
   sorghum_mesh_generator_settings.OnInspect(editor_layer);
   if (ImGui::Button("Generate mesh for all sorghums")) {
     GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
@@ -367,6 +379,77 @@ void SorghumLayer::CalculateIllumination() {
 #endif
 void SorghumLayer::Update() {
   const auto scene = GetScene();
+
+
+#ifdef ECOSYSLAB_PACKAGE
+  if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
+      EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
+    if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
+      auto_increase_crop_target_gdd_ = false;
+      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+          sorghum_entities && !sorghum_entities->empty()) {
+        for (const auto& sorghum_entity : *sorghum_entities) {
+          const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+          if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+            continue;
+          }
+          sorghum->GrowCropToGdd(0.0f, crop_growth_daily_temperature_);
+          sorghum->sorghum_descriptor.Clear();
+          sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
+        }
+      }
+    }
+    if (EditorLayer::GetKey(GLFW_KEY_F) == Input::KeyActionType::Press) {
+      auto_increase_crop_target_gdd_ = !auto_increase_crop_target_gdd_;
+    }
+  }
+
+  if (auto_increase_crop_target_gdd_ && crop_target_gdd_increase_speed_ > 0.0f) {
+    if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+        sorghum_entities && !sorghum_entities->empty()) {
+      const float delta_gdd = crop_target_gdd_increase_speed_ * static_cast<float>(Times::DeltaTime());
+      // Advance the growth model every frame (cheap).
+      for (const auto& sorghum_entity : *sorghum_entities) {
+        const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+        if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+          continue;
+        }
+        sorghum->GrowCropByGdd(delta_gdd, crop_growth_daily_temperature_);
+      }
+      crop_growth_dirty_ = true;
+
+      // Only rebuild geometry at a capped rate to avoid killing the framerate.
+      const float now = Times::Now();
+      if (now - last_mesh_regen_time_ >= mesh_regen_interval_) {
+        last_mesh_regen_time_ = now;
+        crop_growth_dirty_ = false;
+        for (const auto& sorghum_entity : *sorghum_entities) {
+          const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+          if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+            continue;
+          }
+          sorghum->sorghum_descriptor.Clear();
+          sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
+        }
+      }
+    }
+  } else if (crop_growth_dirty_) {
+    // Auto-growth just stopped — do one final mesh rebuild to show the latest state.
+    crop_growth_dirty_ = false;
+    if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+        sorghum_entities && !sorghum_entities->empty()) {
+      for (const auto& sorghum_entity : *sorghum_entities) {
+        const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+        if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+          continue;
+        }
+        sorghum->sorghum_descriptor.Clear();
+        sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
+      }
+    }
+  }
+#endif  
+
 #ifdef CUDA_MODULE_SERVICE
   if (processing) {
     processing_index--;

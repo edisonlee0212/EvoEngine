@@ -71,7 +71,7 @@ add_library(CudaModuleService
 	${RAY_TRACER_CUDA_SOURCES}
 	)
 
-set_property(TARGET CudaModuleService PROPERTY CUDA_ARCHITECTURES 61-real 61-virtual)
+set_property(TARGET CudaModuleService PROPERTY CUDA_ARCHITECTURES native)
 
 if (NOT WIN32)
 	message(STATUS CUDALIB=${CUDA_TOOLKIT_ROOT_DIR})

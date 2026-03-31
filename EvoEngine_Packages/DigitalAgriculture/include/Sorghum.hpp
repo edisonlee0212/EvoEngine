@@ -25,6 +25,14 @@ class Sorghum final : public IPrivateComponent {
   /** @brief Reference to the sorghum descriptor asset. */
   AssetRef sorghum_descriptor;
 
+  /** @brief Reference to the crop descriptor asset (developmental model genotype). */
+  AssetRef crop_descriptor;
+
+#ifdef ECOSYSLAB_PLUGIN
+  /** @brief Developmental shoot model driven by the crop descriptor. */
+  CropShootModel crop_shoot_model;
+#endif
+
   /**
    * @brief Clears the generated geometry entities.
    *
@@ -80,6 +88,24 @@ class Sorghum final : public IPrivateComponent {
    * \return Number of leaves.
    */
   uint32_t GetLeafSize();
+
+#ifdef ECOSYSLAB_PLUGIN
+  /**
+   * @brief Grow the crop model to the specified cumulative GDD and regenerate geometry.
+   * Reinitializes from zero each call — suitable for the interactive slider.
+   * @param target_gdd Target cumulative growing degree-days.
+   * @param daily_temperature Daily mean temperature used for each growth step (°C).
+   */
+  void GrowCropToGdd(float target_gdd, float daily_temperature = 25.0f);
+
+  /**
+   * @brief Advance the crop model by delta_gdd from its current state (incremental).
+   * Does NOT reinitialize — designed for per-frame timelapse playback.
+   * @param delta_gdd GDD to advance from the current cumulative GDD.
+   * @param daily_temperature Daily mean temperature used for each growth step (°C).
+   */
+  void GrowCropByGdd(float delta_gdd, float daily_temperature = 25.0f);
+#endif
 };
 
 }  // namespace digital_agriculture_package

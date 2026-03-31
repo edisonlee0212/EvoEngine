@@ -78,11 +78,7 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::Button("Split root test")) {
       SplitRootTestSetup();
     }
-    static AssetRef soil_albedo_texture;
-    static AssetRef soil_normal_texture;
-    static AssetRef soil_roughness_texture;
-    static AssetRef soil_height_texture;
-    static AssetRef soil_metallic_texture;
+    // soil_albedo_texture etc. are now class members
     editor_layer->DragAndDropButton<Texture2D>(soil_albedo_texture, "Albedo", true);
     editor_layer->DragAndDropButton<Texture2D>(soil_normal_texture, "Normal", true);
     editor_layer->DragAndDropButton<Texture2D>(soil_roughness_texture, "Roughness", true);
@@ -431,15 +427,30 @@ Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool gro
 
 void Soil::Serialize(YAML::Emitter& out) const {
   soil_descriptor_ref.Save("soil_descriptor_ref", out);
+  soil_albedo_texture.Save("soil_albedo_texture", out);
+  soil_normal_texture.Save("soil_normal_texture", out);
+  soil_roughness_texture.Save("soil_roughness_texture", out);
+  soil_height_texture.Save("soil_height_texture", out);
+  soil_metallic_texture.Save("soil_metallic_texture", out);
 }
 
 void Soil::Deserialize(const YAML::Node& in) {
   soil_descriptor_ref.Load("soil_descriptor_ref", in);
+  soil_albedo_texture.Load("soil_albedo_texture", in);
+  soil_normal_texture.Load("soil_normal_texture", in);
+  soil_roughness_texture.Load("soil_roughness_texture", in);
+  soil_height_texture.Load("soil_height_texture", in);
+  soil_metallic_texture.Load("soil_metallic_texture", in);
   InitializeSoilModel();
 }
 
 void Soil::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(soil_descriptor_ref);
+  list.push_back(soil_albedo_texture);
+  list.push_back(soil_normal_texture);
+  list.push_back(soil_roughness_texture);
+  list.push_back(soil_height_texture);
+  list.push_back(soil_metallic_texture);
 }
 
 Entity Soil::GenerateMesh(float x_depth, float z_depth) {
@@ -485,6 +496,31 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
   mesh->SetVertices(vertex_attributes, vertices, triangles);
   mesh_renderer->mesh = mesh;
   mesh_renderer->material = material;
+
+  // Apply textures from the first soil layer descriptor as defaults.
+  for (auto layer_ref : sd->soil_layer_descriptors) {
+    if (const auto soil_layer = layer_ref.Get<SoilLayerDescriptor>()) {
+      if (const auto albedo = soil_layer->albedo_texture.Get<Texture2D>())
+        material->SetAlbedoTexture(albedo);
+      if (const auto normal = soil_layer->normal_texture.Get<Texture2D>())
+        material->SetNormalTexture(normal);
+      if (const auto roughness = soil_layer->roughness_texture.Get<Texture2D>())
+        material->SetRoughnessTexture(roughness);
+      if (const auto metallic = soil_layer->metallic_texture.Get<Texture2D>())
+        material->SetMetallicTexture(metallic);
+      break;
+    }
+  }
+
+  // Soil-level texture refs override SoilLayerDescriptor textures.
+  if (const auto albedo = soil_albedo_texture.Get<Texture2D>())
+    material->SetAlbedoTexture(albedo);
+  if (const auto normal = soil_normal_texture.Get<Texture2D>())
+    material->SetNormalTexture(normal);
+  if (const auto roughness = soil_roughness_texture.Get<Texture2D>())
+    material->SetRoughnessTexture(roughness);
+  if (const auto metallic = soil_metallic_texture.Get<Texture2D>())
+    material->SetMetallicTexture(metallic);
 
   return ground_surface_entity;
 }

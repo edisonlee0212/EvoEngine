@@ -101,6 +101,20 @@ class SorghumLayer : public ILayer {
   /** @brief Color of the skeleton structure. */
   glm::vec3 skeleton_color = glm::vec3(0);
 
+  /** @brief Whether Ctrl+F auto-growth is enabled for crop-driven sorghums. */
+  bool auto_increase_crop_target_gdd_ = false;
+  /** @brief Auto-growth speed in GDD per second. At 300 GDD/s the full 600 GDD lifecycle takes ~2 s. */
+  float crop_target_gdd_increase_speed_ = 300.0f;
+  /** @brief Daily temperature (C) used while auto-growing crop models. */
+  float crop_growth_daily_temperature_ = 25.0f;
+  /** @brief Minimum interval (seconds) between mesh rebuilds during auto-growth.
+   *  The growth model advances every frame, but geometry is only regenerated at this rate. */
+  float mesh_regen_interval_ = 0.1f;
+  /** @brief Tracks whether the growth model has been updated since the last mesh rebuild. */
+  bool crop_growth_dirty_ = false;
+  /** @brief Wall-clock time of the last mesh rebuild during auto-growth. */
+  float last_mesh_regen_time_ = 0.0f;
+
   /**
    * @brief Called when the layer is created.
    */
