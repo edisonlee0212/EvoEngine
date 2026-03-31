@@ -51,6 +51,7 @@ if (WIN32)
 	register_evoengine_plugin(BillboardClouds ON)
 endif()
 
+register_evoengine_plugin(LSystem ON)
 register_evoengine_plugin(EcoSysLab ON)
 register_evoengine_plugin(DigitalAgriculture ON)
 register_evoengine_plugin(DatasetGeneration ON)
