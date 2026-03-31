@@ -79,11 +79,7 @@ bool Soil::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::Button("Split root test")) {
       SplitRootTestSetup();
     }
-    static AssetRef soil_albedo_texture;
-    static AssetRef soil_normal_texture;
-    static AssetRef soil_roughness_texture;
-    static AssetRef soil_height_texture;
-    static AssetRef soil_metallic_texture;
+    // soil_albedo_texture etc. are now class members
     editor_layer->DragAndDropButton<Texture2D>(soil_albedo_texture, "Albedo", true);
     editor_layer->DragAndDropButton<Texture2D>(soil_normal_texture, "Normal", true);
     editor_layer->DragAndDropButton<Texture2D>(soil_roughness_texture, "Roughness", true);
@@ -441,6 +437,11 @@ void eco_sys_lab_package::DeserializeSoil(const YAML::Node& in, Soil& target) {
 
 void Soil::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(soil_descriptor_ref);
+  list.push_back(soil_albedo_texture);
+  list.push_back(soil_normal_texture);
+  list.push_back(soil_roughness_texture);
+  list.push_back(soil_height_texture);
+  list.push_back(soil_metallic_texture);
 }
 
 Entity Soil::GenerateMesh(float x_depth, float z_depth) {
@@ -486,6 +487,31 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
   mesh->SetVertices(vertex_attributes, vertices, triangles);
   mesh_renderer->mesh = mesh;
   mesh_renderer->material = material;
+
+  // Apply textures from the first soil layer descriptor as defaults.
+  for (auto layer_ref : sd->soil_layer_descriptors) {
+    if (const auto soil_layer = layer_ref.Get<SoilLayerDescriptor>()) {
+      if (const auto albedo = soil_layer->albedo_texture.Get<Texture2D>())
+        material->SetAlbedoTexture(albedo);
+      if (const auto normal = soil_layer->normal_texture.Get<Texture2D>())
+        material->SetNormalTexture(normal);
+      if (const auto roughness = soil_layer->roughness_texture.Get<Texture2D>())
+        material->SetRoughnessTexture(roughness);
+      if (const auto metallic = soil_layer->metallic_texture.Get<Texture2D>())
+        material->SetMetallicTexture(metallic);
+      break;
+    }
+  }
+
+  // Soil-level texture refs override SoilLayerDescriptor textures.
+  if (const auto albedo = soil_albedo_texture.Get<Texture2D>())
+    material->SetAlbedoTexture(albedo);
+  if (const auto normal = soil_normal_texture.Get<Texture2D>())
+    material->SetNormalTexture(normal);
+  if (const auto roughness = soil_roughness_texture.Get<Texture2D>())
+    material->SetRoughnessTexture(roughness);
+  if (const auto metallic = soil_metallic_texture.Get<Texture2D>())
+    material->SetMetallicTexture(metallic);
 
   return ground_surface_entity;
 }

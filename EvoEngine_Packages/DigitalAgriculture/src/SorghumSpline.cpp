@@ -97,6 +97,8 @@ SorghumSplineSegment SorghumSpline::Interpolate(int left_index, float a) const {
 */
 void SorghumSpline::SubdivideByDistance(const float subdivision_distance,
                                         std::vector<SorghumSplineSegment>& subdivided_segments) const {
+  if (segments.size() < 2)
+    return;
   std::vector<float> lengths;
   lengths.resize(segments.size() - 1);
   for (int i = 0; i < segments.size() - 1; i++) {
@@ -107,16 +109,22 @@ void SorghumSpline::SubdivideByDistance(const float subdivision_distance,
   subdivided_segments.emplace_back(segments.front());
   while (true) {
     accumulated_distance += subdivision_distance;
-    const auto current_segment_length = lengths.at(current_index);
-    if (accumulated_distance > current_segment_length) {
+    // Skip over all segments shorter than the remaining accumulated distance.
+    // The original code only advanced one segment per iteration, causing t >> 1
+    // when subdivision_distance greatly exceeds segment length (e.g. at low GDD
+    // when stem internodes are in rosette phase). CubicInterpolation with t >> 1
+    // extrapolates wildly, producing effectively infinite vertex positions.
+    while (current_index < static_cast<int>(lengths.size()) && accumulated_distance > lengths[current_index]) {
+      accumulated_distance -= lengths[current_index];
       current_index++;
-      accumulated_distance -= current_segment_length;
     }
-    if (current_index < lengths.size() - 1)
-      subdivided_segments.emplace_back(
-          InterpolateSegment(current_index, accumulated_distance / current_segment_length));
-    else
+    if (current_index >= static_cast<int>(lengths.size()) - 1)
       break;
+    const float seg_len = lengths[current_index];
+    if (seg_len > 0.0f) {
+      subdivided_segments.emplace_back(
+          InterpolateSegment(current_index, glm::clamp(accumulated_distance / seg_len, 0.0f, 1.0f)));
+    }
   }
 }
 
@@ -311,7 +319,7 @@ std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedLengthSegments(cons
 std::vector<SorghumSplineSegment> SorghumSpline::GetStemPart() const {
   std::vector<SorghumSplineSegment> ret_val;
   for (const auto& i : segments) {
-    if (i.theta <= 90.0f)
+    if (i.theta >= 90.0f)
       break;
     ret_val.emplace_back(i);
   }

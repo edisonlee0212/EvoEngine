@@ -3,7 +3,11 @@
 #include "DigitalAgricultureInspectionAdapters.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
+#ifdef ECOSYSLAB_PACKAGE
+#  include "CropShootModel.hpp"
+#endif
 #ifdef CUDA_MODULE_SERVICE
+#include "CropDescriptor.hpp"
 #  include "BtfMaterial.hpp"
 #  include "BtfMeshRenderer.hpp"
 #  include "CBTFGroup.hpp"
@@ -32,6 +36,12 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     return;
   auto target_sorghum_descriptor = sorghum_descriptor.Get<SorghumDescriptor>();
   if (!target_sorghum_descriptor) {
+#ifdef ECOSYSLAB_PLUGIN
+    if (crop_shoot_model.IsInitialized()) {
+      sorghum_descriptor = target_sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
+      crop_shoot_model.ToSorghumDescriptor(target_sorghum_descriptor);
+    } else
+#endif
     if (const auto target_sorghum_generator = sorghum_generator.Get<SorghumGenerator>()) {
       sorghum_descriptor = target_sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       target_sorghum_generator->Apply(target_sorghum_descriptor);
@@ -100,9 +110,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
     target_sorghum_descriptor->stem.GenerateGeometry(vertices, indices);
-    VertexAttributes attributes{};
-    attributes.tex_coord = true;
-    mesh->SetVertices(attributes, vertices, indices);
+    if (!vertices.empty() && !indices.empty()) {
+      VertexAttributes attributes{};
+      attributes.tex_coord = true;
+      mesh->SetVertices(attributes, vertices, indices);
+    }
     scene->SetParent(stem_entity, owner);
   }
   if (sorghum_mesh_generator_settings.enable_leaves) {
@@ -141,9 +153,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           if (sorghum_mesh_generator_settings.bottom_face) {
             leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
           }
-          VertexAttributes attributes{};
-          attributes.tex_coord = true;
-          mesh->SetVertices(attributes, vertices, indices);
+          if (!vertices.empty() && !indices.empty()) {
+            VertexAttributes attributes{};
+            attributes.tex_coord = true;
+            mesh->SetVertices(attributes, vertices, indices);
+          }
           scene->SetParent(leaf_entity, owner);
         }
       } else {
@@ -176,9 +190,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           if (sorghum_mesh_generator_settings.bottom_face) {
             leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
           }
-          VertexAttributes attributes{};
-          attributes.tex_coord = true;
-          mesh->SetVertices(attributes, vertices, indices);
+          if (!vertices.empty() && !indices.empty()) {
+            VertexAttributes attributes{};
+            attributes.tex_coord = true;
+            mesh->SetVertices(attributes, vertices, indices);
+          }
           scene->SetParent(leaf_entity, owner);
         }
       }
@@ -213,9 +229,11 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
           leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
         }
       }
-      VertexAttributes attributes{};
-      attributes.tex_coord = true;
-      mesh->SetVertices(attributes, vertices, indices);
+      if (!vertices.empty() && !indices.empty()) {
+        VertexAttributes attributes{};
+        attributes.tex_coord = true;
+        mesh->SetVertices(attributes, vertices, indices);
+      }
       scene->SetParent(leaf_entity, owner);
     }
   }
@@ -226,6 +244,10 @@ void Sorghum::OnDestroy() {
   sorghum_generator.Clear();
   sorghum_state.Clear();
   sorghum_growth_stages.Clear();
+  crop_descriptor.Clear();
+#ifdef ECOSYSLAB_PLUGIN
+  crop_shoot_model.Clear();
+#endif
 }
 
 void digital_agriculture_package::SerializeSorghum(YAML::Emitter& out, const Sorghum& target) {
@@ -261,9 +283,37 @@ bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorg
   if (editor_layer->DragAndDropButton<SorghumDescriptor>(sorghum_descriptor, "SorghumDescriptor"))
     changed = true;
 
+  if (editor_layer->DragAndDropButton<CropDescriptor>(crop_descriptor, "CropDescriptor"))
+    changed = true;
+
   if (ImGui::Button("Form meshes")) {
     sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   }
+
+#ifdef ECOSYSLAB_PLUGIN
+  if (const auto cd = crop_descriptor.Get<CropDescriptor>()) {
+    if (ImGui::TreeNode("Crop Developmental Model")) {
+      static float target_gdd = 600.0f;
+      static float daily_temp = 25.0f;
+      ImGui::DragFloat("Daily temperature (C)", &daily_temp, 0.5f, 0.0f, 45.0f);
+      // Grow the model every frame while dragging (cheap) so the text readouts update,
+      // but only regenerate geometry on mouse-release to avoid 300→5 fps drops.
+      if (ImGui::SliderFloat("Target GDD", &target_gdd, 0.0f, cd->maturity_gdd * 1.2f)) {
+        GrowCropToGdd(target_gdd, daily_temp);
+      }
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        sorghum_descriptor.Clear();
+        GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
+      }
+      if (crop_shoot_model.IsInitialized()) {
+        ImGui::Text("Phytomers: %d / %d", crop_shoot_model.GetPhytomerCount(), cd->final_leaf_number);
+        ImGui::Text("Plant height: %.3f m", crop_shoot_model.PeekSkeleton().data.plant_height);
+        ImGui::Text("Total leaf area: %.4f m2", crop_shoot_model.PeekSkeleton().data.total_leaf_area);
+      }
+      ImGui::TreePop();
+    }
+  }
+#endif
 
   if (const auto ssg = sorghum_generator.Get<SorghumGenerator>()) {
     if (ImGui::TreeNode("Sorghum Descriptor settings")) {
@@ -371,6 +421,8 @@ void Sorghum::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(sorghum_generator);
   if (sorghum_state.Get<SorghumState>())
     list.push_back(sorghum_state);
+  if (crop_descriptor.Get<CropDescriptor>())
+    list.push_back(crop_descriptor);
 }
 uint32_t Sorghum::GetLeafSize() {
   if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>())
@@ -380,3 +432,37 @@ uint32_t Sorghum::GetLeafSize() {
   EVOENGINE_ERROR("GetLeafSize failed: SorghumDescriptor or SorghumState missing!")
   return 0;
 }
+
+#ifdef ECOSYSLAB_PLUGIN
+void Sorghum::GrowCropToGdd(const float target_gdd, const float daily_temperature) {
+  const auto cd = crop_descriptor.Get<CropDescriptor>();
+  if (!cd)
+    return;
+
+  // (Re)initialize the model from scratch each time so the slider is stateless.
+  crop_shoot_model.Initialize(cd);
+
+  // Jump directly to target GDD in a single step instead of stepping day-by-day.
+  // The old day-by-day loop called Grow(daily_temp) which added only
+  // (daily_temp - base_temp) ≈ 17 GDD per iteration, requiring ~45 iterations
+  // to reach GDD 760 — repeated every frame while dragging the slider.
+  if (target_gdd > 0.0f) {
+    crop_shoot_model.GrowByDeltaGdd(target_gdd);
+  }
+}
+
+void Sorghum::GrowCropByGdd(const float delta_gdd, const float daily_temperature) {
+  const auto cd = crop_descriptor.Get<CropDescriptor>();
+  if (!cd)
+    return;
+
+  // Initialize only on first call; preserve state for subsequent incremental steps.
+  if (!crop_shoot_model.IsInitialized()) {
+    crop_shoot_model.Initialize(cd);
+  }
+
+  // Inject the exact per-frame GDD directly — one call per frame, no remainder
+  // bookkeeping needed.  GrowByDeltaGdd accepts any delta including sub-step values.
+  crop_shoot_model.GrowByDeltaGdd(delta_gdd);
+}
+#endif

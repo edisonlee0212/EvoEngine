@@ -11,6 +11,7 @@
 #include "Soil.hpp"
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
+#include "SorghumFieldGrid.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
 #include "TransformGraph.hpp"
@@ -173,6 +174,14 @@ Entity SorghumField::InstantiateField(uint32_t base_seed) const {
     }
 
     TransformGraph::CalculateTransformGraphForDescendants(scene, field);
+
+    // Attach grid component so the field can be recreated from the entity inspector.
+    const auto field_grid = scene->GetOrSetPrivateComponent<SorghumFieldGrid>(field).lock();
+    field_grid->sorghum_field_asset = field_asset;
+    field_grid->sorghum_size = sorghum_size;
+    field_grid->size_limit = size_limit;
+    field_grid->base_seed = base_seed;
+
     return field;
   }
   EVOENGINE_ERROR("No sorghum layer!");
