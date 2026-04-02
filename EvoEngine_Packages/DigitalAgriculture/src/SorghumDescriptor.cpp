@@ -5,6 +5,7 @@
 #include "Sorghum.hpp"
 #include "SorghumDescriptorReconstruction.hpp"
 #include "SorghumLayer.hpp"
+#include "SorghumTraitDescriptor.hpp"
 #include "assimp/code/AssetLib/3MF/3MFXmlTags.h"
 using namespace digital_agriculture_package;
 
@@ -519,3 +520,201 @@ std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>
   }
   return std::nullopt;
 }
+
+void SorghumDescriptor::ExtractTraits() const {
+  auto sorghum_trait = AssetManager::CreateTemporaryAsset<SorghumTraitDescriptor>();
+  auto internode_lengths = CalculateInterNodeLengths();
+  for (auto leaf : leaves) {
+    SorghumLeafTrait leaf_trait;
+    leaf_trait.leaf_index = leaf.index;
+
+    // internode below the leaf
+    leaf_trait.internode_length = internode_lengths[leaf.index];
+
+    // the widest width along the leaf
+    leaf_trait.leaf_width = CalculateLeafWidth(leaf.index);  
+
+    // the length along the leaf
+    leaf_trait.leaf_length = CalculateLeafLength(leaf.index); 
+
+    // total area on the leaf
+    leaf_trait.leaf_area = CalculateLeafArea(leaf.index);
+
+    sorghum_trait->leaf_traits.emplace_back(leaf_trait);
+  }
+
+  // stem length
+  sorghum_trait->stem_length = 0;
+
+
+  std::filesystem::path resource_folder_path("../../../../../Resources");
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../../Resources";
+  }
+  if (!std::filesystem::exists(resource_folder_path)) {
+    resource_folder_path = "../Resources";
+  }
+  resource_folder_path = std::filesystem::absolute(resource_folder_path);
+  auto output_path = resource_folder_path / "output.yml";
+  std::cout << "extract traits to " << output_path << std::endl;
+  YAML::Emitter out;
+  sorghum_trait->Serialize(out);
+  std::ofstream output_file(output_path.string());
+  output_file << out.c_str();
+  output_file.flush();
+}
+
+float SorghumDescriptor::CalculateLeafArea(int leaf_index) const {
+
+  
+  float total_area = 0.0f;
+  const auto scene = Application::GetActiveScene();
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+
+  std::vector<Vertex> vertices;
+  std::vector<unsigned int> indices;
+  const auto leaf_state = leaves[leaf_index];
+  constexpr auto sorghum_mesh_generator_settings = SorghumMeshGeneratorSettings{};
+  leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
+   if (sorghum_mesh_generator_settings.bottom_face) {
+     leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
+   }
+  VertexAttributes attributes{};
+  attributes.tex_coord = true;
+  mesh->SetVertices(attributes, vertices, indices);
+
+
+  for (const auto& triangle : mesh->UnsafeGetTriangles()) {
+    auto& v = mesh->UnsafeGetVertices();
+
+    IlluminationSampler<glm::vec3> light_probe;
+    light_probe.v_0 = v[triangle.x];
+    light_probe.v_1 = v[triangle.y];
+    light_probe.v_2 = v[triangle.z];
+
+
+    const float area = light_probe.GetArea();
+
+    //todo: this may need argue
+    total_area += area;
+
+  }
+  
+  return total_area;
+}
+
+float SorghumDescriptor::CalculateLeafLength(int leaf_index) const {
+  const auto& spline = leaves[leaf_index].spline;
+  return spline.GetArcLength();
+}
+
+float SorghumDescriptor::CalculateLeafWidth(int leaf_index) const {
+  const auto& spline = leaves[leaf_index].spline;
+  if (spline.segments.empty())
+    return 0.0f;
+  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+
+
+  SorghumSpline temp_spline;
+  spline.SubdivideByDistance(sorghum_layer->vertical_subdivision_length, temp_spline.segments);
+
+  const auto& segments = temp_spline.GetLeafPart();
+  const int steps = sorghum_layer->horizontal_subdivision_step;
+  float max_width = 0.0f;
+  for (const auto& segment : segments) {
+    const float angle_step = segment.theta / static_cast<float>(steps);
+    float arc_width = 0.0f;
+    glm::vec3 prev = glm::vec3(segment.GetLeafPoint(-steps * angle_step));
+    for (int j = -steps + 1; j <= steps; j++) {
+      glm::vec3 curr = glm::vec3(segment.GetLeafPoint(j * angle_step));
+      arc_width += glm::distance(curr, prev);
+      prev = curr;
+    }
+    max_width = std::max(max_width, arc_width);
+  }
+  return max_width;
+
+}
+
+std::vector<float> SorghumDescriptor::CalculateInterNodeLengths() const {
+  glm::vec3 center_point(0, 0, 0);
+  for (const auto& leaf : leaves) {
+    SorghumSpline leaf_spline;
+    leaf_spline.segments = leaf.spline.segments;
+    auto stem_part = leaf_spline.GetStemPart();
+    auto point = stem_part[0].position;
+    point.y = 0;
+    center_point += point;
+  }
+
+  center_point /= leaves.size();
+
+  auto stem_direction = normalize(stem.spline.segments[0].front);
+
+  std::vector<glm::vec3> nodes;
+
+  for (const auto& leaf : leaves) {
+    SorghumSpline leaf_spline;
+    leaf_spline.segments = leaf.spline.segments;
+
+    auto segments = leaf_spline.RebuildFixedSizeSegments(64);
+
+    auto stem_part = leaf_spline.GetStemPart();
+
+    auto stem_part_size = stem_part.size();
+
+    auto leaf_part = leaf_spline.GetLeafPart();
+
+    /////////////////////////////////////////
+    // extend leaf to the center of the coordinate, which is the node position
+    auto p1 = leaf_part[0].position;
+    auto p2 = leaf_part[1].position;
+    auto c = center_point;
+    auto d = stem_direction;
+
+    auto u = p1 - p2;
+    auto w = p2 - c;
+
+    float a = glm::dot(u, u);
+    float b = glm::dot(u, d);
+    float c2 = glm::dot(d, d);
+    float e = glm::dot(u, w);
+    float f = glm::dot(d, w);
+
+    float denom = a * c2 - b * b;
+    float s = 0.0f, t = 0.0f;
+
+    if (denom > 1e-6f) {
+      s = (b * f - c2 * e) / denom;
+      t = (a * f - b * e) / denom;
+    }
+
+    glm::vec3 intersection = p2 + s * u;
+
+    nodes.emplace_back(intersection);
+  }
+
+  std::vector<float> internode_lengths;
+  for (int i = 0; i < nodes.size(); i++) {
+    auto node_position = nodes[i];
+    float internode_length = 0;
+    // internode length = node point - ground point
+    if (i == 0) {
+      internode_length = glm::distance(node_position, center_point);
+    } else {
+      internode_length = glm::distance(node_position, nodes[i - 1]);
+    }
+    internode_lengths.emplace_back(internode_length);
+    
+    
+  }
+  return internode_lengths;
+}
+
+

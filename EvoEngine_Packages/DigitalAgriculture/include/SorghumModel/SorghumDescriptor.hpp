@@ -148,6 +148,15 @@ class SorghumDescriptor : public IAsset {
    */
   [[nodiscard]] std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>>>> ImportPrediction(
       const std::filesystem::path& yaml_path);
+
+
+  void ExtractTraits() const;
+
+private:
+  float CalculateLeafArea(int leaf_index) const;
+  float CalculateLeafLength(int leaf_index) const;
+  float CalculateLeafWidth(int leaf_index) const;
+  std::vector<float> CalculateInterNodeLengths() const;
 };
 
 }  // namespace digital_agriculture_package

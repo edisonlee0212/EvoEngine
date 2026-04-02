@@ -289,6 +289,10 @@ bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorg
   if (ImGui::Button("Form meshes")) {
     sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   }
+  if (ImGui::Button("Extract traits")) {
+    const auto sorghum_descriptor_ptr = sorghum_descriptor.Get<SorghumDescriptor>();
+    sorghum_descriptor_ptr->ExtractTraits();
+  }
 
 #ifdef ECOSYSLAB_PLUGIN
   if (const auto cd = crop_descriptor.Get<CropDescriptor>()) {

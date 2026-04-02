@@ -20,6 +20,7 @@
 #include "SorghumDescriptor.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "SorghumFieldGrid.hpp"
+#  include "SorghumTraitDescriptor.hpp"
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
 #endif
@@ -86,6 +87,8 @@ void SorghumLayer::RegisterTypes(Application& application) {
   RegisterDigitalAgricultureSerializationHandlers();
   RegisterDigitalAgricultureAssetPreviewHandlers();
 }
+
+AssetRegistration<SorghumTraitDescriptor> st_registry("SorghumTraitDescriptor", {".st"});
 
 void SorghumLayer::OnCreate() {
   if (!leaf_material.Get<Material>()) {
