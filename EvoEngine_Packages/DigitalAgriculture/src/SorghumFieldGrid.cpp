@@ -8,6 +8,7 @@
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
 #include "TransformGraph.hpp"
+#include "TriangleIlluminationEstimator.hpp"
 
 using namespace digital_agriculture_plugin;
 using namespace eco_sys_lab_plugin;
@@ -138,6 +139,31 @@ bool SorghumFieldGrid::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
   if (ImGui::Button("Recreate field")) {
     RecreateField();
   }
+
+  if (ImGui::Button("Calculate illumination for the field")) {
+    auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+    auto scene = Application::GetActiveScene();
+    sorghum_layer->CalculateIllumination();
+
+    illumination_stats.total_area = 0.0f;
+    illumination_stats.total_flux = glm::vec3(0.0f);
+    illumination_stats.average_flux = glm::vec3(0.0f);
+
+    for (const auto & sorghum_entity : sorghum_layer->processing_entities){
+      if (scene->GetParent(sorghum_entity) == this->GetOwner()) {
+        const auto estimator = scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock();
+        illumination_stats.total_area += estimator->total_area;
+        illumination_stats.total_flux += estimator->total_flux;
+      }
+      
+
+
+    }
+    illumination_stats.average_flux = illumination_stats.total_flux / illumination_stats.total_area;
+  }
+  ImGui::Text("%s", ("Surface area: " + std::to_string(illumination_stats.total_area)).c_str());
+  ImGui::Text("%s", ("Total energy: " + std::to_string(glm::length(illumination_stats.total_flux))).c_str());
+  ImGui::Text("%s", ("Radiant flux: " + std::to_string(glm::length(illumination_stats.average_flux))).c_str());
 
   return changed;
 }

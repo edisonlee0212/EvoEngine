@@ -284,6 +284,10 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Button("Form meshes")) {
     GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   }
+  if (ImGui::Button("Extract traits")) {
+    const auto sorghum_descriptor_ptr = sorghum_descriptor.Get<SorghumDescriptor>();
+    sorghum_descriptor_ptr->ExtractTraits();
+  }
 
 #ifdef ECOSYSLAB_PLUGIN
   if (const auto cd = crop_descriptor.Get<CropDescriptor>()) {

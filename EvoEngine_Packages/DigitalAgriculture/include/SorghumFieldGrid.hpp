@@ -5,6 +5,12 @@ using namespace evo_engine;
 
 namespace digital_agriculture_plugin {
 
+struct FieldIlluminationStats {
+  float total_area = 0.0f;
+  glm::vec3 total_flux = glm::vec3(0.0f);
+  glm::vec3 average_flux = glm::vec3(0.0f);
+};
+
 class SorghumFieldGrid final : public IPrivateComponent {
  public:
   AssetRef sorghum_field_asset;
@@ -19,6 +25,8 @@ class SorghumFieldGrid final : public IPrivateComponent {
   float sorghum_size = 1.0f;
   int size_limit = 2000;
   uint32_t base_seed = 0;
+
+  FieldIlluminationStats illumination_stats;
 
   void RecreateField();
 
