@@ -229,6 +229,9 @@ bool RootModel::Grow(float delta_time, const glm::mat4& global_transform, const 
   }
   current_delta_time_ = delta_time;
   root_skeleton_.data.age += current_delta_time_;
+  growth_events_.clear();
+  pruning_event_batches_.clear();
+  pruning_occurred_ = false;
   bool structure_changed = false;
   {
     const auto& sorted_node_list = root_skeleton_.PeekSortedNodeList();
@@ -320,8 +323,9 @@ bool RootModel::GrowRootNode(SkeletonNodeHandle node_handle, const RootGrowthCon
         root_growth_controller.lateral_node_flushing_rate(random_engine_, root_skeleton_.data, node);
     if (flush_probability >= Random::Uniform(random_engine_, 0.f, 1.f)) {
       graph_changed = true;
-      // Create new root node
+      // Create new root node (lateral branch)
       const auto new_internode_handle = root_skeleton_.Extend(node_handle, true);
+      growth_events_.push_back({node_handle, new_internode_handle, true});
       const auto& old_internode = root_skeleton_.PeekNode(node_handle);
       auto& new_internode = root_skeleton_.RefNode(new_internode_handle);
       // Prepare information for new internode
@@ -364,8 +368,9 @@ bool RootModel::ElongateRootNode(float extended_length, SkeletonNodeHandle inter
     graph_changed = true;
     internode_data.node_length = internode_length;
 
-    // Create new internode
+    // Create new internode (prolongation)
     const auto new_internode_handle = root_skeleton_.Extend(internode_handle, false);
+    growth_events_.push_back({internode_handle, new_internode_handle, false});
     auto& old_internode = root_skeleton_.RefNode(internode_handle);
     auto& new_internode = root_skeleton_.RefNode(new_internode_handle);
 
@@ -438,6 +443,10 @@ bool RootModel::PruneRootNodes(const glm::mat4& global_transform, const ClimateM
         root_to_end_pruned = true;
       }
     }
+    if (!pruning_node_handles.empty()) {
+      pruning_event_batches_.push_back(pruning_node_handles);
+      pruning_occurred_ = true;
+    }
     root_skeleton_.RemoveNodes(pruning_node_handles);
   }
 
@@ -466,6 +475,10 @@ bool RootModel::PruneRootNodes(const glm::mat4& global_transform, const ClimateM
       }
     }
 
+    if (!pruning_node_handles.empty()) {
+      pruning_event_batches_.push_back(pruning_node_handles);
+      pruning_occurred_ = true;
+    }
     root_skeleton_.RemoveNodes(pruning_node_handles);
   }
   root_skeleton_.CalculateDistanceVolumeLevel();

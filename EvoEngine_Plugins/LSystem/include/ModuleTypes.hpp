@@ -105,9 +105,16 @@ struct ModuleVariant {
 template <typename T, typename... Types>
 struct ModuleIndex;
 
+// Specialization: T matches the first type in the pack → index is 0.
+template <typename T, typename... Rest>
+struct ModuleIndex<T, T, Rest...> {
+  static constexpr int value = 0;
+};
+
+// Specialization: T does not match First → recurse into Rest.
 template <typename T, typename First, typename... Rest>
 struct ModuleIndex<T, First, Rest...> {
-  static constexpr int value = std::is_same_v<T, First> ? 0 : 1 + ModuleIndex<T, Rest...>::value;
+  static constexpr int value = 1 + ModuleIndex<T, Rest...>::value;
 };
 
 template <typename T>

@@ -15,6 +15,7 @@ using namespace digital_agriculture_plugin;
 
 #ifdef DATASET_GENERATION_PLUGIN
 #  include <SorghumPointCloudScanner.hpp>
+#  include <TasselPointCloudScanner.hpp>
 #  include <TreePointCloudScanner.hpp>
 #  include "DatasetGenerator.hpp"
 using namespace dataset_generation_plugin;
@@ -29,6 +30,7 @@ using namespace evo_engine;
 void register_classes() {
 #ifdef DATASET_GENERATION_PLUGIN
   PrivateComponentRegistration<SorghumPointCloudScanner>("SorghumPointCloudScanner");
+  PrivateComponentRegistration<TasselPointCloudScanner>("TasselPointCloudScanner");
 #endif
 }
 

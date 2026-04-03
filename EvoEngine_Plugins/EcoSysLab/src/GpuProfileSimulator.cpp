@@ -80,7 +80,8 @@ void GpuProfileSimulator::Init() {
   initialized_ = true;
 }
 
-void GpuProfileSimulator::UploadFromSkeleton(DevelopmentalStrandModelSkeleton& skeleton,
+template <typename SkeletonT>
+void GpuProfileSimulator::UploadFromSkeleton(SkeletonT& skeleton,
                                              const std::vector<SkeletonNodeHandle>& active_nodes,
                                              const bool freeze_interior) {
   if (!initialized_)
@@ -267,7 +268,8 @@ void GpuProfileSimulator::Simulate(const uint32_t iterations, const StrandModelP
   });
 }
 
-void GpuProfileSimulator::DownloadToSkeleton(DevelopmentalStrandModelSkeleton& skeleton) {
+template <typename SkeletonT>
+void GpuProfileSimulator::DownloadToSkeleton(SkeletonT& skeleton) {
   if (total_particles_ == 0 || !initialized_)
     return;
 
@@ -646,3 +648,13 @@ bool GpuProfileSimulator::DownloadSurfaceMesh(std::vector<Vertex>& vertices,
 
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Explicit template instantiations
+// ---------------------------------------------------------------------------
+template void GpuProfileSimulator::UploadFromSkeleton(DevelopmentalStrandModelSkeleton&,
+                                                      const std::vector<SkeletonNodeHandle>&, bool);
+template void GpuProfileSimulator::UploadFromSkeleton(RootDevelopmentalStrandModelSkeleton&,
+                                                      const std::vector<SkeletonNodeHandle>&, bool);
+template void GpuProfileSimulator::DownloadToSkeleton(DevelopmentalStrandModelSkeleton&);
+template void GpuProfileSimulator::DownloadToSkeleton(RootDevelopmentalStrandModelSkeleton&);

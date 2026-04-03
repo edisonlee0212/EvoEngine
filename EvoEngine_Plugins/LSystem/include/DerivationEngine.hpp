@@ -57,6 +57,14 @@ class DerivationEngine {
                                    const ContextType& ctx) const;
 
   /**
+   * @brief Find the highest-priority matching rule from a prefiltered candidate list.
+   * @return Pointer to the matching rule, or nullptr if none matches.
+   */
+  const RuleType* FindMatchingRule(const std::vector<const RuleType*>& rules,
+                                   const ContextType& ctx) const;
+
+ public:
+  /**
    * @brief Apply topology phase: collect all rule matches, then apply extensions/removals.
    * @return true if any topology change occurred.
    */
@@ -104,6 +112,24 @@ DerivationEngine<GraphData, FlowData, ModuleData>::FindMatchingRule(
     // Higher priority wins.
     if (!best || rule.priority > best->priority)
       best = &rule;
+  }
+  return best;
+}
+
+template <typename GraphData, typename FlowData, typename ModuleData>
+const typename DerivationEngine<GraphData, FlowData, ModuleData>::RuleType*
+DerivationEngine<GraphData, FlowData, ModuleData>::FindMatchingRule(
+    const std::vector<const RuleType*>& rules, const ContextType& ctx) const {
+  const RuleType* best = nullptr;
+  for (const auto* rule : rules) {
+    if (!rule)
+      continue;
+    if (rule->predecessor_symbol >= 0 && rule->predecessor_symbol != ctx.self.symbol_id)
+      continue;
+    if (rule->condition && !rule->condition(ctx))
+      continue;
+    if (!best || rule->priority > best->priority)
+      best = rule;
   }
   return best;
 }
@@ -196,12 +222,44 @@ void DerivationEngine<GraphData, FlowData, ModuleData>::ApplyGrowthRules(
   graph.SortLists();
   const auto& sorted = graph.PeekSortedNodeList();
 
+  int max_symbol = -1;
+  std::vector<const RuleType*> wildcard_rules;
+  wildcard_rules.reserve(growth_rules.size());
+  for (const auto& rule : growth_rules) {
+    if (rule.predecessor_symbol >= 0) {
+      max_symbol = std::max(max_symbol, rule.predecessor_symbol);
+    } else {
+      wildcard_rules.push_back(&rule);
+    }
+  }
+
+  std::vector<std::vector<const RuleType*>> candidate_rules_by_symbol;
+  if (max_symbol >= 0) {
+    candidate_rules_by_symbol.resize(static_cast<size_t>(max_symbol) + 1);
+    for (int symbol = 0; symbol <= max_symbol; symbol++) {
+      auto& candidates = candidate_rules_by_symbol[static_cast<size_t>(symbol)];
+      candidates.reserve(growth_rules.size());
+      for (const auto& rule : growth_rules) {
+        if (rule.predecessor_symbol < 0 || rule.predecessor_symbol == symbol) {
+          candidates.push_back(&rule);
+        }
+      }
+    }
+  }
+
   for (const auto& node_handle : sorted) {
     const auto& node = graph.PeekNode(node_handle);
     const auto* parent_ptr = node.GetParentHandle() >= 0 ? &graph.PeekNode(node.GetParentHandle()) : nullptr;
     ContextType ctx{node, parent_ptr, node.PeekChildHandles(), graph, rng, node_handle};
 
-    const auto* rule = FindMatchingRule(growth_rules, ctx);
+    const RuleType* rule = nullptr;
+    if (node.symbol_id >= 0 && node.symbol_id <= max_symbol) {
+      const auto& candidates = candidate_rules_by_symbol[static_cast<size_t>(node.symbol_id)];
+      rule = FindMatchingRule(candidates, ctx);
+    } else if (!wildcard_rules.empty()) {
+      rule = FindMatchingRule(wildcard_rules, ctx);
+    }
+
     if (!rule)
       continue;
 

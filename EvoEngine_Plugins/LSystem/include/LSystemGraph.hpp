@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cassert>
+#include <cstdint>
 #include <queue>
 #include <unordered_map>
 #include <map>
@@ -9,6 +10,10 @@
 #include <glm/gtc/quaternion.hpp>
 
 namespace l_system_plugin {
+
+/// Default root rotation: maps the internal -Z forward to world +Y (upward).
+/// Equivalent to a 90-degree rotation around the X axis.
+inline const glm::quat kDefaultRootRotation(0.7071068f, 0.7071068f, 0.0f, 0.0f);
 
 typedef int LNodeHandle;
 typedef int LFlowHandle;
@@ -196,6 +201,7 @@ class LSystemGraph {
   void RemoveNodes(const std::vector<LNodeHandle>& node_handles);
 
   [[nodiscard]] LNodeHandle Extend(LNodeHandle target_handle, bool branching);
+  void ReparentNode(LNodeHandle target_handle, LNodeHandle new_parent_handle);
 
   [[nodiscard]] const std::vector<LNodeHandle>& PeekBaseNodeList();
   [[nodiscard]] const std::vector<LNodeHandle>& PeekSortedNodeList() const;
@@ -422,11 +428,13 @@ template <typename GraphData, typename FlowData, typename ModuleData>
 void LSystemGraph<GraphData, FlowData, ModuleData>::SortLists() {
   if (version_ == new_version_)
     return;
-  if (nodes_.empty())
-    return;
   version_ = new_version_;
   sorted_flow_list_.clear();
   sorted_node_list_.clear();
+  if (nodes_.empty()) {
+    base_node_list_.clear();
+    return;
+  }
   RefreshBaseNodeList();
   std::queue<LFlowHandle> flow_wait_list;
   std::queue<LNodeHandle> node_wait_list;
@@ -545,6 +553,39 @@ LNodeHandle LSystemGraph<GraphData, FlowData, ModuleData>::Extend(LNodeHandle ta
 }
 
 template <typename GraphData, typename FlowData, typename ModuleData>
+void LSystemGraph<GraphData, FlowData, ModuleData>::ReparentNode(
+    const LNodeHandle target_handle,
+    const LNodeHandle new_parent_handle) {
+  assert(target_handle >= 0 && new_parent_handle >= 0 &&
+         target_handle < static_cast<int>(nodes_.size()) &&
+         new_parent_handle < static_cast<int>(nodes_.size()));
+
+  if (target_handle == new_parent_handle) {
+    return;
+  }
+
+  auto& target_node = nodes_[target_handle];
+  if (target_node.parent_handle_ == new_parent_handle) {
+    return;
+  }
+
+  // Guard against introducing a cycle.
+  for (LNodeHandle walker = new_parent_handle; walker != -1; walker = nodes_[walker].parent_handle_) {
+    if (walker == target_handle) {
+      return;
+    }
+  }
+
+  if (target_node.parent_handle_ != -1) {
+    DetachChildNode(target_node.parent_handle_, target_handle);
+  }
+
+  nodes_[new_parent_handle].end_node_ = false;
+  SetParentNode(target_handle, new_parent_handle);
+  new_version_++;
+}
+
+template <typename GraphData, typename FlowData, typename ModuleData>
 const std::vector<LNodeHandle>& LSystemGraph<GraphData, FlowData, ModuleData>::PeekBaseNodeList() {
   RefreshBaseNodeList();
   return base_node_list_;
@@ -552,6 +593,10 @@ const std::vector<LNodeHandle>& LSystemGraph<GraphData, FlowData, ModuleData>::P
 
 template <typename GraphData, typename FlowData, typename ModuleData>
 void LSystemGraph<GraphData, FlowData, ModuleData>::RemoveNodes(const std::vector<LNodeHandle>& node_handles) {
+  if (node_handles.empty() || nodes_.empty()) {
+    return;
+  }
+
   SortLists();
   std::unordered_map<LNodeHandle, uint32_t> sorted_node_indices;
   std::unordered_map<LFlowHandle, uint32_t> sorted_flow_indices;
@@ -566,19 +611,43 @@ void LSystemGraph<GraphData, FlowData, ModuleData>::RemoveNodes(const std::vecto
   std::map<uint32_t, LFlowHandle> collected_flow_handle_set{};
 
   std::queue<LNodeHandle> processing_node_handles;
+  std::vector<uint8_t> visited(nodes_.size(), 0);
   for (const auto& i : node_handles) {
-    processing_node_handles.emplace(i);
+    if (i >= 0 && i < static_cast<LNodeHandle>(nodes_.size())) {
+      processing_node_handles.emplace(i);
+    }
   }
   while (!processing_node_handles.empty()) {
     auto node_handle = processing_node_handles.front();
     processing_node_handles.pop();
-    collected_node_handle_set[sorted_node_indices.at(node_handle)] = node_handle;
+    if (node_handle < 0 || node_handle >= static_cast<LNodeHandle>(nodes_.size())) {
+      continue;
+    }
+    if (visited[node_handle]) {
+      continue;
+    }
+    visited[node_handle] = 1;
+
+    const auto node_sorted_it = sorted_node_indices.find(node_handle);
+    if (node_sorted_it == sorted_node_indices.end()) {
+      continue;
+    }
+    collected_node_handle_set[node_sorted_it->second] = node_handle;
+
     const auto& node = nodes_[node_handle];
-    if (const auto& flow = flows_[node.flow_handle_]; !flow.nodes_.empty() && flow.nodes_.front() == node_handle) {
-      collected_flow_handle_set[sorted_flow_indices.at(node.flow_handle_)] = node.flow_handle_;
+    if (node.flow_handle_ >= 0 && node.flow_handle_ < static_cast<LFlowHandle>(flows_.size())) {
+      const auto& flow = flows_[node.flow_handle_];
+      if (!flow.nodes_.empty() && flow.nodes_.front() == node_handle) {
+        const auto flow_sorted_it = sorted_flow_indices.find(node.flow_handle_);
+        if (flow_sorted_it != sorted_flow_indices.end()) {
+          collected_flow_handle_set[flow_sorted_it->second] = node.flow_handle_;
+        }
+      }
     }
     for (const auto& child_node_handle : node.child_handles_) {
-      processing_node_handles.push(child_node_handle);
+      if (child_node_handle >= 0 && child_node_handle < static_cast<LNodeHandle>(nodes_.size())) {
+        processing_node_handles.push(child_node_handle);
+      }
     }
   }
 
@@ -594,6 +663,9 @@ void LSystemGraph<GraphData, FlowData, ModuleData>::RemoveNodes(const std::vecto
   // Remove nodes via swap-and-pop.
   for (uint32_t i = 0; i < sorted_node_handle_removal_list.size(); i++) {
     const auto removal_node_handle = sorted_node_handle_removal_list[i];
+    if (removal_node_handle < 0 || removal_node_handle >= static_cast<LNodeHandle>(nodes_.size())) {
+      continue;
+    }
     auto& node = nodes_[removal_node_handle];
     if (node.parent_handle_ != -1) {
       auto& parent_node = nodes_[node.parent_handle_];
@@ -604,16 +676,18 @@ void LSystemGraph<GraphData, FlowData, ModuleData>::RemoveNodes(const std::vecto
         }
       }
     }
-    auto& flow = flows_[node.flow_handle_];
-    for (int32_t fi = flow.nodes_.size() - 1; fi >= 0; --fi) {
-      if (flow.nodes_[fi] == removal_node_handle) {
-        flow.nodes_.erase(flow.nodes_.begin() + fi);
-        break;
+    if (node.flow_handle_ >= 0 && node.flow_handle_ < static_cast<LFlowHandle>(flows_.size())) {
+      auto& flow = flows_[node.flow_handle_];
+      for (int32_t fi = flow.nodes_.size() - 1; fi >= 0; --fi) {
+        if (flow.nodes_[fi] == removal_node_handle) {
+          flow.nodes_.erase(flow.nodes_.begin() + fi);
+          break;
+        }
       }
     }
     if (removal_node_handle != static_cast<int>(nodes_.size()) - 1) {
       auto& repair_node = nodes_[removal_node_handle];
-      repair_node = nodes_.back();
+      repair_node = std::move(nodes_.back());
       const auto repair_node_handle = static_cast<int>(nodes_.size()) - 1;
       repair_node.handle_ = removal_node_handle;
       for (auto& handle : sorted_node_handle_removal_list) {
@@ -631,13 +705,17 @@ void LSystemGraph<GraphData, FlowData, ModuleData>::RemoveNodes(const std::vecto
         }
       }
       for (const auto& child_handle : repair_node.child_handles_) {
-        nodes_[child_handle].parent_handle_ = removal_node_handle;
+        if (child_handle >= 0 && child_handle < static_cast<LNodeHandle>(nodes_.size())) {
+          nodes_[child_handle].parent_handle_ = removal_node_handle;
+        }
       }
-      auto& repair_flow = flows_[repair_node.flow_handle_];
-      for (int32_t fi = repair_flow.nodes_.size() - 1; fi >= 0; --fi) {
-        if (repair_flow.nodes_[fi] == repair_node_handle) {
-          repair_flow.nodes_[fi] = removal_node_handle;
-          break;
+      if (repair_node.flow_handle_ >= 0 && repair_node.flow_handle_ < static_cast<LFlowHandle>(flows_.size())) {
+        auto& repair_flow = flows_[repair_node.flow_handle_];
+        for (int32_t fi = repair_flow.nodes_.size() - 1; fi >= 0; --fi) {
+          if (repair_flow.nodes_[fi] == repair_node_handle) {
+            repair_flow.nodes_[fi] = removal_node_handle;
+            break;
+          }
         }
       }
     }
@@ -647,6 +725,9 @@ void LSystemGraph<GraphData, FlowData, ModuleData>::RemoveNodes(const std::vecto
   // Remove flows via swap-and-pop.
   for (uint32_t i = 0; i < sorted_flow_handle_removal_list.size(); i++) {
     const auto removal_flow_handle = sorted_flow_handle_removal_list[i];
+    if (removal_flow_handle < 0 || removal_flow_handle >= static_cast<LFlowHandle>(flows_.size())) {
+      continue;
+    }
     auto& flow = flows_[removal_flow_handle];
     if (flow.parent_handle_ != -1 && flow.parent_handle_ < static_cast<int>(flows_.size())) {
       auto& parent_flow = flows_[flow.parent_handle_];
@@ -833,11 +914,13 @@ void LSystemGraph<GraphData, FlowData, ModuleData>::CalculateMinMax() {
 
 template <typename GraphData, typename FlowData, typename ModuleData>
 void LSystemGraph<GraphData, FlowData, ModuleData>::RefreshBaseNodeList() {
-  std::vector<LNodeHandle> temp;
-  for (const auto& i : base_node_list_)
-    if (nodes_[i].parent_handle_ == -1)
-      temp.emplace_back(i);
-  base_node_list_ = temp;
+  base_node_list_.clear();
+  base_node_list_.reserve(nodes_.size());
+  for (LNodeHandle i = 0; i < static_cast<LNodeHandle>(nodes_.size()); i++) {
+    if (nodes_[i].parent_handle_ == -1) {
+      base_node_list_.emplace_back(i);
+    }
+  }
 }
 
 template <typename GraphData, typename FlowData, typename ModuleData>

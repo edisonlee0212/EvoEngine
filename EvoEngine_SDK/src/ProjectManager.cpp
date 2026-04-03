@@ -65,6 +65,8 @@ void ProjectManager::SetupDefaultScene() {
       for (const auto& layer : Application::GetLayers()) {
         const auto layer_name = layer->GetLayerName();
         if (layers[layer_name]) {
+          if (layers[layer_name]["enable_inspection"])
+            layer->enable_inspection = layers[layer_name]["enable_inspection"].as<bool>();
           layer->Deserialize(layers[layer_name]);
         }
       }
@@ -154,6 +156,7 @@ void ProjectManager::SaveProject() {
   out << YAML::Key << "Layers" << YAML::Value << YAML::BeginMap;
   for (const auto& layer : Application::GetLayers()) {
     out << YAML::Key << layer->GetLayerName() << YAML::Value << YAML::BeginMap;
+    out << YAML::Key << "enable_inspection" << YAML::Value << layer->enable_inspection;
     layer->Serialize(out);
     out << YAML::EndMap;
   }

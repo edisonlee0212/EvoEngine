@@ -21,6 +21,17 @@ using namespace eco_sys_lab_plugin;
 #  include "MaizeLayer.hpp"
 using namespace digital_agriculture_plugin;
 #endif
+
+#ifdef LSYSTEM_PLUGIN
+#  include "LSystemLayer.hpp"
+using namespace l_system_plugin;
+#endif
+
+#ifdef DATASET_GENERATION_PLUGIN
+#  include <TasselPointCloudScanner.hpp>
+using namespace dataset_generation_plugin;
+#endif
+
 #include "EditorLayer.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
@@ -83,8 +94,14 @@ int main() {
   Application::PushLayer<SorghumLayer>("Sorghum Layer")->enable_inspection = true;
   Application::PushLayer<MaizeLayer>("Maize Layer")->enable_inspection = true;
 #endif
+#ifdef LSYSTEM_PLUGIN
+  Application::PushLayer<LSystemLayer>("LSystem Layer")->enable_inspection = true;
+#endif
 #ifdef ECOSYSLAB_PLUGIN
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+#endif
+#ifdef DATASET_GENERATION_PLUGIN
+  PrivateComponentRegistration<TasselPointCloudScanner>("TasselPointCloudScanner");
 #endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "DigitalAgriculture";

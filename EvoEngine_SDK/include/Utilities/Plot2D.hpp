@@ -1,6 +1,12 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <cfloat>
+#include <cmath>
+#include <type_traits>
+
 namespace evo_engine {
 
 /**
@@ -243,6 +249,7 @@ struct PlottedDistributionSettings {
   float speed = 0.01f;                   /**< Adjustment speed for distribution controls. */
   CurveDescriptorSettings mean_settings; /**< Settings for the mean curve. */
   CurveDescriptorSettings dev_settings;  /**< Settings for the deviation curve. */
+  bool show_uncertainty_preview = true;  /**< Displays mean +/- 1sigma and +/- 2sigma bands for float plots. */
   std::string tip;                       /**< Tooltip for the distribution in the UI. */
 };
 
@@ -289,6 +296,106 @@ struct PlottedDistribution {
    */
   T GetValue(float t) const;
 };
+
+inline void DrawPlottedDistributionUncertaintyPreview(const Plot2D<float>& mean_plot,
+                                                      const Plot2D<float>& deviation_plot,
+                                                      const char* preview_id) {
+  ImVec2 size = ImVec2(ImGui::GetContentRegionAvail().x, 130.0f);
+  if (size.x < 80.0f) {
+    size.x = 80.0f;
+  }
+
+  const ImVec2 pos = ImGui::GetCursorScreenPos();
+  ImGui::InvisibleButton(preview_id, size);
+
+  auto* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 min = pos;
+  const ImVec2 max = ImVec2(pos.x + size.x, pos.y + size.y);
+  draw_list->AddRectFilled(min, max, IM_COL32(26, 30, 34, 255), 4.0f);
+  draw_list->AddRect(min, max, IM_COL32(95, 104, 114, 255), 4.0f);
+
+  constexpr int kSamples = 128;
+  std::array<float, kSamples> mean_values{};
+  std::array<float, kSamples> sigma_values{};
+  float y_min = FLT_MAX;
+  float y_max = -FLT_MAX;
+  float max_sigma = 0.0f;
+
+  for (int i = 0; i < kSamples; i++) {
+    const float t = static_cast<float>(i) / static_cast<float>(kSamples - 1);
+    const float mean_v = mean_plot.GetValue(t);
+    const float sigma_v = std::max(0.0f, deviation_plot.GetValue(t));
+    mean_values[i] = mean_v;
+    sigma_values[i] = sigma_v;
+    max_sigma = std::max(max_sigma, sigma_v);
+    y_min = std::min(y_min, mean_v - 2.0f * sigma_v);
+    y_max = std::max(y_max, mean_v + 2.0f * sigma_v);
+  }
+
+  if (!std::isfinite(y_min) || !std::isfinite(y_max)) {
+    return;
+  }
+
+  if (std::abs(y_max - y_min) < 1e-5f) {
+    const float expand = std::max(0.1f, std::abs(y_max) * 0.1f + 0.1f);
+    y_min -= expand;
+    y_max += expand;
+  }
+
+  auto to_screen = [&](float t, float y) {
+    const float nx = std::clamp(t, 0.0f, 1.0f);
+    const float ny = std::clamp((y - y_min) / (y_max - y_min), 0.0f, 1.0f);
+    return ImVec2(
+        min.x + nx * (size.x - 1.0f),
+        max.y - ny * (size.y - 1.0f));
+  };
+
+  if (y_min < 0.0f && y_max > 0.0f) {
+    const ImVec2 a = to_screen(0.0f, 0.0f);
+    const ImVec2 b = to_screen(1.0f, 0.0f);
+    draw_list->AddLine(a, b, IM_COL32(140, 148, 156, 110), 1.0f);
+  }
+
+  std::array<ImVec2, kSamples> upper_2{};
+  std::array<ImVec2, kSamples> lower_2{};
+  std::array<ImVec2, kSamples> upper_1{};
+  std::array<ImVec2, kSamples> lower_1{};
+  std::array<ImVec2, kSamples> mean_line{};
+
+  for (int i = 0; i < kSamples; i++) {
+    const float t = static_cast<float>(i) / static_cast<float>(kSamples - 1);
+    upper_2[i] = to_screen(t, mean_values[i] + 2.0f * sigma_values[i]);
+    lower_2[i] = to_screen(t, mean_values[i] - 2.0f * sigma_values[i]);
+    upper_1[i] = to_screen(t, mean_values[i] + 1.0f * sigma_values[i]);
+    lower_1[i] = to_screen(t, mean_values[i] - 1.0f * sigma_values[i]);
+    mean_line[i] = to_screen(t, mean_values[i]);
+  }
+
+  auto draw_band = [&](const std::array<ImVec2, kSamples>& upper,
+                       const std::array<ImVec2, kSamples>& lower,
+                       const ImU32 color) {
+    for (int i = 0; i < kSamples - 1; i++) {
+      const float sep0 = std::abs(upper[i].x - lower[i].x) + std::abs(upper[i].y - lower[i].y);
+      const float sep1 = std::abs(upper[i + 1].x - lower[i + 1].x) +
+                         std::abs(upper[i + 1].y - lower[i + 1].y);
+      if (sep0 <= 1e-4f && sep1 <= 1e-4f) {
+        continue;
+      }
+      draw_list->AddQuadFilled(upper[i], upper[i + 1], lower[i + 1], lower[i], color);
+    }
+  };
+
+  if (max_sigma > 1e-6f) {
+    draw_band(upper_2, lower_2, IM_COL32(66, 153, 225, 55));
+    draw_band(upper_1, lower_1, IM_COL32(120, 190, 255, 100));
+  }
+
+  draw_list->AddPolyline(mean_line.data(), kSamples, IM_COL32(245, 245, 245, 255), 0, 1.7f);
+
+  draw_list->AddText(ImVec2(min.x + 8.0f, min.y + 6.0f), IM_COL32(240, 240, 240, 255), "mean");
+  draw_list->AddText(ImVec2(min.x + 54.0f, min.y + 6.0f), IM_COL32(160, 220, 255, 255), "+/-1sigma");
+  draw_list->AddText(ImVec2(min.x + 128.0f, min.y + 6.0f), IM_COL32(120, 180, 255, 255), "+/-2sigma");
+}
 
 /**
  * @brief Serializes the single distribution data to a YAML emitter.
@@ -388,6 +495,13 @@ bool PlottedDistribution<T>::OnInspect(const std::string& name, const PlottedDis
       ImGui::BeginTooltip();
       ImGui::TextUnformatted(settings.tip.c_str());
       ImGui::EndTooltip();
+    }
+    if constexpr (std::is_same_v<T, float>) {
+      if (settings.show_uncertainty_preview) {
+        ImGui::TextUnformatted("Uncertainty Preview");
+        const std::string preview_id = "uncertainty_preview##" + name;
+        DrawPlottedDistributionUncertaintyPreview(mean, deviation, preview_id.c_str());
+      }
     }
     auto mean_title = name + " (mean)";
     const auto dev_title = name + " (deviation)";

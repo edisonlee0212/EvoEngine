@@ -1530,6 +1530,8 @@ void EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
       }
     }
   }
+  // Forward to subsequent layers.
+  ILayer::OnInputEvent(input_event);
 }
 
 void EditorLayer::ResizeCameras() {

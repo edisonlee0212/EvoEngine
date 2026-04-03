@@ -10,6 +10,7 @@
 #include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
 #include "TreeModel/DevelopmentalStrandModel/DevelopmentalStrandModel.hpp"
+#include "TreeModel/DevelopmentalStrandModel/RootDevelopmentalStrandModel.hpp"
 #include "StrandModelMeshGenerator.hpp"
 #include "TreeControllers.hpp"
 #include "TreeDescriptor.hpp"
@@ -240,6 +241,7 @@ class Tree : public IPrivateComponent {
   StrandModel shoot_strand_model{};  ///< The strand-based model representation (post-hoc rebuild).
 
   DevelopmentalStrandModel developmental_strand_model{};  ///< Unified model for incremental strand co-evolution with growth.
+  RootDevelopmentalStrandModel root_developmental_strand_model{};  ///< Root strand model co-evolving with root skeleton growth.
   bool developmental_strand_renderer_dirty = false;  ///< Deferred renderer refresh flag (set during growth, consumed on main thread).
   bool developmental_strand_foliage_enabled = true;  ///< Whether to render instanced foliage on procedural strands.
   bool developmental_strand_fruit_enabled = true;    ///< Whether to render instanced fruit on procedural strands.

@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "DevelopmentalStrandModelData.hpp"
+#include "RootDevelopmentalStrandModelData.hpp"
 #include "StrandModelParameters.hpp"
 
 namespace eco_sys_lab_plugin {
@@ -117,7 +118,8 @@ class GpuProfileSimulator {
    *        with enable=2 (frozen), making them immovable collision obstacles. Boundary
    *        particles remain fully active. When false, all particles on active profiles are active.
    */
-  void UploadFromSkeleton(DevelopmentalStrandModelSkeleton& skeleton,
+  template <typename SkeletonT>
+  void UploadFromSkeleton(SkeletonT& skeleton,
                           const std::vector<SkeletonNodeHandle>& active_nodes,
                           bool freeze_interior = false);
 
@@ -132,7 +134,8 @@ class GpuProfileSimulator {
    * @brief Downloads GPU particle positions back into the CPU skeleton profiles.
    * @param skeleton The skeleton whose profiles will be updated with GPU results.
    */
-  void DownloadToSkeleton(DevelopmentalStrandModelSkeleton& skeleton);
+  template <typename SkeletonT>
+  void DownloadToSkeleton(SkeletonT& skeleton);
 
   /**
    * @brief Uploads skeleton node transforms and metadata to the GPU.

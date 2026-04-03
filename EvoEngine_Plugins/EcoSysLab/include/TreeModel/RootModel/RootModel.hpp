@@ -27,6 +27,37 @@ class RootModel : public PlantModel {
   std::deque<RootSkeleton> root_history_;  ///< History of previous root skeleton states.
 
  public:
+  /// Records a topology addition (Extend) during a Grow() step.
+  struct GrowthEvent {
+    SkeletonNodeHandle parent_handle;  ///< The parent node that was extended.
+    SkeletonNodeHandle new_handle;     ///< The newly created node handle.
+    bool branching;                    ///< True if this was a branching event, false for prolongation.
+  };
+
+ private:
+  /// Records topology additions during a single Grow() step.
+  std::vector<GrowthEvent> growth_events_;
+
+  /// Ordered pruning batches removed during a single Grow() step.
+  /// Each batch is captured immediately before a RemoveNodes() call.
+  std::vector<std::vector<SkeletonNodeHandle>> pruning_event_batches_;
+
+  /// True if PruneRootNodes removed any nodes during the last Grow() call.
+  /// When true, growth_events_ are stale (handles invalidated by swap-and-pop removal).
+  bool pruning_occurred_ = false;
+
+ public:
+  /// Returns the growth events recorded during the last Grow() call.
+  [[nodiscard]] const std::vector<GrowthEvent>& PeekGrowthEvents() const { return growth_events_; }
+
+  /// Returns ordered pruning batches removed during the last Grow() call.
+  [[nodiscard]] const std::vector<std::vector<SkeletonNodeHandle>>& PeekPruningEventBatches() const {
+    return pruning_event_batches_;
+  }
+
+  /// Returns true if pruning occurred during the last Grow() call.
+  /// When true, growth events are invalidated and must not be used for incremental replay.
+  [[nodiscard]] bool PruningOccurred() const { return pruning_occurred_; }
   float shoot_skeleton_base_thickness = 0.0f;
 
   TreeGrowthSettings tree_growth_settings;  ///< Growth settings used for simulation.

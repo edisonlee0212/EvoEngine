@@ -3,6 +3,7 @@
 #include <IAsset.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "LSystemGraph.hpp"
 
 namespace l_system_plugin {
 
@@ -22,7 +23,7 @@ class LSystemDescriptor : public evo_engine::IAsset {
   int derivation_steps = 5;          ///< Number of derivation iterations.
   unsigned int seed = 42;            ///< RNG seed for stochastic rules.
   glm::vec3 root_position = glm::vec3(0.0f);     ///< World-space root position.
-  glm::quat root_rotation = glm::quat(1, 0, 0, 0); ///< World-space root rotation.
+  glm::quat root_rotation = kDefaultRootRotation;   ///< World-space root rotation (default: upward).
   float default_length = 1.0f;       ///< Default internode length.
   float default_thickness = 0.1f;    ///< Default internode thickness.
   bool auto_derive_on_change = true; ///< Re-derive when parameters change in editor.

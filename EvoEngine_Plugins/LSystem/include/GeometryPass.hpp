@@ -15,7 +15,8 @@ namespace l_system_plugin {
  * This is the graph-primary equivalent of a turtle interpreter. It does NOT
  * interpret a linear string — it operates directly on graph node references.
  *
- * Convention: forward direction is -Z (matching EvoEngine's default).
+ * Convention: forward direction is -Z in local space; default root rotation
+ * maps this to world +Y (upward growth).
  */
 struct GeometryPass {
   /**
@@ -91,10 +92,10 @@ void GeometryPass::Execute(
     // Child rotation = parent rotation composed with local rotation.
     if (local_rotation_fn) {
       glm::quat local_rot = local_rotation_fn(node, parent);
-      node.info.global_rotation = parent.info.global_rotation * local_rot;
+      node.info.global_rotation = glm::normalize(parent.info.global_rotation * local_rot);
     } else {
       // No local rotation — inherit parent direction.
-      node.info.global_rotation = parent.info.global_rotation;
+      node.info.global_rotation = glm::normalize(parent.info.global_rotation);
     }
   }
 }
@@ -113,7 +114,7 @@ void GeometryPass::Execute(
     auto& node = graph.RefNode(handle);
     if (node.GetParentHandle() == -1) {
       node.info.global_position = root_position;
-      node.info.global_rotation = root_rotation;
+      node.info.global_rotation = glm::normalize(root_rotation);
     }
   }
 

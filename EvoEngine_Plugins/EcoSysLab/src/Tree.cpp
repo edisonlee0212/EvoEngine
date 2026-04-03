@@ -463,6 +463,17 @@ void Tree::Reset() {
   developmental_strand_model.gpu_resident_rendering = keep_gpu_resident_rendering;
   developmental_strand_model.gpu_packing_iterations = keep_gpu_packing_iterations;
   developmental_strand_model.seed = keep_proc_seed;
+
+  const bool keep_root_proc_enabled = root_developmental_strand_model.enabled;
+  const bool keep_root_gpu_profile_packing = root_developmental_strand_model.gpu_profile_packing;
+  const int keep_root_gpu_packing_iterations = root_developmental_strand_model.gpu_packing_iterations;
+  const int keep_root_proc_seed = root_developmental_strand_model.seed;
+  root_developmental_strand_model.Reset();
+  root_developmental_strand_model.enabled = keep_root_proc_enabled;
+  root_developmental_strand_model.gpu_profile_packing = keep_root_gpu_profile_packing;
+  root_developmental_strand_model.gpu_packing_iterations = keep_root_gpu_packing_iterations;
+  root_developmental_strand_model.seed = keep_root_proc_seed;
+
   developmental_strand_renderer_dirty = false;
   shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
   shoot_visualizer.Reset(shoot_model);
@@ -781,6 +792,35 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     ImGui::TreePop();
   }
+  if (ImGui::TreeNodeEx("Root Procedural Strand Model")) {
+    ImGui::Checkbox("Enable##RootProc", &root_developmental_strand_model.enabled);
+    ImGui::Checkbox("GPU Profile Packing##RootProc", &root_developmental_strand_model.gpu_profile_packing);
+    ImGui::DragInt("Iterations##RootProcStrand", &root_developmental_strand_model.gpu_packing_iterations, 1, 1, 500);
+    ImGui::Text("Strands: %zu",
+                root_developmental_strand_model.skeleton.data.HasStrandData()
+                    ? root_developmental_strand_model.skeleton.data.strand_data->strand_group.PeekStrands().size()
+                    : size_t(0));
+    if (ImGui::Button("Enable from Current Roots")) {
+      root_developmental_strand_model.Enable(root_model.PeekRootSkeleton(), strand_model_parameters);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Disable##RootProc")) {
+      root_developmental_strand_model.Disable();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset##RootProc")) {
+      root_developmental_strand_model.Reset();
+      ClearDevelopmentalStrandRenderer();
+    }
+    if (ImGui::Button("Build Procedural Root Strands")) {
+      InitializeDevelopmentalStrandRenderer();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear Procedural Root Strands")) {
+      ClearDevelopmentalStrandRenderer();
+    }
+    ImGui::TreePop();
+  }
   if (ImGui::Button("Build Strand Particles")) {
     InitializeStrandParticles();
   }
@@ -1023,6 +1063,20 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
         root_visualizer.ClearSelections();
       root_visualizer.need_update = true;
     }
+
+    // Root procedural strand update.
+    if (root_developmental_strand_model.enabled) {
+      if (!root_developmental_strand_model.skeleton.data.HasStrandData()) {
+        if (!root_model.PeekRootSkeleton().PeekRawNodes().empty()) {
+          root_developmental_strand_model.Enable(root_model.PeekRootSkeleton(), strand_model_parameters);
+        }
+      } else {
+        root_developmental_strand_model.OnGrowthStep(
+          root_model.PeekRootSkeleton(), root_model.PeekGrowthEvents(),
+          root_model.PeekPruningEventBatches(), root_model.PruningOccurred(), strand_model_parameters);
+      }
+      developmental_strand_renderer_dirty = true;
+    }
   }
 
   // Centralized source/sink update and distribution for both systems.
@@ -1054,6 +1108,7 @@ void Tree::Serialize(YAML::Emitter& out) const {
 
   strand_model_parameters.Save("strand_model_parameters", out);
   developmental_strand_model.Save("developmental_strand_model", out);
+  root_developmental_strand_model.Save("root_developmental_strand_model", out);
   tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
   shoot_strand_model.Save("shoot_strand_model", out);
   shoot_model.Save("shoot_model", out);
@@ -1085,6 +1140,7 @@ void Tree::Deserialize(const YAML::Node& in) {
 
   strand_model_parameters.Load("strand_model_parameters", in);
   developmental_strand_model.Load("developmental_strand_model", in);
+  root_developmental_strand_model.Load("root_developmental_strand_model", in);
   tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
 
   shoot_strand_model.Load("shoot_strand_model", in);

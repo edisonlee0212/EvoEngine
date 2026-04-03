@@ -1505,6 +1505,40 @@ void Tree::InitializeDevelopmentalStrandRenderer() {
       particles->material = fruit_material;
     }
   }
+
+  // --- Root strands ---
+  if (root_developmental_strand_model.enabled) {
+    root_developmental_strand_model.ApplyProfiles(strand_model_parameters);
+    const auto root_strands_asset = root_developmental_strand_model.GenerateStrands(strand_model_parameters.node_max_count);
+    if (root_strands_asset) {
+      const auto root_strands_entity = scene->CreateEntity("Developmental Root Strands");
+      scene->SetParent(root_strands_entity, owner);
+
+      const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(root_strands_entity).lock();
+      renderer->strands = root_strands_asset;
+
+      // Dark root (thick primary, 25+ strands).
+      const auto mat_old = AssetManager::CreateTemporaryAsset<Material>();
+      renderer->material = mat_old;
+      mat_old->material_properties.albedo_color = glm::vec3(0.20f, 0.10f, 0.04f);
+      mat_old->material_properties.roughness = 0.95f;
+      mat_old->material_properties.metallic = 0.0f;
+
+      // Medium root (intermediate, 10-25 strands).
+      const auto mat_adolescent = AssetManager::CreateTemporaryAsset<Material>();
+      renderer->material_adolescent = mat_adolescent;
+      mat_adolescent->material_properties.albedo_color = glm::vec3(0.35f, 0.22f, 0.10f);
+      mat_adolescent->material_properties.roughness = 0.8f;
+      mat_adolescent->material_properties.metallic = 0.0f;
+
+      // Light root (fine rootlets, 0-10 strands).
+      const auto mat_young = AssetManager::CreateTemporaryAsset<Material>();
+      renderer->material_young = mat_young;
+      mat_young->material_properties.albedo_color = glm::vec3(0.55f, 0.40f, 0.20f);
+      mat_young->material_properties.roughness = 0.6f;
+      mat_young->material_properties.metallic = 0.0f;
+    }
+  }
 }
 
 void Tree::UpdateDevelopmentalStrandRenderer() {
@@ -1788,6 +1822,74 @@ void Tree::UpdateDevelopmentalStrandRenderer() {
   } else if (existing_fruit_entity.GetIndex() != 0) {
     scene->DeleteEntity(existing_fruit_entity);
   }
+
+  // --- Update root strands ---
+  if (root_developmental_strand_model.enabled) {
+    Entity root_strands_entity{};
+    for (const auto& child : scene->GetChildren(owner)) {
+      if (scene->GetEntityName(child) == "Developmental Root Strands") {
+        root_strands_entity = child;
+        break;
+      }
+    }
+
+    root_developmental_strand_model.ApplyProfiles(strand_model_parameters);
+
+    if (root_developmental_strand_model.skeleton.data.HasStrandData()) {
+      std::vector<glm::uint> strands_list;
+      std::vector<StrandPoint> points;
+      root_developmental_strand_model.skeleton.data.strand_data->strand_group.BuildStrands(
+          strands_list, points, strand_model_parameters.node_max_count);
+      if (!strands_list.empty() && points.size() >= 4) {
+        strands_list.emplace_back(points.size());
+
+        StrandPointAttributes strand_point_attributes{};
+        strand_point_attributes.color = true;
+
+        if (root_strands_entity.GetIndex() == 0) {
+          root_strands_entity = scene->CreateEntity("Developmental Root Strands");
+          scene->SetParent(root_strands_entity, owner, false);
+          scene->SetDataComponent<Transform>(root_strands_entity, Transform{});
+          const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(root_strands_entity).lock();
+
+          const auto strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
+          strands_asset->SetStrands(strand_point_attributes, strands_list, points);
+          renderer->strands = strands_asset;
+
+          // Dark root (thick primary, 25+ strands).
+          const auto mat_old = AssetManager::CreateTemporaryAsset<Material>();
+          renderer->material = mat_old;
+          mat_old->material_properties.albedo_color = glm::vec3(0.20f, 0.10f, 0.04f);
+          mat_old->material_properties.roughness = 0.95f;
+          mat_old->material_properties.metallic = 0.0f;
+
+          // Medium root (intermediate, 10-25 strands).
+          const auto mat_adolescent = AssetManager::CreateTemporaryAsset<Material>();
+          renderer->material_adolescent = mat_adolescent;
+          mat_adolescent->material_properties.albedo_color = glm::vec3(0.35f, 0.22f, 0.10f);
+          mat_adolescent->material_properties.roughness = 0.8f;
+          mat_adolescent->material_properties.metallic = 0.0f;
+
+          // Light root (fine rootlets, 0-10 strands).
+          const auto mat_young = AssetManager::CreateTemporaryAsset<Material>();
+          renderer->material_young = mat_young;
+          mat_young->material_properties.albedo_color = glm::vec3(0.55f, 0.40f, 0.20f);
+          mat_young->material_properties.roughness = 0.6f;
+          mat_young->material_properties.metallic = 0.0f;
+        } else {
+          scene->SetDataComponent<Transform>(root_strands_entity, Transform{});
+          const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(root_strands_entity).lock();
+
+          auto strands_asset = renderer->strands.Get<Strands>();
+          if (!strands_asset) {
+            strands_asset = AssetManager::CreateTemporaryAsset<Strands>();
+            renderer->strands = strands_asset;
+          }
+          strands_asset->SetStrands(strand_point_attributes, strands_list, points);
+        }
+      }
+    }
+  }
 }
 
 void Tree::ClearDevelopmentalStrandRenderer() const {
@@ -1797,7 +1899,8 @@ void Tree::ClearDevelopmentalStrandRenderer() const {
   for (const auto& child : children) {
     const auto name = scene->GetEntityName(child);
     if (name == "Developmental Strands" || name.find("Developmental Foliage") == 0 ||
-        name == "Developmental Fruit" || name == "Procedural Surface Mesh") {
+        name == "Developmental Fruit" || name == "Procedural Surface Mesh" ||
+        name == "Developmental Root Strands") {
       scene->DeleteEntity(child);
     }
   }

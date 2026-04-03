@@ -724,7 +724,6 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
   }
 
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<Particles>()) {
-    EVOENGINE_LOG("CollectEntityRenderers: Particles owners count=" + std::to_string(owners->size()))
     for (auto owner : *owners) {
       if (!target_scene->IsEntityEnabled(owner))
         continue;
@@ -738,7 +737,6 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
   }
 
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<StrandsRenderer>()) {
-    EVOENGINE_LOG("CollectEntityRenderers: StrandsRenderer owners count=" + std::to_string(owners->size()))
     for (auto owner : *owners) {
       if (!target_scene->IsEntityEnabled(owner))
         continue;
@@ -1573,14 +1571,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   } else {
     deferred_strands_render_instances->Register(render_instance);
   }
-
-  EVOENGINE_LOG("RegisterEntity<StrandsRenderer> OK: entity=" + target_scene->GetEntityName(owner) +
-                " seg_idx=" + std::to_string(strands->segment_range_->index_count) +
-                " seg_prev_idx=" + std::to_string(strands->segment_range_->prev_frame_index_count) +
-                " seg_offset=" + std::to_string(strands->segment_range_->offset) +
-                " seg_prev_offset=" + std::to_string(strands->segment_range_->prev_frame_offset) +
-                " segments=" + std::to_string(strands->segments_.size()) +
-                " deferred=" + std::to_string(!material->draw_settings.blending))
 
   total_strands_segments += strands->segments_.size();
   return true;
