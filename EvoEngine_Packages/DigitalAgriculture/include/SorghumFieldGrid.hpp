@@ -29,6 +29,8 @@ class SorghumFieldGrid final : public IPrivateComponent {
   FieldIlluminationStats illumination_stats;
 
   void RecreateField();
+  void CalculateIlluminationForField();
+  bool CalculateAndExportFieldIlluminationTest();
 
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Serialize(YAML::Emitter& out) const override;
