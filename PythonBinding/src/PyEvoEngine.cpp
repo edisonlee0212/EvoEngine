@@ -1,9 +1,28 @@
 #include "PyEvoEngine.hpp"
+#include "Transform.hpp"
 #ifdef CUDA_MODULE_PLUGIN
 #  include "RayTracerLayer.hpp"
 #endif
 using namespace py_evo_engine;
 namespace py = pybind11;
+
+void set_camera_position(const float x, const float y, const float z,
+                         const float pitch_deg, const float yaw_deg) {
+  const auto scene = Application::GetActiveScene();
+  if (!scene) { EVOENGINE_ERROR("No active scene!"); return; }
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  if (!main_camera) { EVOENGINE_ERROR("No main camera in scene!"); return; }
+  const auto camera_entity = main_camera->GetOwner();
+  GlobalTransform gt;
+  gt.SetPosition({x, y, z});
+  // pitch = rotation about X axis (look down = negative pitch in radians)
+  // yaw   = rotation about Y axis
+  const float pitch_rad = glm::radians(pitch_deg);
+  const float yaw_rad   = glm::radians(yaw_deg);
+  gt.SetEulerRotation({pitch_rad, yaw_rad, 0.0f});
+  scene->SetDataComponent(camera_entity, gt);
+  Application::Loop();
+}
 
 void capture_current_scene(const int resolution_x, const int resolution_y, const std::string& output_path) {
   if (resolution_x <= 0 || resolution_y <= 0) {
@@ -148,6 +167,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("Run", &Run);
   m.def("Loop", &Loop);
   m.def("Terminate", &Terminate);
+  m.def("CaptureCurrentScene", &capture_current_scene,
+        py::arg("resolution_x"), py::arg("resolution_y"), py::arg("output_path"));
+  m.def("SetCameraPosition", &set_camera_position,
+        py::arg("x"), py::arg("y"), py::arg("z"),
+        py::arg("pitch_deg"), py::arg("yaw_deg"));
 
   py::class_<Handle>(m, "Handle").def(py::init<>()).def("GetValue", &Handle::GetValue);
   m.def("CreateRuntimeAsset", &CreateRuntimeAsset);

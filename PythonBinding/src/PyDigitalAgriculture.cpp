@@ -79,6 +79,12 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   m.def("CheckBTFComponentsExist", &CheckBTFComponentsExist);
   m.def("SetCBTFGroup", &SetCBTFGroup);
   m.def("SetSkyDome", &SetSkyDome);
+  m.def("SetIlluminationSamples", &SetIlluminationSamples,
+        py::arg("samples"), py::arg("bounces") = 4);
+  m.def("CreateReferenceSensor", &CreateReferenceSensor,
+        py::arg("x"), py::arg("y"), py::arg("z"));
+  m.def("SetDirectLightSource", &SetDirectLightSource,
+        py::arg("par_direct_umol"), py::arg("par_diffuse_umol"));
   m.def("PushRayTracerLayer", &PushRayTracerLayer);
   m.def("SetSunDirection", &SetSunDirection);
   m.def("SetPARSensors", &SetPARSensors);
@@ -185,6 +191,54 @@ void PyDigitalAgriculture::SetSkyDome() {
                              << ray_tracer_layer->environment_properties.sun_direction.y << ","
                              << ray_tracer_layer->environment_properties.sun_direction.z )
 
+}
+
+void PyDigitalAgriculture::SetIlluminationSamples(int samples, int bounces) {
+  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  sorghum_layer->ray_properties.samples = samples;
+  sorghum_layer->ray_properties.bounces = bounces;
+  EVOENGINE_LOG("SetIlluminationSamples: samples=" << samples << " bounces=" << bounces)
+}
+
+Handle PyDigitalAgriculture::CreateReferenceSensor(float x, float y, float z) {
+  // Create a PARSensorGroup with a single upward-facing degenerate-triangle probe.
+  // The probe sits at (x, y, z) with normal = (0,1,0) so it integrates the upper hemisphere.
+  // Placed outside the field footprint it measures unobstructed Nishita sky flux,
+  // which is used to normalise plant average_flux results to physical PAR units.
+  auto sensor_group_handle = PyEvoEngine::CreateRuntimeAsset("PARSensorGroup");
+  auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
+  const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
+  sensors->samplers.resize(1);
+  auto& s = sensors->samplers[0];
+  const glm::vec3 pos(x, y, z);
+  s.v_0.position = s.v_1.position = s.v_2.position = pos;
+  s.v_0.normal   = s.v_1.normal   = s.v_2.normal   = glm::vec3(0.0f, 1.0f, 0.0f);
+  s.front_face = true;
+  s.back_face  = false;
+  EVOENGINE_LOG("CreateReferenceSensor at (" << x << "," << y << "," << z << ")")
+  return sensor_group_handle;
+}
+
+void PyDigitalAgriculture::SetDirectLightSource(float par_direct_umol, float par_diffuse_umol) {
+  // Switch to SingleLightSource mode so the Miss function returns a uniform sky radiance
+  // equal to par_direct_umol from every hemisphere direction. This gives:
+  //   probe.energy ≈ par_direct_umol × 0.5  (hemisphere-averaged cosine factor)
+  // Multiply by 2.0 in Python to recover PARa in µmol m⁻² s⁻¹.
+  //
+  // ambient_light_intensity is applied per-bounce in ClosestHitFunc as:
+  //   energy += color × ambient_light_intensity × leaf_albedo
+  // Setting it to par_diffuse / par_direct encodes the diffuse fraction of the sky.
+  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  auto& env = ray_tracer_layer->environment_properties;
+  env.environmental_lighting_type = EnvironmentalLightingType::SingleLightSource;
+  env.color = glm::vec3(1.0f, 1.0f, 1.0f);
+  env.skylight_intensity = par_direct_umol;
+  env.ambient_light_intensity = (par_direct_umol > 0.0f)
+      ? (par_diffuse_umol / par_direct_umol) : 0.0f;
+  env.light_size = 0.0f;  // collimated: all shadow-test rays point exactly at sun_direction
+  EVOENGINE_LOG("SetDirectLightSource: par_direct=" << par_direct_umol
+                << " par_diffuse=" << par_diffuse_umol
+                << " ambient_ratio=" << env.ambient_light_intensity)
 }
 
 

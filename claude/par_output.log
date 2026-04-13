@@ -1,0 +1,57 @@
+[EvoEngine]Log: Optix: running on device: NVIDIA GeForce RTX 2070 SUPER (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\CudaModule\src\OptiXRayTracer.cu: line 558)
+==========
+[EvoEngine]Error: Model is empty! (C:\Users\Brenda\code\EvoEngine\EvoEngine_SDK\src\Prefab.cpp: line 856)
+==========
+[EvoEngine]Log: Found and loaded project (C:\Users\Brenda\code\EvoEngine\EvoEngine_SDK\src\ProjectManager.cpp: line 65)
+==========
+Traceback (most recent call last):
+  File "C:\Users\Brenda\code\EvoEngine\claude\sorghum_par_no_unicode.py", line 700, in <module>
+    par_data, validation_results = main()
+  File "C:\Users\Brenda\code\EvoEngine\claude\sorghum_par_no_unicode.py", line 643, in main
+    sorghum_entity = setup_leaf_geometry()
+  File "C:\Users\Brenda\code\EvoEngine\claude\sorghum_par_no_unicode.py", line 287, in setup_leaf_geometry
+    print("  \u2139 BTF not available - using default materials")
+  File "C:\Users\Brenda\AppData\Local\Programs\Python\Python39\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2139' in position 2: character maps to <undefined>
+OK Using pvlib for solar position calculations
+================================================================================
+SORGHUM SINGLE LEAF DAILY PAR CALCULATION - EvoEngine Ray Tracing
+================================================================================
+Location: 33.07°N, -111.97°W (Maricopa, AZ)
+Date: 2024-06-13
+Time range: 6:00 - 20:00 (hourly)
+Leaf: 50 cm × 6 cm, 30° angle
+================================================================================
+
+EvoEngine directory: C:\Users\Brenda\code\EvoEngine
+Library directory: C:\Users\Brenda\code\EvoEngine\out\build\x64-Release\PythonBinding
+OK EvoEngine PyDigitalAgriculture loaded successfully
+
+Checking API compatibility...
+
+WARNING WARNING: Optional APIs missing (will use default materials):
+  • EnableBTF
+  • SetCBTFGroup
+  • SetSkyDome
+
+OK All required APIs present
+
+Step 1: Calculating solar positions...
+OK Generated 15 solar positions
+  Daylight hours: 14 (elevation > 0°)
+
+Step 2: Initializing EvoEngine...
+Initializing EvoEngine framework...
+  Using project file: C:\Users\Brenda\code\EvoEngine\Resources\DigitalAgricultureProject\test.eveproj
+OK EvoEngine initialized with ray tracing enabled
+
+Step 3: Setting up leaf geometry...
+Setting up single sorghum leaf geometry...
+
+================================================================================
+ERROR OCCURRED
+================================================================================
+'charmap' codec can't encode character '\u2139' in position 2: character maps to <undefined>
+
+================================================================================

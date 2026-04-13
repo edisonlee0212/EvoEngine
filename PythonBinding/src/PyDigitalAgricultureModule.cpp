@@ -46,6 +46,12 @@ void GenerateDataForAllSorghums(const bool use_gpu, const SorghumGantryCaptureSe
   DatasetGenerator::GenerateDataForAllSorghums(data_generation_parameters);
 }
 
+void GenerateSorghumMesh(const SorghumMeshGeneratorSettings& mesh_settings) {
+  Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(mesh_settings);
+  Application::Loop();
+  Application::Loop();
+}
+
 PYBIND11_MODULE(PyDigitalAgriculture, m) {
   m.doc() = "PyDigitalAgriculture";  // optional module docstring
   PyDigitalAgriculture::Initialize(m);
@@ -54,5 +60,7 @@ PYBIND11_MODULE(PyDigitalAgriculture, m) {
         "Generate data point for all existing sorghum(s) in current scene");
   m.def("InitiateSorghumEntity", &InitiateSorghumEntity,
         "Initialize a sorghum entity with proper components set in the sorghum layer in the scene");
+  m.def("GenerateSorghumMesh", &GenerateSorghumMesh,
+        "Generate mesh for all sorghum entities currently in the scene");
 }
 #endif

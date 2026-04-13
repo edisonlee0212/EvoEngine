@@ -1,0 +1,294 @@
+[EvoEngine]Log: Optix: running on device: NVIDIA GeForce RTX 2070 SUPER (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\CudaModule\src\OptiXRayTracer.cu: line 558)
+==========
+[EvoEngine]Error: Model is empty! (C:\Users\Brenda\code\EvoEngine\EvoEngine_SDK\src\Prefab.cpp: line 856)
+==========
+[EvoEngine]Log: Found and loaded project (C:\Users\Brenda\code\EvoEngine\EvoEngine_SDK\src\ProjectManager.cpp: line 65)
+==========
+[EvoEngine]Error: GetAsset failed: File not exist! (C:\Users\Brenda\code\EvoEngine\PythonBinding\src\PyEvoEngine.cpp: line 72)
+==========
+✓ Using pvlib for solar position calculations
+================================================================================
+SORGHUM SINGLE LEAF DAILY PAR CALCULATION - EvoEngine Ray Tracing
+================================================================================
+Location: 33.07°N, -111.97°W (Maricopa, AZ)
+Date: 2024-06-13
+Time range: 6:00 - 20:00 (hourly)
+Leaf: 50 cm × 6 cm, 30° angle
+================================================================================
+
+EvoEngine directory: C:\Users\Brenda\code\EvoEngine
+Library directory: C:\Users\Brenda\code\EvoEngine\out\build\x64-Release\PythonBinding
+✓ EvoEngine PyDigitalAgriculture loaded successfully
+
+Checking API compatibility...
+
+⚠ WARNING: Optional APIs missing (will use default materials):
+  • EnableBTF
+  • SetCBTFGroup
+  • SetSkyDome
+
+✓ All required APIs present
+
+Step 1: Calculating solar positions...
+✓ Generated 15 solar positions
+  Daylight hours: 14 (elevation > 0°)
+
+Step 2: Initializing EvoEngine...
+Initializing EvoEngine framework...
+  Using project file: C:\Users\Brenda\code\EvoEngine\Resources\DigitalAgricultureProject\test.eveproj
+✓ EvoEngine initialized with ray tracing enabled
+
+Step 3: Setting up leaf geometry...
+Setting up single sorghum leaf geometry...
+  ℹ BTF not available - using default materials
+  ⚠ BTF group not found or API unavailable - using default materials
+  Using sorghum descriptor: ./SorghumGenerator/Sample1.sorghum
+  Generating leaf mesh...
+  ✓ Single leaf mesh generated with configured settings
+  ℹ Sky dome API not available - using default lighting
+
+Step 4: Running ray-traced illumination...
+
+Running ray-traced illumination estimation...
+  Timesteps: 15
+  Method: EvoEngine GPU ray tracing with BTF leaf optics
+
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s][EvoEngine]Log: SetSunDirection: elevation=6.965466°, azimuth=66.730911°, air_mass=7.762040, transmittance=0.239041, intensity=9561.635742 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: Created new DirectionalLight entity for sun (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 463)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=432, time=06:00, zenith=83.0°][EvoEngine]Log: SetSunDirection: elevation=18.798870°, azimuth=73.976082°, air_mass=3.078097, transmittance=0.465607, intensity=18624.287109 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=838, time=07:00, zenith=71.2°][EvoEngine]Log: SetSunDirection: elevation=31.060387°, azimuth=80.916801°, air_mass=1.933092, transmittance=0.572560, intensity=22902.408203 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=1080, time=08:00, zenith=58.9°][EvoEngine]Log: SetSunDirection: elevation=43.563538°, azimuth=88.221626°, air_mass=1.449260, transmittance=0.632104, intensity=25284.164062 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=1233, time=09:00, zenith=46.4°][EvoEngine]Log: SetSunDirection: elevation=56.108917°, azimuth=97.133278°, air_mass=1.203824, transmittance=0.667325, intensity=26693.017578 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=1291, time=10:00, zenith=33.9°][EvoEngine]Log: SetSunDirection: elevation=68.304527°, azimuth=111.203949°, air_mass=1.075732, transmittance=0.687446, intensity=27497.820312 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=1255, time=11:00, zenith=21.7°][EvoEngine]Log: SetSunDirection: elevation=78.406853°, azimuth=145.951584°, air_mass=1.020455, transmittance=0.696557, intensity=27862.287109 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=1133, time=12:00, zenith=11.6°][EvoEngine]Log: SetSunDirection: elevation=77.953209°, azimuth=217.575165°, air_mass=1.022144, transmittance=0.696275, intensity=27850.990234 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=941, time=13:00, zenith=12.0°] [EvoEngine]Log: SetSunDirection: elevation=67.579506°, azimuth=249.992065°, air_mass=1.081251, transmittance=0.686551, intensity=27462.027344 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=725, time=14:00, zenith=22.4°][EvoEngine]Log: SetSunDirection: elevation=55.340744°, azimuth=263.524750°, air_mass=1.214849, transmittance=0.665654, intensity=26626.160156 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=543, time=15:00, zenith=34.7°][EvoEngine]Log: SetSunDirection: elevation=42.791916°, azimuth=272.276764°, air_mass=1.470137, transmittance=0.629285, intensity=25171.404297 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=435, time=16:00, zenith=47.2°][EvoEngine]Log: SetSunDirection: elevation=30.300638°, azimuth=279.534119°, air_mass=1.976485, transmittance=0.567739, intensity=22709.552734 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=532, time=17:00, zenith=59.7°][EvoEngine]Log: SetSunDirection: elevation=18.062782°, azimuth=286.478394°, air_mass=3.196724, transmittance=0.456455, intensity=18258.207031 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=560, time=18:00, zenith=71.9°][EvoEngine]Log: SetSunDirection: elevation=6.266577°, azimuth=293.761719°, air_mass=8.515831, transmittance=0.217853, intensity=8714.115234 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 451)
+==========
+[EvoEngine]Log: CalculateIllumination: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 354)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing 2 entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 361)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 1, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing entity 0, estimator valid: 1 (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 372)
+==========
+[EvoEngine]Log: CalculateIllumination: Processing complete (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 367)
+==========
+[EvoEngine]Log: GetAllIlluminationResults: Found 2 sorghum entities (C:\Users\Brenda\code\EvoEngine\EvoEngine_Plugins\DigitalAgriculture\src\SorghumLayer.cpp: line 488)
+==========
+Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=344, time=19:00, zenith=83.7°]Ray tracing:   0%|          | 0/15 [00:00<?, ?hour/s, PAR=Night, time=20:00, zenith=94.8°]Ray tracing: 100%|██████████| 15/15 [00:00<00:00, 468.64hour/s, PAR=Night, time=20:00, zenith=94.8°]
+
+✓ Ray-traced illumination complete
+  Peak PAR: 1291.2 μmol m⁻² s⁻¹
+  Mean PAR (daylight): 810.1 μmol m⁻² s⁻¹
+
+Step 5: Saving results...
+✓ Saved CSV: evoengine_par_results\hourly_PAR_maricopa_june13_evoengine.csv
+
+Step 6: Validating results...
+
+================================================================================
+VALIDATION RESULTS
+================================================================================
+Total daily PAR integral: 40.83 mol photons m⁻² day⁻¹
+Expected range (clear sky): 30-50 mol photons m⁻² day⁻¹
+
+✓ VALIDATION PASSED: Daily PAR within expected range
+================================================================================
+
+Step 7: Creating visualization...
+✓ Saved visualization: evoengine_par_results\daily_par_visualization.png
+
+Step 8: Cleaning up...
+✓ EvoEngine terminated
+
+================================================================================
+SUMMARY
+================================================================================
+EvoEngine build: C:\Users\Brenda\code\EvoEngine
+Output directory: evoengine_par_results
+Data file: hourly_PAR_maricopa_june13_evoengine.csv
+Visualization: daily_par_visualization.png
+
+Peak PAR: 1291.2 μmol m⁻² s⁻¹ at 10:00
+Daily PAR integral: 40.83 mol m⁻² day⁻¹
+Validation: PASS
+
+Ray tracing method: EvoEngine GPU with BTF leaf optics
+Mesh vertices analyzed: ~0 per leaf
+================================================================================

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(nul)",
+      "Bash(python3.9:*)",
+      "Bash(PYTHONIOENCODING=utf-8 py:*)",
+      "Bash(env PYTHONIOENCODING=utf-8 py:*)",
+      "Bash(ninja PyDigitalAgriculture)",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
