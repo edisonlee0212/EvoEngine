@@ -29,8 +29,8 @@ bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, uns
 
   ImGuiWindow* parent_window = ImGui::GetCurrentWindow();
   if (ImGuiID id = parent_window->GetID(label.c_str());
-      !ImGui::BeginChildFrame(id, size, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-    ImGui::EndChildFrame();
+      !ImGui::BeginChild(id, size, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+    ImGui::EndChild();
     return false;
   }
 
@@ -38,7 +38,7 @@ bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, uns
 
   ImGuiWindow* window = ImGui::GetCurrentWindow();
   if (window->SkipItems) {
-    ImGui::EndChildFrame();
+    ImGui::EndChild();
     return false;
   }
 
@@ -378,7 +378,7 @@ bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, uns
     }
   }
 
-  ImGui::EndChildFrame();
+  ImGui::EndChild();
   if (!((unsigned)flags & (unsigned)CurveEditorFlags::DisableStartEndY)) {
     if (no_tangent) {
       if (ImGui::SliderFloat("Begin Y", &values.front().y, min_.y, max_.y)) {

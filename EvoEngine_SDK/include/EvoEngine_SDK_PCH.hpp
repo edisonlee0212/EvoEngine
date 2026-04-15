@@ -53,35 +53,35 @@
 #endif
 
 /// OpenGL and Vulkan Libraries
-
 #include "volk.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0   ///< Disables static Vulkan functions for VMA
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1  ///< Enables dynamic Vulkan functions for VMA
 #include "vk_mem_alloc.h"
 
+#define IMGUI_IMPL_VULKAN_USE_VOLK
+#define IMGUI_DEFINE_MATH_OPERATORS  ///< Enables math operators in ImGui
+#undef Status
+#include <imgui.h>
+#include <imgui_internal.h>
+#define IMGUI_IMPL_GLFW_DISABLE_X11
+#include <backends/imgui_impl_glfw.h>
+#include <backends/imgui_impl_vulkan.h>
+// #include <imgui_stdlib.hpp>
+
+#ifdef EVOENGINE_WINDOWS
+#  include <backends/imgui_impl_win32.h>
+#endif
+
 #define GLFW_INCLUDE_VULKAN  ///< Enables Vulkan support in GLFW
 #define GLFW_INCLUDE_NONE    ///< Disables default OpenGL bindings in GLFW
 #include "GLFW/glfw3.h"
 
-#define IMGUI_DEFINE_MATH_OPERATORS  ///< Enables math operators in ImGui
-#include <imgui.h>
-#include <imgui_internal.h>
-
-// #include <imgui_stdlib.hpp>
-
 #ifdef EVOENGINE_WINDOWS
 #  define GLFW_EXPOSE_NATIVE_WIN32  ///< Exposes native Win32 context for GLFW
-#  include "GLFW/glfw3native.h"
-#  define STBI_MSC_SECURE_CRT  ///< Configures CRT secure functions for stb_image on Windows
-// define something for Windows (32-bit and 64-bit, this part is common)
-#  include <backends/imgui_impl_glfw.h>
-#  include <backends/imgui_impl_vulkan.h>
-#  include <backends/imgui_impl_win32.h>
+#  define STBI_MSC_SECURE_CRT       ///< Configures CRT secure functions for stb_image on Windows
 #else
-// Linux specific includes
-#  include <backends/imgui_impl_vulkan.h>
-#  include <imgui_impl_glfw.h>
+#  define GLFW_EXPOSE_NATIVE_WAYLAND  ///< Exposes native Win32 context for GLFW
 #endif
 
 #include <ImGuizmo.h>

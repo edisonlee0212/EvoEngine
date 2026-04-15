@@ -3404,8 +3404,8 @@ IGFD_API bool IGFD::KeyExplorerFeature::prFlashableSelectable(const char* label,
   if ((flags & ImGuiSelectableFlags_NoPadWithHalfSpacing) == 0) {
     const float spacing_x = span_all_columns ? 0.0f : style.ItemSpacing.x;
     const float spacing_y = style.ItemSpacing.y;
-    const float spacing_L = IM_FLOOR(spacing_x * 0.50f);
-    const float spacing_U = IM_FLOOR(spacing_y * 0.50f);
+    const float spacing_L = std::floor(spacing_x * 0.50f);
+    const float spacing_U = std::floor(spacing_y * 0.50f);
     bb.Min.x -= spacing_L;
     bb.Min.y -= spacing_U;
     bb.Max.x += (spacing_x - spacing_L);
@@ -3460,7 +3460,7 @@ IGFD_API bool IGFD::KeyExplorerFeature::prFlashableSelectable(const char* label,
   if (flags & ImGuiSelectableFlags_AllowDoubleClick) {
     button_flags |= ImGuiButtonFlags_PressedOnClickRelease | ImGuiButtonFlags_PressedOnDoubleClick;
   }
-  if (flags & ImGuiSelectableFlags_AllowItemOverlap) {
+  if (flags & ImGuiSelectableFlags_AllowOverlap) {
     button_flags |= ImGuiButtonFlags_AllowOverlap;
   }
 
@@ -3484,17 +3484,17 @@ IGFD_API bool IGFD::KeyExplorerFeature::prFlashableSelectable(const char* label,
   // Update NavId when clicking or when Hovering (this doesn't happen on most widgets), so navigation can be resumed
   // with gamepad/keyboard
   if (pressed || (hovered && (flags & ImGuiSelectableFlags_SetNavIdOnHover))) {
-    if (!g.NavDisableMouseHover && g.NavWindow == window && g.NavLayer == window->DC.NavLayerCurrent) {
+    if (!g.NavHighlightItemUnderNav && g.NavWindow == window && g.NavLayer == window->DC.NavLayerCurrent) {
       SetNavID(id, window->DC.NavLayerCurrent, g.CurrentFocusScopeId,
                WindowRectAbsToRel(window, bb));  // (bb == NavRect)
-      g.NavDisableHighlight = true;
+      g.NavCursorVisible = false;
     }
   }
   if (pressed)
     MarkItemEdited(id);
 
-  if (flags & ImGuiSelectableFlags_AllowItemOverlap)
-    SetItemAllowOverlap();
+  if (flags & ImGuiSelectableFlags_AllowOverlap)
+    SetNextItemAllowOverlap();
 
   // In this branch, Selectable() cannot toggle the selection so this will never trigger.
   if (selected != was_selected)  //-V547
@@ -3523,7 +3523,7 @@ IGFD_API bool IGFD::KeyExplorerFeature::prFlashableSelectable(const char* label,
 
   // Automatically close popups
   if (pressed && (window->Flags & ImGuiWindowFlags_Popup) && !(flags & ImGuiSelectableFlags_DontClosePopups) &&
-      (g.LastItemData.InFlags & ImGuiItemFlags_AutoClosePopups))
+      (g.LastItemData.ItemFlags & ImGuiItemFlags_AutoClosePopups))
     CloseCurrentPopup();
 
   if (disabled_item && !disabled_global)

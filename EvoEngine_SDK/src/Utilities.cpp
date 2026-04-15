@@ -8,6 +8,16 @@
 #include "ProjectManager.hpp"
 #include "WindowLayer.hpp"
 
+#ifdef EVOENGINE_WINDOWS
+#  define GLFW_EXPOSE_NATIVE_WIN32  ///< Exposes native Win32 context for GLFW
+#  include "GLFW/glfw3native.h"
+#  define STBI_MSC_SECURE_CRT  ///< Configures CRT secure functions for stb_image on Windows
+#else
+// Linux specific includes
+#  define GLFW_EXPOSE_NATIVE_WAYLAND
+#  include "GLFW/glfw3native.h"
+#endif
+
 using namespace evo_engine;
 std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
   std::ifstream file;

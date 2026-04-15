@@ -149,14 +149,16 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
       init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
       init_info.ImageCount = graphics.swapchain_->GetAllImageViews().size();
-      init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+      init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
       init_info.UseDynamicRendering = true;
-      init_info.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-      init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-      init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &Constants::swap_chain_image_format;
-      init_info.PipelineRenderingCreateInfo.pNext = nullptr;
+      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
+          VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats =
+          &Constants::swap_chain_image_format;
+      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pNext = nullptr;
 
-      ImGui_ImplVulkan_LoadFunctions([](const char* function_name, void*) {
+      ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, [](const char* function_name, void*) {
         return vkGetInstanceProcAddr(GetVkInstance(), function_name);
       });
       ImGui_ImplVulkan_Init(&init_info);
