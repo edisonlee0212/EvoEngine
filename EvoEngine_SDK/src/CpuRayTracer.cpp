@@ -327,6 +327,7 @@ void CpuRayTracer::SamplePointCloud(std::vector<PointCloudSample>& samples) cons
       sample.hit_count = 1;
       sample.hit_info.position = hit_info.hit;
       sample.hit_info.normal = hit_info.normal;
+      sample.hit_info.triangle_index = hit_info.triangle_index;
       sample.handle = GetRendererHandle(hit_info.node_index);
     }
   });
@@ -1062,6 +1063,7 @@ void CpuRayTracer::AggregatedScene::SamplePointCloudGpu(const CpuRayTracer& cpu_
       sample.hit_count = 1;
       sample.hit_info.position = hit_info.hit;
       sample.hit_info.normal = hit_info.normal;
+      sample.hit_info.triangle_index = hit_info.triangle_index;
       sample.handle = cpu_ray_tracer.GetRendererHandle(hit_info.node_index);
     }
   });

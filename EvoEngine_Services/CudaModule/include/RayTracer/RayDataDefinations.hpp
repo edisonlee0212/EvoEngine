@@ -153,6 +153,7 @@ struct TriangularMesh {
       hit_info.vertex_info3 = vx.vertex_info3;
       hit_info.vertex_info4 = vx.vertex_info4;
     }
+    hit_info.triangle_index = primitive_id;
     return hit_info;
   }
 

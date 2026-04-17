@@ -89,6 +89,11 @@ class PyDigitalAgriculture {
 
   static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResultsFromSensors(
       const Handle& sensor_group_handle);
+
+  static void SetIlluminationSamples(int samples, int bounces);
+
+  static Entity PyDigitalAgriculture::CreateEntityFromPrefab(const Handle& prefab_handle, const glm::vec3& position,
+                                                             const glm::vec3& euler_rotation, const glm::vec3& scale);
 };
 
 }  // namespace py_digital_agriculture_plugin
