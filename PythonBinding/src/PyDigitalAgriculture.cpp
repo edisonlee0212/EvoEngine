@@ -94,6 +94,8 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
       py::arg("seed"), 
       py::arg("index") = 200, 
       py::arg("radius") = 2000.0f);
+  m.def("SetIlluminationSamples", &SetIlluminationSamples);
+  m.def("CreateEntityFromPrefab", &CreateEntityFromPrefab);
 
   py::class_<SorghumMeshGeneratorSettings>(m, "SorghumMeshGeneratorSettings")
       .def(py::init<>())
@@ -194,6 +196,7 @@ void PyDigitalAgriculture::PushRayTracerLayer() {
 }
 
 void PyDigitalAgriculture::SetSunDirection(glm::vec3 angles) {
+  // adopted from RayTracerLayer::SetSunDirection, note the order of angles is (x, y, z) = (pitch, yaw, roll)
   auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
   glm::vec3 sun_direction = glm::quat(glm::radians(angles)) * glm::vec3(0, 0, -1);
   ray_tracer_layer->environment_properties.sun_direction = sun_direction;
@@ -394,6 +397,30 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
   }
   return results;
 
+}
+
+void PyDigitalAgriculture::SetIlluminationSamples(int samples, int bounces) {
+  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  sorghum_layer->ray_properties.samples = samples;
+  sorghum_layer->ray_properties.bounces = bounces;
+}
+
+Entity PyDigitalAgriculture::CreateEntityFromPrefab(const Handle& prefab_handle, const glm::vec3& position,
+                                                    const glm::vec3& euler_rotation,
+                              const glm::vec3& scale) {
+  const auto asset = PyEvoEngine::GetAsset(prefab_handle);
+  if (asset->GetTypeName() != "Prefab") {
+    EVOENGINE_ERROR("CreateEntityFromPrefab failed: invalid asset type!")
+    return {};
+  }
+  auto scene = Application::GetActiveScene();
+  auto entity = std::dynamic_pointer_cast<Prefab>(asset)->ToEntity(scene);
+  auto transform = scene->GetDataComponent<Transform>(entity);
+  transform.SetValue(position, euler_rotation, scale);
+  scene->SetDataComponent(entity, transform);
+  
+
+  return entity;
 }
 
 

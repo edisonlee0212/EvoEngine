@@ -17,6 +17,8 @@ struct HitInfo {
   glm::vec4 color = glm::vec4(1.0f);        /**< Color information at the hit point. */
   glm::vec2 tex_coord = glm::vec2(0.0f);    /**< Texture coordinates at the hit point. */
   glm::vec2 vertex_info4 = glm::vec4(0.0f); /**< Extra data for user-specific needs. */
+  // only for triangle mesh
+  uint32_t triangle_index = 0;
 };
 
 /**

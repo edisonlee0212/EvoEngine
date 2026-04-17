@@ -73,4 +73,33 @@ class SorghumPointCloudScanner : public IPrivateComponent {
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };
+
+
+class GantryPointCloudScanner : public IPrivateComponent {
+ public:
+  glm::vec3 left_random_offset = glm::vec3(0.0f);
+  glm::vec3 right_random_offset = glm::vec3(0.0f);
+  SorghumPointCloudPointSettings sorghum_point_cloud_point_settings{};
+
+  void Scan(const std::vector<Entity>& targets, const std::vector<std::vector<int>>& label_lists,
+            const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+            std::vector<glm::vec3>& points,
+            std::vector<int>& leaf_indices, std::vector<int>& instance_indices, std::vector<int>& type_indices) const;
+
+  void SavePointCloud(const std::filesystem::path& save_path, const std::vector<glm::vec3>& points,
+                      const std::vector<int>& leaf_indices, const std::vector<int>& instance_indices,
+                      const std::vector<int>& type_indices) const;
+
+  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+
+  void OnDestroy() override;
+
+  void Serialize(YAML::Emitter& out) const override;
+  void Deserialize(const YAML::Node& in) override;
+  
+  void CaptureLabeledMeshes(const std::vector<Entity>& targets, const std::vector<std::vector<int>>& label_lists,
+                            const std::filesystem::path& save_path,
+                            const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const;
+
+};
 }  // namespace dataset_generation_package

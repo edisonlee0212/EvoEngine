@@ -299,11 +299,11 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
       //}
 
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
-        type_indices.emplace_back(1);
+        type_indices.emplace_back(2);
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
         type_indices.emplace_back(1);
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
-        type_indices.emplace_back(1);
+        type_indices.emplace_back(3);
       } else if (sample.handle == ground_mesh_renderer_handle) {
         type_indices.emplace_back(0);
       } else {
@@ -463,4 +463,216 @@ void SorghumPointCloudScanner::Serialize(YAML::Emitter& out) const {
 
 void SorghumPointCloudScanner::Deserialize(const YAML::Node& in) {
   sorghum_point_cloud_point_settings.Load("sorghum_point_cloud_point_settings", in);
+}
+
+
+
+void GantryPointCloudScanner::Scan(const std::vector<Entity>& targets, const std::vector<std::vector<int>>& label_lists,
+                                   const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
+                                   std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
+                                   std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
+  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto scene = GetScene();
+  if (!scene) {
+    EVOENGINE_ERROR("No active scene!")
+    return;
+  }
+  if (targets.size() != label_lists.size()) {
+    EVOENGINE_ERROR("GantryPointCloudScanner::Scan failed: targets and label_lists size mismatch!")
+    return;
+  }
+
+  Bound plant_bound{};
+  std::unordered_map<Handle, int> mesh_renderer_instance_indices;
+  std::unordered_map<Handle, const std::vector<int>*> mesh_renderer_label_lists;
+
+  for (size_t target_index = 0; target_index < targets.size(); target_index++) {
+    const auto target = targets[target_index];
+    if (!scene->IsEntityValid(target))
+      continue;
+
+    std::vector<Entity> stack{target};
+    while (!stack.empty()) {
+      const auto current = stack.back();
+      stack.pop_back();
+
+      if (scene->HasPrivateComponent<MeshRenderer>(current)) {
+        const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(current).lock();
+        const auto mesh = mesh_renderer->mesh.Get<Mesh>();
+        if (mesh) {
+          mesh_renderer_instance_indices[mesh_renderer->GetHandle()] = static_cast<int>(target_index);
+
+          const auto global_transform = scene->GetDataComponent<GlobalTransform>(current);
+          plant_bound.min =
+              glm::min(plant_bound.min, glm::vec3(global_transform.value * glm::vec4(mesh->GetBound().min, 1.0f)));
+          plant_bound.max =
+              glm::max(plant_bound.max, glm::vec3(global_transform.value * glm::vec4(mesh->GetBound().max, 1.0f)));
+        }
+      }
+
+      for (const auto& child : scene->GetChildren(current)) {
+        if (scene->IsEntityValid(child)) {
+          stack.emplace_back(child);
+        }
+      }
+    }
+  }
+
+  std::vector<PointCloudSample> pc_samples;
+  capture_settings->GenerateSamples(pc_samples);
+
+  switch (capture_settings->capture_mode) {
+    case PointCloudCaptureSettings::CaptureMode::OptiX: {
+#ifdef CUDA_MODULE_PLUGIN
+      CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+#else
+      EVOENGINE_ERROR("Missing CudaModule plugin!")
+#endif
+    } break;
+    case PointCloudCaptureSettings::CaptureMode::Cpu: {
+      std::shared_ptr<RenderInstanceStorage> render_instances{};
+      if (render_layer) {
+        render_instances = render_layer->GetCurrentRenderInstanceStorage();
+      }
+      if (!render_instances) {
+        render_instances = std::make_shared<RenderInstanceStorage>();
+        Bound world_bound;
+        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+      }
+      CpuRayTracer cpu_ray_tracer;
+      cpu_ray_tracer.Initialize(render_instances, [&](uint32_t, const std::shared_ptr<Mesh>&) {},
+                                [&](const uint32_t, const Entity&) {});
+      cpu_ray_tracer.SamplePointCloud(pc_samples);
+    } break;
+    case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
+      std::shared_ptr<RenderInstanceStorage> render_instances{};
+      if (render_layer) {
+        render_instances = render_layer->GetCurrentRenderInstanceStorage();
+      }
+      if (!render_instances) {
+        render_instances = std::make_shared<RenderInstanceStorage>();
+        Bound world_bound;
+        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+      }
+      CpuRayTracer cpu_ray_tracer;
+      cpu_ray_tracer.Initialize(render_instances, [&](uint32_t, const std::shared_ptr<Mesh>&) {},
+                                [&](const uint32_t, const Entity&) {});
+      auto aggregate_scene = cpu_ray_tracer.Aggregate();
+      aggregate_scene.InitializeBuffers();
+      aggregate_scene.SamplePointCloudGpu(cpu_ray_tracer, pc_samples);
+    } break;
+  }
+
+  const glm::vec3 left_offset = glm::linearRand(-left_random_offset, left_random_offset);
+  const glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
+  for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
+    const auto& sample = pc_samples.at(sample_index);
+    if (!sample.hit)
+      continue;
+    if (!capture_settings->SampleFilter(sample))
+      continue;
+    if (const auto search = mesh_renderer_instance_indices.find(sample.handle);
+        search == mesh_renderer_instance_indices.end()) {
+      continue;
+    }
+
+    auto& position = sample.hit_info.position;
+    if (position.x < (plant_bound.min.x - sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.y < (plant_bound.min.y - sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.z < (plant_bound.min.z - sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.x > (plant_bound.max.x + sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.y > (plant_bound.max.y + sorghum_point_cloud_point_settings.bounding_box_limit) ||
+        position.z > (plant_bound.max.z + sorghum_point_cloud_point_settings.bounding_box_limit))
+      continue;
+
+    auto ball_rand = glm::vec3(0.0f);
+    if (sorghum_point_cloud_point_settings.ball_rand_radius > 0.0f) {
+      ball_rand = glm::ballRand(sorghum_point_cloud_point_settings.ball_rand_radius);
+    }
+    const auto distance = glm::distance(sample.hit_info.position, sample.start);
+
+    points.emplace_back(sample.hit_info.position +
+                        distance * glm::vec3(glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance),
+                                             glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance),
+                                             glm::gaussRand(0.0f, sorghum_point_cloud_point_settings.variance)) +
+                        ball_rand + (sample_index >= pc_samples.size() / 2 ? left_offset : right_offset));
+
+    if (sorghum_point_cloud_point_settings.leaf_index) {
+      int leaf_label = -1;
+      if (const auto label_search = mesh_renderer_instance_indices.find(sample.handle);
+          label_search != mesh_renderer_instance_indices.end()) {
+        const auto& instance = label_search->second;
+        if (instance >= 0 && instance < label_lists.size() &&
+            sample.hit_info.triangle_index < label_lists[instance].size()) {
+          leaf_label = label_lists[instance][sample.hit_info.triangle_index];
+        }
+      }
+      leaf_indices.emplace_back(leaf_label);
+    }
+    if (sorghum_point_cloud_point_settings.instance_index) {
+      instance_indices.emplace_back(mesh_renderer_instance_indices.at(sample.handle));
+    }
+    if (sorghum_point_cloud_point_settings.type_index) {
+      type_indices.emplace_back(0);
+    }
+  }
+}
+
+void GantryPointCloudScanner::SavePointCloud(const std::filesystem::path& save_path,
+    const std::vector<glm::vec3>& points, const std::vector<int>& leaf_indices,
+    const std::vector<int>& instance_indices, const std::vector<int>& type_indices) const {
+  std::filebuf fb_binary;
+  fb_binary.open(save_path.string(), std::ios::out | std::ios::binary);
+  std::ostream ostream(&fb_binary);
+  if (ostream.fail())
+    throw std::runtime_error("failed to open " + save_path.string());
+
+  tinyply::PlyFile cube_file;
+  cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, tinyply::Type::FLOAT32, points.size(),
+                                      static_cast<const uint8_t*>(static_cast<const void*>(points.data())),
+                                      tinyply::Type::INVALID, 0);
+
+  if (sorghum_point_cloud_point_settings.type_index) {
+    cube_file.add_properties_to_element("type_index", {"type_index"}, tinyply::Type::INT32, type_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(type_indices.data())),
+                                        tinyply::Type::INVALID, 0);
+  }
+  if (sorghum_point_cloud_point_settings.instance_index) {
+    cube_file.add_properties_to_element(
+        "instance_index", {"instance_index"}, tinyply::Type::INT32, instance_indices.size(),
+        static_cast<const uint8_t*>(static_cast<const void*>(instance_indices.data())), tinyply::Type::INVALID, 0);
+  }
+  if (sorghum_point_cloud_point_settings.leaf_index) {
+    cube_file.add_properties_to_element("leaf_index", {"leaf_index"}, tinyply::Type::INT32, leaf_indices.size(),
+                                        static_cast<const uint8_t*>(static_cast<const void*>(leaf_indices.data())),
+                                        tinyply::Type::INVALID, 0);
+  }
+  cube_file.write(ostream, true);
+}
+
+bool GantryPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  return IPrivateComponent::OnInspect(editor_layer);
+}
+
+void GantryPointCloudScanner::OnDestroy() {
+  IPrivateComponent::OnDestroy();
+}
+
+void GantryPointCloudScanner::Serialize(YAML::Emitter& out) const {
+  sorghum_point_cloud_point_settings.Save("sorghum_point_cloud_point_settings", out);
+}
+
+void GantryPointCloudScanner::Deserialize(const YAML::Node& in) {
+  sorghum_point_cloud_point_settings.Load("sorghum_point_cloud_point_settings", in);
+}
+
+void GantryPointCloudScanner::CaptureLabeledMeshes(const std::vector<Entity>& targets,
+    const std::vector<std::vector<int>>& label_lists, const std::filesystem::path& save_path,
+    const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
+  std::vector<glm::vec3> points;
+  std::vector<int> leaf_indices;
+  std::vector<int> instance_indices;
+  std::vector<int> type_indices;
+  Scan(targets, label_lists, capture_settings, points, leaf_indices, instance_indices, type_indices);
+  SavePointCloud(save_path, points, leaf_indices, instance_indices, type_indices);
 }

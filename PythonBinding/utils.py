@@ -63,3 +63,10 @@ def get_sun_light_direction_sequence(file_path:str, skip_rows: int, start_date:s
         'sun_direction': sub["Solar Zenith Angle"]
     })
     return result
+
+def make_vec3(x, y, z):
+    value = sorghum_framework.Vec3()
+    value.x = x
+    value.y = y
+    value.z = z
+    return value
