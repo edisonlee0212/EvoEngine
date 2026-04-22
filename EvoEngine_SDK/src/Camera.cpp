@@ -454,6 +454,7 @@ void Camera::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "x" << YAML::Value << size_.x;
 
   out << YAML::Key << "y" << YAML::Value << size_.y;
+  out << YAML::Key << "camera_render_mode" << YAML::Value << static_cast<int>(camera_render_mode);
   out << YAML::Key << "use_clear_color" << YAML::Value << camera_settings.use_clear_color;
   out << YAML::Key << "clear_color" << YAML::Value << camera_settings.clear_color;
   out << YAML::Key << "near_distance" << YAML::Value << camera_settings.near_distance;
@@ -472,6 +473,14 @@ void Camera::Serialize(YAML::Emitter& out) const {
 }
 
 void Camera::Deserialize(const YAML::Node& in) {
+  if (in["camera_render_mode"]) {
+    const auto mode = in["camera_render_mode"].as<int>();
+    if (mode >= static_cast<int>(CameraRenderMode::Rasterization) &&
+        mode <= static_cast<int>(CameraRenderMode::RayTracing)) {
+      camera_render_mode = static_cast<CameraRenderMode>(mode);
+    }
+  }
+
   if (in["use_clear_color"])
     camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
   if (in["clear_color"]) {

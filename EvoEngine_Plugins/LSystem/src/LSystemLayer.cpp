@@ -110,6 +110,16 @@ void LSystemLayer::Update() {
     return;
 
   const float dt = static_cast<float>(Times::DeltaTime());
+  if (dt > 0.0f) {
+    const float fps = 1.0f / dt;
+    if (fps < kAutoGrowFailsafeMinFps) {
+      auto_grow = false;
+      fps_failsafe_tripped_ = true;
+      last_failsafe_fps_ = fps;
+      return;
+    }
+  }
+
   const float raw_delta_gdd = gdd_per_second * dt;
   const float delta_gdd = max_gdd_per_frame > 0.0f
                               ? std::min(raw_delta_gdd, max_gdd_per_frame)
@@ -211,6 +221,10 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
       EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
     if (EditorLayer::GetKey(GLFW_KEY_F) == Input::KeyActionType::Press) {
       auto_grow = !auto_grow;
+      if (auto_grow) {
+        fps_failsafe_tripped_ = false;
+        last_failsafe_fps_ = 0.0f;
+      }
     }
     if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
       reset_all_tassels();
@@ -218,7 +232,10 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
   }
 
   // --- UI ---
-  ImGui::Checkbox("Auto-Grow (Ctrl+F)", &auto_grow);
+  if (ImGui::Checkbox("Auto-Grow (Ctrl+F)", &auto_grow) && auto_grow) {
+    fps_failsafe_tripped_ = false;
+    last_failsafe_fps_ = 0.0f;
+  }
   ImGui::DragFloat("GDD/sec", &gdd_per_second, 1.0f, 1.0f, 500.0f);
   ImGui::DragFloat("Max GDD/Frame (0=Unlimited)", &max_gdd_per_frame, 0.1f, 0.0f, 500.0f);
   ImGui::DragInt("Max Growth Steps/Frame (0=Unlimited)",
@@ -228,6 +245,12 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
                  5000);
   ImGui::TextDisabled("Use both caps to smooth auto-grow after long frames.");
   ImGui::Checkbox("Reseed on Reset (Ctrl+W)", &reseed_on_reset);
+  if (fps_failsafe_tripped_) {
+    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f),
+                       "Auto-grow stopped by 5 FPS failsafe (last: %.2f FPS).",
+                       last_failsafe_fps_);
+    ImGui::TextDisabled("Re-enable Auto-Grow to resume growth.");
+  }
 
   {
     const char* color_mode_items[] = {"Shaded", "By Type", "By Instance", "By Node"};

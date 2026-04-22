@@ -3,6 +3,7 @@
 #include "IPrivateComponent.hpp"
 #include "TasselGrowthModel.hpp"
 #include <cstdint>
+#include <filesystem>
 
 namespace l_system_plugin {
 using namespace evo_engine;
@@ -53,6 +54,11 @@ class MaizeTassel final : public IPrivateComponent {
   void GrowToTargetGDD(bool uncapped_growth = false);
   void RebuildGeometry();
   void ClearGeometryEntities() const;
+  void ExportObj(const std::filesystem::path& path) const;
+  void ExportFlowGraph(YAML::Emitter& out);
+  void ExportFlowGraph(const std::filesystem::path& path);
+  void ExportNodeGraph(YAML::Emitter& out);
+  void ExportNodeGraph(const std::filesystem::path& path);
 
   void OnDestroy() override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

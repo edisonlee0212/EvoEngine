@@ -3,6 +3,8 @@
 //
 #include <Application.hpp>
 
+#include <cstdlib>
+
 #ifdef CUDA_MODULE_PLUGIN
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
@@ -83,9 +85,24 @@ int main() {
 
   EngineSetup();
 
+#ifdef CUDA_MODULE_PLUGIN
+  bool enable_cuda_ray_tracer_layer = false;
+  if (const char* env = std::getenv("EE_ENABLE_CUDA_RT_LAYER")) {
+    const char first = env[0];
+    enable_cuda_ray_tracer_layer =
+        first == '1' || first == 't' || first == 'T' || first == 'y' || first == 'Y';
+  }
+#endif
+
   Application::PushLayer<RenderLayer>("Render Layer");
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+  if (enable_cuda_ray_tracer_layer) {
+    Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+    EVOENGINE_LOG("DigitalAgriculture: CUDA RayTracerLayer enabled (OptiX path).")
+  } else {
+    EVOENGINE_LOG("DigitalAgriculture: Vulkan ray-tracing path active; CUDA RayTracerLayer disabled by default. "
+                  "Set EE_ENABLE_CUDA_RT_LAYER=1 to enable OptiX viewports.")
+  }
 #endif
   Application::PushLayer<WindowLayer>("Window Layer");
   Application::PushLayer<EditorLayer>("Editor Layer");
@@ -101,6 +118,7 @@ int main() {
   PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
 #endif
 #ifdef DATASET_GENERATION_PLUGIN
+  AssetRegistration<TasselPointCloudScannerDescriptor>("TasselPointCloudScannerDescriptor", {".tscan"});
   PrivateComponentRegistration<TasselPointCloudScanner>("TasselPointCloudScanner");
 #endif
   ApplicationInitializationSettings application_configs;
@@ -108,11 +126,6 @@ int main() {
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
   Application::Initialize(application_configs);
-
-#ifdef CUDA_MODULE_PLUGIN
-
-  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
-#endif
 
   // adjust default camera speed
   const auto editor_layer = Application::GetLayer<EditorLayer>();

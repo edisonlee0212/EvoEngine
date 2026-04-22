@@ -100,10 +100,30 @@ class MaizeTasselDescriptor : public evo_engine::IAsset {
   std::vector<TropismEntry> tropisms;
 
   // -- GDD milestones --
-  float base_temperature = 10.0f;
-  float plastochron_gdd = 30.0f;
-  float anthesis_gdd = 200.0f;
-  float maturity_gdd = 400.0f;
+  evo_engine::SingleDistribution<float> base_temperature{10.0f};
+  evo_engine::SingleDistribution<float> plastochron_gdd{30.0f};
+  evo_engine::SingleDistribution<float> anthesis_gdd{200.0f};
+  evo_engine::SingleDistribution<float> maturity_gdd{400.0f};
+
+  // -- Initiation clock decoupling (legacy defaults preserve current behavior). --
+  evo_engine::SingleDistribution<float> main_axis_plastochron_scale{1.0f};
+  evo_engine::SingleDistribution<float> lateral_axis_plastochron_scale{1.0f};
+  evo_engine::SingleDistribution<float> lateral_bud_plastochron_scale{1.0f};
+  evo_engine::SingleDistribution<float> maturity_initiation_coupling{0.0f};
+  evo_engine::SingleDistribution<float> reference_maturity_gdd{400.0f};
+
+  // -- Development pacing controls. --
+  evo_engine::SingleDistribution<float> branch_angle_relaxation{0.08f};
+  evo_engine::SingleDistribution<float> pair_angle_relaxation{1.0f};
+
+  // -- Stage-based tassel unfurling controls (normalized by maturity_gdd). --
+  evo_engine::SingleDistribution<float> stage_1_end_t{0.167f};
+  evo_engine::SingleDistribution<float> stage_2_end_t{0.50f};
+  evo_engine::SingleDistribution<float> stage_3_end_t{0.85f};
+  evo_engine::SingleDistribution<float> secondary_ramp_start_t{0.167f};
+  evo_engine::SingleDistribution<float> secondary_ramp_end_t{0.50f};
+  evo_engine::SingleDistribution<float> mature_droop_start_t{0.85f};
+  evo_engine::SingleDistribution<float> mature_droop_strength{0.0f};
 
   SampledTasselParams Sample(std::mt19937& rng) const;
   [[nodiscard]] evo_engine::Entity Instantiate() const;

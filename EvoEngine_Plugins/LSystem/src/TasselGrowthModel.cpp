@@ -9,6 +9,8 @@
 using namespace l_system_plugin;
 
 namespace {
+// [deprecated] Legacy dual-axis spike reparent helpers are retained for backward compatibility
+// with historical graphs/rules that still instantiate TasselSpikeApex.
 bool IsSpikeAxisNode(const TasselNode& node) {
   if (node.data.Is<TasselSpikeApex>()) {
     return true;
@@ -69,8 +71,10 @@ LNodeHandle FindPeduncleTipInternodeHandle(const TasselGraph& graph) {
   return -1;
 }
 
-bool AttachMainSpikeToPeduncleTip(TasselGraph& graph) {
-  graph.SortLists();
+bool AttachMainSpikeToPeduncleTip(TasselGraph& graph, const bool assume_sorted = false) {
+  if (!assume_sorted) {
+    graph.SortLists();
+  }
 
   const auto spike_root_handle = FindMainSpikeRootHandle(graph);
   if (spike_root_handle < 0) {
@@ -111,48 +115,43 @@ void TasselGrowthModel::Initialize(const MaizeTasselDescriptor& descriptor, unsi
   accumulated_gdd = 0.0f;
   gdd_per_growth_step = 1.0f;
   sampled.gdd_step = gdd_per_growth_step;
-  sampled.plastochron_gdd = std::max(1.0f, descriptor.plastochron_gdd);
-  sampled.anthesis_gdd = std::max(0.0f, descriptor.anthesis_gdd);
-  sampled.maturity_gdd = std::max(sampled.anthesis_gdd + 1.0f, descriptor.maturity_gdd);
+  sampled.base_temperature = std::clamp(sampled.base_temperature, 0.0f, 30.0f);
+  sampled.plastochron_gdd = std::max(1.0f, sampled.plastochron_gdd);
+  sampled.anthesis_gdd = std::max(0.0f, sampled.anthesis_gdd);
+  sampled.maturity_gdd = std::max(sampled.anthesis_gdd + 1.0f, sampled.maturity_gdd);
 
-  // Set up the graph with a dual axiom: peduncle apex + spike-zone apex.
+  // Set up a single continuous main-axis apex.
+  const int total_main_nodes = std::max(0, sampled.branch_node_count + sampled.spike_node_count);
   graph = TasselGraph(1);
   auto& root = graph.RefNode(0);
   root.symbol_id = TasselSymbol::Apex;
   TasselApex apex;
-  apex.vigor = static_cast<float>(sampled.branch_node_count);
+  apex.vigor = static_cast<float>(total_main_nodes);
   apex.age = 0;
   apex.order = 0;
-  apex.age_gdd = sampled.plastochron_gdd;
+  apex.age_gdd = ComputeInitiationPlastochronGdd(sampled, apex.order, false);
   apex.node_random = SampleUnit01(rng_);
   apex.phyllotaxis_phase = std::fmod(apex.node_random * 360.0f, 360.0f);
   root.data.Set<TasselApex>(apex);
   root.info.global_position = root_position;
   root.info.global_rotation = root_rotation;
   root.info.length = 0.0f;
-  root.info.thickness = sampled.branch_internode_thickness.mean.GetValue(0.0f);
+  const float root_branch_thickness = sampled.branch_internode_thickness.mean.GetValue(0.0f);
+  const float root_spike_thickness = sampled.spike_internode_thickness.mean.GetValue(0.0f);
+  const float root_spike_weight = sampled.branch_node_count <= 0 ? 1.0f : 0.0f;
+  root.info.thickness = std::max(0.01f, root_branch_thickness +
+                                           (root_spike_thickness - root_branch_thickness) * root_spike_weight);
 
-  if (sampled.spike_node_count > 0) {
-    const auto spike_handle = graph.Extend(0, true);
-    auto& spike_node = graph.RefNode(spike_handle);
-    spike_node.symbol_id = TasselSymbol::SpikeApex;
-
-    TasselSpikeApex spike_apex;
-    spike_apex.vigor = static_cast<float>(sampled.spike_node_count);
-    spike_apex.age = 0;
-    spike_apex.age_gdd = sampled.plastochron_gdd;
-    spike_apex.phyllotaxis_phase = apex.phyllotaxis_phase;
-    spike_apex.node_random = SampleUnit01(rng_);
-    spike_node.data.Set<TasselSpikeApex>(spike_apex);
-  }
+  // [deprecated] Legacy dual-axis SpikeApex remains supported by topology rules for backward compatibility,
+  // but default initialization uses a single connected order-0 axis.
 
   // Build the derivation engine with sampled thermal timing parameters.
   engine_ = TasselEngine();
   engine_.topology_rules = CreateTasselTopologyRules(sampled);
   engine_.growth_rules = CreateTasselGrowthRules(sampled);
 
-  // Topology steps needed: branch zone + spike zone + lateral expansion.
-  max_topology_steps_ = (sampled.branch_node_count + sampled.spike_node_count) * 3 + 10;
+  // Topology steps needed: continuous main axis + lateral expansion.
+  max_topology_steps_ = total_main_nodes * 3 + 10;
 
   initialized_ = true;
   topology_complete_ = false;
@@ -169,9 +168,6 @@ void TasselGrowthModel::DeriveTopology() {
   // Keep deriving until no more topology changes occur.
   for (int i = 0; i < max_topology_steps_; i++) {
     bool changed = engine_.ApplyTopologyRules(graph, rng_);
-    if (changed) {
-      AttachMainSpikeToPeduncleTip(graph);
-    }
     if (!changed)
       break;
   }
@@ -220,21 +216,13 @@ void TasselGrowthModel::GrowStep() {
     last_growth_step_profile.apply_topology_rules_seconds = evo_engine::Times::Now() - phase_start;
 
     phase_start = evo_engine::Times::Now();
-    const bool spike_reparented = AttachMainSpikeToPeduncleTip(graph);
-    if (spike_reparented) {
+    if (topology_changed) {
       graph.SortLists();
     }
     last_growth_step_profile.sort_lists_seconds += evo_engine::Times::Now() - phase_start;
   }
 
   accumulated_gdd += gdd_per_growth_step;
-
-  // Update node info from module data.
-  if (topology_changed) {
-    phase_start = evo_engine::Times::Now();
-    graph.SortLists();
-    last_growth_step_profile.sort_lists_seconds += evo_engine::Times::Now() - phase_start;
-  }
 
   const auto& sorted_nodes = graph.PeekSortedNodeList();
   phase_start = evo_engine::Times::Now();

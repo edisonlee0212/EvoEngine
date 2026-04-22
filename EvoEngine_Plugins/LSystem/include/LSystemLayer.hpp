@@ -67,6 +67,10 @@ class LSystemLayer : public evo_engine::ILayer {
   void Deserialize(const YAML::Node& in) override;
 
  private:
+    static constexpr float kAutoGrowFailsafeMinFps = 5.0f;
+    bool fps_failsafe_tripped_ = false;
+    float last_failsafe_fps_ = 0.0f;
+
   void PushProfileFrame(const ProfileFrame& frame);
   void ExportProfileCsv(const std::string& path) const;
 };

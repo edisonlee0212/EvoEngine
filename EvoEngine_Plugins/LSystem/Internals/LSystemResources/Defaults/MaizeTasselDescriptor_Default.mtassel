@@ -1,0 +1,1377 @@
+branch_node_count:
+  mean: 12
+  deviation: 4
+branch_internode_length:
+  mean:
+    min_value: 0
+    max_value: 3
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 1.5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+branch_internode_thickness:
+  mean:
+    min_value: 0
+    max_value: 0.35
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.793]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.697]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.033
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.503]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.096]
+        - [0.1, 0]
+lateral_insertion_angle:
+  mean:
+    min_value: 0
+    max_value: 80
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.932]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.267]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 30
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.739]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.18]
+        - [0.1, 0]
+lateral_internode_length:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.836]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.841]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.18]
+        - [0.1, 0]
+lateral_node_count:
+  mean:
+    min_value: 8
+    max_value: 24
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.811]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.257]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+peduncle_branch_probability:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.69]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [0.2889306, 0.9586466]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.963]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+spike_node_count:
+  mean: 36
+  deviation: 6
+spike_internode_length:
+  mean:
+    min_value: 0
+    max_value: 0.5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 1]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.857]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.15
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 1]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.277]
+        - [0.1, 0]
+spike_internode_thickness:
+  mean:
+    min_value: 0
+    max_value: 0.35
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.703]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.462]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.035
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.722]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.383]
+        - [0.1, 0]
+spike_zone_branch_probability:
+  mean:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_proximal_scale_x:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_proximal_scale_y:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_proximal_scale_z:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_proximal_angle:
+  mean:
+    min_value: 0
+    max_value: 20
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.72]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.34]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_internode_length:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.685]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.391]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.713]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.311]
+        - [0.1, 0]
+main_pair_internode_thickness:
+  mean:
+    min_value: 0
+    max_value: 0.25
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_internode_angle:
+  mean:
+    min_value: 0
+    max_value: 15
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.788]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.307]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.785]
+        - [0.1, 0]
+        - [-0.10286678, 0.0016863407]
+        - [1, 0.178]
+        - [0.1, 0]
+main_pair_distal_scale_x:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_distal_scale_y:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_distal_scale_z:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+main_pair_distal_angle:
+  mean:
+    min_value: 0
+    max_value: 15
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+branch_pair_proximal_scale_x:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+branch_pair_proximal_scale_y:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+branch_pair_proximal_scale_z:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+branch_pair_proximal_angle:
+  mean:
+    min_value: 0
+    max_value: 14.9
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.644]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.574]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 5
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.375]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.132]
+        - [0.1, 0]
+branch_pair_internode_length:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.766]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.265]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.05
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.704]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.256]
+        - [0.1, 0]
+branch_pair_internode_thickness:
+  mean:
+    min_value: 0
+    max_value: 0.2
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.7]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.47]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+branch_pair_internode_angle:
+  mean:
+    min_value: 0
+    max_value: 15
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.644]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.241]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 15
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.738]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.386]
+        - [0.1, 0]
+branch_pair_distal_scale_x:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.509]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.509]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.501]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.51]
+        - [0.1, 0]
+branch_pair_distal_scale_y:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.507]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.501]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.501]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.505]
+        - [0.1, 0]
+branch_pair_distal_scale_z:
+  mean:
+    min_value: 0
+    max_value: 0.75
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.495]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.507]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0.1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.505]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.491]
+        - [0.1, 0]
+branch_pair_distal_angle:
+  mean:
+    min_value: 0
+    max_value: 32
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.656]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.195]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 15
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+lateral_initiation_delay_gdd:
+  mean:
+    min_value: 20
+    max_value: 160
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.15]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [0.5, 0.55]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 1]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+spike_anthesis_offset_gdd:
+  mean:
+    min_value: -25
+    max_value: 35
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.9]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [0.5, 0.2]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.85]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+primary_lateral_branch_probability:
+  mean:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+secondary_lateral_branch_probability:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.64]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.263]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+phyllotaxis_angle:
+  mean: 180
+  deviation: 0
+branch_azimuth_offset:
+  mean: 15
+  deviation: 15
+lateral_thickness_ratio:
+  mean: 0.5
+  deviation: 0.08
+final_age_gdd:
+  mean: 240
+  deviation: 30
+secondary_insertion_angle:
+  mean: 60
+  deviation: 0
+secondary_internode_length:
+  mean: 2
+  deviation: 0
+secondary_internode_thickness:
+  mean: 0.1
+  deviation: 0
+secondary_node_count:
+  mean: 6
+  deviation: 18
+rachis_elongation_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+rachis_thickness_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+lateral_elongation_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+lateral_thickness_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+lateral_angle_development_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_proximal_scale_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_proximal_angle_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_internode_length_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_internode_thickness_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_internode_angle_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_distal_scale_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+pair_distal_angle_curve:
+  tangent_: true
+  min_: [0, 0]
+  max_: [1, 1]
+  values_:
+    - [-0.1, 0]
+    - [0, 0]
+    - [0.1, 0]
+    - [-0.1, 0]
+    - [1, 1]
+    - [0.1, 0]
+base_temperature: 10
+plastochron_gdd: 55
+anthesis_gdd: 130
+max_gdd: 180
+stage_1_end_t: 0.167
+stage_2_end_t: 0.5
+stage_3_end_t: 0.85
+secondary_ramp_start_t: 0.167
+secondary_ramp_end_t: 0.5
+mature_droop_start_t: 0.85
+mature_droop_strength: 0
+live_preview: false
+live_preview_rate_hz: 12
+live_preview_representative_only: true
+live_preview_cap_target_gdd: true
+live_preview_max_gdd: 800
+live_preview_max_growth_steps: 64
+grid_rows: 2
+grid_cols: 4
+grid_spacing: 45
+explorer_mode: 0
+explorer_speed: 1
+tropism_count: 4
+tropism_0_dir_x:
+  mean: 0
+  deviation: 0
+tropism_0_dir_y:
+  mean: -1
+  deviation: 0
+tropism_0_dir_z:
+  mean: 0
+  deviation: 0
+tropism_0_strength:
+  mean: 8
+  deviation: 2
+tropism_0_usage_chance_percent: 50
+tropism_0_order_response:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.293]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.648]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+tropism_1_dir_x:
+  mean: 0
+  deviation: 0
+tropism_1_dir_y:
+  mean: -1
+  deviation: 0
+tropism_1_dir_z:
+  mean: 1
+  deviation: 0
+tropism_1_strength:
+  mean: 0
+  deviation: 5
+tropism_1_usage_chance_percent: 25
+tropism_1_order_response:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+tropism_2_dir_x:
+  mean: 0
+  deviation: 0
+tropism_2_dir_y:
+  mean: -1
+  deviation: 0
+tropism_2_dir_z:
+  mean: -1
+  deviation: 0
+tropism_2_strength:
+  mean: 20
+  deviation: 0
+tropism_2_usage_chance_percent: 5
+tropism_2_order_response:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+tropism_3_dir_x:
+  mean: 0
+  deviation: 0
+tropism_3_dir_y:
+  mean: 0
+  deviation: 0
+tropism_3_dir_z:
+  mean: -1
+  deviation: 0
+tropism_3_strength:
+  mean: 5
+  deviation: 5
+tropism_3_usage_chance_percent: 15
+tropism_3_order_response:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]
+  deviation:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: true
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [-0.1, 0]
+        - [0, 0.5]
+        - [0.1, 0]
+        - [-0.1, 0]
+        - [1, 0.5]
+        - [0.1, 0]

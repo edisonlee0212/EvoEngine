@@ -347,19 +347,11 @@ void ParamSpaceExplorer::RebuildAxes() {
   AddSingle("secondary_node_count", "SNN", d.secondary_node_count, 0.0f, 20.0f, 10.0f);
   AddSingle("final_age_gdd", "FAG", d.final_age_gdd, 0.0f, 3000.0f, 1500.0f);
 
-  // Global scalar milestones.
-  AddAxis("base_temperature", "TMP", -10.0f, 60.0f,
-          [&d]() { return d.base_temperature; },
-          [&d](float v) { d.base_temperature = v; });
-  AddAxis("plastochron_gdd", "PGD", 1.0f, 500.0f,
-          [&d]() { return d.plastochron_gdd; },
-          [&d](float v) { d.plastochron_gdd = v; });
-  AddAxis("anthesis_gdd", "AGD", 0.0f, 3000.0f,
-          [&d]() { return d.anthesis_gdd; },
-          [&d](float v) { d.anthesis_gdd = v; });
-  AddAxis("maturity_gdd", "MGD", 0.0f, 5000.0f,
-          [&d]() { return d.maturity_gdd; },
-          [&d](float v) { d.maturity_gdd = v; });
+  // Global development distributions.
+  AddSingle("base_temperature", "TMP", d.base_temperature, -10.0f, 60.0f, 30.0f);
+  AddSingle("plastochron_gdd", "PGD", d.plastochron_gdd, 1.0f, 500.0f, 250.0f);
+  AddSingle("anthesis_gdd", "AGD", d.anthesis_gdd, 0.0f, 3000.0f, 1500.0f);
+  AddSingle("maturity_gdd", "MGD", d.maturity_gdd, 0.0f, 5000.0f, 2500.0f);
 
   // All plotted distributions: ranges + all curve control points.
   AddPlotted("branch_internode_length", "BIL", d.branch_internode_length);

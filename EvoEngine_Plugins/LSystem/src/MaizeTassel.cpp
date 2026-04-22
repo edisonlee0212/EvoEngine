@@ -11,6 +11,8 @@
 #include <Transform.hpp>
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <unordered_set>
 
 using namespace l_system_plugin;
 using namespace evo_engine;
@@ -58,6 +60,125 @@ glm::vec4 HashToColor(const uint32_t id) {
     default: rgb = glm::vec3(v, p, q); break;
   }
   return glm::vec4(rgb, 1.0f);
+}
+
+bool IsInternodeNode(const TasselNode& node) {
+  return node.data.Is<TasselInternode>();
+}
+
+LNodeHandle FindParentInternodeNodeHandle(const TasselGraph& graph, const LNodeHandle node_handle) {
+  auto parent_handle = graph.PeekNode(node_handle).GetParentHandle();
+  while (parent_handle >= 0) {
+    const auto& parent = graph.PeekNode(parent_handle);
+    if (IsInternodeNode(parent)) {
+      return parent_handle;
+    }
+    parent_handle = parent.GetParentHandle();
+  }
+  return -1;
+}
+
+std::unordered_set<LFlowHandle> CollectInternodeFlowHandles(const TasselGraph& graph) {
+  std::unordered_set<LFlowHandle> retained_flow_handles;
+  for (const auto flow_handle : graph.PeekSortedFlowList()) {
+    const auto& flow = graph.PeekFlow(flow_handle);
+    const auto& node_handles = flow.PeekNodeHandles();
+    if (node_handles.empty()) {
+      continue;
+    }
+
+    bool has_internode = false;
+    for (const auto node_handle : node_handles) {
+      if (IsInternodeNode(graph.PeekNode(node_handle))) {
+        has_internode = true;
+      }
+    }
+
+    if (has_internode) {
+      retained_flow_handles.emplace(flow_handle);
+    }
+  }
+  return retained_flow_handles;
+}
+
+LFlowHandle FindParentInternodeFlowHandle(const TasselGraph& graph, const LFlowHandle flow_handle,
+                                          const std::unordered_set<LFlowHandle>& retained_flow_handles) {
+  auto parent_flow_handle = graph.PeekFlow(flow_handle).GetParentHandle();
+  while (parent_flow_handle >= 0) {
+    if (retained_flow_handles.find(parent_flow_handle) != retained_flow_handles.end()) {
+      return parent_flow_handle;
+    }
+    parent_flow_handle = graph.PeekFlow(parent_flow_handle).GetParentHandle();
+  }
+  return -1;
+}
+
+void AppendParticlesToMesh(const std::shared_ptr<Scene>& scene, const Entity& entity,
+                           std::vector<Vertex>& out_vertices, std::vector<glm::uvec3>& out_triangles) {
+  if (!scene->IsEntityValid(entity) || !scene->HasPrivateComponent<Particles>(entity)) {
+    return;
+  }
+
+  const auto particles = scene->GetOrSetPrivateComponent<Particles>(entity).lock();
+  if (!particles) {
+    return;
+  }
+
+  const auto mesh = particles->mesh.Get<Mesh>();
+  const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
+  if (!mesh || !particle_info_list) {
+    return;
+  }
+
+  const auto& source_vertices = mesh->UnsafeGetVertices();
+  const auto& source_triangles = mesh->UnsafeGetTriangles();
+  const auto& instances = particle_info_list->PeekParticleInfoList();
+  if (source_vertices.empty() || source_triangles.empty() || instances.empty()) {
+    return;
+  }
+
+  const auto entity_global_transform = scene->GetDataComponent<GlobalTransform>(entity);
+  for (const auto& instance : instances) {
+    const glm::mat4 world_transform = entity_global_transform.value * instance.instance_matrix.value;
+    if (!IsFiniteMat4(world_transform)) {
+      continue;
+    }
+
+    const glm::mat3 world_3x3(world_transform);
+    glm::mat3 normal_transform(1.0f);
+    const float determinant = glm::determinant(world_3x3);
+    if (std::isfinite(determinant) && std::abs(determinant) > 1e-8f) {
+      normal_transform = glm::transpose(glm::inverse(world_3x3));
+    }
+
+    const auto vertex_offset = static_cast<uint32_t>(out_vertices.size());
+    out_vertices.reserve(out_vertices.size() + source_vertices.size());
+    out_triangles.reserve(out_triangles.size() + source_triangles.size());
+
+    for (const auto& source_vertex : source_vertices) {
+      Vertex vertex = source_vertex;
+      vertex.position = glm::vec3(world_transform * glm::vec4(source_vertex.position, 1.0f));
+
+      const glm::vec3 transformed_normal = normal_transform * source_vertex.normal;
+      if (IsFiniteVec3(transformed_normal) && glm::length(transformed_normal) > 1e-8f) {
+        vertex.normal = glm::normalize(transformed_normal);
+      }
+
+      const glm::vec3 transformed_tangent = normal_transform * source_vertex.tangent;
+      if (IsFiniteVec3(transformed_tangent) && glm::length(transformed_tangent) > 1e-8f) {
+        vertex.tangent = glm::normalize(transformed_tangent);
+      }
+
+      vertex.color = instance.instance_color;
+      out_vertices.emplace_back(vertex);
+    }
+
+    for (const auto& source_triangle : source_triangles) {
+      out_triangles.emplace_back(vertex_offset + source_triangle.x,
+                                 vertex_offset + source_triangle.y,
+                                 vertex_offset + source_triangle.z);
+    }
+  }
 }
 }  // namespace
 
@@ -389,6 +510,12 @@ void MaizeTassel::RebuildGeometry() {
   const auto color_mode = GetGlobalColorMode();
   const glm::vec4 instance_color = HashToColor(owner.GetIndex());
 
+  // Reuse temporary buffers across rebuild calls to reduce allocator churn.
+  static thread_local std::vector<PairEllipsoidInstance> pair_ellipsoid_instances_cache;
+  static thread_local std::vector<PairInternodeInstance> pair_internode_instances_cache;
+  static thread_local std::vector<ParticleInfo> internode_infos_cache;
+  static thread_local std::vector<ParticleInfo> spikelet_infos_cache;
+
   // --- Find existing geometry child entities ---
   Entity internode_entity, spikelet_entity;
   for (const auto& child : scene->GetChildren(owner)) {
@@ -404,8 +531,8 @@ void MaizeTassel::RebuildGeometry() {
       spikelet_entity = child;
   }
 
-  std::vector<PairEllipsoidInstance> pair_ellipsoid_instances;
-  std::vector<PairInternodeInstance> pair_internode_instances;
+  auto& pair_ellipsoid_instances = pair_ellipsoid_instances_cache;
+  auto& pair_internode_instances = pair_internode_instances_cache;
   CollectSpikeletPairsFromGraph(growth_model.graph, pair_ellipsoid_instances, pair_internode_instances);
 
   // --- Internodes (Particles — one unit cylinder instance per internode) ---
@@ -413,7 +540,8 @@ void MaizeTassel::RebuildGeometry() {
     const double collect_start = Times::Now();
     const auto& sorted = growth_model.graph.PeekSortedNodeList();
     last_node_count = static_cast<uint32_t>(sorted.size());
-    std::vector<ParticleInfo> infos;
+    auto& infos = internode_infos_cache;
+    infos.clear();
     infos.reserve(sorted.size() + pair_internode_instances.size());
     // Tassel node rotations align local +Z to growth direction. Our unit cylinder
     // is authored along local +Y, so rotate +Y -> -Z before applying node rotation.
@@ -590,7 +718,9 @@ void MaizeTassel::RebuildGeometry() {
 
       ensure_spikelet_material(particles);
 
-      std::vector<ParticleInfo> infos(pair_ellipsoid_instances.size());
+      auto& infos = spikelet_infos_cache;
+      infos.clear();
+      infos.resize(pair_ellipsoid_instances.size());
       for (size_t i = 0; i < pair_ellipsoid_instances.size(); i++) {
         const auto& pair_ellipsoid = pair_ellipsoid_instances[i];
         const glm::quat safe_rotation = IsFiniteQuat(pair_ellipsoid.rotation)
@@ -630,6 +760,149 @@ void MaizeTassel::RebuildGeometry() {
   }
 
   last_rebuild_seconds = Times::Now() - rebuild_start;
+}
+
+// ---------------------------------------------------------------------------
+
+void MaizeTassel::ExportObj(const std::filesystem::path& path) const {
+  const auto scene = GetScene();
+  if (!scene) {
+    return;
+  }
+
+  std::vector<Vertex> vertices;
+  std::vector<glm::uvec3> triangles;
+
+  const auto owner = GetOwner();
+  for (const auto& child : scene->GetChildren(owner)) {
+    const auto name = scene->GetEntityName(child);
+    if (name == "Tassel Internodes" || name == "Tassel Spikelets") {
+      AppendParticlesToMesh(scene, child, vertices, triangles);
+    }
+  }
+
+  if (vertices.empty() || triangles.empty()) {
+    EVOENGINE_ERROR("Tassel mesh export failed: no tassel particle geometry available.");
+    return;
+  }
+
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  VertexAttributes vertex_attributes{};
+  vertex_attributes.normal = true;
+  vertex_attributes.tangent = true;
+  vertex_attributes.color = true;
+  vertex_attributes.tex_coord = true;
+  mesh->SetVertices(vertex_attributes, vertices, triangles);
+
+  if (!mesh->Export(path)) {
+    EVOENGINE_ERROR("Tassel mesh export failed!");
+  }
+}
+
+void MaizeTassel::ExportFlowGraph(YAML::Emitter& out) {
+  out << YAML::Key << "Flows" << YAML::Value << YAML::BeginSeq;
+
+  if (!growth_model.IsInitialized()) {
+    out << YAML::EndSeq;
+    return;
+  }
+
+  auto& graph = growth_model.graph;
+  graph.SortLists();
+  graph.CalculateFlows();
+
+  const auto retained_flow_handles = CollectInternodeFlowHandles(graph);
+  for (const auto flow_handle : graph.PeekSortedFlowList()) {
+    if (retained_flow_handles.find(flow_handle) == retained_flow_handles.end()) {
+      continue;
+    }
+
+    const auto& flow = graph.PeekFlow(flow_handle);
+    const auto parent_flow_handle =
+        FindParentInternodeFlowHandle(graph, flow_handle, retained_flow_handles);
+
+    out << YAML::BeginMap;
+    out << YAML::Key << "I" << YAML::Value << flow_handle;
+    out << YAML::Key << "PI" << YAML::Value << parent_flow_handle;
+    out << YAML::Key << "SP" << YAML::Value << flow.info.global_start_position;
+    out << YAML::Key << "SD" << YAML::Value << flow.info.global_start_rotation * glm::vec3(0, 0, -1);
+    out << YAML::Key << "ST" << YAML::Value << flow.info.start_thickness;
+    out << YAML::Key << "EP" << YAML::Value << flow.info.global_end_position;
+    out << YAML::Key << "ED" << YAML::Value << flow.info.global_end_rotation * glm::vec3(0, 0, -1);
+    out << YAML::Key << "ET" << YAML::Value << flow.info.end_thickness;
+    out << YAML::EndMap;
+  }
+
+  out << YAML::EndSeq;
+}
+
+void MaizeTassel::ExportFlowGraph(const std::filesystem::path& path) {
+  try {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    ExportFlowGraph(out);
+    out << YAML::EndMap;
+
+    std::ofstream output_file(path.string());
+    output_file << out.c_str();
+    output_file.flush();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR(std::string("Failed to save: ") + e.what());
+  }
+}
+
+void MaizeTassel::ExportNodeGraph(YAML::Emitter& out) {
+  out << YAML::Key << "Nodes" << YAML::Value << YAML::BeginSeq;
+
+  if (!growth_model.IsInitialized()) {
+    out << YAML::EndSeq;
+    return;
+  }
+
+  auto& graph = growth_model.graph;
+  graph.SortLists();
+  graph.CalculateFlows();
+
+  const auto retained_flow_handles = CollectInternodeFlowHandles(graph);
+  for (const auto node_handle : graph.PeekSortedNodeList()) {
+    const auto& node = graph.PeekNode(node_handle);
+    if (!IsInternodeNode(node)) {
+      continue;
+    }
+
+    const auto parent_node_handle = FindParentInternodeNodeHandle(graph, node_handle);
+    auto flow_handle = node.GetFlowHandle();
+    while (flow_handle >= 0 && retained_flow_handles.find(flow_handle) == retained_flow_handles.end()) {
+      flow_handle = graph.PeekFlow(flow_handle).GetParentHandle();
+    }
+
+    out << YAML::BeginMap;
+    out << YAML::Key << "I" << YAML::Value << node_handle;
+    out << YAML::Key << "PI" << YAML::Value << parent_node_handle;
+    out << YAML::Key << "FI" << YAML::Value << flow_handle;
+    out << YAML::Key << "SP" << YAML::Value << node.info.global_position;
+    out << YAML::Key << "EP" << YAML::Value << node.info.GetGlobalEndPosition();
+    out << YAML::Key << "D" << YAML::Value << node.info.GetGlobalDirection();
+    out << YAML::Key << "T" << YAML::Value << node.info.thickness;
+    out << YAML::EndMap;
+  }
+
+  out << YAML::EndSeq;
+}
+
+void MaizeTassel::ExportNodeGraph(const std::filesystem::path& path) {
+  try {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    ExportNodeGraph(out);
+    out << YAML::EndMap;
+
+    std::ofstream output_file(path.string());
+    output_file << out.c_str();
+    output_file.flush();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR(std::string("Failed to save: ") + e.what());
+  }
 }
 
 // ---------------------------------------------------------------------------

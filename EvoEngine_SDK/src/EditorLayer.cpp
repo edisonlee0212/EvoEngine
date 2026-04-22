@@ -646,26 +646,31 @@ void EditorLayer::PreUpdate() {
       ImGui::SameLine();
       if (ImGui::Button("Clear")) {
         SetSelectedEntity({});
+        last_inspected_entity_ = Entity();
       }
       ImGui::Separator();
-      if (scene->IsEntityValid(selected_entity_)) {
-        std::string title = std::to_string(selected_entity_.GetIndex()) + ": ";
-        title += scene->GetEntityName(selected_entity_);
-        bool enabled = scene->IsEntityEnabled(selected_entity_);
+      Entity inspected_entity = selected_entity_;
+      if (!scene->IsEntityValid(inspected_entity) && scene->IsEntityValid(last_inspected_entity_)) {
+        inspected_entity = last_inspected_entity_;
+      }
+      if (scene->IsEntityValid(inspected_entity)) {
+        std::string title = std::to_string(inspected_entity.GetIndex()) + ": ";
+        title += scene->GetEntityName(inspected_entity);
+        bool enabled = scene->IsEntityEnabled(inspected_entity);
         if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
-          if (scene->IsEntityEnabled(selected_entity_) != enabled) {
-            scene->SetEnable(selected_entity_, enabled);
+          if (scene->IsEntityEnabled(inspected_entity) != enabled) {
+            scene->SetEnable(inspected_entity, enabled);
           }
         }
         ImGui::SameLine();
-        bool is_static = scene->IsEntityStatic(selected_entity_);
+        bool is_static = scene->IsEntityStatic(inspected_entity);
         if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
-          if (scene->IsEntityStatic(selected_entity_) != is_static) {
-            scene->SetEntityStatic(selected_entity_, enabled);
+          if (scene->IsEntityStatic(inspected_entity) != is_static) {
+            scene->SetEntityStatic(inspected_entity, enabled);
           }
         }
 
-        if (const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(selected_entity_), selected_entity_); !deleted) {
+        if (const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(inspected_entity), inspected_entity); !deleted) {
           if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
               ImGui::Text("Add data component: ");
@@ -678,8 +683,8 @@ void EditorLayer::PreUpdate() {
                     id == typeid(TransformUpdateFlag).hash_code())
                   continue;
 
-                if (!scene->HasDataComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
-                  scene->AddDataComponent(selected_entity_, id);
+                if (!scene->HasDataComponent(inspected_entity, id) && ImGui::Button(name.c_str())) {
+                  scene->AddDataComponent(inspected_entity, id);
                 }
               }
               ImGui::Separator();
@@ -687,7 +692,7 @@ void EditorLayer::PreUpdate() {
             }
             bool skip = false;
             int i = 0;
-            scene->UnsafeForEachDataComponent(selected_entity_, [&](const DataComponentType& type, void* data) {
+            scene->UnsafeForEachDataComponent(inspected_entity, [&](const DataComponentType& type, void* data) {
               if (skip)
                 return;
               std::string info = type.type_name;
@@ -699,13 +704,13 @@ void EditorLayer::PreUpdate() {
               if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
                 if (ImGui::Button("Remove")) {
                   skip = true;
-                  scene->RemoveDataComponent(selected_entity_, type.type_index);
+                  scene->RemoveDataComponent(inspected_entity, type.type_index);
                 }
                 ImGui::EndPopup();
               }
               ImGui::PopID();
-              InspectComponentData(selected_entity_, static_cast<IDataComponent*>(data), type,
-                                   scene->GetParent(selected_entity_).GetIndex() != 0);
+              InspectComponentData(inspected_entity, static_cast<IDataComponent*>(data), type,
+                                   scene->GetParent(inspected_entity).GetIndex() != 0);
               ImGui::Separator();
               i++;
             });
@@ -718,8 +723,8 @@ void EditorLayer::PreUpdate() {
               for (const auto& i : Serialization::GetInstance().private_component_ids_) {
                 const auto id = i.second;
                 const auto name = i.first;
-                if (!scene->HasPrivateComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
-                  scene->AddPrivateComponent(selected_entity_, id);
+                if (!scene->HasPrivateComponent(inspected_entity, id) && ImGui::Button(name.c_str())) {
+                  scene->AddPrivateComponent(inspected_entity, id);
                 }
               }
               ImGui::Separator();
@@ -728,7 +733,7 @@ void EditorLayer::PreUpdate() {
 
             int i = 0;
             bool skip = false;
-            scene->ForEachPrivateComponent(selected_entity_, [&](const PrivateComponentElement& data) {
+            scene->ForEachPrivateComponent(inspected_entity, [&](const PrivateComponentElement& data) {
               if (skip)
                 return;
               ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(),
@@ -739,7 +744,7 @@ void EditorLayer::PreUpdate() {
               if (ImGui::BeginPopupContextItem(tag.c_str())) {
                 if (ImGui::Button(("Remove" + tag).c_str())) {
                   skip = true;
-                  scene->RemovePrivateComponent(selected_entity_, data.type_index);
+                  scene->RemovePrivateComponent(inspected_entity, data.type_index);
                 }
                 ImGui::EndPopup();
               }
@@ -757,7 +762,7 @@ void EditorLayer::PreUpdate() {
           }
         }
       } else {
-        SetSelectedEntity(Entity());
+        ImGui::Text("No entity selected.");
       }
     } else {
       ImGui::Text("No Scene!");
@@ -1642,6 +1647,7 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
   const auto scene = GetScene();
   if (!scene) {
     selected_entity_ = Entity();
+    last_inspected_entity_ = Entity();
     lock_entity_selection_ = false;
     selection_alpha_ = 0;
     return;
@@ -1662,6 +1668,7 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
   if (!scene->IsEntityValid(entity))
     return;
   selected_entity_ = entity;
+  last_inspected_entity_ = entity;
   last_orbit_target_entity_ = entity;
   const auto descendants = scene->GetDescendants(selected_entity_);
 
@@ -1766,7 +1773,7 @@ bool EditorLayer::DragAndDropButton(EntityRef& entity_ref, const std::string& na
       status_changed = Remove(entity_ref) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      selected_entity_ = entity;
+      SetSelectedEntity(entity);
     }
   } else {
     ImGui::Button("none");

@@ -26,7 +26,7 @@ sys.path.append(library_directory)
 import PyDigitalAgriculture as sorghum_framework
 
 #Point the framework to load the default project folder that contains 2 sample sorghum descriptors.
-project_path = os.path.expanduser(evoengine_directory + "Resources/DigitalAgricultureProject/test.eveproj")
+project_path = os.path.expanduser(evoengine_directory + "Resources/DigitalAgricultureProject/sorghum_data_generator.eveproj")
 
 #Create new folder for output path if necessary
 if not os.path.isdir(output_root):

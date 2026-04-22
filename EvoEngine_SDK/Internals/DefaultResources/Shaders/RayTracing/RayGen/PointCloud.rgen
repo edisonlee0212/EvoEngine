@@ -39,6 +39,8 @@ void main()
 	uint sample_index = gl_LaunchIDEXT.x;
 	hit_value.seed = 1664525u * sample_index;
 	hit_value.seed = uint(1664525u * EE_RANDOM(hit_value.seed));
+	hit_value.hit_count = 0u;
+	hit_value.handle = 0ul;
 	PointCloudSample point_cloud_sample = EE_POINT_CLOUD_SAMPLES[sample_index];
 	
 	traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, point_cloud_sample.start, 0, point_cloud_sample.direction, 1e20f, 0);

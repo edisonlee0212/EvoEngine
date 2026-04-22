@@ -143,6 +143,31 @@ bool DerivationEngine<GraphData, FlowData, ModuleData>::ApplyTopologyRules(
   graph.SortLists();
   const auto& sorted = graph.PeekSortedNodeList();
 
+  int max_symbol = -1;
+  std::vector<const RuleType*> wildcard_rules;
+  wildcard_rules.reserve(topology_rules.size());
+  for (const auto& rule : topology_rules) {
+    if (rule.predecessor_symbol >= 0) {
+      max_symbol = std::max(max_symbol, rule.predecessor_symbol);
+    } else {
+      wildcard_rules.push_back(&rule);
+    }
+  }
+
+  std::vector<std::vector<const RuleType*>> candidate_rules_by_symbol;
+  if (max_symbol >= 0) {
+    candidate_rules_by_symbol.resize(static_cast<size_t>(max_symbol) + 1);
+    for (int symbol = 0; symbol <= max_symbol; symbol++) {
+      auto& candidates = candidate_rules_by_symbol[static_cast<size_t>(symbol)];
+      candidates.reserve(topology_rules.size());
+      for (const auto& rule : topology_rules) {
+        if (rule.predecessor_symbol < 0 || rule.predecessor_symbol == symbol) {
+          candidates.push_back(&rule);
+        }
+      }
+    }
+  }
+
   // Phase 1a: Collect all matches before modifying topology.
   // We store (handle, result) pairs. We iterate in BFS order (root→leaves).
   struct PendingAction {
@@ -156,7 +181,13 @@ bool DerivationEngine<GraphData, FlowData, ModuleData>::ApplyTopologyRules(
     const auto* parent_ptr = node.GetParentHandle() >= 0 ? &graph.PeekNode(node.GetParentHandle()) : nullptr;
     ContextType ctx{node, parent_ptr, node.PeekChildHandles(), graph, rng, node_handle};
 
-    const auto* rule = FindMatchingRule(topology_rules, ctx);
+    const RuleType* rule = nullptr;
+    if (node.symbol_id >= 0 && node.symbol_id <= max_symbol) {
+      const auto& candidates = candidate_rules_by_symbol[static_cast<size_t>(node.symbol_id)];
+      rule = FindMatchingRule(candidates, ctx);
+    } else if (!wildcard_rules.empty()) {
+      rule = FindMatchingRule(wildcard_rules, ctx);
+    }
     if (!rule)
       continue;
 

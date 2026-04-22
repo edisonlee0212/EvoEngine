@@ -1500,7 +1500,8 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  if (!deferred_render_instances->Empty()) {
+  mesh_top_level_acceleration_structure.reset();
+  if (!deferred_render_instances->Empty() || !deferred_instanced_render_instances->Empty()) {
     mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
   }
 }

@@ -8,14 +8,12 @@
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
 
 #  include "SorghumLayer.hpp"
-#  include "MaizeLayer.hpp"
 using namespace digital_agriculture_plugin;
 #endif
 #include "WindowLayer.hpp"
 
 #ifdef DATASET_GENERATION_PLUGIN
 #  include <SorghumPointCloudScanner.hpp>
-#  include <TasselPointCloudScanner.hpp>
 #  include <TreePointCloudScanner.hpp>
 #  include "DatasetGenerator.hpp"
 using namespace dataset_generation_plugin;
@@ -30,7 +28,6 @@ using namespace evo_engine;
 void register_classes() {
 #ifdef DATASET_GENERATION_PLUGIN
   PrivateComponentRegistration<SorghumPointCloudScanner>("SorghumPointCloudScanner");
-  PrivateComponentRegistration<TasselPointCloudScanner>("TasselPointCloudScanner");
 #endif
 }
 
@@ -47,7 +44,6 @@ void run_with_editor(const std::filesystem::path& project_path) {
   Application::PushLayer<EditorLayer>("Editor Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   Application::PushLayer<SorghumLayer>("Sorghum Layer");
-  Application::PushLayer<MaizeLayer>("Maize Layer");
 #endif
 
   ApplicationInitializationSettings application_info{};
@@ -76,7 +72,6 @@ void run_windowless(const PointCloudCaptureSettings::CaptureMode capture_mode,
       Application::PushLayer<RenderLayer>("Render Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
       Application::PushLayer<SorghumLayer>("Sorghum Layer");
-      Application::PushLayer<MaizeLayer>("Maize Layer");
 #endif
       break;
   }

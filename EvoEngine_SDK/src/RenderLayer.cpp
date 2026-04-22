@@ -757,6 +757,28 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
     ray_tracing_camera_pipeline->Initialize();
   }
+  if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
+    ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();
+    ray_tracing_point_cloud_pipeline->raygen_shader =
+        Shader::CreateTemporary(ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
+                                std::filesystem::path("./DefaultResources") /
+                                    "Shaders/RayTracing/RayGen/PointCloud.rgen");
+    ray_tracing_point_cloud_pipeline->miss_shader =
+        Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+                                std::filesystem::path("./DefaultResources") /
+                                    "Shaders/RayTracing/Miss/PointCloud.rmiss");
+    ray_tracing_point_cloud_pipeline->closest_hit_shader = Shader::CreateTemporary(
+        ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/PointCloud.rchit");
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout);
+    auto& push_constant_range = ray_tracing_point_cloud_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RayTracingPointCloudPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    ray_tracing_point_cloud_pipeline->Initialize();
+  }
 #pragma endregion
 
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
@@ -822,8 +844,15 @@ void RenderLayer::ClearAllEditorCameras() const {
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
-      if (const auto render_texture = i.second->GetRenderTexture()) {
-        render_texture->Clear(vk_command_buffer);
+      if (i.second->prev_global_transform_ != i.first.value) {
+        i.second->frame_count_ = 0;
+        i.second->prev_global_transform_ = i.first.value;
+      }
+      if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
+          (i.second->camera_render_mode == Camera::CameraRenderMode::RayTracing && i.second->frame_count_ == 0)) {
+        if (const auto render_texture = i.second->GetRenderTexture()) {
+          render_texture->Clear(vk_command_buffer);
+        }
       }
     }
   });
@@ -927,11 +956,16 @@ void RenderLayer::RenderAll() {
   deferred_rendering_external_functions.clear();
   forward_rendering_external_functions.clear();
 
-  if (Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
-    for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
-      if (camera->require_rendering_) {
-        RenderToCameraRayTracing(cameraGlobalTransform, camera);
-      }
+  const bool can_ray_trace = Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure;
+  for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
+    if (!camera->require_rendering_ || camera->camera_render_mode != Camera::CameraRenderMode::RayTracing) {
+      continue;
+    }
+    if (can_ray_trace) {
+      RenderToCameraRayTracing(cameraGlobalTransform, camera);
+    } else {
+      // Keep scene view valid when RT mode is selected but no acceleration structure exists.
+      RenderToCamera(cameraGlobalTransform, camera, true);
     }
   }
 }
@@ -1614,12 +1648,13 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
   });
 }
 void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
-                                 const std::shared_ptr<Camera>& camera) const {
+                                 const std::shared_ptr<Camera>& camera,
+                                 const bool force_rasterization_fallback) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto scene = Application::GetActiveScene();
-  if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
+  if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization || force_rasterization_fallback) {
     const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
 
     const bool count_draw_calls = count_shadow_rendering_draw_calls;

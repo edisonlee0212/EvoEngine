@@ -927,6 +927,7 @@ class EditorLayer : public ILayer {
   bool highlight_selection_ = true; /**< Indicates if selection highlighting is enabled. */
 
   Entity selected_entity_; /**< Currently selected entity. */
+  Entity last_inspected_entity_; /**< Last valid entity shown in the inspector. */
   Entity last_orbit_target_entity_; /**< Last valid selected entity used as orbit pivot fallback. */
 
   glm::vec2 mouse_scene_window_position_;  /**< Mouse position in the scene window. */

@@ -386,6 +386,20 @@ class CpuRayTracer final {
                     const std::map<Handle, uint32_t>& mesh_instances_map);
 
     /**
+     * @brief Initialize the node instance from an instanced renderer and a local instance transform.
+     * @param render_instances A shared pointer to render instance storage.
+     * @param render_instance A shared pointer to the instanced render instance.
+     * @param local_instance_transform Per-particle/local transform matrix.
+     * @param mesh_instances A vector of geometry instances representing meshes.
+     * @param mesh_instances_map A mapping from instance indices to mesh instance indices.
+     */
+    void Initialize(const std::shared_ptr<RenderInstanceStorage>& render_instances,
+            const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& render_instance,
+            const glm::mat4& local_instance_transform,
+            const std::vector<GeometryInstance>& mesh_instances,
+            const std::map<Handle, uint32_t>& mesh_instances_map);
+
+    /**
      * @brief Clear all data stored in the node instance.
      */
     void Clear() noexcept;

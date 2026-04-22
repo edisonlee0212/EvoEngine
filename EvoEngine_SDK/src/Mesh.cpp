@@ -14,11 +14,37 @@ bool Mesh::SaveInternal(const std::filesystem::path& path) const {
     return IAsset::SaveInternal(path);
   }
   if (path.extension() == ".obj") {
+    const auto material_file_name = path.stem().string() + ".mtl";
+    const auto material_path = path.parent_path() / material_file_name;
+
+    std::ofstream material_of;
+    material_of.open(material_path.string(), std::ofstream::out | std::ofstream::trunc);
+    if (!material_of.is_open()) {
+      EVOENGINE_ERROR("Can't open material file!")
+      return false;
+    }
+    {
+      std::stringstream material_data;
+      material_data << "#Mesh material exporter, by Bosheng Li\n";
+      material_data << "newmtl default_material\n";
+      material_data << "Ka 1.000000 1.000000 1.000000\n";
+      material_data << "Kd 1.000000 1.000000 1.000000\n";
+      material_data << "Ks 0.000000 0.000000 0.000000\n";
+      material_data << "Ns 1.000000\n";
+      material_data << "d 1.000000\n";
+      material_data << "illum 1\n";
+      const auto material_result = material_data.str();
+      material_of.write(material_result.c_str(), material_result.size());
+      material_of.flush();
+    }
+    material_of.close();
+
     std::ofstream of;
     of.open(path.string(), std::ofstream::out | std::ofstream::trunc);
     if (of.is_open()) {
       std::string start = "#Mesh exporter, by Bosheng Li";
       start += "\n";
+      start += "mtllib " + material_file_name + "\n";
       of.write(start.c_str(), start.size());
       of.flush();
       if (!triangles_.empty()) {
@@ -45,6 +71,7 @@ bool Mesh::SaveInternal(const std::filesystem::path& path) const {
         for (const auto& vertex : vertices_) {
           data << "vt " + std::to_string(vertex.tex_coord.x) + " " + std::to_string(vertex.tex_coord.y) + "\n";
         }
+        data << "usemtl default_material\n";
         // data += "s off\n";
         data << "# List of indices for faces vertices, with (x, y, z).\n";
         auto& triangles = triangles_;

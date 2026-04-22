@@ -8,6 +8,12 @@
 #include "Soil.hpp"
 #include "Sorghum.hpp"
 #include "SorghumLayer.hpp"
+#include <string>
+#ifdef LSYSTEM_PLUGIN
+#  include "MaizeTassel.hpp"
+#  include "MaizeTasselDescriptor.hpp"
+using namespace l_system_plugin;
+#endif
 
 using namespace eco_sys_lab_plugin;
 using namespace dataset_generation_plugin;
@@ -1007,3 +1013,221 @@ void DatasetGenerator::GenerateDataForAllSorghums(const SorghumDataGenerationPar
   scene->DeleteEntity(scanner_entity);
   Application::Loop();
 }
+
+#ifdef LSYSTEM_PLUGIN
+void DatasetGenerator::GenerateDataForTassel(const TasselDataGenerationParameters& data_generation_parameters) {
+  auto sanitize_sample_name = [](const std::string& raw_name) {
+    std::string sanitized = raw_name;
+    for (auto& ch : sanitized) {
+      switch (ch) {
+        case '<':
+        case '>':
+        case ':':
+        case '"':
+        case '/':
+        case '\\':
+        case '|':
+        case '?':
+        case '*': {
+          ch = '_';
+        } break;
+      }
+    }
+    if (sanitized.empty()) {
+      sanitized = "TasselSample";
+    }
+    return sanitized;
+  };
+
+  if (!CheckApplication()) {
+    return;
+  }
+
+  const auto scene = Application::GetActiveScene();
+  if (!scene) {
+    EVOENGINE_ERROR("No active scene!");
+    return;
+  }
+
+  std::filesystem::create_directories(data_generation_parameters.output_folder);
+
+  const bool use_existing_scene_entities = data_generation_parameters.use_existing_scene_entities;
+  Entity tassel_entity{};
+  std::shared_ptr<MaizeTassel> tassel{};
+  bool created_tassel_entity = false;
+
+  if (use_existing_scene_entities) {
+    if (!data_generation_parameters.scene_tassel_entity.has_value()) {
+      EVOENGINE_ERROR("Tassel generation requires scene_tassel_entity when use_existing_scene_entities is enabled.");
+      return;
+    }
+
+    tassel_entity = data_generation_parameters.scene_tassel_entity.value();
+    if (!scene->IsEntityValid(tassel_entity)) {
+      EVOENGINE_ERROR("Provided scene_tassel_entity is invalid.");
+      return;
+    }
+    if (!scene->HasPrivateComponent<MaizeTassel>(tassel_entity)) {
+      EVOENGINE_ERROR("Provided scene_tassel_entity does not contain a MaizeTassel component.");
+      return;
+    }
+
+    tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(tassel_entity).lock();
+    if (!tassel) {
+      EVOENGINE_ERROR("Unable to access MaizeTassel component from scene_tassel_entity.");
+      return;
+    }
+    if (!tassel->descriptor_ref.Get<MaizeTasselDescriptor>()) {
+      EVOENGINE_WARNING("Scene tassel has no descriptor_ref asset. Using in-scene tassel state as-is.");
+    }
+  } else {
+    std::shared_ptr<MaizeTasselDescriptor> tassel_descriptor;
+    if (const auto& descriptor_path = data_generation_parameters.tassel_descriptor_path; descriptor_path.empty()) {
+      // Fallback to constructor defaults so generation works without an external descriptor asset.
+      tassel_descriptor = AssetManager::CreateTemporaryAsset<MaizeTasselDescriptor>();
+    } else if (descriptor_path.is_relative()) {
+      const auto absolute_path = ProjectManager::GetAssetsFolderPath() / descriptor_path;
+      if (std::filesystem::exists(absolute_path)) {
+        tassel_descriptor = std::dynamic_pointer_cast<MaizeTasselDescriptor>(
+            ProjectManager::GetOrCreateAsset(descriptor_path));
+        if (!tassel_descriptor) {
+          tassel_descriptor = AssetManager::CreateTemporaryAsset<MaizeTasselDescriptor>();
+          tassel_descriptor->Import(absolute_path);
+        }
+      } else if (std::filesystem::exists(descriptor_path)) {
+        tassel_descriptor = AssetManager::CreateTemporaryAsset<MaizeTasselDescriptor>();
+        tassel_descriptor->Import(std::filesystem::absolute(descriptor_path));
+      }
+    } else {
+      if (ProjectManager::IsInAssetsFolder(descriptor_path)) {
+        tassel_descriptor = std::dynamic_pointer_cast<MaizeTasselDescriptor>(
+            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(descriptor_path)));
+        if (!tassel_descriptor) {
+          tassel_descriptor = AssetManager::CreateTemporaryAsset<MaizeTasselDescriptor>();
+          tassel_descriptor->Import(descriptor_path);
+        }
+      } else if (std::filesystem::exists(descriptor_path)) {
+        tassel_descriptor = AssetManager::CreateTemporaryAsset<MaizeTasselDescriptor>();
+        tassel_descriptor->Import(descriptor_path);
+      }
+    }
+
+    if (!tassel_descriptor) {
+      EVOENGINE_WARNING("Tassel descriptor path could not be resolved. Using built-in MaizeTasselDescriptor defaults.");
+      tassel_descriptor = AssetManager::CreateTemporaryAsset<MaizeTasselDescriptor>();
+    }
+
+    if (!tassel_descriptor) {
+      EVOENGINE_ERROR("Tassel descriptor fallback allocation failed!");
+      return;
+    }
+
+    if (const std::vector<Entity>* tassel_entities = scene->UnsafeGetPrivateComponentOwnersList<MaizeTassel>();
+        tassel_entities && !tassel_entities->empty()) {
+      for (const auto& existing_tassel_entity : *tassel_entities) {
+        scene->DeleteEntity(existing_tassel_entity);
+      }
+    }
+
+    tassel_entity = scene->CreateEntity("Maize Tassel");
+    tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(tassel_entity).lock();
+    if (!tassel) {
+      EVOENGINE_ERROR("Unable to create MaizeTassel component for generated tassel entity.");
+      return;
+    }
+    tassel->descriptor_ref = tassel_descriptor;
+    created_tassel_entity = true;
+  }
+  tassel->seed = static_cast<unsigned int>(std::max(0, data_generation_parameters.seed));
+  tassel->target_gdd = std::max(0.0f, data_generation_parameters.target_gdd);
+  tassel->max_growth_steps_per_frame = data_generation_parameters.max_growth_steps_per_frame;
+  tassel->GenerateGeometryEntities(data_generation_parameters.uncapped_growth);
+
+  const auto cleanup_created_tassel = [&]() {
+    if (created_tassel_entity && scene->IsEntityValid(tassel_entity)) {
+      scene->DeleteEntity(tassel_entity);
+      Application::Loop();
+    }
+  };
+
+  Application::Loop();
+  Application::Loop();
+
+  const auto sample_name = sanitize_sample_name(data_generation_parameters.output_file_name);
+  const auto sample_output_folder = data_generation_parameters.output_folder / sample_name;
+  std::filesystem::create_directories(sample_output_folder);
+  const auto output_prefix = sample_output_folder / sample_name;
+
+  if (data_generation_parameters.export_mesh) {
+    tassel->ExportObj(output_prefix.string() + ".obj");
+  }
+
+  if (data_generation_parameters.export_point_cloud) {
+    Entity scanner_entity{};
+    std::shared_ptr<TasselPointCloudScanner> scanner{};
+    bool created_scanner_entity = false;
+
+    if (use_existing_scene_entities) {
+      if (!data_generation_parameters.scene_scanner_entity.has_value()) {
+        EVOENGINE_ERROR("Tassel generation requires scene_scanner_entity when use_existing_scene_entities is enabled.");
+        cleanup_created_tassel();
+        return;
+      }
+
+      scanner_entity = data_generation_parameters.scene_scanner_entity.value();
+      if (!scene->IsEntityValid(scanner_entity)) {
+        EVOENGINE_ERROR("Provided scene_scanner_entity is invalid.");
+        cleanup_created_tassel();
+        return;
+      }
+      if (!scene->HasPrivateComponent<TasselPointCloudScanner>(scanner_entity)) {
+        EVOENGINE_ERROR("Provided scene_scanner_entity does not contain a TasselPointCloudScanner component.");
+        cleanup_created_tassel();
+        return;
+      }
+
+      scanner = scene->GetOrSetPrivateComponent<TasselPointCloudScanner>(scanner_entity).lock();
+    } else {
+      scanner_entity = scene->CreateEntity("Tassel Scanner");
+      scanner = scene->GetOrSetPrivateComponent<TasselPointCloudScanner>(scanner_entity).lock();
+      created_scanner_entity = true;
+    }
+
+    if (!scanner) {
+      EVOENGINE_ERROR("Unable to access TasselPointCloudScanner for tassel capture.");
+      cleanup_created_tassel();
+      return;
+    }
+
+    const auto scanner_descriptor = AssetManager::CreateTemporaryAsset<TasselPointCloudScannerDescriptor>();
+    scanner_descriptor->scan_seed = data_generation_parameters.seed;
+    scanner_descriptor->point_settings = data_generation_parameters.tassel_point_cloud_point_settings;
+    if (data_generation_parameters.point_cloud_capture_settings) {
+      if (const auto tassel_capture_settings =
+              std::dynamic_pointer_cast<TasselPointCloudGridCaptureSettings>(
+                  data_generation_parameters.point_cloud_capture_settings)) {
+        scanner_descriptor->capture_settings = *tassel_capture_settings;
+      } else {
+        EVOENGINE_WARNING(
+            "Tassel dataset generation expects TasselPointCloudGridCaptureSettings. "
+            "Using descriptor default capture settings instead.");
+      }
+    }
+    scanner->SetScannerDescriptor(scanner_descriptor);
+    scanner->Capture(output_prefix.string() + ".ply", {});
+    if (created_scanner_entity) {
+      scene->DeleteEntity(scanner_entity);
+    }
+  }
+
+  if (data_generation_parameters.export_flow_graph) {
+    tassel->ExportFlowGraph(output_prefix.string() + "_flows.yml");
+  }
+
+  if (data_generation_parameters.export_node_graph) {
+    tassel->ExportNodeGraph(output_prefix.string() + "_nodes.yml");
+  }
+
+  cleanup_created_tassel();
+}
+#endif

@@ -238,8 +238,10 @@ class RenderLayer final : public ILayer {
    * \brief Renders to the specified camera.
    * \param camera_global_transform The global transform of the camera.
    * \param camera The target camera to render to.
+    * \param force_rasterization_fallback Force raster rendering regardless of camera render mode.
    */
-  void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera) const;
+    void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera,
+                 bool force_rasterization_fallback = false) const;
 
   /**
    * \brief Renders to the specified camera using ray tracing.

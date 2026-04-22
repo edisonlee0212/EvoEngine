@@ -55,6 +55,12 @@ inline float SampleUnit01(std::mt19937& rng) {
   return dist(rng);
 }
 
+struct SampledTasselParams;
+float ComputeMaturityInitiationScale(const SampledTasselParams& params);
+float ComputeInitiationPlastochronGdd(const SampledTasselParams& params,
+                                      int order,
+                                      bool is_lateral_bud);
+
 // ---------------------------------------------------------------------------
 // TropismEntry — user-facing tropism descriptor (one per dynamic list entry).
 // ---------------------------------------------------------------------------
@@ -168,11 +174,77 @@ struct SampledTasselParams {
   std::vector<SampledTropism> tropisms;
 
   // Thermal timing.
+  float base_temperature = 10.0f;
   float plastochron_gdd = 30.0f;
   float anthesis_gdd = 200.0f;
   float maturity_gdd = 400.0f;
+  float main_axis_plastochron_scale = 1.0f;
+  float lateral_axis_plastochron_scale = 1.0f;
+  float lateral_bud_plastochron_scale = 1.0f;
+  float maturity_initiation_coupling = 0.0f;
+  float reference_maturity_gdd = 400.0f;
+  float branch_angle_relaxation = 0.08f;
+  float pair_angle_relaxation = 1.0f;
+  float stage_1_end_t = 0.167f;
+  float stage_2_end_t = 0.50f;
+  float stage_3_end_t = 0.85f;
+  float secondary_ramp_start_t = 0.167f;
+  float secondary_ramp_end_t = 0.50f;
+  float mature_droop_start_t = 0.85f;
+  float mature_droop_strength = 0.0f;
   float gdd_step = 1.0f;
 };
+
+inline float ComputeMaturityInitiationScale(const SampledTasselParams& params) {
+  const float ref_maturity = std::max(1.0f, params.reference_maturity_gdd);
+  const float maturity_ratio = std::max(0.1f, params.maturity_gdd / ref_maturity);
+  const float coupling = std::max(0.0f, params.maturity_initiation_coupling);
+  return std::max(0.1f, 1.0f + coupling * (maturity_ratio - 1.0f));
+}
+
+inline float ComputeInitiationPlastochronGdd(const SampledTasselParams& params,
+                                             const int order,
+                                             const bool is_lateral_bud) {
+  const float base_plastochron = std::max(1.0f, params.plastochron_gdd);
+
+  float axis_scale = std::max(0.1f, params.main_axis_plastochron_scale);
+  if (is_lateral_bud) {
+    axis_scale = std::max(0.1f, params.lateral_bud_plastochron_scale);
+  } else if (order >= 1) {
+    axis_scale = std::max(0.1f, params.lateral_axis_plastochron_scale);
+  }
+
+  const float maturity_scale = ComputeMaturityInitiationScale(params);
+  return std::max(1.0f, base_plastochron * axis_scale * maturity_scale);
+}
+
+inline float Smoothstep01(const float x) {
+  const float t = std::clamp(x, 0.0f, 1.0f);
+  return t * t * (3.0f - 2.0f * t);
+}
+
+inline void ResolveStageThresholds(const SampledTasselParams& params,
+                                   float& stage_1_end_t,
+                                   float& stage_2_end_t,
+                                   float& stage_3_end_t) {
+  stage_1_end_t = std::clamp(params.stage_1_end_t, 0.0f, 1.0f);
+  stage_2_end_t = std::clamp(params.stage_2_end_t, std::min(1.0f, stage_1_end_t + 0.02f), 1.0f);
+  stage_3_end_t = std::clamp(params.stage_3_end_t, std::min(1.0f, stage_2_end_t + 0.02f), 1.0f);
+}
+
+inline float EvaluateSecondaryStageRamp(const SampledTasselParams& params, const float age_t) {
+  const float ramp_start_t = std::clamp(params.secondary_ramp_start_t, 0.0f, 1.0f);
+  const float ramp_end_t = std::clamp(params.secondary_ramp_end_t,
+                                      std::min(1.0f, ramp_start_t + 0.02f),
+                                      1.0f);
+  if (age_t <= ramp_start_t) {
+    return 0.0f;
+  }
+  if (age_t >= ramp_end_t) {
+    return 1.0f;
+  }
+  return Smoothstep01((age_t - ramp_start_t) / std::max(1e-4f, ramp_end_t - ramp_start_t));
+}
 
 // ---------------------------------------------------------------------------
 // Rule factory
@@ -184,16 +256,16 @@ using TasselEngine = DerivationEngine<TasselGraphData, TasselFlowData, TasselMod
 /**
  * @brief Create topology rules for the two-zone tassel architecture.
  *
- * Rule 1 — Branch zone extension (Apex order=0, vigor>0):
- *   Apex → Internode + [Lateral] + Apex(vigor-1)
+ * Rule 1 — Continuous main-axis extension (Apex order=0, vigor>0):
+ *   Apex → Internode + {optional Main-Axis Pair} + [optional Lateral] + Apex(vigor-1)
  *
- * Rule 2 — Branch zone exhaustion (Apex order=0, vigor<=0):
+ * Rule 2 — Main-axis exhaustion (Apex order=0, vigor<=0):
  *   Apex → (removed)
  *
- * Rule 3 — Central spike extension (SpikeApex, vigor>0):
+ * Rule 3 — [deprecated] Legacy central-spike extension (SpikeApex, vigor>0):
  *   SpikeApex → Internode + [Sessile] + [Pedicellate] + SpikeApex(vigor-1)
  *
- * Rule 4 — Central spike exhaustion (SpikeApex, vigor<=0):
+ * Rule 4 — [deprecated] Legacy central-spike exhaustion (SpikeApex, vigor<=0):
  *   SpikeApex → [Sessile] + [Pedicellate]
  *
  * Rule 5 — Lateral/secondary extension (Apex order>=1, vigor>0):
@@ -207,6 +279,16 @@ using TasselEngine = DerivationEngine<TasselGraphData, TasselFlowData, TasselMod
  */
 inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselParams& params) {
   std::vector<TasselRule> rules;
+
+  auto smoothstep01 = [](float x) {
+    const float t = std::clamp(x, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+  };
+
+  auto lerp = [](const float a, const float b, const float t) {
+    const float w = std::clamp(t, 0.0f, 1.0f);
+    return a + (b - a) * w;
+  };
 
   auto normalize_local_position = [](const int age, const float vigor) {
     const int estimated_nodes = std::max(1, static_cast<int>(std::round(static_cast<float>(age) + vigor)));
@@ -253,14 +335,14 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         std::max(0.01f, SamplePlotted(proximal_y, t_pos, rng)),
         std::max(0.01f, SamplePlotted(proximal_z, t_pos, rng)));
     pair.proximal_outward_angle = 0.0f;
-    pair.proximal_target_outward_angle = std::max(0.0f, SamplePlotted(proximal_angle, t_pos, rng));
+    pair.proximal_target_outward_angle = SamplePlotted(proximal_angle, t_pos, rng);
 
     pair.pair_internode_length = 0.0f;
     pair.pair_internode_target_length = std::max(0.01f, SamplePlotted(internode_length, t_pos, rng));
     pair.pair_internode_thickness = 0.0f;
     pair.pair_internode_target_thickness = std::max(0.005f, SamplePlotted(internode_thickness, t_pos, rng));
     pair.pair_internode_angle = 0.0f;
-    pair.pair_internode_target_angle = std::max(0.0f, SamplePlotted(internode_angle, t_pos, rng));
+    pair.pair_internode_target_angle = SamplePlotted(internode_angle, t_pos, rng);
 
     pair.distal_scale = glm::vec3(0.0f);
     pair.distal_target_scale = glm::vec3(
@@ -268,7 +350,7 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         std::max(0.01f, SamplePlotted(distal_y, t_pos, rng)),
         std::max(0.01f, SamplePlotted(distal_z, t_pos, rng)));
     pair.distal_outward_angle = 0.0f;
-    pair.distal_target_outward_angle = std::max(0.0f, SamplePlotted(distal_angle, t_pos, rng));
+    pair.distal_target_outward_angle = SamplePlotted(distal_angle, t_pos, rng);
 
     pair.phase = SpikeletPhase::Emerging;
     pair.main_rachis_pair = main_rachis_pair;
@@ -280,21 +362,58 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     pair.node_random = SampleUnit01(rng);
   };
 
-  // Rule 1: Peduncle extension.
+  // Rule 1: Continuous order-0 main axis with zone-blended geometry and events.
   {
     TasselRule rule;
     rule.predecessor_symbol = TasselSymbol::Apex;
     rule.priority = 0;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& apex = ctx.self.data.Get<TasselApex>();
-      return apex.order == 0 && apex.vigor > 0.0f && apex.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, apex.order, false);
+      return apex.order == 0 && apex.vigor > 0.0f && apex.age_gdd >= plastochron_threshold;
     };
-    rule.produce = [params](RuleContext<TasselGraph>& ctx) -> ProductionResult<TasselModuleData> {
+    rule.produce = [params, smoothstep01, lerp, init_pair, compute_pair_azimuth](RuleContext<TasselGraph>& ctx)
+        -> ProductionResult<TasselModuleData> {
       const auto& apex = ctx.self.data.Get<TasselApex>();
       auto node_rng = MakeNodeRng(apex.node_random, 0xC8013EA4u);
-      const float t_pos = static_cast<float>(apex.age) / static_cast<float>(std::max(1, params.branch_node_count - 1));
-      const float branch_prob =
-          std::clamp(SamplePlotted(params.peduncle_branch_probability, t_pos, node_rng), 0.0f, 1.0f);
+
+      const int branch_nodes = std::max(0, params.branch_node_count);
+      const int spike_nodes = std::max(0, params.spike_node_count);
+      const int total_main_nodes = std::max(1, branch_nodes + spike_nodes);
+      const int main_node_index = std::max(0, apex.age);
+
+      const float axis_t = static_cast<float>(main_node_index) /
+                           static_cast<float>(std::max(1, total_main_nodes - 1));
+      const float branch_t = static_cast<float>(std::min(main_node_index, std::max(0, branch_nodes - 1))) /
+                             static_cast<float>(std::max(1, branch_nodes - 1));
+      const int spike_node_index = std::max(0, main_node_index - branch_nodes);
+      const float spike_t = static_cast<float>(spike_node_index) /
+                            static_cast<float>(std::max(1, spike_nodes - 1));
+
+      const float transition_center = static_cast<float>(std::max(0, branch_nodes - 1)) /
+                                      static_cast<float>(std::max(1, total_main_nodes - 1));
+      const float transition_half_width = std::max(
+          0.5f / static_cast<float>(std::max(1, total_main_nodes - 1)),
+          1.5f / static_cast<float>(std::max(2, total_main_nodes)));
+      const float transition_start = transition_center - transition_half_width;
+      const float transition_span = std::max(1e-4f, 2.0f * transition_half_width);
+      const float spike_weight = smoothstep01((axis_t - transition_start) / transition_span);
+
+      const float branch_length = std::max(0.01f, SamplePlotted(params.branch_internode_length, branch_t, node_rng));
+      const float spike_length = std::max(0.01f, SamplePlotted(params.spike_internode_length, spike_t, node_rng));
+      const float main_target_length = std::max(0.01f, lerp(branch_length, spike_length, spike_weight));
+
+      const float branch_thickness =
+          std::max(0.01f, SamplePlotted(params.branch_internode_thickness, branch_t, node_rng));
+      const float spike_thickness =
+          std::max(0.01f, SamplePlotted(params.spike_internode_thickness, spike_t, node_rng));
+      const float main_target_thickness = std::max(0.01f, lerp(branch_thickness, spike_thickness, spike_weight));
+
+      const float peduncle_branch_prob =
+          std::clamp(SamplePlotted(params.peduncle_branch_probability, branch_t, node_rng), 0.0f, 1.0f);
+      const float spike_zone_branch_prob =
+          std::clamp(SamplePlotted(params.spike_zone_branch_probability, spike_t, node_rng), 0.0f, 1.0f);
+      const float branch_prob = std::clamp(lerp(peduncle_branch_prob, spike_zone_branch_prob, spike_weight), 0.0f, 1.0f);
 
       ProductionResult<TasselModuleData> result;
 
@@ -302,8 +421,8 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         Successor<TasselModuleData> s;
         s.is_branch = false;
         TasselInternode internode;
-        internode.target_length = std::max(0.01f, SamplePlotted(params.branch_internode_length, t_pos, node_rng));
-        internode.target_thickness = std::max(0.01f, SamplePlotted(params.branch_internode_thickness, t_pos, node_rng));
+        internode.target_length = main_target_length;
+        internode.target_thickness = main_target_thickness;
         internode.length = 0.0f;
         internode.thickness = 0.0f;
         internode.branch_angle = 0.0f;
@@ -311,34 +430,46 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         internode.roll_angle = params.phyllotaxis_angle;
         internode.bend_axis_local = glm::vec3(1.0f, 0.0f, 0.0f);
         internode.order = 0;
-        internode.is_spike = false;
+        internode.is_spike = spike_weight >= 0.5f;
         internode.node_random = SampleUnit01(node_rng);
         s.data.Set<TasselInternode>(internode);
         s.symbol_id = TasselSymbol::Internode;
         result.successors.push_back(std::move(s));
       }
 
-      if (SampleUnit01(node_rng) < branch_prob) {
-        const float lateral_vigor = std::max(0.0f, SamplePlotted(params.lateral_node_count, t_pos, node_rng));
-        if (lateral_vigor > 0.0f) {
+      const bool emit_main_pair = spike_nodes > 0 && main_node_index >= std::max(0, branch_nodes);
+      if (emit_main_pair) {
         Successor<TasselModuleData> s;
         s.is_branch = true;
-        TasselLateral lateral;
-        const float lateral_delay =
-            std::max(0.0f, SamplePlotted(params.lateral_initiation_delay_gdd, t_pos, node_rng));
-        lateral.insertion_angle = std::max(1.0f, SamplePlotted(params.lateral_insertion_angle, t_pos, node_rng));
-        lateral.azimuth_offset = SampleDistribution(params.branch_azimuth_offset, node_rng);
-        lateral.target_length = std::max(0.01f, SamplePlotted(params.lateral_internode_length, t_pos, node_rng));
-        lateral.target_thickness = std::max(
-            0.01f,
-            SamplePlotted(params.branch_internode_thickness, t_pos, node_rng) * std::max(0.01f, params.lateral_thickness_ratio));
-        lateral.order = 1;
-        lateral.lateral_vigor = lateral_vigor;
-        lateral.age_gdd = -lateral_delay;
-        lateral.node_random = SampleUnit01(node_rng);
-        s.data.Set<TasselLateral>(lateral);
-        s.symbol_id = TasselSymbol::Lateral;
+        TasselSpikeletPair pair;
+        const float anthesis_offset = SamplePlotted(params.spike_anthesis_offset_gdd, spike_t, node_rng);
+        const int pair_ordinal = std::max(0, spike_node_index);
+        const float pair_azimuth = compute_pair_azimuth(apex.phyllotaxis_phase, pair_ordinal);
+        init_pair(pair, true, spike_t, anthesis_offset, pair_ordinal, pair_azimuth, node_rng);
+        s.data.Set<TasselSpikeletPair>(pair);
+        s.symbol_id = TasselSymbol::SpikeletPair;
         result.successors.push_back(std::move(s));
+      }
+
+      if (SampleUnit01(node_rng) < branch_prob) {
+        const float lateral_vigor = std::max(0.0f, SamplePlotted(params.lateral_node_count, axis_t, node_rng));
+        if (lateral_vigor > 0.0f) {
+          Successor<TasselModuleData> s;
+          s.is_branch = true;
+          TasselLateral lateral;
+          const float lateral_delay = std::max(0.0f, SamplePlotted(params.lateral_initiation_delay_gdd, axis_t, node_rng));
+          lateral.insertion_angle = SamplePlotted(params.lateral_insertion_angle, axis_t, node_rng);
+          lateral.azimuth_offset = SampleDistribution(params.branch_azimuth_offset, node_rng);
+          lateral.target_length = std::max(0.01f, SamplePlotted(params.lateral_internode_length, axis_t, node_rng));
+          lateral.target_thickness =
+              std::max(0.01f, main_target_thickness * std::max(0.01f, params.lateral_thickness_ratio));
+          lateral.order = 1;
+          lateral.lateral_vigor = lateral_vigor;
+          lateral.age_gdd = -lateral_delay;
+          lateral.node_random = SampleUnit01(node_rng);
+          s.data.Set<TasselLateral>(lateral);
+          s.symbol_id = TasselSymbol::Lateral;
+          result.successors.push_back(std::move(s));
         }
       }
 
@@ -346,10 +477,11 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         Successor<TasselModuleData> s;
         s.is_branch = false;
         TasselApex new_apex;
+        const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, apex.order, false);
         new_apex.vigor = apex.vigor - 1.0f;
         new_apex.age = apex.age + 1;
         new_apex.order = 0;
-        new_apex.age_gdd = std::max(0.0f, apex.age_gdd - params.plastochron_gdd);
+        new_apex.age_gdd = std::max(0.0f, apex.age_gdd - plastochron_threshold);
         new_apex.phyllotaxis_phase = apex.phyllotaxis_phase;
         new_apex.node_random = SampleUnit01(node_rng);
         s.data.Set<TasselApex>(new_apex);
@@ -362,17 +494,18 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     rules.push_back(std::move(rule));
   }
 
-  // Rule 2: Peduncle apex exhaustion cleanup.
+  // Rule 2: Main-axis apex exhaustion cleanup.
   {
     TasselRule rule;
     rule.predecessor_symbol = TasselSymbol::Apex;
     rule.priority = 1;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& apex = ctx.self.data.Get<TasselApex>();
-      return apex.order == 0 && apex.vigor <= 0.0f && apex.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, apex.order, false);
+      return apex.order == 0 && apex.vigor <= 0.0f && apex.age_gdd >= plastochron_threshold;
     };
     rule.produce = [](RuleContext<TasselGraph>&) -> ProductionResult<TasselModuleData> {
-      // Spike apex is initialized in the axiom, so exhausted peduncle apices simply disappear.
+      // Exhausted order-0 apices simply disappear.
       return {};
     };
     rules.push_back(std::move(rule));
@@ -385,7 +518,8 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     rule.priority = 0;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& apex = ctx.self.data.Get<TasselSpikeApex>();
-      return apex.vigor > 0.0f && apex.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, 0, false);
+      return apex.vigor > 0.0f && apex.age_gdd >= plastochron_threshold;
     };
     rule.produce = [params, init_pair, compute_pair_azimuth](RuleContext<TasselGraph>& ctx) -> ProductionResult<TasselModuleData> {
       const auto& apex = ctx.self.data.Get<TasselSpikeApex>();
@@ -436,7 +570,7 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         s.is_branch = true;
         TasselLateral lateral;
         const float lateral_delay = std::max(0.0f, SamplePlotted(params.lateral_initiation_delay_gdd, t_pos, node_rng));
-        lateral.insertion_angle = std::max(1.0f, SamplePlotted(params.lateral_insertion_angle, t_pos, node_rng));
+        lateral.insertion_angle = SamplePlotted(params.lateral_insertion_angle, t_pos, node_rng);
         lateral.azimuth_offset = SampleDistribution(params.branch_azimuth_offset, node_rng);
         lateral.target_length = std::max(0.01f, SamplePlotted(params.lateral_internode_length, t_pos, node_rng));
         lateral.target_thickness = std::max(
@@ -456,9 +590,10 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         Successor<TasselModuleData> s;
         s.is_branch = false;
         TasselSpikeApex new_apex;
+        const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, 0, false);
         new_apex.vigor = apex.vigor - 1.0f;
         new_apex.age = apex.age + 1;
-        new_apex.age_gdd = std::max(0.0f, apex.age_gdd - params.plastochron_gdd);
+        new_apex.age_gdd = std::max(0.0f, apex.age_gdd - plastochron_threshold);
         new_apex.phyllotaxis_phase = apex.phyllotaxis_phase;
         new_apex.node_random = SampleUnit01(node_rng);
         s.data.Set<TasselSpikeApex>(new_apex);
@@ -478,7 +613,8 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     rule.priority = 1;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& apex = ctx.self.data.Get<TasselSpikeApex>();
-      return apex.vigor <= 0.0f && apex.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, 0, false);
+      return apex.vigor <= 0.0f && apex.age_gdd >= plastochron_threshold;
     };
     rule.produce = [params, init_pair, compute_pair_azimuth](RuleContext<TasselGraph>& ctx) -> ProductionResult<TasselModuleData> {
       ProductionResult<TasselModuleData> result;
@@ -510,7 +646,8 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     rule.priority = 0;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& apex = ctx.self.data.Get<TasselApex>();
-      return apex.order >= 1 && apex.vigor > 0.0f && apex.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, apex.order, false);
+      return apex.order >= 1 && apex.vigor > 0.0f && apex.age_gdd >= plastochron_threshold;
     };
     rule.produce = [params, normalize_local_position, init_pair, compute_pair_azimuth](RuleContext<TasselGraph>& ctx) -> ProductionResult<TasselModuleData> {
       const auto& apex = ctx.self.data.Get<TasselApex>();
@@ -560,9 +697,13 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         result.successors.push_back(std::move(s));
       }
 
-      const float branch_prob = is_primary
-                                    ? std::clamp(SamplePlotted(params.primary_lateral_branch_probability, t_pos, node_rng), 0.0f, 1.0f)
-                                    : std::clamp(SamplePlotted(params.secondary_lateral_branch_probability, t_pos, node_rng), 0.0f, 1.0f);
+      const float branch_prob_base =
+          is_primary
+              ? std::clamp(SamplePlotted(params.primary_lateral_branch_probability, t_pos, node_rng), 0.0f, 1.0f)
+              : std::clamp(SamplePlotted(params.secondary_lateral_branch_probability, t_pos, node_rng), 0.0f, 1.0f);
+      const float apex_age_t = std::clamp(apex.age_gdd / std::max(1.0f, params.maturity_gdd), 0.0f, 1.0f);
+      const float secondary_stage_ramp = EvaluateSecondaryStageRamp(params, apex_age_t);
+      const float branch_prob = std::clamp(branch_prob_base * secondary_stage_ramp, 0.0f, 1.0f);
       if (SampleUnit01(node_rng) < branch_prob && params.secondary_node_count > 0) {
         Successor<TasselModuleData> s;
         s.is_branch = true;
@@ -583,10 +724,11 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         Successor<TasselModuleData> s;
         s.is_branch = false;
         TasselApex new_apex;
+        const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, apex.order, false);
         new_apex.vigor = apex.vigor - 1.0f;
         new_apex.age = apex.age + 1;
         new_apex.order = apex.order;
-        new_apex.age_gdd = std::max(0.0f, apex.age_gdd - params.plastochron_gdd);
+        new_apex.age_gdd = std::max(0.0f, apex.age_gdd - plastochron_threshold);
         new_apex.phyllotaxis_phase = apex.phyllotaxis_phase;
         new_apex.node_random = SampleUnit01(node_rng);
         s.data.Set<TasselApex>(new_apex);
@@ -606,7 +748,8 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     rule.priority = 1;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& apex = ctx.self.data.Get<TasselApex>();
-      return apex.order >= 1 && apex.vigor <= 0.0f && apex.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, apex.order, false);
+      return apex.order >= 1 && apex.vigor <= 0.0f && apex.age_gdd >= plastochron_threshold;
     };
     rule.produce = [params, init_pair, compute_pair_azimuth](RuleContext<TasselGraph>& ctx) -> ProductionResult<TasselModuleData> {
       ProductionResult<TasselModuleData> result;
@@ -637,7 +780,8 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
     rule.priority = 0;
     rule.condition = [params](const RuleContext<TasselGraph>& ctx) -> bool {
       const auto& lateral = ctx.self.data.Get<TasselLateral>();
-      return ctx.self.IsEndNode() && lateral.age_gdd >= params.plastochron_gdd;
+      const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, lateral.order, true);
+      return ctx.self.IsEndNode() && lateral.age_gdd >= plastochron_threshold;
     };
     rule.produce = [params, normalize_degrees](RuleContext<TasselGraph>& ctx) -> ProductionResult<TasselModuleData> {
       const auto& lateral = ctx.self.data.Get<TasselLateral>();
@@ -672,10 +816,11 @@ inline std::vector<TasselRule> CreateTasselTopologyRules(const SampledTasselPara
         Successor<TasselModuleData> s;
         s.is_branch = false;
         TasselApex new_apex;
+        const float plastochron_threshold = ComputeInitiationPlastochronGdd(params, lateral.order, true);
         new_apex.vigor = lateral.lateral_vigor;
         new_apex.age = 0;
         new_apex.order = std::clamp(lateral.order, 1, 2);
-        new_apex.age_gdd = std::max(0.0f, lateral.age_gdd - params.plastochron_gdd);
+        new_apex.age_gdd = std::max(0.0f, lateral.age_gdd - plastochron_threshold);
         new_apex.phyllotaxis_phase = normalize_degrees(lateral.azimuth_offset);
         new_apex.node_random = SampleUnit01(node_rng);
         s.data.Set<TasselApex>(new_apex);
@@ -780,13 +925,61 @@ inline std::vector<TasselRule> CreateTasselGrowthRules(const SampledTasselParams
       internode.length = internode.target_length * internode.growth_progress;
       internode.thickness = internode.target_thickness * std::clamp(thickness_curve.GetValue(age_t), 0.0f, 1.0f);
       if (internode.order >= 1 && !internode.is_spike) {
-        const float angle_progress = std::clamp(params.lateral_angle_development_curve.GetValue(age_t), 0.0f, 1.0f);
-        internode.branch_angle = internode.target_branch_angle * angle_progress;
+        const float curve_angle_progress = std::clamp(params.lateral_angle_development_curve.GetValue(age_t), 0.0f, 1.0f);
+        float stage_1_end_t = 0.0f;
+        float stage_2_end_t = 0.0f;
+        float stage_3_end_t = 0.0f;
+        ResolveStageThresholds(params, stage_1_end_t, stage_2_end_t, stage_3_end_t);
+
+        float stage_open_limit = 1.0f;
+        if (age_t <= stage_1_end_t) {
+          stage_open_limit = 0.0f;
+        } else if (age_t <= stage_2_end_t) {
+          const float span = std::max(1e-4f, stage_2_end_t - stage_1_end_t);
+          const float stage_t = (age_t - stage_1_end_t) / span;
+          stage_open_limit = 0.08f + 0.12f * Smoothstep01(stage_t);
+        } else if (age_t <= stage_3_end_t) {
+          const float span = std::max(1e-4f, stage_3_end_t - stage_2_end_t);
+          const float stage_t = (age_t - stage_2_end_t) / span;
+          stage_open_limit = 0.20f + 0.80f * Smoothstep01(stage_t);
+        }
+
+        const float angle_progress = std::min(curve_angle_progress, stage_open_limit);
+        const float target_branch_angle = internode.target_branch_angle * angle_progress;
+
+        // Developmental angle follows a damped first-order response to avoid unrealistically fast swing-out.
+        const float base_angle_relaxation = std::clamp(params.branch_angle_relaxation, 0.001f, 1.0f);
+        const float order_damping = 1.0f / (1.0f + 0.35f * static_cast<float>(std::max(0, internode.order - 1)));
+        const float growth_gate = 0.35f + 0.65f * internode.growth_progress;
+        float stage_relaxation_multiplier = 0.70f;
+        if (age_t <= stage_1_end_t) {
+          stage_relaxation_multiplier = 0.35f;
+        } else if (age_t <= stage_2_end_t) {
+          stage_relaxation_multiplier = 2.20f;
+        } else if (age_t <= stage_3_end_t) {
+          stage_relaxation_multiplier = 1.00f;
+        }
+        const float angle_relaxation = std::clamp(
+            base_angle_relaxation * order_damping * growth_gate * stage_relaxation_multiplier,
+            0.003f,
+            0.35f);
+        internode.branch_angle = glm::mix(internode.branch_angle, target_branch_angle, angle_relaxation);
       }
 
       // Tropism bending.
       const float max_order = 2.0f;
       const float order_t = std::clamp(static_cast<float>(internode.order) / max_order, 0.0f, 1.0f);
+
+      // Quasi-static compliance proxy: slender/long internodes bend more than short/thick internodes.
+      // This approximates M/(EI) scaling without solving a full beam equilibrium each step.
+      const float effective_length = std::max(0.01f, std::max(internode.length, internode.target_length));
+      const float effective_radius =
+          std::max(0.005f, 0.5f * std::max(internode.thickness, internode.target_thickness));
+      const float flexural_rigidity_proxy = std::max(1e-4f, std::pow(effective_radius, 4.0f));
+      const float load_compliance =
+          std::clamp(0.01f * (effective_length * effective_length * effective_length) / flexural_rigidity_proxy,
+                     0.05f,
+                     3.5f);
 
       glm::vec3 growth_dir = ctx.self.info.global_rotation * glm::vec3(0, 0, -1);
       if (!std::isfinite(growth_dir.x) || !std::isfinite(growth_dir.y) ||
@@ -851,15 +1044,47 @@ inline std::vector<TasselRule> CreateTasselGrowthRules(const SampledTasselParams
           continue;
         }
 
-        const float bend_magnitude = effective_strength * (1.0f - alignment);
+        const float bend_magnitude = effective_strength * (1.0f - alignment) * load_compliance;
         total_bend_world += bend_axis_world * bend_magnitude;
+      }
+
+      if (internode.order >= 1 && !internode.is_spike) {
+        const float droop_strength_base = std::max(0.0f, params.mature_droop_strength);
+        if (droop_strength_base > 0.0f) {
+          const float droop_start_t = std::clamp(params.mature_droop_start_t, 0.0f, 1.0f);
+          const float droop_span = std::max(1e-4f, 1.0f - droop_start_t);
+          const float droop_t = std::clamp((age_t - droop_start_t) / droop_span, 0.0f, 1.0f);
+          if (droop_t > 0.0f) {
+            const float droop_progress = Smoothstep01(droop_t);
+            const float order_damping =
+                1.0f / (1.0f + 0.40f * static_cast<float>(std::max(0, internode.order - 1)));
+            const float effective_strength = droop_strength_base * droop_progress * order_damping;
+
+            const glm::vec3 downward(0.0f, -1.0f, 0.0f);
+            const float alignment = std::clamp(glm::dot(growth_dir, downward), -1.0f, 1.0f);
+
+            glm::vec3 bend_axis_world = glm::cross(growth_dir, downward);
+            float axis_len = glm::length(bend_axis_world);
+            if (axis_len < 1e-5f) {
+              bend_axis_world = stable_perpendicular(growth_dir);
+            } else {
+              bend_axis_world /= axis_len;
+            }
+
+            if (std::isfinite(bend_axis_world.x) && std::isfinite(bend_axis_world.y) &&
+                std::isfinite(bend_axis_world.z)) {
+              const float bend_magnitude = effective_strength * (1.0f - alignment) * load_compliance;
+              total_bend_world += bend_axis_world * bend_magnitude;
+            }
+          }
+        }
       }
 
       const float total_curvature = glm::length(total_bend_world);
       constexpr float kMaxStableCurvature = 85.0f;
-      constexpr float kTropismSmoothing = 0.25f;
+      const float curvature_relaxation = std::clamp(0.08f * (0.4f + 0.6f * internode.growth_progress), 0.02f, 0.20f);
       const float target_curvature = std::clamp(total_curvature, 0.0f, kMaxStableCurvature);
-      internode.curvature = glm::mix(internode.curvature, target_curvature, kTropismSmoothing);
+      internode.curvature = glm::mix(internode.curvature, target_curvature, curvature_relaxation);
 
       if (total_curvature > 1e-5f) {
         const glm::vec3 bend_axis_world = total_bend_world / total_curvature;
@@ -867,7 +1092,7 @@ inline std::vector<TasselRule> CreateTasselGrowthRules(const SampledTasselParams
             glm::normalize(glm::conjugate(ctx.self.info.global_rotation) * bend_axis_world);
         if (std::isfinite(bend_axis_local.x) && std::isfinite(bend_axis_local.y) &&
             std::isfinite(bend_axis_local.z) && glm::dot(bend_axis_local, bend_axis_local) > 1e-8f) {
-          const glm::vec3 blended_axis = glm::mix(internode.bend_axis_local, bend_axis_local, kTropismSmoothing);
+          const glm::vec3 blended_axis = glm::mix(internode.bend_axis_local, bend_axis_local, curvature_relaxation);
           if (std::isfinite(blended_axis.x) && std::isfinite(blended_axis.y) &&
               std::isfinite(blended_axis.z) && glm::dot(blended_axis, blended_axis) > 1e-8f) {
             internode.bend_axis_local = glm::normalize(blended_axis);
@@ -911,16 +1136,20 @@ inline std::vector<TasselRule> CreateTasselGrowthRules(const SampledTasselParams
       const float internode_angle_progress = std::clamp(params.pair_internode_angle_curve.GetValue(age_t), 0.0f, 1.0f);
       const float distal_scale_progress = std::clamp(params.pair_distal_scale_curve.GetValue(age_t), 0.0f, 1.0f);
       const float distal_angle_progress = std::clamp(params.pair_distal_angle_curve.GetValue(age_t), 0.0f, 1.0f);
+      const float pair_angle_relaxation = std::clamp(params.pair_angle_relaxation, 0.001f, 1.0f);
 
       pair.proximal_scale = pair.proximal_target_scale * proximal_scale_progress;
-      pair.proximal_outward_angle = pair.proximal_target_outward_angle * proximal_angle_progress;
+      const float proximal_target_angle = pair.proximal_target_outward_angle * proximal_angle_progress;
+      pair.proximal_outward_angle = glm::mix(pair.proximal_outward_angle, proximal_target_angle, pair_angle_relaxation);
 
       pair.pair_internode_length = pair.pair_internode_target_length * internode_length_progress;
       pair.pair_internode_thickness = pair.pair_internode_target_thickness * internode_thickness_progress;
-      pair.pair_internode_angle = pair.pair_internode_target_angle * internode_angle_progress;
+      const float internode_target_angle = pair.pair_internode_target_angle * internode_angle_progress;
+      pair.pair_internode_angle = glm::mix(pair.pair_internode_angle, internode_target_angle, pair_angle_relaxation);
 
       pair.distal_scale = pair.distal_target_scale * distal_scale_progress;
-      pair.distal_outward_angle = pair.distal_target_outward_angle * distal_angle_progress;
+      const float distal_target_angle = pair.distal_target_outward_angle * distal_angle_progress;
+      pair.distal_outward_angle = glm::mix(pair.distal_outward_angle, distal_target_angle, pair_angle_relaxation);
 
       if (pair.age_gdd >= maturity_gdd) {
         pair.phase = SpikeletPhase::Mature;

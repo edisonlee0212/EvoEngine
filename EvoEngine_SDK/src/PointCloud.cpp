@@ -11,6 +11,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "GeometryStorage.hpp"
 #include "Tinyply.hpp"
 using namespace evo_engine;
 using namespace tinyply;
@@ -425,13 +426,67 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
     EVOENGINE_ERROR("No RenderLayer!")
     return;
   }
+  if (!render_layer->ray_tracing_point_cloud_pipeline ||
+      !render_layer->ray_tracing_point_cloud_pipeline->Initialized()) {
+    EVOENGINE_ERROR("Point Cloud: Ray tracing point cloud pipeline is not initialized!")
+    return;
+  }
+  if (!RenderLayer::ray_tracing_point_cloud_layout) {
+    EVOENGINE_ERROR("Point Cloud: Ray tracing point cloud descriptor layout is not initialized!")
+    return;
+  }
+
   const auto scene = Application::GetActiveScene();
+  if (!scene) {
+    EVOENGINE_ERROR("Point Cloud: no active scene available for point cloud sampling!")
+    return;
+  }
+
+  auto sampled_render_instances = render_layer->GetCurrentRenderInstanceStorage();
+  const auto ensure_ray_tracing_instances_ready = [&]() {
+    if (!sampled_render_instances) {
+      sampled_render_instances = std::make_shared<RenderInstanceStorage>();
+    }
+    Bound world_bound = scene->GetBound();
+    sampled_render_instances->BuildFromScene(render_layer->render_settings, scene, world_bound);
+    sampled_render_instances->Upload();
+    sampled_render_instances->UpdateTopLevelAccelerationStructure(scene);
+  };
+
+  auto tlas = sampled_render_instances ? sampled_render_instances->mesh_top_level_acceleration_structure : nullptr;
+  if (!tlas || tlas->GetVkAccelerationStructure() == VK_NULL_HANDLE) {
+    ensure_ray_tracing_instances_ready();
+    tlas = sampled_render_instances ? sampled_render_instances->mesh_top_level_acceleration_structure : nullptr;
+  }
+
+  if (!tlas || tlas->GetVkAccelerationStructure() == VK_NULL_HANDLE) {
+    EVOENGINE_ERROR("Point Cloud: Ray tracing TLAS is unavailable for point cloud sampling!")
+    return;
+  }
+
   auto reflection_probe = scene->environment.GetReflectionProbe(glm::vec3(0.0f));
   if (!reflection_probe) {
     reflection_probe = Resources::default_environmental_map->reflection_probe.Get<ReflectionProbe>();
   }
   const auto skybox = Resources::default_skybox;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  if (current_frame_index >= render_layer->per_frame_descriptor_sets_.size() ||
+      !render_layer->per_frame_descriptor_sets_[current_frame_index]) {
+    EVOENGINE_ERROR("Point Cloud: Per-frame descriptor set is unavailable!")
+    return;
+  }
+  if (current_frame_index >= render_layer->ray_tracing_descriptor_sets_.size() ||
+      !render_layer->ray_tracing_descriptor_sets_[current_frame_index]) {
+    EVOENGINE_ERROR("Point Cloud: Ray tracing descriptor set is unavailable!")
+    return;
+  }
+
+    render_layer->ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      0, GeometryStorage::GetVertexBuffer());
+    render_layer->ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      1, GeometryStorage::GetTriangleBuffer());
+    render_layer->ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
+      2, tlas);
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

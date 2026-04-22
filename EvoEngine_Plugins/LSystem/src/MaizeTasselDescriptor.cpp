@@ -2,11 +2,15 @@
 #include "MaizeTassel.hpp"
 #include <Application.hpp>
 #include <EditorLayer.hpp>
+#include <ProjectManager.hpp>
 #include <Scene.hpp>
 #include <Transform.hpp>
+#include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <fstream>
+#include <sstream>
 #include <yaml-cpp/yaml.h>
 
 using namespace l_system_plugin;
@@ -17,1335 +21,247 @@ double GetSteadyTimeSeconds() {
   return std::chrono::duration<double>(
       std::chrono::steady_clock::now().time_since_epoch()).count();
 }
+
+std::filesystem::path ResolveDefaultMaizeTasselDescriptorPath() {
+  const std::array<std::filesystem::path, 4> resource_candidates = {
+      std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"),
+      std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
+          "MaizeTasselDescriptor_Default.mtassel",
+      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New MaizeTasselDescriptor.mtassel"),
+      std::filesystem::path("./DigitalAgricultureProject/Assets/New MaizeTasselDescriptor.mtassel")};
+
+  for (const auto& relative_candidate : resource_candidates) {
+    const auto absolute_candidate = std::filesystem::absolute(relative_candidate);
+    if (std::filesystem::exists(absolute_candidate)) {
+      return absolute_candidate;
+    }
+  }
+
+  const auto assets_folder = ProjectManager::GetAssetsFolderPath();
+  if (!assets_folder.empty()) {
+    const std::array<std::filesystem::path, 2> project_asset_candidates = {
+        std::filesystem::path("LSystem") / "New MaizeTasselDescriptor.mtassel",
+        "New MaizeTasselDescriptor.mtassel"};
+    for (const auto& relative_candidate : project_asset_candidates) {
+      const auto absolute_candidate = assets_folder / relative_candidate;
+      if (std::filesystem::exists(absolute_candidate)) {
+        return absolute_candidate;
+      }
+    }
+  }
+
+  return {};
+}
+
+std::filesystem::path ResolveWritableMaizeTasselDescriptorDefaultsPath() {
+  if (const auto existing = ResolveDefaultMaizeTasselDescriptorPath(); !existing.empty()) {
+    return existing;
+  }
+
+  // Preferred write target for project-wide defaults.
+  return std::filesystem::absolute(
+      std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"));
+}
+
+bool SaveMaizeTasselDescriptorDefaultsToFile(const MaizeTasselDescriptor& descriptor,
+                                             const std::filesystem::path& file_path) {
+  if (file_path.empty()) {
+    return false;
+  }
+
+  try {
+    std::filesystem::create_directories(file_path.parent_path());
+
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    descriptor.Serialize(out);
+    out << YAML::EndMap;
+
+    std::ofstream stream(file_path.string(), std::ios::out | std::ios::trunc);
+    if (!stream.is_open()) {
+      EVOENGINE_WARNING("Failed to open defaults file for writing: " + file_path.string());
+      return false;
+    }
+
+    stream << out.c_str();
+    stream.flush();
+    if (!stream.good()) {
+      EVOENGINE_WARNING("Failed while writing defaults file: " + file_path.string());
+      return false;
+    }
+
+    return true;
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING("Failed to save MaizeTasselDescriptor defaults to " + file_path.string() + ": " +
+                      std::string(e.what()));
+    return false;
+  }
+}
+
+template <typename T>
+void SetSingleDistributionToExact(evo_engine::SingleDistribution<T>& distribution, const T value) {
+  distribution.mean = value;
+  distribution.deviation = 0.0f;
+}
+
+void LoadSingleDistributionWithScalarFallback(const YAML::Node& in,
+                                              const char* key,
+                                              evo_engine::SingleDistribution<float>& distribution) {
+  if (!in[key]) {
+    return;
+  }
+  const auto& node = in[key];
+  if (node.IsMap()) {
+    distribution.Load(key, in);
+    return;
+  }
+  if (node.IsScalar()) {
+    distribution.mean = node.as<float>();
+    distribution.deviation = 0.0f;
+  }
+}
+
+void OverwriteDescriptorFromSampledParams(MaizeTasselDescriptor& descriptor,
+                                          const SampledTasselParams& sampled) {
+  // Branch zone.
+  SetSingleDistributionToExact(descriptor.branch_node_count, static_cast<float>(sampled.branch_node_count));
+  descriptor.branch_internode_length = sampled.branch_internode_length;
+  descriptor.branch_internode_thickness = sampled.branch_internode_thickness;
+  descriptor.lateral_insertion_angle = sampled.lateral_insertion_angle;
+  descriptor.lateral_internode_length = sampled.lateral_internode_length;
+  descriptor.lateral_node_count = sampled.lateral_node_count;
+  descriptor.peduncle_branch_probability = sampled.peduncle_branch_probability;
+
+  // Central spike.
+  SetSingleDistributionToExact(descriptor.spike_node_count, static_cast<float>(sampled.spike_node_count));
+  descriptor.spike_internode_length = sampled.spike_internode_length;
+  descriptor.spike_internode_thickness = sampled.spike_internode_thickness;
+  descriptor.spike_zone_branch_probability = sampled.spike_zone_branch_probability;
+
+  // Main-rachis pair morphology.
+  descriptor.main_pair_proximal_scale_x = sampled.main_pair_proximal_scale_x;
+  descriptor.main_pair_proximal_scale_y = sampled.main_pair_proximal_scale_y;
+  descriptor.main_pair_proximal_scale_z = sampled.main_pair_proximal_scale_z;
+  descriptor.main_pair_proximal_angle = sampled.main_pair_proximal_angle;
+  descriptor.main_pair_internode_length = sampled.main_pair_internode_length;
+  descriptor.main_pair_internode_thickness = sampled.main_pair_internode_thickness;
+  descriptor.main_pair_internode_angle = sampled.main_pair_internode_angle;
+  descriptor.main_pair_distal_scale_x = sampled.main_pair_distal_scale_x;
+  descriptor.main_pair_distal_scale_y = sampled.main_pair_distal_scale_y;
+  descriptor.main_pair_distal_scale_z = sampled.main_pair_distal_scale_z;
+  descriptor.main_pair_distal_angle = sampled.main_pair_distal_angle;
+
+  // Non-main-axis pair morphology.
+  descriptor.branch_pair_proximal_scale_x = sampled.branch_pair_proximal_scale_x;
+  descriptor.branch_pair_proximal_scale_y = sampled.branch_pair_proximal_scale_y;
+  descriptor.branch_pair_proximal_scale_z = sampled.branch_pair_proximal_scale_z;
+  descriptor.branch_pair_proximal_angle = sampled.branch_pair_proximal_angle;
+  descriptor.branch_pair_internode_length = sampled.branch_pair_internode_length;
+  descriptor.branch_pair_internode_thickness = sampled.branch_pair_internode_thickness;
+  descriptor.branch_pair_internode_angle = sampled.branch_pair_internode_angle;
+  descriptor.branch_pair_distal_scale_x = sampled.branch_pair_distal_scale_x;
+  descriptor.branch_pair_distal_scale_y = sampled.branch_pair_distal_scale_y;
+  descriptor.branch_pair_distal_scale_z = sampled.branch_pair_distal_scale_z;
+  descriptor.branch_pair_distal_angle = sampled.branch_pair_distal_angle;
+
+  // Thermal and branch timing.
+  descriptor.lateral_initiation_delay_gdd = sampled.lateral_initiation_delay_gdd;
+  descriptor.spike_anthesis_offset_gdd = sampled.spike_anthesis_offset_gdd;
+  descriptor.primary_lateral_branch_probability = sampled.primary_lateral_branch_probability;
+  descriptor.secondary_lateral_branch_probability = sampled.secondary_lateral_branch_probability;
+
+  // Shared and secondary branch controls.
+  SetSingleDistributionToExact(descriptor.phyllotaxis_angle, sampled.phyllotaxis_angle);
+  descriptor.branch_azimuth_offset = sampled.branch_azimuth_offset;
+  SetSingleDistributionToExact(descriptor.lateral_thickness_ratio, sampled.lateral_thickness_ratio);
+  SetSingleDistributionToExact(descriptor.secondary_insertion_angle, sampled.secondary_insertion_angle);
+  SetSingleDistributionToExact(descriptor.secondary_internode_length, sampled.secondary_internode_length);
+  SetSingleDistributionToExact(descriptor.secondary_internode_thickness, sampled.secondary_internode_thickness);
+  SetSingleDistributionToExact(descriptor.secondary_node_count, static_cast<float>(sampled.secondary_node_count));
+  descriptor.final_age_gdd = sampled.final_age_gdd;
+
+  // Curves.
+  descriptor.rachis_elongation_curve = sampled.rachis_elongation_curve;
+  descriptor.rachis_thickness_curve = sampled.rachis_thickness_curve;
+  descriptor.lateral_elongation_curve = sampled.lateral_elongation_curve;
+  descriptor.lateral_thickness_curve = sampled.lateral_thickness_curve;
+  descriptor.lateral_angle_development_curve = sampled.lateral_angle_development_curve;
+  descriptor.pair_proximal_scale_curve = sampled.pair_proximal_scale_curve;
+  descriptor.pair_proximal_angle_curve = sampled.pair_proximal_angle_curve;
+  descriptor.pair_internode_length_curve = sampled.pair_internode_length_curve;
+  descriptor.pair_internode_thickness_curve = sampled.pair_internode_thickness_curve;
+  descriptor.pair_internode_angle_curve = sampled.pair_internode_angle_curve;
+  descriptor.pair_distal_scale_curve = sampled.pair_distal_scale_curve;
+  descriptor.pair_distal_angle_curve = sampled.pair_distal_angle_curve;
+
+  // Dynamic tropisms: snapshot active sampled tropisms to exact entries.
+  descriptor.tropisms.clear();
+  descriptor.tropisms.reserve(sampled.tropisms.size());
+  for (const auto& sampled_tropism : sampled.tropisms) {
+    TropismEntry entry;
+    SetSingleDistributionToExact(entry.direction_x, sampled_tropism.direction.x);
+    SetSingleDistributionToExact(entry.direction_y, sampled_tropism.direction.y);
+    SetSingleDistributionToExact(entry.direction_z, sampled_tropism.direction.z);
+    SetSingleDistributionToExact(entry.strength, sampled_tropism.strength);
+    entry.usage_chance_percent = 100.0f;
+    entry.order_response = sampled_tropism.order_response;
+    descriptor.tropisms.emplace_back(std::move(entry));
+  }
+
+  // Thermal timing.
+  SetSingleDistributionToExact(descriptor.base_temperature, sampled.base_temperature);
+  SetSingleDistributionToExact(descriptor.plastochron_gdd, sampled.plastochron_gdd);
+  SetSingleDistributionToExact(descriptor.anthesis_gdd, sampled.anthesis_gdd);
+  SetSingleDistributionToExact(descriptor.maturity_gdd, sampled.maturity_gdd);
+  SetSingleDistributionToExact(descriptor.main_axis_plastochron_scale, sampled.main_axis_plastochron_scale);
+  SetSingleDistributionToExact(descriptor.lateral_axis_plastochron_scale, sampled.lateral_axis_plastochron_scale);
+  SetSingleDistributionToExact(descriptor.lateral_bud_plastochron_scale, sampled.lateral_bud_plastochron_scale);
+  SetSingleDistributionToExact(descriptor.maturity_initiation_coupling, sampled.maturity_initiation_coupling);
+  SetSingleDistributionToExact(descriptor.reference_maturity_gdd, sampled.reference_maturity_gdd);
+  SetSingleDistributionToExact(descriptor.branch_angle_relaxation, sampled.branch_angle_relaxation);
+  SetSingleDistributionToExact(descriptor.pair_angle_relaxation, sampled.pair_angle_relaxation);
+  SetSingleDistributionToExact(descriptor.stage_1_end_t, sampled.stage_1_end_t);
+  SetSingleDistributionToExact(descriptor.stage_2_end_t, sampled.stage_2_end_t);
+  SetSingleDistributionToExact(descriptor.stage_3_end_t, sampled.stage_3_end_t);
+  SetSingleDistributionToExact(descriptor.secondary_ramp_start_t, sampled.secondary_ramp_start_t);
+  SetSingleDistributionToExact(descriptor.secondary_ramp_end_t, sampled.secondary_ramp_end_t);
+  SetSingleDistributionToExact(descriptor.mature_droop_start_t, sampled.mature_droop_start_t);
+  SetSingleDistributionToExact(descriptor.mature_droop_strength, sampled.mature_droop_strength);
+}
+
+bool LoadMaizeTasselDescriptorDefaultsFromFile(MaizeTasselDescriptor& descriptor,
+                                               const std::filesystem::path& file_path) {
+  if (file_path.empty() || !std::filesystem::exists(file_path)) {
+    return false;
+  }
+
+  try {
+    const std::ifstream stream(file_path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    const YAML::Node defaults = YAML::Load(string_stream.str());
+    if (!defaults || !defaults.IsMap()) {
+      return false;
+    }
+    descriptor.Deserialize(defaults);
+    return true;
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING("Failed to load MaizeTasselDescriptor defaults from " + file_path.string() + ": " +
+                      std::string(e.what()));
+    return false;
+  }
+}
 }
 
 MaizeTasselDescriptor::MaizeTasselDescriptor() {
-  static const char* kDefaultMaizeTasselDescriptorYaml =
-      R"MTASSEL_DEFAULTS(branch_node_count:
-  mean: 12
-  deviation: 4
-branch_internode_length:
-  mean:
-    min_value: 0
-    max_value: 3
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 1.5
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-branch_internode_thickness:
-  mean:
-    min_value: 0
-    max_value: 0.35
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.884]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.615]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.033
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.238]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.704]
-        - [0.1, 0]
-lateral_insertion_angle:
-  mean:
-    min_value: 0
-    max_value: 80
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.932]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.267]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 30
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.739]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.18]
-        - [0.1, 0]
-lateral_internode_length:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.836]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.5
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.841]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.18]
-        - [0.1, 0]
-lateral_node_count:
-  mean:
-    min_value: 8
-    max_value: 24
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.811]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.257]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-peduncle_branch_probability:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.69]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [0.2889306, 0.9586466]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.963]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-spike_node_count:
-  mean: 36
-  deviation: 6
-spike_internode_length:
-  mean:
-    min_value: 0
-    max_value: 0.5
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 1]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.857]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.15
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 1]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.277]
-        - [0.1, 0]
-spike_internode_thickness:
-  mean:
-    min_value: 0
-    max_value: 0.35
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.703]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.462]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.035
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.722]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.383]
-        - [0.1, 0]
-spike_zone_branch_probability:
-  mean:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_proximal_scale_x:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_proximal_scale_y:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_proximal_scale_z:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_proximal_angle:
-  mean:
-    min_value: 0
-    max_value: 30
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.72]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.34]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 5
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_internode_length:
-  mean:
-    min_value: 0
-    max_value: 0.75
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.685]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.391]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.5
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.713]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.311]
-        - [0.1, 0]
-main_pair_internode_thickness:
-  mean:
-    min_value: 0
-    max_value: 0.25
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_internode_angle:
-  mean:
-    min_value: 0
-    max_value: 60
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.788]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.307]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 30
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.785]
-        - [0.1, 0]
-        - [-0.10286678, 0.0016863407]
-        - [1, 0.178]
-        - [0.1, 0]
-main_pair_distal_scale_x:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_distal_scale_y:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_distal_scale_z:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-main_pair_distal_angle:
-  mean:
-    min_value: 0
-    max_value: 40
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-branch_pair_proximal_scale_x:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-branch_pair_proximal_scale_y:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
- )MTASSEL_DEFAULTS"
-      R"MTASSEL_DEFAULTS(       - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-branch_pair_proximal_scale_z:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-branch_pair_proximal_angle:
-  mean:
-    min_value: 0
-    max_value: 45
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.641]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.319]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 15
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.728]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.132]
-        - [0.1, 0]
-branch_pair_internode_length:
-  mean:
-    min_value: 0
-    max_value: 1.5
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.766]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.265]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.05
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.704]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.256]
-        - [0.1, 0]
-branch_pair_internode_thickness:
-  mean:
-    min_value: 0
-    max_value: 0.4
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.7]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.47]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-branch_pair_internode_angle:
-  mean:
-    min_value: 0
-    max_value: 45
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.644]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.241]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 15
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.738]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.386]
-        - [0.1, 0]
-branch_pair_distal_scale_x:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.509]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.509]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.501]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.51]
-        - [0.1, 0]
-branch_pair_distal_scale_y:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.507]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.501]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.501]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.505]
-        - [0.1, 0]
-branch_pair_distal_scale_z:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.495]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.507]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0.1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.505]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.491]
-        - [0.1, 0]
-branch_pair_distal_angle:
-  mean:
-    min_value: 0
-    max_value: 32
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.656]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.195]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 15
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-lateral_initiation_delay_gdd:
-  mean:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-spike_anthesis_offset_gdd:
-  mean:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-primary_lateral_branch_probability:
-  mean:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-secondary_lateral_branch_probability:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.64]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.263]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 0
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-phyllotaxis_angle:
-  mean: 180
-  deviation: 0
-branch_azimuth_offset:
-  mean: 15
-  deviation: 15
-lateral_thickness_ratio:
-  mean: 0.5
-  deviation: 0.08
-final_age_gdd:
-  mean: 1500
-  deviation: 150
-secondary_insertion_angle:
-  mean: 60
-  deviation: 0
-secondary_internode_length:
-  mean: 2
-  deviation: 0
-secondary_internode_thickness:
-  mean: 0.1
-  deviation: 0
-secondary_node_count:
-  mean: 6
-  deviation: 18
-rachis_elongation_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-rachis_thickness_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-lateral_elongation_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-lateral_thickness_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-lateral_angle_development_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_proximal_scale_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_proximal_angle_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_internode_length_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_internode_thickness_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_internode_angle_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_distal_scale_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-pair_distal_angle_curve:
-  tangent_: true
-  min_: [0, 0]
-  max_: [1, 1]
-  values_:
-    - [-0.1, 0]
-    - [0, 0]
-    - [0.1, 0]
-    - [-0.1, 0]
-    - [1, 1]
-    - [0.1, 0]
-base_temperature: 10
-plastochron_gdd: 100
-anthesis_gdd: 500
-max_gdd: 1500
-live_preview: false
-live_preview_rate_hz: 12
-grid_rows: 3
-grid_cols: 6
-grid_spacing: 45
-tropism_count: 3
-tropism_0_dir_x:
-  mean: 0
-  deviation: 0
-tropism_0_dir_y:
-  mean: -1
-  deviation: 0
-tropism_0_dir_z:
-  mean: 0
-  deviation: 0
-tropism_0_strength:
-  mean: 8
-  deviation: 2
-tropism_0_usage_chance_percent: 50
-tropism_0_order_response:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.293]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.648]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-tropism_1_dir_x:
-  mean: 0
-  deviation: 0
-tropism_1_dir_y:
-  mean: -1
-  deviation: 0
-tropism_1_dir_z:
-  mean: 1
-  deviation: 0
-tropism_1_strength:
-  mean: 0
-  deviation: 5
-tropism_1_usage_chance_percent: 25
-tropism_1_order_response:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-tropism_2_dir_x:
-  mean: 0
-  deviation: 0
-tropism_2_dir_y:
-  mean: -1
-  deviati)MTASSEL_DEFAULTS"
-      R"MTASSEL_DEFAULTS(on: 0
-tropism_2_dir_z:
-  mean: -1
-  deviation: 0
-tropism_2_strength:
-  mean: 20
-  deviation: 0
-tropism_2_usage_chance_percent: 5
-tropism_2_order_response:
-  mean:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0]
-  deviation:
-    min_value: 0
-    max_value: 1
-    curve:
-      tangent_: true
-      min_: [0, 0]
-      max_: [1, 1]
-      values_:
-        - [-0.1, 0]
-        - [0, 0.5]
-        - [0.1, 0]
-        - [-0.1, 0]
-        - [1, 0.5]
-        - [0.1, 0])MTASSEL_DEFAULTS";
-  try {
-    const YAML::Node defaults = YAML::Load(kDefaultMaizeTasselDescriptorYaml);
-    if (defaults && defaults.IsMap()) {
-      Deserialize(defaults);
+  const auto defaults_path = ResolveDefaultMaizeTasselDescriptorPath();
+  if (!LoadMaizeTasselDescriptorDefaultsFromFile(*this, defaults_path)) {
+    static bool warned_once = false;
+    if (!warned_once) {
+      warned_once = true;
+      EVOENGINE_WARNING(
+          "MaizeTasselDescriptor defaults file not found or invalid. Using inline member defaults.");
     }
-  } catch (const YAML::Exception&) {
-    // Keep inline member defaults if the embedded YAML payload fails to parse.
   }
 }
 
@@ -1412,7 +328,7 @@ SampledTasselParams MaizeTasselDescriptor::Sample(std::mt19937& rng) const {
   p.final_age_gdd.deviation = std::max(0.0f, p.final_age_gdd.deviation);
 
   // Secondary branches.
-  p.secondary_insertion_angle = std::max(1.0f, SampleDistribution(secondary_insertion_angle, rng));
+  p.secondary_insertion_angle = SampleDistribution(secondary_insertion_angle, rng);
   p.secondary_internode_length = std::max(0.01f, SampleDistribution(secondary_internode_length, rng));
   p.secondary_internode_thickness = std::max(0.01f, SampleDistribution(secondary_internode_thickness, rng));
   p.secondary_node_count = std::max(0, static_cast<int>(std::round(SampleDistribution(secondary_node_count, rng))));
@@ -1451,9 +367,33 @@ SampledTasselParams MaizeTasselDescriptor::Sample(std::mt19937& rng) const {
   }
 
   // Thermal timing.
-  p.plastochron_gdd = plastochron_gdd;
-  p.anthesis_gdd = anthesis_gdd;
-  p.maturity_gdd = maturity_gdd;
+  p.base_temperature = std::clamp(SampleDistribution(base_temperature, rng), 0.0f, 30.0f);
+  p.plastochron_gdd = std::max(1.0f, SampleDistribution(plastochron_gdd, rng));
+  p.anthesis_gdd = std::max(0.0f, SampleDistribution(anthesis_gdd, rng));
+  p.maturity_gdd = std::max(p.anthesis_gdd + 1.0f, SampleDistribution(maturity_gdd, rng));
+  p.main_axis_plastochron_scale = std::max(0.1f, SampleDistribution(main_axis_plastochron_scale, rng));
+  p.lateral_axis_plastochron_scale = std::max(0.1f, SampleDistribution(lateral_axis_plastochron_scale, rng));
+  p.lateral_bud_plastochron_scale = std::max(0.1f, SampleDistribution(lateral_bud_plastochron_scale, rng));
+  p.maturity_initiation_coupling = std::max(0.0f, SampleDistribution(maturity_initiation_coupling, rng));
+  p.reference_maturity_gdd = std::max(1.0f, SampleDistribution(reference_maturity_gdd, rng));
+  p.branch_angle_relaxation = std::clamp(SampleDistribution(branch_angle_relaxation, rng), 0.001f, 1.0f);
+  p.pair_angle_relaxation = std::clamp(SampleDistribution(pair_angle_relaxation, rng), 0.001f, 1.0f);
+  p.stage_1_end_t = std::clamp(SampleDistribution(stage_1_end_t, rng), 0.0f, 1.0f);
+  p.stage_2_end_t = std::clamp(
+    SampleDistribution(stage_2_end_t, rng),
+    std::min(1.0f, p.stage_1_end_t + 0.02f),
+    1.0f);
+  p.stage_3_end_t = std::clamp(
+    SampleDistribution(stage_3_end_t, rng),
+    std::min(1.0f, p.stage_2_end_t + 0.02f),
+    1.0f);
+  p.secondary_ramp_start_t = std::clamp(SampleDistribution(secondary_ramp_start_t, rng), 0.0f, 1.0f);
+  p.secondary_ramp_end_t = std::clamp(
+    SampleDistribution(secondary_ramp_end_t, rng),
+    std::min(1.0f, p.secondary_ramp_start_t + 0.02f),
+    1.0f);
+  p.mature_droop_start_t = std::clamp(SampleDistribution(mature_droop_start_t, rng), 0.0f, 1.0f);
+  p.mature_droop_strength = std::max(0.0f, SampleDistribution(mature_droop_strength, rng));
 
   return p;
 }
@@ -1483,9 +423,90 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
   bool changed = false;
   bool editor_preferences_changed = false;
 
+  const auto show_item_hover_description = [](const char* description) {
+    if (!description || description[0] == '\0') {
+      return;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+      ImGui::SetTooltip("%s", description);
+    }
+  };
+
+  const auto capture_from_selected_instance = [&](const bool emit_warning) -> bool {
+    const auto scene = Application::GetActiveScene();
+    if (!scene) {
+      if (emit_warning) {
+        EVOENGINE_WARNING("Capture failed. No active scene.");
+      }
+      return false;
+    }
+
+    const auto selected_entity = editor_layer->GetSelectedEntity();
+    if (!scene->IsEntityValid(selected_entity) || !scene->HasPrivateComponent<MaizeTassel>(selected_entity)) {
+      if (emit_warning) {
+        EVOENGINE_WARNING("Capture failed. Select a MaizeTassel entity that uses this descriptor.");
+      }
+      return false;
+    }
+
+    const auto tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(selected_entity).lock();
+    if (!tassel || tassel->descriptor_ref.Get<MaizeTasselDescriptor>().get() != this) {
+      if (emit_warning) {
+        EVOENGINE_WARNING("Capture failed. Selected MaizeTassel uses a different descriptor.");
+      }
+      return false;
+    }
+
+    if (!tassel->growth_model.IsInitialized()) {
+      tassel->GenerateGeometryEntities();
+    }
+    if (!tassel->growth_model.IsInitialized()) {
+      if (emit_warning) {
+        EVOENGINE_WARNING("Capture failed. Selected MaizeTassel has no initialized growth model.");
+      }
+      return false;
+    }
+
+    OverwriteDescriptorFromSampledParams(*this, tassel->growth_model.sampled);
+    changed = true;
+    EVOENGINE_LOG("Captured sampled parameters from selected MaizeTassel instance into descriptor: " +
+                  GetTitle());
+    return true;
+  };
+
   // -- Instantiation controls --
   if (ImGui::Button("Instantiate")) {
     editor_layer->SetSelectedEntity(Instantiate());
+  }
+  show_item_hover_description("Create a new MaizeTassel entity using this descriptor and select it in the scene.");
+
+  ImGui::SameLine();
+  if (ImGui::Button("Capture From Selected Instance")) {
+    capture_from_selected_instance(true);
+  }
+  show_item_hover_description("Copy sampled runtime parameters from the selected MaizeTassel entity into this descriptor.\n"
+                              "Use this to freeze a generated instance as new descriptor defaults.");
+
+  ImGui::SameLine();
+  if (ImGui::Button("Overwrite Descriptor Defaults")) {
+    const bool captured_from_instance = capture_from_selected_instance(false);
+    if (captured_from_instance) {
+      EVOENGINE_LOG("Using selected MaizeTassel instance sampled parameters for defaults overwrite.");
+    }
+
+    const auto defaults_path = ResolveWritableMaizeTasselDescriptorDefaultsPath();
+    if (SaveMaizeTasselDescriptorDefaultsToFile(*this, defaults_path)) {
+      EVOENGINE_LOG("MaizeTasselDescriptor defaults overwritten: " + defaults_path.string());
+    } else {
+      EVOENGINE_WARNING("Failed to overwrite MaizeTasselDescriptor defaults.");
+    }
+  }
+  if (ImGui::IsItemHovered()) {
+    const auto defaults_path = ResolveWritableMaizeTasselDescriptorDefaultsPath();
+    const std::string tip =
+        "Write new defaults for future MaizeTasselDescriptor assets. If a compatible MaizeTassel instance is selected, its sampled runtime values are captured first.\nPath: " +
+                            defaults_path.string();
+    ImGui::SetTooltip("%s", tip.c_str());
   }
 
   ImGui::SameLine();
@@ -1497,6 +518,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
       live_preview_needs_full_apply_ = false;
     }
   }
+  show_item_hover_description("Regenerate matching tassels while editing this descriptor.");
 
   if (ImGui::DragFloat("Live Preview Rate (Hz)",
                        &live_preview_rate_hz,
@@ -1507,14 +529,17 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     live_preview_rate_hz = std::clamp(live_preview_rate_hz, 1.0f, 60.0f);
     editor_preferences_changed = true;
   }
+  show_item_hover_description("Maximum live-preview apply frequency. Higher values update more often but cost more CPU.");
 
   if (ImGui::Checkbox("Representative Only While Dragging", &live_preview_representative_only)) {
     editor_preferences_changed = true;
   }
+  show_item_hover_description("While dragging controls, preview only one matching tassel for responsiveness.");
 
   if (ImGui::Checkbox("Cap Preview Target GDD", &live_preview_cap_target_gdd)) {
     editor_preferences_changed = true;
   }
+  show_item_hover_description("Clamp preview simulation age so live updates stay fast on very mature tassels.");
 
   if (ImGui::DragFloat("Preview Max GDD",
                        &live_preview_max_gdd,
@@ -1525,6 +550,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     live_preview_max_gdd = std::max(0.0f, live_preview_max_gdd);
     editor_preferences_changed = true;
   }
+  show_item_hover_description("Upper GDD limit used when preview capping is enabled.");
 
   if (ImGui::DragInt("Preview Max Growth Steps",
                      &live_preview_max_growth_steps,
@@ -1534,6 +560,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     live_preview_max_growth_steps = std::clamp(live_preview_max_growth_steps, 1, 10000);
     editor_preferences_changed = true;
   }
+  show_item_hover_description("Maximum derivation/growth iterations used by drag-time preview updates.");
 
   if (live_preview_apply_count_ > 0) {
     const double avg_apply_ms = live_preview_total_apply_ms_ /
@@ -1554,12 +581,16 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     live_preview_last_apply_ms_ = 0.0;
     live_preview_total_apply_ms_ = 0.0;
   }
+  show_item_hover_description("Reset live-preview timing and coalescing counters.");
 
   // -- Grid instantiation --
   if (ImGui::TreeNodeEx("Grid Instantiate")) {
     ImGui::DragInt("Rows", &grid_rows, 1, 1, 50);
+    show_item_hover_description("Number of rows for grid instantiation.");
     ImGui::DragInt("Cols", &grid_cols, 1, 1, 50);
+    show_item_hover_description("Number of columns for grid instantiation.");
     ImGui::DragFloat("Spacing", &grid_spacing, 0.1f, 0.5f, 50.0f);
+    show_item_hover_description("World-space spacing between neighboring grid tassels.");
 
     if (ImGui::Button("Instantiate Grid")) {
       const auto scene = Application::GetActiveScene();
@@ -1590,6 +621,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
         }
       }
     }
+    show_item_hover_description("Spawn a grid of MaizeTassel entities from this descriptor with unique seeds.");
 
     ImGui::SameLine();
     if (ImGui::Button("Delete Grid")) {
@@ -1630,6 +662,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
         }
       }
     }
+    show_item_hover_description("Delete MaizeTassel entities that use this descriptor and remove now-empty grid containers.");
 
     ImGui::TreePop();
   }
@@ -1642,6 +675,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     if (explorer_.OnInspect()) {
       changed = true;
     }
+    show_item_hover_description("Interactive parameter sweep and sensitivity exploration tools for this descriptor.");
     ImGui::TreePop();
   }
 
@@ -1649,60 +683,82 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
   if (ImGui::TreeNodeEx("Main Axis (Peduncle + Spike Zone)", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= branch_node_count.OnInspect("Peduncle Node Count", 0.5f);
+    show_item_hover_description("Mean and deviation for peduncle node count before the spike zone.");
     changed |= branch_internode_length.OnInspect("Peduncle Internode Length (Position)");
+    show_item_hover_description("Position-dependent peduncle internode length profile along normalized main-axis position.");
     changed |= branch_internode_thickness.OnInspect("Peduncle Internode Thickness (Position)");
+    show_item_hover_description("Position-dependent peduncle internode radius/thickness profile.");
 
     changed |= spike_node_count.OnInspect("Spike-Zone Node Count", 0.5f);
+    show_item_hover_description("Mean and deviation for node count in the upper spike zone.");
     changed |= spike_internode_length.OnInspect("Spike-Zone Internode Length (Position)");
+    show_item_hover_description("Position-dependent spike-zone internode length profile.");
     changed |= spike_internode_thickness.OnInspect("Spike-Zone Internode Thickness (Position)");
+    show_item_hover_description("Position-dependent spike-zone internode thickness profile.");
 
     ImGui::PushID("curve_rachis_elongation");
     ImGui::TextUnformatted("Age Curve: Main-axis internode elongation progression");
     changed |= rachis_elongation_curve.OnInspect("Main Axis Length Growth");
+    show_item_hover_description("Curve editor for main-axis elongation over internode age (x: normalized age, y: length multiplier).");
     ImGui::PopID();
 
     ImGui::PushID("curve_rachis_thickness");
     ImGui::TextUnformatted("Age Curve: Main-axis internode thickness progression");
     changed |= rachis_thickness_curve.OnInspect("Main Axis Thickness Growth");
+    show_item_hover_description("Curve editor for main-axis thickness development over internode age.");
     ImGui::PopID();
 
     changed |= phyllotaxis_angle.OnInspect("Base Phyllotaxis Angle", 1.0f);
+    show_item_hover_description("Baseline angular separation between successive organs around the main axis.");
     changed |= branch_azimuth_offset.OnInspect("Branch Azimuth Offset", 0.5f);
+    show_item_hover_description("Global azimuth offset applied to lateral branch orientation.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Main Stem Branching (Peduncle)", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= peduncle_branch_probability.OnInspect("Peduncle Branch Probability (Position)");
+    show_item_hover_description("Position-dependent probability of lateral branch initiation on peduncle nodes.");
     changed |= lateral_initiation_delay_gdd.OnInspect("Lateral Initiation Delay (GDD)");
+    show_item_hover_description("Thermal-time delay between node availability and lateral branch initiation.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Main Stem Branching (Spike Zone)", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= spike_zone_branch_probability.OnInspect("Spike-Zone Branch Probability (Position)");
+    show_item_hover_description("Position-dependent probability of branch/spikelet initiation in the spike zone.");
     changed |= spike_anthesis_offset_gdd.OnInspect("Anthesis Offset (GDD)");
+    show_item_hover_description("Thermal-time offset from initiation to anthesis timing.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Primary Lateral Branches", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= lateral_insertion_angle.OnInspect("Insertion Angle (Position)");
+    show_item_hover_description("Position-dependent insertion angle of primary lateral branches.");
     changed |= lateral_internode_length.OnInspect("Internode Length (Position)");
+    show_item_hover_description("Position-dependent internode length profile for primary laterals.");
     changed |= lateral_node_count.OnInspect("Relative Node Count (Position)");
+    show_item_hover_description("Relative node-count profile for primary lateral branches along their axis.");
     changed |= primary_lateral_branch_probability.OnInspect("Primary->Secondary Branch Probability (Position)");
+    show_item_hover_description("Probability that a primary lateral node emits a secondary branch.");
     changed |= lateral_thickness_ratio.OnInspect("Lateral Thickness Ratio", 0.01f);
+    show_item_hover_description("Thickness ratio of lateral branches relative to their parent axis.");
 
     ImGui::PushID("curve_lateral_elongation");
     ImGui::TextUnformatted("Age Curve: Lateral internode elongation progression");
     changed |= lateral_elongation_curve.OnInspect("Lateral Length Growth");
+    show_item_hover_description("Curve editor for lateral internode elongation over age.");
     ImGui::PopID();
 
     ImGui::PushID("curve_lateral_thickness");
     ImGui::TextUnformatted("Age Curve: Lateral internode thickness progression");
     changed |= lateral_thickness_curve.OnInspect("Lateral Thickness Growth");
+    show_item_hover_description("Curve editor for lateral internode thickness development over age.");
     ImGui::PopID();
 
     ImGui::PushID("curve_lateral_angle");
     ImGui::TextUnformatted("Age Curve: Lateral insertion angle opening progression");
     changed |= lateral_angle_development_curve.OnInspect("Lateral Angle Growth");
+    show_item_hover_description("Curve editor for lateral opening angle progression over age.");
     ImGui::PopID();
 
     ImGui::TreePop();
@@ -1710,51 +766,85 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
   if (ImGui::TreeNodeEx("Secondary Branches", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= secondary_lateral_branch_probability.OnInspect("Secondary->Secondary Branch Probability (Position)");
+    show_item_hover_description("Probability of tertiary branching from secondary axes.");
     changed |= secondary_insertion_angle.OnInspect("Secondary Insertion Angle", 0.5f);
+    show_item_hover_description("Mean and deviation of insertion angle for secondary branches.");
     changed |= secondary_internode_length.OnInspect("Secondary Internode Length", 0.1f);
+    show_item_hover_description("Mean and deviation of internode length on secondary branches.");
     changed |= secondary_internode_thickness.OnInspect("Secondary Internode Thickness", 0.01f);
+    show_item_hover_description("Mean and deviation of internode thickness on secondary branches.");
     changed |= secondary_node_count.OnInspect("Secondary Relative Node Count", 0.5f);
+    show_item_hover_description("Mean and deviation of relative node count for secondary branches.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Spikelet Pair Morphology (Main Rachis)", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= main_pair_proximal_scale_x.OnInspect("Proximal Ellipsoid Scale X (Position)");
+    show_item_hover_description("Position-dependent X scale of proximal spikelet ellipsoids on the main rachis.");
     changed |= main_pair_proximal_scale_y.OnInspect("Proximal Ellipsoid Scale Y (Position)");
+    show_item_hover_description("Position-dependent Y scale of proximal spikelet ellipsoids on the main rachis.");
     changed |= main_pair_proximal_scale_z.OnInspect("Proximal Ellipsoid Scale Z (Position)");
+    show_item_hover_description("Position-dependent Z scale of proximal spikelet ellipsoids on the main rachis.");
     changed |= main_pair_proximal_angle.OnInspect("Proximal Ellipsoid Branch Angle (Position)");
+    show_item_hover_description("Position-dependent branch angle for proximal spikelet elements on the main rachis.");
     changed |= main_pair_internode_length.OnInspect("Pair Internode Length (Position)");
+    show_item_hover_description("Position-dependent internode length between paired spikelet elements on the main rachis.");
     changed |= main_pair_internode_thickness.OnInspect("Pair Internode Thickness (Position)");
+    show_item_hover_description("Position-dependent internode thickness for spikelet pairs on the main rachis.");
     changed |= main_pair_internode_angle.OnInspect("Pair Internode Branch Angle (Position)");
+    show_item_hover_description("Position-dependent branch angle of pair internodes on the main rachis.");
     changed |= main_pair_distal_scale_x.OnInspect("Distal Ellipsoid Scale X (Position)");
+    show_item_hover_description("Position-dependent X scale of distal spikelet ellipsoids on the main rachis.");
     changed |= main_pair_distal_scale_y.OnInspect("Distal Ellipsoid Scale Y (Position)");
+    show_item_hover_description("Position-dependent Y scale of distal spikelet ellipsoids on the main rachis.");
     changed |= main_pair_distal_scale_z.OnInspect("Distal Ellipsoid Scale Z (Position)");
+    show_item_hover_description("Position-dependent Z scale of distal spikelet ellipsoids on the main rachis.");
     changed |= main_pair_distal_angle.OnInspect("Distal Ellipsoid Branch Angle (Position)");
+    show_item_hover_description("Position-dependent branch angle for distal spikelet elements on the main rachis.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Spikelet Pair Morphology (Peduncle Branches)", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= branch_pair_proximal_scale_x.OnInspect("Proximal Ellipsoid Scale X (Position)");
+    show_item_hover_description("Position-dependent X scale of proximal spikelet ellipsoids on peduncle branches.");
     changed |= branch_pair_proximal_scale_y.OnInspect("Proximal Ellipsoid Scale Y (Position)");
+    show_item_hover_description("Position-dependent Y scale of proximal spikelet ellipsoids on peduncle branches.");
     changed |= branch_pair_proximal_scale_z.OnInspect("Proximal Ellipsoid Scale Z (Position)");
+    show_item_hover_description("Position-dependent Z scale of proximal spikelet ellipsoids on peduncle branches.");
     changed |= branch_pair_proximal_angle.OnInspect("Proximal Ellipsoid Branch Angle (Position)");
+    show_item_hover_description("Position-dependent branch angle for proximal spikelet elements on peduncle branches.");
     changed |= branch_pair_internode_length.OnInspect("Pair Internode Length (Position)");
+    show_item_hover_description("Position-dependent internode length between paired spikelets on peduncle branches.");
     changed |= branch_pair_internode_thickness.OnInspect("Pair Internode Thickness (Position)");
+    show_item_hover_description("Position-dependent internode thickness for peduncle-branch spikelet pairs.");
     changed |= branch_pair_internode_angle.OnInspect("Pair Internode Branch Angle (Position)");
+    show_item_hover_description("Position-dependent pair internode branch angle on peduncle branches.");
     changed |= branch_pair_distal_scale_x.OnInspect("Distal Ellipsoid Scale X (Position)");
+    show_item_hover_description("Position-dependent X scale of distal spikelet ellipsoids on peduncle branches.");
     changed |= branch_pair_distal_scale_y.OnInspect("Distal Ellipsoid Scale Y (Position)");
+    show_item_hover_description("Position-dependent Y scale of distal spikelet ellipsoids on peduncle branches.");
     changed |= branch_pair_distal_scale_z.OnInspect("Distal Ellipsoid Scale Z (Position)");
+    show_item_hover_description("Position-dependent Z scale of distal spikelet ellipsoids on peduncle branches.");
     changed |= branch_pair_distal_angle.OnInspect("Distal Ellipsoid Branch Angle (Position)");
+    show_item_hover_description("Position-dependent branch angle for distal spikelet elements on peduncle branches.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Spikelet Pair Growth Curves", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= pair_proximal_scale_curve.OnInspect("Proximal Scale Growth");
+    show_item_hover_description("Curve editor for proximal spikelet size growth over age.");
     changed |= pair_proximal_angle_curve.OnInspect("Proximal Angle Growth");
+    show_item_hover_description("Curve editor for proximal spikelet branch-angle development over age.");
     changed |= pair_internode_length_curve.OnInspect("Pair Internode Length Growth");
+    show_item_hover_description("Curve editor for spikelet-pair internode length progression over age.");
     changed |= pair_internode_thickness_curve.OnInspect("Pair Internode Thickness Growth");
+    show_item_hover_description("Curve editor for spikelet-pair internode thickness progression over age.");
     changed |= pair_internode_angle_curve.OnInspect("Pair Internode Angle Growth");
+    show_item_hover_description("Curve editor for spikelet-pair internode branch-angle progression over age.");
     changed |= pair_distal_scale_curve.OnInspect("Distal Scale Growth");
+    show_item_hover_description("Curve editor for distal spikelet size growth over age.");
     changed |= pair_distal_angle_curve.OnInspect("Distal Angle Growth");
+    show_item_hover_description("Curve editor for distal spikelet branch-angle development over age.");
     ImGui::TreePop();
   }
 
@@ -1763,15 +853,20 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
       tropisms.emplace_back();
       changed = true;
     }
+    show_item_hover_description("Append a new tropism rule entry to the active tropism set.");
     int remove_idx = -1;
     for (int i = 0; i < static_cast<int>(tropisms.size()); i++) {
       ImGui::PushID(i);
       const std::string header = "Tropism " + std::to_string(i);
       if (ImGui::TreeNodeEx(header.c_str())) {
         changed |= tropisms[i].direction_x.OnInspect("Direction X", 0.01f);
+        show_item_hover_description("X component of tropism direction before normalization.");
         changed |= tropisms[i].direction_y.OnInspect("Direction Y", 0.01f);
+        show_item_hover_description("Y component of tropism direction before normalization.");
         changed |= tropisms[i].direction_z.OnInspect("Direction Z", 0.01f);
+        show_item_hover_description("Z component of tropism direction before normalization.");
         changed |= tropisms[i].strength.OnInspect("Strength", 0.01f);
+        show_item_hover_description("Magnitude of tropism influence when this entry is active.");
         if (ImGui::DragFloat("Usage Chance (%)",
                              &tropisms[i].usage_chance_percent,
                              0.5f,
@@ -1781,10 +876,13 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
           tropisms[i].usage_chance_percent = std::clamp(tropisms[i].usage_chance_percent, 0.0f, 100.0f);
           changed = true;
         }
+        show_item_hover_description("Probability that this tropism entry is included during sampling.");
         changed |= tropisms[i].order_response.OnInspect("Order Response");
+        show_item_hover_description("Branch-order response multipliers for this tropism entry.");
         if (ImGui::Button("Remove")) {
           remove_idx = i;
         }
+        show_item_hover_description("Delete this tropism entry.");
         ImGui::TreePop();
       }
       ImGui::PopID();
@@ -1797,11 +895,238 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
   }
 
   if (ImGui::TreeNodeEx("Global Development", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed |= ImGui::DragFloat("Base Temperature", &base_temperature, 0.5f, 0.0f, 30.0f);
-    changed |= ImGui::DragFloat("Plastochron GDD", &plastochron_gdd, 1.0f, 1.0f, 200.0f);
-    changed |= ImGui::DragFloat("Anthesis GDD", &anthesis_gdd, 5.0f, 10.0f, 1000.0f);
-    changed |= ImGui::DragFloat("Internode Maturity GDD", &maturity_gdd, 5.0f, 10.0f, 2000.0f);
-    changed |= final_age_gdd.OnInspect("Spikelet Pair Final Age GDD", 1.0f);
+    const auto inspect_global_distribution_row = [&](const char* label,
+                             evo_engine::SingleDistribution<float>& distribution,
+                             const float speed,
+                             const float mean_min,
+                             const float mean_max,
+                             const float deviation_max,
+                             const char* description) {
+      bool row_changed = false;
+      ImGui::PushID(label);
+
+      ImGui::TableNextRow();
+
+      ImGui::TableSetColumnIndex(0);
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted(label);
+      show_item_hover_description(description);
+
+      ImGui::TableSetColumnIndex(1);
+      row_changed |= ImGui::DragFloat("##mean", &distribution.mean, speed, mean_min, mean_max);
+      show_item_hover_description(description);
+
+      ImGui::TableSetColumnIndex(2);
+      row_changed |= ImGui::DragFloat("##deviation", &distribution.deviation, speed, 0.0f, deviation_max);
+      show_item_hover_description(description);
+
+      ImGui::PopID();
+      return row_changed;
+    };
+
+    if (ImGui::BeginTable("GlobalDevelopmentTable",
+                3,
+                ImGuiTableFlags_SizingStretchSame |
+                  ImGuiTableFlags_BordersInnerV |
+                  ImGuiTableFlags_RowBg)) {
+      ImGui::TableSetupColumn("Parameter");
+      ImGui::TableSetupColumn("Mean");
+      ImGui::TableSetupColumn("Deviation");
+      ImGui::TableHeadersRow();
+
+      changed |= inspect_global_distribution_row(
+        "Base Temperature",
+        base_temperature,
+        0.5f,
+        0.0f,
+        30.0f,
+        30.0f,
+        "Thermal baseline (deg C) used for growing-degree-day accumulation.");
+      changed |= inspect_global_distribution_row(
+        "Plastochron GDD",
+        plastochron_gdd,
+        1.0f,
+        1.0f,
+        200.0f,
+        200.0f,
+        "Thermal time between successive organ initiations on the development clock.");
+      changed |= inspect_global_distribution_row(
+        "Anthesis GDD",
+        anthesis_gdd,
+        5.0f,
+        10.0f,
+        1000.0f,
+        1000.0f,
+        "Target GDD for anthesis timing in the developmental schedule.");
+      changed |= inspect_global_distribution_row(
+        "Internode Maturity GDD",
+        maturity_gdd,
+        5.0f,
+        10.0f,
+        2000.0f,
+        2000.0f,
+        "Thermal age at which internodes are considered mature.");
+      changed |= inspect_global_distribution_row(
+        "Main-Axis Plastochron Scale",
+        main_axis_plastochron_scale,
+        0.01f,
+        0.1f,
+        5.0f,
+        5.0f,
+        "Multiplier applied to main-axis plastochron timing.");
+      changed |= inspect_global_distribution_row(
+        "Lateral-Axis Plastochron Scale",
+        lateral_axis_plastochron_scale,
+        0.01f,
+        0.1f,
+        5.0f,
+        5.0f,
+        "Multiplier applied to lateral-axis plastochron timing.");
+      changed |= inspect_global_distribution_row(
+        "Lateral-Bud Plastochron Scale",
+        lateral_bud_plastochron_scale,
+        0.01f,
+        0.1f,
+        5.0f,
+        5.0f,
+        "Multiplier applied to lateral-bud initiation plastochron timing.");
+      changed |= inspect_global_distribution_row(
+        "Maturity->Initiation Coupling",
+        maturity_initiation_coupling,
+        0.01f,
+        0.0f,
+        2.0f,
+        2.0f,
+        "Coupling strength between organ maturity progression and new initiation timing.");
+      changed |= inspect_global_distribution_row(
+        "Reference Maturity GDD",
+        reference_maturity_gdd,
+        5.0f,
+        1.0f,
+        4000.0f,
+        4000.0f,
+        "Reference thermal age used to normalize maturity-dependent timing effects.");
+      changed |= inspect_global_distribution_row(
+        "Branch Angle Relaxation",
+        branch_angle_relaxation,
+        0.001f,
+        0.001f,
+        1.0f,
+        1.0f,
+        "Smoothing factor controlling how quickly branch insertion angles approach target values.");
+      changed |= inspect_global_distribution_row(
+        "Pair Angle Relaxation",
+        pair_angle_relaxation,
+        0.001f,
+        0.001f,
+        1.0f,
+        1.0f,
+        "Smoothing factor controlling how quickly spikelet pair angles approach target values.");
+      changed |= inspect_global_distribution_row(
+        "Stage 1 End (normalized)",
+        stage_1_end_t,
+        0.005f,
+        0.0f,
+        1.0f,
+        1.0f,
+        "End of compressed vertical phase, normalized by maturity GDD.");
+      changed |= inspect_global_distribution_row(
+        "Stage 2 End (normalized)",
+        stage_2_end_t,
+        0.005f,
+        0.0f,
+        1.0f,
+        1.0f,
+        "End of early separation phase, normalized by maturity GDD.");
+      changed |= inspect_global_distribution_row(
+        "Stage 3 End (normalized)",
+        stage_3_end_t,
+        0.005f,
+        0.0f,
+        1.0f,
+        1.0f,
+        "End of progressive unfurling phase, normalized by maturity GDD.");
+      changed |= inspect_global_distribution_row(
+        "Secondary Ramp Start (normalized)",
+        secondary_ramp_start_t,
+        0.005f,
+        0.0f,
+        1.0f,
+        1.0f,
+        "Normalized age where secondary-branch probability starts ramping up.");
+      changed |= inspect_global_distribution_row(
+        "Secondary Ramp End (normalized)",
+        secondary_ramp_end_t,
+        0.005f,
+        0.0f,
+        1.0f,
+        1.0f,
+        "Normalized age where secondary-branch probability reaches full strength.");
+      changed |= inspect_global_distribution_row(
+        "Mature Droop Start (normalized)",
+        mature_droop_start_t,
+        0.005f,
+        0.0f,
+        1.0f,
+        1.0f,
+        "Normalized age where downward mature-stage droop starts.");
+      changed |= inspect_global_distribution_row(
+        "Mature Droop Strength",
+        mature_droop_strength,
+        0.01f,
+        0.0f,
+        20.0f,
+        20.0f,
+        "Additional downward bending strength applied after mature droop start.");
+      changed |= inspect_global_distribution_row(
+        "Spikelet Pair Final Age GDD",
+        final_age_gdd,
+        1.0f,
+        1.0f,
+        4000.0f,
+        4000.0f,
+        "Distribution of final spikelet-pair age at full maturity (GDD since spikelet birth).");
+
+      ImGui::EndTable();
+    }
+
+    const auto clamp_distribution = [](evo_engine::SingleDistribution<float>& distribution,
+                       const float min_mean,
+                       const float max_mean) {
+      distribution.mean = std::clamp(distribution.mean, min_mean, max_mean);
+      distribution.deviation = std::max(0.0f, distribution.deviation);
+    };
+
+    clamp_distribution(base_temperature, 0.0f, 30.0f);
+    clamp_distribution(plastochron_gdd, 1.0f, 200.0f);
+    clamp_distribution(anthesis_gdd, 10.0f, 1000.0f);
+    clamp_distribution(maturity_gdd, 10.0f, 2000.0f);
+    clamp_distribution(main_axis_plastochron_scale, 0.1f, 5.0f);
+    clamp_distribution(lateral_axis_plastochron_scale, 0.1f, 5.0f);
+    clamp_distribution(lateral_bud_plastochron_scale, 0.1f, 5.0f);
+    clamp_distribution(maturity_initiation_coupling, 0.0f, 2.0f);
+    clamp_distribution(reference_maturity_gdd, 1.0f, 4000.0f);
+    clamp_distribution(branch_angle_relaxation, 0.001f, 1.0f);
+    clamp_distribution(pair_angle_relaxation, 0.001f, 1.0f);
+
+    clamp_distribution(stage_1_end_t, 0.0f, 1.0f);
+    stage_2_end_t.mean = std::clamp(stage_2_end_t.mean, std::min(1.0f, stage_1_end_t.mean + 0.02f), 1.0f);
+    stage_2_end_t.deviation = std::max(0.0f, stage_2_end_t.deviation);
+    stage_3_end_t.mean = std::clamp(stage_3_end_t.mean, std::min(1.0f, stage_2_end_t.mean + 0.02f), 1.0f);
+    stage_3_end_t.deviation = std::max(0.0f, stage_3_end_t.deviation);
+
+    clamp_distribution(secondary_ramp_start_t, 0.0f, 1.0f);
+    secondary_ramp_end_t.mean = std::clamp(
+      secondary_ramp_end_t.mean,
+      std::min(1.0f, secondary_ramp_start_t.mean + 0.02f),
+      1.0f);
+    secondary_ramp_end_t.deviation = std::max(0.0f, secondary_ramp_end_t.deviation);
+
+    clamp_distribution(mature_droop_start_t, 0.0f, 1.0f);
+    clamp_distribution(mature_droop_strength, 0.0f, 20.0f);
+    final_age_gdd.mean = std::max(1.0f, final_age_gdd.mean);
+    final_age_gdd.deviation = std::max(0.0f, final_age_gdd.deviation);
+
     ImGui::TreePop();
   }
 
@@ -1979,10 +1304,24 @@ void MaizeTasselDescriptor::Serialize(YAML::Emitter& out) const {
   pair_distal_scale_curve.Save("pair_distal_scale_curve", out);
   pair_distal_angle_curve.Save("pair_distal_angle_curve", out);
 
-  out << YAML::Key << "base_temperature" << YAML::Value << base_temperature;
-  out << YAML::Key << "plastochron_gdd" << YAML::Value << plastochron_gdd;
-  out << YAML::Key << "anthesis_gdd" << YAML::Value << anthesis_gdd;
-  out << YAML::Key << "max_gdd" << YAML::Value << maturity_gdd;
+  base_temperature.Save("base_temperature", out);
+  plastochron_gdd.Save("plastochron_gdd", out);
+  anthesis_gdd.Save("anthesis_gdd", out);
+  maturity_gdd.Save("max_gdd", out);
+  main_axis_plastochron_scale.Save("main_axis_plastochron_scale", out);
+  lateral_axis_plastochron_scale.Save("lateral_axis_plastochron_scale", out);
+  lateral_bud_plastochron_scale.Save("lateral_bud_plastochron_scale", out);
+  maturity_initiation_coupling.Save("maturity_initiation_coupling", out);
+  reference_maturity_gdd.Save("reference_maturity_gdd", out);
+  branch_angle_relaxation.Save("branch_angle_relaxation", out);
+  pair_angle_relaxation.Save("pair_angle_relaxation", out);
+  stage_1_end_t.Save("stage_1_end_t", out);
+  stage_2_end_t.Save("stage_2_end_t", out);
+  stage_3_end_t.Save("stage_3_end_t", out);
+  secondary_ramp_start_t.Save("secondary_ramp_start_t", out);
+  secondary_ramp_end_t.Save("secondary_ramp_end_t", out);
+  mature_droop_start_t.Save("mature_droop_start_t", out);
+  mature_droop_strength.Save("mature_droop_strength", out);
 
   out << YAML::Key << "live_preview" << YAML::Value << live_preview;
   out << YAML::Key << "live_preview_rate_hz" << YAML::Value << live_preview_rate_hz;
@@ -2148,13 +1487,73 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
     // Legacy compatibility: keep loading old assets that still contain this key.
   }
 
-  if (in["base_temperature"]) base_temperature = in["base_temperature"].as<float>();
-  if (in["plastochron_gdd"]) plastochron_gdd = in["plastochron_gdd"].as<float>();
-  if (in["anthesis_gdd"]) anthesis_gdd = in["anthesis_gdd"].as<float>();
-  if (in["max_gdd"])
-    maturity_gdd = in["max_gdd"].as<float>();
-  else if (in["maturity_gdd"])
-    maturity_gdd = in["maturity_gdd"].as<float>();
+  LoadSingleDistributionWithScalarFallback(in, "base_temperature", base_temperature);
+  LoadSingleDistributionWithScalarFallback(in, "plastochron_gdd", plastochron_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "anthesis_gdd", anthesis_gdd);
+  if (in["max_gdd"]) {
+    if (in["max_gdd"].IsMap()) {
+      maturity_gdd.Load("max_gdd", in);
+    } else if (in["max_gdd"].IsScalar()) {
+      maturity_gdd.mean = in["max_gdd"].as<float>();
+      maturity_gdd.deviation = 0.0f;
+    }
+  } else {
+    LoadSingleDistributionWithScalarFallback(in, "maturity_gdd", maturity_gdd);
+  }
+  LoadSingleDistributionWithScalarFallback(in, "main_axis_plastochron_scale", main_axis_plastochron_scale);
+  LoadSingleDistributionWithScalarFallback(in, "lateral_axis_plastochron_scale", lateral_axis_plastochron_scale);
+  LoadSingleDistributionWithScalarFallback(in, "lateral_bud_plastochron_scale", lateral_bud_plastochron_scale);
+  LoadSingleDistributionWithScalarFallback(in, "maturity_initiation_coupling", maturity_initiation_coupling);
+  LoadSingleDistributionWithScalarFallback(in, "reference_maturity_gdd", reference_maturity_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "branch_angle_relaxation", branch_angle_relaxation);
+  LoadSingleDistributionWithScalarFallback(in, "pair_angle_relaxation", pair_angle_relaxation);
+  LoadSingleDistributionWithScalarFallback(in, "stage_1_end_t", stage_1_end_t);
+  LoadSingleDistributionWithScalarFallback(in, "stage_2_end_t", stage_2_end_t);
+  LoadSingleDistributionWithScalarFallback(in, "stage_3_end_t", stage_3_end_t);
+  LoadSingleDistributionWithScalarFallback(in, "secondary_ramp_start_t", secondary_ramp_start_t);
+  LoadSingleDistributionWithScalarFallback(in, "secondary_ramp_end_t", secondary_ramp_end_t);
+  LoadSingleDistributionWithScalarFallback(in, "mature_droop_start_t", mature_droop_start_t);
+  LoadSingleDistributionWithScalarFallback(in, "mature_droop_strength", mature_droop_strength);
+
+  base_temperature.mean = std::clamp(base_temperature.mean, 0.0f, 30.0f);
+  base_temperature.deviation = std::max(0.0f, base_temperature.deviation);
+  plastochron_gdd.mean = std::max(1.0f, plastochron_gdd.mean);
+  plastochron_gdd.deviation = std::max(0.0f, plastochron_gdd.deviation);
+  anthesis_gdd.mean = std::max(0.0f, anthesis_gdd.mean);
+  anthesis_gdd.deviation = std::max(0.0f, anthesis_gdd.deviation);
+  maturity_gdd.mean = std::max(anthesis_gdd.mean + 1.0f, maturity_gdd.mean);
+  maturity_gdd.deviation = std::max(0.0f, maturity_gdd.deviation);
+  main_axis_plastochron_scale.mean = std::max(0.1f, main_axis_plastochron_scale.mean);
+  main_axis_plastochron_scale.deviation = std::max(0.0f, main_axis_plastochron_scale.deviation);
+  lateral_axis_plastochron_scale.mean = std::max(0.1f, lateral_axis_plastochron_scale.mean);
+  lateral_axis_plastochron_scale.deviation = std::max(0.0f, lateral_axis_plastochron_scale.deviation);
+  lateral_bud_plastochron_scale.mean = std::max(0.1f, lateral_bud_plastochron_scale.mean);
+  lateral_bud_plastochron_scale.deviation = std::max(0.0f, lateral_bud_plastochron_scale.deviation);
+  maturity_initiation_coupling.mean = std::max(0.0f, maturity_initiation_coupling.mean);
+  maturity_initiation_coupling.deviation = std::max(0.0f, maturity_initiation_coupling.deviation);
+  reference_maturity_gdd.mean = std::max(1.0f, reference_maturity_gdd.mean);
+  reference_maturity_gdd.deviation = std::max(0.0f, reference_maturity_gdd.deviation);
+  branch_angle_relaxation.mean = std::clamp(branch_angle_relaxation.mean, 0.001f, 1.0f);
+  branch_angle_relaxation.deviation = std::max(0.0f, branch_angle_relaxation.deviation);
+  pair_angle_relaxation.mean = std::clamp(pair_angle_relaxation.mean, 0.001f, 1.0f);
+  pair_angle_relaxation.deviation = std::max(0.0f, pair_angle_relaxation.deviation);
+  stage_1_end_t.mean = std::clamp(stage_1_end_t.mean, 0.0f, 1.0f);
+  stage_1_end_t.deviation = std::max(0.0f, stage_1_end_t.deviation);
+  stage_2_end_t.mean = std::clamp(stage_2_end_t.mean, std::min(1.0f, stage_1_end_t.mean + 0.02f), 1.0f);
+  stage_2_end_t.deviation = std::max(0.0f, stage_2_end_t.deviation);
+  stage_3_end_t.mean = std::clamp(stage_3_end_t.mean, std::min(1.0f, stage_2_end_t.mean + 0.02f), 1.0f);
+  stage_3_end_t.deviation = std::max(0.0f, stage_3_end_t.deviation);
+  secondary_ramp_start_t.mean = std::clamp(secondary_ramp_start_t.mean, 0.0f, 1.0f);
+  secondary_ramp_start_t.deviation = std::max(0.0f, secondary_ramp_start_t.deviation);
+  secondary_ramp_end_t.mean = std::clamp(
+      secondary_ramp_end_t.mean,
+      std::min(1.0f, secondary_ramp_start_t.mean + 0.02f),
+      1.0f);
+  secondary_ramp_end_t.deviation = std::max(0.0f, secondary_ramp_end_t.deviation);
+  mature_droop_start_t.mean = std::clamp(mature_droop_start_t.mean, 0.0f, 1.0f);
+  mature_droop_start_t.deviation = std::max(0.0f, mature_droop_start_t.deviation);
+  mature_droop_strength.mean = std::max(0.0f, mature_droop_strength.mean);
+  mature_droop_strength.deviation = std::max(0.0f, mature_droop_strength.deviation);
 
   if (in["live_preview"]) live_preview = in["live_preview"].as<bool>();
   if (in["live_preview_rate_hz"]) live_preview_rate_hz = in["live_preview_rate_hz"].as<float>();
@@ -2206,3 +1605,4 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
     }
   }
 }
+

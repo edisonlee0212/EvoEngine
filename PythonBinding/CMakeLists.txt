@@ -20,6 +20,10 @@ add_custom_command(TARGET PyResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy 
 			${CMAKE_CURRENT_SOURCE_DIR}/generate_sorghum_data.py ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
 
+add_custom_command(TARGET PyResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy 
+			${CMAKE_CURRENT_SOURCE_DIR}/generate_maize_data.py ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+
 set_property(TARGET PyResourceCopy PROPERTY FOLDER PostBuildActions)
 
 

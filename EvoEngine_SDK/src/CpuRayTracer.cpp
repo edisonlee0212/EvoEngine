@@ -14,28 +14,85 @@ void CpuRayTracer::Initialize(
   Clear();
   uint32_t mesh_index = 0;
   std::map<Handle, uint32_t> mesh_instances_map;
-  render_instances->deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
-    mesh_instances_map[render_instance->instance_index] = mesh_index;
+
+  const auto register_mesh_geometry = [&](const Handle instance_handle, const std::shared_ptr<Mesh>& mesh) {
+    if (!mesh) {
+      return;
+    }
+    mesh_instances_map[instance_handle] = mesh_index;
     geometry_instances_.emplace_back();
     auto& mesh_instance = geometry_instances_.back();
-    const auto mesh = std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)->mesh;
     mesh_instance.Initialize(mesh);
     mesh_binding(mesh_index, mesh);
     mesh_index++;
+  };
+
+  render_instances->deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    const auto mesh_render_instance =
+        std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
+    if (!mesh_render_instance) {
+      return;
+    }
+    register_mesh_geometry(render_instance->instance_index, mesh_render_instance->mesh);
+  });
+
+  render_instances->deferred_instanced_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    const auto instanced_render_instance =
+        std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
+    if (!instanced_render_instance) {
+      return;
+    }
+    register_mesh_geometry(render_instance->instance_index, instanced_render_instance->mesh);
   });
 
   uint32_t node_index = 0;
 
   render_instances->deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
-    const auto mesh = std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)->mesh;
+    const auto mesh_render_instance =
+        std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
+    if (!mesh_render_instance) {
+      return;
+    }
     node_instances_.emplace_back();
     auto& node_instance = node_instances_.back();
-    node_instance.Initialize(render_instances,
-                             std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance),
-                             geometry_instances_, mesh_instances_map);
+    node_instance.Initialize(render_instances, mesh_render_instance, geometry_instances_, mesh_instances_map);
     node_binding(node_index, render_instance->owner);
     node_index++;
   });
+
+  render_instances->deferred_instanced_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    const auto instanced_render_instance =
+        std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
+    if (!instanced_render_instance) {
+      return;
+    }
+
+    const auto particle_infos = instanced_render_instance->particle_infos;
+    if (!particle_infos || particle_infos->PeekParticleInfoList().empty()) {
+      node_instances_.emplace_back();
+      auto& node_instance = node_instances_.back();
+      node_instance.Initialize(render_instances, instanced_render_instance, glm::mat4(1.0f), geometry_instances_,
+                               mesh_instances_map);
+      node_binding(node_index, render_instance->owner);
+      node_index++;
+      return;
+    }
+
+    const auto& infos = particle_infos->PeekParticleInfoList();
+    for (const auto& info : infos) {
+      node_instances_.emplace_back();
+      auto& node_instance = node_instances_.back();
+      node_instance.Initialize(render_instances, instanced_render_instance, info.instance_matrix.value,
+                               geometry_instances_, mesh_instances_map);
+      node_binding(node_index, render_instance->owner);
+      node_index++;
+    }
+  });
+
+  if (node_instances_.empty()) {
+    aabb_ = {};
+    return;
+  }
 
   Bvh scene_bvh;
   scene_bvh.element_indices.resize(node_instances_.size());
@@ -1347,7 +1404,7 @@ void CpuRayTracer::GeometryInstance::Initialize(const std::shared_ptr<Mesh>& inp
       const auto& vertex_index = triangle[i];
       const auto& p = input_vertices[vertex_index].position;
       element_aabb.min = glm::min(element_aabb.min, p);
-      element_aabb.max = glm::min(element_aabb.max, p);
+      element_aabb.max = glm::max(element_aabb.max, p);
     }
   });
 
@@ -1371,6 +1428,31 @@ void CpuRayTracer::NodeInstance::Initialize(
   const auto mesh_index = mesh_instances_map.at(render_instance->instance_index);
   const auto& mesh_instance = mesh_instances[mesh_index];
   transformation = render_instance->model;
+  instance_index = render_instance->instance_index;
+  inverse_transformation.value = glm::inverse(transformation.value);
+  entity = render_instance->owner;
+  renderer_handle = render_instance->renderer_handle;
+  Bvh node_bvh;
+  node_bvh.element_indices.resize(1);
+  std::vector<Bound> element_aabbs(1);
+
+  node_bvh.element_indices[0] = mesh_index;
+  const auto& mesh_aabb = mesh_instance.aabb;
+  node_bvh.aabb = element_aabbs[0] = mesh_aabb;
+
+  BinaryDivisionBvh(node_bvh, 0, element_aabbs);
+  aabb = node_bvh.aabb;
+  FlattenBvh(node_bvh, flattened_bvh_mesh_group, 0);
+}
+
+void CpuRayTracer::NodeInstance::Initialize(
+    const std::shared_ptr<RenderInstanceStorage>& render_instances,
+    const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& render_instance,
+    const glm::mat4& local_instance_transform,
+    const std::vector<GeometryInstance>& mesh_instances, const std::map<Handle, uint32_t>& mesh_instances_map) {
+  const auto mesh_index = mesh_instances_map.at(render_instance->instance_index);
+  const auto& mesh_instance = mesh_instances[mesh_index];
+  transformation.value = render_instance->model.value * local_instance_transform;
   instance_index = render_instance->instance_index;
   inverse_transformation.value = glm::inverse(transformation.value);
   entity = render_instance->owner;

@@ -1,12 +1,20 @@
 #pragma once
+#include <optional>
+
 #include "ForestDescriptor.hpp"
 #include "ShootModel.hpp"
 #include "SorghumDescriptor.hpp"
 #include "SorghumField.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumPointCloudScanner.hpp"
+#include "TasselPointCloudScanner.hpp"
 #include "TreeMeshGenerator.hpp"
 #include "TreePointCloudScanner.hpp"
+
+#ifdef LSYSTEM_PLUGIN
+#  include "MaizeTassel.hpp"
+#  include "MaizeTasselDescriptor.hpp"
+#endif
 
 namespace dataset_generation_plugin {
 using namespace evo_engine;
@@ -119,6 +127,34 @@ class DatasetGenerator {
                                      const SorghumDataGenerationParameters& data_generation_parameters);
 
   static void GenerateDataForAllSorghums(const SorghumDataGenerationParameters& data_generation_parameters);
+
+#ifdef LSYSTEM_PLUGIN
+  struct TasselDataGenerationParameters {
+    std::filesystem::path tassel_descriptor_path{};
+
+    bool export_point_cloud = false;
+    bool export_mesh = false;
+    bool export_flow_graph = false;
+    bool export_node_graph = false;
+
+    TasselPointCloudPointSettings tassel_point_cloud_point_settings{};
+    std::shared_ptr<PointCloudCaptureSettings> point_cloud_capture_settings{};
+
+    int seed = 0;
+    float target_gdd = 400.0f;
+    uint32_t max_growth_steps_per_frame = 0;
+    bool uncapped_growth = true;
+
+    bool use_existing_scene_entities = false;
+    std::optional<Entity> scene_tassel_entity{};
+    std::optional<Entity> scene_scanner_entity{};
+
+    std::filesystem::path output_folder{};
+    std::string output_file_name{};
+  };
+
+  static void GenerateDataForTassel(const TasselDataGenerationParameters& data_generation_parameters);
+#endif
 
  private:
   static void CaptureTreeData(const std::shared_ptr<Scene>& scene, int post_fix_index,

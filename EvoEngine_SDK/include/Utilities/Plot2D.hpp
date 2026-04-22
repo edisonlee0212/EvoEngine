@@ -448,23 +448,46 @@ void SingleDistribution<T>::Load(const std::string& name, const YAML::Node& in) 
 template <class T>
 bool SingleDistribution<T>::OnInspect(const std::string& name, const float speed, const std::string& tip) {
   bool changed = false;
-  if (ImGui::TreeNode(name.c_str())) {
+  ImGui::PushID(name.c_str());
+  if (ImGui::BeginTable("SingleDistributionInline", 3,
+                        ImGuiTableFlags_NoSavedSettings |
+                            ImGuiTableFlags_SizingStretchProp |
+                            ImGuiTableFlags_BordersInnerV)) {
+    ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthStretch, 0.46f);
+    ImGui::TableSetupColumn("Mean", ImGuiTableColumnFlags_WidthStretch, 0.34f);
+    ImGui::TableSetupColumn("Deviation", ImGuiTableColumnFlags_WidthStretch, 0.20f);
+    ImGui::TableNextRow();
+
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(name.c_str());
     if (!tip.empty() && ImGui::IsItemHovered()) {
       ImGui::BeginTooltip();
       ImGui::TextUnformatted(tip.c_str());
       ImGui::EndTooltip();
     }
+
+    ImGui::TableSetColumnIndex(1);
+    ImGui::SetNextItemWidth(-FLT_MIN);
     if (typeid(T).hash_code() == typeid(float).hash_code()) {
-      changed = ImGui::DragFloat("Mean", reinterpret_cast<float*>(&mean), speed);
+      if (ImGui::DragFloat("##Mean", reinterpret_cast<float*>(&mean), speed))
+        changed = true;
     } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-      changed = ImGui::DragFloat2("Mean", reinterpret_cast<float*>(&mean), speed);
+      if (ImGui::DragFloat2("##Mean", reinterpret_cast<float*>(&mean), speed))
+        changed = true;
     } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-      changed = ImGui::DragFloat3("Mean", reinterpret_cast<float*>(&mean), speed);
+      if (ImGui::DragFloat3("##Mean", reinterpret_cast<float*>(&mean), speed))
+        changed = true;
     }
-    if (ImGui::DragFloat("Deviation", &deviation, speed))
+
+    ImGui::TableSetColumnIndex(2);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::DragFloat("##Deviation", &deviation, speed))
       changed = true;
-    ImGui::TreePop();
+
+    ImGui::EndTable();
   }
+  ImGui::PopID();
   return changed;
 }
 
@@ -503,11 +526,25 @@ bool PlottedDistribution<T>::OnInspect(const std::string& name, const PlottedDis
         DrawPlottedDistributionUncertaintyPreview(mean, deviation, preview_id.c_str());
       }
     }
-    auto mean_title = name + " (mean)";
+
+    const auto mean_title = name + " (mean)";
     const auto dev_title = name + " (deviation)";
-    changed = mean.OnInspect(mean_title, settings.mean_settings);
-    if (deviation.OnInspect(dev_title, settings.dev_settings))
-      changed = true;
+    const std::string table_id = "PlottedDistributionInline##" + name;
+    if (ImGui::BeginTable(table_id.c_str(), 2,
+                          ImGuiTableFlags_NoSavedSettings |
+                              ImGuiTableFlags_SizingStretchSame |
+                              ImGuiTableFlags_BordersInnerV)) {
+      ImGui::TableNextRow();
+
+      ImGui::TableSetColumnIndex(0);
+      changed |= mean.OnInspect(mean_title, settings.mean_settings);
+
+      ImGui::TableSetColumnIndex(1);
+      if (deviation.OnInspect(dev_title, settings.dev_settings))
+        changed = true;
+
+      ImGui::EndTable();
+    }
     ImGui::TreePop();
   }
   return changed;

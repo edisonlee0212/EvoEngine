@@ -1342,20 +1342,53 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
+
+  const auto append_instance = [&](const glm::mat4& world_transform, const int32_t instance_index,
+                                   const VkDeviceAddress blas_device_address) {
+    auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
+    const auto transform_transposed = glm::transpose(world_transform);
+    memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(transform_transposed),
+           sizeof(VkTransformMatrixKHR));
+    acceleration_structure_instance.instanceCustomIndex = static_cast<uint32_t>(instance_index);
+    acceleration_structure_instance.mask = 0xFF;
+    acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
+    acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+    acceleration_structure_instance.accelerationStructureReference = blas_device_address;
+  };
+
   render_instance_storage.deferred_render_instances->ForEachRenderInstance(
       [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-        auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
-        const auto tt = glm::transpose(render_instance->model.value);
-        memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(tt),
-               sizeof(VkTransformMatrixKHR));
-        acceleration_structure_instance.instanceCustomIndex = static_cast<uint32_t>(render_instance->instance_index);
-        acceleration_structure_instance.mask = 0xFF;
-        acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
-        acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        acceleration_structure_instance.accelerationStructureReference =
-            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)
-                ->mesh->blas_->GetDeviceAddress();
+        const auto mesh_render_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
+        if (!mesh_render_instance || !mesh_render_instance->mesh || !mesh_render_instance->mesh->blas_)
+          return;
+        append_instance(render_instance->model.value, render_instance->instance_index,
+                        mesh_render_instance->mesh->blas_->GetDeviceAddress());
       });
+
+  render_instance_storage.deferred_instanced_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto instanced_render_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
+        if (!instanced_render_instance || !instanced_render_instance->mesh || !instanced_render_instance->mesh->blas_)
+          return;
+
+        const auto blas_device_address = instanced_render_instance->mesh->blas_->GetDeviceAddress();
+        if (const auto& particle_infos = instanced_render_instance->particle_infos;
+            particle_infos && !particle_infos->PeekParticleInfoList().empty()) {
+          for (const auto& particle_info : particle_infos->PeekParticleInfoList()) {
+            append_instance(render_instance->model.value * particle_info.instance_matrix.value,
+                            render_instance->instance_index, blas_device_address);
+          }
+        } else {
+          append_instance(render_instance->model.value, render_instance->instance_index, blas_device_address);
+        }
+      });
+
+  if (acceleration_structure_instances.empty()) {
+    EVOENGINE_WARNING("TopLevelAccelerationStructure: no render instances available for TLAS build.")
+    return;
+  }
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
