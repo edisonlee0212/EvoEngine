@@ -61,6 +61,10 @@ function(register_python_binding target_name default_enable)
 			endif ()
 
 			add_dependencies(${target_name} PyResourceCopy)
+			install(TARGETS ${target_name}
+				RUNTIME DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}"
+				LIBRARY DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
+			evoengine_install_target_pdb(${target_name} "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
 			set_property(TARGET ${target_name} PROPERTY FOLDER PythonBindings)
 			message("Enabled [${target_name}] PythonBinding.")
 		endif()
@@ -69,3 +73,14 @@ endfunction()
 
 register_python_binding(PyEcoSysLab ON)
 register_python_binding(PyDigitalAgriculture ON)
+
+if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
+	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
+	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini
+		DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
+	file(GLOB EVOENGINE_PYTHON_SCRIPTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.py)
+	if (EVOENGINE_PYTHON_SCRIPTS)
+		install(FILES ${EVOENGINE_PYTHON_SCRIPTS}
+			DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
+	endif()
+endif ()
