@@ -9,6 +9,14 @@ project(
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+include(GNUInstallDirs)
+
+set(EVOENGINE_INSTALL_APP_RUNTIME_DIR ${CMAKE_INSTALL_BINDIR} CACHE STRING
+	"Install directory for EvoEngine executable app runtimes.")
+set(EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR python CACHE STRING
+	"Install directory for EvoEngine Python binding runtimes.")
+option(EVOENGINE_INSTALL_PDBS "Install available MSVC PDB files with EvoEngine runtimes." ON)
+
 # ------------------------------------------------------------------
 # Build types
 # ------------------------------------------------------------------
@@ -110,6 +118,47 @@ function(evoengine_clear_shader_binaries dst_target)
 	add_custom_command(TARGET ${dst_target} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_BINARY_DIR}/ShaderBinaries
 		VERBATIM)
+endfunction()
+
+function(evoengine_install_optional_files dst_dir)
+	foreach(file_i IN LISTS ARGN)
+		if (file_i)
+			install(FILES "${file_i}"
+				DESTINATION "${dst_dir}"
+				OPTIONAL)
+		endif()
+	endforeach()
+endfunction()
+
+function(evoengine_install_runtime_files dst_dir)
+	evoengine_install_optional_files("${dst_dir}" ${EVOENGINE_DLLS})
+	if (EVOENGINE_INSTALL_PDBS)
+		evoengine_install_optional_files("${dst_dir}" ${EVOENGINE_PDBS})
+	endif()
+endfunction()
+
+function(evoengine_install_runtime_resources dst_dir)
+	install(DIRECTORY "${EVOENGINE_SDK_DIR}/Internals/"
+		DESTINATION "${dst_dir}")
+	foreach(folder_i IN LISTS EVOENGINE_RESOURCES)
+		if (EXISTS "${folder_i}")
+			install(DIRECTORY "${folder_i}/"
+				DESTINATION "${dst_dir}")
+		endif()
+	endforeach()
+endfunction()
+
+function(evoengine_install_runtime_payload dst_dir)
+	evoengine_install_runtime_files("${dst_dir}")
+	evoengine_install_runtime_resources("${dst_dir}")
+endfunction()
+
+function(evoengine_install_target_pdb target_name dst_dir)
+	if (MSVC AND EVOENGINE_INSTALL_PDBS)
+		install(FILES "$<TARGET_PDB_FILE:${target_name}>"
+			DESTINATION "${dst_dir}"
+			OPTIONAL)
+	endif()
 endfunction()
 
 # ------------------------------------------------------------------

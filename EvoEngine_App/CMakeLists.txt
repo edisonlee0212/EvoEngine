@@ -62,6 +62,9 @@ function(register_evoengine_app app_name default_enable)
 			endif ()
 
 			add_dependencies(${app_name} AppResourceCopy)
+			install(TARGETS ${app_name}
+				RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+			evoengine_install_target_pdb(${app_name} "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 			set_property(TARGET ${app_name} PROPERTY FOLDER Executables)
 			message("Enabled [${app_name}] application.")
 		endif ()
@@ -114,6 +117,15 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		endif ()
 
 		add_dependencies(EmptyApp AppResourceCopy)
+		install(TARGETS EmptyApp
+			RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+		evoengine_install_target_pdb(EmptyApp "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 		set_property(TARGET EmptyApp PROPERTY FOLDER Executables)
 	endif ()
+endif ()
+
+if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
+	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini
+		DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 endif ()
