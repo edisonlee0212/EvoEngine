@@ -82,7 +82,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
     RenderTexture::render_texture_present_layout->Initialize();
   }
 #pragma endregion
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     if (selected_physical_device->queue_family_indices.present_family.has_value()) {
       graphics.CreateSwapChain();
       graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
@@ -111,17 +111,17 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       graphics.render_texture_present_pipeline->color_attachment_formats = {1, graphics.swapchain_->GetImageFormat()};
       graphics.render_texture_present_pipeline->Initialize();
     }
-    if (const auto editor_layer = Application::GetLayer<EditorLayer>(); editor_layer) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>(); editor_layer) {
       // Setup Dear ImGui context
 
       IMGUI_CHECKVERSION();
       ImGui::CreateContext();
       ImNodes::CreateContext();
       ImGuiIO& io = ImGui::GetIO();
-      if (Application::GetApplicationInfo().enable_docking) {
+      if (ApplicationContext::Get().GetApplicationInfo().enable_docking) {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
       }
-      if (Application::GetApplicationInfo().enable_viewport) {
+      if (ApplicationContext::Get().GetApplicationInfo().enable_viewport) {
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
         io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
       }
@@ -456,7 +456,7 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   } else if (image_format == Constants::render_texture_depth || image_format == Constants::shadow_map) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-  } else if (const auto window_layer = Application::GetLayer<WindowLayer>();
+  } else if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
              window_layer && image_format == GetSwapchain()->GetImageFormat()) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   } else {
@@ -656,7 +656,7 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
   }
   if (!support_check)
     return false;
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     if (!queue_family_indices.present_family.has_value())
       return false;
     if (swap_chain_support_details.formats.empty() || swap_chain_support_details.present_modes.empty())
@@ -666,9 +666,9 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
 }
 
 void Platform::CreateInstance() {
-  auto application_info = Application::GetApplicationInfo();
-  const auto window_layer = Application::GetLayer<WindowLayer>();
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  auto application_info = ApplicationContext::Get().GetApplicationInfo();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (window_layer) {
 #pragma region Windows
     glfwInit();
@@ -681,7 +681,7 @@ void Platform::CreateInstance() {
     window_layer->primary_monitor_ = glfwGetPrimaryMonitor();
     glfwSetMonitorCallback(window_layer->SetMonitorCallback);
 
-    const auto& application_info = Application::GetApplicationInfo();
+    const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
     window_layer->window_size_ = application_info.default_window_size;
     if (editor_layer)
       window_layer->window_size_ = {250, 50};
@@ -705,7 +705,7 @@ void Platform::CreateInstance() {
 
   VkApplicationInfo vk_application_info{};
   vk_application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-  vk_application_info.pApplicationName = Application::GetApplicationInfo().application_name.c_str();
+  vk_application_info.pApplicationName = ApplicationContext::Get().GetApplicationInfo().application_name.c_str();
   vk_application_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   vk_application_info.pEngineName = "evo_engine";
   vk_application_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -780,7 +780,7 @@ void Platform::CreateInstance() {
 }
 
 void Platform::CreateSurface() {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #pragma region Surface
   if (window_layer) {
     if (glfwCreateWindowSurface(vk_instance_, window_layer->window_, nullptr, &vk_surface_) != VK_SUCCESS) {
@@ -824,7 +824,7 @@ int RateDeviceSuitability(const VkPhysicalDevice physical_device) {
   return score;
 }
 void Platform::SelectPhysicalDevice() {
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     required_device_extension_names_.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   }
 #if ENABLE_EXTERNAL_MEMORY
@@ -985,7 +985,7 @@ void Platform::PhysicalDevice::QueryInformation() {
   vkGetPhysicalDeviceProperties2(vk_physical_device, &properties2);
   vkGetPhysicalDeviceMemoryProperties(vk_physical_device, &vk_physical_device_memory_properties);
 
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 
   uint32_t queue_family_count = 0;
   vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &queue_family_count, nullptr);
@@ -1464,8 +1464,8 @@ VkResult Platform::CheckVk(const VkResult& result) {
 }
 
 void Platform::CreateSwapChain() {
-  const auto application_info = Application::GetApplicationInfo();
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto application_info = ApplicationContext::Get().GetApplicationInfo();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 
   auto& graphics = GetInstance();
   graphics.selected_physical_device->QuerySwapChainSupport();
@@ -1645,7 +1645,7 @@ void Platform::OnDestroy() {
 #endif
 #pragma endregion
 #pragma region Surface
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     vkDestroySurfaceKHR(graphics.vk_instance_, graphics.vk_surface_, nullptr);
     graphics.vk_surface_ = VK_NULL_HANDLE;
   }
@@ -1671,7 +1671,7 @@ void Platform::ResetCommandBuffers() {
 
 void Platform::PreUpdate() {
   auto& graphics = GetInstance();
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
     CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
@@ -1713,8 +1713,8 @@ void Platform::PreUpdate() {
   }
   graphics.ResetCommandBuffers();
   graphics.frame_count++;
-  if (!Application::GetLayer<EditorLayer>()) {
-    if (const auto scene = Application::GetActiveScene()) {
+  if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
       if (const auto main_camera = scene->main_camera.Get<Camera>(); main_camera && main_camera->IsEnabled()) {
         main_camera->SetRequireRendering(true);
         if (window_layer)
@@ -1727,7 +1727,7 @@ void Platform::PreUpdate() {
 
 void Platform::LateUpdate() {
   auto& graphics = GetInstance();
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (window_layer && (window_layer->window_size_.x == 0 || window_layer->window_size_.y == 0)) {
     return;
   }
@@ -1753,18 +1753,18 @@ void Platform::LateUpdate() {
   CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
-      Application::End();
+      ApplicationContext::Get().End();
     }
   }
 }
 
 bool Platform::RayTracingEnabled() {
-  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   return Constants::support_ray_tracing && graphics_settings.use_ray_tracing;
 }
 
 bool Platform::MeshShaderEnabled() {
-  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   return Constants::support_mesh_shader && graphics_settings.use_mesh_shader;
 }
 

@@ -12,7 +12,7 @@
 using namespace eco_sys_lab_plugin;
 
 Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setSimulationSettings) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   std::shared_ptr<Soil> soil;
   const auto soilCandidate = EcoSysLabLayer::FindSoil();
   if (!soilCandidate.expired())
@@ -72,7 +72,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
   }
 
   if (setSimulationSettings) {
-    const auto lab = Application::GetLayer<EcoSysLabLayer>();
+    const auto lab = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
     lab->simulation_settings = simulation_settings;
   }
 
@@ -82,7 +82,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
 Entity ForestPatch::InstantiatePatch(
     const std::vector<std::pair<TreeGrowthSettings, std::shared_ptr<TreeDescriptor>>>& candidates,
     const glm::ivec2& gridSize, bool setSimulationSettings) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   std::shared_ptr<Soil> soil;
   const auto soilCandidate = EcoSysLabLayer::FindSoil();
   if (!soilCandidate.expired())
@@ -144,7 +144,7 @@ Entity ForestPatch::InstantiatePatch(
   }
 
   if (setSimulationSettings) {
-    const auto lab = Application::GetLayer<EcoSysLabLayer>();
+    const auto lab = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
     lab->simulation_settings = simulation_settings;
   }
 
@@ -233,7 +233,7 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   }
   FileUtils::OpenFolder("Create forest from folder...", [&](const std::filesystem::path& folderPath) {
     int index = 0;
-    const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
+    const auto ecoSysLabLayer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
     std::shared_ptr<Soil> soil;
     const auto soilCandidate = EcoSysLabLayer::FindSoil();
     if (!soilCandidate.expired())
@@ -381,7 +381,7 @@ bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer
       "Parameters sample",
       [&](const std::filesystem::path& path) {
         int index = 0;
-        const auto ecoSysLabLayer = Application::GetLayer<EcoSysLabLayer>();
+        const auto ecoSysLabLayer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
         std::shared_ptr<Soil> soil;
         const auto soilCandidate = EcoSysLabLayer::FindSoil();
         if (!soilCandidate.expired())
@@ -476,7 +476,7 @@ void ForestDescriptor::Deserialize(const YAML::Node& in) {
 
 auto ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, const float grid_distance, float random_shift) -> void {
   tree_infos.clear();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
@@ -504,7 +504,7 @@ auto ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, const float grid_d
 }
 
 Entity ForestDescriptor::InstantiatePatch(const bool set_parent, const int seed) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   Entity parent;
   if (set_parent) {
     parent = scene->CreateEntity("Forest (" + std::to_string(tree_infos.size()) + ") - " + GetTitle());

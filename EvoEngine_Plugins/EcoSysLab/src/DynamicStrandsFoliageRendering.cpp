@@ -222,7 +222,8 @@ uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   FoliageRenderPushConstant push_constant;
   push_constant.index1.instance_index =
-      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
+          renderer_handle);
   push_constant.index2.camera_index = view.camera_index;
   push_constant.leaf_size = foliage.size();
   foliage_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());

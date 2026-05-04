@@ -266,7 +266,7 @@ bool PointCloud::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   return changed;
 }
 void PointCloud::ApplyCompressed() {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto owner = scene->CreateEntity("Compressed Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
   particles->material = AssetManager::CreateTemporaryAsset<Material>();
@@ -420,12 +420,12 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
     EVOENGINE_ERROR("Point Cloud: Ray Tracing Disabled!")
     return;
   }
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_ERROR("No RenderLayer!")
     return;
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   auto reflection_probe = scene->environment.GetReflectionProbe(glm::vec3(0.0f));
   if (!reflection_probe) {
     reflection_probe = Resources::default_environmental_map->reflection_probe.Get<ReflectionProbe>();
@@ -474,7 +474,7 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
 }
 
 void PointCloud::ApplyOriginal() const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto owner = scene->CreateEntity("Original Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
   particles->material = AssetManager::CreateTemporaryAsset<Material>();
@@ -501,7 +501,7 @@ bool PointCloud::SavePly(const PointCloudSaveSettings& settings, const std::file
       } else {
         std::vector<glm::vec3> points;
         points.resize(positions.size());
-        Jobs::RunParallelFor(points.size(), [&](const unsigned index) {
+        Jobs::RunParallelFor(points.size(), [&](size_t index) {
           points[index] = glm::vec3(positions[index]);
         });
         cube_file.add_properties_to_element("vertex", {"x", "y", "z"}, Type::FLOAT32, points.size(),

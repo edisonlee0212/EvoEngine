@@ -1,9 +1,30 @@
 #include "Serialization.hpp"
+
+#include "Application.hpp"
+#include "ApplicationContext.hpp"
 #include "Console.hpp"
 using namespace evo_engine;
 
+Serialization &Serialization::GetInstance() {
+  return ApplicationContext::Get().GetSerialization();
+}
+
+std::string Serialization::GetDataComponentTypeName(const size_t &type_id) {
+  const auto &serialization = GetInstance();
+  if (const auto search = serialization.data_component_names_.find(type_id);
+      search != serialization.data_component_names_.end()) {
+    return search->second;
+  }
+  throw std::invalid_argument("Data component type is unregistered!");
+}
+
 std::string Serialization::GetSerializableTypeName(const size_t &type_id) {
-  return GetInstance().serializable_names_.find(type_id)->second;
+  const auto &serialization = GetInstance();
+  if (const auto search = serialization.serializable_names_.find(type_id);
+      search != serialization.serializable_names_.end()) {
+    return search->second;
+  }
+  throw std::invalid_argument("Serializable type is unregistered!");
 }
 
 bool Serialization::RegisterDataComponentType(
@@ -33,7 +54,8 @@ std::shared_ptr<IDataComponent> Serialization::ProduceDataComponent(const std::s
 bool Serialization::RegisterSerializableType(const std::string &type_name, const size_t &type_index,
                                              const std::function<std::shared_ptr<ISerializable>(size_t &)> &func) {
   auto &serialization_manger = GetInstance();
-  if (serialization_manger.serializable_names_.find(type_index) != serialization_manger.serializable_names_.end()) {
+  if (serialization_manger.serializable_names_.find(type_index) != serialization_manger.serializable_names_.end() ||
+      serialization_manger.serializable_ids_.find(type_name) != serialization_manger.serializable_ids_.end()) {
     EVOENGINE_ERROR(type_name + " already registered!")
     return false;
   }
@@ -46,6 +68,11 @@ bool Serialization::RegisterPrivateComponentType(
     const std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent> &)>
         &clone_func) {
   auto &serialization = GetInstance();
+  if (serialization.private_component_names_.find(type_index) != serialization.private_component_names_.end() ||
+      serialization.private_component_ids_.find(type_name) != serialization.private_component_ids_.end()) {
+    EVOENGINE_ERROR(type_name + " already registered!")
+    return false;
+  }
   serialization.private_component_names_[type_index] = type_name;
   serialization.private_component_ids_[type_name] = type_index;
   return serialization.private_component_cloners_.insert({type_name, clone_func}).second;
@@ -70,6 +97,88 @@ bool Serialization::RegisterAssetType(const std::string &type_name, const size_t
   return RegisterSerializableType(type_name, type_index, func);
 }
 
+bool Serialization::UnregisterSerializableType(const std::string &type_name) {
+  auto &serialization = GetInstance();
+  const auto id_search = serialization.serializable_ids_.find(type_name);
+  if (id_search == serialization.serializable_ids_.end()) {
+    return false;
+  }
+  const auto type_id = id_search->second;
+  serialization.serializable_generators_.erase(type_name);
+  serialization.serializable_ids_.erase(id_search);
+  serialization.serializable_names_.erase(type_id);
+  serialization.serializable_type_owners_.erase(type_name);
+  serialization.serializable_type_id_owners_.erase(type_id);
+  return true;
+}
+
+bool Serialization::UnregisterPrivateComponentType(const std::string &type_name) {
+  auto &serialization = GetInstance();
+  const auto id_search = serialization.private_component_ids_.find(type_name);
+  if (id_search == serialization.private_component_ids_.end()) {
+    return false;
+  }
+  const auto type_id = id_search->second;
+  serialization.private_component_cloners_.erase(type_name);
+  serialization.private_component_ids_.erase(id_search);
+  serialization.private_component_names_.erase(type_id);
+  serialization.private_component_type_owners_.erase(type_name);
+  serialization.private_component_type_id_owners_.erase(type_id);
+  return true;
+}
+
+void Serialization::SetSerializableTypeOwner(const std::string &type_name, const std::string &owner_name) {
+  auto &serialization = GetInstance();
+  if (const auto id_search = serialization.serializable_ids_.find(type_name);
+      id_search != serialization.serializable_ids_.end()) {
+    serialization.serializable_type_owners_[type_name] = owner_name;
+    serialization.serializable_type_id_owners_[id_search->second] = owner_name;
+  }
+}
+
+void Serialization::SetPrivateComponentTypeOwner(const std::string &type_name, const std::string &owner_name) {
+  auto &serialization = GetInstance();
+  if (const auto id_search = serialization.private_component_ids_.find(type_name);
+      id_search != serialization.private_component_ids_.end()) {
+    serialization.private_component_type_owners_[type_name] = owner_name;
+    serialization.private_component_type_id_owners_[id_search->second] = owner_name;
+  }
+}
+
+std::vector<size_t> Serialization::GetPackageOwnedPrivateComponentTypeIds(const std::string &owner_name) {
+  const auto &serialization = GetInstance();
+  std::vector<size_t> ret_val;
+  for (const auto &[type_id, owner] : serialization.private_component_type_id_owners_) {
+    if (owner == owner_name) {
+      ret_val.emplace_back(type_id);
+    }
+  }
+  return ret_val;
+}
+
+void Serialization::UnregisterPackageOwnedTypes(const std::string &owner_name) {
+  auto &serialization = GetInstance();
+  std::vector<std::string> private_component_names;
+  for (const auto &[type_name, owner] : serialization.private_component_type_owners_) {
+    if (owner == owner_name) {
+      private_component_names.emplace_back(type_name);
+    }
+  }
+  for (const auto &type_name : private_component_names) {
+    UnregisterPrivateComponentType(type_name);
+  }
+
+  std::vector<std::string> serializable_names;
+  for (const auto &[type_name, owner] : serialization.serializable_type_owners_) {
+    if (owner == owner_name) {
+      serializable_names.emplace_back(type_name);
+    }
+  }
+  for (const auto &type_name : serializable_names) {
+    UnregisterSerializableType(type_name);
+  }
+}
+
 std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::string &type_name, size_t &hash_code) {
   auto &serialization = GetInstance();
   if (const auto it = serialization.serializable_generators_.find(type_name);
@@ -77,6 +186,7 @@ std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::str
     auto ret_val = it->second(hash_code);
     ret_val->type_name_ = type_name;
     ret_val->handle_ = Handle();
+    ret_val->application_ = &ApplicationContext::Get();
     return ret_val;
   }
   EVOENGINE_ERROR("Serializable " + type_name + " is not registered!")
@@ -91,6 +201,7 @@ std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::str
     auto ret_val = it->second(temp);
     ret_val->type_name_ = type_name;
     ret_val->handle_ = Handle();
+    ret_val->application_ = &ApplicationContext::Get();
     return ret_val;
   }
   EVOENGINE_ERROR("Serializable " + type_name + " is not registered!")
@@ -105,6 +216,7 @@ std::shared_ptr<ISerializable> Serialization::ProduceSerializable(const std::str
     auto ret_val = it->second(hash_code);
     ret_val->type_name_ = type_name;
     ret_val->handle_ = handle;
+    ret_val->application_ = &ApplicationContext::Get();
     return ret_val;
   }
   EVOENGINE_ERROR("PrivateComponent " + type_name + " is not registered!")

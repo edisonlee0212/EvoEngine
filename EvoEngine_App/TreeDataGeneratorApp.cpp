@@ -31,40 +31,40 @@ using namespace eco_sys_lab_plugin;
 
 using namespace evo_engine;
 
-void register_classes() {
+void register_classes(Application& application) {
 #ifdef ECOSYSLAB_PLUGIN
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
-  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
-  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  PrivateComponentRegistration<TreePointCloudScanner>("TreePointCloudScanner");
+  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
+  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
+  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  application.RegisterPrivateComponent<TreePointCloudScanner>("TreePointCloudScanner");
 #endif
 }
 
 void push_layers(bool enable_window_layer, bool enable_editor_layer) {
-  Application::PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
-    Application::PushLayer<WindowLayer>("Window Layer");
+    ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
-    Application::PushLayer<EditorLayer>("Editor Layer");
+    ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
 #ifdef ECOSYSLAB_PLUGIN
-  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
+  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
 #endif
 }
 
-void run_windowless(const std::filesystem::path& project_path) {
+void run_windowless(Application& application, const std::filesystem::path& project_path) {
   if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
     return;
   }
-  register_classes();
+  register_classes(application);
   push_layers(false, false);
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
   const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("./PlayGround.evescene"));
   ProjectManager::SetStartScene(new_scene);
-  Application::Start();
+  ApplicationContext::Get().Start();
 }
 
 void generate_tree_data(const std::filesystem::path& output_folder) {
@@ -98,7 +98,7 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
   data_generation_parameters.max_depth = 8.f;
   data_generation_parameters.generate_ground_mesh = false;
 
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   scene->environment.ambient_light_intensity = 0.2f;
   const auto directional_light_entities = scene->GetPrivateComponentOwnersList<DirectionalLight>();
   for (const auto& directional_light_entity : directional_light_entities) {
@@ -141,11 +141,12 @@ void generate_tree_data(const std::filesystem::path& output_folder) {
 }
 
 int main() {
+  Application application;
 #ifndef ECOSYSLAB_PLUGIN
-  throw std::runtime_error("EcoSysLab plugin missing!");
+  throw std::runtime_error("EcoSysLab Plugin missing!");
 #endif
 #ifndef DATASET_GENERATION_PLUGIN
-  throw std::runtime_error("DatasetGeneration plugin missing!");
+  throw std::runtime_error("DatasetGeneration Plugin missing!");
 #endif
 
   std::filesystem::path resource_folder_path("../../../../../Resources");
@@ -164,7 +165,7 @@ int main() {
   resource_folder_path = std::filesystem::absolute(resource_folder_path);
 
   const std::filesystem::path project_path = resource_folder_path / "EcoSysLabProject" / "test.eveproj";
-  run_windowless(project_path);
+  run_windowless(application, project_path);
 
   const auto output_folder_path = std::filesystem::current_path() / "TreeData";
 
@@ -177,5 +178,5 @@ int main() {
   const auto folder_path = output_folder_path.string();
   ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
 #endif
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }

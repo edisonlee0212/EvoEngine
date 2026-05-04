@@ -299,7 +299,7 @@ void Lighting::Initialize() {
   directional_light_shadow_map_.reset();
   directional_light_shadow_map_layered_views_.clear();
 
-  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
 
   {
     VkImageCreateInfo image_info{};
@@ -470,7 +470,7 @@ void Lighting::Initialize() {
 
   {
     VkDescriptorImageInfo image_info{};
-    auto render_layer = Application::GetLayer<RenderLayer>();
+    auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
     image_info.imageView = directional_light_shadow_map_view_->GetVkImageView();

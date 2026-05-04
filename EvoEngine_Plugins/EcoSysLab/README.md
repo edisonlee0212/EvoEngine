@@ -1,8 +1,8 @@
 # EcoSysLab Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
-EcoSysLab is EvoEngine's digital forestry and ecosystem simulation plugin. It is the largest domain plugin in the repository and provides tree modeling, reconstruction, growth simulation, soil/climate context, spatial competition, dynamic strands, mesh generation, and visualization tools.
+EcoSysLab is EvoEngine's digital forestry and ecosystem simulation Plugin. It is the largest domain Plugin in the repository and provides tree modeling, reconstruction, growth simulation, soil/climate context, spatial competition, dynamic strands, mesh generation, and visualization tools.
 
 ## Build Status
 
@@ -10,7 +10,7 @@ EcoSysLab is EvoEngine's digital forestry and ecosystem simulation plugin. It is
 - Builds as `EcoSysLabPlugin`.
 - Defines `ECOSYSLAB_PLUGIN`.
 - Copies resources from `EvoEngine_Plugins/EcoSysLab/Internals`.
-- Tries to link `CGAL::CGAL`; if CGAL is missing, the plugin still configures but warns that some features may be disabled.
+- Tries to link `CGAL::CGAL`; if CGAL is missing, the Plugin still configures but warns that some features may be disabled.
 
 ## Main Responsibilities
 
@@ -28,7 +28,7 @@ EcoSysLab is EvoEngine's digital forestry and ecosystem simulation plugin. It is
 
 | Source | Role |
 | --- | --- |
-| `EcoSysLabLayer` | Main plugin layer, editor UI, simulation controls, visualization camera, and render callback registration. |
+| `EcoSysLabLayer` | Main Plugin layer, editor UI, simulation controls, visualization camera, and render callback registration. |
 | `Tree` | Private component for a simulated tree instance. |
 | `TreeDescriptor` | Asset describing tree generation/growth behavior. |
 | `TreeStructor` | Private component for tree reconstruction workflows. |

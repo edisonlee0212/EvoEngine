@@ -90,7 +90,7 @@ void CudaModule::SamplePointCloud(const EnvironmentProperties& environmentProper
 }
 
 std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo_engine::Texture2D>& texture2D) {
-  if (!Application::GetLayer<RenderLayer>())
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>())
     return nullptr;
 
   auto image = texture2D->GetImage();
@@ -201,7 +201,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 }
 
 std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_engine::Cubemap>& cubemap) {
-  if (!Application::GetLayer<RenderLayer>())
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>())
     return nullptr;
 
   auto image = cubemap->GetImage();
@@ -311,7 +311,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 }
 
 std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(const std::shared_ptr<RenderTexture>& renderTexture) {
-  if (!Application::GetLayer<RenderLayer>())
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>())
     return nullptr;
 
   auto image = renderTexture->GetColorImage();
@@ -422,7 +422,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(const std::shared_ptr
 }
 
 std::shared_ptr<CudaSemaphore> CudaModule::ImportSemaphore(const std::shared_ptr<evo_engine::Semaphore>& semaphore) {
-  if (!Application::GetLayer<RenderLayer>())
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>())
     return nullptr;
   auto cudaSemaphore = std::make_shared<CudaSemaphore>();
 

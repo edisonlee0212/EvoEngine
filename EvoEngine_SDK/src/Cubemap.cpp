@@ -34,7 +34,7 @@ uint32_t Cubemap::GetTextureStorageIndex() const {
 }
 
 void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint32_t resolution) const {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return;
   Initialize(resolution);
@@ -132,8 +132,8 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = storage.image->GetExtent().width;
-    viewport.height = storage.image->GetExtent().height;
+    viewport.width = static_cast<float>(storage.image->GetExtent().width);
+    viewport.height = static_cast<float>(storage.image->GetExtent().height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
@@ -197,7 +197,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
 }
 
 void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>& target_texture) const {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return;
   Initialize(1024);
@@ -292,8 +292,8 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = storage.image->GetExtent().width;
-    viewport.height = storage.image->GetExtent().height;
+    viewport.width = static_cast<float>(storage.image->GetExtent().width);
+    viewport.height = static_cast<float>(storage.image->GetExtent().height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 

@@ -344,7 +344,8 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
 
   BranchesRenderPushConstant render_push_constant;
   render_push_constant.index1.instance_index =
-      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
+          renderer_handle);
   render_push_constant.index2.camera_index = view.camera_index;
   render_push_constant.tetrahedrons_size = delaunay_tetrahedrons.size();
   render_push_constant.alpha = render_parameters.alpha;

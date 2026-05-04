@@ -43,7 +43,6 @@ using namespace py_evo_engine;
 using namespace digital_agriculture_plugin;
 
 class PyDigitalAgriculture {
-  EVOENGINE_SINGLETON_INSTANCE(PyDigitalAgriculture)
  public:
   /**
    * @brief Add SorghumLayer to the framework.

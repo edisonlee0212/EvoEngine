@@ -1167,7 +1167,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RegisterRenderInstances(Handle
 
 void DsKineticVoronoiMeshing::RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle,
                                                                     std::shared_ptr<Scene> scene, Entity& owner) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1197,7 +1197,8 @@ void DsKineticVoronoiMeshing::RegisterSegmentMeshletsRenderInstance(Handle& rend
         });
       }
       if (segment_meshlet_render_pipeline && segment_meshlet_render_pipeline->Initialized()) {
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = rendering_instance_handle;
         int bark_material_index = -1;
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material,
@@ -1444,7 +1445,8 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
 
   SegmentMeshletPushConstant render_push_constant;
   render_push_constant.index1.instance_index =
-      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
+          renderer_handle);
   render_push_constant.index2.camera_index = view.camera_index;
   render_push_constant.vertex_count = segment_meshlet_vertices.size();
   render_push_constant.triangle_count = segment_meshlet_triangles.size();

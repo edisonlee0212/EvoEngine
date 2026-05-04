@@ -271,8 +271,10 @@ class Folder {
  * @brief Manages files and folders in the asset management system.
  */
 class FileManager {
-  EVOENGINE_SINGLETON_INSTANCE(FileManager)
+ public:
+  static FileManager& GetInstance();
 
+ private:
   std::unordered_map<Handle, std::weak_ptr<File>> file_registry_;     /**< Registry of files by handle. */
   std::unordered_map<Handle, std::weak_ptr<Folder>> folder_registry_; /**< Registry of folders by handle. */
 

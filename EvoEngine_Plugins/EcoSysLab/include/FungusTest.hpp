@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;

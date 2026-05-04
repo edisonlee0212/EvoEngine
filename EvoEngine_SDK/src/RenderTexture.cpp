@@ -321,8 +321,9 @@ void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAtta
     color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   VkRect2D render_area;
   render_area.offset = {0, 0};
-  render_area.extent.width = glm::max(1., static_cast<float>(extent_.width) * glm::pow(0.5f, mip_level));
-  render_area.extent.height = glm::max(1., static_cast<float>(extent_.height) * glm::pow(0.5f, mip_level));
+  const auto mip_scale = glm::pow(0.5f, static_cast<float>(mip_level));
+  render_area.extent.width = static_cast<uint32_t>(glm::max(1.0f, static_cast<float>(extent_.width) * mip_scale));
+  render_area.extent.height = static_cast<uint32_t>(glm::max(1.0f, static_cast<float>(extent_.height) * mip_scale));
   VkRenderingInfo render_info{};
   VkRenderingAttachmentInfo depth_attachment;
   if (depth_) {
@@ -360,8 +361,8 @@ void RenderTexture::ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_p
   VkViewport viewport;
   viewport.x = 0.0f;
   viewport.y = 0.0f;
-  viewport.width = extent_.width;
-  viewport.height = extent_.height;
+  viewport.width = static_cast<float>(extent_.width);
+  viewport.height = static_cast<float>(extent_.height);
   viewport.minDepth = 0.0f;
   viewport.maxDepth = 1.0f;
 

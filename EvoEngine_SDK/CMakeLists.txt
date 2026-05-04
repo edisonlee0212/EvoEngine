@@ -7,12 +7,22 @@ set(EVOENGINE_SDK_DIR ${EVOENGINE_SDK_DIR} PARENT_SCOPE)
 
 file(GLOB_RECURSE EVOENGINE_SDK_HEADERS ${EVOENGINE_SDK_DIR}/include/*.hpp)
 file(GLOB_RECURSE EVOENGINE_SDK_SOURCES ${EVOENGINE_SDK_DIR}/src/*.cpp)
+
+set(EVOENGINE_SDK_LIBRARY_TYPE STATIC)
+if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+	set(EVOENGINE_SDK_LIBRARY_TYPE SHARED)
+endif()
+
 add_library(EvoEngine_SDK
-	STATIC
+	${EVOENGINE_SDK_LIBRARY_TYPE}
 	${IMGUI_SOURCES}
 	${EVOENGINE_SDK_HEADERS}
 	${EVOENGINE_SDK_SOURCES}
 	)
+
+if (WIN32 AND EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+	set_target_properties(EvoEngine_SDK PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 set(EVOENGINE_SDK_INCLUDES
 	${3RDPARTY_INCLUDES}
@@ -76,9 +86,16 @@ target_compile_definitions(EvoEngine_SDK
 	${DEBUG_STATUS}
 	)
 
+if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+	target_compile_definitions(EvoEngine_SDK
+		PRIVATE
+		EVOENGINE_SDK_EXPORTS
+		EVOENGINE_RUNTIME_PACKAGES
+		)
+endif()
+
 if (WIN32)
 	# Compiler settings for Windows platform
-	set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 	target_compile_definitions(EvoEngine_SDK
 		PRIVATE
 		NOMINMAX
@@ -101,17 +118,32 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 	message(STATUS "Setting G++ flags")
 	# G++
 	target_compile_options(EvoEngine_SDK PRIVATE -Werror)
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+elseif (MSVC)
 	message(STATUS "Setting MSVC flags")
 	# MSVC
-	target_compile_options(EvoEngine_SDK PRIVATE /EHsc /W2 /c)
+	target_compile_options(EvoEngine_SDK PRIVATE /EHsc /W2 /FS /c)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 	message(STATUS "Setting Clang flags")
 	# Activate all clang warnings except those that don't really affect much
 	target_compile_options(EvoEngine_SDK PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
 endif ()
 
-set(EVOENGINE_SDK_DEFS NOMINMAX PARENT_SCOPE)
+set(EVOENGINE_SDK_DEFS NOMINMAX)
+if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+	list(APPEND EVOENGINE_SDK_DEFS EVOENGINE_RUNTIME_PACKAGES)
+endif()
+set(EVOENGINE_SDK_DEFS ${EVOENGINE_SDK_DEFS} PARENT_SCOPE)
+
+set(EVOENGINE_SDK_RUNTIME_LIBRARIES "")
+set(EVOENGINE_SDK_PDBS "")
+if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+	set(EVOENGINE_SDK_RUNTIME_LIBRARIES "$<TARGET_FILE:EvoEngine_SDK>")
+	if (MSVC)
+		set(EVOENGINE_SDK_PDBS "$<TARGET_PDB_FILE:EvoEngine_SDK>")
+	endif()
+endif()
+set(EVOENGINE_SDK_RUNTIME_LIBRARIES ${EVOENGINE_SDK_RUNTIME_LIBRARIES} PARENT_SCOPE)
+set(EVOENGINE_SDK_PDBS ${EVOENGINE_SDK_PDBS} PARENT_SCOPE)
 
 # ------------------------------------------------------------------
 # EvoEngine SDK - Copy resources

@@ -2,7 +2,6 @@
 #pragma once
 #include "Console.hpp"
 #include "Entity.hpp"
-#include "ISingleton.hpp"
 #include "Serialization.hpp"
 #include "Transform.hpp"
 
@@ -37,8 +36,10 @@ inline bool ComponentTypeComparator(const DataComponentType &a, const DataCompon
  * @brief Manages and operates on entities within the engine framework.
  */
 class Entities final {
-  EVOENGINE_SINGLETON_INSTANCE(Entities)
+ public:
+  static Entities &GetInstance();
 
+ private:
   // Granting access to specific classes and structures
   friend class PhysicsSystem;
   friend class EditorLayer;

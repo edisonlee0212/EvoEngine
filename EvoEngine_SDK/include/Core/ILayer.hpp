@@ -3,6 +3,7 @@
 #include "Input.hpp"
 
 namespace evo_engine {
+class Application;
 
 /**
  * @class Scene
@@ -46,6 +47,8 @@ class ILayer {
    */
   std::weak_ptr<ILayer> self_;
 
+  Application* application_ = nullptr;
+
   /**
    * @brief Grants Application class access to private and protected members of ILayer.
    */
@@ -67,6 +70,9 @@ class ILayer {
    * This is a virtual function that can be overridden by derived classes to perform custom initialization.
    */
   virtual void OnCreate() {
+  }
+
+  virtual void RegisterTypes(Application& application) {
   }
 
   /**
@@ -130,6 +136,8 @@ class ILayer {
   virtual void OnInputEvent(const Input::InputEvent& input_event);
 
  public:
+  [[nodiscard]] Application& GetApplication() const;
+
   [[nodiscard]] std::shared_ptr<ILayer> GetSelf() const;
 
   /**

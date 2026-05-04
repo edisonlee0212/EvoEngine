@@ -164,7 +164,7 @@ class IFlowerDescriptor : public IAsset {
 };
 
 /**
- * @brief Represents a tree descriptor asset in the EcoSysLab plugin.
+ * @brief Represents a tree descriptor asset in the EcoSysLab Plugin.
  *
  * This class contains references to various assets required for tree generation,
  * including shoot, foliage, fruit, flower, and bark descriptors. It provides

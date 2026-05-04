@@ -7,6 +7,7 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "PackageManager.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
@@ -19,7 +20,7 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 void EditorLayer::OnCreate() {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (!window_layer) {
     throw std::runtime_error("WindowLayer not present!");
   }
@@ -86,7 +87,7 @@ void EditorLayer::OnCreate() {
     static Entity previous_entity{};
     auto* ltp = static_cast<Transform*>(static_cast<void*>(data));
     bool edited = false;
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto status = scene->GetDataComponent<TransformUpdateFlag>(entity);
     const bool reload = previous_entity != entity || previously_stored_transform_.value != ltp->value ||
                         status.transform_modified || status.global_transform_modified;
@@ -197,7 +198,7 @@ void EditorLayer::OnDestroy() {
 
 void EditorLayer::PreUpdate() {
   InitializeImGui();
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (lock_camera) {
     auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
     const float elapsed_time = static_cast<float>(Times::Now()) - transition_timer_;
@@ -222,7 +223,7 @@ void EditorLayer::PreUpdate() {
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("View")) {
       if (ImGui::BeginMenu("Layer Inspection")) {
-        for (const auto& layer : Application::GetLayers()) {
+        for (const auto& layer : ApplicationContext::Get().GetLayers()) {
           ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
         }
         ImGui::EndMenu();
@@ -235,16 +236,16 @@ void EditorLayer::PreUpdate() {
     ImGui::Separator();
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2((float)2, (float)2));
-    switch (Application::GetApplicationStatus()) {
+    switch (ApplicationContext::Get().GetApplicationStatus()) {
       case Application::ExecutionStatus::NotPlaying: {
         ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
         ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
 
         if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          Application::Play();
+          ApplicationContext::Get().Play();
         }
         if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          Application::Step();
+          ApplicationContext::Get().Step();
         }
 
         ImGui::PopID();
@@ -257,10 +258,10 @@ void EditorLayer::PreUpdate() {
 
         if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1},
                                {1, 0})) {
-          Application::Pause();
+          ApplicationContext::Get().Pause();
         }
         if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          Application::Stop();
+          ApplicationContext::Get().Stop();
         }
         ImGui::PopID();
         ImGui::PopID();
@@ -271,13 +272,13 @@ void EditorLayer::PreUpdate() {
         ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["StepButton"]->GetImTextureId())));
         ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["StopButton"]->GetImTextureId())));
         if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          Application::Play();
+          ApplicationContext::Get().Play();
         }
         if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          Application::Step();
+          ApplicationContext::Get().Step();
         }
         if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          Application::Stop();
+          ApplicationContext::Get().Stop();
         }
         ImGui::PopID();
         ImGui::PopID();
@@ -341,7 +342,7 @@ void EditorLayer::PreUpdate() {
     pressed_keys.clear();
   }
 
-  if (scene && apply_transform_to_main_camera && !Application::IsPlaying()) {
+  if (scene && apply_transform_to_main_camera && !ApplicationContext::Get().IsPlaying()) {
     if (const auto camera = scene->main_camera.Get<Camera>(); camera && scene->IsEntityValid(camera->GetOwner())) {
       auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
       GlobalTransform global_transform;
@@ -354,7 +355,7 @@ void EditorLayer::PreUpdate() {
   if (scene && !scene->IsEntityValid(selected_entity_)) {
     SetSelectedEntity(Entity());
   }
-  if (const auto render_layer = Application::GetLayer<RenderLayer>();
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
       render_layer && render_layer->need_fade_ != 0 && selection_alpha_ < 256) {
     selection_alpha_ += static_cast<int>(static_cast<float>(Times::DeltaTime()) * 1280);
   }
@@ -399,9 +400,9 @@ void EditorLayer::PreUpdate() {
             ImGui::Separator();
             const std::string title1 = std::to_string(i) + ". " + name;
             if (ImGui::TreeNode(title1.c_str())) {
-              ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
-              ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
-              ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
+              ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
+              ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+              ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
               for (int j = 0; j < storage.entity_alive_count; j++) {
                 Entity entity = storage.chunk_array.entity_array.at(j);
                 std::string title2 = std::to_string(entity.GetIndex()) + ": ";
@@ -429,10 +430,10 @@ void EditorLayer::PreUpdate() {
             }
           });
         } else if (selected_hierarchy_display_mode == 1) {
-          ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2, 0.3, 0.2, 1.0));
-          ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2, 0.2, 0.2, 1.0));
-          ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2, 0.2, 0.3, 1.0));
-          scene->ForAllEntities([&](int, const Entity entity) {
+          ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
+          ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+          ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
+          scene->ForAllEntities([&](size_t, const Entity entity) {
             if (scene->GetParent(entity).GetIndex() == 0)
               DrawEntityNode(entity, 0);
           });
@@ -624,6 +625,44 @@ void EditorLayer::PreUpdate() {
     }
     ImGui::End();
   }
+  if (show_package_manager_window) {
+    if (ImGui::Begin("Runtime Packages")) {
+      if (ImGui::Button("Load All")) {
+        PackageManager::LoadAll();
+      }
+      const auto loaded_packages = PackageManager::GetLoadedPackages();
+      if (loaded_packages.empty()) {
+        ImGui::Text("No runtime packages loaded.");
+      }
+      for (const auto& package : loaded_packages) {
+        if (ImGui::TreeNode(package.name.c_str())) {
+          ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+          ImGui::Text("Live objects: %zu", package.live_object_count);
+          ImGui::Text("Path:");
+          ImGui::SameLine();
+          ImGui::TextUnformatted(package.original_path.string().c_str());
+          if (!package.description.empty()) {
+            ImGui::TextWrapped("%s", package.description.c_str());
+          }
+          if (ImGui::TreeNode("Private components")) {
+            for (const auto& type_name : package.private_component_types) {
+              ImGui::BulletText("%s", type_name.c_str());
+            }
+            ImGui::TreePop();
+          }
+          if (ImGui::Button(("Reload##" + package.name).c_str())) {
+            PackageManager::Reload(package.name);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button(("Unload##" + package.name).c_str())) {
+            PackageManager::Unload(package.name);
+          }
+          ImGui::TreePop();
+        }
+      }
+    }
+    ImGui::End();
+  }
   if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {
     if (scene->IsEntityValid(selected_entity_)) {
       scene->DeleteEntity(selected_entity_);
@@ -645,7 +684,7 @@ void EditorLayer::PreUpdate() {
   }
 
   if (scene) {
-    for (const auto& layer : Application::GetLayers()) {
+    for (const auto& layer : ApplicationContext::Get().GetLayers()) {
       if (layer->enable_inspection) {
         ImGui::Begin(layer->layer_name_.c_str());
         layer->OnInspect(editor_layer);
@@ -671,6 +710,7 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Entity Explorer", &show_entity_explorer_window);
   ImGui::Checkbox("Entity Inspector", &show_entity_inspector_window);
   ImGui::Checkbox("Console", &show_console_window);
+  ImGui::Checkbox("Runtime Packages", &show_package_manager_window);
 
   if (ImGui::TreeNode("Scene camera settings")) {
     ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
@@ -833,7 +873,7 @@ void EditorLayer::InspectComponentData(const Entity entity, IDataComponent* data
 
 void EditorLayer::SceneCameraWindow() {
   const auto scene = GetScene();
-  auto window_layer = Application::GetLayer<WindowLayer>();
+  auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   const auto& graphics = Platform::GetInstance();
   auto& [sceneCameraRotation, sceneCameraPosition, scene_camera] = editor_cameras_.at(scene_camera_handle_);
 #pragma region Scene Window
@@ -851,8 +891,8 @@ void EditorLayer::SceneCameraWindow() {
           scene_camera_window_focused_ = true;
         }
         view_port_size = ImGui::GetWindowSize();
-        scene_camera_resolution_x_ = view_port_size.x * scene_camera_resolution_multiplier;
-        scene_camera_resolution_y_ = view_port_size.y * scene_camera_resolution_multiplier;
+        scene_camera_resolution_x_ = static_cast<int>(view_port_size.x * scene_camera_resolution_multiplier);
+        scene_camera_resolution_y_ = static_cast<int>(view_port_size.y * scene_camera_resolution_multiplier);
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
         if (scene_camera && scene_camera->rendered_) {
           // Because I use the texture from OpenGL, I need to invert the V from the UV.
@@ -1022,7 +1062,7 @@ bool EditorLayer::IsGizmosUsing() const {
   return gizmo_using_;
 }
 void EditorLayer::MainCameraWindow() {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>(); !render_layer)
     return;
   const auto& graphics = Platform::GetInstance();
   const auto scene = GetScene();
@@ -1039,8 +1079,8 @@ void EditorLayer::MainCameraWindow() {
           main_camera_window_focused_ = true;
         }
         const ImVec2 view_port_size = ImGui::GetWindowSize();
-        main_camera_resolution_x = view_port_size.x * main_camera_resolution_multiplier_;
-        main_camera_resolution_y = view_port_size.y * main_camera_resolution_multiplier_;
+        main_camera_resolution_x = static_cast<int>(view_port_size.x * main_camera_resolution_multiplier_);
+        main_camera_resolution_y = static_cast<int>(view_port_size.y * main_camera_resolution_multiplier_);
         //  Get the size of the child (i.e. the whole draw size of the windows).
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
         // Because I use the texture from OpenGL, I need to invert the V from the UV.
@@ -1104,7 +1144,7 @@ void EditorLayer::MainCameraWindow() {
             Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
           SetSelectedEntity(Entity());
         }
-        if (!Application::IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
+        if (!ApplicationContext::Get().IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
             Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
             !(mouse_camera_window_position_.x < 0 || mouse_camera_window_position_.y < 0 ||
               mouse_camera_window_position_.x > view_port_size.x ||
@@ -1153,8 +1193,8 @@ void EditorLayer::MainCameraWindow() {
 
 void EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
   // If main camera is focused, we pass the event to the scene.
-  if (main_camera_window_focused_ && Application::IsPlaying()) {
-    const auto active_scene = Application::GetActiveScene();
+  if (main_camera_window_focused_ && ApplicationContext::Get().IsPlaying()) {
+    const auto active_scene = ApplicationContext::Get().GetActiveScene();
     auto& pressed_keys = active_scene->pressed_keys_;
     if (input_event.key_action == Input::KeyActionType::Press) {
       if (const auto search = pressed_keys.find(input_event.key); search != active_scene->pressed_keys_.end()) {
@@ -1174,7 +1214,7 @@ void EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
 }
 
 void EditorLayer::ResizeCameras() {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>(); !render_layer)
     return;
   const auto& scene_camera = GetSceneCamera();
   if (const auto resolution = scene_camera->GetSize();
@@ -1182,7 +1222,7 @@ void EditorLayer::ResizeCameras() {
       (resolution.x != scene_camera_resolution_x_ || resolution.y != scene_camera_resolution_y_)) {
     scene_camera->Resize({scene_camera_resolution_x_, scene_camera_resolution_y_});
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (const std::shared_ptr<Camera> main_camera = scene->main_camera.Get<Camera>()) {
     if (main_camera_allow_auto_resize)
       main_camera->Resize({main_camera_resolution_x, main_camera_resolution_y});
@@ -1190,7 +1230,7 @@ void EditorLayer::ResizeCameras() {
 }
 
 std::shared_ptr<Texture2D> EditorLayer::FindIcon(const std::string& name) {
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     if (const auto search = editor_layer->editor_icons_.find(name); search != editor_layer->editor_icons_.end())
       return search->second;
   }
@@ -1254,7 +1294,7 @@ void EditorLayer::SetSceneCameraRotation(const glm::quat& target_rotation) {
 
 void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sampler, const VkImageView image_view,
                                   const VkImageLayout image_layout) {
-  if (!Application::GetLayer<EditorLayer>())
+  if (!ApplicationContext::Get().GetLayer<EditorLayer>())
     return;
   if (target != 0)
     ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(target));
@@ -1343,7 +1383,7 @@ bool EditorLayer::UnsafeDroppablePrivateComponent(PrivateComponentRef& target,
                                                   const std::vector<std::string>& type_names) {
   bool status_changed = false;
   if (ImGui::BeginDragDropTarget()) {
-    const auto current_scene = Application::GetActiveScene();
+    const auto current_scene = ApplicationContext::Get().GetActiveScene();
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
       IM_ASSERT(payload->DataSize == sizeof(Handle));
       const auto payload_n = *static_cast<Handle*>(payload->Data);
@@ -1381,7 +1421,7 @@ bool EditorLayer::DragAndDropButton(EntityRef& entity_ref, const std::string& na
   ImGui::SameLine();
   bool status_changed = false;
   if (const auto entity = entity_ref.Get(); entity.GetIndex() != 0) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     ImGui::Button(scene->GetEntityName(entity).c_str());
     Draggable(entity_ref);
     if (modifiable) {
@@ -1401,7 +1441,7 @@ bool EditorLayer::Droppable(EntityRef& entity_ref) {
   bool status_changed = false;
   if (ImGui::BeginDragDropTarget()) {
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       IM_ASSERT(payload->DataSize == sizeof(Handle));
       const auto payload_n = *static_cast<Handle*>(payload->Data);
       if (const auto new_entity = scene->GetEntity(payload_n); scene->IsEntityValid(new_entity)) {
@@ -1421,7 +1461,7 @@ void EditorLayer::Draggable(EntityRef& entity_ref) {
 }
 void EditorLayer::DraggableEntity(const Entity& entity) {
   if (ImGui::BeginDragDropSource()) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto handle = scene->GetEntityHandle(entity);
     ImGui::SetDragDropPayload("Entity", &handle, sizeof(Handle));
     ImGui::TextColored(ImVec4(0, 0, 1, 1), scene->GetEntityName(entity).c_str());
@@ -1436,7 +1476,7 @@ bool EditorLayer::Rename(EntityRef& entity_ref) {
 bool EditorLayer::Remove(EntityRef& entity_ref) {
   bool status_changed = false;
   const auto entity = entity_ref.Get();
-  if (const auto scene = Application::GetActiveScene(); scene->IsEntityValid(entity)) {
+  if (const auto scene = ApplicationContext::Get().GetActiveScene(); scene->IsEntityValid(entity)) {
     const std::string tag = "##Entity" + std::to_string(scene->GetEntityHandle(entity));
     if (ImGui::BeginPopupContextItem(tag.c_str())) {
       if (ImGui::Button(("Remove" + tag).c_str())) {
@@ -1451,7 +1491,7 @@ bool EditorLayer::Remove(EntityRef& entity_ref) {
 
 void EditorLayer::MouseEntitySelection() {
   const auto scene = GetScene();
-  auto window_layer = Application::GetLayer<WindowLayer>();
+  auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
 #pragma region Scene Window
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -1524,8 +1564,8 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageExtent.width = 1;
     image_copy.imageExtent.height = 1;
     image_copy.imageExtent.depth = 1;
-    image_copy.imageOffset.x = point.x;
-    image_copy.imageOffset.y = point.y;
+    image_copy.imageOffset.x = static_cast<int32_t>(point.x);
+    image_copy.imageOffset.y = static_cast<int32_t>(point.y);
     image_copy.imageOffset.z = 0;
     entity_index_read_buffer_->CopyFromImage(*g_buffer_normal, image_copy);
     float val = -1;
@@ -1542,7 +1582,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
       }
     }
     if (const int32_t instance_index = static_cast<int>(val); instance_index > 0) {
-      const auto render_layer = Application::GetLayer<RenderLayer>();
+      const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
       const auto scene = GetScene();
       if (const auto handle = render_layer->GetCurrentRenderInstanceStorage()->GetInstanceEntityHandle(instance_index);
           handle != 0)
@@ -1554,7 +1594,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
 
 bool EditorLayer::RenameEntity(const Entity& entity) {
   constexpr bool status_changed = false;
-  if (const auto scene = Application::GetActiveScene(); scene->IsEntityValid(entity)) {
+  if (const auto scene = ApplicationContext::Get().GetActiveScene(); scene->IsEntityValid(entity)) {
     const std::string tag = "##Entity" + std::to_string(scene->GetEntityHandle(entity));
     if (ImGui::BeginPopupContextItem(tag.c_str())) {
       if (ImGui::BeginMenu(("Rename" + tag).c_str())) {
@@ -1605,7 +1645,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
   const auto ptr = target.Get<IPrivateComponent>();
   ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.3f, 0, 1));
   if (ptr) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     ImGui::Button(scene->GetEntityName(ptr->GetOwner()).c_str());
     const std::string tag = "##" + ptr->GetTypeName() + std::to_string(ptr->GetHandle());
     DraggablePrivateComponent(ptr);
@@ -1688,11 +1728,12 @@ void EditorLayer::CameraWindowDragAndDrop() const {
   if (AssetRef asset_ref;
       UnsafeDroppableAsset(asset_ref, {"Scene", "Prefab", "Mesh", "Strands", "Cubemap", "EnvironmentalMap"})) {
     const auto scene = GetScene();
-    if (const auto asset = asset_ref.Get<IAsset>(); !Application::IsPlaying() && asset->GetTypeName() == "Scene") {
+    if (const auto asset = asset_ref.Get<IAsset>();
+        !ApplicationContext::Get().IsPlaying() && asset->GetTypeName() == "Scene") {
       const auto new_scene = std::dynamic_pointer_cast<Scene>(asset);
       ProjectManager::SetStartScene(new_scene);
       ProjectManager::SaveProject();
-      Application::Attach(new_scene);
+      ApplicationContext::Get().Attach(new_scene);
     } else if (asset->GetTypeName() == "Prefab") {
       const auto entity = std::dynamic_pointer_cast<Prefab>(asset)->ToEntity(scene, true, true);
       scene->SetEntityName(entity, asset->GetTitle());

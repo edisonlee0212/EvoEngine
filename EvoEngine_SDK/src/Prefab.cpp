@@ -756,7 +756,7 @@ void Prefab::AttachAnimator(Prefab* parent, const Handle& animator_entity_handle
 }
 
 void Prefab::FromEntity(const Entity& entity) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     EVOENGINE_ERROR("Scene not attached!");
     return;
@@ -867,7 +867,7 @@ bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize,
     std::vector<glm::vec4> alpha_data;
     const auto resolution = albedo_texture->GetResolution();
     opacity_texture->GetRgbaChannelData(alpha_data, resolution.x, resolution.y);
-    Jobs::RunParallelFor(color_data.size(), [&](unsigned i) {
+    Jobs::RunParallelFor(color_data.size(), [&](size_t i) {
       color_data[i].a = alpha_data[i].r;
     });
     std::shared_ptr<Texture2D> replacement_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
@@ -1101,7 +1101,7 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
           std::vector<glm::vec4> data;
           albedo_texture->GetRgbaChannelData(data);
           std::vector<float> src(data.size() * 4);
-          Jobs::RunParallelFor(data.size(), [&](const unsigned i) {
+          Jobs::RunParallelFor(data.size(), [&](size_t i) {
             src[i * 4] = data[i].a;
             src[i * 4 + 1] = data[i].a;
             src[i * 4 + 2] = data[i].a;
@@ -1553,7 +1553,7 @@ bool Prefab::OnInspectComponents(const std::shared_ptr<Prefab>& walker) {
 bool Prefab::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Button("Instantiate")) {
-    ToEntity(Application::GetActiveScene());
+    ToEntity(ApplicationContext::Get().GetActiveScene());
   }
   if (collected_assets.empty() && ImGui::Button("Collect assets"))
     GatherAssets();

@@ -6,20 +6,21 @@ namespace py = pybind11;
 using namespace py_eco_sys_lab_plugin;
 void register_classes() {
 #  ifdef ECOSYSLAB_PLUGIN
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
-  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
-  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  PrivateComponentRegistration<TreePointCloudScanner>("TreePointCloudScanner");
+  auto& application = PyEvoEngine::GetRuntime().GetApplication();
+  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
+  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
+  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  application.RegisterPrivateComponent<TreePointCloudScanner>("TreePointCloudScanner");
 #  endif
 }
 
 void push_layers(const bool enable_window_layer, const bool enable_editor_layer) {
-  Application::PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
-    Application::PushLayer<WindowLayer>("Window Layer");
+    ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   if (enable_window_layer && enable_editor_layer)
-    Application::PushLayer<EditorLayer>("Editor Layer");
-  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
+    ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
 }
 
 std::filesystem::path get_default_project_path() {
@@ -50,11 +51,11 @@ void engine_run_windowless(const std::filesystem::path& project_path) {
   push_layers(false, false);
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
   const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("./PlayGround.evescene"));
   ProjectManager::SetStartScene(new_scene);
 
-  Application::Start();
+  ApplicationContext::Get().Start();
 }
 
 void engine_run(const std::filesystem::path& project_path) {
@@ -68,8 +69,8 @@ void engine_run(const std::filesystem::path& project_path) {
   push_layers(true, false);
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
-  Application::Start();
+  ApplicationContext::Get().Initialize(application_info);
+  ApplicationContext::Get().Start();
 }
 
 void engine_run_with_editor(const std::filesystem::path& project_path) {
@@ -83,16 +84,16 @@ void engine_run_with_editor(const std::filesystem::path& project_path) {
   push_layers(true, true);
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
-  Application::Start();
+  ApplicationContext::Get().Initialize(application_info);
+  ApplicationContext::Get().Start();
 }
 
 void engine_loop() {
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 
 void engine_terminate() {
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }
 void scene_capture(const float pos_x, const float pos_y, const float pos_z, const float angle_x, const float angle_y,
                    const float angle_z, const int resolution_x, const int resolution_y, bool white_background,
@@ -102,7 +103,7 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
     return;
   }
 
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     EVOENGINE_ERROR("No active scene!");
     return;
@@ -130,7 +131,7 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
     main_camera->camera_settings.use_clear_color = true;
     main_camera->camera_settings.clear_color = glm::vec4(1, 1, 1, 1);
   }
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   main_camera->GetRenderTexture()->StoreToPng(output_path);
   if (temp_camera) {
     scene->DeleteEntity(main_camera_entity);
@@ -146,7 +147,7 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
 }
 
 Entity import_tree_point_cloud(const std::string& yaml_path) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto ret_val = scene->CreateEntity("TreeStructor");
   const auto tree_point_cloud = scene->GetOrSetPrivateComponent<TreeStructor>(ret_val).lock();
   tree_point_cloud->ImportGraph(yaml_path);
@@ -161,7 +162,7 @@ void tree_structor(const std::filesystem::path& yaml_path, const float import_sc
     EVOENGINE_ERROR("Incorrect yaml path!")
     return;
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto temp_entity = scene->CreateEntity("Temp");
   const auto tree_structor = scene->GetOrSetPrivateComponent<TreeStructor>(temp_entity).lock();
   if (!tree_data_generation_parameters.tree_descriptor_path.empty()) {
@@ -199,7 +200,7 @@ void yaml_visualization(const std::string& yaml_path, const ConnectivityGraphSet
                         const TreeMeshGeneratorSettings& mesh_generator_settings, const float pos_x, const float pos_y,
                         const float pos_z, const float angle_x, const float angle_y, const float angle_z,
                         const int resolution_x, const int resolution_y, const std::string& output_path) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto temp_entity = scene->CreateEntity("Temp");
   const auto tree_point_cloud = scene->GetOrSetPrivateComponent<TreeStructor>(temp_entity).lock();
   tree_point_cloud->connectivity_graph_settings = connectivity_graph_settings;
@@ -208,7 +209,7 @@ void yaml_visualization(const std::string& yaml_path, const ConnectivityGraphSet
   tree_point_cloud->EstablishConnectivityGraph();
   tree_point_cloud->BuildSkeletons();
   tree_point_cloud->GenerateForest();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   eco_sys_lab_layer->GenerateMeshes(mesh_generator_settings);
   scene_capture(pos_x, pos_y, pos_z, angle_x, angle_y, angle_z, resolution_x, resolution_y, true, output_path);
   scene->DeleteEntity(temp_entity);
@@ -220,8 +221,8 @@ void voxel_space_colonization_tree_data(
     const std::string& tree_mesh_output_path, bool export_tree_io, const std::string& tree_io_output_path,
     bool export_radial_bounding_volume, const std::string& radial_bounding_volume_output_path,
     bool export_radial_bounding_volume_mesh, const std::string& radial_bounding_volume_mesh_output_path) {
-  const auto application_status = Application::GetApplicationStatus();
-  if (!Application::GetActiveScene()) {
+  const auto application_status = ApplicationContext::Get().GetApplicationStatus();
+  if (!ApplicationContext::Get().GetActiveScene()) {
     EVOENGINE_ERROR("No project!");
     return;
   }
@@ -233,8 +234,8 @@ void voxel_space_colonization_tree_data(
     EVOENGINE_ERROR("Application not uninitialized!");
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -285,7 +286,7 @@ void voxel_space_colonization_tree_data(
 
   eco_sys_lab_layer->simulation_settings.delta_time = delta_time;
 
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   for (int i = 0; i < iterations; i++) {
     eco_sys_lab_layer->Simulate();
   }
@@ -323,8 +324,8 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
                                       const std::string& tree_mesh_output_path, bool export_tree_io,
                                       const std::string& tree_io_output_path, bool export_radial_bounding_volume_mesh,
                                       const std::string& radial_bounding_volume_mesh_output_path) {
-  const auto application_status = Application::GetApplicationStatus();
-  if (!Application::GetActiveScene()) {
+  const auto application_status = ApplicationContext::Get().GetApplicationStatus();
+  if (!ApplicationContext::Get().GetActiveScene()) {
     EVOENGINE_ERROR("No project!");
     return;
   }
@@ -336,8 +337,8 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
     EVOENGINE_ERROR("Application not uninitialized!");
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -387,7 +388,7 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
 
   tree->shoot_model.tree_growth_settings.use_space_colonization = true;
   tree->shoot_model.tree_growth_settings.space_colonization_auto_resize = false;
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   eco_sys_lab_layer->simulation_settings.delta_time = delta_time;
   for (int i = 0; i < iterations; i++) {
     eco_sys_lab_layer->Simulate();
@@ -406,7 +407,7 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
 }
 
 void scene_light_settings(const float ambient_light_intensity, const float directional_light_intensity) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   scene->environment.ambient_light_intensity = ambient_light_intensity;
   const auto directional_light_entities = scene->GetPrivateComponentOwnersList<DirectionalLight>();
   for (const auto& directional_light_entity : directional_light_entities) {

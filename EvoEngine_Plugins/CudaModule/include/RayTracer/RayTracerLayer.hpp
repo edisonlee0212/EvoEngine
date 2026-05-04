@@ -30,7 +30,7 @@ class RayTracerLayer : public ILayer {
   static bool CheckMaterial(RayTracedMaterial& ray_tracer_material, const std::shared_ptr<Material>& material);
 
   static bool CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
-                                 const std::shared_ptr<BtfMaterial>& compressed_btf);
+                               const std::shared_ptr<BtfMaterial>& compressed_btf);
 
   glm::ivec2 scene_camera_resolution_ = glm::ivec2(0);
 
@@ -55,6 +55,7 @@ class RayTracerLayer : public ILayer {
 
   bool UpdateScene(const std::shared_ptr<Scene>& scene);
 
+  void RegisterTypes(Application& application) override;
   void OnCreate() override;
 
   void PreUpdate() override;

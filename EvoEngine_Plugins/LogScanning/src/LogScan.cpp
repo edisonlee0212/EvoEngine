@@ -100,7 +100,7 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       for (const auto& profile : profiles) {
         const auto start_index = data.size();
         data.resize(profile.points.size() + start_index);
-        Jobs::RunParallelFor(profile.points.size(), [&](unsigned i) {
+        Jobs::RunParallelFor(profile.points.size(), [&](size_t i) {
           data[i + start_index].instance_matrix.SetPosition(
               glm::vec3(profile.points[i].x, profile.points[i].y, profile.encoder_value));
           data[i + start_index].instance_matrix.SetScale(glm::vec3(0.0005f, 0.0005f, 2.4384f / profiles.size()));
@@ -127,7 +127,7 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       std::vector<ParticleInfo> profile_data;
       reconstruction.Initialize(reconstruction_parameter, profile);
       profile_data.resize(reconstruction.processed_points.size());
-      Jobs::RunParallelFor(reconstruction.processed_points.size(), [&](const unsigned i) {
+      Jobs::RunParallelFor(reconstruction.processed_points.size(), [&](size_t i) {
         const auto& processed_point = reconstruction.processed_points[i];
         profile_data[i].instance_matrix.SetPosition(
             glm::vec3(processed_point.position.x, processed_point.position.y, profile.encoder_value));
@@ -139,7 +139,7 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
       std::vector<ParticleInfo> points_data;
       points_data.resize(reconstruction.profile_grid.RefCells().size());
-      Jobs::RunParallelFor(points_data.size(), [&](const unsigned i) {
+      Jobs::RunParallelFor(points_data.size(), [&](size_t i) {
         const auto& cell = reconstruction.profile_grid.PeekCells()[i];
         const auto position = reconstruction.profile_grid.GetPosition(i);
         points_data[i].instance_matrix.SetPosition(glm::vec3(position.x, position.y, profile.encoder_value));
@@ -270,7 +270,7 @@ void JoeScanConfig::Import(const std::shared_ptr<Json>& json) {
 }
 
 void JoeScanConfig::PlacePrefabs(const std::shared_ptr<Prefab>& prefab) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto parent = scene->CreateEntity("ScanHeads");
   for (const auto& scan_head : scan_heads) {
     auto entity = prefab->ToEntity(scene);

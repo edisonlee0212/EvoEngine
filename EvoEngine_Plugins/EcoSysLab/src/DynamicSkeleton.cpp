@@ -124,7 +124,7 @@ void DynamicSkeleton::Physics(const PhysicsParameters& physics_parameters, const
     for (int iteration_i = 0; iteration_i < physics_parameters.constraint_iteration; iteration_i++) {
       ApplyStiffRodConstraint(physics_parameters);
     }
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
     const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
     const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();

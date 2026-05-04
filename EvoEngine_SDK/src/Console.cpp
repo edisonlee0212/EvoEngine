@@ -1,10 +1,11 @@
 #include "Console.hpp"
+#include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "Times.hpp"
 using namespace evo_engine;
 
 void Console::Log(const std::string& msg) {
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (!editor_layer)
     return;
   std::lock_guard lock(editor_layer->console_message_mutex_);
@@ -15,7 +16,7 @@ void Console::Log(const std::string& msg) {
   editor_layer->console_messages_.push_back(cm);
 }
 void Console::Error(const std::string& msg) {
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (!editor_layer)
     return;
   std::lock_guard lock(editor_layer->console_message_mutex_);
@@ -27,7 +28,7 @@ void Console::Error(const std::string& msg) {
 }
 
 void Console::Warning(const std::string& msg) {
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (!editor_layer)
     return;
   std::lock_guard lock(editor_layer->console_message_mutex_);

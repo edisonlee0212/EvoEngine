@@ -99,7 +99,7 @@ template <typename T>
 void Texture2D::GetData(std::vector<T>& dst) {
   DownloadData();
   dst.resize(local_data_.size());
-  Jobs::RunParallelFor(local_data_.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(local_data_.size(), [&](size_t i) {
     dst[i] = local_data_[i];
   });
 }

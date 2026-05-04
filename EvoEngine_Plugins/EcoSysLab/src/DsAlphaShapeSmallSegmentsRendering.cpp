@@ -198,7 +198,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToCameraDeferred(
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   SmallSegmentsRenderPushConstant push_constant;
   push_constant.index1.instance_index =
-      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
+          renderer_handle);
   push_constant.index2.camera_index = view.camera_index;
   push_constant.uniform_particle_size = uniform_particles.size();  // TODO: move to meshing
   push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
@@ -273,7 +274,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsVisualizationToCameraDeferred(
       Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   SmallSegmentsVisualizationRenderPushConstant segment_push_constant;
   segment_push_constant.index1.instance_index =
-      Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(renderer_handle);
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage()->GetRenderInstanceIndex(
+          renderer_handle);
   segment_push_constant.index2.camera_index = view.camera_index;
   segment_push_constant.uniform_particle_size = uniform_particles.size();  // TODO: move to meshing
   segment_push_constant.thickness_multiplier = render_parameters.thickness_multiplier;

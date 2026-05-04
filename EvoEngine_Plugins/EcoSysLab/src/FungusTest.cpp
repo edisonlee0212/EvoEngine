@@ -1,4 +1,4 @@
-﻿#include "FungusTest.hpp"
+#include "FungusTest.hpp"
 #include <glm/glm.hpp>
 #include "Scene.hpp"
 #include "Shader.hpp"
@@ -42,7 +42,7 @@ bool FungusTest::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   std::vector<ParticleInfo> particle_infos(num_nodes);
   // const auto time = Times::Now();
-  Jobs::RunParallelFor(particle_infos.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(particle_infos.size(), [&](size_t i) {
     auto& particle_info = particle_infos[i];
     particle_info.instance_matrix.SetPosition(
         glm::vec3(Tree_Graph.nodes[i].x, Tree_Graph.nodes[i].y, Tree_Graph.nodes[i].z));
@@ -146,7 +146,7 @@ void FungusTest::OnCreate() {
   if (!infile) {
     std::cerr << "Cannot open "
               << "graph3d_float.txt"
-              << " for reading！" << std::endl;
+              << " for reading!" << std::endl;
   }
 
   std::string line;

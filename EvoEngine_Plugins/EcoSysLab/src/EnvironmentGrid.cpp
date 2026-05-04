@@ -118,7 +118,7 @@ void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_sett
   }
   const int light_space_size = glm::ceil(simulation_settings.detection_radius / voxel_size);
   for (int y = resolution.y - 1; y >= 0; y--) {
-    Jobs::RunParallelFor(resolution.x * resolution.z, [&](unsigned i) {
+    Jobs::RunParallelFor(resolution.x * resolution.z, [&](size_t i) {
       const int x = i / resolution.z;
       const int z = i % resolution.z;
       glm::vec3 sum = glm::vec3(0.0f);

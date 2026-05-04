@@ -14,7 +14,7 @@ using namespace evo_engine;
  *
  * This class provides static methods for generating 3D mesh representations
  * from strand models. The generated meshes can be used for visualization
- * and simulation within the EcoSysLab plugin.
+ * and simulation within the EcoSysLab Plugin.
  */
 class MarchingCubeMeshGenerator {
  public:

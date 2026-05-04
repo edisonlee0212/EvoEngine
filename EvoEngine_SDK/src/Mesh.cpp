@@ -106,7 +106,7 @@ bool Mesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
                   // Render for next frame;
                   visualizationCamera->ResizeResolution(visualizationCameraResolution.x,
   visualizationCameraResolution.y); visualizationCamera->Clear(); auto renderLayer =
-  Application::GetLayer<RenderLayer>(); static GlobalTransform visCameraGT;
+  ApplicationContext::Get().GetLayer<RenderLayer>(); static GlobalTransform visCameraGT;
                   renderLayer->RenderToCamera(visualizationCamera, visCameraGT);
                   ImGui::Image(
                           reinterpret_cast<ImTextureID>(visualizationCamera->GetTexture()->UnsafeGetGLTexture()->Id()),
@@ -449,7 +449,7 @@ void ParticleInfoList::Deserialize(const YAML::Node& in) {
 void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const glm::vec4& color, const float ray_width) const {
   std::vector<ParticleInfo> particle_infos;
   particle_infos.resize(rays.size());
-  Jobs::RunParallelFor(rays.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(rays.size(), [&](size_t i) {
     auto& ray = rays[i];
     const auto rotation = glm::quatLookAt(ray.direction, {ray.direction.y, ray.direction.z, ray.direction.x});
     const auto rotation_mat = glm::mat4_cast(rotation);
@@ -465,7 +465,7 @@ void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const std::vector
                                  const float ray_width) const {
   std::vector<ParticleInfo> particle_infos;
   particle_infos.resize(rays.size());
-  Jobs::RunParallelFor(rays.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(rays.size(), [&](size_t i) {
     auto& ray = rays[i];
     const auto rotation = glm::quatLookAt(ray.direction, {ray.direction.y, ray.direction.z, ray.direction.x});
     const auto rotation_mat = glm::mat4_cast(rotation);
@@ -481,7 +481,7 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
                                         const glm::vec4& color, const float ray_width) const {
   std::vector<ParticleInfo> particle_infos;
   particle_infos.resize(starts.size());
-  Jobs::RunParallelFor(starts.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(starts.size(), [&](size_t i) {
     const auto& start = starts[i];
     const auto& end = ends[i];
     const auto direction = glm::normalize(end - start);
@@ -499,7 +499,7 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
                                         const std::vector<glm::vec4>& colors, const float ray_width) const {
   std::vector<ParticleInfo> particle_infos;
   particle_infos.resize(starts.size());
-  Jobs::RunParallelFor(starts.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(starts.size(), [&](size_t i) {
     const auto& start = starts[i];
     const auto& end = ends[i];
     const auto direction = glm::normalize(end - start);
@@ -518,7 +518,7 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
                                         const std::vector<float>& ray_widths) const {
   std::vector<ParticleInfo> particle_infos;
   particle_infos.resize(starts.size());
-  Jobs::RunParallelFor(starts.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(starts.size(), [&](size_t i) {
     const auto& start = starts[i];
     const auto& end = ends[i];
     const auto& width = ray_widths[i];

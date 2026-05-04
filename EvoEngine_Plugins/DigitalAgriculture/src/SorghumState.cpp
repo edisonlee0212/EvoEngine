@@ -112,7 +112,7 @@ bool SorghumStemState::OnInspectImpl(int mode) {
 
 void SorghumStemState::Apply(SorghumStemDescriptor& target_sorghum_stem_descriptor) const {
   target_sorghum_stem_descriptor.spline.segments.clear();
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   const int stem_node_amount = static_cast<int>(glm::max(4.0f, length / sorghum_layer->vertical_subdivision_length));
   const float stem_unit_length = length / static_cast<float>(stem_node_amount);
   const glm::vec3 stem_left =
@@ -203,7 +203,7 @@ void SorghumLeafState::Apply(const SorghumStemState& stem_state,
   float back_track_ratio = 0.05f;
   if (starting_point < back_track_ratio)
     back_track_ratio = starting_point;
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   glm::vec3 leaf_left = glm::normalize(glm::rotate(glm::vec3(0, 0, -1), glm::radians(roll_angle), glm::vec3(0, 1, 0)));
   auto leaf_up = glm::normalize(glm::cross(stem_state.direction, leaf_left));
   glm::vec3 stem_offset = stem_width * -leaf_up;
@@ -482,7 +482,7 @@ bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   static float target_waviness_factor = 1.0f;
   ImGui::DragFloat("Target leaf waviness", &target_waviness_factor, 0.01f, 0.01f, 3.0f);
   if (ImGui::Button("Create sorghum with changed waviness")) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto sorghum_entity = scene->CreateEntity(GetTitle());
     const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
     const auto new_sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
@@ -492,7 +492,7 @@ bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ChangeWaviness(target_waviness_factor, settings, *new_sorghum_state);
 
     sorghum->sorghum_state = new_sorghum_state;
-    if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+    if (const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>()) {
       sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
     } else {
       sorghum->GenerateGeometryEntities({});
@@ -559,11 +559,11 @@ void SorghumState::Deserialize(const YAML::Node& in) {
 }
 
 Entity SorghumState::CreateEntity(const std::string& name) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto sorghum_entity = scene->CreateEntity(name);
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
   sorghum->sorghum_state = GetSelf();
-  if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+  if (const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>()) {
     sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
   } else {
     sorghum->GenerateGeometryEntities({});

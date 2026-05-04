@@ -9,6 +9,10 @@ project(
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+if (MSVC)
+	add_compile_options(/FS)
+endif()
+
 include(GNUInstallDirs)
 
 set(EVOENGINE_INSTALL_APP_RUNTIME_DIR ${CMAKE_INSTALL_BINDIR} CACHE STRING
@@ -16,6 +20,7 @@ set(EVOENGINE_INSTALL_APP_RUNTIME_DIR ${CMAKE_INSTALL_BINDIR} CACHE STRING
 set(EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR python CACHE STRING
 	"Install directory for EvoEngine Python binding runtimes.")
 option(EVOENGINE_INSTALL_PDBS "Install available MSVC PDB files with EvoEngine runtimes." ON)
+option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build and load EvoEngine runtime packages." ON)
 
 # ------------------------------------------------------------------
 # Build types
@@ -29,7 +34,7 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 			STRING "Choose the type of build." FORCE)
 endif ()
 
-if (CMAKE_BUILD_TYPE MATCHES "^[Rr]elease" OR CMAKE_BUILD_TYPE MATCHES "^[Rr]lWithDebInfo")
+if (CMAKE_BUILD_TYPE MATCHES "^[Rr]elease" OR CMAKE_BUILD_TYPE MATCHES "^[Rr]elWithDebInfo")
 	set(DEBUG_STATUS NDEBUG)
 elseif (CMAKE_BUILD_TYPE MATCHES "[Dd]ebug")
 	set(DEBUG_STATUS _DEBUG)
@@ -50,7 +55,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/")
 set(3RDPARTY_INCLUDES "")
 set(3RDPARTY_LIBS "")
 set(3RDPARTY_DEFS "")
-set(3RDPARTY_DLLS "")
+set(3RDPARTY_RUNTIME_LIBRARIES "")
 set(3RDPARTY_PDBS "")
 set(3RDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Extern/3rdParty)
 add_subdirectory(${3RDPARTY_DIR})
@@ -71,7 +76,7 @@ add_subdirectory(${PLUGINS_DIR})
 set(EVOENGINE_DEFS ${EVOENGINE_SDK_DEFS} ${EVOENGINE_PLUGINS_DEFS})
 set(EVOENGINE_INCLUDES ${EVOENGINE_SDK_INCLUDES} ${EVOENGINE_PLUGINS_INCLUDES})
 set(EVOENGINE_PCHS ${EVOENGINE_SDK_PCH} ${EVOENGINE_PLUGINS_PCHS})
-set(EVOENGINE_DLLS ${EVOENGINE_SDK_DLLS} ${3RDPARTY_DLLS} ${EVOENGINE_PLUGINS_DLLS})
+set(EVOENGINE_RUNTIME_LIBRARIES ${EVOENGINE_SDK_RUNTIME_LIBRARIES} ${3RDPARTY_RUNTIME_LIBRARIES} ${EVOENGINE_PLUGINS_RUNTIME_LIBRARIES})
 set(EVOENGINE_PDBS ${EVOENGINE_SDK_PDBS} ${3RDPARTY_PDBS} ${EVOENGINE_PLUGINS_PDBS})
 
 set(EVOENGINE_RESOURCES ${EVOENGINE_SDK_RESOURCES} ${EVOENGINE_PLUGINS_RESOURCES})
@@ -80,31 +85,23 @@ set(EVOENGINE_RESOURCES ${EVOENGINE_SDK_RESOURCES} ${EVOENGINE_PLUGINS_RESOURCES
 # EvoEngine SDK - Copy resources
 # ------------------------------------------------------------------
 function(evoengine_copy_resources dst_target dst_dir)
-	if (WIN32)
-		foreach (file_i ${EVOENGINE_DLLS})
-			string(REPLACE "/" "\\" file_i ${file_i})
-			add_custom_command(TARGET ${dst_target} POST_BUILD
-				COMMAND cmd /c "if exist \"${file_i}\" copy \"${file_i}\" \"${dst_dir}\\\"")
-		endforeach(file_i)
+	foreach (file_i ${EVOENGINE_RUNTIME_LIBRARIES})
+		add_custom_command(TARGET ${dst_target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND}
+				"-DSOURCE=${file_i}"
+				"-DDESTINATION=${dst_dir}"
+				-P ${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyIfExists.cmake
+			VERBATIM)
+	endforeach(file_i)
 
-		foreach(file_i ${EVOENGINE_PDBS})
-			string(REPLACE "/" "\\" file_i ${file_i})
-			add_custom_command(TARGET ${dst_target} POST_BUILD
-				COMMAND cmd /c "if exist \"${file_i}\" copy \"${file_i}\" \"${dst_dir}\\\"")
-		endforeach(file_i)
-	else()
-		foreach (file_i ${EVOENGINE_DLLS})
-			add_custom_command(TARGET ${dst_target} POST_BUILD
-				COMMAND /bin/sh -c "if [ -e \"${file_i}\" ]; then cp ${file_i} ${dst_dir}/; fi"
-				VERBATIM)
-		endforeach(file_i)
-
-		foreach(file_i ${EVOENGINE_PDBS})
-			add_custom_command(TARGET ${dst_target} POST_BUILD
-				COMMAND /bin/sh -c "if [ -e \"${file_i}\" ]; then cp ${file_i} ${dst_dir}/; fi"
-				VERBATIM)
-		endforeach(file_i)
-	endif()
+	foreach(file_i ${EVOENGINE_PDBS})
+		add_custom_command(TARGET ${dst_target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND}
+				"-DSOURCE=${file_i}"
+				"-DDESTINATION=${dst_dir}"
+				-P ${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyIfExists.cmake
+			VERBATIM)
+	endforeach(file_i)
 	evoengine_sdk_copy_resources(${dst_target} ${dst_dir})
 	foreach(folder_i ${EVOENGINE_RESOURCES})
 		add_custom_command(TARGET ${dst_target} POST_BUILD
@@ -115,8 +112,12 @@ function(evoengine_copy_resources dst_target dst_dir)
 
 endfunction()
 function(evoengine_clear_shader_binaries dst_target)
+	set(dst_dir ${CMAKE_CURRENT_BINARY_DIR})
+	if(ARGC GREATER 1)
+		set(dst_dir ${ARGV1})
+	endif()
 	add_custom_command(TARGET ${dst_target} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_CURRENT_BINARY_DIR}/ShaderBinaries
+		COMMAND ${CMAKE_COMMAND} -E remove_directory ${dst_dir}/ShaderBinaries
 		VERBATIM)
 endfunction()
 
@@ -131,7 +132,7 @@ function(evoengine_install_optional_files dst_dir)
 endfunction()
 
 function(evoengine_install_runtime_files dst_dir)
-	evoengine_install_optional_files("${dst_dir}" ${EVOENGINE_DLLS})
+	evoengine_install_optional_files("${dst_dir}" ${EVOENGINE_RUNTIME_LIBRARIES})
 	if (EVOENGINE_INSTALL_PDBS)
 		evoengine_install_optional_files("${dst_dir}" ${EVOENGINE_PDBS})
 	endif()
@@ -162,6 +163,14 @@ function(evoengine_install_target_pdb target_name dst_dir)
 endfunction()
 
 # ------------------------------------------------------------------
+# EvoEngine - Runtime Packages
+# ------------------------------------------------------------------
+if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+	set(PACKAGES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_Packages)
+	add_subdirectory(${PACKAGES_DIR})
+endif()
+
+# ------------------------------------------------------------------
 # EvoEngine - Apps
 # ------------------------------------------------------------------
 set(EVOENGINE_APP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_App)
@@ -177,7 +186,7 @@ if (NOT ${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	set(EVOENGINE_INCLUDES ${EVOENGINE_INCLUDES} PARENT_SCOPE)
 	set(EVOENGINE_PCHS ${EVOENGINE_PCHS} PARENT_SCOPE)
 	set(EVOENGINE_DEFS ${EVOENGINE_DEFS} PARENT_SCOPE)
-	set(EVOENGINE_DLLS ${EVOENGINE_DLLS} PARENT_SCOPE)
+	set(EVOENGINE_RUNTIME_LIBRARIES ${EVOENGINE_RUNTIME_LIBRARIES} PARENT_SCOPE)
 	set(EVOENGINE_SDK_DIR ${EVOENGINE_SDK_DIR} PARENT_SCOPE)
 
 	set(EVOENGINE_RESOURCES ${EVOENGINE_RESOURCES} PARENT_SCOPE)

@@ -11,7 +11,7 @@ using namespace kinDS;
 #  include <CGAL/Intersection_traits_3.h>
 #  include <CGAL/Side_of_triangle_mesh.h>
 #  include <CGAL/boost/graph/split_graph_into_polylines.h>
-#  include <CGAL/intersections.h>  // triangle–triangle intersection
+#  include <CGAL/intersections.h>  // triangleï¿½triangle intersection
 #  include <CGAL/version.h>
 
 using SideTest = CGAL::Side_of_triangle_mesh<MeshCGAL_internal, Kernel>;

@@ -175,7 +175,7 @@ JobHandle StrandModel::CalculateProfiles(const StrandModelParameters& strand_mod
   if (sorted_internode_list.empty())
     return {};
 
-  Jobs::RunParallelFor(sorted_internode_list.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(sorted_internode_list.size(), [&](size_t i) {
     auto& internode = strand_model_skeleton.RefNode(sorted_internode_list[i]);
     for (auto& particle : internode.data.profile.RefParticles()) {
       if (!internode.IsEndNode())

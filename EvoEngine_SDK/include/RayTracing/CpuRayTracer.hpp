@@ -9,7 +9,7 @@
 namespace evo_engine {
 /**
  * @class CpuRayTracer
- * @brief This class provides the CPU-based ray tracing service for 3D rendering.
+ * @brief This class provides the CPU-based ray tracing plugin for 3D rendering.
  */
 class CpuRayTracer final {
  public:

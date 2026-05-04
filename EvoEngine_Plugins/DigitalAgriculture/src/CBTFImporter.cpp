@@ -46,7 +46,7 @@ bool CBTFImporter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       m_processing = false;
     }
   } else {
-    if (Application::IsPlaying() && !m_importFolders.empty()) {
+    if (ApplicationContext::Get().IsPlaying() && !m_importFolders.empty()) {
       if (ImGui::Button("Process")) {
         m_processing = true;
       }

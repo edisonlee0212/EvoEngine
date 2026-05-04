@@ -591,14 +591,14 @@ class Buffer final : public IGraphicsResource {
    * @param src_image Source image.
    * @param pixel_size Pixel size of the data.
    */
-  void CopyFromImage(Image& src_image, float pixel_size = 16);
+  void CopyFromImage(Image& src_image, VkDeviceSize pixel_size = 16);
 
   /**
    * @brief Copies depth data from an image to the buffer with a specified pixel size.
    * @param src_image Source image.
    * @param pixel_size Pixel size of the depth data.
    */
-  void CopyFromDepth(Image& src_image, float pixel_size = 4);
+  void CopyFromDepth(Image& src_image, VkDeviceSize pixel_size = 4);
 
   /**
    * @brief Retrieves the Vulkan buffer handle.

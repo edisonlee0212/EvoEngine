@@ -1,6 +1,6 @@
 # LogScanning Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 LogScanning provides scanning and reconstruction support for forestry log workflows. It handles JoeScan scanner integration, scan profiles, scan assets, and reconstruction utilities.
 
@@ -38,7 +38,7 @@ LogScanning provides scanning and reconstruction support for forestry log workfl
 
 ## SDK Integration
 
-The plugin uses SDK jobs, assets, private components, JSON assets, prefabs, serialization, asset references, fixed update hooks, and editor inspection.
+The Plugin uses SDK jobs, assets, private components, JSON assets, prefabs, serialization, asset references, fixed update hooks, and editor inspection.
 
 ## Future Work Notes
 

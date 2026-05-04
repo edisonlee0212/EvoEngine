@@ -86,7 +86,7 @@ void BasicPointCloudScanner::Scan() {
   pc_samples.resize(sample_size);
 
   std::vector<std::shared_future<void>> results;
-  Jobs::RunParallelFor(sample_size, [&](const unsigned i) {
+  Jobs::RunParallelFor(sample_size, [&](size_t i) {
     const int column_index = static_cast<int>(i) / row;
     const int row_index = static_cast<int>(i) % row;
     const auto position = center + left * static_cast<float>(column_start + column_index) * distance.x +
@@ -95,7 +95,8 @@ void BasicPointCloudScanner::Scan() {
     pc_samples[i].direction = glm::normalize(actual_vector);
   });
 
-  CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+  CudaModule::SamplePointCloud(ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties,
+                               pc_samples);
   for (const auto &sample : pc_samples) {
     if (sample.hit_count != 0) {
       points.push_back(sample.hit_info.position);

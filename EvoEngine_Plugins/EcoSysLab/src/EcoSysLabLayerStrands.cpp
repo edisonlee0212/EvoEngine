@@ -17,11 +17,6 @@
 
 using namespace eco_sys_lab_plugin;
 
-PrivateComponentRegistration<DsBoxCollider> ds_box_collider_registry("DsBoxCollider");
-PrivateComponentRegistration<DsSphereCollider> ds_sphere_collider_registry("DsSphereCollider");
-PrivateComponentRegistration<DsCylinderCollider> ds_cylinder_collider_registry("DsCylinderCollider");
-PrivateComponentRegistration<DynamicTreeStrands> dynamic_tree_strands_registry("DynamicTreeStrands");
-
 void EcoSysLabLayer::GenerateStrandModelProfiles() const {
   const auto scene = GetScene();
   if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();

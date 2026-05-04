@@ -13,15 +13,16 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 int main() {
-  Application::PushLayer<RenderLayer>("Render Layer");
-  Application::PushLayer<WindowLayer>("Window Layer");
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  Application application;
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
   ApplicationInitializationSettings application_info{};
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
 
-  Application::Start();
-  Application::Run();
-  Application::Terminate();
+  ApplicationContext::Get().Start();
+  ApplicationContext::Get().Run();
+  ApplicationContext::Get().Terminate();
   return 0;
 }

@@ -62,7 +62,7 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   if (scene->IsEntityValid(tree_entity)) {
     scene->DeleteEntity(tree_entity);
   }
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
   eco_sys_lab_layer->ResetAllTrees(tree_entities);
   physics_parameters.enable_structural_damage = true;
@@ -973,7 +973,7 @@ void DynamicStrandsDemo::Update() {
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
   dts->dynamic_strands->UpdateBindings();
   if (demo_status == DemoStatus::TreeGrowth) {
-    const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+    const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
     eco_sys_lab_layer->Simulate(simulation_settings, simulation_stats);
     if (eco_sys_lab_layer->GetSimulatedTime() >= target_growth_time) {
       const auto tree_entity = tree_entity_ref.Get();

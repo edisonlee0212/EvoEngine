@@ -77,6 +77,7 @@ class IHandle {
   friend class File;
   friend class Folder;
   friend class PrivateComponentStorage;
+  friend class PackageRegistrar;
 
   Handle handle_;  ///< The handle associated with this object.
 

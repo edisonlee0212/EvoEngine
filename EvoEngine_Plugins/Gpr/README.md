@@ -1,6 +1,6 @@
 # Gpr Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 Gpr adds GoPro Raw support through the vendored GPR library. It wraps `.gpr`-style media as EvoEngine assets.
 
@@ -37,4 +37,4 @@ Gpr uses the SDK asset lifecycle, internal save/load hooks, asset references, an
 
 ## Future Work Notes
 
-Keep codec/library-specific behavior in this plugin. If other image formats need similar treatment, prefer a separate asset plugin or a shared SDK image abstraction only after duplication appears.
+Keep codec/library-specific behavior in this Plugin. If other image formats need similar treatment, prefer a separate asset Plugin or a shared SDK image abstraction only after duplication appears.

@@ -298,7 +298,7 @@ void VoxelGrid<VoxelData>::Resize(const glm::ivec3& diff_min, const glm::ivec3& 
   const auto original_resolution = resolution_;
   const auto original_min_bound = min_bound_;
   Initialize(voxel_size_, resolution_ + diff_min + diff_max, min_bound_ - glm::vec3(diff_min) * voxel_size_, {});
-  Jobs::RunParallelFor(original_voxel_data.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(original_voxel_data.size(), [&](size_t i) {
     const auto original_coordinate = glm::ivec3(
         i % original_resolution.x, i % (original_resolution.x * original_resolution.y) / original_resolution.x,
         i / (original_resolution.x * original_resolution.y));

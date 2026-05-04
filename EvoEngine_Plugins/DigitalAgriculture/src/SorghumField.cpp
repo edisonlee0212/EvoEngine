@@ -124,7 +124,7 @@ Entity SorghumField::InstantiateField(uint32_t base_seed) const {
     return {};
   }
 
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   const auto scene = sorghum_layer->GetScene();
   if (sorghum_layer) {
     std::shared_ptr<Soil> soil;

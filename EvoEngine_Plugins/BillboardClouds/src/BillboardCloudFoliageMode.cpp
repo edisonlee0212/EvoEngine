@@ -19,7 +19,7 @@ std::vector<BillboardCloud::Cluster> BillboardCloud::StochasticClusterize(
     float max_area = 0.f;
     std::vector<int> selected_triangle_indices;
     std::mutex vote_mutex;
-    Jobs::RunParallelFor(settings.iteration, [&](unsigned iteration) {
+    Jobs::RunParallelFor(settings.iteration, [&](size_t iteration) {
       int seed_triangle_index = glm::linearRand(0, static_cast<int>(remaining_triangles.size()) - 1);
       ClusterTriangle seed_triangle = remaining_triangles.at(seed_triangle_index);
       const auto perturb0 = glm::linearRand(-epsilon, epsilon);

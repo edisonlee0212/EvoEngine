@@ -258,6 +258,7 @@ class EditorLayer : public ILayer {
   bool show_scene_info = true;              /**< Indicates whether the scene info window is visible. */
   bool show_entity_explorer_window = true;  /**< Indicates whether the entity explorer window is visible. */
   bool show_entity_inspector_window = true; /**< Indicates whether the entity inspector window is visible. */
+  bool show_package_manager_window = true;  /**< Indicates whether the runtime package manager window is visible. */
   bool main_camera_focus_override = false;  /**< Indicates if the main camera focus has been overridden. */
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
@@ -969,7 +970,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
   bool status_changed = false;
   ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.3f, 0, 1));
   if (const auto ptr = target.Get<IPrivateComponent>()) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     if (!scene->IsEntityValid(ptr->GetOwner())) {
       target.Clear();
       ImGui::Button("none");
@@ -996,7 +997,7 @@ void EditorLayer::DraggablePrivateComponent(const std::shared_ptr<T>& target) {
   if (const auto ptr = std::dynamic_pointer_cast<IPrivateComponent>(target)) {
     const auto type = ptr->GetTypeName();
     auto entity = ptr->GetOwner();
-    if (const auto scene = Application::GetActiveScene(); scene->IsEntityValid(entity)) {
+    if (const auto scene = ApplicationContext::Get().GetActiveScene(); scene->IsEntityValid(entity)) {
       if (ImGui::BeginDragDropSource()) {
         auto handle = scene->GetEntityHandle(entity);
         ImGui::SetDragDropPayload("PrivateComponent", &handle, sizeof(Handle));

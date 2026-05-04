@@ -223,9 +223,9 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
     const auto default_cubemap = Resources::default_skybox;
     camera_info_block.skybox_texture_index = default_cubemap->GetTextureStorageIndex();
   }
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto camera_position = global_transform.GetPosition();
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     auto light_probe = scene->environment.GetLightProbe(camera_position);
     auto reflection_probe = scene->environment.GetReflectionProbe(camera_position);
     if (!light_probe) {
@@ -591,10 +591,10 @@ bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (is_main_camera) {
         scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(GetOwner()).lock();
       } else {
-        Application::GetActiveScene()->main_camera.Clear();
+        ApplicationContext::Get().GetActiveScene()->main_camera.Clear();
       }
     }
-    if (!is_main_camera || !Application::GetLayer<EditorLayer>()->main_camera_allow_auto_resize) {
+    if (!is_main_camera || !ApplicationContext::Get().GetLayer<EditorLayer>()->main_camera_allow_auto_resize) {
       glm::ivec2 resolution = {size_.x, size_.y};
       if (ImGui::DragInt2("Resolution", &resolution.x, 1, 1, 4096)) {
         Resize({resolution.x, resolution.y});

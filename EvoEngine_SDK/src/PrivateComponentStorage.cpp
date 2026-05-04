@@ -86,3 +86,19 @@ void PrivateComponentStorage::SetPrivateComponent(const Entity &entity, size_t i
     p_owners_collections_list_.emplace_back(id, std::move(collection));
   }
 }
+
+bool PrivateComponentStorage::HasPrivateComponentOwners(const size_t &type_id) const {
+  if (const auto search = p_owners_collections_map_.find(type_id); search != p_owners_collections_map_.end()) {
+    return !p_owners_collections_list_[search->second].second.owners_list.empty();
+  }
+  return false;
+}
+
+size_t PrivateComponentStorage::ClearPrivateComponentPool(const size_t &type_id) {
+  if (const auto search = private_component_pool_.find(type_id); search != private_component_pool_.end()) {
+    const auto released_count = search->second.size();
+    private_component_pool_.erase(search);
+    return released_count;
+  }
+  return 0;
+}

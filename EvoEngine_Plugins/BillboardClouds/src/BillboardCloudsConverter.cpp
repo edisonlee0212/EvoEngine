@@ -86,7 +86,7 @@ bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& edi
         [&](const std::filesystem::path& path) {
           const auto point_cloud = AssetManager::CreateTemporaryAsset<PointCloud>();
           point_cloud->positions.resize(points.size());
-          Jobs::RunParallelFor(points.size(), [&](const unsigned point_index) {
+          Jobs::RunParallelFor(points.size(), [&](size_t point_index) {
             point_cloud->positions[point_index] = glm::dvec3(points[point_index]);
           });
           PointCloud::PointCloudSaveSettings save_settings{};

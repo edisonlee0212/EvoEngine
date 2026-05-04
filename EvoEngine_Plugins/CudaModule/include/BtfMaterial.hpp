@@ -8,7 +8,6 @@
 #include "BtfBase.cuh"
 namespace evo_engine {
 class BtfMaterial : public IAsset {
-  
   void UploadDeviceData();
 
  public:

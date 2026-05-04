@@ -241,6 +241,7 @@ class StarClusterPattern {
 
 class UniverseLayer : public ILayer {
  public:
+  void RegisterTypes(Application &application) override;
   void OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
 
  private:

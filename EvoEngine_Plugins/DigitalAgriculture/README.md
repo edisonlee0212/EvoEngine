@@ -1,6 +1,6 @@
 # DigitalAgriculture Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 DigitalAgriculture provides EvoEngine's sorghum and agriculture modeling workflows. It builds on the SDK and cooperates with EcoSysLab for environment-aware workflows such as soil integration.
 
@@ -25,7 +25,7 @@ DigitalAgriculture provides EvoEngine's sorghum and agriculture modeling workflo
 
 | Source | Role |
 | --- | --- |
-| `SorghumLayer` | Main plugin layer, material setup, mesh generation, export, and illumination UI. |
+| `SorghumLayer` | Main Plugin layer, material setup, mesh generation, export, and illumination UI. |
 | `Sorghum` | Private component representing an instance of a sorghum plant in a scene. |
 | `SorghumDescriptor` | Asset describing plant structure and mesh generation settings. |
 | `SorghumGrowthStages` | Asset for staged growth data. |
@@ -59,4 +59,4 @@ DigitalAgriculture primarily uses private components, assets, editor inspection,
 
 ## Future Work Notes
 
-Sorghum-specific modeling, data generation inputs, field layouts, and agricultural descriptors belong here. General mesh, asset, rendering, or editor improvements should stay in the SDK if they are reusable by other plugins.
+Sorghum-specific modeling, data generation inputs, field layouts, and agricultural descriptors belong here. General mesh, asset, rendering, or editor improvements should stay in the SDK if they are reusable by other Plugins.

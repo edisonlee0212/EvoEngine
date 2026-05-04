@@ -47,7 +47,7 @@ std::shared_ptr<Cubemap> ReflectionProbe::GetCubemap() const {
   return cubemap_;
 }
 void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return;
 
@@ -140,7 +140,8 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
     for (uint32_t mip = 0; mip < max_mip_levels; ++mip) {
-      unsigned int mip_width = cubemap_->RefStorage().image->GetExtent().width * std::pow(0.5, mip);
+      const auto mip_width = static_cast<uint32_t>(static_cast<float>(cubemap_->RefStorage().image->GetExtent().width) *
+                                                   std::pow(0.5f, static_cast<float>(mip)));
       float roughness = static_cast<float>(mip) / static_cast<float>(max_mip_levels - 1);
 #pragma region Viewport and scissor
       VkRect2D render_area;
@@ -150,8 +151,8 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
       VkViewport viewport;
       viewport.x = 0.0f;
       viewport.y = 0.0f;
-      viewport.width = mip_width;
-      viewport.height = mip_width;
+      viewport.width = static_cast<float>(mip_width);
+      viewport.height = static_cast<float>(mip_width);
       viewport.minDepth = 0.0f;
       viewport.maxDepth = 1.0f;
 

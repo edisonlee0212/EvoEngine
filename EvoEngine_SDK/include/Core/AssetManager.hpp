@@ -3,7 +3,6 @@
 #include <stack>
 
 #include "IHandle.hpp"
-#include "ISingleton.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
@@ -13,7 +12,10 @@ namespace evo_engine {
  * @brief Manages the loading, retrieval, and creation of assets in the engine.
  */
 class AssetManager {
-  EVOENGINE_SINGLETON_INSTANCE(AssetManager)
+ public:
+  static AssetManager& GetInstance();
+
+ private:
  public:
   /**
    * @brief Retrieves an asset of type T corresponding to the given handle.

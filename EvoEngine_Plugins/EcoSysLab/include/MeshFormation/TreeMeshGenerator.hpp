@@ -229,7 +229,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
   std::vector<std::vector<std::pair<SkeletonNodeHandle, int>>> temp_steps{};
   temp_steps.resize(Jobs::GetWorkerSize());
 
-  Jobs::RunParallelFor(sorted_internode_list.size(), [&](unsigned internode_index, unsigned thread_index) {
+  Jobs::RunParallelFor(sorted_internode_list.size(), [&](size_t internode_index, size_t thread_index) {
     auto internode_handle = sorted_internode_list[internode_index];
     const auto& internode = skeleton.PeekNode(internode_handle);
     const auto& internode_info = internode.info;
@@ -727,7 +727,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
   std::vector<std::vector<std::pair<SkeletonNodeHandle, int>>> temp_steps{};
   temp_steps.resize(Jobs::GetWorkerSize());
 
-  Jobs::RunParallelFor(sorted_internode_list.size(), [&](unsigned internode_index, unsigned thread_index) {
+  Jobs::RunParallelFor(sorted_internode_list.size(), [&](size_t internode_index, size_t thread_index) {
     auto internode_handle = sorted_internode_list[internode_index];
     const auto& internode = skeleton.PeekNode(internode_handle);
     const auto& internode_info = internode.info;

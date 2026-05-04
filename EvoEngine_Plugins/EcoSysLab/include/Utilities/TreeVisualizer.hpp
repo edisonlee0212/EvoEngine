@@ -141,7 +141,7 @@ template <typename SkeletonData, typename FlowData, typename NodeData>
 bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_component, const glm::vec2& mouse_position,
                                       const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                                       const GlobalTransform& global_transform) {
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   bool changed = false;
 #pragma region Ray selection
   SkeletonNodeHandle current_focusing_node_handle = -1;
@@ -152,7 +152,7 @@ bool TreeVisualizer::RayCastSelection(const std::shared_ptr<Camera>& camera_comp
       glm::translate(editor_layer->GetSceneCameraPosition()) * glm::mat4_cast(editor_layer->GetSceneCameraRotation());
   const Ray camera_ray = camera_component->ScreenPointToRay(camera_ltw, mouse_position);
   const auto& sorted_node_list = skeleton.PeekSortedNodeList();
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
     const auto node_handle = sorted_node_list[i];
     SkeletonNodeHandle walker = node_handle;
     bool sub_tree = false;
