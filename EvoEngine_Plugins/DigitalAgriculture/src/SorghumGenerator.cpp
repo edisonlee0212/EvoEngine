@@ -262,7 +262,7 @@ std::shared_ptr<Texture2D> SorghumGenerator::GenerateThumbnailTexture() {
 }
 
 Entity SorghumGenerator::CreateEntity(const unsigned int seed) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(entity).lock();
   const auto sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();

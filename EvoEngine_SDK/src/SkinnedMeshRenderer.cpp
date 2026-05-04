@@ -98,7 +98,7 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
         particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
       if (!rag_doll_) {
         debug_rendering_matrices.resize(amt->transform_chain_.size());
-        Jobs::RunParallelFor(amt->transform_chain_.size(), [&](unsigned i) {
+        Jobs::RunParallelFor(amt->transform_chain_.size(), [&](size_t i) {
           debug_rendering_matrices.at(i).instance_matrix.value = amt->transform_chain_.at(i);
           debug_rendering_matrices.at(i).instance_color = debug_render_bones_color;
         });
@@ -106,7 +106,7 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
         ltw = scene->GetDataComponent<GlobalTransform>(owner);
       } else {
         debug_rendering_matrices.resize(rag_doll_transform_chain_.size());
-        Jobs::RunParallelFor(rag_doll_transform_chain_.size(), [&](unsigned i) {
+        Jobs::RunParallelFor(rag_doll_transform_chain_.size(), [&](size_t i) {
           debug_rendering_matrices.at(i).instance_matrix.value = rag_doll_transform_chain_.at(i);
           debug_rendering_matrices.at(i).instance_color = debug_render_bones_color;
         });

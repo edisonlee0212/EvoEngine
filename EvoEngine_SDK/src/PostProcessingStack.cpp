@@ -32,29 +32,30 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       !mix_pipeline || !mix_pipeline->Initialized())
     return;
 
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto mip_levels = post_processing_stack.result_texture->GetMipLevels();
   const auto base_extent = post_processing_stack.result_texture->GetColorImage()->GetExtent();
   const auto mesh = Resources::texture_pass_through_quad;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
+    const auto target_size = target_camera->GetSize();
     VkRect2D render_area;
     render_area.offset = {0, 0};
-    render_area.extent.width = target_camera->GetSize().x;
-    render_area.extent.height = target_camera->GetSize().y;
+    render_area.extent.width = target_size.x;
+    render_area.extent.height = target_size.y;
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = target_camera->GetSize().x;
-    viewport.height = target_camera->GetSize().y;
+    viewport.width = static_cast<float>(target_size.x);
+    viewport.height = static_cast<float>(target_size.y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor;
     scissor.offset = {0, 0};
-    scissor.extent.width = target_camera->GetSize().x;
-    scissor.extent.height = target_camera->GetSize().y;
+    scissor.extent.width = target_size.x;
+    scissor.extent.height = target_size.y;
 #pragma endregion
     GeometryStorage::BindVertices(vk_command_buffer);
 
@@ -118,6 +119,8 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, target_mip_level);
       if (mip_width < 1.f || mip_height < 1.f)
         continue;
+      const auto mip_extent_width = static_cast<uint32_t>(mip_width);
+      const auto mip_extent_height = static_cast<uint32_t>(mip_height);
 #pragma region Viewport and scissor
       VkViewport viewport;
       viewport.x = 0.0f;
@@ -129,8 +132,8 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
 
       VkRect2D scissor;
       scissor.offset = {0, 0};
-      scissor.extent.width = mip_width;
-      scissor.extent.height = mip_height;
+      scissor.extent.width = mip_extent_width;
+      scissor.extent.height = mip_extent_height;
       downsampling_pipeline->states.view_port = viewport;
       downsampling_pipeline->states.scissor = scissor;
 #pragma endregion
@@ -185,6 +188,8 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
 
       const float mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, src_mip_level - 1);
       const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, src_mip_level - 1);
+      const auto mip_extent_width = static_cast<uint32_t>(mip_width);
+      const auto mip_extent_height = static_cast<uint32_t>(mip_height);
 
 #pragma region Viewport and scissor
       VkViewport viewport;
@@ -197,8 +202,8 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
 
       VkRect2D scissor;
       scissor.offset = {0, 0};
-      scissor.extent.width = mip_width;
-      scissor.extent.height = mip_height;
+      scissor.extent.width = mip_extent_width;
+      scissor.extent.height = mip_extent_height;
       upsampling_pipeline->states.view_port = viewport;
       upsampling_pipeline->states.scissor = scissor;
 #pragma endregion
@@ -242,22 +247,23 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
+    const auto target_size = target_camera->GetSize();
     VkRect2D render_area;
     render_area.offset = {0, 0};
-    render_area.extent.width = target_camera->GetSize().x;
-    render_area.extent.height = target_camera->GetSize().y;
+    render_area.extent.width = target_size.x;
+    render_area.extent.height = target_size.y;
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = target_camera->GetSize().x;
-    viewport.height = target_camera->GetSize().y;
+    viewport.width = static_cast<float>(target_size.x);
+    viewport.height = static_cast<float>(target_size.y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor;
     scissor.offset = {0, 0};
-    scissor.extent.width = target_camera->GetSize().x;
-    scissor.extent.height = target_camera->GetSize().y;
+    scissor.extent.width = target_size.x;
+    scissor.extent.height = target_size.y;
 #pragma endregion
     GeometryStorage::BindVertices(vk_command_buffer);
 
@@ -519,7 +525,7 @@ bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 }
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   Resize(target_camera->GetSize());
   {
     VkDescriptorImageInfo image_info;
@@ -589,8 +595,8 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = size.x;
-    viewport.height = size.y;
+    viewport.width = static_cast<float>(size.x);
+    viewport.height = static_cast<float>(size.y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 

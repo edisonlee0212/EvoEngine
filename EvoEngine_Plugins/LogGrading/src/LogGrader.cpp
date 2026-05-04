@@ -362,7 +362,7 @@ void LogGrader::GenerateCylinderMesh(const std::shared_ptr<Mesh>& mesh,
   vertices.resize((y_step_size + 1) * 360);
   indices.resize(y_step_size * 360 * 6);
 
-  Jobs::RunParallelFor(y_step_size + 1, [&](const unsigned y_index) {
+  Jobs::RunParallelFor(y_step_size + 1, [&](size_t y_index) {
     Vertex archetype{};
     const float y = y_step * static_cast<float>(y_index);
     for (int x_index = 0; x_index < 360; x_index++) {
@@ -375,7 +375,7 @@ void LogGrader::GenerateCylinderMesh(const std::shared_ptr<Mesh>& mesh,
       vertices[y_index * 360 + x_index] = archetype;
     }
   });
-  Jobs::RunParallelFor(y_step_size, [&](const unsigned y_index) {
+  Jobs::RunParallelFor(y_step_size, [&](size_t y_index) {
     const auto vertex_start_index = y_index * 360;
     for (int x_index = 0; x_index < 360; x_index++) {
       auto a = vertex_start_index + x_index;
@@ -421,7 +421,7 @@ void LogGrader::GenerateFlatMesh(const std::shared_ptr<Mesh>& mesh,
   vertices.resize((y_step_size + 1) * (span + 1));
   indices.resize(y_step_size * span * 6);
 
-  Jobs::RunParallelFor(y_step_size + 1, [&](const unsigned y_index) {
+  Jobs::RunParallelFor(y_step_size + 1, [&](size_t y_index) {
     Vertex archetype{};
     const float y = y_step * static_cast<float>(y_index);
     const float intersection_avg_distance = m_log_wood.GetAverageDistance(y);
@@ -436,7 +436,7 @@ void LogGrader::GenerateFlatMesh(const std::shared_ptr<Mesh>& mesh,
       vertices[y_index * (span + 1) + x_index] = archetype;
     }
   });
-  Jobs::RunParallelFor(y_step_size, [&](const unsigned y_index) {
+  Jobs::RunParallelFor(y_step_size, [&](size_t y_index) {
     const auto vertex_start_index = y_index * (span + 1);
     for (int x_index = 0; x_index < span; x_index++) {
       auto a = vertex_start_index + x_index;
@@ -479,7 +479,7 @@ void LogGrader::GenerateSurface(const std::shared_ptr<ParticleInfoList>& surface
 
   particle_infos.resize(y_step_size * (span + 1));
 
-  Jobs::RunParallelFor(y_step_size + 1, [&](const unsigned y_index) {
+  Jobs::RunParallelFor(y_step_size + 1, [&](size_t y_index) {
     const float y = y_step * static_cast<float>(y_index);
     const float intersection_avg_distance = m_log_wood.GetAverageDistance(y);
     for (int x_index = 0; x_index <= span; x_index++) {

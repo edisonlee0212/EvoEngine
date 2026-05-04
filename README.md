@@ -5,15 +5,15 @@
 ![Linux Release](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-RelWithDebInfo.yml/badge.svg)
 ![Linux Debug](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-Debug.yml/badge.svg)
 
-EvoEngine is a C++17 research framework for interactive simulation, digital forestry, digital agriculture, synthetic dataset generation, and Vulkan rendering. The repository is built around a general-purpose SDK and a set of domain plugins. The SDK provides the application runtime, editor, ECS, renderer, asset system, serialization, and automation hooks; plugins add research workflows on top.
+EvoEngine is a C++17 research framework for interactive simulation, digital forestry, digital agriculture, synthetic dataset generation, and Vulkan rendering. The repository is built around a general-purpose SDK, compile-time domain Plugins, and a new runtime package layer. The SDK provides the application runtime, editor, ECS, renderer, asset system, serialization, and automation hooks; Plugins add research workflows at build time; runtime packages are shared-library modules that can be loaded while the app is running.
 
-Windows is the primary development platform. Linux builds are supported for the core stack, while several plugins are Windows-only or require optional SDKs.
+Windows is the primary development platform. Linux builds are supported for the core stack, while several Plugins are Windows-only or require optional SDKs.
 
 ![EvoEngine rendering demo](Resources/GitHub/RenderingDemo.png)
 
 ## 1. EvoEngine SDK
 
-The SDK is the foundation of the framework. It lives in `EvoEngine_SDK` and is responsible for the reusable engine/runtime systems that plugins and applications build on.
+The SDK is the foundation of the framework. It lives in `EvoEngine_SDK` and is responsible for the reusable engine/runtime systems that Plugins and applications build on.
 
 ### SDK Responsibilities
 
@@ -30,15 +30,17 @@ The SDK provides:
 - global geometry and texture storage
 - material, mesh, camera, light, render texture, and post-processing assets/components
 - job scheduling, input events, and frame/fixed-step timing
-- resource copying and shader include registration support for plugins
+- resource copying and shader include registration support for Plugins
+- runtime package loading, guarded unloading/reloading, and package-owned private component registration
 
 ### Repository Layout
 
 | Path | Purpose |
 | --- | --- |
 | `EvoEngine_SDK` | Core runtime, ECS, editor, renderer, assets, serialization, jobs, input, and utilities. |
-| `EvoEngine_Plugins` | Domain modules that extend the SDK. |
-| `EvoEngine_App` | Executable apps that choose which SDK layers and plugins to run. |
+| `EvoEngine_Plugins` | Build-time domain modules that extend the SDK and are linked into apps/Python bindings. |
+| `EvoEngine_Packages` | Runtime package shared-library modules loaded from `Packages` folders. |
+| `EvoEngine_App` | Executable apps that choose which SDK layers and Plugins to run. |
 | `PythonBinding` | pybind11 modules for scripted workflows. |
 | `Resources` | Demo projects, screenshots, textures, scripts, and build helpers. |
 | `Extern` | Vendored third-party libraries and submodules. |
@@ -51,7 +53,7 @@ An EvoEngine app is assembled by pushing layers before initialization. A typical
 - `RenderLayer` for Vulkan rendering, render instance preparation, and external render callbacks.
 - `WindowLayer` for GLFW windows, input callbacks, resize handling, and presentation.
 - `EditorLayer` for ImGui tools, scene views, entity hierarchy, inspectors, asset browser, and console.
-- plugin layers such as `EcoSysLabLayer`, `SorghumLayer`, or `UniverseLayer`.
+- Plugin layers such as `EcoSysLabLayer`, `SorghumLayer`, or `UniverseLayer`.
 
 The main loop runs in phases: input/platform update, project update, transform graph calculation, fixed update, scene update, render preparation, late update, render execution, and window presentation. Editor play mode clones the start scene for runtime simulation, then restores the project scene when playback stops.
 
@@ -95,10 +97,10 @@ The SDK job system supports scheduled and immediate parallel work. ECS iteration
 
 | Target | Purpose |
 | --- | --- |
-| `DemoApp` | General renderer/framework demo with multiple plugin registrations. |
+| `DemoApp` | General renderer/framework demo with multiple Plugin registrations. |
 | `EcoSysLabApp` | Interactive digital forestry and ecosystem workflow. |
 | `DigitalAgricultureApp` | Interactive sorghum and agriculture workflow. |
-| `LogGradingApp` | Log grading workflow, available when Windows-only plugins are enabled. |
+| `LogGradingApp` | Log grading workflow, available when Windows-only Plugins are enabled. |
 | `TreeDataGeneratorApp` | Batch-oriented tree dataset generation. |
 | `SorghumDataGeneratorApp` | Batch-oriented sorghum dataset generation. |
 | `EmptyApp` | Minimal SDK app with render/window/editor layers for quick experiments. |
@@ -110,7 +112,18 @@ The SDK job system supports scheduled and immediate parallel work. ECS iteration
 - `PyEcoSysLab`
 - `PyDigitalAgriculture`
 
-These modules expose selected SDK/plugin workflows for scripted tree and sorghum generation. Example scripts live in `PythonBinding`.
+These modules expose selected SDK/Plugin workflows for scripted tree and sorghum generation. Example scripts live in `PythonBinding`.
+
+### Plugins and Runtime Packages
+
+EvoEngine now separates two extension models:
+
+| Extension type | Folder | Build/runtime model | Use for |
+| --- | --- | --- | --- |
+| Plugin | `EvoEngine_Plugins/<Name>` | Static library selected by CMake options such as `EVOENGINE_ENABLE_EcoSysLab_PLUGIN` | Large domain modules that apps and Python bindings link against at build time. |
+| Runtime package | `EvoEngine_Packages/<Name>` | DLL/shared library selected by CMake options such as `EVOENGINE_ENABLE_<Name>_PACKAGE` and loaded from a `Packages` runtime folder | Smaller hot-loadable features that can register types while the app is running. |
+
+When `EVOENGINE_ENABLE_RUNTIME_PACKAGES` is `ON`, the SDK builds as a shared library so apps, Plugins, Python bindings, and runtime packages share one registry/singleton state. Runtime packages export `EvoEnginePackageGetDescriptor`, `EvoEnginePackageLoad`, and `EvoEnginePackageUnload`. Packages may also export `EvoEnginePackageRegisterTypes` so RTTI/reflection types are registered before the normal load callback runs. A package can register a private component with `PackageRegistrar::RegisterPrivateComponent<T>("TypeName")`.
 
 ### Build Requirements
 
@@ -168,74 +181,75 @@ Debug
 Release
 ```
 
-Build outputs are generated under `out/build/<platform>-<config>/`. App binaries are produced under the `EvoEngine_App` build directory and Python modules are produced under the `PythonBinding` build directory. Post-build steps still copy engine resources, plugin resources, DLLs, PDBs, and `imgui.ini` beside those build-tree binaries for fast local development.
+Build outputs are generated under `out/build/<platform>-<config>/`. App binaries are produced under the `EvoEngine_App` build directory and Python modules are produced under the `PythonBinding` build directory. Runtime packages are copied under the app runtime `Packages` folder. Post-build steps still copy engine resources, Plugin resources, runtime libraries (`.dll` on Windows, `.so` on Linux), PDBs when available, runtime packages, and `imgui.ini` beside build-tree binaries for fast local development.
 
 CMake install provides a cleaner runtime deployment tree:
 
 ```text
-out/install/x64-Release/bin/
-out/install/x64-Release/python/
+out/install/vs2026-x64/bin/
+out/install/vs2026-x64/bin/Packages/
+out/install/vs2026-x64/python/
 ```
 
-The `bin` folder contains installed app executables plus their runtime DLLs/PDBs/resources. The `python` folder contains installed `.pyd` modules, Python scripts, and the same runtime DLL/resource payload needed for imports and scripted workflows.
+The `bin` folder contains installed app executables plus their runtime libraries, PDBs when available, and resources. Runtime package libraries install under `bin/Packages`. The `python` folder contains installed Python extension modules, Python scripts, and the same runtime library/resource payload needed for imports and scripted workflows.
 
 ### VSCode Build
 
-VSCode should use `CMakePresets.json` through the CMake Tools extension. Select one of the configure presets:
+VSCode on Windows should use `CMakePresets.json` through the CMake Tools extension. The preset file intentionally keeps only the two install build presets used for normal Visual Studio development:
 
-- `vs2026-x64-Release` for the Visual Studio generator. This is the easiest option from a normal VSCode window because CMake can discover MSVC and the Windows SDK.
-- `x64-Release` for the Ninja generator. Use this only when VSCode has selected a Visual Studio kit or the terminal already has the MSVC developer environment loaded.
+- `install-vs2026-x64-Debug`
+- `install-vs2026-x64-RelWithDebInfo`
 
-Then select a build preset such as:
+Select the `vs2026-x64` configure preset, then choose one of those install build presets. They build the selected configuration and deploy the runtime payload to `out/install/vs2026-x64`.
 
-- `vs2026-x64-Release` to build all Visual Studio generator targets
-- `EmptyApp-vs2026-x64-Release` to build only the minimal app with the Visual Studio generator
-- `x64-Release` to build all targets
-- `DemoApp-Release`
-- `EcoSysLabApp-Release`
-- `DigitalAgricultureApp-Release`
-- `EmptyApp-Release`
-
-The presets use the Ninja generator and write app executables to:
+The Visual Studio generator writes app executables to:
 
 ```text
-out/build/x64-Debug/EvoEngine_App/
-out/build/x64-Release/EvoEngine_App/
+out/build/vs2026-x64/EvoEngine_App/<Config>/
 ```
 
-To deploy a runnable install tree from VSCode/CMake Tools, select `install-x64-Release` after building, or run:
+Runtime package libraries are copied to the matching app `Packages` directory, for example:
 
-```bat
-cmake --preset x64-Release
-cmake --build --preset x64-Release
-cmake --build --preset install-x64-Release
+```text
+out/build/vs2026-x64/EvoEngine_App/RelWithDebInfo/Packages/
 ```
 
-The equivalent direct CMake install command is `cmake --install out/build/x64-Release`.
-
-For the Visual Studio generator preset, use:
+From a terminal, use:
 
 ```bat
-cmake --preset vs2026-x64-Release
-cmake --build --preset vs2026-x64-Release
-cmake --build --preset install-vs2026-x64-Release
+cmake --preset vs2026-x64
+cmake --build --preset install-vs2026-x64-RelWithDebInfo
 ```
 
 After install, app executables are under:
 
 ```text
-out/install/x64-Release/bin/
 out/install/vs2026-x64/bin/
+```
+
+Runtime package libraries are under:
+
+```text
+out/install/vs2026-x64/bin/Packages/
 ```
 
 Python bindings and scripts are under:
 
 ```text
-out/install/x64-Release/python/
 out/install/vs2026-x64/python/
 ```
 
 If CMake is configured with a Visual Studio generator instead, it will create `.sln` and `.vcxproj` files. Those files are project files, not final executables. To produce `.exe` files from that generator, the generated solution still needs to be built with Visual Studio, MSBuild, or `cmake --build <build-dir> --config Debug`.
+
+On Linux, configure directly with CMake and install to a separate tree:
+
+```bash
+cmake -S . -B out/build/linux-RelWithDebInfo -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=out/install/linux-RelWithDebInfo
+cmake --build out/build/linux-RelWithDebInfo
+cmake --install out/build/linux-RelWithDebInfo
+```
+
+Linux runtime libraries are deployed as `.so` files beside the installed apps and Python modules.
 
 ### SDK Extension Guide
 
@@ -246,8 +260,30 @@ When adding new work:
 - Add a system when behavior should run over a scene independently of one component instance.
 - Add an asset when data should be reusable, referenceable, and stored in projects.
 - Add a layer when behavior is global to the application or needs top-level UI/render/input hooks.
-- Add a plugin when the feature is domain-specific and should remain outside the SDK.
+- Add a Plugin when the feature is domain-specific and should remain outside the SDK.
+- Add a runtime package when the feature should be loaded, unloaded, or rebuilt independently from a running app.
 - Add a Python binding when a workflow should run from scripts.
+
+### Runtime Package Development
+
+Runtime packages live under `EvoEngine_Packages`. `register_evoengine_runtime_package(<Name> ON)` creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option and builds a shared library target, conventionally named `<Name>Package`.
+
+A package must export the descriptor/load/unload entrypoints. Packages that own RTTI/reflection types should also export `EvoEnginePackageRegisterTypes`:
+
+```cpp
+EvoEnginePackageGetDescriptor
+EvoEnginePackageRegisterTypes
+EvoEnginePackageLoad
+EvoEnginePackageUnload
+```
+
+Use `EvoEnginePackageRegisterTypes` and the provided `PackageRegistrar` to register package-owned RTTI/reflection types. For private components:
+
+```cpp
+registrar.RegisterPrivateComponent<MyComponent>("MyComponent");
+```
+
+Package unloading is guarded. Reload/unload is refused while the app is playing or stepping, and it is also refused while package-owned private component instances still exist. On Windows, packages are loaded from a shadow copy so the original DLL can usually be rebuilt while the app process remains open.
 
 ### License
 
@@ -272,19 +308,22 @@ Plugin documentation is split into separate Markdown files so each module can gr
 | CudaModule | Present but not registered by default | [EvoEngine_Plugins/CudaModule/README.md](EvoEngine_Plugins/CudaModule/README.md) |
 | PhysXPhysics | Present but disabled in its CMake file | [EvoEngine_Plugins/PhysXPhysics/README.md](EvoEngine_Plugins/PhysXPhysics/README.md) |
 
-The plugin index is also available at [EvoEngine_Plugins/README.md](EvoEngine_Plugins/README.md).
+The Plugin index is also available at [EvoEngine_Plugins/README.md](EvoEngine_Plugins/README.md).
+Runtime package documentation is available at [EvoEngine_Packages/README.md](EvoEngine_Packages/README.md).
 
 ### Plugin Build Model
 
-Plugins are registered from `EvoEngine_Plugins/CMakeLists.txt`. The registration macro creates an `EVOENGINE_ENABLE_<PluginName>_PLUGIN` option, adds the plugin subdirectory, and appends the plugin target, include paths, compile definitions, precompiled headers, copied resources, and DLLs to the shared EvoEngine build variables.
+Plugins are registered from `EvoEngine_Plugins/CMakeLists.txt`. The registration macro creates an `EVOENGINE_ENABLE_<PluginName>_PLUGIN` option, adds the Plugin subdirectory, and appends the Plugin target, include paths, compile definitions, precompiled headers, copied resources, and runtime libraries to the shared EvoEngine build variables.
 
 The common pattern is:
 
-- plugin source lives under `EvoEngine_Plugins/<PluginName>/include` and `src`
-- plugin target is a static library named `<PluginName>Plugin`
-- plugin compile definition is usually `<PLUGIN_NAME>_PLUGIN`
-- plugin resources may be copied from an `Internals` folder
-- app targets link against the enabled plugin list
+- Plugin source lives under `EvoEngine_Plugins/<PluginName>/include` and `src`
+- Plugin target is a static library named `<PluginName>Plugin`
+- Plugin compile definitions are uppercase module names such as `ECOSYSLAB_PLUGIN` or `DIGITAL_AGRICULTURE_PLUGIN`
+- Plugin resources may be copied from an `Internals` folder
+- app targets link against the enabled Plugin list
+
+For example, configure with `-DEVOENGINE_ENABLE_EcoSysLab_PLUGIN=OFF` to disable the EcoSysLab plugin for a build.
 
 ### Demo Projects and Visual Results
 
@@ -319,3 +358,4 @@ EvoEngine supports research workflows used in digital forestry and digital agric
 - [3D reconstruction identifies loci linked to variation in angle of individual sorghum leaves, PeerJ](https://peerj.com/articles/12628/)
 - [Sorghum segmentation and leaf counting using in silico trained deep neural model, The Plant Phenome Journal](https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/ppj2.70002)
 - [PlantSegNet: 3D point cloud instance segmentation of nearby plant organs with identical semantics, Computers and Electronics in Agriculture](https://www.sciencedirect.com/science/article/abs/pii/S0168169924003132)
+- [Woodstock](https://jango6324.github.io/woodstock/)

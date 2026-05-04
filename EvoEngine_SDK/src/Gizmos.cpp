@@ -44,7 +44,7 @@ void EditorLayer::DrawGizmoMeshInstancedColored(const std::shared_ptr<Mesh>& mes
                                                 const std::shared_ptr<ParticleInfoList>& particle_info_list,
                                                 const glm::mat4& model, const float& size,
                                                 const GizmoSettings& gizmo_settings) {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>(); !render_layer)
     return;
   const auto scene_camera = GetSceneCamera();
   DrawGizmoMeshInstancedColored(mesh, scene_camera, particle_info_list, model, size, gizmo_settings);
@@ -52,7 +52,7 @@ void EditorLayer::DrawGizmoMeshInstancedColored(const std::shared_ptr<Mesh>& mes
 
 void EditorLayer::DrawGizmoMesh(const std::shared_ptr<Mesh>& mesh, const glm::vec4& color, const glm::mat4& model,
                                 const float& size, const GizmoSettings& gizmo_settings) {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>(); !render_layer)
     return;
   const auto scene_camera = GetSceneCamera();
   DrawGizmoMesh(mesh, scene_camera, color, model, size, gizmo_settings);
@@ -60,7 +60,7 @@ void EditorLayer::DrawGizmoMesh(const std::shared_ptr<Mesh>& mesh, const glm::ve
 
 void EditorLayer::DrawGizmoStrands(const std::shared_ptr<Strands>& strands, const glm::vec4& color,
                                    const glm::mat4& model, const float& size, const GizmoSettings& gizmo_settings) {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer)
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>(); !render_layer)
     return;
   const auto scene_camera = GetSceneCamera();
   DrawGizmoStrands(strands, scene_camera, color, model, size, gizmo_settings);

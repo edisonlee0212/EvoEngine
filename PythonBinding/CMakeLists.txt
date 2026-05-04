@@ -10,15 +10,23 @@ if(NOT CUDA_SUBSTRING_INDEX EQUAL -1)
 	message("CUDA enabled.")
 endif()
 
-evoengine_copy_resources(PyResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
-evoengine_clear_shader_binaries(PyResourceCopy)
-add_custom_command(TARGET PyResourceCopy POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy 
-			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+set(EVOENGINE_PYTHON_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR})
+if(CMAKE_CONFIGURATION_TYPES)
+	set(EVOENGINE_PYTHON_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)
+endif()
 
+evoengine_copy_resources(PyResourceCopy ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR})
+evoengine_clear_shader_binaries(PyResourceCopy ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR})
 add_custom_command(TARGET PyResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy 
-			${CMAKE_CURRENT_SOURCE_DIR}/generate_sorghum_data.py ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR} VERBATIM)
+
+file(GLOB EVOENGINE_PYTHON_BUILD_SCRIPTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.py)
+foreach(script_i IN LISTS EVOENGINE_PYTHON_BUILD_SCRIPTS)
+	add_custom_command(TARGET PyResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy 
+			${script_i} ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR} VERBATIM)
+endforeach()
 
 set_property(TARGET PyResourceCopy PROPERTY FOLDER PostBuildActions)
 

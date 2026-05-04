@@ -26,6 +26,7 @@ using namespace evo_engine;
 void EngineSetup();
 
 int main() {
+  Application application;
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -71,40 +72,40 @@ int main() {
 
   EngineSetup();
 
-  Application::PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+  ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
-  Application::PushLayer<WindowLayer>("Window Layer");
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-  Application::PushLayer<SorghumLayer>("Sorghum Layer")->enable_inspection = true;
+  ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer")->enable_inspection = true;
 #endif
 #ifdef ECOSYSLAB_PLUGIN
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
 #endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "DigitalAgriculture";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
-  Application::Initialize(application_configs);
+  ApplicationContext::Get().Initialize(application_configs);
 
 #ifdef CUDA_MODULE_PLUGIN
 
-  auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
 #endif
 
   // adjust default camera speed
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 #pragma region Engine Loop
-  Application::Start();
-  Application::Run();
+  ApplicationContext::Get().Start();
+  ApplicationContext::Get().Run();
 #pragma endregion
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }
 
 void EngineSetup() {
@@ -117,7 +118,7 @@ void EngineSetup() {
     transform = Transform();
     transform.SetPosition(glm::vec3(0, 2, 35));
     transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));
-    if (const auto main_camera = Application::GetActiveScene()->main_camera.Get<Camera>()) {
+    if (const auto main_camera = ApplicationContext::Get().GetActiveScene()->main_camera.Get<Camera>()) {
       scene->SetDataComponent(main_camera->GetOwner(), transform);
       main_camera->camera_settings.use_clear_color = true;
       main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);

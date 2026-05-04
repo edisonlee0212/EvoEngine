@@ -71,7 +71,7 @@ void ModulusGraph::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "polar angle";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[3]).data.name = "profile boundary distance";
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
     ImNodes::SetNodeScreenSpacePos(output_density_node_handle, ImVec2(500, 200));
@@ -270,7 +270,7 @@ void eco_sys_lab_plugin::ModulusGraph::SetOutput(NodeGraphNodeHandle output_node
   node_graph.AllocateLink(max_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[1]);
 
   // Set node positions
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (editor_layer) {
     ImNodesEditorContext* prev_editor_context = nullptr;
     prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
@@ -341,7 +341,7 @@ void StrengthGraph::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "polar angle";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[3]).data.name = "profile boundary distance";
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
     ImNodes::SetNodeScreenSpacePos(output_shear_stretch_node_handle, ImVec2(500, 200));
@@ -564,7 +564,7 @@ void eco_sys_lab_plugin::StrengthGraph::SetOutput(NodeGraphNodeHandle output_nod
   node_graph.AllocateLink(max_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[1]);
 
   // Set node positions
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (editor_layer) {
     ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
@@ -598,7 +598,7 @@ void BiologicalPropertiesGraph::Reset() {
   node_graph.RefOutputPin(input_segment_node.GetOutputPinHandles()[2]).data.name = "polar angle";
   node_graph.RefOutputPin(input_segment_node.GetOutputPinHandles()[3]).data.name = "profile boundary distance";
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
     ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
@@ -728,7 +728,7 @@ void BiologicalPropertiesGraph::SetValues(const BiologicalPropertiesGraph::Outpu
   auto& additional_strength_node = node_graph.RefNode(additional_strength_node_handle);
   node_graph.AllocateLink(additional_strength_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[2]);
 
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (editor_layer) {
     ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));

@@ -4,7 +4,6 @@
 #include "ComputePipeline.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
-#include "ISingleton.hpp"
 #include "RayTracingPipeline.hpp"
 
 #define ENABLE_EXTERNAL_MEMORY true
@@ -30,7 +29,10 @@ namespace evo_engine {
  * logical device creation, resource management, and rendering synchronization.
  */
 class Platform final {
-  EVOENGINE_SINGLETON_INSTANCE(Platform)
+ public:
+  static Platform& GetInstance();
+
+ private:
   friend class Application;
   friend class Resources;
   friend class Lighting;

@@ -523,7 +523,7 @@ void BillboardCloud::Join(const JoinSettings& join_settings) {
   billboard_cloud_vertices.resize(clusters.size() * 4);
   std::vector<glm::uvec3> billboard_cloud_triangles;
   billboard_cloud_triangles.resize(clusters.size() * 2);
-  Jobs::RunParallelFor(clusters.size(), [&](const unsigned cluster_index) {
+  Jobs::RunParallelFor(clusters.size(), [&](size_t cluster_index) {
     const xatlas::Mesh& mesh = atlas->meshes[cluster_index];
     auto& cluster = clusters[cluster_index];
     cluster.rectangle.tex_coords[0].x = mesh.vertexArray[0].uv[0] / static_cast<float>(atlas->width);
@@ -663,7 +663,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
     average_roughness = 1.f;
     average_metallic = 0.f;
     average_ao = 1.f;
-    Jobs::RunParallelFor(clusters.size(), [&](const unsigned cluster_index) {
+    Jobs::RunParallelFor(clusters.size(), [&](size_t cluster_index) {
       const auto& cluster = clusters[cluster_index];
       const glm::vec3 color = glm::ballRand(1.f);
       const auto& bounding_rectangle = cluster.rectangle;
@@ -718,7 +718,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
     const auto& bounding_rectangle = cluster.rectangle;
 
     // Rasterization
-    Jobs::RunParallelFor(cluster.projected_triangles.size(), [&](const unsigned triangle_index) {
+    Jobs::RunParallelFor(cluster.projected_triangles.size(), [&](size_t triangle_index) {
       const auto& triangle = cluster.projected_triangles[triangle_index];
       const auto& v0 = triangle.projected_vertices[0];
       const auto& v1 = triangle.projected_vertices[1];
@@ -986,7 +986,7 @@ void BillboardCloud::Project(Cluster& cluster, const ProjectSettings& project_se
       glm::transpose(glm::mat4(glm::vec4(billboard_left_axis, 0.0f), glm::vec4(billboard_up_axis, 0.0f),
                                glm::vec4(billboard_front_axis, 0.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)));
   cluster.projected_triangles.resize(cluster.triangles.size());
-  Jobs::RunParallelFor(cluster.triangles.size(), [&](const unsigned triangle_index) {
+  Jobs::RunParallelFor(cluster.triangles.size(), [&](size_t triangle_index) {
     const auto& cluster_triangle = cluster.triangles.at(triangle_index);
     auto& projected_triangle = cluster.projected_triangles[triangle_index];
     const auto& element = elements.at(cluster_triangle.element_index);
@@ -1009,7 +1009,7 @@ void BillboardCloud::Project(Cluster& cluster, const ProjectSettings& project_se
 
   std::vector<glm::vec2> points;
   points.resize(cluster.projected_triangles.size() * 3);
-  Jobs::RunParallelFor(cluster.projected_triangles.size(), [&](const unsigned triangle_index) {
+  Jobs::RunParallelFor(cluster.projected_triangles.size(), [&](size_t triangle_index) {
     const auto& projected_triangle = cluster.projected_triangles.at(triangle_index);
     points.at(triangle_index * 3) = glm::vec2(projected_triangle.projected_vertices[0].position.x,
                                               projected_triangle.projected_vertices[0].position.y);
@@ -1179,7 +1179,7 @@ void BillboardCloud::ProcessPrefab(const std::shared_ptr<Prefab>& current_prefab
         element.vertices = mesh->UnsafeGetVertices();
         element.material = material;
         element.triangles = mesh->UnsafeGetTriangles();
-        Jobs::RunParallelFor(element.vertices.size(), [&](const unsigned vertex_index) {
+        Jobs::RunParallelFor(element.vertices.size(), [&](size_t vertex_index) {
           TransformVertex(element.vertices.at(vertex_index), parent_model_space_transform.value);
         });
       }
@@ -1204,7 +1204,7 @@ void BillboardCloud::ProcessEntity(const std::shared_ptr<Scene>& scene, const En
       element.vertices = mesh->UnsafeGetVertices();
       element.material = material;
       element.triangles = mesh->UnsafeGetTriangles();
-      Jobs::RunParallelFor(element.vertices.size(), [&](const unsigned vertex_index) {
+      Jobs::RunParallelFor(element.vertices.size(), [&](size_t vertex_index) {
         TransformVertex(element.vertices.at(vertex_index), parent_model_space_transform.value);
       });
     }

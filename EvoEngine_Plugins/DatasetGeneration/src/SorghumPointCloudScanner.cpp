@@ -43,7 +43,7 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
     for (int step = 0; step < y_step_size; step++) {
       float z = step * step;
       const glm::vec3 center = glm::vec3{x, drone_height, z} - glm::vec3(start_point.x, 0, start_point.y);
-      Jobs::RunParallelFor(drone_sample, [&](const unsigned sample_index) {
+      Jobs::RunParallelFor(drone_sample, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[drone_sample * (i * y_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
@@ -57,7 +57,7 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
     for (int step = 0; step < x_step_size; step++) {
       float x = step * step;
       const glm::vec3 center = glm::vec3{x, drone_height, z} - glm::vec3(start_point.x, 0, start_point.y);
-      Jobs::RunParallelFor(drone_sample, [&](const unsigned sample_index) {
+      Jobs::RunParallelFor(drone_sample, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[start_index + drone_sample * (i * x_step_size + step) + sample_index];
         sample.direction = glm::sphericalRand(1.0f);
         sample.direction.y = -glm::abs(sample.direction.y);
@@ -93,7 +93,7 @@ void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>
   constexpr auto front = glm::vec3(0, -1, 0);
   const float roll_angle = glm::linearRand(0, 360);
   const auto up = glm::vec3(glm::sin(glm::radians(roll_angle)), 0, glm::cos(glm::radians(roll_angle)));
-  Jobs::RunParallelFor(y_step_size * x_step_size, [&](unsigned i) {
+  Jobs::RunParallelFor(y_step_size * x_step_size, [&](size_t i) {
     const auto x = i / y_step_size;
     const auto y = i % y_step_size;
     const glm::vec3 center = glm::vec3{step * x, 0.f, step * y} - glm::vec3(start_point.x, 0, start_point.y);
@@ -119,9 +119,9 @@ bool SorghumGantryCaptureSettings::SampleFilter(const PointCloudSample& sample) 
 void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                     std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
                                     std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 
-  const auto digital_agriculture_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto digital_agriculture_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Soil> soil;
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
@@ -204,7 +204,7 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
       if (!render_instances) {
         render_instances = std::make_shared<RenderInstanceStorage>();
         Bound world_bound;
-        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+        render_instances->BuildFromScene({}, ApplicationContext::Get().GetActiveScene(), world_bound);
       }
       CpuRayTracer cpu_ray_tracer;
       /**
@@ -339,7 +339,7 @@ void SorghumPointCloudScanner::SavePointCloud(const std::filesystem::path& save_
 
 void SorghumPointCloudScanner::WriteSplineInfo(const std::filesystem::path& save_path,
                                                const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (sorghum_entities == nullptr) {
     EVOENGINE_ERROR("No sorghums!");
@@ -400,7 +400,7 @@ void SorghumPointCloudScanner::WriteSplineInfo(const std::filesystem::path& save
 
 void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
                                        const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (sorghum_entities == nullptr) {
     EVOENGINE_ERROR("No sorghums!");

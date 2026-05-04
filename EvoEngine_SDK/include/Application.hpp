@@ -1,18 +1,43 @@
 
 #pragma once
+#include <memory>
+
+#include "ApplicationContext.hpp"
 #include "ApplicationInitializationSettings.hpp"
 #include "Console.hpp"
 #include "ILayer.hpp"
-#include "ISingleton.hpp"
+#include "Serialization.hpp"
 namespace evo_engine {
+class AssetManager;
+class Console;
+class Entities;
+class FileManager;
+class GeometryStorage;
+class Input;
+class Jobs;
+class PackageManager;
+class Platform;
+class ProjectManager;
+class Resources;
+class TextureStorage;
+class Times;
+class TransformGraph;
+
 /**
  * @brief The main application class responsible for managing the entire engine lifecycle.
  */
 class Application final {
-  EVOENGINE_SINGLETON_INSTANCE(Application)
+  friend class Serialization;
   friend class ProjectManager;
 
  public:
+  Application();
+  ~Application();
+  Application(const Application&) = delete;
+  Application& operator=(const Application&) = delete;
+  Application(Application&&) = delete;
+  Application& operator=(Application&&) = delete;
+
   /**
    * @brief Enum representing the various statuses of the application.
    */
@@ -39,12 +64,27 @@ class Application final {
 
  private:
   ApplicationInitializationSettings
-      initialization_settings; /**< Information related to the application configuration. */
+      initialization_settings;             /**< Information related to the application configuration. */
+  Serialization serialization_registry_{}; /**< Application-owned type and serialization registry. */
+  std::unique_ptr<AssetManager> asset_manager_;
+  std::unique_ptr<Console> console_;
+  std::unique_ptr<Entities> entities_;
+  std::unique_ptr<FileManager> file_manager_;
+  std::unique_ptr<GeometryStorage> geometry_storage_;
+  std::unique_ptr<Input> input_;
+  std::unique_ptr<Jobs> jobs_;
+  std::unique_ptr<PackageManager> package_manager_;
+  std::unique_ptr<Platform> platform_;
+  std::unique_ptr<ProjectManager> project_manager_;
+  std::unique_ptr<Resources> resources_;
+  std::unique_ptr<TextureStorage> texture_storage_;
+  std::unique_ptr<Times> times_;
+  std::unique_ptr<TransformGraph> transform_graph_;
   ExecutionStatus execution_status_ = ExecutionStatus::Uninitialized; /**< Current status of the application. */
 
-  static void PreUpdateInternal();  /**< Perform internal pre-update tasks. */
-  static void UpdateInternal();     /**< Perform internal update tasks. */
-  static void LateUpdateInternal(); /**< Perform internal late-update tasks. */
+  void PreUpdateInternal();  /**< Perform internal pre-update tasks. */
+  void UpdateInternal();     /**< Perform internal update tasks. */
+  void LateUpdateInternal(); /**< Perform internal late-update tasks. */
 
   std::vector<std::shared_ptr<ILayer>> layers_; /**< List of all layers added to the application. */
   std::shared_ptr<Scene> active_scene_;         /**< The currently active scene. */
@@ -60,59 +100,85 @@ class Application final {
   ExecutionOrder execution_order = ExecutionOrder::NotPlaying; /**< Current execution status of the application. */
 
  public:
+  [[nodiscard]] Serialization& GetSerialization();
+  [[nodiscard]] const Serialization& GetSerialization() const;
+  [[nodiscard]] AssetManager& GetAssetManager();
+  [[nodiscard]] Console& GetConsole();
+  [[nodiscard]] Entities& GetEntities();
+  [[nodiscard]] FileManager& GetFileManager();
+  [[nodiscard]] GeometryStorage& GetGeometryStorage();
+  [[nodiscard]] Input& GetInput();
+  [[nodiscard]] Jobs& GetJobs();
+  [[nodiscard]] PackageManager& GetPackageManager();
+  [[nodiscard]] Platform& GetPlatform();
+  [[nodiscard]] ProjectManager& GetProjectManager();
+  [[nodiscard]] Resources& GetResources();
+  [[nodiscard]] TextureStorage& GetTextureStorage();
+  [[nodiscard]] Times& GetTimes();
+  [[nodiscard]] TransformGraph& GetTransformGraph();
+
+  template <typename T>
+  void RegisterDataComponent(const std::string& name);
+  template <typename T>
+  void RegisterPrivateComponent(const std::string& name);
+  template <typename T>
+  void RegisterAsset(const std::string& name, const std::vector<std::string>& external_extensions);
+  template <typename T>
+  void RegisterSystem(const std::string& name);
+
   /**
    * @brief Get the current execution status of the application.
    * @return The current ApplicationExecutionStatus.
    */
-  [[nodiscard]] static ExecutionOrder GetApplicationExecutionStatus();
+  [[nodiscard]] ExecutionOrder GetApplicationExecutionStatus() const;
 
   /**
    * @brief Register a function to be called during the pre-update phase.
    * @param func The callback function to register.
    */
-  static void RegisterPreUpdateFunction(const std::function<void()>& func);
+  void RegisterPreUpdateFunction(const std::function<void()>& func);
 
   /**
    * @brief Register a function to be called during the update phase.
    * @param func The callback function to register.
    */
-  static void RegisterUpdateFunction(const std::function<void()>& func);
+  void RegisterUpdateFunction(const std::function<void()>& func);
 
   /**
    * @brief Register a function to be called during the late update phase.
    * @param func The callback function to register.
    */
-  static void RegisterLateUpdateFunction(const std::function<void()>& func);
+  void RegisterLateUpdateFunction(const std::function<void()>& func);
 
   /**
    * @brief Register a function to be called during the fixed update phase.
    * @param func The callback function to register.
    */
-  static void RegisterFixedUpdateFunction(const std::function<void()>& func);
+  void RegisterFixedUpdateFunction(const std::function<void()>& func);
 
   /**
    * @brief Register a function to be called after attaching a new scene.
    * @param func The callback function to register.
    */
-  static void RegisterPostAttachSceneFunction(const std::function<void(const std::shared_ptr<Scene>& new_scene)>& func);
+  void RegisterPostAttachSceneFunction(const std::function<void(const std::shared_ptr<Scene>& new_scene)>& func);
 
   /**
    * @brief Checks if the application is currently playing.
    * @return True if the application is playing, false otherwise.
    */
-  static bool IsPlaying();
+  bool IsPlaying() const;
 
   /**
    * @brief Get the information about the application configuration.
    * @return A const reference to the ApplicationInfo structure.
    */
-  static const ApplicationInitializationSettings& GetApplicationInfo();
+  const ApplicationInitializationSettings& GetApplicationInfo() const;
 
   /**
    * @brief Get the current status of the application.
    * @return A const reference to the ApplicationStatus enum.
    */
-  static const ExecutionStatus& GetApplicationStatus();
+  const ExecutionStatus& GetApplicationStatus() const;
 
   /**
    * @brief Add a new layer to the application.
@@ -121,7 +187,7 @@ class Application final {
    * @return A shared pointer to the newly added layer.
    */
   template <typename T>
-  static std::shared_ptr<T> PushLayer(const std::string& layer_name);
+  std::shared_ptr<T> PushLayer(const std::string& layer_name = "");
 
   /**
    * @brief Retrieve a layer of a specific type.
@@ -129,91 +195,113 @@ class Application final {
    * @return A shared pointer to the layer of type T, or nullptr if not found.
    */
   template <typename T>
-  static std::shared_ptr<T> GetLayer();
+  std::shared_ptr<T> GetLayer() const;
 
   /**
    * @brief Remove a layer of a specific type from the application.
    * @tparam T The type of the layer to remove.
    */
   template <typename T>
-  static void PopLayer();
+  void PopLayer();
 
   /**
    * @brief Reset the application state.
    */
-  static void Reset();
+  void Reset();
 
   /**
    * @brief Initialize the application with the specified configuration.
    * @param application_create_info The configuration to initialize the application with.
    */
-  static void Initialize(const ApplicationInitializationSettings& application_create_info);
+  void Initialize(const ApplicationInitializationSettings& application_create_info);
 
   /**
    * @brief Start the application.
    * @param autoplay Whether to start in autoplay mode (default: true).
    */
-  static void Start(bool autoplay = true);
+  void Start(bool autoplay = true);
 
   /**
    * @brief Run the main application loop.
    */
-  static void Run();
+  void Run();
 
   /**
    * @brief Execute a single application loop iteration.
    * @return True if the loop should continue, false otherwise.
    */
-  [[maybe_unused]] static bool Loop();
+  [[maybe_unused]] bool Loop();
 
   /**
    * @brief End the application loop and perform cleanup.
    */
-  static void End();
+  void End();
 
   /**
    * @brief Terminate the application.
    */
-  static void Terminate();
+  void Terminate();
 
   /**
    * @brief Get the list of all layers added to the application.
    * @return A const reference to a vector of shared pointers to ILayer objects.
    */
-  static const std::vector<std::shared_ptr<ILayer>>& GetLayers();
+  const std::vector<std::shared_ptr<ILayer>>& GetLayers() const;
 
   /**
    * @brief Attach a new scene to the application.
    * @param scene The scene to attach.
    */
-  static void Attach(const std::shared_ptr<Scene>& scene);
+  void Attach(const std::shared_ptr<Scene>& scene);
 
   /**
    * @brief Get the currently active scene.
    * @return A shared pointer to the active scene.
    */
-  static std::shared_ptr<Scene> GetActiveScene();
+  std::shared_ptr<Scene> GetActiveScene() const;
 
   /**
    * @brief Start playing the application.
    */
-  static void Play();
+  void Play();
 
   /**
    * @brief Pause the application.
    */
-  static void Pause();
+  void Pause();
 
   /**
    * @brief Step through a single update iteration of the application.
    */
-  static void Step();
+  void Step();
 
   /**
    * @brief Stop the application.
    */
-  static void Stop();
+  void Stop();
 };
+
+template <typename T>
+void Application::RegisterDataComponent(const std::string& name) {
+  Serialization::RegisterDataComponentType<T>(name);
+}
+
+template <typename T>
+void Application::RegisterPrivateComponent(const std::string& name) {
+  Serialization::RegisterSerializableType<T>(name);
+  Serialization::RegisterPrivateComponentType<T>(name);
+}
+
+template <typename T>
+void Application::RegisterAsset(const std::string& name, const std::vector<std::string>& external_extensions) {
+  Serialization::RegisterAssetType<T>(name, external_extensions);
+}
+
+template <typename T>
+void Application::RegisterSystem(const std::string& name) {
+  Serialization::RegisterSerializableType<T>(name);
+  Serialization::RegisterSystemType<T>(name);
+}
 
 /**
  * @brief Add a new layer to the application.
@@ -223,8 +311,7 @@ class Application final {
  */
 template <typename T>
 std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
-  auto& application = GetInstance();
-  if (application.execution_status_ != ExecutionStatus::Uninitialized) {
+  if (execution_status_ != ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Unable to push layer! Application already started!");
     return nullptr;
   }
@@ -235,12 +322,14 @@ std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
       EVOENGINE_ERROR("Not a layer!");
       return nullptr;
     }
-    if (!application.layers_.empty())
-      application.layers_.back()->subsequent_layer_ = test;
-    application.layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
-    application.layers_.back()->self_ = test;
+    if (!layers_.empty())
+      layers_.back()->subsequent_layer_ = test;
+    layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
+    layers_.back()->self_ = test;
+    layers_.back()->application_ = this;
   }
-  std::dynamic_pointer_cast<ILayer>(test)->layer_name_ = layer_name;
+  if (!layer_name.empty())
+    std::dynamic_pointer_cast<ILayer>(test)->layer_name_ = layer_name;
   return test;
 }
 
@@ -250,9 +339,8 @@ std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
  * @return A shared pointer to the layer of type T, or nullptr if not found.
  */
 template <typename T>
-std::shared_ptr<T> Application::GetLayer() {
-  const auto& application = GetInstance();
-  for (auto& i : application.layers_) {
+std::shared_ptr<T> Application::GetLayer() const {
+  for (auto& i : layers_) {
     if (auto test = std::dynamic_pointer_cast<T>(i))
       return test;
   }
@@ -265,12 +353,11 @@ std::shared_ptr<T> Application::GetLayer() {
  */
 template <typename T>
 void Application::PopLayer() {
-  auto& application = GetInstance();
   int index = 0;
-  for (auto& i : application.layers_) {
+  for (auto& i : layers_) {
     if (auto test = std::dynamic_pointer_cast<T>(i)) {
       std::dynamic_pointer_cast<ILayer>(i)->OnDestroy();
-      application.layers_.erase(application.layers_.begin() + index);
+      layers_.erase(layers_.begin() + index);
     }
     index++;
   }

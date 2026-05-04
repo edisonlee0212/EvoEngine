@@ -37,7 +37,7 @@ bool SystemRef::Update() {
     return false;
   }
   if (!value_.has_value() || value_->expired()) {
-    auto current_scene = Application::GetActiveScene();
+    auto current_scene = ApplicationContext::Get().GetActiveScene();
     auto system = current_scene->mapped_systems_.find(system_handle_);
     if (system != current_scene->mapped_systems_.end()) {
       value_ = system->second;

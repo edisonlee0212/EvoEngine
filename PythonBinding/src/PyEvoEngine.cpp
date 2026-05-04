@@ -5,13 +5,27 @@
 using namespace py_evo_engine;
 namespace py = pybind11;
 
+PyEvoEngine::PyEvoEngine() = default;
+
+PyEvoEngine::~PyEvoEngine() = default;
+
+PyEvoEngine& PyEvoEngine::GetRuntime() {
+  static PyEvoEngine runtime;
+  ApplicationContext::Set(&runtime.application);
+  return runtime;
+}
+
+Application& PyEvoEngine::GetApplication() {
+  return application;
+}
+
 void capture_current_scene(const int resolution_x, const int resolution_y, const std::string& output_path) {
   if (resolution_x <= 0 || resolution_y <= 0) {
     EVOENGINE_ERROR("Resolution error!");
     return;
   }
 
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     EVOENGINE_ERROR("No active scene!");
     return;
@@ -22,13 +36,13 @@ void capture_current_scene(const int resolution_x, const int resolution_y, const
     return;
   }
   main_camera->Resize({resolution_x, resolution_y});
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   main_camera->GetRenderTexture()->StoreToPng(output_path);
   EVOENGINE_LOG("Exported image to " + output_path);
 }
 
 Handle PyEvoEngine::CreateRuntimeAsset(const std::string& asset_type) {
-  auto& py_evo_engine = GetInstance();
+  auto& py_evo_engine = GetRuntime();
   const auto new_asset = AssetManager::CreateTemporaryAsset(asset_type);
   const auto ret_val = new_asset->GetHandle();
   py_evo_engine.runtime_assets.insert({ret_val, new_asset});
@@ -36,7 +50,7 @@ Handle PyEvoEngine::CreateRuntimeAsset(const std::string& asset_type) {
 }
 
 void PyEvoEngine::DeleteRuntimeAsset(const Handle& asset_handle) {
-  auto& py_evo_engine = GetInstance();
+  auto& py_evo_engine = GetRuntime();
   if (const auto search = py_evo_engine.runtime_assets.find(asset_handle);
       search != py_evo_engine.runtime_assets.end()) {
     py_evo_engine.runtime_assets.erase(asset_handle);
@@ -46,7 +60,7 @@ void PyEvoEngine::DeleteRuntimeAsset(const Handle& asset_handle) {
 }
 
 std::shared_ptr<IAsset> PyEvoEngine::GetAsset(const Handle& asset_handle) {
-  auto& py_evo_engine = GetInstance();
+  auto& py_evo_engine = GetRuntime();
   if (const auto search = py_evo_engine.runtime_assets.find(asset_handle);
       search != py_evo_engine.runtime_assets.end()) {
     return search->second;
@@ -59,7 +73,7 @@ std::shared_ptr<IAsset> PyEvoEngine::GetAsset(const Handle& asset_handle) {
 }
 
 bool PyEvoEngine::IsRuntimeAsset(const Handle& asset_handle) {
-  auto& py_evo_engine = GetInstance();
+  auto& py_evo_engine = GetRuntime();
   return py_evo_engine.runtime_assets.find(asset_handle) != py_evo_engine.runtime_assets.end();
 }
 
@@ -76,7 +90,7 @@ Handle PyEvoEngine::GetAssetHandle(const std::filesystem::path& asset_relative_p
 }
 Handle PyEvoEngine::ImportRuntimeAsset(const std::string& asset_type,
                                        const std::filesystem::path& asset_absolute_path) {
-  auto& py_evo_engine = GetInstance();
+  auto& py_evo_engine = GetRuntime();
 
   if (!asset_absolute_path.is_absolute()) {
     EVOENGINE_ERROR("ImportRuntimeAsset failed: Not a absolute path!")
@@ -137,7 +151,7 @@ bool PyEvoEngine::AssetLoad(const Handle& asset_handle) {
 }
 
 void PyEvoEngine::Initialize(pybind11::module& m) {
-  auto& py_evo_engine = GetInstance();
+  auto& py_evo_engine = GetRuntime();
   py_evo_engine.runtime_assets.clear();
 
   m.def("PushRenderLayer", &PushRenderLayer);
@@ -150,7 +164,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("Loop", &Loop);
   m.def("Terminate", &Terminate);
 
-  py::class_<Handle>(m, "Handle").def(py::init<>()).def("GetValue", &Handle::GetValue);
+  py::class_<Handle>(m, "Handle", py::module_local()).def(py::init<>()).def("GetValue", &Handle::GetValue);
   m.def("CreateRuntimeAsset", &CreateRuntimeAsset);
   m.def("DeleteRuntimeAsset", &DeleteRuntimeAsset);
   m.def("GetAssetHandle", &GetAssetHandle);
@@ -159,78 +173,80 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("AssetSave", &AssetSave);
   m.def("AssetLoad", &AssetLoad);
 
-  py::class_<glm::vec2>(m, "Vec2")
+  py::class_<glm::vec2>(m, "Vec2", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::vec2::x)
       .def_readwrite("y", &glm::vec2::y);
 
-  py::class_<glm::vec3>(m, "Vec3")
+  py::class_<glm::vec3>(m, "Vec3", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::vec3::x)
       .def_readwrite("y", &glm::vec3::y)
       .def_readwrite("z", &glm::vec3::z);
 
-  py::class_<glm::vec4>(m, "Vec4")
+  py::class_<glm::vec4>(m, "Vec4", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::vec4::x)
       .def_readwrite("y", &glm::vec4::y)
       .def_readwrite("z", &glm::vec4::z)
       .def_readwrite("w", &glm::vec4::w);
 
-  py::class_<glm::uvec2>(m, "UVec2")
+  py::class_<glm::uvec2>(m, "UVec2", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::uvec2::x)
       .def_readwrite("y", &glm::uvec2::y);
 
-  py::class_<glm::uvec3>(m, "UVec3")
+  py::class_<glm::uvec3>(m, "UVec3", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::uvec3::x)
       .def_readwrite("y", &glm::uvec3::y)
       .def_readwrite("z", &glm::uvec3::z);
 
-  py::class_<glm::uvec4>(m, "UVec4")
+  py::class_<glm::uvec4>(m, "UVec4", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::uvec4::x)
       .def_readwrite("y", &glm::uvec4::y)
       .def_readwrite("z", &glm::uvec4::z)
       .def_readwrite("w", &glm::uvec4::w);
 
-  py::class_<glm::ivec2>(m, "IVec2")
+  py::class_<glm::ivec2>(m, "IVec2", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::ivec2::x)
       .def_readwrite("y", &glm::ivec2::y);
 
-  py::class_<glm::ivec3>(m, "IVec3")
+  py::class_<glm::ivec3>(m, "IVec3", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::ivec3::x)
       .def_readwrite("y", &glm::ivec3::y)
       .def_readwrite("z", &glm::ivec3::z);
 
-  py::class_<glm::ivec4>(m, "IVec4")
+  py::class_<glm::ivec4>(m, "IVec4", py::module_local())
       .def(py::init<>())
       .def_readwrite("x", &glm::ivec4::x)
       .def_readwrite("y", &glm::ivec4::y)
       .def_readwrite("z", &glm::ivec4::z)
       .def_readwrite("w", &glm::ivec4::w);
 
-  py::class_<Entity>(m, "Entity").def("GetIndex", &Entity::GetIndex).def("GetVersion", &Entity::GetVersion);
+  py::class_<Entity>(m, "Entity", py::module_local())
+      .def("GetIndex", &Entity::GetIndex)
+      .def("GetVersion", &Entity::GetVersion);
 
   m.def("CreateEntity", &CreateEntity);
   m.def("DeleteEntity", &DeleteEntity);
   m.def("IsEntityValid", &IsEntityValid);
 }
 void PyEvoEngine::PushRenderLayer() {
-  Application::PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
 }
 void PyEvoEngine::PushWindowLayer() {
-  Application::PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
 }
 void PyEvoEngine::PushEditorLayer() {
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 }
 void PyEvoEngine::PushRayTracerLayer() {
 #ifdef CUDA_MODULE_PLUGIN
-  Application::PushLayer<RayTracerLayer>("Ray Tracer Layer");
+  ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 }
 
@@ -241,8 +257,8 @@ void PyEvoEngine::Run(const std::filesystem::path& project_path) {
   }
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
-  Application::Start();
+  ApplicationContext::Get().Initialize(application_info);
+  ApplicationContext::Get().Start();
 }
 
 void PyEvoEngine::RunWithScene(const std::filesystem::path& project_path,
@@ -253,27 +269,27 @@ void PyEvoEngine::RunWithScene(const std::filesystem::path& project_path,
   }
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
   const auto new_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset(project_relative_path));
   ProjectManager::SetStartScene(new_scene);
-  Application::Start();
+  ApplicationContext::Get().Start();
 }
 
 bool PyEvoEngine::Loop() {
-  return Application::Loop();
+  return ApplicationContext::Get().Loop();
 }
 void PyEvoEngine::Terminate() {
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }
 Entity PyEvoEngine::CreateEntity(const std::string& name) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   return scene->CreateEntity(name);
 }
 void PyEvoEngine::DeleteEntity(const Entity& entity) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   return scene->DeleteEntity(entity);
 }
 bool PyEvoEngine::IsEntityValid(const Entity& entity) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   return scene->IsEntityValid(entity);
 }

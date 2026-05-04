@@ -75,45 +75,46 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 #pragma endregion
 
 int main() {
+  Application application;
   constexpr DemoSetup demo_setup = DemoSetup::Rendering;
-  Application::PushLayer<RenderLayer>("Render Layer");
-  Application::PushLayer<WindowLayer>("Window Layer");
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 #ifdef UNIVERSE_PLUGIN
-  PrivateComponentRegistration<PlanetTerrain>("PlanetTerrain");
+  application.RegisterPrivateComponent<PlanetTerrain>("PlanetTerrain");
 #  ifdef TEXTURE_BAKING_PLUGIN
-  PrivateComponentRegistration<TextureBaking>("TextureBaking");
+  application.RegisterPrivateComponent<TextureBaking>("TextureBaking");
 #  endif
 #endif
 
 #ifdef PHYSX_PHYSICS_PLUGIN
-  Application::PushLayer<PhysicsLayer>();
+  ApplicationContext::Get().PushLayer<PhysicsLayer>();
 #endif
 
 #ifdef UNIVERSE_PLUGIN
-  Application::PushLayer<UniverseLayer>("Universe Layer");
+  ApplicationContext::Get().PushLayer<UniverseLayer>("Universe Layer");
 #endif
 
 #ifdef ECOSYSLAB_PLUGIN
-  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
-  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
-  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
+  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
+  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
+  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
 #endif
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-  Application::PushLayer<SorghumLayer>("Sorghum Layer");
+  ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
 #ifdef GPR_PLUGIN
-  AssetRegistration<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
+  application.RegisterAsset<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
 #endif
   ApplicationInitializationSettings application_info;
   SetupDemoScene(demo_setup, application_info);
 
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
 
-  Application::Start();
-  Application::Run();
-  Application::Terminate();
+  ApplicationContext::Get().Start();
+  ApplicationContext::Get().Run();
+  ApplicationContext::Get().Terminate();
   return 0;
 }
 #pragma region Helpers
@@ -289,7 +290,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
         auto camera = scene->GetOrSetPrivateComponent<Camera>(main_camera_entity).lock();
         scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
 
-        if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+        if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
           editor_layer->SetSceneCameraPosition(glm::vec3(0, 0, 3));
         }
 
@@ -332,13 +333,13 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
         left_point_light_right_transform.SetScale(glm::vec3(0.1f));
         scene->SetDataComponent(left_point_light_right_entity, left_point_light_right_transform);
 
-        Application::RegisterUpdateFunction([=]() {
+        ApplicationContext::Get().RegisterUpdateFunction([=]() {
           static bool last_frame_playing = false;
-          if (!Application::IsPlaying()) {
-            last_frame_playing = Application::IsPlaying();
+          if (!ApplicationContext::Get().IsPlaying()) {
+            last_frame_playing = ApplicationContext::Get().IsPlaying();
             return;
           }
-          const auto current_scene = Application::GetActiveScene();
+          const auto current_scene = ApplicationContext::Get().GetActiveScene();
           static float start_time;
           if (!last_frame_playing)
             start_time = Times::Now();
@@ -350,7 +351,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
           current_left_point_light_transform.SetScale(glm::vec3(0.1f));
           current_scene->SetDataComponent(left_point_light_right_entity, current_left_point_light_transform);
 
-          last_frame_playing = Application::IsPlaying();
+          last_frame_playing = ApplicationContext::Get().IsPlaying();
         });
 #pragma endregion
       });
@@ -455,8 +456,8 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
         plmmc2->material.Set<Material>(shared_mat);
 
 #  pragma endregion
-        Application::RegisterLateUpdateFunction([=]() {
-          auto scene = Application::GetActiveScene();
+        ApplicationContext::Get().RegisterLateUpdateFunction([=]() {
+          auto scene = ApplicationContext::Get().GetActiveScene();
           Transform ltw;
           ltw.SetScale(glm::vec3(0.5f));
 #  pragma region LightsPosition
@@ -586,7 +587,7 @@ Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& 
 
 Entity CreateSolidCube(const float& mass, const glm::vec3& color, const glm::vec3& position, const glm::vec3& rotation,
                        const glm::vec3& scale, const std::string& name) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto cube = CreateCube(color, position, rotation, scale, name);
   const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(cube).lock();
   rigid_body->SetStatic(true);
@@ -602,7 +603,7 @@ Entity CreateSolidCube(const float& mass, const glm::vec3& color, const glm::vec
 
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
                          const glm::vec3& rotation, const glm::vec3& scale, const std::string& name) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto cube = CreateCube(color, position, rotation, scale, name);
   const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(cube).lock();
   rigid_body->SetStatic(false);
@@ -620,7 +621,7 @@ Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::v
 
 Entity CreateCube(const glm::vec3& color, const glm::vec3& position, const glm::vec3& rotation, const glm::vec3& scale,
                   const std::string& name) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto cube = scene->CreateEntity(name);
   const auto ground_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(cube).lock();
   auto material = AssetManager::CreateTemporaryAsset<Material>();
@@ -640,7 +641,7 @@ Entity CreateCube(const glm::vec3& color, const glm::vec3& position, const glm::
 
 Entity CreateDynamicSphere(const float& mass, const glm::vec3& color, const glm::vec3& position,
                            const glm::vec3& rotation, const float& scale, const std::string& name) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto sphere = CreateSphere(color, position, rotation, scale, name);
   const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(sphere).lock();
   rigid_body->SetStatic(false);
@@ -658,7 +659,7 @@ Entity CreateDynamicSphere(const float& mass, const glm::vec3& color, const glm:
 
 Entity CreateSolidSphere(const float& mass, const glm::vec3& color, const glm::vec3& position,
                          const glm::vec3& rotation, const float& scale, const std::string& name) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto sphere = CreateSphere(color, position, rotation, scale, name);
   const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(sphere).lock();
   rigid_body->SetStatic(true);
@@ -674,7 +675,7 @@ Entity CreateSolidSphere(const float& mass, const glm::vec3& color, const glm::v
 
 Entity CreateSphere(const glm::vec3& color, const glm::vec3& position, const glm::vec3& rotation, const float& scale,
                     const std::string& name) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto sphere = scene->CreateEntity(name);
   const auto ground_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere).lock();
   auto material = AssetManager::CreateTemporaryAsset<Material>();

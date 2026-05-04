@@ -729,7 +729,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     ImGui::Separator();
     if (GetScene()->IsEntityValid(forest_ref.Get())) {
-      const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+      const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
       FileUtils::SaveFile(
           "Export OBJ", "OBJ", {".obj"},
           [&](const std::filesystem::path& path) {
@@ -821,7 +821,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
     if (refresh_data) {
       previous_handle = GetHandle();
-      const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+      const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
 
       allocated_point_matrices.resize(allocated_points.size());
 
@@ -1825,7 +1825,7 @@ void TreeStructor::SpaceColonization() {
   if (reconstruction_settings.space_colonization_factor == 0.0f)
     return;
 
-  Jobs::RunParallelFor(skeletons.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(skeletons.size(), [&](size_t i) {
     auto& skeleton = skeletons[i];
     const auto& sorted_internode_list = skeleton.PeekSortedNodeList();
     float max_end_distance = 0.0f;
@@ -2227,7 +2227,7 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateForestBranchMeshes(
         },
         [&](glm::vec2& tex_coords, float x_factor, float y_factor) {
         });
-    Jobs::RunParallelFor(vertices.size(), [&](const unsigned j) {
+    Jobs::RunParallelFor(vertices.size(), [&](size_t j) {
       vertices[j].position += skeleton.data.root_position;
     });
     auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
@@ -2297,7 +2297,7 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
         }
       }
     }
-    Jobs::RunParallelFor(vertices.size(), [&](unsigned j) {
+    Jobs::RunParallelFor(vertices.size(), [&](size_t j) {
       vertices[j].position += skeleton.data.root_position;
     });
     auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();

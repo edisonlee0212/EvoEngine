@@ -1,6 +1,5 @@
 #pragma once
 #include "GraphicsResources.hpp"
-#include "ISingleton.hpp"
 #include "Platform.hpp"
 #include "Vertex.hpp"
 
@@ -207,7 +206,10 @@ struct ParticleInfoListData {
 };
 
 class GeometryStorage final {
-  EVOENGINE_SINGLETON_INSTANCE(GeometryStorage)
+ public:
+  static GeometryStorage& GetInstance();
+
+ private:
   std::vector<VertexDataChunk> vertex_data_chunks_ = {};
   std::vector<Meshlet> meshlets_ = {};
   std::vector<std::shared_ptr<RangeDescriptor>> meshlet_range_descriptor_;

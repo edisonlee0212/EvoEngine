@@ -1,6 +1,6 @@
 # TextureBaking Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 TextureBaking provides mesh-to-mesh texture transfer utilities. It is useful when generated or simplified geometry needs material maps projected from reference geometry.
 
@@ -25,7 +25,7 @@ TextureBaking provides mesh-to-mesh texture transfer utilities. It is useful whe
 
 ## SDK Integration
 
-TextureBaking uses SDK meshes, materials, private component references, serialization, relinking, and editor inspection. Apps such as `DemoApp` and `EcoSysLabApp` register the `TextureBaking` private component when this plugin is available.
+TextureBaking uses SDK meshes, materials, private component references, serialization, relinking, and editor inspection. Apps such as `DemoApp` and `EcoSysLabApp` register the `TextureBaking` private component when this Plugin is available.
 
 ## Future Work Notes
 

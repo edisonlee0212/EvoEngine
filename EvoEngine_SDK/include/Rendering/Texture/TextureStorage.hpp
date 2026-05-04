@@ -1,7 +1,6 @@
 
 #pragma once
 #include "GraphicsResources.hpp"
-#include "ISingleton.hpp"
 
 namespace evo_engine {
 
@@ -175,8 +174,10 @@ class CubemapStorage {
  * @brief A singleton class that manages storage and access for all textures and cubemaps in the engine.
  */
 class TextureStorage final {
-  EVOENGINE_SINGLETON_INSTANCE(TextureStorage)
+ public:
+  static TextureStorage& GetInstance();
 
+ private:
   /**
    * @brief Stores all 2D texture storages.
    */

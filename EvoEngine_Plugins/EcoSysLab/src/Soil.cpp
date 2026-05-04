@@ -32,7 +32,7 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::DragFloat("Nutrient factor", &nutrient_factor, 0.0001f, 0.0f, 1.0f, "%.4f");
     ImGui::Checkbox("Ground surface", &ground_surface);
     if (ImGui::Button("Generate Cutout")) {
-      auto scene = Application::GetActiveScene();
+      auto scene = ApplicationContext::Get().GetActiveScene();
       auto owner = GetOwner();
       for (const auto& child : scene->GetChildren(owner)) {
         if (scene->GetEntityName(child) == "CutOut") {
@@ -46,7 +46,7 @@ bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       scene->SetParent(cut_out_entity, owner);
     }
     if (ImGui::Button("Generate Cube")) {
-      auto scene = Application::GetActiveScene();
+      auto scene = ApplicationContext::Get().GetActiveScene();
       auto owner = GetOwner();
       for (const auto& child : scene->GetChildren(owner)) {
         if (scene->GetEntityName(child) == "Cube") {
@@ -260,7 +260,7 @@ void Soil::RandomOffset(float min, float max) {
 
 Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
                                   float water_factor, float nutrient_factor) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto quad_entity = scene->CreateEntity("Slice");
   auto material = AssetManager::CreateTemporaryAsset<Material>();
   auto albedo_tex = AssetManager::CreateTemporaryAsset<Texture2D>();
@@ -307,7 +307,7 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
 
 Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
                                   float water_factor, float nutrient_factor) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   auto quad_entity = scene->CreateEntity("Slice");
 
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(quad_entity).lock();
@@ -357,7 +357,7 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
 
 Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor,
                             bool enable_ground_surface) {
-  auto scene = Application::GetActiveScene();
+  auto scene = ApplicationContext::Get().GetActiveScene();
   const auto combined_entity = scene->CreateEntity("CutOut");
 
   if (z_depth <= 0.99f) {
@@ -396,7 +396,7 @@ Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, fl
 }
 
 Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool ground_surface) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto combined_entity = scene->CreateEntity("Cube");
 
   auto quad1 = GenerateSurfaceQuadX(false, 0, {0, 0}, {1, 1}, water_factor, nutrient_factor);
@@ -460,7 +460,7 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
       glm::uvec2(sd->soil_parameters.m_voxelResolution.x, sd->soil_parameters.m_voxelResolution.z),
       sd->soil_parameters.m_deltaX, vertices, triangles, x_depth, z_depth);
 
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto self = GetOwner();
   Entity ground_surface_entity;
   const auto children = scene->GetChildren(self);
@@ -602,10 +602,11 @@ void Soil::InitializeSoilModel() {
         } else {
           soil_layer.m_mat.m_soilMaterialTexture->m_color_map.resize(sd->texture_resolution.x *
                                                                      sd->texture_resolution.y);
-          std::fill(
-              soil_layer.m_mat.m_soilMaterialTexture->m_color_map.begin(),
-              soil_layer.m_mat.m_soilMaterialTexture->m_color_map.end(),
-              Application::GetLayer<EcoSysLabLayer>()->soil_visualization_settings_.soil_layer_colors[material_index]);
+          std::fill(soil_layer.m_mat.m_soilMaterialTexture->m_color_map.begin(),
+                    soil_layer.m_mat.m_soilMaterialTexture->m_color_map.end(),
+                    ApplicationContext::Get()
+                        .GetLayer<EcoSysLabLayer>()
+                        ->soil_visualization_settings_.soil_layer_colors[material_index]);
         }
         if (height) {
           height->GetRedChannelData(soil_layer.m_mat.m_soilMaterialTexture->m_height_map, sd->texture_resolution.x,
@@ -710,7 +711,7 @@ void Soil::SplitRootTestSetup() {
 void Soil::FixedUpdate() {
   if (temporal_progression_) {
     if (temporal_progression_progress_ < 1.0f) {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto owner = GetOwner();
       for (const auto& child : scene->GetChildren(owner)) {
         if (scene->GetEntityName(child) == "CutOut") {

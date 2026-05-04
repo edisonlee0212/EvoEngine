@@ -1,7 +1,6 @@
 
 #pragma once
 #include <iostream>
-#include "ISingleton.hpp"
 
 namespace evo_engine {
 
@@ -10,8 +9,10 @@ namespace evo_engine {
  * \brief A final class for logging different levels of console messages (log, error, warning).
  */
 class Console final {
-  EVOENGINE_SINGLETON_INSTANCE(Console) /**< Macro to enforce singleton instance pattern for Console class */
+ public:
+  static Console& GetInstance();
 
+ private:
  public:
   /**
    * \brief Logs an informational message to the console.

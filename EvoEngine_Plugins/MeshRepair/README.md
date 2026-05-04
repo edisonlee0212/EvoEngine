@@ -1,8 +1,8 @@
 # MeshRepair Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
-MeshRepair contains mesh visibility and coloring utilities. It is a small utility plugin for inspecting or repairing generated mesh data.
+MeshRepair contains mesh visibility and coloring utilities. It is a small utility Plugin for inspecting or repairing generated mesh data.
 
 ## Build Status
 
@@ -25,8 +25,8 @@ MeshRepair contains mesh visibility and coloring utilities. It is a small utilit
 
 ## SDK Integration
 
-The plugin works with SDK `Scene`, `Entity`, `Mesh`, editor inspection, and private components.
+The Plugin works with SDK `Scene`, `Entity`, `Mesh`, editor inspection, and private components.
 
 ## Future Work Notes
 
-Keep domain-specific repair operations here. General mesh APIs that other plugins need repeatedly may be candidates for the SDK.
+Keep domain-specific repair operations here. General mesh APIs that other Plugins need repeatedly may be candidates for the SDK.

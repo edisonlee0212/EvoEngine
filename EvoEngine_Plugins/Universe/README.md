@@ -1,8 +1,8 @@
 # Universe Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
-Universe is a simulation and rendering demo plugin focused on large ECS workloads, star clusters, and planet terrain. It is useful as a compact example of data-component-heavy scene simulation.
+Universe is a simulation and rendering demo Plugin focused on large ECS workloads, star clusters, and planet terrain. It is useful as a compact example of data-component-heavy scene simulation.
 
 ## Build Status
 
@@ -22,7 +22,7 @@ Universe is a simulation and rendering demo plugin focused on large ECS workload
 
 | Source | Role |
 | --- | --- |
-| `UniverseLayer` | Main plugin layer for star cluster controls, ECS queries, star archetype creation, and planet terrain updates. |
+| `UniverseLayer` | Main Plugin layer for star cluster controls, ECS queries, star archetype creation, and planet terrain updates. |
 | `PlanetTerrain` | Private component for planet terrain behavior and inspection. |
 | `TerrainChunk` | Terrain chunk state used by planet LOD. |
 
@@ -49,4 +49,4 @@ Universe is a strong example of SDK data components, archetypes, entity queries,
 
 ## Future Work Notes
 
-Use this plugin as a reference for ECS-scale demos. Features that are specifically about stars, orbital visualization, or planet terrain belong here; general ECS or renderer improvements belong in the SDK.
+Use this Plugin as a reference for ECS-scale demos. Features that are specifically about stars, orbital visualization, or planet terrain belong here; general ECS or renderer improvements belong in the SDK.

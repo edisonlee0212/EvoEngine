@@ -7,7 +7,7 @@ find_package(CUDA QUIET)
 
 # Check if CUDA is found
 if (NOT CUDA_FOUND)
-    message(WARNING "CUDA not found. Skipping this plugin.")
+    message(WARNING "CUDA not found. Skipping this Plugin.")
     return()
 endif()
 
@@ -24,7 +24,7 @@ include(${RAY_TRACER_DIRECTORY}/cmake/configure_optix.cmake)
 
 # Check if OptiX is found
 if (NOT OptiX_FOUND)
-    message(WARNING "OptiX not found. Skipping this plugin.")
+    message(WARNING "OptiX not found. Skipping this Plugin.")
     return()
 endif()
 message("Found OptiX.")

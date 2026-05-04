@@ -1045,7 +1045,7 @@ void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& r
 
 void CpuRayTracer::AggregatedScene::SamplePointCloudGpu(const CpuRayTracer& cpu_ray_tracer,
                                                         std::vector<PointCloudSample>& samples) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   std::vector<RayDescriptor> ray_descriptors(samples.size());
   std::vector<HitInfo> hit_infos(samples.size());
   Jobs::RunParallelFor(samples.size(), [&](const size_t index) {

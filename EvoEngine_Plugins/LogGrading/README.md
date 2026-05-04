@@ -1,6 +1,6 @@
 # LogGrading Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 LogGrading provides forestry log modeling and grading tools. It represents log geometry, defects, grading faces, and procedural log generation for grading workflows.
 
@@ -35,8 +35,8 @@ LogGrading provides forestry log modeling and grading tools. It represents log g
 
 ## SDK Integration
 
-The plugin uses SDK private components, meshes, particle lists, materials/descriptors from EcoSysLab, editor inspection, and scene entity/component workflows.
+The Plugin uses SDK private components, meshes, particle lists, materials/descriptors from EcoSysLab, editor inspection, and scene entity/component workflows.
 
 ## Future Work Notes
 
-Log grading rules and log-specific visualization should stay in this plugin. General forestry primitives shared with EcoSysLab should be evaluated carefully before moving code.
+Log grading rules and log-specific visualization should stay in this Plugin. General forestry primitives shared with EcoSysLab should be evaluated carefully before moving code.

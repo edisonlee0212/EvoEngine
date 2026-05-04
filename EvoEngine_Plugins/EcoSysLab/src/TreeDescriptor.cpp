@@ -112,7 +112,7 @@ void TreeDescriptor::OnCreate() {
 
 bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Climate> climate;
   std::shared_ptr<Soil> soil;
   if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
@@ -167,7 +167,7 @@ Entity TreeDescriptor::Instantiate() const {
   if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
     soil = soil_candidate.lock();
   if (soil && climate) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto tree_entity = scene->CreateEntity(GetTitle());
     const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();

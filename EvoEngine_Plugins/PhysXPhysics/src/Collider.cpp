@@ -41,7 +41,7 @@ bool Collider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 void Collider::OnCreate() {
-  const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+  const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
   if (!physics_layer)
     return;
   if (!physics_material_.Get<PhysicsMaterial>())
@@ -56,7 +56,7 @@ Collider::~Collider() {
   }
 }
 void Collider::SetShapeType(const ShapeType& type) {
-  const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+  const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
   if (!physics_layer)
     return;
   if (attach_count_ != 0) {
@@ -122,7 +122,7 @@ void Collider::Deserialize(const YAML::Node& in) {
   SetShapeParam(shape_param_);
   auto mat = physics_material_.Get<PhysicsMaterial>();
   if (!mat) {
-    const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+    const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
     if (!physics_layer)
       return;
     mat = physics_layer->default_physics_material;

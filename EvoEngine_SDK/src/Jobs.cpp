@@ -1,7 +1,25 @@
 #include "Jobs.hpp"
 
+#include "ApplicationContext.hpp"
 #include "Console.hpp"
+
+#include <utility>
+
 using namespace evo_engine;
+
+namespace {
+std::function<void()> BindApplicationContext(std::function<void()> func) {
+  auto* application = ApplicationContext::TryGet();
+  return [application, func = std::move(func)]() mutable {
+    if (application) {
+      const ApplicationContextScope scope(*application);
+      func();
+      return;
+    }
+    func();
+  };
+}
+}  // namespace
 
 size_t Jobs::GetWorkerSize() {
   const auto& jobs = GetInstance();
@@ -30,7 +48,7 @@ void Jobs::RunParallelFor(const size_t size, const std::function<void(size_t i)>
         func(i);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob({}, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob({}, BindApplicationContext(work)));
   }
   Wait(Combine(job_handles));
 }
@@ -52,7 +70,7 @@ void Jobs::RunParallelFor(const size_t size, const std::function<void(size_t, si
         func(i, thread_index);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob({}, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob({}, BindApplicationContext(work)));
   }
   Wait(Combine(job_handles));
 }
@@ -74,7 +92,7 @@ JobHandle Jobs::ScheduleParallelFor(const size_t size, const std::function<void(
         func(i);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob({}, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob({}, BindApplicationContext(work)));
   }
   return Combine(job_handles);
 }
@@ -97,7 +115,7 @@ JobHandle Jobs::ScheduleParallelFor(const size_t size, const std::function<void(
         func(i, thread_index);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob({}, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob({}, BindApplicationContext(work)));
   }
   return Combine(job_handles);
 }
@@ -120,7 +138,7 @@ void Jobs::RunParallelFor(const std::vector<JobHandle>& dependencies, const size
         func(i);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, BindApplicationContext(work)));
   }
   Wait(Combine(job_handles));
 }
@@ -143,7 +161,7 @@ void Jobs::RunParallelFor(const std::vector<JobHandle>& dependencies, const size
         func(i, thread_index);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, BindApplicationContext(work)));
   }
   Wait(Combine(job_handles));
 }
@@ -166,7 +184,7 @@ JobHandle Jobs::ScheduleParallelFor(const std::vector<JobHandle>& dependencies, 
         func(i);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, BindApplicationContext(work)));
   }
   return Combine(job_handles);
 }
@@ -189,25 +207,25 @@ JobHandle Jobs::ScheduleParallelFor(const std::vector<JobHandle>& dependencies, 
         func(i, thread_index);
       }
     };
-    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, work));
+    job_handles.emplace_back(jobs.job_system_.PushJob(dependencies, BindApplicationContext(work)));
   }
   return Combine(job_handles);
 }
 
 JobHandle Jobs::Run(const std::vector<JobHandle>& dependencies, const std::function<void()>& func) {
   auto& jobs = GetInstance();
-  return jobs.job_system_.PushJob(dependencies, std::function<void()>(func));
+  return jobs.job_system_.PushJob(dependencies, BindApplicationContext(std::function<void()>(func)));
 }
 
 JobHandle Jobs::Run(const std::function<void()>& func) {
   auto& jobs = GetInstance();
-  return jobs.job_system_.PushJob({}, std::function<void()>(func));
+  return jobs.job_system_.PushJob({}, BindApplicationContext(std::function<void()>(func)));
 }
 
 JobHandle Jobs::Combine(const std::vector<JobHandle>& dependencies) {
   auto& jobs = GetInstance();
-  return jobs.job_system_.PushJob(dependencies, []() {
-  });
+  return jobs.job_system_.PushJob(dependencies, BindApplicationContext([]() {
+                                  }));
 }
 
 void Jobs::Execute(const JobHandle& job_handle) {

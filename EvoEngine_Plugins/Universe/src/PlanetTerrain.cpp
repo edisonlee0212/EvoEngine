@@ -55,7 +55,7 @@ void PlanetTerrain::Init() {
       }
     }
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   auto self = scene->GetOrSetPrivateComponent<PlanetTerrain>(GetOwner()).lock();
   chunks_.clear();
   chunks_.push_back(

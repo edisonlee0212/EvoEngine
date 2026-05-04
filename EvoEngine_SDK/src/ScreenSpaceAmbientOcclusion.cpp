@@ -43,7 +43,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
                                           const std::shared_ptr<Camera>& target_camera) {
   if (!geometry_pipeline || !geometry_pipeline->Initialized() || !combine_pipeline || !combine_pipeline->Initialized())
     return;
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -87,8 +87,8 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = size.x;
-    viewport.height = size.y;
+    viewport.width = static_cast<float>(size.x);
+    viewport.height = static_cast<float>(size.y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
@@ -157,8 +157,8 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = size.x;
-    viewport.height = size.y;
+    viewport.width = static_cast<float>(size.x);
+    viewport.height = static_cast<float>(size.y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
@@ -243,8 +243,8 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = size.x;
-    viewport.height = size.y;
+    viewport.width = static_cast<float>(size.x);
+    viewport.height = static_cast<float>(size.y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 

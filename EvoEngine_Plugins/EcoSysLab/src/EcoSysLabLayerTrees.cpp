@@ -22,20 +22,6 @@
 #include "Tree.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_plugin;
-PrivateComponentRegistration<Tree> tree_registry("Tree");
-AssetRegistration<BasicBarkDescriptor> bark_descriptor_registry("BasicBarkDescriptor", {".bark"});
-AssetRegistration<ForestDescriptor> forest_d_registry("ForestDescriptor", {".forest"});
-AssetRegistration<TreeDescriptor> tree_d_registry("TreeDescriptor", {".tree"});
-AssetRegistration<BasicPruningDescriptor> pruning_d_registry("BasicPruningDescriptor", {".pruning"});
-AssetRegistration<BasicShootDescriptor> shoot_d_registry("BasicShootDescriptor", {".shoot"});
-AssetRegistration<BasicRootDescriptor> root_d_registry("BasicRootDescriptor", {".root"});
-AssetRegistration<BasicFineRootDescriptor> fine_root_d_registry("BasicFineRootDescriptor", {".froot"});
-AssetRegistration<BasicReproductionModuleDescriptor> fruit_d_registry("BasicReproductionModuleDescriptor", {".repro"});
-AssetRegistration<BasicFoliageDescriptor> foliage_d_registry("BasicFoliageDescriptor", {".foliage"});
-AssetRegistration<AdvancedShootDescriptor> a_shoot_d_registry("AdvancedShootDescriptor", {".ashoot"});
-AssetRegistration<ModulusGraph> modulus_graph_registry("ModulusGraph", {".evemodulus"});
-AssetRegistration<StrengthGraph> strength_graph_registry("StrengthGraph", {".evestrength"});
-AssetRegistration<BiologicalPropertiesGraph> biological_properties_graph_registry("TrunkGraph", {".evetrunk"});
 
 void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();
@@ -80,7 +66,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
           std::vector<ParticleInfo> particle_infos;
           particle_infos.resize(num_voxels);
 
-          Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+          Jobs::RunParallelFor(num_voxels, [&](size_t i) {
             const auto coordinate = voxel_grid.GetCoordinate(i);
             particle_infos[i].instance_matrix.value =
                 glm::translate(voxel_grid.GetPosition(coordinate) +
@@ -96,7 +82,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
           std::vector<ParticleInfo> particle_infos;
           particle_infos.resize(num_voxels);
 
-          Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+          Jobs::RunParallelFor(num_voxels, [&](size_t i) {
             const auto coordinate = voxel_grid.GetCoordinate(i);
             const auto& voxel = voxel_grid.Peek(coordinate);
             const auto direction = voxel.light_direction;
@@ -485,7 +471,7 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
 }
 
 void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   simulated_time_ = 0;
   if (tree_entities) {
     for (const auto& i : *tree_entities) {
@@ -551,7 +537,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
     climate->PrepareForGrowth();
     std::vector<bool> grown_stat{};
     grown_stat.resize(Jobs::GetWorkerSize());
-    Jobs::RunParallelFor(tree_entities->size(), [&](unsigned i, unsigned thread_index) {
+    Jobs::RunParallelFor(tree_entities->size(), [&](size_t i, size_t thread_index) {
       const auto tree_entity = tree_entities->at(i);
       if (!scene->IsEntityEnabled(tree_entity))
         return;

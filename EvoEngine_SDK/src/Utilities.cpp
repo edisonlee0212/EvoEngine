@@ -40,7 +40,7 @@ std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
 
 void FileUtils::OpenFolder(const std::string& dialog_title,
                            const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check) {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #ifdef EVOENGINE_WINDOWS
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
     TCHAR path[MAX_PATH];
@@ -97,7 +97,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
 void FileUtils::OpenFile(const std::string& dialog_title, const std::string& file_type,
                          const std::vector<std::string>& extensions,
                          const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check) {
-  auto window_layer = Application::GetLayer<WindowLayer>();
+  auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #ifdef EVOENGINE_WINDOWS
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
     OPENFILENAMEA ofn;
@@ -188,7 +188,7 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
 void FileUtils::SaveFile(const std::string& dialog_title, const std::string& file_type,
                          const std::vector<std::string>& extensions,
                          const std::function<void(const std::filesystem::path& path)>& func, bool project_dir_check) {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #ifdef EVOENGINE_WINDOWS
   if (ImGui::Button(dialog_title.c_str())) {
     OPENFILENAMEA ofn;

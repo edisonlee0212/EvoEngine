@@ -1,6 +1,6 @@
 # BillboardClouds Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 BillboardClouds provides utilities for converting detailed geometry into billboard cloud representations. It is useful for level-of-detail and vegetation-style rendering workflows.
 
@@ -27,8 +27,8 @@ BillboardClouds provides utilities for converting detailed geometry into billboa
 
 ## SDK Integration
 
-The plugin works with SDK `Mesh`, `Material`, private components, editor inspection, and generated geometry/texture outputs. EcoSysLab conditionally registers `BillboardCloudsConverter` when `BILLBOARD_CLOUDS_PLUGIN` is enabled.
+The Plugin works with SDK `Mesh`, `Material`, private components, editor inspection, and generated geometry/texture outputs. EcoSysLab conditionally registers `BillboardCloudsConverter` when `BILLBOARD_CLOUDS_PLUGIN` is enabled.
 
 ## Future Work Notes
 
-Keep billboard generation logic in this plugin. If a feature becomes a general mesh simplification, material transfer, or texture baking primitive, consider whether it belongs in the SDK or TextureBaking instead.
+Keep billboard generation logic in this Plugin. If a feature becomes a general mesh simplification, material transfer, or texture baking primitive, consider whether it belongs in the SDK or TextureBaking instead.

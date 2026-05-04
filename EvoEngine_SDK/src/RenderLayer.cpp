@@ -959,7 +959,7 @@ void RenderLayer::RenderAll() {
 void RenderLayer::RenderGizmos() const {
   if (const auto scene = GetScene(); !scene)
     return;
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     const auto current_frame_index = Platform::GetCurrentFrameIndex();
     const auto current_render_instances = render_instances_list_[Platform::GetCurrentFrameIndex()];
     for (const auto& i : editor_layer->gizmo_mesh_tasks_) {
@@ -1118,7 +1118,7 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 void RenderLayer::ApplyAnimators() const {
   const auto scene = GetScene();
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Animator>()) {
-    Jobs::RunParallelFor(owners->size(), [&](unsigned i) {
+    Jobs::RunParallelFor(owners->size(), [&](size_t i) {
       const auto entity = owners->at(i);
       if (!scene->IsEntityEnabled(entity))
         return;
@@ -1129,7 +1129,7 @@ void RenderLayer::ApplyAnimators() const {
     });
   }
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SkinnedMeshRenderer>()) {
-    Jobs::RunParallelFor(owners->size(), [&](unsigned i) {
+    Jobs::RunParallelFor(owners->size(), [&](size_t i) {
       const auto entity = owners->at(i);
       if (!scene->IsEntityEnabled(entity))
         return;
@@ -1467,7 +1467,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
     }
   }
   if (!lod_set) {
-    if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
       if (const auto scene_camera = editor_layer->GetSceneCamera()) {
         lod_center = editor_layer->GetSceneCameraPosition();
         lod_max_distance = scene_camera->camera_settings.far_distance;
@@ -1486,7 +1486,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   // if (render_instance_updated) {
   current_render_instances->Upload();
   //}
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
       for (const auto& i : current_render_instances->instance_info_blocks_) {
         if (i.info_index) {
@@ -1584,8 +1584,8 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = brdf_lut_resolution;
-    viewport.height = brdf_lut_resolution;
+    viewport.width = static_cast<float>(brdf_lut_resolution);
+    viewport.height = static_cast<float>(brdf_lut_resolution);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
@@ -1638,9 +1638,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
-    const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+    const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
 
     const bool count_draw_calls = count_shadow_rendering_draw_calls;
     const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
@@ -1800,7 +1800,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     });
 
 #pragma endregion
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
+    const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
     bool is_scene_camera = false;
     bool need_fade = false;
     if (editor_layer) {
@@ -1817,8 +1817,8 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       render_area.extent.width = camera->GetSize().x;
       render_area.extent.height = camera->GetSize().y;
       glm::ivec4 view_port;
-      view_port.x = 0.0f;
-      view_port.y = 0.0f;
+      view_port.x = 0;
+      view_port.y = 0;
       view_port.z = camera->GetSize().x;
       view_port.w = camera->GetSize().y;
 
@@ -2055,7 +2055,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
 
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -2111,9 +2111,11 @@ uint32_t RenderLayer::DrawMeshInstanced(const std::shared_ptr<Mesh>& mesh, const
 }
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() {
-  return Application::GetLayer<RenderLayer>()->per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()];
+  return ApplicationContext::Get()
+      .GetLayer<RenderLayer>()
+      ->per_frame_descriptor_sets_[Platform::GetCurrentFrameIndex()];
 }
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetLightingDescriptorSet() {
-  return Application::GetLayer<RenderLayer>()->lighting_->lighting_descriptor_set;
+  return ApplicationContext::Get().GetLayer<RenderLayer>()->lighting_->lighting_descriptor_set;
 }

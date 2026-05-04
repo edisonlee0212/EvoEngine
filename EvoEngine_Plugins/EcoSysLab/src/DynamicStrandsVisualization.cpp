@@ -9,7 +9,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
   }
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;

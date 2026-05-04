@@ -21,7 +21,7 @@ std::shared_ptr<Cubemap> LightProbe::GetCubemap() const {
   return cubemap_;
 }
 void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return;
   if (!cubemap_)
@@ -115,8 +115,8 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = cubemap_->RefStorage().image->GetExtent().width;
-    viewport.height = cubemap_->RefStorage().image->GetExtent().height;
+    viewport.width = static_cast<float>(cubemap_->RefStorage().image->GetExtent().width);
+    viewport.height = static_cast<float>(cubemap_->RefStorage().image->GetExtent().height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 

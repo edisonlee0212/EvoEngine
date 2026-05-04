@@ -26,7 +26,7 @@ void Sorghum::ClearGeometryEntities() const {
 }
 
 void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) {
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   if (!sorghum_layer)
     return;
   auto target_sorghum_descriptor = sorghum_descriptor.Get<SorghumDescriptor>();

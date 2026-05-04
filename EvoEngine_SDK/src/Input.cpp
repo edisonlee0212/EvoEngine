@@ -34,11 +34,11 @@ void Input::MouseButtonCallBack(GLFWwindow* window, const int button, const int 
 }
 
 void Input::Dispatch(const InputEvent& event) {
-  if (const auto& layers = Application::GetLayers(); !layers.empty()) {
+  if (const auto& layers = ApplicationContext::Get().GetLayers(); !layers.empty()) {
     layers[0]->OnInputEvent(event);
   }
-  if (!Application::GetLayer<EditorLayer>()) {
-    const auto active_scene = Application::GetActiveScene();
+  if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    const auto active_scene = ApplicationContext::Get().GetActiveScene();
 
     auto& scene_pressed_keys = active_scene->pressed_keys_;
     if (event.key_action == KeyActionType::Press) {
@@ -59,12 +59,12 @@ void Input::PreUpdate() {
   for (auto& i : input.pressed_keys_) {
     i.second = KeyActionType::Hold;
   }
-  if (const auto scene = Application::GetActiveScene()) {
+  if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
     for (auto& i : scene->pressed_keys_) {
       i.second = KeyActionType::Hold;
     }
   }
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     glfwPollEvents();
     double x = FLT_MIN;
     double y = FLT_MIN;

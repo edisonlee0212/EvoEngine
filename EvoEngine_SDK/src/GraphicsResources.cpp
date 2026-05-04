@@ -687,7 +687,7 @@ void Buffer::CopyFromImage(Image& src_image, const VkBufferImageCopy& image_copy
   });
 }
 
-void Buffer::CopyFromImage(Image& src_image, const float pixel_size) {
+void Buffer::CopyFromImage(Image& src_image, const VkDeviceSize pixel_size) {
   Resize(src_image.GetExtent().width * src_image.GetExtent().height * pixel_size);
   VkBufferImageCopy image_copy_info{};
   image_copy_info.bufferOffset = 0;
@@ -705,7 +705,7 @@ void Buffer::CopyFromImage(Image& src_image, const float pixel_size) {
   CopyFromImage(src_image, image_copy_info);
 }
 
-void Buffer::CopyFromDepth(Image& src_image, const float pixel_size) {
+void Buffer::CopyFromDepth(Image& src_image, const VkDeviceSize pixel_size) {
   Resize(src_image.GetExtent().width * src_image.GetExtent().height * pixel_size);
   VkBufferImageCopy image_copy_info{};
   image_copy_info.bufferOffset = 0;

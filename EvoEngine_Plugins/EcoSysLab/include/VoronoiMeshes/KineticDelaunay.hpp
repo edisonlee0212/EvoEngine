@@ -78,7 +78,7 @@ class KineticDelaunay {
   size_t sections_advanced = 0;  // Counter for the number of sections advanced
 
   /* Compare to Leonidas Guibas and Jorge Stolfi. 1985. Primitives for the manipulation of general subdivisions and the
-   * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74–123. https://doi.org/10.1145/282918.282923
+   * computation of Voronoi. ACM Trans. Graph. 4, 2 (April 1985), 74ï¿½123. https://doi.org/10.1145/282918.282923
    */
   static Polynomial inCircle(const Polynomial& ax, const Polynomial& ay, const Polynomial& bx, const Polynomial& by,
                              const Polynomial& cx, const Polynomial& cy, const Polynomial& px, const Polynomial& py) {

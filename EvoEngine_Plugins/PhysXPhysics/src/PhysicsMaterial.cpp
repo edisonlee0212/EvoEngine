@@ -2,7 +2,7 @@
 #include "Application.hpp"
 #include "PhysicsLayer.hpp"
 void evo_engine::PhysicsMaterial::OnCreate() {
-  const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+  const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
   if (!physics_layer)
     return;
   value_ = physics_layer->physics_->createMaterial(static_friction_, dynamic_friction_, restitution_);

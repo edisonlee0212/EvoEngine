@@ -1,6 +1,6 @@
 # CudaModule Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 CudaModule provides CUDA and OptiX-based acceleration for specialized rendering, ray tracing, illumination estimation, point cloud scanning, and related workflows.
 
@@ -8,7 +8,7 @@ CudaModule provides CUDA and OptiX-based acceleration for specialized rendering,
 
 - Present in `EvoEngine_Plugins/CudaModule`.
 - The registration line in `EvoEngine_Plugins/CMakeLists.txt` is currently commented out.
-- If registered, its CMake requires CUDA and OptiX; the plugin returns early when either is unavailable.
+- If registered, its CMake requires CUDA and OptiX; the Plugin returns early when either is unavailable.
 - Builds as `CudaModulePlugin`.
 - Defines `CUDA_MODULE_PLUGIN`.
 
@@ -42,4 +42,4 @@ CudaModule plugs into layers, rendering, camera workflows, point cloud generatio
 
 ## Future Work Notes
 
-Treat this plugin as optional. Code outside the plugin should compile without CUDA/OptiX and should guard CUDA-specific includes and registration with `CUDA_MODULE_PLUGIN`.
+Treat this Plugin as optional. Code outside the Plugin should compile without CUDA/OptiX and should guard CUDA-specific includes and registration with `CUDA_MODULE_PLUGIN`.

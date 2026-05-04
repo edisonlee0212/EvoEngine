@@ -453,7 +453,7 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
       split_end = target_render_settings.max_shadow_distance * target_render_settings.shadow_cascade_split[split];
     split_distances[split] = split_end;
   }
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     brdflut_texture_index = render_layer->environmental_brdf_lut_->GetTextureStorageIndex();
   }
   if (target_render_settings.enable_debug_visualization)
@@ -796,7 +796,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
   const std::vector<Entity>* directional_light_entities =
       target_scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
   render_info_block.directional_light_size = 0;
-  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
 
   if (directional_light_entities && !directional_light_entities->empty()) {
     directional_light_info_blocks_.resize(graphics_settings.max_directional_light_size * cameras.size());
@@ -1102,7 +1102,7 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
 void RenderInstanceStorage::CollectEditorCameras(
     const std::shared_ptr<Scene>& target_scene,
     std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     for (const auto& [cameraHandle, editorCamera] : editor_layer->editor_cameras_) {
       if (editorCamera.camera || editorCamera.camera->IsEnabled()) {
         GlobalTransform scene_camera_gt;
@@ -1142,7 +1142,7 @@ RenderInstanceStorage::RenderInstanceStorage() {
   buffer_create_info.size = sizeof(EnvironmentInfoBlock);
   environment_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
-  const auto& graphics_settings = Application::GetApplicationInfo().graphics_settings;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
 
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   buffer_create_info.size = sizeof(CameraInfoBlock) * Platform::Constants::initial_camera_size;
@@ -1579,7 +1579,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     deferred_render_instances->Register(render_instance);
   }
 
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const uint32_t task_work_group_invocations =
         Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
     auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();

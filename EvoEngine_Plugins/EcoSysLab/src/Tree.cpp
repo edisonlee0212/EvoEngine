@@ -96,7 +96,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     GenerateBillboardClouds(foliage_billboard_cloud_generate_settings);
   }
 #endif
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   const auto scene = GetScene();
   editor_layer->DragAndDropButton<TreeDescriptor>(tree_descriptor_ref, "TreeDescriptor", true);
   static bool show_space_colonization_grid = true;
@@ -363,8 +363,8 @@ void Tree::Update() {
       temporal_progression = false;
     }
   }
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
 }
 
 void Tree::OnCreate() {
@@ -443,7 +443,7 @@ void Tree::BuildStrandModel() {
 bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
                    const bool pruning) {
   const auto scene = GetScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
 
   const auto climate_candidate = EcoSysLabLayer::FindClimate();
   if (!climate_candidate.expired())

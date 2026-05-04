@@ -1,0 +1,24 @@
+# Normalize text files to LF in every working tree.
+* text=auto eol=lf
+
+# Binary files should never be line-ending normalized.
+*.bmp binary
+*.dds binary
+*.dll binary
+*.exe binary
+*.fbx binary
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.lib binary
+*.obj binary
+*.pdb binary
+*.png binary
+*.so binary
+*.tga binary
+*.tif binary
+*.tiff binary
+*.ttf binary
+*.wav binary
+*.zip binary

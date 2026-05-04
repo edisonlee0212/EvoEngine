@@ -1,19 +1,22 @@
 #include "UniverseLayer.hpp"
 
-#include "ClassRegistry.hpp"
+#include "Application.hpp"
 #include "Times.hpp"
 
 using namespace universe_plugin;
-DataComponentRegistration<StarPosition> star_position_registry("StarPosition");
-DataComponentRegistration<SelectionStatus> selection_status_registry("SelectionStatus");
-DataComponentRegistration<StarInfo> star_info_registry("StarInfo");
-DataComponentRegistration<SurfaceColor> surface_color_registry("SurfaceColor");
-DataComponentRegistration<DisplayColor> display_color_registry("DisplayColor");
-DataComponentRegistration<OriginalColor> original_color_registry("OriginalColor");
-DataComponentRegistration<StarOrbitOffset> star_orbit_offset_registry("StarOrbitOffset");
-DataComponentRegistration<StarOrbitProportion> star_orbit_proportion_registry("StarOrbitProportion");
-DataComponentRegistration<StarOrbit> star_orbit_registry("StarOrbit");
-DataComponentRegistration<StarClusterIndex> star_cluster_index_registry("StarClusterIndex");
+
+void UniverseLayer::RegisterTypes(Application &application) {
+  application.RegisterDataComponent<StarPosition>("StarPosition");
+  application.RegisterDataComponent<SelectionStatus>("SelectionStatus");
+  application.RegisterDataComponent<StarInfo>("StarInfo");
+  application.RegisterDataComponent<SurfaceColor>("SurfaceColor");
+  application.RegisterDataComponent<DisplayColor>("DisplayColor");
+  application.RegisterDataComponent<OriginalColor>("OriginalColor");
+  application.RegisterDataComponent<StarOrbitOffset>("StarOrbitOffset");
+  application.RegisterDataComponent<StarOrbitProportion>("StarOrbitProportion");
+  application.RegisterDataComponent<StarOrbit>("StarOrbit");
+  application.RegisterDataComponent<StarClusterIndex>("StarClusterIndex");
+}
 
 void UniverseLayer::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
   ImGui::Checkbox("Cast shadow", &cast_shadow);
@@ -108,7 +111,7 @@ void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, con
 void RenderChunk(const std::shared_ptr<TerrainChunk> &chunk, const std::shared_ptr<Material> &material,
                  const GlobalTransform &matrix, const bool receive_shadow) {
   if (chunk->active) {
-    const auto render_layer = Application::GetLayer<RenderLayer>();
+    const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     render_layer->DrawMesh(chunk->mesh, material, matrix, true);
   }
   if (chunk->children_active) {
@@ -157,7 +160,7 @@ void UniverseLayer::Update() {
   CalculateStarPositionSync();
   // Do not touch below functions.
   counter_++;
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     if (const auto material = star_material_ref.Get<Material>()) {
       render_layer->DrawMeshInstanced(Resources::Primitives::sphere, material, {},
                                       particle_info_list_ref.Get<ParticleInfoList>(), cast_shadow);
@@ -404,7 +407,8 @@ void StarClusterPattern::OnInspect() {
 
 void StarClusterPattern::Apply(const bool &force_update_all_stars, const bool &only_update_colors) {
   SetAb();
-  Jobs::Wait(Application::GetActiveScene()
+  Jobs::Wait(ApplicationContext::Get()
+                 .GetActiveScene()
                  ->ForEach<StarInfo, StarClusterIndex, StarOrbit, StarOrbitOffset, StarOrbitProportion, SurfaceColor>(
                      {}, [&](int i, Entity entity, StarInfo &star_info, const StarClusterIndex &star_cluster_index,
                              StarOrbit &star_orbit, StarOrbitOffset &star_orbit_offset,

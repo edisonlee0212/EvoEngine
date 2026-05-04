@@ -4,7 +4,7 @@
 using namespace eco_sys_lab_plugin;
 
 void TreeOccupancyGrid::ResetMarkers() {
-  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {
+  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](size_t i) {
     auto& voxel_data = occupancy_grid_.Ref(static_cast<int>(i));
 
     for (auto& marker : voxel_data.markers) {
@@ -43,7 +43,7 @@ void TreeOccupancyGrid::Initialize(const glm::vec3& min, const glm::vec3& max, c
   markers_per_voxel_ = markers_per_voxel;
   occupancy_grid_.Initialize(removal_distance_factor_ * internode_length, min, max, {});
   const auto voxel_size = occupancy_grid_.GetVoxelSize();
-  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {
+  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](size_t i) {
     auto& voxel_data = occupancy_grid_.Ref(static_cast<int>(i));
     for (int v = 0; v < markers_per_voxel_; v++) {
       auto& new_marker = voxel_data.markers.emplace_back();
@@ -61,7 +61,7 @@ void TreeOccupancyGrid::Resize(const glm::vec3& min, const glm::vec3& max) {
       glm::ceil((max - occupancy_grid_.GetMaxBound() + detection_distance_factor_ * internode_length_) / voxel_size);
   occupancy_grid_.Resize(-diff_min, diff_max);
   const auto new_resolution = occupancy_grid_.GetResolution();
-  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {
+  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](size_t i) {
     const auto coordinate = occupancy_grid_.GetCoordinate(i);
 
     if (coordinate.x < -diff_min.x || coordinate.y < -diff_min.y || coordinate.z < -diff_min.z ||
@@ -89,7 +89,7 @@ void TreeOccupancyGrid::Initialize(const VoxelGrid<TreeOccupancyGridBasicData>& 
   occupancy_grid_.Initialize(removal_distance_factor_ * internode_length, min, max, {});
   const auto voxel_size = occupancy_grid_.GetVoxelSize();
 
-  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {
+  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](size_t i) {
     const glm::vec3 normalized_position =
         glm::vec3(occupancy_grid_.GetCoordinate(i)) / glm::vec3(occupancy_grid_.GetResolution()) -
         glm::vec3(0.5f, 0.0f, 0.5f);
@@ -121,7 +121,7 @@ void TreeOccupancyGrid::Initialize(const std::shared_ptr<RadialBoundingVolume>& 
   occupancy_grid_.Initialize(removal_distance_factor_ * internode_length, min, max, {});
   const auto voxel_size = occupancy_grid_.GetVoxelSize();
 
-  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {
+  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](size_t i) {
     if (src_radial_bounding_volume->InVolume(occupancy_grid_.GetPosition(i))) {
       auto& voxel_data = occupancy_grid_.Ref(static_cast<int>(i));
       for (int v = 0; v < markers_per_voxel_; v++) {
@@ -147,7 +147,7 @@ glm::vec3 TreeOccupancyGrid::GetMax() const {
 
 void TreeOccupancyGrid::InsertObstacle(const GlobalTransform& global_transform,
                                        const std::shared_ptr<CubeVolume>& cube_volume) {
-  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](unsigned i) {
+  Jobs::RunParallelFor(occupancy_grid_.GetVoxelCount(), [&](size_t i) {
     const auto center = occupancy_grid_.GetPosition(i);
     if (cube_volume->InVolume(global_transform, center)) {
       occupancy_grid_.Ref(i).markers.clear();

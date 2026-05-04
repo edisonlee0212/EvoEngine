@@ -15,14 +15,14 @@ bool IVolume::InVolume(const glm::vec3& position) {
 void IVolume::InVolume(const GlobalTransform& global_transform, const std::vector<glm::vec3>& positions,
                        std::vector<bool>& results) {
   results.resize(positions.size());
-  Jobs::RunParallelFor(positions.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(positions.size(), [&](size_t i) {
     results[i] = InVolume(global_transform, positions[i]);
   });
 }
 
 void IVolume::InVolume(const std::vector<glm::vec3>& positions, std::vector<bool>& results) {
   results.resize(positions.size());
-  Jobs::RunParallelFor(positions.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(positions.size(), [&](size_t i) {
     results[i] = InVolume(positions[i]);
   });
 }

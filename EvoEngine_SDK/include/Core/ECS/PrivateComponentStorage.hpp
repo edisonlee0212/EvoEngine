@@ -98,6 +98,20 @@ class PrivateComponentStorage {
   void SetPrivateComponent(const Entity &entity, size_t id);
 
   /**
+   * @brief Checks whether any entity currently owns a private component type.
+   * @param type_id The private component type ID.
+   * @return True when at least one owner exists.
+   */
+  [[nodiscard]] bool HasPrivateComponentOwners(const size_t &type_id) const;
+
+  /**
+   * @brief Clears cached private components of a type from the reuse pool.
+   * @param type_id The private component type ID.
+   * @return The number of pooled components released.
+   */
+  size_t ClearPrivateComponentPool(const size_t &type_id);
+
+  /**
    * @brief Removes a private component of type T from an entity.
    * @tparam T The type of the private component.
    * @param entity The entity from which to remove the private component.

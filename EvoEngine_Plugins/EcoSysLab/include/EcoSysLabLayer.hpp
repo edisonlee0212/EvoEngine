@@ -14,7 +14,7 @@ using namespace evo_engine;
 
 /**
  * @class EcoSysLabLayer
- * @brief Represents a layer for managing the EcoSysLab plugin, providing simulation and visualization functionalities.
+ * @brief Represents a layer for managing the EcoSysLab Plugin, providing simulation and visualization functionalities.
  */
 class EcoSysLabLayer : public ILayer {
  public:
@@ -390,6 +390,7 @@ class EcoSysLabLayer : public ILayer {
   /**
    * @brief Updates the EcoSysLab layer.
    */
+  void RegisterTypes(Application& application) override;
   void Update() override;
 
   /**

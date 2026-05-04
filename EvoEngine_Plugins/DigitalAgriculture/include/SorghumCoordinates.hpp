@@ -10,7 +10,7 @@ using namespace evo_engine;
  * @brief Represents the coordinates for placing sorghum plants in a field.
  *
  * This class handles the positioning, rotation variance, sampling, and import/export
- * of sorghum plant coordinates within the Digital Agriculture plugin.
+ * of sorghum plant coordinates within the Digital Agriculture Plugin.
  */
 class SorghumCoordinates : public IAsset {
   friend class SorghumLayer;

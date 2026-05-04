@@ -1,4 +1,4 @@
-﻿#include "SorghumDescriptor.hpp"
+#include "SorghumDescriptor.hpp"
 
 #include "IVolume.hpp"
 #include "Sorghum.hpp"
@@ -132,7 +132,7 @@ void SorghumStemDescriptor::Deserialize(const YAML::Node& in) {
 void SorghumStemDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std::vector<unsigned>& indices) const {
   if (spline.segments.empty())
     return;
-  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   if (!sorghum_layer)
     return;
   std::vector<SorghumSplineSegment> segments;
@@ -217,7 +217,7 @@ void SorghumLeafDescriptor::GenerateGeometry(std::vector<Vertex>& vertices, std:
                                              bool current_bottom_face) const {
   if (spline.segments.empty())
     return;
-  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   if (!sorghum_layer)
     return;
   std::vector<SorghumSplineSegment> segments;  // = spline.segments;
@@ -404,12 +404,12 @@ void SorghumDescriptor::Deserialize(const YAML::Node& in) {
 }
 
 Entity SorghumDescriptor::CreateEntity(const std::string& name) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto sorghum_entity = scene->CreateEntity(name);
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
   sorghum->sorghum_descriptor = GetSelf();
 
-  if (const auto sorghum_layer = Application::GetLayer<SorghumLayer>()) {
+  if (const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>()) {
     sorghum_layer->sorghum_mesh_generator_settings.enable_stem = true;
     sorghum->GenerateGeometryEntities(sorghum_layer->sorghum_mesh_generator_settings);
   } else {

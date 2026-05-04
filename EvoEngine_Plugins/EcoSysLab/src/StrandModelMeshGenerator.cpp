@@ -145,7 +145,7 @@ void StrandModelMeshGenerator::CylindricalMeshing(const StrandModel& strand_mode
     node_handles.insert(node_handle);
   }
   const auto current_vertices_size = vertices.size();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   CylindricalMeshGenerator<StrandModelSkeletonData, StrandModelFlowData, StrandModelNodeData>::GeneratePartially(
       node_handles, skeleton, vertices, indices, eco_sys_lab_layer->mesh_generator_settings,
       [&](glm::vec3&, const glm::vec3&, const float, const float) {
@@ -390,7 +390,7 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
   if (settings.fast_uv) {
     const auto& sorted_node_list = strand_model.strand_model_skeleton.PeekSortedNodeList();
 
-    Jobs::RunParallelFor(vertices.size(), [&](unsigned vertex_index) {
+    Jobs::RunParallelFor(vertices.size(), [&](size_t vertex_index) {
       auto& vertex = vertices.at(vertex_index);
 
       float min_distance = FLT_MAX;
@@ -475,7 +475,7 @@ void StrandModelMeshGenerator::CalculateUv(const StrandModel& strand_model, std:
       boundary_segments.Ref((segment_start + segment_end) * 0.5f).emplace_back(strand_segment_handle);
     }
 
-    Jobs::RunParallelFor(vertices.size(), [&](unsigned vertex_index) {
+    Jobs::RunParallelFor(vertices.size(), [&](size_t vertex_index) {
       auto& vertex = vertices.at(vertex_index);
       float min_distance = FLT_MAX;
       StrandSegmentHandle closest_segment_handle = -1;

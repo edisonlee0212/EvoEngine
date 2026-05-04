@@ -13,7 +13,7 @@ bool Lod::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::PopStyleColor(1);
   EntityRef temp{};
   if (EditorLayer::Droppable(temp)) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto entity = temp.Get();
     if (scene->HasPrivateComponent<MeshRenderer>(entity)) {
       const auto pc = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
@@ -74,7 +74,7 @@ bool Lod::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
   for (auto it = renderers.begin(); it != renderers.end(); ++it) {
     if (const auto ptr = it->Get<IPrivateComponent>()) {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       if (!scene->IsEntityValid(ptr->GetOwner())) {
         it->Clear();
         ImGui::Button("none");

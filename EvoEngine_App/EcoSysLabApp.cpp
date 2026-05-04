@@ -28,6 +28,7 @@ using namespace evo_engine;
 void EngineSetup();
 
 int main() {
+  Application application;
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -73,35 +74,35 @@ int main() {
 
   EngineSetup();
 
-  Application::PushLayer<RenderLayer>("Render Layer");
-  Application::PushLayer<WindowLayer>("Window Layer");
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
 #ifdef PHYSX_PHYSICS_PLUGIN
-  Application::PushLayer<PhysicsLayer>();
+  ApplicationContext::Get().PushLayer<PhysicsLayer>();
 #endif
 #ifdef ECOSYSLAB_PLUGIN
-  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer")->enable_inspection = true;
-  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
-  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
-  PrivateComponentRegistration<FungusTest>("FungusTest");
+  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer")->enable_inspection = true;
+  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
+  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
+  application.RegisterPrivateComponent<FungusTest>("FungusTest");
 #endif
 #ifdef TEXTURE_BAKING_PLUGIN
-  PrivateComponentRegistration<TextureBaking>("TextureBaking");
+  application.RegisterPrivateComponent<TextureBaking>("TextureBaking");
 #endif
 
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
-  Application::Initialize(application_configs);
+  ApplicationContext::Get().Initialize(application_configs);
 
 #ifdef PHYSX_PHYSICS_PLUGIN
-  Application::GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
+  ApplicationContext::Get().GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif
   // adjust default camera speed
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
   camera_settings.use_clear_color = true;
@@ -110,12 +111,12 @@ int main() {
   const auto post_processing_stack =
       editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
   post_processing_stack->enable_bloom = false;
-  auto render_layer = Application::GetLayer<RenderLayer>();
+  auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 #pragma region Engine Loop
-  Application::Start();
-  Application::Run();
+  ApplicationContext::Get().Start();
+  ApplicationContext::Get().Run();
 #pragma endregion
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }
 
 void EngineSetup() {
@@ -128,7 +129,7 @@ void EngineSetup() {
     transform = Transform();
     transform.SetPosition(glm::vec3(0, 2, 35));
     transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));
-    if (const auto main_camera = Application::GetActiveScene()->main_camera.Get<Camera>()) {
+    if (const auto main_camera = ApplicationContext::Get().GetActiveScene()->main_camera.Get<Camera>()) {
       scene->SetDataComponent(main_camera->GetOwner(), transform);
       main_camera->camera_settings.use_clear_color = true;
       main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
