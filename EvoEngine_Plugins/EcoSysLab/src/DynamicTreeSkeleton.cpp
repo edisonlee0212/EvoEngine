@@ -12,7 +12,7 @@ bool DynamicTreeSkeleton::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     changed = true;
   if (!simulate) {
     if (ImGui::Button("Step")) {
-      PhysicsStep(Application::GetLayer<EcoSysLabLayer>()->dynamic_skeleton_settings_.physics_parameters);
+      PhysicsStep(ApplicationContext::Get().GetLayer<EcoSysLabLayer>()->dynamic_skeleton_settings_.physics_parameters);
     }
   }
   if (editor_layer->DragAndDropButton<Tree>(dynamic_tree_skeleton_tree_ref, "Download Skeleton from Tree...")) {

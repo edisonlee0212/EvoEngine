@@ -3,43 +3,78 @@
 //
 
 #include "EcoSysLabLayer.hpp"
+
+#include "AdvancedShootDescriptor.hpp"
+#include "Application.hpp"
+#include "BasicBarkDescriptor.hpp"
+#include "BasicFineRootDescriptor.hpp"
+#include "BasicFoliageDescriptor.hpp"
+#include "BasicPruningDescriptor.hpp"
+#include "BasicReproductionModuleDescriptor.hpp"
+#include "BasicRootDescriptor.hpp"
+#include "BasicShootDescriptor.hpp"
 #include "Times.hpp"
 #ifdef BILLBOARD_CLOUDS_PLUGIN
 #  include "BillboardCloudsConverter.hpp"
 #endif
-#include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
+#include "DsColliders.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
 #include "DynamicTreeSkeleton.hpp"
+#include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "ForestDescriptor.hpp"
+#include "HeightField.hpp"
 #include "Prefab.hpp"
+#include "RadialBoundingVolume.hpp"
 #include "Shader.hpp"
 #include "Soil.hpp"
+#include "SoilDescriptor.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
 #include "Tree.hpp"
+#include "TreeDescriptor.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_plugin;
 
-PrivateComponentRegistration<TreeStructor> tree_structor_registry("TreeStructor");
-PrivateComponentRegistration<Climate> climate_registry("Climate");
-
-PrivateComponentRegistration<SpatialPlantDistributionSimulator> spds_registry("SpatialPlantDistributionSimulator");
-PrivateComponentRegistration<DynamicTreeSkeleton> dynamic_tree_skeleton_registry("DynamicTreeSkeleton");
-
-AssetRegistration<ClimateDescriptor> climate_d_registry("ClimateDescriptor", {".climate"});
-AssetRegistration<RadialBoundingVolume> rbv_registry("RadialBoundingVolume", {".rbv"});
-AssetRegistration<CubeVolume> cube_volume_registry("CubeVolume", {".cubevolume"});
-
-AssetRegistration<ForestPatch> forest_patch_registry("ForestPatch", {".forestpatch"});
-
-PrivateComponentRegistration<DynamicStrandsDemo> dynamic_strands_demo_registry("DynamicStrandsDemo");
-
+void EcoSysLabLayer::RegisterTypes(Application& application) {
+  application.RegisterPrivateComponent<TreeStructor>("TreeStructor");
+  application.RegisterPrivateComponent<Climate>("Climate");
+  application.RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator");
+  application.RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton");
+  application.RegisterPrivateComponent<DynamicStrandsDemo>("DynamicStrandsDemo");
+  application.RegisterPrivateComponent<Tree>("Tree");
+  application.RegisterPrivateComponent<Soil>("Soil");
+  application.RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider");
+  application.RegisterPrivateComponent<DsSphereCollider>("DsSphereCollider");
+  application.RegisterPrivateComponent<DsCylinderCollider>("DsCylinderCollider");
+  application.RegisterPrivateComponent<DynamicTreeStrands>("DynamicTreeStrands");
 #ifdef BILLBOARD_CLOUDS_PLUGIN
-PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converter_register("BillboardCloudsConverter");
+  application.RegisterPrivateComponent<BillboardCloudsConverter>("BillboardCloudsConverter");
 #endif
+
+  application.RegisterAsset<ClimateDescriptor>("ClimateDescriptor", {".climate"});
+  application.RegisterAsset<RadialBoundingVolume>("RadialBoundingVolume", {".rbv"});
+  application.RegisterAsset<CubeVolume>("CubeVolume", {".cubevolume"});
+  application.RegisterAsset<ForestPatch>("ForestPatch", {".forestpatch"});
+  application.RegisterAsset<BasicBarkDescriptor>("BasicBarkDescriptor", {".bark"});
+  application.RegisterAsset<ForestDescriptor>("ForestDescriptor", {".forest"});
+  application.RegisterAsset<TreeDescriptor>("TreeDescriptor", {".tree"});
+  application.RegisterAsset<BasicPruningDescriptor>("BasicPruningDescriptor", {".pruning"});
+  application.RegisterAsset<BasicShootDescriptor>("BasicShootDescriptor", {".shoot"});
+  application.RegisterAsset<BasicRootDescriptor>("BasicRootDescriptor", {".root"});
+  application.RegisterAsset<BasicFineRootDescriptor>("BasicFineRootDescriptor", {".froot"});
+  application.RegisterAsset<BasicReproductionModuleDescriptor>("BasicReproductionModuleDescriptor", {".repro"});
+  application.RegisterAsset<BasicFoliageDescriptor>("BasicFoliageDescriptor", {".foliage"});
+  application.RegisterAsset<AdvancedShootDescriptor>("AdvancedShootDescriptor", {".ashoot"});
+  application.RegisterAsset<ModulusGraph>("ModulusGraph", {".evemodulus"});
+  application.RegisterAsset<StrengthGraph>("StrengthGraph", {".evestrength"});
+  application.RegisterAsset<BiologicalPropertiesGraph>("TrunkGraph", {".evetrunk"});
+  application.RegisterAsset<HeightField>("HeightField", {".heightfield"});
+  application.RegisterAsset<SoilLayerDescriptor>("SoilLayerDescriptor", {".soillayer"});
+  application.RegisterAsset<SoilDescriptor>("SoilDescriptor", {".soil"});
+}
 
 void EcoSysLabLayer::OnCreate() {
   Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
@@ -71,13 +106,13 @@ void EcoSysLabLayer::OnCreate() {
   visualization_camera_->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
 #pragma endregion
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     editor_layer->RegisterEditorCamera(visualization_camera_);
   }
 }
 
 std::weak_ptr<Climate> EcoSysLabLayer::FindClimate() {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const std::vector<Entity>* climate_entities = scene->UnsafeGetPrivateComponentOwnersList<Climate>();
   if (climate_entities && !climate_entities->empty()) {
     return scene->GetOrSetPrivateComponent<Climate>(climate_entities->at(0));
@@ -554,7 +589,7 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
 void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
                                  const std::shared_ptr<Strands>& branch_strands) {
   {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
 
     bounding_box_matrices_->SetParticleInfos({});
 
@@ -628,7 +663,7 @@ void EcoSysLabLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
       foliage_matrices.resize(leaf_last_start_index);
       flower_matrices.resize(flower_last_start_index);
       fruit_matrices.resize(fruit_last_start_index);
-      Jobs::RunParallelFor(tree_entities->size(), [&](unsigned tree_index) {
+      Jobs::RunParallelFor(tree_entities->size(), [&](size_t tree_index) {
         auto tree_entity = tree_entities->at(tree_index);
         auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
         auto& tree_model = tree->shoot_model;

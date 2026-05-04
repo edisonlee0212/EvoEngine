@@ -8,13 +8,13 @@
 using namespace evo_engine;
 
 void WindowLayer::FramebufferSizeCallback(GLFWwindow* window, int width, int height) {
-  if (const auto window_layer = Application::GetLayer<WindowLayer>(); window_layer->window_ == window) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>(); window_layer->window_ == window) {
     window_layer->window_size_ = {width, height};
   }
 }
 
 void WindowLayer::SetMonitorCallback(GLFWmonitor* monitor, int event) {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (event == GLFW_CONNECTED) {
     // The monitor was connected
     for (const auto& i : window_layer->monitors_)
@@ -33,7 +33,7 @@ void WindowLayer::SetMonitorCallback(GLFWmonitor* monitor, int event) {
 }
 
 void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 
   if (focused) {
     ProjectManager::DispatchScanAssetsTask();
@@ -41,7 +41,7 @@ void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
 }
 
 void WindowLayer::OnCreate() {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>(); !render_layer) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>(); !render_layer) {
     throw std::runtime_error("RenderLayer not present!");
   }
 }
@@ -54,7 +54,7 @@ void WindowLayer::OnDestroy() {
 }
 
 void WindowLayer::Render() {
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       Platform::EverythingBarrier(vk_command_buffer);
       Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
@@ -96,7 +96,7 @@ void WindowLayer::Render() {
     }
   } else {
     const auto& graphics = Platform::GetInstance();
-    if (const auto scene = Application::GetActiveScene()) {
+    if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
       if (const auto main_camera = scene->main_camera.Get<Camera>();
           main_camera->IsEnabled() && main_camera->Rendered()) {
         const auto swapchain = Platform::GetSwapchain();
@@ -128,8 +128,8 @@ void WindowLayer::Render() {
           VkViewport viewport;
           viewport.x = 0.0f;
           viewport.y = 0.0f;
-          viewport.width = render_area.extent.width;
-          viewport.height = render_area.extent.height;
+          viewport.width = static_cast<float>(render_area.extent.width);
+          viewport.height = static_cast<float>(render_area.extent.height);
           viewport.minDepth = 0.0f;
           viewport.maxDepth = 1.0f;
 

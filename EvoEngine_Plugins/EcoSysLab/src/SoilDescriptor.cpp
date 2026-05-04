@@ -230,7 +230,7 @@ bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   */
 
   if (ImGui::Button("Instantiate")) {
-    auto scene = Application::GetActiveScene();
+    auto scene = ApplicationContext::Get().GetActiveScene();
     auto soil_entity = scene->CreateEntity(GetTitle());
     auto soil = scene->GetOrSetPrivateComponent<Soil>(soil_entity).lock();
     soil->soil_descriptor_ref = GetSelf();

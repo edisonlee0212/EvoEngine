@@ -59,7 +59,7 @@ void ProjectManager::SetupDefaultScene() {
       scene = std::dynamic_pointer_cast<Scene>(temp);
       SetStartScene(scene);
       SaveProject();
-      Application::Attach(scene);
+      ApplicationContext::Get().Attach(scene);
       found_scene = true;
     }
     EVOENGINE_LOG("Found and loaded project")
@@ -76,7 +76,7 @@ void ProjectManager::SetupDefaultScene() {
     }
     SetStartScene(scene);
     SaveProject();
-    Application::Attach(scene);
+    ApplicationContext::Get().Attach(scene);
 
     if (project_manager.new_scene_customizer_.has_value()) {
       project_manager.new_scene_customizer_.value()(scene);
@@ -88,7 +88,7 @@ void ProjectManager::SetupDefaultScene() {
 }
 
 void ProjectManager::PreUpdate() {
-  const auto window_layer = Application::GetLayer<WindowLayer>();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (window_layer && Platform::GetFrameCount() < 4)
     return;
   auto& project_manager = GetInstance();
@@ -201,7 +201,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
   AssetManager::Clear();
   FileManager::Clear();
-  Application::Reset();
+  ApplicationContext::Get().Reset();
 
   auto& file_manager = FileManager::GetInstance();
   project_manager.current_focused_folder_ = project_manager.assets_folder_ = std::make_shared<Folder>();
@@ -211,7 +211,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   file_manager.file_registry_mutex.unlock();
   project_manager.assets_folder_->self_ = project_manager.assets_folder_;
 
-  if (const auto window_layer = Application::GetLayer<WindowLayer>()) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     DispatchScanAssetsTask();
   } else {
     ScanAssets();
@@ -371,7 +371,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             IM_ASSERT(payload->DataSize == sizeof(Handle));
             auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
             auto entity_handle = *static_cast<Handle*>(payload->Data);
-            auto scene = Application::GetActiveScene();
+            auto scene = ApplicationContext::Get().GetActiveScene();
             if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
               prefab->FromEntity(entity);
               // If current folder doesn't contain file with same name
@@ -575,7 +575,7 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                 IM_ASSERT(payload->DataSize == sizeof(Handle));
                 auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
                 auto entity_handle = *static_cast<Handle*>(payload->Data);
-                auto scene = Application::GetActiveScene();
+                auto scene = ApplicationContext::Get().GetActiveScene();
                 if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
                   // If current folder doesn't contain file with same name
                   auto file_name = scene->GetEntityName(entity);

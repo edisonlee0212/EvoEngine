@@ -13,7 +13,7 @@ using namespace evo_engine;
 
 /**
  * @class SorghumLayer
- * @brief A layer responsible for handling and generating 3D sorghum models in the DigitalAgriculture plugin.
+ * @brief A layer responsible for handling and generating 3D sorghum models in the DigitalAgriculture Plugin.
  */
 class SorghumLayer : public ILayer {
   /**
@@ -104,6 +104,7 @@ class SorghumLayer : public ILayer {
   /**
    * @brief Called when the layer is created.
    */
+  void RegisterTypes(Application& application) override;
   void OnCreate() override;
 
   /**

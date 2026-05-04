@@ -896,7 +896,7 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
                                           const std::function<void(YAML::Emitter&, const Od&)>& output_pin_func,
                                           const std::function<void(YAML::Emitter&, const Nd&)>& node_func,
                                           const std::function<void(YAML::Emitter&, const Ld&)>& link_func) const {
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   ImNodesEditorContext* prev_editor_context = nullptr;
   if (editor_layer) {
     prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
@@ -1030,7 +1030,7 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
                                             const std::function<void(const YAML::Node&, Od&)>& output_pin_func,
                                             const std::function<void(const YAML::Node&, Nd&)>& node_func,
                                             const std::function<void(const YAML::Node&, Ld&)>& link_func) {
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   ImNodesEditorContext* prev_editor_context = nullptr;
   if (editor_layer) {
     prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;

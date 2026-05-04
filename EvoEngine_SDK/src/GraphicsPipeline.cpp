@@ -125,7 +125,7 @@ void GraphicsPipeline::Initialize() {
       return;
     }
   }
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   std::vector<VkDescriptorSetLayout> set_layouts = {};
   set_layouts.reserve(descriptor_set_layouts.size());
   for (const auto& i : descriptor_set_layouts) {

@@ -111,7 +111,7 @@ void Physics2D<T>::SolveContact(RigidBodyHandle p1_handle, RigidBodyHandle p2_ha
 
 template <typename T>
 void Physics2D<T>::Update(const std::function<void(RigidBody2D<T>& collision_rigid_body)>& modify_rigid_body_func) {
-  Jobs::RunParallelFor(rigid_bodies_2d_.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(rigid_bodies_2d_.size(), [&](size_t i) {
     modify_rigid_body_func(rigid_bodies_2d_[i]);
   });
   for (size_t i = 0; i < rigid_bodies_2d_.size(); i++) {
@@ -119,7 +119,7 @@ void Physics2D<T>::Update(const std::function<void(RigidBody2D<T>& collision_rig
       SolveContact(i, j);
     }
   }
-  Jobs::RunParallelFor(rigid_bodies_2d_.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(rigid_bodies_2d_.size(), [&](size_t i) {
     rigid_bodies_2d_[i].Update(delta_time_);
   });
 }
@@ -143,7 +143,7 @@ void Physics2D<T>::RemoveRigidBody(RigidBodyHandle handle) {
 
 template <typename T>
 void Physics2D<T>::Shift(const glm::vec2& offset) {
-  Jobs::RunParallelFor(rigid_bodies_2d_.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(rigid_bodies_2d_.size(), [&](size_t i) {
     auto& particle = rigid_bodies_2d_[i];
     particle.SetPosition(particle.position_ + offset);
   });

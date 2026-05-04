@@ -127,6 +127,7 @@ class PhysicsLayer : public ILayer {
 
  public:
   std::shared_ptr<PhysicsMaterial> default_physics_material;
+  void RegisterTypes(Application &application) override;
   void UploadTransforms(const std::shared_ptr<Scene> &scene, const bool &update_all, const bool &freeze = false);
   void UploadRigidBodyShapes(const std::shared_ptr<Scene> &scene);
   void UploadJointLinks(const std::shared_ptr<Scene> &scene);

@@ -7,14 +7,15 @@ using namespace py_eco_sys_lab_plugin;
 
 #endif
 void PyEcoSysLab::PushEcoSysLabLayer() {
-  Application::PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
+  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
 }
 void PyEcoSysLab::RegisterClasses() {
 #ifdef ECOSYSLAB_PLUGIN
-  PrivateComponentRegistration<ObjectRotator>("ObjectRotator");
-  PrivateComponentRegistration<Physics2DDemo>("Physics2DDemo");
-  PrivateComponentRegistration<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  PrivateComponentRegistration<TreePointCloudScanner>("TreePointCloudScanner");
+  auto& application = PyEvoEngine::GetRuntime().GetApplication();
+  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
+  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
+  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
+  application.RegisterPrivateComponent<TreePointCloudScanner>("TreePointCloudScanner");
 #endif
 }
 void PyEcoSysLab::Initialize(pybind11::module& m) {

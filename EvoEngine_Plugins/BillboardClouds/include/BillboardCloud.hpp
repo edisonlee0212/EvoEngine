@@ -211,7 +211,7 @@ void BillboardCloud::DilateChannels(const std::vector<size_t>& channels, std::ve
     iteration++;
     bool any_pixel_updated = false;
     std::vector<bool> update_lists = valid_pixels;
-    Jobs::RunParallelFor(data.size(), [&](const unsigned pixel_index) {
+    Jobs::RunParallelFor(data.size(), [&](size_t pixel_index) {
       if (valid_pixels[pixel_index])
         return;
       auto is_valid_pixel = [](const std::vector<bool>& vp, const int x_index, const int y_index, const int tex_width,
@@ -279,7 +279,7 @@ void BillboardCloud::Dilate(std::vector<T>& data, std::vector<bool>& valid_pixel
     iteration++;
     bool any_pixel_updated = false;
     std::vector<bool> update_lists = valid_pixels;
-    Jobs::RunParallelFor(data.size(), [&](const unsigned pixel_index) {
+    Jobs::RunParallelFor(data.size(), [&](size_t pixel_index) {
       if (valid_pixels[pixel_index])
         return;
       auto is_valid_pixel = [](const std::vector<bool>& vp, const int x_index, const int y_index, const int tex_width,

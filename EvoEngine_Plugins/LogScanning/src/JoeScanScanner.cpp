@@ -205,7 +205,7 @@ bool JoeScanScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       std::lock_guard lock(*scanner_mutex_);
       data.resize(points_.size());
       {
-        Jobs::RunParallelFor(points_.size(), [&](unsigned i) {
+        Jobs::RunParallelFor(points_.size(), [&](size_t i) {
           data[i].instance_matrix.SetPosition(glm::vec3(points_[i].x, points_[i].y, -1.f));
         });
       }

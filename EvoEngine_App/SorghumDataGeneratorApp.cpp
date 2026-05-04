@@ -25,63 +25,63 @@ using namespace dataset_generation_plugin;
 
 using namespace evo_engine;
 
-void register_classes() {
+void register_classes(Application& application) {
 #ifdef DATASET_GENERATION_PLUGIN
-  PrivateComponentRegistration<SorghumPointCloudScanner>("SorghumPointCloudScanner");
+  application.RegisterPrivateComponent<SorghumPointCloudScanner>("SorghumPointCloudScanner");
 #endif
 }
 
-void run_with_editor(const std::filesystem::path& project_path) {
+void run_with_editor(Application& application, const std::filesystem::path& project_path) {
   if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
     return;
   }
-  register_classes();
+  register_classes(application);
 
-  Application::PushLayer<RenderLayer>("Render Layer");
-  Application::PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
 
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-  Application::PushLayer<SorghumLayer>("Sorghum Layer");
+  ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
 
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
   const auto new_scene =
       std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("DigitalAgriculture.evescene"));
-  Application::Attach(new_scene);
-  Application::Start();
+  ApplicationContext::Get().Attach(new_scene);
+  ApplicationContext::Get().Start();
 }
 
-void run_windowless(const PointCloudCaptureSettings::CaptureMode capture_mode,
+void run_windowless(Application& application, const PointCloudCaptureSettings::CaptureMode capture_mode,
                     const std::filesystem::path& project_path) {
   if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
     return;
   }
-  register_classes();
+  register_classes(application);
   switch (capture_mode) {
     case PointCloudCaptureSettings::CaptureMode::Cpu: {
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-      Application::PushLayer<SorghumLayer>("Sorghum Layer");
+      ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
     } break;
     case PointCloudCaptureSettings::CaptureMode::Gpu:
-      Application::PushLayer<RenderLayer>("Render Layer");
+      ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
-      Application::PushLayer<SorghumLayer>("Sorghum Layer");
+      ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
 #endif
       break;
   }
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
-  Application::Initialize(application_info);
+  ApplicationContext::Get().Initialize(application_info);
   const auto new_scene =
       std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset("DigitalAgriculture.evescene"));
-  Application::Attach(new_scene);
-  Application::Start();
+  ApplicationContext::Get().Attach(new_scene);
+  ApplicationContext::Get().Start();
 }
 
 void sorghum_field_point_cloud(const uint32_t output_size, int grid_size, float grid_distance, const float random_shift,
@@ -90,10 +90,10 @@ void sorghum_field_point_cloud(const uint32_t output_size, int grid_size, float 
                                const std::filesystem::path& sorghum_generator_path,
                                const std::filesystem::path& output_folder) {
 #ifndef DIGITAL_AGRICULTURE_PLUGIN
-  throw std::runtime_error("DigitalAgriculture plugin missing!");
+  throw std::runtime_error("DigitalAgriculture Plugin missing!");
 #endif
 #ifndef DATASET_GENERATION_PLUGIN
-  throw std::runtime_error("DatasetGeneration plugin missing!");
+  throw std::runtime_error("DatasetGeneration Plugin missing!");
 #endif
 
   std::filesystem::create_directories(output_folder);
@@ -119,7 +119,7 @@ void sorghum_field_point_cloud(const uint32_t output_size, int grid_size, float 
 
   int index = 0;
   const auto sorghum_field = AssetManager::CreateTemporaryAsset<SorghumField>();
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
 
   for (int i = 0; i < output_size; i++) {
     const std::string prefix = "SorghumField_" + std::to_string(i);
@@ -137,10 +137,10 @@ void sorghum_point_cloud(const uint32_t output_size, const bool avoid_occlusion,
                          const std::filesystem::path& sorghum_generator_path,
                          const std::filesystem::path& output_folder) {
 #ifndef DIGITAL_AGRICULTURE_PLUGIN
-  throw std::runtime_error("DigitalAgriculture plugin missing!");
+  throw std::runtime_error("DigitalAgriculture Plugin missing!");
 #endif
 #ifndef DATASET_GENERATION_PLUGIN
-  throw std::runtime_error("DatasetGeneration plugin missing!");
+  throw std::runtime_error("DatasetGeneration Plugin missing!");
 #endif
   sorghum_gantry_capture_settings->grid_size = {1, 1};
   sorghum_gantry_capture_settings->grid_distance = {2.0, 2.0};
@@ -158,7 +158,7 @@ void sorghum_point_cloud(const uint32_t output_size, const bool avoid_occlusion,
   data_generation_parameters.avoid_occlusion = avoid_occlusion;
   data_generation_parameters.generate_ground_mesh = generate_ground;
   int index = 0;
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
 
   for (int i = 0; i < output_size; i++) {
     std::string name = "Sorghum_" + std::to_string(i);
@@ -176,10 +176,10 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
                               const std::filesystem::path& sorghum_generator_path,
                               const std::filesystem::path& output_folder) {
 #ifndef DIGITAL_AGRICULTURE_PLUGIN
-  throw std::runtime_error("DigitalAgriculture plugin missing!");
+  throw std::runtime_error("DigitalAgriculture Plugin missing!");
 #endif
 #ifndef DATASET_GENERATION_PLUGIN
-  throw std::runtime_error("DatasetGeneration plugin missing!");
+  throw std::runtime_error("DatasetGeneration Plugin missing!");
 #endif
   sorghum_gantry_capture_settings->grid_size = {1, 1};
   sorghum_gantry_capture_settings->grid_distance = {2.0, 2.0};
@@ -197,7 +197,7 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
   data_generation_parameters.avoid_occlusion = avoid_occlusion;
   data_generation_parameters.generate_ground_mesh = generate_ground;
   int index = 0;
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
 
   for (int i = 0; i < output_size; i++) {
     std::string name = "Sorghum_" + std::to_string(i);
@@ -211,6 +211,7 @@ void sorghum_mesh_point_cloud(const uint32_t output_size, const bool avoid_occlu
 }
 
 int main() {
+  Application application;
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -234,7 +235,7 @@ int main() {
   capture_settings->output_spline_info = true;
   capture_settings->capture_mode = PointCloudCaptureSettings::CaptureMode::Gpu;
 
-  run_windowless(capture_settings->capture_mode, project_path);
+  run_windowless(application, capture_settings->capture_mode, project_path);
   const auto sg_relative_path = std::filesystem::path("SorghumGenerator") / "Random.sg";
   const auto output_folder_path = std::filesystem::current_path() / "SorghumData";
   sorghum_field_point_cloud(1, 8, 0.75f, 0, 0, capture_settings, sg_relative_path, output_folder_path);
@@ -247,5 +248,5 @@ int main() {
   const auto folder_path = output_folder_path.string();
   ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
 #endif
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }

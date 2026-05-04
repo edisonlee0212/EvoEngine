@@ -4,7 +4,7 @@
 #  include "RayTracerLayer.hpp"
 #endif
 #include <SorghumLayer.hpp>
-#include "ClassRegistry.hpp"
+#include "Application.hpp"
 #include "Platform.hpp"
 #include "SkyIlluminance.hpp"
 #include "SorghumGenerator.hpp"
@@ -21,20 +21,20 @@
 using namespace digital_agriculture_plugin;
 using namespace evo_engine;
 
-AssetRegistration<SorghumDescriptor> sorghum_descriptor_registry("SorghumDescriptor", {".sorghum"});
-PrivateComponentRegistration<Sorghum> sorghum_registry("Sorghum");
-
-AssetRegistration<SorghumGrowthStages> sgt_registry("SorghumGrowthStages", {".sgs"});
-AssetRegistration<SorghumState> ss_registry("SorghumState", {".ss"});
-
-AssetRegistration<SorghumGenerator> sdg_registry("SorghumGenerator", {".sg"});
-AssetRegistration<SorghumField> sf_registry("SorghumField", {".sorghumfield"});
+void SorghumLayer::RegisterTypes(Application& application) {
+  application.RegisterAsset<SorghumDescriptor>("SorghumDescriptor", {".sorghum"});
+  application.RegisterPrivateComponent<Sorghum>("Sorghum");
+  application.RegisterAsset<SorghumGrowthStages>("SorghumGrowthStages", {".sgs"});
+  application.RegisterAsset<SorghumState>("SorghumState", {".ss"});
+  application.RegisterAsset<SorghumGenerator>("SorghumGenerator", {".sg"});
+  application.RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
 #ifdef CUDA_MODULE_PLUGIN
-AssetRegistration<PARSensorGroup> parssg_registry("PARSensorGroup", {".parsensorgroup"});
-AssetRegistration<CBTFGroup> cbtfg_registry("CBTFGroup", {".cbtfgroup"});
+  application.RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"});
+  application.RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"});
 #endif
-AssetRegistration<SkyIlluminance> si_registry("SkyIlluminance", {".skyilluminance"});
-AssetRegistration<SorghumCoordinates> sc_registry("SorghumCoordinates", {".sorghumcoords"});
+  application.RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"});
+  application.RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"});
+}
 
 void SorghumLayer::OnCreate() {
   if (!leaf_material.Get<Material>()) {
@@ -239,7 +239,7 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 }
 
 void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsigned& start_index) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const std::string start = "#Sorghum\n";
   of.write(start.c_str(), start.size());
   of.flush();

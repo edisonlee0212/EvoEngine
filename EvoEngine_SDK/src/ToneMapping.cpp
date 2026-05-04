@@ -17,7 +17,7 @@ bool ToneMapping::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
                           const std::shared_ptr<Camera>& target_camera) {
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto resolution = target_camera->GetSize();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);

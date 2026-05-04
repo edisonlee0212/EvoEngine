@@ -5,7 +5,7 @@ using namespace evo_engine;
 
 /**
  * @class ObjectRotator
- * @brief A component that handles object rotation within the EcoSysLab plugin.
+ * @brief A component that handles object rotation within the EcoSysLab Plugin.
  *
  * This class allows objects to rotate at a specified speed and maintains
  * the current rotation as a 3D vector.

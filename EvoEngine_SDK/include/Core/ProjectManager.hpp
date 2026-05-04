@@ -12,7 +12,10 @@ namespace evo_engine {
  *        folder hierarchy, and project settings.
  */
 class ProjectManager {
-  EVOENGINE_SINGLETON_INSTANCE(ProjectManager)
+ public:
+  static ProjectManager& GetInstance();
+
+ private:
   friend class Application;
   friend class EditorLayer;
   friend class File;

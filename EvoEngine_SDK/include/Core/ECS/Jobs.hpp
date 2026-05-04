@@ -1,6 +1,5 @@
 
 #pragma once
-#include "ISingleton.hpp"
 #include "JobSystem.hpp"
 
 namespace evo_engine {
@@ -10,7 +9,10 @@ namespace evo_engine {
  * @brief A singleton class for managing job system operations such as parallel execution and scheduling.
  */
 class Jobs final {
-  EVOENGINE_SINGLETON_INSTANCE(Jobs)
+ public:
+  static Jobs& GetInstance();
+
+ private:
   JobSystem job_system_;
 
  public:

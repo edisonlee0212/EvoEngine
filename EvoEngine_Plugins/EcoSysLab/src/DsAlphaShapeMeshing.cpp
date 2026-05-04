@@ -593,7 +593,7 @@ void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera
                                     const DynamicStrandsInitializeParameters& initialize_parameters,
                                     const DynamicStrandsVisualizationParameters& visualization_parameters) {
   // Mesh shader support should be checked before calling this function
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1131,7 +1131,7 @@ void DsAlphaShapeMeshing::RegisterRenderInstances(Handle& rendering_instance_han
 
 void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_instance_handle,
                                                          std::shared_ptr<Scene> scene, Entity& owner) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1160,7 +1160,8 @@ void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_insta
         });
       }
       if (branches_render_pipeline && branches_render_pipeline->Initialized()) {
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = rendering_instance_handle;
         int bark_material_index = -1;
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material,
@@ -1184,7 +1185,7 @@ void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_insta
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::RegisterBranchesWireframeRenderInstance(Handle& rendering_instance_handle,
                                                                                       std::shared_ptr<Scene> scene,
                                                                                       Entity& owner) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1194,7 +1195,8 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RegisterBranchesWireframeRenderIns
       bark_material && wireframe_material) {
     if (!dynamic_strands->segments.empty()) {
       if (branches_render_pipeline && branches_render_pipeline->Initialized()) {
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = mesh_wireframe_rendering_instance_handle;
         // TODO: fix double registration
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, wireframe_material);
@@ -1215,7 +1217,7 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RegisterBranchesWireframeRenderIns
 
 void DsAlphaShapeMeshing::RegisterSmallSegmentsRenderInstance(Handle& rendering_instance_handle,
                                                               std::shared_ptr<Scene> scene, Entity& owner) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1245,7 +1247,8 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsRenderInstance(Handle& rendering_
       }
 
       if (small_segments_render_pipeline && small_segments_render_pipeline->Initialized()) {
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = small_segments_rendering_instance_handle;
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material);
         const auto splinter_material_index = current_render_storage->RegisterMaterial(splinter_material);
@@ -1265,7 +1268,7 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsRenderInstance(Handle& rendering_
 void DsAlphaShapeMeshing::RegisterSmallSegmentsVisualizationRenderInstance(Handle& rendering_instance_handle,
                                                                            std::shared_ptr<Scene> scene,
                                                                            Entity& owner) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1292,7 +1295,8 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsVisualizationRenderInstance(Handl
         });
       }
       if (small_segments_visualization_render_pipeline && small_segments_visualization_render_pipeline->Initialized()) {
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = small_segments_rendering_instance_handle;
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, material);
 

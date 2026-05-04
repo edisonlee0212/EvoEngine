@@ -38,7 +38,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
                                     const std::shared_ptr<Camera>& target_camera) {
   if (!reflect_pipeline || !combine_pipeline || !reflect_pipeline->Initialized() || !combine_pipeline->Initialized())
     return;
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 
   {
     VkDescriptorImageInfo image_info;
@@ -69,8 +69,8 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = target_camera->GetSize().x;
-    viewport.height = target_camera->GetSize().y;
+    viewport.width = static_cast<float>(target_camera->GetSize().x);
+    viewport.height = static_cast<float>(target_camera->GetSize().y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
@@ -139,8 +139,8 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
     VkViewport viewport;
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = target_camera->GetSize().x;
-    viewport.height = target_camera->GetSize().y;
+    viewport.width = static_cast<float>(target_camera->GetSize().x);
+    viewport.height = static_cast<float>(target_camera->GetSize().y);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 

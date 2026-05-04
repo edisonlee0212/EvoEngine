@@ -14,7 +14,7 @@
 using namespace eco_sys_lab_plugin;
 
 void EcoSysLabLayer::DynamicStrandSimulation() {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
     const auto for_each_dts_entity =
@@ -70,7 +70,7 @@ void EcoSysLabLayer::DynamicSkeletonPhysics() const {
 }
 
 void EcoSysLabLayer::DynamicSkeletonVisualization() const {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>();
     const auto for_each_dts_entity =
@@ -91,7 +91,7 @@ void EcoSysLabLayer::DynamicSkeletonVisualization() const {
 }
 
 void EcoSysLabLayer::DynamicStrandVisualization() const {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
     const auto for_each_dts_entity =
@@ -135,7 +135,7 @@ void EcoSysLabLayer::DynamicStrandVisualization() const {
         dts->Visualization(visualization_camera_, dynamic_strands_settings_.visualization_parameters);
       });
     }
-    if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
       for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& collider) {
         collider->RenderBound(editor_layer, visualization_camera_, collider->bound_color);
       });
@@ -144,7 +144,7 @@ void EcoSysLabLayer::DynamicStrandVisualization() const {
 }
 
 void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
-  if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
 
     auto bound = scene->GetBound();
@@ -164,7 +164,7 @@ void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
           }
         };
     if (dynamic_strands_settings_.enable_rendering) {
-      const auto editor_layer = Application::GetLayer<EditorLayer>();
+      const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
           Handle handle = dts->GetHandle();

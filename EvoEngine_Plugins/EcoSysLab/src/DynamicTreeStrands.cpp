@@ -547,7 +547,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
   switch (static_cast<PivotType>(settings.left_pivot_type)) {
     case PivotType::Point: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -577,7 +577,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       break;
     }
     case PivotType::Axis: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -607,7 +607,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       break;
     }
     case PivotType::Transform: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -644,7 +644,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
   switch (static_cast<PivotType>(settings.right_pivot_type)) {
     case PivotType::Point: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -676,7 +676,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       break;
     }
     case PivotType::Axis: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -707,7 +707,7 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       break;
     }
     case PivotType::Transform: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -1011,7 +1011,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
   switch (static_cast<PivotType>(settings.left_pivot_type)) {
     case PivotType::Point: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -1041,7 +1041,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       break;
     }
     case PivotType::Axis: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -1071,7 +1071,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       break;
     }
     case PivotType::Transform: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -1105,7 +1105,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       break;
     }
     case PivotType::Partial_Transform: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Left Pivot") {
@@ -1149,7 +1149,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
 
   switch (static_cast<PivotType>(settings.right_pivot_type)) {
     case PivotType::Point: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -1180,7 +1180,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       break;
     }
     case PivotType::Axis: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -1211,7 +1211,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       break;
     }
     case PivotType::Transform: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -1243,7 +1243,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
       break;
     }
     case PivotType::Partial_Transform: {
-      const auto scene = Application::GetActiveScene();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto children = scene->GetChildren(GetOwner());
       for (const auto& child : children) {
         if (scene->GetEntityName(child) == "Right Pivot") {
@@ -1410,7 +1410,7 @@ void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_cam
 }
 
 void DynamicTreeStrands::RegisterFoliageRenderInstance(const FoliageRenderParameters& render_parameters) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1441,7 +1441,8 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(const FoliageRenderParame
       }
       if (DynamicStrands::foliage_render_pipeline && DynamicStrands::foliage_render_pipeline->Initialized()) {
         const auto dynamic_strands_copy = dynamic_strands;
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = foliage_rendering_instance_handle;
         current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
         render_layer->DeferredRenderingAllCameras(
@@ -1457,7 +1458,7 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(const FoliageRenderParame
 }
 
 void DynamicTreeStrands::RegisterSegmentPairRenderInstance(const SegmentPairsRenderParameters& render_parameters) {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_LOG("Failed to render! RenderLayer not present!")
     return;
@@ -1466,7 +1467,8 @@ void DynamicTreeStrands::RegisterSegmentPairRenderInstance(const SegmentPairsRen
     if (!dynamic_strands->segment_pairs.empty()) {
       if (DynamicStrands::segment_pairs_visualization_render_pipeline &&
           DynamicStrands::segment_pairs_visualization_render_pipeline->Initialized()) {
-        const auto current_render_storage = Application::GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
+        const auto current_render_storage =
+            ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto dynamic_strands_copy = dynamic_strands;
         const auto material_index = current_render_storage->RegisterMaterial(material);
         render_layer->ForwardRenderingAllCameras([=](const VkCommandBuffer vk_command_buffer,

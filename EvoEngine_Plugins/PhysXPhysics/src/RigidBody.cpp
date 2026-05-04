@@ -34,7 +34,7 @@ void RigidBody::OnDestroy() {
 }
 
 void RigidBody::RecreateBody() {
-  const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+  const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
   if (!physics_layer)
     return;
   if (rigid_actor_)
@@ -110,7 +110,7 @@ bool RigidBody::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       PxRigidBodyExt::updateMassAndInertia(*rigid_dynamic, density_, &mass_center_);
     }
     if (!kinematic_) {
-      if (Application::IsPlaying()) {
+      if (ApplicationContext::Get().IsPlaying()) {
         linear_velocity_ = rigid_dynamic->getLinearVelocity();
         angular_velocity_ = rigid_dynamic->getAngularVelocity();
       }

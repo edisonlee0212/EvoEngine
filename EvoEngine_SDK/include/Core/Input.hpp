@@ -1,6 +1,5 @@
 
 #pragma once
-#include "ISingleton.hpp"
 
 namespace evo_engine {
 
@@ -9,7 +8,10 @@ namespace evo_engine {
  * @brief A final class responsible for handling input events such as keyboard and mouse actions in the engine.
  */
 class Input final {
-  EVOENGINE_SINGLETON_INSTANCE(Input)
+ public:
+  static Input& GetInstance();
+
+ private:
  public:
   /**
    * @enum KeyActionType

@@ -10,12 +10,16 @@ if(NOT CUDA_SUBSTRING_INDEX EQUAL -1)
 	message("CUDA enabled.")
 endif()
 
+set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR})
+if(CMAKE_CONFIGURATION_TYPES)
+	set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)
+endif()
 
-evoengine_copy_resources(AppResourceCopy ${CMAKE_CURRENT_BINARY_DIR})
-evoengine_clear_shader_binaries(AppResourceCopy)
+evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
+evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 add_custom_command(TARGET AppResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy 
-			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${CMAKE_CURRENT_BINARY_DIR} VERBATIM)
+			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${EVOENGINE_APP_BUILD_RUNTIME_DIR} VERBATIM)
 
 set_property(TARGET AppResourceCopy PROPERTY FOLDER PostBuildActions)
 

@@ -525,6 +525,8 @@ class Scene final : public IAsset {
   [[nodiscard]] bool HasPrivateComponent(const Entity& entity) const;
   [[nodiscard]] bool HasPrivateComponent(const Entity& entity, const std::string& type_name) const;
   [[nodiscard]] bool HasPrivateComponent(const Entity& entity, const size_t& type_id) const;
+  [[nodiscard]] bool HasPrivateComponentOwners(const size_t& type_id) const;
+  size_t ClearPrivateComponentPool(const size_t& type_id);
 
   [[maybe_unused]] Entity CreateEntity(const std::string& name = "New Entity");
   [[maybe_unused]] Entity CreateEntity(const EntityArchetype& archetype, const std::string& name = "New Entity",

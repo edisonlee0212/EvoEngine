@@ -30,7 +30,7 @@ void ProceduralNoise2D::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[0]).data.name = "x";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[1]).data.name = "y";
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
     ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
@@ -56,7 +56,7 @@ void ProceduralNoise3D::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[1]).data.name = "y";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "z";
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
     ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
@@ -83,7 +83,7 @@ void ProceduralNoise4D::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "z";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[3]).data.name = "w";
 
-  if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
     ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
     ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
@@ -914,8 +914,8 @@ bool ProceduralNoise2D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
         current_handle = GetHandle();
         std::vector<glm::vec4> color(resolution * resolution);
         Jobs::RunParallelFor(resolution * resolution, [&](size_t i) {
-          float x = i / resolution;
-          float y = i % resolution;
+          float x = static_cast<float>(i / resolution);
+          float y = static_cast<float>(i % resolution);
           x /= resolution;
           y /= resolution;
           color[i] = glm::vec4(glm::vec3(GetValue(glm::vec2(x, y) * position_scale + position_offset)), 1.0f);
@@ -990,8 +990,8 @@ bool ProceduralNoise3D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
         current_handle = GetHandle();
         std::vector<glm::vec4> color(resolution * resolution);
         Jobs::RunParallelFor(resolution * resolution, [&](size_t i) {
-          float x = i / resolution;
-          float y = i % resolution;
+          float x = static_cast<float>(i / resolution);
+          float y = static_cast<float>(i % resolution);
           x /= resolution;
           y /= resolution;
           color[i] = glm::vec4(glm::vec3(GetValue(glm::vec3(x, y, z) * position_scale + position_offset)), 1.0f);
@@ -1069,8 +1069,8 @@ bool ProceduralNoise4D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
         current_handle = GetHandle();
         std::vector<glm::vec4> color(resolution * resolution);
         Jobs::RunParallelFor(resolution * resolution, [&](size_t i) {
-          float x = i / resolution;
-          float y = i % resolution;
+          float x = static_cast<float>(i / resolution);
+          float y = static_cast<float>(i % resolution);
           x /= resolution;
           y /= resolution;
           color[i] = glm::vec4(glm::vec3(GetValue(glm::vec4(x, y, z, w) * position_scale + position_offset)), 1.0f);

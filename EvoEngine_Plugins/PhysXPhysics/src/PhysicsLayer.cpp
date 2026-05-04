@@ -1,6 +1,5 @@
 #include "PhysicsLayer.hpp"
 #include "Application.hpp"
-#include "ClassRegistry.hpp"
 #include "Jobs.hpp"
 #include "Joint.hpp"
 #include "Resources.hpp"
@@ -9,11 +8,14 @@
 #include "Times.hpp"
 #include "TransformGraph.hpp"
 using namespace evo_engine;
-PrivateComponentRegistration<Joint> joint_registry("Joint");
-PrivateComponentRegistration<RigidBody> rigidbody_registry("RigidBody");
-AssetRegistration<Collider> collider_registry("Collider", {".uecollider"});
-AssetRegistration<PhysicsMaterial> physics_material_registry("PhysicsMaterial", {".evephysicsmaterial"});
-SystemRegistration<PhysicsSystem> physics_system_registry("PhysicsSystem");
+
+void PhysicsLayer::RegisterTypes(Application &application) {
+  application.RegisterPrivateComponent<Joint>("Joint");
+  application.RegisterPrivateComponent<RigidBody>("RigidBody");
+  application.RegisterAsset<Collider>("Collider", {".uecollider"});
+  application.RegisterAsset<PhysicsMaterial>("PhysicsMaterial", {".evephysicsmaterial"});
+  application.RegisterSystem<PhysicsSystem>("PhysicsSystem");
+}
 
 YAML::Emitter &evo_engine::operator<<(YAML::Emitter &out, const PxVec2 &v) {
   out << YAML::Flow;
@@ -54,7 +56,7 @@ void PhysicsLayer::UploadTransform(const GlobalTransform &global_transform,
 }
 
 void PhysicsLayer::PreUpdate() {
-  const bool playing = Application::IsPlaying();
+  const bool playing = ApplicationContext::Get().IsPlaying();
   const auto active_scene = GetScene();
   if (!active_scene)
     return;
@@ -214,7 +216,7 @@ void PhysicsLayer::UploadJointLinks(const std::shared_ptr<Scene> &scene) {
 void PhysicsLayer::UploadJointLinks(const std::shared_ptr<Scene> &scene,
                                     const std::shared_ptr<PhysicsScene> &physics_scene,
                                     const std::vector<Entity> *joint_entities) {
-  const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+  const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
   if (!physics_layer)
     return;
 #pragma region Update shape
@@ -335,7 +337,7 @@ void PhysicsLayer::UploadJointLinks(const std::shared_ptr<Scene> &scene,
 void PhysicsSystem::DownloadRigidBodyTransforms(const std::vector<Entity> *rigid_body_entities) const {
   const auto scene = GetScene();
   auto &list = rigid_body_entities;
-  Jobs::RunParallelFor(rigid_body_entities->size(), [&](unsigned index) {
+  Jobs::RunParallelFor(rigid_body_entities->size(), [&](size_t index) {
     const auto rigid_body_entity = list->at(index);
     if (const auto rigid_body = scene->GetOrSetPrivateComponent<RigidBody>(rigid_body_entity).lock();
         rigid_body->current_registered_ && !rigid_body->kinematic_) {
@@ -356,7 +358,7 @@ void PhysicsSystem::DownloadRigidBodyTransforms(const std::vector<Entity> *rigid
 }
 
 PhysicsScene::PhysicsScene() {
-  const auto physics_layer = Application::GetLayer<PhysicsLayer>();
+  const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
   if (!physics_layer)
     return;
   auto physics = physics_layer->physics_;

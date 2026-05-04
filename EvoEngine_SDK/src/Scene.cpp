@@ -150,7 +150,7 @@ void Scene::FixedUpdate() const {
 const char* environment_types[]{"Environmental Map", "Color"};
 bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool modified = false;
-  if (this == Application::GetActiveScene().get())
+  if (this == ApplicationContext::Get().GetActiveScene().get())
     if (editor_layer->DragAndDropButton<Camera>(main_camera, "Main Camera", true))
       modified = true;
   if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -192,7 +192,7 @@ bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       ImGui::Separator();
       ImGui::EndPopup();
     }
-    for (const auto& i : Application::GetActiveScene()->systems_) {
+    for (const auto& i : ApplicationContext::Get().GetActiveScene()->systems_) {
       if (ImGui::CollapsingHeader(i.second->GetTypeName().c_str())) {
         bool enabled = i.second->Enabled();
         if (ImGui::Checkbox("Enabled", &enabled)) {
@@ -621,15 +621,15 @@ void Scene::OnCreate() {
 }
 
 bool Scene::LoadInternal(const std::filesystem::path& path) {
-  const auto previous_scene = Application::GetActiveScene();
-  Application::Attach(std::shared_ptr<Scene>(this, [](Scene*) {
+  const auto previous_scene = ApplicationContext::Get().GetActiveScene();
+  ApplicationContext::Get().Attach(std::shared_ptr<Scene>(this, [](Scene*) {
   }));
   std::ifstream stream(path.string());
   std::stringstream string_stream;
   string_stream << stream.rdbuf();
   YAML::Node in = YAML::Load(string_stream.str());
   Deserialize(in);
-  Application::Attach(previous_scene);
+  ApplicationContext::Get().Attach(previous_scene);
   return true;
 }
 
@@ -1733,6 +1733,14 @@ bool Scene::HasPrivateComponent(const Entity& entity, const size_t& type_id) con
     }
   }
   return false;
+}
+
+bool Scene::HasPrivateComponentOwners(const size_t& type_id) const {
+  return scene_data_storage_.entity_private_component_storage.HasPrivateComponentOwners(type_id);
+}
+
+size_t Scene::ClearPrivateComponentPool(const size_t& type_id) {
+  return scene_data_storage_.entity_private_component_storage.ClearPrivateComponentPool(type_id);
 }
 
 std::vector<std::reference_wrapper<DataComponentStorage>> Scene::QueryDataComponentStorageList(

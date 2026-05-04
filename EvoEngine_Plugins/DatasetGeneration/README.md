@@ -1,6 +1,6 @@
 # DatasetGeneration Plugin
 
-[Back to plugin index](../README.md)
+[Back to Plugin index](../README.md)
 
 DatasetGeneration collects batch-oriented workflows for generating synthetic data from EcoSysLab and DigitalAgriculture scenes. It is the bridge between interactive simulation assets and reproducible dataset output.
 
@@ -32,14 +32,14 @@ DatasetGeneration collects batch-oriented workflows for generating synthetic dat
 
 ## Registered Types
 
-This plugin is mostly consumed through apps and scripts. App targets register scanner components where needed:
+This Plugin is mostly consumed through apps and scripts. App targets register scanner components where needed:
 
 - `TreeDataGeneratorApp` registers `TreePointCloudScanner`.
 - `SorghumDataGeneratorApp` registers `SorghumPointCloudScanner`.
 
 ## SDK Integration
 
-DatasetGeneration depends on scenes, cameras, render layers, generated meshes, asset loading, filesystem paths, and plugin layers. It uses SDK/project state as input and writes data products to output folders.
+DatasetGeneration depends on scenes, cameras, render layers, generated meshes, asset loading, filesystem paths, and Plugin layers. It uses SDK/project state as input and writes data products to output folders.
 
 ## Future Work Notes
 

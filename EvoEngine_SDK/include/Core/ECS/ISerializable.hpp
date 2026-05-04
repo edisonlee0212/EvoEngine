@@ -8,6 +8,7 @@ class Node;
 }  // namespace YAML
 
 namespace evo_engine {
+class Application;
 /**
  * @class ISerializable
  * @brief Represents an abstract class for serializable objects in the engine.
@@ -27,8 +28,11 @@ class ISerializable : public IHandle {
   friend class Folder;           ///< Grants access to the Folder class.
 
   std::string type_name_;  ///< The type name associated with the serializable object.
+  Application *application_ = nullptr;
 
  public:
+  [[nodiscard]] Application &GetApplication() const;
+
   /**
    * @brief Saves the current object state to a YAML emitter.
    *

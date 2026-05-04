@@ -123,7 +123,7 @@ void Texture2D::ApplyOpacityMap(const std::shared_ptr<Texture2D>& target) {
   std::vector<glm::vec4> alpha_data;
   const auto resolution = GetResolution();
   target->GetRgbaChannelData(alpha_data, resolution.x, resolution.y);
-  Jobs::RunParallelFor(color_data.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(color_data.size(), [&](size_t i) {
     color_data[i].a = alpha_data[i].r;
   });
   SetRgbaChannelData(color_data, target->GetResolution());
@@ -173,7 +173,7 @@ void Texture2D::Serialize(YAML::Emitter& out) const {
         target_channel_size++;
 
       transferred_pixels.resize(resolution.x * resolution.y * target_channel_size);
-      Jobs::RunParallelFor(resolution.x * resolution.y, [&](unsigned i) {
+      Jobs::RunParallelFor(resolution.x * resolution.y, [&](size_t i) {
         for (int channel = 0; channel < target_channel_size; channel++) {
           transferred_pixels[i * target_channel_size + channel] =
               static_cast<unsigned char>(glm::clamp(pixels[i][channel] * 255.9f, 0.f, 255.f));
@@ -224,7 +224,7 @@ void Texture2D::Deserialize(const YAML::Node& in) {
       transferred_pixels.resize(resolution.x * resolution.y * target_channel_size);
       pixels.resize(resolution.x * resolution.y);
 
-      Jobs::RunParallelFor(pixels.size(), [&](unsigned i) {
+      Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
         for (int channel = 0; channel < target_channel_size; channel++) {
           pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
         }
@@ -340,7 +340,7 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const std::vector<
                               static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
-    Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
+    Jobs::RunParallelFor(resize_x * resize_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] =
             glm::clamp(static_cast<int>(255.9f * res[i * src_channel_size + target_channel_index]), 0, 255);
@@ -350,7 +350,7 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const std::vector<
                    resize_x * target_channel_size);
   } else {
     pixels.resize(src_x * src_y * target_channel_size);
-    Jobs::RunParallelFor(src_x * src_y, [&](unsigned i) {
+    Jobs::RunParallelFor(src_x * src_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] =
             glm::clamp(static_cast<int>(255.9f * src_data[i * src_channel_size + target_channel_index]), 0, 255);
@@ -439,7 +439,7 @@ void Texture2D::StoreToJpg(const std::filesystem::path& path, const std::vector<
 
     pixels.resize(resize_x * resize_y * target_channel_size);
 
-    Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
+    Jobs::RunParallelFor(resize_x * resize_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] =
             glm::clamp(static_cast<int>(255.9f * res[i * src_channel_size + target_channel_index]), 0, 255);
@@ -449,7 +449,7 @@ void Texture2D::StoreToJpg(const std::filesystem::path& path, const std::vector<
     stbi_write_jpg(path.string().c_str(), resize_x, resize_y, target_channel_size, pixels.data(), quality);
   } else {
     pixels.resize(src_x * src_y * target_channel_size);
-    Jobs::RunParallelFor(src_x * src_y, [&](unsigned i) {
+    Jobs::RunParallelFor(src_x * src_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] =
             glm::clamp(static_cast<int>(255.9f * src_data[i * src_channel_size + target_channel_index]), 0, 255);
@@ -472,7 +472,7 @@ void Texture2D::StoreToTga(const std::filesystem::path& path, const std::vector<
                               static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
-    Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
+    Jobs::RunParallelFor(resize_x * resize_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] =
             glm::clamp(static_cast<int>(255.9f * res[i * src_channel_size + target_channel_index]), 0, 255);
@@ -482,7 +482,7 @@ void Texture2D::StoreToTga(const std::filesystem::path& path, const std::vector<
     stbi_write_tga(path.string().c_str(), resize_x, resize_y, target_channel_size, pixels.data());
   } else {
     pixels.resize(src_x * src_y * target_channel_size);
-    Jobs::RunParallelFor(src_x * src_y, [&](unsigned i) {
+    Jobs::RunParallelFor(src_x * src_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] =
             glm::clamp(static_cast<int>(255.9f * src_data[i * src_channel_size + target_channel_index]), 0, 255);
@@ -504,7 +504,7 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const std::vector<
                               static_cast<stbir_pixel_layout>(src_channel_size));
 
     pixels.resize(resize_x * resize_y * target_channel_size);
-    Jobs::RunParallelFor(resize_x * resize_y, [&](unsigned i) {
+    Jobs::RunParallelFor(resize_x * resize_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] = res[i * src_channel_size + target_channel_index];
       }
@@ -513,7 +513,7 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const std::vector<
     stbi_write_hdr(path.string().c_str(), resize_x, resize_y, target_channel_size, pixels.data());
   } else {
     pixels.resize(src_x * src_y * target_channel_size);
-    Jobs::RunParallelFor(src_x * src_y, [&](unsigned i) {
+    Jobs::RunParallelFor(src_x * src_y, [&](size_t i) {
       for (int target_channel_index = 0; target_channel_index < target_channel_size; target_channel_index++) {
         pixels[i * target_channel_size + target_channel_index] = src_data[i * src_channel_size + target_channel_index];
       }
@@ -636,7 +636,7 @@ void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int
   image_buffer.CopyFromImage(*texture_storage.image);
   image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
   dst.resize(pixels.size());
-  Jobs::RunParallelFor(pixels.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
     dst[i] = pixels[i];
   });
 }
@@ -650,7 +650,7 @@ void Texture2D::GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x, int 
   image_buffer.CopyFromImage(*texture_storage.image);
   image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
   dst.resize(pixels.size());
-  Jobs::RunParallelFor(pixels.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
     dst[i] = glm::vec2(pixels[i].r, pixels[i].g);
   });
 }
@@ -664,7 +664,7 @@ void Texture2D::GetRedChannelData(std::vector<float>& dst, int resize_x, int res
   image_buffer.CopyFromImage(*texture_storage.image);
   image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
   dst.resize(pixels.size());
-  Jobs::RunParallelFor(pixels.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
     dst[i] = pixels[i].r;
   });
 }
@@ -683,7 +683,7 @@ void Texture2D::SetRgbChannelData(const std::vector<glm::vec3>& src, const glm::
                                   const bool local_copy) {
   std::vector<glm::vec4> image_data;
   image_data.resize(resolution.x * resolution.y);
-  Jobs::RunParallelFor(image_data.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(image_data.size(), [&](size_t i) {
     image_data[i] = glm::vec4(src[i], 1.0f);
   });
   SetData(image_data, resolution, local_copy);
@@ -699,7 +699,7 @@ void Texture2D::SetRgChannelData(const std::vector<glm::vec2>& src, const glm::u
                                  const bool local_copy) {
   std::vector<glm::vec4> image_data;
   image_data.resize(resolution.x * resolution.y);
-  Jobs::RunParallelFor(image_data.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(image_data.size(), [&](size_t i) {
     image_data[i] = glm::vec4(src[i], 0.0f, 1.0f);
   });
   SetData(image_data, resolution, local_copy);
@@ -714,7 +714,7 @@ void Texture2D::SetRgChannelData(const std::vector<glm::vec2>& src, const glm::u
 void Texture2D::SetRedChannelData(const std::vector<float>& src, const glm::uvec2& resolution, const bool local_copy) {
   std::vector<glm::vec4> image_data;
   image_data.resize(resolution.x * resolution.y);
-  Jobs::RunParallelFor(image_data.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(image_data.size(), [&](size_t i) {
     image_data[i] = glm::vec4(src[i], 0.0f, 0.0f, 1.0f);
   });
   SetData(image_data, resolution, local_copy);

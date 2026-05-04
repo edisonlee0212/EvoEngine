@@ -50,7 +50,7 @@ void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_set
     line_particle_infos.resize(node_size);
     point_particle_infos.resize(node_size);
   }
-  Jobs::RunParallelFor(node_size, [&](unsigned internode_index) {
+  Jobs::RunParallelFor(node_size, [&](size_t internode_index) {
     if (strand_ready) {
       const auto& sorted_internode_list = shoot_strand_model.strand_model_skeleton.PeekSortedNodeList();
       const auto internode_handle = sorted_internode_list[internode_index];
@@ -1012,7 +1012,7 @@ void Tree::GenerateBillboardClouds(const BillboardCloud::GenerateSettings& folia
           element.vertices = mesh->UnsafeGetVertices();
           element.material = material;
           element.triangles = mesh->UnsafeGetTriangles();
-          Jobs::RunParallelFor(element.vertices.size(), [&](const unsigned vertex_index) {
+          Jobs::RunParallelFor(element.vertices.size(), [&](size_t vertex_index) {
             TransformVertex(element.vertices.at(vertex_index), model_space_transform);
           });
           billboard_cloud.Generate(foliage_generate_settings);

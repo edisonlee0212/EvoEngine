@@ -65,7 +65,7 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
   front_direction = glm::rotate(front_direction, glm::radians(glm::linearRand(0.0f, 360.0f)), up_direction);
   glm::vec3 stem_front = GetStemDirection(a);
   const float stem_length = GetStemLength(a);
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
 
   const float preserved_a = a;
   SorghumLeafState actual_left, actual_right;
@@ -291,7 +291,7 @@ void SorghumGrowthStagePair::ApplyStem(const std::shared_ptr<SorghumDescriptor>&
   front_direction = glm::rotate(front_direction, glm::radians(glm::linearRand(0.0f, 360.0f)), up_direction);
   glm::vec3 stem_front = GetStemDirection(a);
   const float stem_length = GetStemLength(a);
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   const int stem_node_amount =
       static_cast<int>(glm::max(4.0f, stem_length / sorghum_layer->vertical_subdivision_length));
   const float stem_unit_length = stem_length / stem_node_amount;
@@ -505,7 +505,7 @@ std::shared_ptr<Texture2D> SorghumGrowthStages::GenerateThumbnailTexture() {
 }
 
 Entity SorghumGrowthStages::CreateEntity(const float time) const {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(entity).lock();
   const auto sorghum_state = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();

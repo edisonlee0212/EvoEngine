@@ -83,7 +83,7 @@ bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     snapshot = Get(time);
 #ifdef CUDA_MODULE_PLUGIN
     if (auto_apply) {
-      auto& env_prop = Application::GetLayer<RayTracerLayer>()->environment_properties;
+      auto& env_prop = ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties;
       env_prop.sun_direction = snapshot.GetSunDirection();
       env_prop.skylight_intensity = snapshot.GetSunIntensity();
     }

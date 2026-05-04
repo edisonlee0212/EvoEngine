@@ -10,7 +10,7 @@ using namespace eco_sys_lab_plugin;
 bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Button("Instantiate")) {
-    const auto scene = Application::GetActiveScene();
+    const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto climate_entity = scene->CreateEntity(GetTitle());
     const auto climate = scene->GetOrSetPrivateComponent<Climate>(climate_entity).lock();
     climate->climate_descriptor_ref = GetSelf();
@@ -62,7 +62,7 @@ void Climate::InitializeClimateModel() {
 }
 
 void Climate::PrepareForGrowth() {
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   const auto scene = GetScene();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
   if (!tree_entities || tree_entities->empty())

@@ -11,13 +11,6 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 
-AssetRegistration<HeightField> height_field_registry("HeightField", {".heightfield"});
-AssetRegistration<SoilLayerDescriptor> soil_layer_d_registry("SoilLayerDescriptor", {".soillayer"});
-
-PrivateComponentRegistration<Soil> soil_registry("Soil");
-
-AssetRegistration<SoilDescriptor> soil_d_registry("SoilDescriptor", {".soil"});
-
 bool EcoSysLabLayer::SoilVisualizationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::Checkbox("Enable", &enable);
@@ -144,7 +137,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
   if (soil_visualization_settings_.update_scalar_matrices) {
     std::vector<ParticleInfo> particle_infos;
     particle_infos.resize(num_voxels);
-    Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+    Jobs::RunParallelFor(num_voxels, [&](size_t i) {
       const auto coordinate = soil_model.GetCoordinateFromIndex(i);
       if (static_cast<float>(coordinate.x) / soil_model.m_resolution.x <
               soil_visualization_settings_.soil_cutout_x_depth ||
@@ -159,7 +152,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
       }
     });
     auto visualize_vec3 = [&](const Field& x, const Field& y, const Field& z) {
-      Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+      Jobs::RunParallelFor(num_voxels, [&](size_t i) {
         const auto value = glm::vec3(x[i], y[i], z[i]);
         particle_infos[i].instance_color = {
             glm::normalize(value), glm::clamp(glm::length(value) * soil_visualization_settings_.scalar_multiplier,
@@ -168,7 +161,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
     };
 
     auto visualize_float = [&](const Field& v) {
-      Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+      Jobs::RunParallelFor(num_voxels, [&](size_t i) {
         const auto value = glm::vec3(v[i]);
         particle_infos[i].instance_color = {
             soil_visualization_settings_.scalar_base_color,
@@ -179,7 +172,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
 
     switch (static_cast<SoilProperty>(soil_visualization_settings_.scalar_soil_property)) {
       case SoilProperty::Blank: {
-        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+        Jobs::RunParallelFor(num_voxels, [&](size_t i) {
           particle_infos[i].instance_color = {soil_visualization_settings_.scalar_base_color, 0.01f};
         });
       } break;
@@ -193,7 +186,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
         visualize_float(soil_model.m_d);
       } break;
       case SoilProperty::SoilLayer: {
-        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+        Jobs::RunParallelFor(num_voxels, [&](size_t i) {
           const auto layerIndex = soil_model.m_material_id[i];
           if (layerIndex == 0)
             particle_infos[i].instance_color = glm::vec4(0.0f);
@@ -207,7 +200,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
               visualize_vec3(soilModel.m_div_diff_x, soilModel.m_div_diff_y, soilModel.m_div_diff_z);
       }break;*/
       default: {
-        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+        Jobs::RunParallelFor(num_voxels, [&](size_t i) {
           particle_infos[i].instance_color = {soil_visualization_settings_.scalar_base_color, 0.01f};
         });
       } break;
@@ -215,7 +208,7 @@ void EcoSysLabLayer::SoilVisualizationScalar(const VoxelSoilModel& soil_model) {
     soil_matrices_->SetParticleInfos(particle_infos);
   }
   soil_visualization_settings_.update_scalar_matrices = false;
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   GizmoSettings gizmo_settings;
   gizmo_settings.draw_settings.blending = true;
   gizmo_settings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -237,7 +230,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
       /*
       case SoilProperty::WaterDensityGradient:
       {
-              Jobs::ParallelFor(numVoxels, [&](unsigned i)
+              Jobs::ParallelFor(numVoxels, [&](size_t i)
                       {
                               const auto targetVector = glm::vec3(soilModel.m_w_grad_x[i], soilModel.m_w_grad_y[i],
       soilModel.m_w_grad_z[i]); const auto start =
@@ -254,7 +247,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
       /*
       case SoilProperty::Divergence:
       {
-              Jobs::ParallelFor(numVoxels, [&](unsigned i)
+              Jobs::ParallelFor(numVoxels, [&](size_t i)
                       {
                               const auto targetVector = glm::vec3(soilModel.m_div_diff_x[i],
       soilModel.m_div_diff_y[i], soilModel.m_div_diff_z[i]); const auto start =
@@ -270,14 +263,14 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
       }break;
       */
       default: {
-        Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+        Jobs::RunParallelFor(num_voxels, [&](size_t i) {
           particle_infos[i].instance_matrix.value =
               glm::translate(soil_model.GetPositionFromCoordinate(soil_model.GetCoordinateFromIndex(i))) *
               glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(0.0f));
         });
       } break;
     }
-    Jobs::RunParallelFor(num_voxels, [&](unsigned i) {
+    Jobs::RunParallelFor(num_voxels, [&](size_t i) {
       particle_infos[i].instance_color = soil_visualization_settings_.vector_base_color;
     });
 
@@ -285,7 +278,7 @@ void EcoSysLabLayer::SoilVisualizationVector(const VoxelSoilModel& soil_model) {
     soil_visualization_settings_.update_vector_matrices = false;
   }
 
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   GizmoSettings gizmo_settings;
   gizmo_settings.draw_settings.blending = true;
   gizmo_settings.draw_settings.blending_src_factor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -306,7 +299,7 @@ EcoSysLabLayer::SoilVisualizationSettings::SoilVisualizationSettings() {
 }
 
 std::weak_ptr<Soil> EcoSysLabLayer::FindSoil() {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const std::vector<Entity>* soil_entities = scene->UnsafeGetPrivateComponentOwnersList<Soil>();
   if (soil_entities && !soil_entities->empty()) {
     return scene->GetOrSetPrivateComponent<Soil>(soil_entities->at(0));

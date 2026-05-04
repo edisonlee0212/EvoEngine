@@ -6,7 +6,7 @@ using namespace evo_engine;
 
 /**
  * @class BasicReproductionModuleDescriptor
- * @brief Represents a descriptor for a fruit asset within the EcoSysLab plugin.
+ * @brief Represents a descriptor for a fruit asset within the EcoSysLab Plugin.
  *
  * This class provides functionality to generate a thumbnail texture
  * for visual representation of the fruit asset.

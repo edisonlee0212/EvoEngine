@@ -1,7 +1,6 @@
 
 #pragma once
 #include "EntityMetadata.hpp"
-#include "ISingleton.hpp"
 #include "Transform.hpp"
 
 namespace evo_engine {
@@ -14,8 +13,10 @@ namespace evo_engine {
  * manage global transformations of entities and their hierarchy within a scene.
  */
 class TransformGraph final {
-  EVOENGINE_SINGLETON_INSTANCE(TransformGraph)
+ public:
+  static TransformGraph& GetInstance();
 
+ private:
   friend class PhysicsSystem;  ///< Grants PhysicsSystem access to private and protected members of TransformGraph.
   friend class Application;    ///< Grants Application access to private and protected members of TransformGraph.
 

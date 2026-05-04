@@ -156,7 +156,8 @@ void RayTracerCamera::Render() {
     auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
     Ready(global_transform[3], glm::quat_cast(global_transform));
     rendered_ = CudaModule::GetRayTracer()->RenderToCamera(
-        Application::GetLayer<RayTracerLayer>()->environment_properties, camera_properties_, ray_properties);
+        ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, camera_properties_,
+        ray_properties);
   }
 }
 
@@ -165,7 +166,8 @@ void RayTracerCamera::Render(const RayProperties &ray_properties) {
     auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
     Ready(global_transform[3], glm::quat_cast(global_transform));
     rendered_ = CudaModule::GetRayTracer()->RenderToCamera(
-        Application::GetLayer<RayTracerLayer>()->environment_properties, camera_properties_, ray_properties);
+        ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, camera_properties_,
+        ray_properties);
   }
 }
 

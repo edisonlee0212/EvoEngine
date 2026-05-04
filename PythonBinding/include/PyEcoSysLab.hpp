@@ -51,7 +51,6 @@ using namespace py_evo_engine;
 using namespace eco_sys_lab_plugin;
 
 class PyEcoSysLab {
-  EVOENGINE_SINGLETON_INSTANCE(PyEcoSysLab)
  public:
   /**
    * @brief Add EcoSysLabLayer to the framework.

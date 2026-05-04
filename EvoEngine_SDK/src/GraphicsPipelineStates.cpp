@@ -179,14 +179,14 @@ void GraphicsPipelineStates::ApplyAllStates(const VkCommandBuffer vk_command_buf
 }
 
 void GraphicsPipelineStates::SetViewportScissor(const glm::ivec4& value, const float min_depth, const float max_depth) {
-  view_port.x = value.x;
-  view_port.y = value.y;
-  view_port.width = value.z;
-  view_port.height = value.w;
+  view_port.x = static_cast<float>(value.x);
+  view_port.y = static_cast<float>(value.y);
+  view_port.width = static_cast<float>(value.z);
+  view_port.height = static_cast<float>(value.w);
   view_port.minDepth = min_depth;
   view_port.maxDepth = max_depth;
   scissor.offset.x = value.x;
   scissor.offset.y = value.y;
-  scissor.extent.width = view_port.width;
-  scissor.extent.height = view_port.height;
+  scissor.extent.width = static_cast<uint32_t>(glm::max(1, value.z));
+  scissor.extent.height = static_cast<uint32_t>(glm::max(1, value.w));
 }

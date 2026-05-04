@@ -653,7 +653,7 @@ void StrandModelProfile<T>::RemoveParticle(ParticleHandle handle) {
 
 template <typename T>
 void StrandModelProfile<T>::Shift(const glm::vec2& offset) {
-  Jobs::RunParallelFor(particles_2d_.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(particles_2d_.size(), [&](size_t i) {
     auto& particle = particles_2d_[i];
     particle.SetPosition(particle.position_ + offset);
   });

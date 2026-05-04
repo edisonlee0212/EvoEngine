@@ -14,8 +14,8 @@ using namespace dataset_generation_plugin;
 using namespace digital_agriculture_plugin;
 
 bool CheckApplication() {
-  const auto application_status = Application::GetApplicationStatus();
-  if (!Application::GetActiveScene()) {
+  const auto application_status = ApplicationContext::Get().GetApplicationStatus();
+  if (!ApplicationContext::Get().GetActiveScene()) {
     EVOENGINE_ERROR("No project!");
     return false;
   }
@@ -31,7 +31,7 @@ bool CheckApplication() {
 }
 
 bool CheckSoil(std::shared_ptr<Soil>& soil, bool generate_ground_mesh) {
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (const std::vector<Entity>* soil_entities = scene->UnsafeGetPrivateComponentOwnersList<Soil>();
       soil_entities && !soil_entities->empty()) {
     soil = scene->GetOrSetPrivateComponent<Soil>(soil_entities->at(0)).lock();
@@ -53,8 +53,8 @@ void DatasetGenerator::CaptureTreeData(const std::shared_ptr<Scene>& scene, int 
   const std::string post_fix = post_fix_index == -1 ? "" : std::string("_") + std::to_string(post_fix_index);
   tree->GenerateGeometryEntities(data_generation_parameters.tree_mesh_generator_settings);
 
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
 
   if (data_generation_parameters.export_statistics) {
     tree->GetTreeStatistics().Export(data_generation_parameters.output_folder /
@@ -110,7 +110,7 @@ void DatasetGenerator::CaptureTreeData(const std::shared_ptr<Scene>& scene, int 
           glm::quat(glm::radians(camera_capture_settings.anchor_rotation +
                                  camera_capture_settings.anchor_rotation_delta * static_cast<float>(post_fix_index))));
       scene->SetDataComponent(camera_entity, camera_global_transform);
-      Application::Loop();
+      ApplicationContext::Get().Loop();
       if (data_generation_parameters.export_rendering) {
         camera->GetRenderTexture()->StoreToPng(
             data_generation_parameters.output_folder /
@@ -127,7 +127,7 @@ void DatasetGenerator::CaptureTreeData(const std::shared_ptr<Scene>& scene, int 
       }
       if (data_generation_parameters.export_ray_traced_rendering) {
         camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
-        Application::Loop();
+        ApplicationContext::Get().Loop();
         camera->GetRenderTexture()->StoreToPng(
             data_generation_parameters.output_folder /
                 (data_generation_parameters.output_file_name + post_fix + "_" + std::to_string(image_index) + "_r.png"),
@@ -315,8 +315,8 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -356,7 +356,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   tree->tree_descriptor_ref = actual_tree_descriptor;
   tree->shoot_model.tree_growth_settings.use_space_colonization = false;
   tree->shoot_model.seed = data_generation_parameters.seed;
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   int max_iterations = 2048;
   if (data_generation_parameters.max_iteration > 0) {
     max_iterations = data_generation_parameters.max_iteration;
@@ -397,14 +397,14 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
   scene->DeleteEntity(scanner_entity);
   scene->DeleteEntity(tree_entity);
 
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 void DatasetGenerator::GenerateTreeGrowthData(const TreeDataGenerationParameters& data_generation_parameters) {
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -444,7 +444,7 @@ void DatasetGenerator::GenerateTreeGrowthData(const TreeDataGenerationParameters
   tree->tree_descriptor_ref = actual_tree_descriptor;
   tree->shoot_model.tree_growth_settings.use_space_colonization = false;
   tree->shoot_model.seed = data_generation_parameters.seed;
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   int max_iterations = 2048;
   if (data_generation_parameters.max_iteration > 0) {
     max_iterations = data_generation_parameters.max_iteration;
@@ -462,7 +462,7 @@ void DatasetGenerator::GenerateTreeGrowthData(const TreeDataGenerationParameters
   scene->DeleteEntity(scanner_entity);
   scene->DeleteEntity(tree_entity);
 
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 
 void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_distance, const float random_shift,
@@ -471,8 +471,8 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -488,7 +488,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
   }
   std::filesystem::create_directories(data_generation_parameters.output_folder);
 
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   const auto camera_entity = scene->CreateEntity("Capture Camera");
   forest_descriptor->SetupGrid({grid_size, grid_size}, grid_distance, random_shift);
   forest_descriptor->ApplyTreeDescriptors(species_folder_path, {1.f});
@@ -504,8 +504,8 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
     eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   if (data_generation_parameters.export_mesh) {
     eco_sys_lab_layer->ExportAllTrees(data_generation_parameters.output_folder /
                                       (data_generation_parameters.output_file_name + ".obj"));
@@ -546,7 +546,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
       camera_global_transform.SetPosition(camera_capture_settings.pivot_position);
       camera_global_transform.SetEulerRotation(glm::radians(camera_capture_settings.pivot_euler_rotation));
       scene->SetDataComponent(camera_entity, camera_global_transform);
-      Application::Loop();
+      ApplicationContext::Get().Loop();
       if (data_generation_parameters.export_rendering) {
         camera->GetRenderTexture()->StoreToPng(
             data_generation_parameters.output_folder /
@@ -567,8 +567,8 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
     const auto scanner_entity = scene->CreateEntity("Scanner");
     const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
     scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
-    Application::Loop();
-    Application::Loop();
+    ApplicationContext::Get().Loop();
+    ApplicationContext::Get().Loop();
     scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
                      data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
                      data_generation_parameters.point_cloud_capture_settings);
@@ -576,7 +576,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
   }
   scene->DeleteEntity(camera_entity);
   scene->DeleteEntity(forest_entity);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 
 void DatasetGenerator::GeneratePointCloudForForestPatch(
@@ -585,8 +585,8 @@ void DatasetGenerator::GeneratePointCloudForForestPatch(
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -603,7 +603,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatch(
   }
   std::filesystem::create_directories(data_generation_parameters.output_folder);
 
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 
   const auto forest_entity = forest_patch->InstantiatePatch(grid_size, true);
   int max_iterations = INT_MAX;
@@ -617,7 +617,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatch(
     }
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   /*
   const auto children = scene->GetChildren(forest_entity);
   for (const auto& child : children) {
@@ -633,14 +633,14 @@ void DatasetGenerator::GeneratePointCloudForForestPatch(
   const auto scanner_entity = scene->CreateEntity("Scanner");
   const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
   scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
                    data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
                    data_generation_parameters.point_cloud_capture_settings);
   scene->DeleteEntity(forest_entity);
   scene->DeleteEntity(scanner_entity);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 
 void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
@@ -649,8 +649,8 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
-  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!eco_sys_lab_layer) {
     EVOENGINE_ERROR("Application doesn't contain EcoSysLab layer!");
     return;
@@ -666,7 +666,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   }
   std::filesystem::create_directories(data_generation_parameters.output_folder);
 
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   Entity forest_entity;
 
   std::vector<std::pair<TreeGrowthSettings, std::shared_ptr<TreeDescriptor>>> tree_descriptors;
@@ -695,7 +695,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
     }
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
   /*
   const auto children = scene->GetChildren(forest_entity);
   for (const auto& child : children) {
@@ -711,21 +711,21 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   const auto scanner_entity = scene->CreateEntity("Scanner");
   const auto scanner = scene->GetOrSetPrivateComponent<TreePointCloudScanner>(scanner_entity).lock();
   scanner->point_settings = data_generation_parameters.tree_point_cloud_point_settings;
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   scanner->Capture(data_generation_parameters.tree_mesh_generator_settings,
                    data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply"),
                    data_generation_parameters.point_cloud_capture_settings);
   scene->DeleteEntity(forest_entity);
   scene->DeleteEntity(scanner_entity);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 
 Entity DatasetGenerator::CreateSorghumEntity(const std::filesystem::path& sorghum_path, int seed) {
   if (!CheckApplication()) {
     return {};
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto sorghum_entity = scene->CreateEntity("Sorghum");
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
   if (sorghum_path.empty()) {
@@ -821,7 +821,7 @@ Entity DatasetGenerator::CreateSorghumEntity(const std::shared_ptr<IAsset>& sorg
   if (!CheckApplication()) {
     return {};
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (sorghum_asset->GetTypeName() == "SorghumField") {
     const auto sf = std::dynamic_pointer_cast<SorghumField>(sorghum_asset);
     return sf->InstantiateField(seed * sf->matrices.size());
@@ -854,7 +854,7 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
   const auto leaf_size = sorghum->GetLeafSize();
   std::shared_ptr<Soil> soil;
@@ -869,14 +869,14 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
   scanner->left_random_offset = {0, 0, 0};
   scanner->right_random_offset = {0, 0, 0};
 
-  Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
+  ApplicationContext::Get().GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
       data_generation_parameters.sorghum_mesh_generator_settings);
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   if (data_generation_parameters.export_mesh) {
     const auto mesh_output_path =
         data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".obj");
-    const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+    const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
     std::ofstream of;
     of.open(mesh_output_path, std::ofstream::out | std::ofstream::trunc);
     if (of.is_open()) {
@@ -890,7 +890,7 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
         data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply");
     scanner->sorghum_point_cloud_point_settings = data_generation_parameters.sorghum_point_cloud_point_settings;
     scanner->Capture(point_cloud_output_path, data_generation_parameters.point_cloud_capture_settings);
-    Application::Loop();
+    ApplicationContext::Get().Loop();
     if (data_generation_parameters.avoid_occlusion) {
       auto mesh_settings_copy = data_generation_parameters.sorghum_mesh_generator_settings;
       mesh_settings_copy.leaf_separated = true;
@@ -901,8 +901,8 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
       for (int leaf_index = 0; leaf_index < leaf_size; leaf_index++) {
         mesh_settings_copy.single_leaf_index = leaf_index;
         sorghum->GenerateGeometryEntities(mesh_settings_copy);
-        Application::Loop();
-        Application::Loop();
+        ApplicationContext::Get().Loop();
+        ApplicationContext::Get().Loop();
         scanner->sorghum_point_cloud_point_settings = data_generation_parameters.sorghum_point_cloud_point_settings;
         scanner->Scan(data_generation_parameters.point_cloud_capture_settings, points, leaf_indices, instance_indices,
                       type_indices);
@@ -916,7 +916,7 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
           }
         }
         sorghum->ClearGeometryEntities();
-        Application::Loop();
+        ApplicationContext::Get().Loop();
       }
       auto temp_path = point_cloud_output_path;
       temp_path.replace_filename(temp_path.filename().stem().string() + "_nc.ply");
@@ -924,7 +924,7 @@ void DatasetGenerator::GenerateDataForSorghum(const Entity& sorghum_entity,
     }
   }
   scene->DeleteEntity(scanner_entity);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }
 
 void DatasetGenerator::ApplySorghumGrid(const std::shared_ptr<IAsset>& target_sorghum_field,
@@ -986,24 +986,24 @@ void DatasetGenerator::GenerateDataForAllSorghums(const SorghumDataGenerationPar
   if (!CheckApplication()) {
     return;
   }
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   std::shared_ptr<Soil> soil;
   if (data_generation_parameters.generate_ground_mesh) {
     if (!CheckSoil(soil, data_generation_parameters.generate_ground_mesh))
       return;
   }
-  Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
+  ApplicationContext::Get().GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
       data_generation_parameters.sorghum_mesh_generator_settings);
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   const auto scanner_entity = scene->CreateEntity("Scanner");
   const auto scanner = scene->GetOrSetPrivateComponent<SorghumPointCloudScanner>(scanner_entity).lock();
   scanner->sorghum_point_cloud_point_settings = data_generation_parameters.sorghum_point_cloud_point_settings;
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   const auto point_cloud_output_path =
       data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply");
   scanner->Capture(point_cloud_output_path, data_generation_parameters.point_cloud_capture_settings);
   scene->DeleteEntity(scanner_entity);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 }

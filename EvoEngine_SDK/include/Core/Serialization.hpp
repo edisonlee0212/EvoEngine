@@ -1,11 +1,11 @@
 
 #pragma once
 #include "Console.hpp"
+#include "EvoEngineAPI.hpp"
 #include "IAsset.hpp"
 #include "IDataComponent.hpp"
 #include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
-#include "ISingleton.hpp"
 #include "ISystem.hpp"
 namespace YAML {
 
@@ -673,15 +673,22 @@ struct convert<glm::u16vec4> {
 }  // namespace YAML
 namespace evo_engine {
 /**
- * @brief Singleton class responsible for serialization in the EvoEngine.
+ * @brief Application-owned registry responsible for serialization and reflected type registration.
  */
 class Serialization final {
-  EVOENGINE_SINGLETON_INSTANCE(Serialization)
+ public:
+  Serialization() = default;
+  static EVOENGINE_API Serialization& GetInstance();
+
+ private:
+  friend class Application;
   friend class ISerializable;
   friend class ProjectManager;
   friend class ClassRegistry;
   friend class EditorLayer;
   friend class Scene;
+  friend class PackageManager;
+  friend class PackageRegistrar;
 
   /**
    * @brief Map to store generators for data components.
@@ -733,6 +740,12 @@ class Serialization final {
   std::unordered_map<size_t, std::string> private_component_names_{};
 
   /**
+   * @brief Maps package-owned private component type names and IDs to their owning package.
+   */
+  std::unordered_map<std::string, std::string> private_component_type_owners_{};
+  std::unordered_map<size_t, std::string> private_component_type_id_owners_{};
+
+  /**
    * @brief Map to store IDs for systems.
    */
   std::map<std::string, size_t> system_ids_{};
@@ -751,6 +764,12 @@ class Serialization final {
    * @brief Map to store names of serializable components by their IDs.
    */
   std::unordered_map<size_t, std::string> serializable_names_{};
+
+  /**
+   * @brief Maps package-owned serializable type names and IDs to their owning package.
+   */
+  std::unordered_map<std::string, std::string> serializable_type_owners_{};
+  std::unordered_map<size_t, std::string> serializable_type_id_owners_{};
 
   /**
    * @brief Map to store extensions for asset types.
@@ -864,6 +883,13 @@ class Serialization final {
                                 const std::vector<std::string>& extensions,
                                 const std::function<std::shared_ptr<ISerializable>(size_t&)>& func);
 
+  static bool UnregisterSerializableType(const std::string& type_name);
+  static bool UnregisterPrivateComponentType(const std::string& type_name);
+  static void SetSerializableTypeOwner(const std::string& type_name, const std::string& owner_name);
+  static void SetPrivateComponentTypeOwner(const std::string& type_name, const std::string& owner_name);
+  static std::vector<size_t> GetPackageOwnedPrivateComponentTypeIds(const std::string& owner_name);
+  static void UnregisterPackageOwnedTypes(const std::string& owner_name);
+
  public:
   /**
    * @brief Creates an instance of a data component by type name.
@@ -931,6 +957,13 @@ class Serialization final {
    */
   template <typename T = IDataComponent>
   static std::string GetDataComponentTypeName();
+
+  /**
+   * @brief Gets the name of a data component type by type ID.
+   * @param type_id The type ID of the data component.
+   * @return The name of the data component type.
+   */
+  static std::string GetDataComponentTypeName(const size_t& type_id);
 
   /**
    * @brief Gets the name of a serializable type.
@@ -1062,21 +1095,11 @@ class Serialization final {
 
 template <typename T>
 std::string Serialization::GetDataComponentTypeName() {
-  const auto& serialization = GetInstance();
-  if (const auto search = serialization.data_component_names_.find(typeid(T).hash_code());
-      search != serialization.data_component_names_.end()) {
-    return search->second;
-  }
-  throw std::invalid_argument("Type is unregistered!");
+  return GetDataComponentTypeName(typeid(T).hash_code());
 }
 template <typename T>
 std::string Serialization::GetSerializableTypeName() {
-  const auto& serialization = GetInstance();
-  if (const auto search = serialization.serializable_names_.find(typeid(T).hash_code());
-      search != serialization.serializable_names_.end()) {
-    return search->second;
-  }
-  throw std::invalid_argument("Type is unregistered!");
+  return GetSerializableTypeName(typeid(T).hash_code());
 }
 
 template <typename T>
@@ -1174,14 +1197,11 @@ YAML::Emitter& operator<<(YAML::Emitter& out, const glm::i16vec4& v);
 
 template <typename T>
 std::shared_ptr<T> Serialization::ProduceSerializable() {
-  auto& serialization_manager = GetInstance();
   const auto type_name = GetSerializableTypeName<T>();
-  const auto it = serialization_manager.serializable_generators_.find(type_name);
-  if (it != serialization_manager.serializable_generators_.end()) {
-    size_t hash_code;
-    auto ret_val = it->second(hash_code);
-    ret_val->type_name_ = type_name;
-    return std::move(std::static_pointer_cast<T>(ret_val));
+  size_t hash_code;
+  auto ret_val = ProduceSerializable(type_name, hash_code);
+  if (ret_val) {
+    return std::static_pointer_cast<T>(ret_val);
   }
   throw std::invalid_argument("Type is unregistered!");
 }

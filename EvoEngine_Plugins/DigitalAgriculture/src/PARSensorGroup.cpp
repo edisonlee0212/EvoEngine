@@ -12,8 +12,9 @@ void digital_agriculture_plugin::PARSensorGroup::CalculateIllumination(const Ray
                                                                        float push_normal_distance) {
   if (samplers.empty())
     return;
-  CudaModule::EstimateIlluminationRayTracing(Application::GetLayer<RayTracerLayer>()->environment_properties,
-                                             ray_properties, samplers, seed, push_normal_distance);
+  CudaModule::EstimateIlluminationRayTracing(
+      ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, ray_properties, samplers, seed,
+      push_normal_distance);
 }
 bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
@@ -37,7 +38,7 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       const int sz = static_cast<int>((max_range.z - min_range.z + step) / step);
       const auto voxel_size = sx * sy * sz;
       samplers.resize(voxel_size);
-      Jobs::RunParallelFor(voxel_size, [&](unsigned i) {
+      Jobs::RunParallelFor(voxel_size, [&](size_t i) {
         float z = (i % sz) * step + min_range.z;
         float y = ((i / sz) % sy) * step + min_range.y;
         float x = ((i / sz / sy) % sx) * step + min_range.x;
@@ -83,7 +84,7 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::ColorEdit4("Vector Color", &color.x);
     ImGui::DragFloat("Point Size", &point_size, 0.01f);
     ImGui::ColorEdit4("Point Color", &point_color.x);
-    Jobs::RunParallelFor(samplers.size(), [&](unsigned i) {
+    Jobs::RunParallelFor(samplers.size(), [&](size_t i) {
       const auto start = samplers[i].v_0.position;
       starts[i] = start;
       ends[i] = start + samplers[i].direction * line_length_factor * samplers[i].energy;

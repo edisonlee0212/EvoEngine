@@ -19,9 +19,15 @@ namespace py_evo_engine {
 using namespace evo_engine;
 
 class PyEvoEngine {
-  EVOENGINE_SINGLETON_INSTANCE(PyEvoEngine)
  public:
+  PyEvoEngine();
+  ~PyEvoEngine();
+
+  Application application;
   std::unordered_map<Handle, std::shared_ptr<IAsset>> runtime_assets;
+
+  static PyEvoEngine& GetRuntime();
+  [[nodiscard]] Application& GetApplication();
   /**
    * @brief Create a runtime asset, the asset's ownership is kept by PyEvoEngine.
    * @param asset_type The type of the asset.

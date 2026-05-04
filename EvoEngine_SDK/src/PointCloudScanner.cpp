@@ -85,7 +85,7 @@ void PointCloudScanner::Scan() {
   pc_samples.resize(sample_size);
 
   std::vector<std::shared_future<void>> results;
-  Jobs::RunParallelFor(sample_size, [&](const unsigned i) {
+  Jobs::RunParallelFor(sample_size, [&](size_t i) {
     const int column_index = static_cast<int>(i) / row;
     const int row_index = static_cast<int>(i) % row;
     const auto position = center + left * static_cast<float>(column_start + column_index) * distance.x +

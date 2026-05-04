@@ -131,7 +131,7 @@ bool ShootVisualizer::OnInspect(ShootModel& model) {
 
     if (visualization) {
       const auto& tree_skeleton = model.PeekShootSkeleton(checkpoint_iteration);
-      const auto editor_layer = Application::GetLayer<EditorLayer>();
+      const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
       const auto& sorted_branch_list = tree_skeleton.PeekSortedFlowList();
       const auto& sorted_internode_list = tree_skeleton.PeekSortedNodeList();
       ImGui::Text("Internode count: %d", sorted_internode_list.size());
@@ -172,8 +172,8 @@ bool ShootVisualizer::OnInspect(ShootModel& model) {
 void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& global_transform) {
   const auto& tree_skeleton = model.PeekShootSkeleton(checkpoint_iteration);
   if (visualization) {
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
-    const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+    const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+    const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
     if (need_update) {
       SyncMatrices(tree_skeleton, node_matrices_);
       need_update = false;
@@ -541,7 +541,7 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
   std::vector<ParticleInfo> matrices;
 
   matrices.resize(sorted_node_list.size());
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
     const auto node_handle = sorted_node_list[i];
     const auto& node = skeleton.PeekNode(node_handle);
     bool sub_tree = false;
@@ -568,7 +568,7 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
           rotation_transform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
     }
   });
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
     const auto node_handle = sorted_node_list[i];
     const auto& node = skeleton.PeekNode(node_handle);
     switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
@@ -847,7 +847,7 @@ bool RootVisualizer::OnInspect(RootModel& model) {
 
     if (visualization) {
       const auto& tree_skeleton = model.PeekRootSkeleton(checkpoint_iteration);
-      const auto editor_layer = Application::GetLayer<EditorLayer>();
+      const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
       const auto& sorted_branch_list = tree_skeleton.PeekSortedFlowList();
       const auto& sorted_internode_list = tree_skeleton.PeekSortedNodeList();
       ImGui::Text("Internode count: %d", sorted_internode_list.size());
@@ -888,8 +888,8 @@ bool RootVisualizer::OnInspect(RootModel& model) {
 void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& global_transform) {
   const auto& root_skeleton = model.PeekRootSkeleton(checkpoint_iteration);
   if (visualization) {
-    const auto editor_layer = Application::GetLayer<EditorLayer>();
-    const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+    const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+    const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
     if (need_update) {
       SyncMatrices(root_skeleton, node_matrices_);
       need_update = false;
@@ -931,7 +931,7 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
   std::vector<ParticleInfo> matrices;
 
   matrices.resize(sorted_node_list.size());
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
     const auto node_handle = sorted_node_list[i];
     const auto& node = skeleton.PeekNode(node_handle);
     bool sub_tree = false;
@@ -958,7 +958,7 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
           rotation_transform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
     }
   });
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](unsigned i) {
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
     const auto node_handle = sorted_node_list[i];
     const auto& node = skeleton.PeekNode(node_handle);
     switch (static_cast<RootVisualizerMode>(root_visualizer_color_settings.visualization_mode)) {

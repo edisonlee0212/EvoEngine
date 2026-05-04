@@ -25,6 +25,7 @@ using namespace log_grading_plugin;
 using namespace evo_engine;
 
 int main() {
+  Application application;
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -68,40 +69,40 @@ int main() {
     }
   }
 
-  Application::PushLayer<RenderLayer>("Render Layer");
-  Application::PushLayer<WindowLayer>("Window Layer");
-  Application::PushLayer<EditorLayer>("Editor Layer");
+  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 #ifdef LOG_GRADING_PLUGIN
-  PrivateComponentRegistration<LogGrader>("LogGrader");
+  application.RegisterPrivateComponent<LogGrader>("LogGrader");
 #endif
 #ifdef ECOSYSLAB_PLUGIN
-  AssetRegistration<BasicBarkDescriptor>("BasicBarkDescriptor", {".bs"});
+  application.RegisterAsset<BasicBarkDescriptor>("BasicBarkDescriptor", {".bs"});
 #endif
 
 #ifdef LOG_SCANNING_PLUGIN
-  AssetRegistration<LogScan>("LogScan", {".jscan"});
+  application.RegisterAsset<LogScan>("LogScan", {".jscan"});
 
-  PrivateComponentRegistration<JoeScanScanner>("JoeScanScanner");
+  application.RegisterPrivateComponent<JoeScanScanner>("JoeScanScanner");
 #endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "Log Grader";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "LogGradingProject" / "Default.eveproj");
-  Application::Initialize(application_configs);
+  ApplicationContext::Get().Initialize(application_configs);
 
   // adjust default camera speed
-  const auto editor_layer = Application::GetLayer<EditorLayer>();
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
   // override default scene camera position etc.
   editor_layer->default_scene_camera_position = glm::vec3(0, 2.5, 6);
   editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
   editor_layer->GetSceneCamera()->camera_settings.clear_color = glm::vec4(1.f);
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 
 #pragma region Engine Loop
-  Application::Start();
-  Application::Run();
+  ApplicationContext::Get().Start();
+  ApplicationContext::Get().Run();
 #pragma endregion
-  Application::Terminate();
+  ApplicationContext::Get().Terminate();
 }

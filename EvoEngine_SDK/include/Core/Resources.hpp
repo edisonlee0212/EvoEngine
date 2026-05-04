@@ -1,6 +1,7 @@
 
 #pragma once
 #include "AssetRef.hpp"
+#include "EvoEngineAPI.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
@@ -14,11 +15,14 @@ class EnvironmentalMap;
  * @brief A singleton class that manages resources within the engine.
  */
 class Resources {
-  EVOENGINE_SINGLETON_INSTANCE(Resources)
  public:
-  static std::shared_ptr<Texture2D> missing_texture;
-  static std::shared_ptr<Cubemap> default_skybox;
-  static std::shared_ptr<EnvironmentalMap> default_environmental_map;
+  static Resources& GetInstance();
+
+ private:
+ public:
+  static EVOENGINE_API std::shared_ptr<Texture2D> missing_texture;
+  static EVOENGINE_API std::shared_ptr<Cubemap> default_skybox;
+  static EVOENGINE_API std::shared_ptr<EnvironmentalMap> default_environmental_map;
 
   class Primitives {
     friend class Resources;
@@ -26,14 +30,14 @@ class Resources {
     static void OnDestroy();
 
    public:
-    static std::shared_ptr<Mesh> quad;
-    static std::shared_ptr<Mesh> sphere;
-    static std::shared_ptr<Mesh> cube;
-    static std::shared_ptr<Mesh> cone;
-    static std::shared_ptr<Mesh> cylinder;
-    static std::shared_ptr<Mesh> torus;
-    static std::shared_ptr<Mesh> monkey;
-    static std::shared_ptr<Mesh> capsule;
+    static EVOENGINE_API std::shared_ptr<Mesh> quad;
+    static EVOENGINE_API std::shared_ptr<Mesh> sphere;
+    static EVOENGINE_API std::shared_ptr<Mesh> cube;
+    static EVOENGINE_API std::shared_ptr<Mesh> cone;
+    static EVOENGINE_API std::shared_ptr<Mesh> cylinder;
+    static EVOENGINE_API std::shared_ptr<Mesh> torus;
+    static EVOENGINE_API std::shared_ptr<Mesh> monkey;
+    static EVOENGINE_API std::shared_ptr<Mesh> capsule;
   };
 
  private:

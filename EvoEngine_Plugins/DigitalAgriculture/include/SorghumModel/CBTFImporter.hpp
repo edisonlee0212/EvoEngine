@@ -7,7 +7,7 @@ using namespace evo_engine;
 
 /**
  * @class CBTFImporter
- * @brief A class responsible for importing CBTF files into the DigitalAgriculture plugin.
+ * @brief A class responsible for importing CBTF files into the DigitalAgriculture Plugin.
  *
  * This class facilitates the handling of CBTF files, managing their processing state,
  * and providing an interface for inspecting and updating their import process.

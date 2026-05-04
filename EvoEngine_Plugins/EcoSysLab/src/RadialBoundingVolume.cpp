@@ -216,7 +216,7 @@ void RadialBoundingVolume::GenerateMesh() {
 void RadialBoundingVolume::FormEntity() {
   if (!m_meshGenerated)
     return;
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto entity = scene->CreateEntity(GetTitle());
   auto children = scene->GetChildren(entity);
   for (auto& child : children) {

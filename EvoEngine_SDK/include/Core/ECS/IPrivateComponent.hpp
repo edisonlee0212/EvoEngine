@@ -21,6 +21,7 @@ class IPrivateComponent : public ISerializable {
   friend class Serialization;
   friend class Scene;
   friend class Prefab;
+  friend class PackageRegistrar;
   friend struct EntityMetadata;
 
   bool enabled_ = true;         ///< Indicates whether the component is enabled.
