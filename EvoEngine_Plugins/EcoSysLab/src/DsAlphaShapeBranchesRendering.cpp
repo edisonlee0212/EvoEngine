@@ -1,3 +1,4 @@
+#include "Application.hpp"
 #include "DsAlphaShapeMeshing.hpp"
 
 #include "Delaunay.hpp"
@@ -131,7 +132,8 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   branches_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  branches_point_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  branches_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   branches_point_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   branches_point_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   branches_point_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -154,7 +156,8 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   branches_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  branches_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  branches_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   branches_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   branches_spot_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   branches_spot_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -177,7 +180,8 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   branches_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  branches_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  branches_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   branches_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   branches_directional_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   branches_directional_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -202,9 +206,11 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.frag");
   branches_render_pipeline->geometry_type = GeometryType::Mesh;
-  branches_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  branches_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   branches_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-  branches_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
+  branches_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   branches_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   branches_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   branches_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -246,7 +252,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToPointLightShadowMap(
 
   branches_point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  branches_point_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return delaunay_tetrahedrons.size();
 }
 
@@ -281,7 +287,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToSpotLightShadowMap(
 
   branches_spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  branches_spot_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return delaunay_tetrahedrons.size();
 }
 
@@ -316,7 +322,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToDirectionalLightShadowMap(
 
   branches_directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  branches_directional_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return delaunay_tetrahedrons.size();
 }
 
@@ -328,7 +334,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
   if (!render_parameters.enabled) {
     return 0;
   }
-  if (!Platform::Constants::support_mesh_shader) {
+  if (!Platform::GetInstance().GetCapabilities().support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return 0;
   }
@@ -384,7 +390,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
   branches_render_pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);
 
   const uint32_t count = Platform::DivUp(delaunay_tetrahedrons.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  branches_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);

@@ -1,3 +1,4 @@
+#include "Application.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
 #include "TransformGraph.hpp"
@@ -330,7 +331,7 @@ std::shared_ptr<Mesh> Tree::GenerateFoliageMesh(const TreeMeshGeneratorSettings&
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
 
-  auto quad_mesh = Resources::Primitives::quad;
+  auto quad_mesh = Resources::GetInstance().GetPrimitives().quad;
   auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
   size_t quad_vertices_size;
   quad_vertices_size = quad_mesh->GetVerticesAmount();
@@ -444,7 +445,7 @@ std::shared_ptr<Mesh> Tree::GenerateStrandModelFoliageMesh(
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
 
-  auto quad_mesh = Resources::Primitives::quad;
+  auto quad_mesh = Resources::GetInstance().GetPrimitives().quad;
   auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
   auto quad_vertices_size = quad_mesh->GetVerticesAmount();
   size_t offset = 0;
@@ -682,7 +683,7 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     std::vector<SkinnedVertex> skinned_vertices;
     std::vector<unsigned> indices;
     {
-      auto quad_mesh = Resources::Primitives::quad;
+      auto quad_mesh = Resources::GetInstance().GetPrimitives().quad;
       auto& quad_triangles = quad_mesh->UnsafeGetTriangles();
       auto quad_vertices_size = quad_mesh->GetVerticesAmount();
       size_t offset = 0;
@@ -910,7 +911,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     const auto foliage_entity = scene->CreateEntity("Foliage Mesh");
     scene->SetParent(foliage_entity, self);
     if (mesh_generator_settings.foliage_instancing) {
-      const auto mesh = Resources::Primitives::quad;
+      const auto mesh = Resources::GetInstance().GetPrimitives().quad;
       const auto particle_info_list = GenerateFoliageParticleInfoList(mesh_generator_settings);
       const auto material = AssetManager::CreateTemporaryAsset<Material>();
       bool copied_material = false;
@@ -1057,7 +1058,7 @@ void Tree::InitializeStrandParticles() {
 
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
   renderer->particle_info_list = GenerateStrandParticles();
-  renderer->mesh = Resources::Primitives::cube;
+  renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
   const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
@@ -1076,7 +1077,7 @@ void Tree::InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& pa
 
   const auto renderer = scene->GetOrSetPrivateComponent<Particles>(strands_entity).lock();
   renderer->particle_info_list = particle_info_list;
-  renderer->mesh = Resources::Primitives::cube;
+  renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
   const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;
@@ -1145,7 +1146,7 @@ void Tree::InitializeStrandModelMeshRenderer(
       shoot_model.PeekShootSkeleton().PeekRawNodes().size()) {
     BuildStrandModel();
   }
-  const float time = Times::Now();
+  const float time = ApplicationContext::Get().GetTimes().Now();
   const auto scene = GetScene();
   const auto self = GetOwner();
   const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
@@ -1207,7 +1208,7 @@ void Tree::InitializeStrandModelMeshRenderer(
     mesh_renderer->material = material;
   }
   std::string output;
-  const float mesh_generation_time = Times::Now() - time;
+  const float mesh_generation_time = ApplicationContext::Get().GetTimes().Now() - time;
   output += "\nMesh generation Used time: " + std::to_string(mesh_generation_time) + "\n";
   EVOENGINE_LOG(output);
 }

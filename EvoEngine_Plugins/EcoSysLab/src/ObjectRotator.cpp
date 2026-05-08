@@ -11,7 +11,7 @@ using namespace eco_sys_lab_plugin;
 void ObjectRotator::FixedUpdate() {
   auto scene = GetScene();
   auto transform = scene->GetDataComponent<Transform>(GetOwner());
-  rotation.y += Times::FixedDeltaTime() * rotate_speed;
+  rotation.y += ApplicationContext::Get().GetTimes().FixedDeltaTime() * rotate_speed;
   transform.SetEulerRotation(glm::radians(rotation));
   scene->SetDataComponent(GetOwner(), transform);
 }

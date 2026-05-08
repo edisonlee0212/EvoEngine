@@ -41,9 +41,6 @@ class ParticleInfoList final : public IAsset {
   std::shared_ptr<RangeDescriptor> range_descriptor_; /**< Shared pointer to the range descriptor. */
 
  public:
-  inline static std::shared_ptr<DescriptorSetLayout>
-      instanced_data_layout; /**< Static shared pointer to the descriptor set layout for instanced data. */
-
   /**
    * @brief Creates the particle information list asset.
    */

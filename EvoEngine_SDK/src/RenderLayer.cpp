@@ -20,6 +20,143 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetPerFrameDescriptorSetLayout() const {
+  return per_frame_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetMeshletDescriptorSetLayout() const {
+  return meshlet_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetLightingDescriptorSetLayout() const {
+  return lighting_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRayTracingDescriptorSetLayout() const {
+  return ray_tracing_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRayTracingPointCloudDescriptorSetLayout() const {
+  return ray_tracing_point_cloud_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetParticleInstancedDataDescriptorSetLayout() const {
+  return particle_instanced_data_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetBoneMatricesDescriptorSetLayout() const {
+  return bone_matrices_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetCameraGBufferDescriptorSetLayout() const {
+  return camera_g_buffer_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRenderTextureStorageDescriptorSetLayout() const {
+  return render_texture_storage_layout_;
+}
+
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRenderTexturePresentDescriptorSetLayout() const {
+  return render_texture_present_layout_;
+}
+
+void RenderLayer::InitializeCommonDescriptorSetLayouts(
+    const ApplicationInitializationSettings& application_initialization_settings) {
+  if (!render_texture_present_layout_) {
+    render_texture_present_layout_ = std::make_shared<DescriptorSetLayout>();
+    render_texture_present_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                          VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    render_texture_present_layout_->Initialize();
+  }
+  if (!per_frame_layout_) {
+    per_frame_layout_ = std::make_shared<DescriptorSetLayout>();
+    per_frame_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(
+        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+        application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
+    per_frame_layout_->PushDescriptorBinding(
+        10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
+            VK_SHADER_STAGE_MISS_BIT_KHR,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+        application_initialization_settings.graphics_settings.max_cubemap_resource_size);
+    per_frame_layout_->Initialize();
+  }
+  if (!meshlet_layout_) {
+    meshlet_layout_ = std::make_shared<DescriptorSetLayout>();
+    meshlet_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+    meshlet_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+    meshlet_layout_->Initialize();
+  }
+  if (!lighting_layout_) {
+    lighting_layout_ = std::make_shared<DescriptorSetLayout>();
+    lighting_layout_->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            0);
+    lighting_layout_->PushDescriptorBinding(15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            0);
+    lighting_layout_->PushDescriptorBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            0);
+    lighting_layout_->Initialize();
+  }
+  if (!ray_tracing_layout_) {
+    ray_tracing_layout_ = std::make_shared<DescriptorSetLayout>();
+    ray_tracing_layout_->PushDescriptorBinding(
+        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ray_tracing_layout_->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ray_tracing_layout_->PushDescriptorBinding(
+        2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ray_tracing_layout_->Initialize();
+  }
+  if (!ray_tracing_point_cloud_layout_) {
+    ray_tracing_point_cloud_layout_ = std::make_shared<DescriptorSetLayout>();
+    ray_tracing_point_cloud_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                           VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ray_tracing_point_cloud_layout_->Initialize();
+  }
+  if (!particle_instanced_data_layout_) {
+    particle_instanced_data_layout_ = std::make_shared<DescriptorSetLayout>();
+    particle_instanced_data_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL,
+                                                           0);
+    particle_instanced_data_layout_->Initialize();
+  }
+  if (!bone_matrices_layout_) {
+    bone_matrices_layout_ = std::make_shared<DescriptorSetLayout>();
+    bone_matrices_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    bone_matrices_layout_->Initialize();
+  }
+  if (!camera_g_buffer_layout_) {
+    camera_g_buffer_layout_ = std::make_shared<DescriptorSetLayout>();
+    camera_g_buffer_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    camera_g_buffer_layout_->Initialize();
+  }
+  if (!render_texture_storage_layout_) {
+    render_texture_storage_layout_ = std::make_shared<DescriptorSetLayout>();
+    render_texture_storage_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_ALL, 0);
+    render_texture_storage_layout_->Initialize();
+  }
+}
+
 void RenderLayer::RenderToPointLightShadowMap(
     std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>&& func) {
   point_light_shadow_map_external_functions.emplace_back(func);
@@ -60,7 +197,7 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     point_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
-    point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
+    point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     point_light_shadow_pipeline_normal->depth_attachment_format = Platform::Constants::shadow_map;
     point_light_shadow_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = point_light_shadow_pipeline_normal->push_constant_ranges.emplace_back();
@@ -69,7 +206,7 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     point_light_shadow_pipeline_normal->Initialize();
   }
-  if (Platform::Constants::support_mesh_shader && !point_light_shadow_pipeline_mesh_shader) {
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !point_light_shadow_pipeline_mesh_shader) {
     point_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     point_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
@@ -81,8 +218,8 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     point_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
-    point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout);
-    point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout);
+    point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout_);
     point_light_shadow_pipeline_mesh_shader->depth_attachment_format = Platform::Constants::shadow_map;
     point_light_shadow_pipeline_mesh_shader->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = point_light_shadow_pipeline_mesh_shader->push_constant_ranges.emplace_back();
@@ -100,7 +237,7 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     spot_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
-    spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
+    spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     spot_light_shadow_pipeline_normal->depth_attachment_format = Platform::Constants::shadow_map;
     spot_light_shadow_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = spot_light_shadow_pipeline_normal->push_constant_ranges.emplace_back();
@@ -109,7 +246,7 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     spot_light_shadow_pipeline_normal->Initialize();
   }
-  if (Platform::Constants::support_mesh_shader && !spot_light_shadow_pipeline_mesh_shader) {
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !spot_light_shadow_pipeline_mesh_shader) {
     spot_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
@@ -121,8 +258,8 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     spot_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
-    spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout);
-    spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout);
+    spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout_);
     spot_light_shadow_pipeline_mesh_shader->depth_attachment_format = Platform::Constants::shadow_map;
     spot_light_shadow_pipeline_mesh_shader->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = spot_light_shadow_pipeline_mesh_shader->push_constant_ranges.emplace_back();
@@ -141,7 +278,7 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     directional_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
-    directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
+    directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     directional_light_shadow_pipeline_normal->depth_attachment_format = Platform::Constants::shadow_map;
     directional_light_shadow_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = directional_light_shadow_pipeline_normal->push_constant_ranges.emplace_back();
@@ -150,7 +287,7 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     directional_light_shadow_pipeline_normal->Initialize();
   }
-  if (Platform::Constants::support_mesh_shader && !directional_light_shadow_pipeline_mesh_shader) {
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !directional_light_shadow_pipeline_mesh_shader) {
     directional_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
@@ -162,8 +299,8 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     directional_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
-    directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout);
-    directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout);
+    directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout_);
     directional_light_shadow_pipeline_mesh_shader->depth_attachment_format = Platform::Constants::shadow_map;
     directional_light_shadow_pipeline_mesh_shader->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = directional_light_shadow_pipeline_mesh_shader->push_constant_ranges.emplace_back();
@@ -182,8 +319,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_point_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_point_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     instanced_point_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = instanced_point_light_shadow_pipeline->push_constant_ranges.emplace_back();
@@ -202,8 +339,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_spot_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_spot_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     instanced_spot_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = instanced_spot_light_shadow_pipeline->push_constant_ranges.emplace_back();
@@ -222,9 +359,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_directional_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(
-        ParticleInfoList::instanced_data_layout);
+    instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_directional_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     instanced_directional_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = instanced_directional_light_shadow_pipeline->push_constant_ranges.emplace_back();
@@ -243,8 +379,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_point_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(BoneMatrices::bone_matrices_layout);
+    skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_point_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     skinned_point_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = skinned_point_light_shadow_pipeline->push_constant_ranges.emplace_back();
@@ -263,8 +399,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_spot_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(BoneMatrices::bone_matrices_layout);
+    skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_spot_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     skinned_spot_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = skinned_spot_light_shadow_pipeline->push_constant_ranges.emplace_back();
@@ -283,8 +419,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_directional_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(BoneMatrices::bone_matrices_layout);
+    skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_directional_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     skinned_directional_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     auto& push_constant_range = skinned_directional_light_shadow_pipeline->push_constant_ranges.emplace_back();
@@ -316,8 +452,8 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     strands_point_light_shadow_pipeline->geometry_type = GeometryType::Strands;
-    strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     strands_point_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     strands_point_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     strands_point_light_shadow_pipeline->tessellation_patch_control_points = 4;
@@ -349,8 +485,8 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     strands_spot_light_shadow_pipeline->geometry_type = GeometryType::Strands;
-    strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     strands_spot_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     strands_spot_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     strands_spot_light_shadow_pipeline->tessellation_patch_control_points = 4;
@@ -382,9 +518,8 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                                 std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Empty.frag");
     strands_directional_light_shadow_pipeline->geometry_type = GeometryType::Strands;
-    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(
-        ParticleInfoList::instanced_data_layout);
+    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     strands_directional_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
     strands_directional_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     strands_directional_light_shadow_pipeline->tessellation_patch_control_points = 4;
@@ -404,7 +539,7 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
-    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout);
+    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_prepass_pipeline_normal->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -414,7 +549,7 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     deferred_prepass_pipeline_normal->Initialize();
   }
-  if (Platform::Constants::support_mesh_shader && !deferred_prepass_pipeline_mesh) {
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !deferred_prepass_pipeline_mesh) {
     deferred_prepass_pipeline_mesh = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_mesh->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
@@ -426,8 +561,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout);
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout);
+    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
     deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_prepass_pipeline_mesh->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -446,8 +581,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     instanced_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     instanced_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -466,8 +601,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(BoneMatrices::bone_matrices_layout);
+    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     skinned_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -498,8 +633,8 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     strands_deferred_prepass_pipeline->tessellation_patch_control_points = 4;
     strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -521,9 +656,9 @@ void RenderLayer::OnCreate() {
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.frag");
     deferred_lighting_pass_pipeline->geometry_type = GeometryType::Mesh;
-    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
-    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(lighting_layout);
+    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(lighting_layout_);
     deferred_lighting_pass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_lighting_pass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_lighting_pass_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
@@ -543,9 +678,9 @@ void RenderLayer::OnCreate() {
                                 std::filesystem::path("./DefaultResources") /
                                     "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
     deferred_lighting_pass_pipeline_scene_camera->geometry_type = GeometryType::Mesh;
-    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(per_frame_layout);
-    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
-    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(lighting_layout);
+    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(lighting_layout_);
     deferred_lighting_pass_pipeline_scene_camera->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_lighting_pass_pipeline_scene_camera->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_lighting_pass_pipeline_scene_camera->color_attachment_formats = {
@@ -568,7 +703,7 @@ void RenderLayer::OnCreate() {
     gizmos->depth_attachment_format = Platform::Constants::render_texture_depth;
     gizmos->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos->descriptor_set_layouts.emplace_back(per_frame_layout);
+    gizmos->descriptor_set_layouts.emplace_back(per_frame_layout_);
     auto& push_constant_range = gizmos->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
     push_constant_range.offset = 0;
@@ -588,7 +723,7 @@ void RenderLayer::OnCreate() {
     gizmos_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
     gizmos_normal_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos_normal_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_normal_colored->descriptor_set_layouts.emplace_back(per_frame_layout);
+    gizmos_normal_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
     gizmos_normal_colored->tessellation_patch_control_points = 4;
     auto& push_constant_range = gizmos_normal_colored->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
@@ -608,7 +743,7 @@ void RenderLayer::OnCreate() {
     gizmos_vertex_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
     gizmos_vertex_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos_vertex_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_vertex_colored->descriptor_set_layouts.emplace_back(per_frame_layout);
+    gizmos_vertex_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
     auto& push_constant_range = gizmos_vertex_colored->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
     push_constant_range.offset = 0;
@@ -627,8 +762,8 @@ void RenderLayer::OnCreate() {
     gizmos_instanced_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
     gizmos_instanced_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos_instanced_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_instanced_colored->descriptor_set_layouts.emplace_back(per_frame_layout);
-    gizmos_instanced_colored->descriptor_set_layouts.emplace_back(ParticleInfoList::instanced_data_layout);
+    gizmos_instanced_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    gizmos_instanced_colored->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     auto& push_constant_range = gizmos_instanced_colored->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
     push_constant_range.offset = 0;
@@ -660,7 +795,7 @@ void RenderLayer::OnCreate() {
     gizmos_strands->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos_strands->tessellation_patch_control_points = 4;
     gizmos_strands->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_strands->descriptor_set_layouts.emplace_back(per_frame_layout);
+    gizmos_strands->descriptor_set_layouts.emplace_back(per_frame_layout_);
     auto& push_constant_range = gizmos_strands->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
     push_constant_range.offset = 0;
@@ -691,7 +826,7 @@ void RenderLayer::OnCreate() {
     gizmos_strands_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
     gizmos_strands_normal_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos_strands_normal_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_strands_normal_colored->descriptor_set_layouts.emplace_back(per_frame_layout);
+    gizmos_strands_normal_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
     gizmos_strands_normal_colored->tessellation_patch_control_points = 4;
     auto& push_constant_range = gizmos_strands_normal_colored->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
@@ -724,7 +859,7 @@ void RenderLayer::OnCreate() {
     gizmos_strands_vertex_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
     gizmos_strands_vertex_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     gizmos_strands_vertex_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_strands_vertex_colored->descriptor_set_layouts.emplace_back(per_frame_layout);
+    gizmos_strands_vertex_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
     gizmos_strands_vertex_colored->tessellation_patch_control_points = 4;
     auto& push_constant_range = gizmos_strands_vertex_colored->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(GizmosPushConstant);
@@ -747,9 +882,9 @@ void RenderLayer::OnCreate() {
     ray_tracing_camera_pipeline->closest_hit_shader = Shader::CreateTemporary(
         ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/Camera.rchit");
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_storage_layout);
+    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
+    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(render_texture_storage_layout_);
     auto& push_constant_range = ray_tracing_camera_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RayTracingCameraPushConstant);
     push_constant_range.offset = 0;
@@ -767,9 +902,9 @@ void RenderLayer::OnCreate() {
     ray_tracing_point_cloud_pipeline->closest_hit_shader = Shader::CreateTemporary(
         ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/RayTracing/ClosestHit/PointCloud.rchit");
-    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
-    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout);
-    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
+    ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout_);
     auto& push_constant_range = ray_tracing_point_cloud_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RayTracingPointCloudPushConstant);
     push_constant_range.offset = 0;
@@ -798,20 +933,20 @@ void RenderLayer::OnCreate() {
   }
   per_frame_descriptor_sets_.clear();
   for (size_t i = 0; i < max_frames_in_flight; i++) {
-    auto descriptor_set = std::make_shared<DescriptorSet>(per_frame_layout);
+    auto descriptor_set = std::make_shared<DescriptorSet>(per_frame_layout_);
     per_frame_descriptor_sets_.emplace_back(descriptor_set);
   }
 
   meshlet_descriptor_sets_.clear();
   for (size_t i = 0; i < max_frames_in_flight; i++) {
-    auto descriptor_set = std::make_shared<DescriptorSet>(meshlet_layout);
+    auto descriptor_set = std::make_shared<DescriptorSet>(meshlet_layout_);
     meshlet_descriptor_sets_.emplace_back(descriptor_set);
   }
 
   ray_tracing_descriptor_sets_.clear();
-  if (Platform::Constants::support_ray_tracing) {
+  if (Platform::GetInstance().GetCapabilities().support_ray_tracing) {
     for (size_t i = 0; i < max_frames_in_flight; i++) {
-      auto descriptor_set = std::make_shared<DescriptorSet>(ray_tracing_layout);
+      auto descriptor_set = std::make_shared<DescriptorSet>(ray_tracing_layout_);
       ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
     }
   }
@@ -1208,17 +1343,15 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               if (count_draw_calls)
                 platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
               if (use_mesh_shader) {
-                vkCmdDrawMeshTasksIndirectEXT(
-                    vk_command_buffer,
-                    current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+                Platform::DrawMeshTasksIndirect(
+                    vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
                     current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                     sizeof(VkDrawMeshTasksIndirectCommandEXT));
               } else {
-                vkCmdDrawIndexedIndirect(
-                    vk_command_buffer,
-                    current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
-                    current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                    sizeof(VkDrawIndexedIndirectCommand));
+                Platform::DrawIndexedIndirect(vk_command_buffer,
+                                              *current_render_instances->mesh_draw_indexed_indirect_commands_buffer, 0,
+                                              current_render_instances->mesh_draw_indexed_indirect_commands.size(),
+                                              sizeof(VkDrawIndexedIndirectCommand));
               }
             } else {
               current_render_instances->deferred_render_instances->ForEachRenderInstance(
@@ -1349,17 +1482,15 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             if (count_draw_calls)
               platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
             if (use_mesh_shader) {
-              vkCmdDrawMeshTasksIndirectEXT(
-                  vk_command_buffer,
-                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+              Platform::DrawMeshTasksIndirect(
+                  vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
                   current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                   sizeof(VkDrawMeshTasksIndirectCommandEXT));
             } else {
-              vkCmdDrawIndexedIndirect(
-                  vk_command_buffer,
-                  current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
-                  current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                  sizeof(VkDrawIndexedIndirectCommand));
+              Platform::DrawIndexedIndirect(vk_command_buffer,
+                                            *current_render_instances->mesh_draw_indexed_indirect_commands_buffer, 0,
+                                            current_render_instances->mesh_draw_indexed_indirect_commands.size(),
+                                            sizeof(VkDrawIndexedIndirectCommand));
             }
           } else {
             current_render_instances->deferred_render_instances->ForEachRenderInstance(
@@ -1623,7 +1754,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
       }
       Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
         environmental_brdf_pipeline->Bind(vk_command_buffer);
-        const auto mesh = Resources::texture_pass_through_quad;
+        const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
         GeometryStorage::BindVertices(vk_command_buffer);
         mesh->DrawIndexed(vk_command_buffer, environmental_brdf_pipeline->states, 1);
       });
@@ -1698,17 +1829,15 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 if (count_draw_calls)
                   platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
                 if (use_mesh_shader) {
-                  vkCmdDrawMeshTasksIndirectEXT(
-                      vk_command_buffer,
-                      current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+                  Platform::DrawMeshTasksIndirect(
+                      vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
                       current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                       sizeof(VkDrawMeshTasksIndirectCommandEXT));
                 } else {
-                  vkCmdDrawIndexedIndirect(
-                      vk_command_buffer,
-                      current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
-                      current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                      sizeof(VkDrawIndexedIndirectCommand));
+                  Platform::DrawIndexedIndirect(vk_command_buffer,
+                                                *current_render_instances->mesh_draw_indexed_indirect_commands_buffer,
+                                                0, current_render_instances->mesh_draw_indexed_indirect_commands.size(),
+                                                sizeof(VkDrawIndexedIndirectCommand));
                 }
               } else {
                 current_render_instances->deferred_render_instances->ForEachRenderInstance(
@@ -1868,17 +1997,15 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             if (count_draw_calls)
               platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
             if (use_mesh_shader) {
-              vkCmdDrawMeshTasksIndirectEXT(
-                  vk_command_buffer,
-                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer->GetVkBuffer(), 0,
+              Platform::DrawMeshTasksIndirect(
+                  vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
                   current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
                   sizeof(VkDrawMeshTasksIndirectCommandEXT));
             } else {
-              vkCmdDrawIndexedIndirect(
-                  vk_command_buffer,
-                  current_render_instances->mesh_draw_indexed_indirect_commands_buffer->GetVkBuffer(), 0,
-                  current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                  sizeof(VkDrawIndexedIndirectCommand));
+              Platform::DrawIndexedIndirect(vk_command_buffer,
+                                            *current_render_instances->mesh_draw_indexed_indirect_commands_buffer, 0,
+                                            current_render_instances->mesh_draw_indexed_indirect_commands.size(),
+                                            sizeof(VkDrawIndexedIndirectCommand));
             }
           } else {
             current_render_instances->deferred_render_instances->ForEachRenderInstance(
@@ -2023,7 +2150,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           push_constant.light_split_index = need_fade ? glm::max(128, 256 - editor_layer->selection_alpha_) : 256;
           push_constant.instance_index = need_fade ? 1 : 0;
           deferred_lighting_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const auto mesh = Resources::texture_pass_through_quad;
+          const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
           mesh->DrawIndexed(vk_command_buffer, deferred_lighting_pipeline->states, 1);
         });
       }

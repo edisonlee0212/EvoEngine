@@ -52,11 +52,6 @@ class RenderTexture {
   std::shared_ptr<DescriptorSet> storage_descriptor_set_;       /**< Descriptor set for storage. */
 
  public:
-  inline static std::shared_ptr<DescriptorSetLayout>
-      render_texture_storage_layout; /**< Storage descriptor set layout. */
-  inline static std::shared_ptr<DescriptorSetLayout>
-      render_texture_present_layout; /**< Present descriptor set layout. */
-
   /**
    * @brief Clears the render texture.
    * @param vk_command_buffer Vulkan command buffer used for clearing.

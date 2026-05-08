@@ -1,4 +1,5 @@
 #include "PlayerController.hpp"
+#include "Application.hpp"
 
 #include "Camera.hpp"
 #include "EditorLayer.hpp"
@@ -20,27 +21,27 @@ void PlayerController::LateUpdate() {
   const auto right = rotation * glm::vec3(1, 0, 0);
   auto moved = false;
   if (scene->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-    position += front * static_cast<float>(Times::DeltaTime()) * velocity;
+    position += front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-    position -= front * static_cast<float>(Times::DeltaTime()) * velocity;
+    position -= front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-    position -= right * static_cast<float>(Times::DeltaTime()) * velocity;
+    position -= right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-    position += right * static_cast<float>(Times::DeltaTime()) * velocity;
+    position += right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-    position.y += velocity * static_cast<float>(Times::DeltaTime());
+    position.y += velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
     moved = true;
   }
   if (scene->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-    position.y -= velocity * static_cast<float>(Times::DeltaTime());
+    position.y -= velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
     moved = true;
   }
   if (moved) {

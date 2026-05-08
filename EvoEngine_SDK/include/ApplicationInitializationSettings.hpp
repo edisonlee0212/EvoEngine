@@ -48,7 +48,7 @@ struct ApplicationInitializationSettings {
   bool enable_docking = true;                    /**< Whether to enable docking in the application. */
   bool enable_viewport = true;                   /**< Whether to enable the viewport feature. */
   bool full_screen = false;                      /**< Whether the application starts in full-screen mode. */
-  bool enable_runtime_packages = true;           /**< Whether to load runtime packages during initialization. */
+  bool enable_runtime_packages = false;          /**< Whether to load runtime packages during initialization. */
   std::vector<std::filesystem::path> package_search_paths; /**< Additional runtime package search paths. */
 
   GraphicsInitializationSettings graphics_settings{};

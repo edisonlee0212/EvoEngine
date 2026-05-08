@@ -11,6 +11,7 @@ namespace evo_engine {
 class EditorLayer;
 class AssetRef;
 class File;
+class Folder;
 class Texture2D;
 
 /**

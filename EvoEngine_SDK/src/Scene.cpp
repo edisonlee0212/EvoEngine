@@ -297,7 +297,11 @@ void Scene::Serialize(YAML::Emitter& out) const {
     out << YAML::Key << "LocalAssets" << YAML::Value << YAML::BeginSeq;
     for (auto& i : asset_map) {
       out << YAML::BeginMap;
-      out << YAML::Key << "type_name" << YAML::Value << i.second->GetTypeName();
+      if (const auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(i.second)) {
+        out << YAML::Key << "type_name" << YAML::Value << unknown_asset->GetOriginalTypeName();
+      } else {
+        out << YAML::Key << "type_name" << YAML::Value << i.second->GetTypeName();
+      }
       out << YAML::Key << "handle" << YAML::Value << i.second->GetHandle();
       i.second->Serialize(out);
       out << YAML::EndMap;
@@ -374,8 +378,18 @@ void Scene::Deserialize(const YAML::Node& in) {
     int index = 0;
     for (const auto& i : in_local_assets) {
       // First, find the asset in asset registry
-      if (const auto type_name = i["type_name"].as<std::string>(); Serialization::HasSerializableType(type_name)) {
-        auto asset = AssetManager::CreateTemporaryAssetImpl(type_name, i["handle"].as<uint64_t>());
+      const auto type_name = i["type_name"].as<std::string>();
+      const auto handle = Handle(i["handle"].as<uint64_t>());
+      if (Serialization::HasSerializableType(type_name)) {
+        auto asset = AssetManager::CreateTemporaryAssetImpl(type_name, handle);
+        if (asset) {
+          local_assets.emplace_back(index, asset);
+        }
+      } else if (auto asset = AssetManager::CreateTemporaryAssetImpl("UnknownAsset", handle)) {
+        if (auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(asset)) {
+          unknown_asset->SetOriginalTypeName(type_name);
+          unknown_asset->SetSerializedNode(i);
+        }
         local_assets.emplace_back(index, asset);
       }
       index++;
@@ -407,9 +421,13 @@ void Scene::Deserialize(const YAML::Node& in) {
         } else {
           auto ptr = std::static_pointer_cast<IPrivateComponent>(
               Serialization::ProduceSerializable("UnknownPrivateComponent", hash_code));
+          hash_code = std::hash<std::string>{}(name);
           ptr->enabled_ = false;
           ptr->started_ = false;
-          std::dynamic_pointer_cast<UnknownPrivateComponent>(ptr)->original_type_name_ = name;
+          if (auto unknown_component = std::dynamic_pointer_cast<UnknownPrivateComponent>(ptr)) {
+            unknown_component->SetOriginalTypeName(name);
+            unknown_component->SetSerializedNode(in_private_component);
+          }
           scene_data_storage_.entity_private_component_storage.SetPrivateComponent(entity, hash_code);
           entity_metadata.private_component_elements.emplace_back(hash_code, ptr, entity, self);
         }
@@ -423,8 +441,8 @@ void Scene::Deserialize(const YAML::Node& in) {
     std::vector<std::pair<int, std::shared_ptr<ISystem>>> systems;
     int index = 0;
     for (const auto& in_system : in_systems) {
-      if (const auto type_name = in_system["type_name"].as<std::string>();
-          Serialization::HasSerializableType(type_name)) {
+      const auto type_name = in_system["type_name"].as<std::string>();
+      if (Serialization::HasSerializableType(type_name)) {
         size_t hash_code;
         if (const auto ptr =
                 std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable(type_name, hash_code))) {
@@ -432,6 +450,26 @@ void Scene::Deserialize(const YAML::Node& in) {
           ptr->enabled_ = in_system["enabled_"].as<bool>();
           ptr->rank_ = in_system["rank_"].as<float>();
           ptr->started_ = false;
+          systems_.insert({ptr->rank_, ptr});
+          indexed_systems_.insert({hash_code, ptr});
+          mapped_systems_[ptr->handle_] = ptr;
+          systems.emplace_back(index, ptr);
+          ptr->scene_ = self;
+          ptr->OnCreate();
+        }
+      } else {
+        size_t hash_code;
+        if (const auto ptr =
+                std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable("UnknownSystem", hash_code))) {
+          hash_code = std::hash<std::string>{}(type_name);
+          ptr->handle_ = Handle(in_system["handle_"].as<uint64_t>());
+          ptr->enabled_ = in_system["enabled_"].as<bool>();
+          ptr->rank_ = in_system["rank_"].as<float>();
+          ptr->started_ = false;
+          if (auto unknown_system = std::dynamic_pointer_cast<UnknownSystem>(ptr)) {
+            unknown_system->SetOriginalTypeName(type_name);
+            unknown_system->SetSerializedNode(in_system);
+          }
           systems_.insert({ptr->rank_, ptr});
           indexed_systems_.insert({hash_code, ptr});
           mapped_systems_[ptr->handle_] = ptr;
@@ -540,7 +578,11 @@ void Scene::DeserializeDataComponentStorage(const size_t storage_index, DataComp
       data_component_type.type_size = in_data_component_type["type_size"].as<size_t>();
     if (in_data_component_type["type_offset"])
       data_component_type.type_offset = in_data_component_type["type_offset"].as<size_t>();
-    data_component_type.type_index = Serialization::GetDataComponentTypeId(data_component_type.type_name);
+    if (Serialization::HasComponentDataType(data_component_type.type_name)) {
+      data_component_type.type_index = Serialization::GetDataComponentTypeId(data_component_type.type_name);
+    } else {
+      data_component_type.type_index = std::hash<std::string>{}(data_component_type.type_name);
+    }
     data_component_storage.data_component_types.push_back(data_component_type);
   }
   auto in_data_chunk_array = in["chunk_array"];
@@ -572,13 +614,119 @@ void Scene::DeserializeDataComponentStorage(const size_t storage_index, DataComp
 void Scene::SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out) {
   out << YAML::BeginMap;
   {
-    out << YAML::Key << "type_name" << YAML::Value << system->GetTypeName();
+    if (const auto unknown_system = std::dynamic_pointer_cast<UnknownSystem>(system)) {
+      out << YAML::Key << "type_name" << YAML::Value << unknown_system->GetOriginalTypeName();
+    } else {
+      out << YAML::Key << "type_name" << YAML::Value << system->GetTypeName();
+    }
     out << YAML::Key << "enabled_" << YAML::Value << system->enabled_;
     out << YAML::Key << "rank_" << YAML::Value << system->rank_;
     out << YAML::Key << "handle_" << YAML::Value << system->handle_;
     system->Serialize(out);
   }
   out << YAML::EndMap;
+}
+
+size_t Scene::RestoreUnknownRuntimeTypes() {
+  size_t restored_count = 0;
+  const auto self = std::dynamic_pointer_cast<Scene>(GetSelf());
+
+  for (auto& entity_metadata : scene_data_storage_.entity_metadata_list) {
+    for (auto& element : entity_metadata.private_component_elements) {
+      const auto unknown_component = std::dynamic_pointer_cast<UnknownPrivateComponent>(element.private_component_data);
+      if (!unknown_component) {
+        continue;
+      }
+      const auto& original_type_name = unknown_component->GetOriginalTypeName();
+      if (original_type_name.empty() || !Serialization::HasSerializableType(original_type_name)) {
+        continue;
+      }
+
+      size_t restored_type_id = 0;
+      const auto restored_component = std::dynamic_pointer_cast<IPrivateComponent>(
+          Serialization::ProduceSerializable(original_type_name, restored_type_id));
+      if (!restored_component) {
+        continue;
+      }
+
+      const auto owner = element.private_component_data->owner_;
+      const auto old_type_id = element.type_index;
+      restored_component->enabled_ = element.private_component_data->enabled_;
+      restored_component->started_ = false;
+      restored_component->owner_ = owner;
+      restored_component->scene_ = self;
+      restored_component->OnCreate();
+      restored_component->Deserialize(unknown_component->GetSerializedNode());
+
+      scene_data_storage_.entity_private_component_storage.RemovePrivateComponent(owner, old_type_id,
+                                                                                  element.private_component_data);
+      scene_data_storage_.entity_private_component_storage.SetPrivateComponent(owner, restored_type_id);
+      element.type_index = restored_type_id;
+      element.private_component_data = restored_component;
+      ++restored_count;
+    }
+  }
+
+  for (auto system_iterator = systems_.begin(); system_iterator != systems_.end();) {
+    const auto unknown_system = std::dynamic_pointer_cast<UnknownSystem>(system_iterator->second);
+    if (!unknown_system) {
+      ++system_iterator;
+      continue;
+    }
+    const auto& original_type_name = unknown_system->GetOriginalTypeName();
+    if (original_type_name.empty() || !Serialization::HasSerializableType(original_type_name)) {
+      ++system_iterator;
+      continue;
+    }
+
+    size_t restored_type_id = 0;
+    const auto restored_system =
+        std::dynamic_pointer_cast<ISystem>(Serialization::ProduceSerializable(original_type_name, restored_type_id));
+    if (!restored_system) {
+      ++system_iterator;
+      continue;
+    }
+
+    const auto old_type_id = std::hash<std::string>{}(original_type_name);
+    restored_system->handle_ = system_iterator->second->handle_;
+    restored_system->enabled_ = system_iterator->second->enabled_;
+    restored_system->rank_ = system_iterator->second->rank_;
+    restored_system->started_ = false;
+    restored_system->scene_ = self;
+    restored_system->OnCreate();
+    restored_system->Deserialize(unknown_system->GetSerializedNode());
+
+    indexed_systems_.erase(old_type_id);
+    indexed_systems_[restored_type_id] = restored_system;
+    mapped_systems_[restored_system->handle_] = restored_system;
+    const auto rank = restored_system->rank_;
+    system_iterator = systems_.erase(system_iterator);
+    systems_.insert({rank, restored_system});
+    ++restored_count;
+  }
+
+  for (auto& data_component_storage : scene_data_storage_.data_component_storage_list) {
+    for (auto& type : data_component_storage.data_component_types) {
+      if (type.type_name.empty() || !Serialization::HasComponentDataType(type.type_name)) {
+        continue;
+      }
+      const auto registered_size =
+          Serialization::GetDataComponentTypeSize(Serialization::GetDataComponentTypeId(type.type_name));
+      if (type.type_size != registered_size) {
+        EVOENGINE_WARNING("Cannot restore data component " + type.type_name +
+                          " because the stored size does not match the registered type size.")
+        continue;
+      }
+      const auto registered_type_id = Serialization::GetDataComponentTypeId(type.type_name);
+      if (type.type_index == registered_type_id) {
+        continue;
+      }
+      type.type_index = registered_type_id;
+      ++restored_count;
+    }
+  }
+
+  return restored_count;
 }
 
 void Scene::OnCreate() {
@@ -596,7 +744,7 @@ void Scene::OnCreate() {
   SetDataComponent(main_camera_entity, ltw);
   const auto main_camera_component = GetOrSetPrivateComponent<Camera>(main_camera_entity).lock();
   main_camera = main_camera_component;
-  main_camera_component->skybox = Resources::default_skybox;
+  main_camera_component->skybox = Resources::GetInstance().GetDefaultSkybox();
 #pragma endregion
 
 #pragma region Directional Light
@@ -811,7 +959,7 @@ std::optional<std::pair<std::reference_wrapper<DataComponentStorage>, unsigned>>
   // If we didn't find the target storage, then we need to create a new one.
   scene_data_storage_.data_component_storage_list.emplace_back(archetype_info);
   return {{std::ref(scene_data_storage_.data_component_storage_list.back()),
-           scene_data_storage_.data_component_storage_list.size() - 1}};
+           static_cast<unsigned>(scene_data_storage_.data_component_storage_list.size() - 1)}};
 }
 
 std::optional<std::pair<std::reference_wrapper<DataComponentStorage>, unsigned>> Scene::GetDataComponentStorage(

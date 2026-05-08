@@ -19,11 +19,6 @@ using namespace eco_sys_lab_plugin;
 
 #include "EditorLayer.hpp"
 #include "WindowLayer.hpp"
-#ifdef TEXTURE_BAKING_PLUGIN
-#  include "TextureBaking.hpp"
-using namespace texture_baking_plugin;
-#endif
-
 using namespace evo_engine;
 void EngineSetup();
 
@@ -88,10 +83,6 @@ int main() {
   application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
   application.RegisterPrivateComponent<FungusTest>("FungusTest");
 #endif
-#ifdef TEXTURE_BAKING_PLUGIN
-  application.RegisterPrivateComponent<TextureBaking>("TextureBaking");
-#endif
-
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
@@ -125,7 +116,7 @@ void EngineSetup() {
     Transform transform;
     transform.SetEulerRotation(glm::radians(glm::vec3(150, 30, 0)));
 #pragma region Preparations
-    Times::SetTimeStep(0.016f);
+    ApplicationContext::Get().GetTimes().SetTimeStep(0.016f);
     transform = Transform();
     transform.SetPosition(glm::vec3(0, 2, 35));
     transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));

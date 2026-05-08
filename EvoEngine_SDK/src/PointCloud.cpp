@@ -270,7 +270,7 @@ void PointCloud::ApplyCompressed() {
   const auto owner = scene->CreateEntity("Compressed Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
   particles->material = AssetManager::CreateTemporaryAsset<Material>();
-  particles->mesh = Resources::Primitives::cube;
+  particles->mesh = Resources::GetInstance().GetPrimitives().cube;
   particles->particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   auto compressed = std::vector<glm::dvec3>();
   Compress(compressed);
@@ -428,9 +428,9 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   auto reflection_probe = scene->environment.GetReflectionProbe(glm::vec3(0.0f));
   if (!reflection_probe) {
-    reflection_probe = Resources::default_environmental_map->reflection_probe.Get<ReflectionProbe>();
+    reflection_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->reflection_probe.Get<ReflectionProbe>();
   }
-  const auto skybox = Resources::default_skybox;
+  const auto skybox = Resources::GetInstance().GetDefaultSkybox();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   VkBufferCreateInfo buffer_create_info{};
@@ -446,7 +446,8 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
 
   const auto sample_buffer = std::make_shared<Buffer>(buffer_create_info, alloc_info);
   sample_buffer->UploadVector(samples);
-  const auto sample_descriptor = std::make_shared<DescriptorSet>(RenderLayer::ray_tracing_point_cloud_layout);
+  const auto sample_descriptor = std::make_shared<DescriptorSet>(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetRayTracingPointCloudDescriptorSetLayout());
 
   sample_descriptor->UpdateBufferDescriptorBinding(0, sample_buffer);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
@@ -478,7 +479,7 @@ void PointCloud::ApplyOriginal() const {
   const auto owner = scene->CreateEntity("Original Point Cloud");
   const auto particles = scene->GetOrSetPrivateComponent<Particles>(owner).lock();
   particles->material = AssetManager::CreateTemporaryAsset<Material>();
-  particles->mesh = Resources::Primitives::cube;
+  particles->mesh = Resources::GetInstance().GetPrimitives().cube;
   particles->particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
   std::vector<ParticleInfo> particle_infos;

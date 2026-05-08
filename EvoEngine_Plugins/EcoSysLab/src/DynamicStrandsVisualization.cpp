@@ -1,3 +1,4 @@
+#include "Application.hpp"
 #include "DynamicStrands.hpp"
 #include "Shader.hpp"
 using namespace eco_sys_lab_plugin;
@@ -5,7 +6,7 @@ using namespace eco_sys_lab_plugin;
 void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                                const DynamicStrandsInitializeParameters& initialize_parameters,
                                const DynamicStrandsVisualizationParameters& visualization_parameters) const {
-  if (!Platform::Constants::support_mesh_shader) {
+  if (!Platform::GetInstance().GetCapabilities().support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return;
   }
@@ -54,7 +55,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     segment_render_pipeline->fragment_shader = frag_shader;
     segment_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    segment_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    segment_render_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     segment_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     segment_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     segment_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -104,7 +106,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     segment_pair_render_pipeline->fragment_shader = frag_shader;
     segment_pair_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     segment_pair_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     segment_pair_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -153,7 +156,8 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     foliage_render_pipeline->fragment_shader = frag_shader;
     foliage_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    foliage_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    foliage_render_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     foliage_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
     foliage_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     foliage_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -299,7 +303,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
             segment_pair_render_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
             const uint32_t count = Platform::DivUp(segment_pairs.size(), task_work_group_invocations);
-            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+            segment_pair_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
 
@@ -320,7 +324,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
             segment_render_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
             const uint32_t count = Platform::DivUp(segments.size(), task_work_group_invocations);
-            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+            segment_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
 
@@ -341,7 +345,7 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
             foliage_render_pipeline->PushConstant(vk_command_buffer, 0, foliage_push_constant);
             const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+            foliage_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
   });

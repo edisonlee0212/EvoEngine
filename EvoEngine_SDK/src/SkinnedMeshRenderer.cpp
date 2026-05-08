@@ -19,7 +19,7 @@ void SkinnedMeshRenderer::RenderBound(const std::shared_ptr<EditorLayer>& editor
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
   gizmo_settings.draw_settings.line_width = 5.0f;
   editor_layer->DrawGizmoMesh(
-      Resources::Primitives::cube, color,
+      Resources::GetInstance().GetPrimitives().cube, color,
       transform * (glm::translate(skinned_mesh.Get<SkinnedMesh>()->bound_.Center()) * glm::scale(size)), 1,
       gizmo_settings);
 }
@@ -93,9 +93,8 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       std::vector<ParticleInfo> debug_rendering_matrices;
       GlobalTransform ltw;
 
-      static std::shared_ptr<ParticleInfoList> particle_info_list;
-      if (!particle_info_list)
-        particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+      if (!debug_bone_particle_info_list_)
+        debug_bone_particle_info_list_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
       if (!rag_doll_) {
         debug_rendering_matrices.resize(amt->transform_chain_.size());
         Jobs::RunParallelFor(amt->transform_chain_.size(), [&](size_t i) {
@@ -116,9 +115,9 @@ bool SkinnedMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
                                                                 glm::inverse(amt->offset_matrices_[index]) *
                                                                 glm::inverse(glm::scale(self_scale));
       }
-      particle_info_list->SetParticleInfos(debug_rendering_matrices);
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::sphere, particle_info_list, ltw.value,
-                                                  debug_render_bones_size);
+      debug_bone_particle_info_list_->SetParticleInfos(debug_rendering_matrices);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().sphere,
+                                                  debug_bone_particle_info_list_, ltw.value, debug_render_bones_size);
     }
 
     if (ImGui::Checkbox("RagDoll", &rag_doll_)) {

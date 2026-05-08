@@ -20,7 +20,14 @@
         "value": "host=x64"
       },
       "cacheVariables": {
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/vs2026-x64"
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/vs2026-x64",
+        "EVOENGINE_ENABLE_BillboardClouds_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_Gpr_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_LogGrading_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_LogScanning_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_MeshRepair_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_TextureBaking_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_Universe_PACKAGE": "ON"
       },
       "condition": {
         "type": "equals",

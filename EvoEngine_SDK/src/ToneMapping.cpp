@@ -16,7 +16,7 @@ bool ToneMapping::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
 void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
                           const std::shared_ptr<Camera>& target_camera) {
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto resolution = target_camera->GetSize();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -34,7 +34,7 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
     push_constant.gamma = gamma;
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(resolution.x * resolution.y, work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer, Platform::DivUp(resolution.x * resolution.y, work_group_invocations));
     /**
      * Remember, many of vulkan commands are executed without ordering. So we have this Platform::EverythingBarrier() to
      * make sure that the above commands finishes before moving on. This is syncronization on GPU, not between GPU and
@@ -51,8 +51,10 @@ void ToneMapping::BuildPipelines(const bool force_rebuild) {
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Compute/PostProcessing/ToneMapping.comp");
 
-    pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-    pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_storage_layout);
+    pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTextureStorageDescriptorSetLayout());
     auto& downsampling_push_constant_range = pipeline->push_constant_ranges.emplace_back();
     downsampling_push_constant_range.size = sizeof(PushConstant);
     downsampling_push_constant_range.offset = 0;

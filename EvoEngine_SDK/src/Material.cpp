@@ -306,9 +306,8 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       changed = true;
     }
 
-    static AssetRef rma_texture_ref{};
-    if (editor_layer->DragAndDropButton<Texture2D>(rma_texture_ref, "Apply RMA Texture")) {
-      const auto rma_texture = rma_texture_ref.Get<Texture2D>();
+    if (editor_layer->DragAndDropButton<Texture2D>(rma_texture_ref_, "Apply RMA Texture")) {
+      const auto rma_texture = rma_texture_ref_.Get<Texture2D>();
       std::vector<glm::vec3> rma_data;
       rma_texture->GetRgbChannelData(rma_data);
       const auto rma_resolution = rma_texture->GetResolution();
@@ -335,7 +334,7 @@ bool Material::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       metallic_texture_ = metallic_texture;
       ao_texture_ = ao_texture;
 
-      rma_texture_ref.Clear();
+      rma_texture_ref_.Clear();
     }
     ImGui::TreePop();
   }

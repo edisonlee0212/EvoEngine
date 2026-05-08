@@ -9,6 +9,8 @@ class Node;
 
 namespace evo_engine {
 class Application;
+class File;
+class Folder;
 /**
  * @class ISerializable
  * @brief Represents an abstract class for serializable objects in the engine.

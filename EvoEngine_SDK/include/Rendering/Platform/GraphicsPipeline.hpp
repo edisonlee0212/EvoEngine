@@ -274,6 +274,16 @@ class GraphicsPipeline final : public IGraphicsResource {
   void BindDescriptorSet(VkCommandBuffer vk_command_buffer, uint32_t first_set, VkDescriptorSet descriptor_set) const;
 
   /**
+   * @brief Records a mesh shader task draw through the SDK binary.
+   *
+   * @param vk_command_buffer The Vulkan command buffer.
+   * @param x Task count in the x dimension.
+   * @param y Task count in the y dimension.
+   * @param z Task count in the z dimension.
+   */
+  void DrawMeshTasks(VkCommandBuffer vk_command_buffer, uint32_t x, uint32_t y = 1, uint32_t z = 1) const;
+
+  /**
    * @brief Pushes a constant value to the pipeline.
    *
    * @tparam T The type of data to push.
@@ -283,13 +293,19 @@ class GraphicsPipeline final : public IGraphicsResource {
    */
   template <typename T>
   void PushConstant(VkCommandBuffer vk_command_buffer, size_t range_index, const T& data);
+
+  /**
+   * @brief Pushes raw constant data through the SDK binary.
+   *
+   * This keeps the Vulkan command call inside EvoEngine_SDK so runtime packages do not depend on their own volk
+   * function table being loaded.
+   */
+  void PushConstantData(VkCommandBuffer vk_command_buffer, size_t range_index, const void* data) const;
 };
 
 template <typename T>
 void GraphicsPipeline::PushConstant(const VkCommandBuffer vk_command_buffer, const size_t range_index, const T& data) {
-  vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(),
-                     push_constant_ranges[range_index].stageFlags, push_constant_ranges[range_index].offset,
-                     push_constant_ranges[range_index].size, &data);
+  PushConstantData(vk_command_buffer, range_index, &data);
 }
 
 }  // namespace evo_engine

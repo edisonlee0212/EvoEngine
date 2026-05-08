@@ -97,11 +97,11 @@ void Shader::Deserialize(const YAML::Node& in) {
 }
 
 void Shader::RegisterShaderIncludePath(const std::filesystem::path& path) {
-  shader_include_paths.emplace(path);
+  Platform::GetInstance().RegisterShaderIncludePath(path);
 }
 
 const std::set<std::filesystem::path>& Shader::GetRegisteredShaderIncludePaths() {
-  return shader_include_paths;
+  return Platform::GetInstance().GetRegisteredShaderIncludePaths();
 }
 
 bool Shader::Compiled() const {
@@ -128,7 +128,7 @@ class GlslShaderIncluder : public glslang::TShader::Includer {
   void releaseInclude(IncludeResult*) override;
 
  private:
-  static inline IncludeResult sm_fail_result_ = IncludeResult("", "Header does not exist!", 0, nullptr);
+  IncludeResult fail_result_ = IncludeResult("", "Header does not exist!", 0, nullptr);
   std::unordered_map<std::filesystem::path, std::shared_ptr<IncludeResult>> includes_;
   std::unordered_map<std::filesystem::path, std::string> sources_;
 };
@@ -158,7 +158,7 @@ glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeSystem(con
   if (found) {
     sources_[resolved_header_path] = FileUtils::LoadFileAsString(resolved_header_path);
   } else {
-    return &sm_fail_result_;
+    return &fail_result_;
   }
   auto [it, b] = includes_.emplace(std::make_pair(
       resolved_header_path,
@@ -166,7 +166,7 @@ glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeSystem(con
                                       sources_.at(resolved_header_path).size(), nullptr)));
   if (!b) {
     EVOENGINE_ERROR("Failed to insert IncludeResult into std::map!");
-    return &sm_fail_result_;
+    return &fail_result_;
   }
   return it->second.get();
 }
@@ -185,8 +185,6 @@ void GlslShaderIncluder::releaseInclude(IncludeResult* result) {
     includes_.erase(it);
   }
 }
-
-GlslShaderIncluder glsl_shader_includer{};
 
 bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries,
                  const std::filesystem::path& path) {
@@ -270,6 +268,7 @@ bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::v
     EProfile default_profile = ECoreProfile;  // NOTE: Only for desktop, before profiles showed up!
 
     std::string preprocessedStr;
+    GlslShaderIncluder glsl_shader_includer;
     if (!shader.preprocess(resources, default_version, default_profile, false, forward_compatible, message_flags,
                            &preprocessedStr, glsl_shader_includer)) {
       EVOENGINE_ERROR("Failed to preprocess shader: " + path.string() + "\n" + std::string(shader.getInfoLog()));

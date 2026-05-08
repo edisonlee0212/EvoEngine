@@ -11,7 +11,7 @@ void DsLeafDrop::Execute(const DynamicStrands::PhysicsParameters& physics_parame
   leaf_push_constant.rotation_correction_strength = rotation_correction_strength;
   leaf_push_constant.disturbance_frequency = disturbance_frequency;
   leaf_push_constant.disturbance_strength = disturbance_strength;
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     pipeline->Bind(vk_command_buffer);
@@ -21,7 +21,7 @@ void DsLeafDrop::Execute(const DynamicStrands::PhysicsParameters& physics_parame
 
     pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -135,7 +135,7 @@ void DsAttraction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   push_constant.target_position = target_position;
   push_constant.distance_multiplier = distance_multiplier;
   push_constant.commands_size = commands.size();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     drag_force_pipeline->Bind(vk_command_buffer);
@@ -147,7 +147,8 @@ void DsAttraction::Execute(const DynamicStrands::PhysicsParameters& physics_para
 
     drag_force_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
+    drag_force_pipeline->Dispatch(vk_command_buffer,
+                                  Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -211,7 +212,7 @@ void DsBoxSelection::Update(const glm::vec2& box_start, const glm::vec2& box_end
 }
 
 void DsBoxSelection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   segment_push_constant.segment_size = target_dynamic_strands->segments.size();
   leaf_push_constant.leaf_size = target_dynamic_strands->foliage.size();
@@ -222,7 +223,8 @@ void DsBoxSelection::Execute(const std::shared_ptr<DynamicStrands>& target_dynam
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_pipeline->Dispatch(vk_command_buffer,
+                               Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_pipeline->Bind(vk_command_buffer);
@@ -231,7 +233,8 @@ void DsBoxSelection::Execute(const std::shared_ptr<DynamicStrands>& target_dynam
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1,
+                            1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
   enabled = false;
@@ -262,7 +265,7 @@ void DsDrag::Update(const glm::vec3& acceleration) {
 
 void DsDrag::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                      const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   DragPushConstant push_constant;
   push_constant.acceleration = target_acceleration;
@@ -274,7 +277,7 @@ void DsDrag::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.segment_size, work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer, Platform::DivUp(push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
   enabled = false;
@@ -308,7 +311,7 @@ void DsLineCut::Update(const glm::vec2& line_start, const glm::vec2& line_end, c
 }
 
 void DsLineCut::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   push_constant.segment_pair_size = target_dynamic_strands->segment_pairs.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -318,8 +321,8 @@ void DsLineCut::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_st
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer,
+                       Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
   enabled = false;
@@ -355,7 +358,7 @@ void DsPointCut::Update(const glm::vec2& point, const glm::vec2& screen_size, co
 }
 
 void DsPointCut::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   push_constant.segment_pair_size = target_dynamic_strands->segment_pairs.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -365,8 +368,8 @@ void DsPointCut::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_s
         target_dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer,
+                       Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
   enabled = false;
@@ -438,7 +441,7 @@ void DsSaw::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strand
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   push_constant.segment_pair_size = target_dynamic_strands->segment_pairs.size();
   push_constant.line_point_pair_size = line_point_pairs.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -449,8 +452,8 @@ void DsSaw::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strand
     pipeline->BindDescriptorSet(vk_command_buffer, 1, line_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer,
+                       Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -500,7 +503,7 @@ void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
   segment_push_constant.snow_intensity = snow_intensity * physics_parameters.time_step;
   segment_push_constant.snow_retain_ratio = snow_retain_ratio;
 
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pipeline->Bind(vk_command_buffer);
@@ -510,7 +513,8 @@ void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
 
     segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_pipeline->Dispatch(vk_command_buffer,
+                               Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
     /*
     LeafPushConstant leaf_push_constant;
@@ -524,8 +528,8 @@ void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
 
     leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
+    leaf_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1,
+    1); Platform::EverythingBarrier(vk_command_buffer);
     */
   });
 }
@@ -600,7 +604,7 @@ void DsWind::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
   leaf_push_constant.turbulence_speed_frequency = turbulence_speed_frequency;
 
   leaf_push_constant.simulated_time = target_dynamic_strands->GetSimulatedTime();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pipeline->Bind(vk_command_buffer);
@@ -610,7 +614,8 @@ void DsWind::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
 
     segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_pipeline->Dispatch(vk_command_buffer,
+                               Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_pipeline->Bind(vk_command_buffer);
@@ -620,7 +625,8 @@ void DsWind::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
 
     leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1,
+                            1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -691,7 +697,7 @@ void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
   segment_push_constant.segment_size = target_dynamic_strands->segments.size();
   LeafPushConstant leaf_push_constant;
   leaf_push_constant.leaf_size = target_dynamic_strands->foliage.size();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     segment_pipeline->Bind(vk_command_buffer);
@@ -701,7 +707,8 @@ void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
 
     segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_pipeline->Dispatch(vk_command_buffer,
+                               Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_pipeline->Bind(vk_command_buffer);
@@ -711,7 +718,8 @@ void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
 
     leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
 
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1,
+                            1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -828,14 +836,14 @@ void DsFungusInjection::Update(const glm::vec2& point, const glm::vec2& screen_s
 }
 
 void DsFungusInjection::Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) {
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   // first call reset shader
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     min_dist_reset_pipeline->Bind(vk_command_buffer);
     min_dist_reset_pipeline->BindDescriptorSet(vk_command_buffer, 0, min_distance_descriptor_set->GetVkDescriptorSet());
-    vkCmdDispatch(vk_command_buffer, 1, 1, 1);
+    min_dist_reset_pipeline->Dispatch(vk_command_buffer, 1, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
@@ -849,8 +857,8 @@ void DsFungusInjection::Execute(const std::shared_ptr<DynamicStrands>& target_dy
     find_closest_pipeline->BindDescriptorSet(vk_command_buffer, 1, min_distance_descriptor_set->GetVkDescriptorSet());
     find_closest_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    find_closest_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
@@ -862,8 +870,8 @@ void DsFungusInjection::Execute(const std::shared_ptr<DynamicStrands>& target_dy
     inject_pipeline->BindDescriptorSet(vk_command_buffer, 1, min_distance_descriptor_set->GetVkDescriptorSet());
     inject_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
+    inject_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(target_dynamic_strands->segment_pairs.size(), work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
   enabled = false;

@@ -81,6 +81,11 @@ bool Serialization::RegisterSystemType(
     const std::string &type_name, const size_t &type_index,
     const std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem> &)> &clone_func) {
   auto &serialization = GetInstance();
+  if (serialization.system_names_.find(type_index) != serialization.system_names_.end() ||
+      serialization.system_ids_.find(type_name) != serialization.system_ids_.end()) {
+    EVOENGINE_ERROR(type_name + " already registered!")
+    return false;
+  }
   serialization.system_names_[type_index] = type_name;
   serialization.system_ids_[type_name] = type_index;
   return serialization.system_cloners_.insert({type_name, clone_func}).second;
@@ -127,6 +132,49 @@ bool Serialization::UnregisterPrivateComponentType(const std::string &type_name)
   return true;
 }
 
+bool Serialization::UnregisterAssetType(const std::string &type_name) {
+  auto &serialization = GetInstance();
+  if (const auto extension_search = serialization.asset_extensions_.find(type_name);
+      extension_search != serialization.asset_extensions_.end()) {
+    for (const auto &extension : extension_search->second) {
+      serialization.type_names_.erase(extension);
+    }
+    serialization.asset_extensions_.erase(extension_search);
+  }
+  return UnregisterSerializableType(type_name);
+}
+
+bool Serialization::UnregisterDataComponentType(const std::string &type_name) {
+  auto &serialization = GetInstance();
+  const auto id_search = serialization.data_component_ids_.find(type_name);
+  if (id_search == serialization.data_component_ids_.end()) {
+    return false;
+  }
+  const auto type_id = id_search->second;
+  serialization.data_component_generators_.erase(type_name);
+  serialization.data_component_ids_.erase(id_search);
+  serialization.data_component_sizes_.erase(type_id);
+  serialization.data_component_names_.erase(type_id);
+  serialization.data_component_type_owners_.erase(type_name);
+  serialization.data_component_type_id_owners_.erase(type_id);
+  return true;
+}
+
+bool Serialization::UnregisterSystemType(const std::string &type_name) {
+  auto &serialization = GetInstance();
+  const auto id_search = serialization.system_ids_.find(type_name);
+  if (id_search == serialization.system_ids_.end()) {
+    return false;
+  }
+  const auto type_id = id_search->second;
+  serialization.system_cloners_.erase(type_name);
+  serialization.system_ids_.erase(id_search);
+  serialization.system_names_.erase(type_id);
+  serialization.system_type_owners_.erase(type_name);
+  serialization.system_type_id_owners_.erase(type_id);
+  return true;
+}
+
 void Serialization::SetSerializableTypeOwner(const std::string &type_name, const std::string &owner_name) {
   auto &serialization = GetInstance();
   if (const auto id_search = serialization.serializable_ids_.find(type_name);
@@ -145,6 +193,23 @@ void Serialization::SetPrivateComponentTypeOwner(const std::string &type_name, c
   }
 }
 
+void Serialization::SetDataComponentTypeOwner(const std::string &type_name, const std::string &owner_name) {
+  auto &serialization = GetInstance();
+  if (const auto id_search = serialization.data_component_ids_.find(type_name);
+      id_search != serialization.data_component_ids_.end()) {
+    serialization.data_component_type_owners_[type_name] = owner_name;
+    serialization.data_component_type_id_owners_[id_search->second] = owner_name;
+  }
+}
+
+void Serialization::SetSystemTypeOwner(const std::string &type_name, const std::string &owner_name) {
+  auto &serialization = GetInstance();
+  if (const auto id_search = serialization.system_ids_.find(type_name); id_search != serialization.system_ids_.end()) {
+    serialization.system_type_owners_[type_name] = owner_name;
+    serialization.system_type_id_owners_[id_search->second] = owner_name;
+  }
+}
+
 std::vector<size_t> Serialization::GetPackageOwnedPrivateComponentTypeIds(const std::string &owner_name) {
   const auto &serialization = GetInstance();
   std::vector<size_t> ret_val;
@@ -156,8 +221,40 @@ std::vector<size_t> Serialization::GetPackageOwnedPrivateComponentTypeIds(const 
   return ret_val;
 }
 
+std::vector<size_t> Serialization::GetPackageOwnedDataComponentTypeIds(const std::string &owner_name) {
+  const auto &serialization = GetInstance();
+  std::vector<size_t> ret_val;
+  for (const auto &[type_id, owner] : serialization.data_component_type_id_owners_) {
+    if (owner == owner_name) {
+      ret_val.emplace_back(type_id);
+    }
+  }
+  return ret_val;
+}
+
+std::vector<size_t> Serialization::GetPackageOwnedSystemTypeIds(const std::string &owner_name) {
+  const auto &serialization = GetInstance();
+  std::vector<size_t> ret_val;
+  for (const auto &[type_id, owner] : serialization.system_type_id_owners_) {
+    if (owner == owner_name) {
+      ret_val.emplace_back(type_id);
+    }
+  }
+  return ret_val;
+}
+
 void Serialization::UnregisterPackageOwnedTypes(const std::string &owner_name) {
   auto &serialization = GetInstance();
+  std::vector<std::string> data_component_names;
+  for (const auto &[type_name, owner] : serialization.data_component_type_owners_) {
+    if (owner == owner_name) {
+      data_component_names.emplace_back(type_name);
+    }
+  }
+  for (const auto &type_name : data_component_names) {
+    UnregisterDataComponentType(type_name);
+  }
+
   std::vector<std::string> private_component_names;
   for (const auto &[type_name, owner] : serialization.private_component_type_owners_) {
     if (owner == owner_name) {
@@ -168,6 +265,16 @@ void Serialization::UnregisterPackageOwnedTypes(const std::string &owner_name) {
     UnregisterPrivateComponentType(type_name);
   }
 
+  std::vector<std::string> system_names;
+  for (const auto &[type_name, owner] : serialization.system_type_owners_) {
+    if (owner == owner_name) {
+      system_names.emplace_back(type_name);
+    }
+  }
+  for (const auto &type_name : system_names) {
+    UnregisterSystemType(type_name);
+  }
+
   std::vector<std::string> serializable_names;
   for (const auto &[type_name, owner] : serialization.serializable_type_owners_) {
     if (owner == owner_name) {
@@ -175,7 +282,11 @@ void Serialization::UnregisterPackageOwnedTypes(const std::string &owner_name) {
     }
   }
   for (const auto &type_name : serializable_names) {
-    UnregisterSerializableType(type_name);
+    if (HasAssetType(type_name)) {
+      UnregisterAssetType(type_name);
+    } else {
+      UnregisterSerializableType(type_name);
+    }
   }
 }
 

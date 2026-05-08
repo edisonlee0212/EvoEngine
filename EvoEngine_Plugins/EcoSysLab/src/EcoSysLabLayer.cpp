@@ -423,22 +423,28 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
             glm::vec3 front = scene_camera_rotation * glm::vec3(0, 0, -1);
             glm::vec3 right = scene_camera_rotation * glm::vec3(1, 0, 0);
             if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-              scene_camera_position += front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+              scene_camera_position +=
+                  front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
             }
             if (EditorLayer::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-              scene_camera_position -= front * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+              scene_camera_position -=
+                  front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
             }
             if (EditorLayer::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-              scene_camera_position -= right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+              scene_camera_position -=
+                  right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
             }
             if (EditorLayer::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-              scene_camera_position += right * static_cast<float>(Times::DeltaTime()) * editor_layer->velocity;
+              scene_camera_position +=
+                  right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
             }
             if (EditorLayer::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-              scene_camera_position.y += editor_layer->velocity * static_cast<float>(Times::DeltaTime());
+              scene_camera_position.y +=
+                  editor_layer->velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
             }
             if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-              scene_camera_position.y -= editor_layer->velocity * static_cast<float>(Times::DeltaTime());
+              scene_camera_position.y -=
+                  editor_layer->velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
             }
             if (x_offset != 0.0f || y_offset != 0.0f) {
               front = glm::rotate(front, glm::radians(-x_offset * editor_layer->sensitivity), glm::vec3(0, 1, 0));

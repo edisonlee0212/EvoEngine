@@ -101,7 +101,7 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
 
   if (sheath_ratio > 0) {
     int root_to_sheath_node_count =
-        glm::min(2.0f, stem_length * sheath_ratio / sorghum_layer->vertical_subdivision_length);
+        static_cast<int>(glm::min(2.0f, stem_length * sheath_ratio / sorghum_layer->vertical_subdivision_length));
     for (int i = 0; i < root_to_sheath_node_count; i++) {
       float factor = static_cast<float>(i) / root_to_sheath_node_count;
       float current_root_to_sheath_point = glm::mix(0.f, sheath_ratio, factor);
@@ -109,11 +109,12 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
       const auto up = glm::normalize(glm::cross(stem_front, leaf_left));
       leaf_state.spline.segments.emplace_back(
           glm::normalize(stem_front) * current_root_to_sheath_point * stem_length + stem_offset, up, stem_front,
-          stem_width, 180.f, 0, 0);
+          stem_width, 180.f, 0.0f, 0.0f);
     }
   }
 
-  int sheath_node_count = glm::max(2.0f, stem_length * back_track_ratio / sorghum_layer->vertical_subdivision_length);
+  int sheath_node_count =
+      static_cast<int>(glm::max(2.0f, stem_length * back_track_ratio / sorghum_layer->vertical_subdivision_length));
   for (int i = 0; i <= sheath_node_count; i++) {
     float factor = static_cast<float>(i) / sheath_node_count;
     float current_sheath_point =
@@ -125,13 +126,13 @@ void SorghumGrowthStagePair::ApplyLeaf(const std::shared_ptr<SorghumDescriptor>&
     leaf_state.spline.segments.emplace_back(
         glm::normalize(stem_front) * current_sheath_point * stem_length + stem_offset, up, actual_direction,
         stem_width + 0.002f * static_cast<float>(i) / sheath_node_count,
-        180.0f - 90.0f * static_cast<float>(i) / sheath_node_count, 0, 0);
+        180.0f - 90.0f * static_cast<float>(i) / sheath_node_count, 0.0f, 0.0f);
   }
 
-  int node_amount = glm::max(4.0f, leaf_length / sorghum_layer->vertical_subdivision_length);
+  int node_amount = static_cast<int>(glm::max(4.0f, leaf_length / sorghum_layer->vertical_subdivision_length));
   float unit_length = leaf_length / node_amount;
 
-  int node_to_full_expand = 0.1f * leaf_length / sorghum_layer->vertical_subdivision_length;
+  int node_to_full_expand = static_cast<int>(0.1f * leaf_length / sorghum_layer->vertical_subdivision_length);
 
   auto period_start = glm::mix(actual_left.waviness_period_start, actual_right.waviness_period_start, a);
   const float waviness_frequency = glm::mix(actual_left.waviness_frequency, actual_right.waviness_frequency, a);
@@ -188,7 +189,8 @@ void SorghumGrowthStagePair::LeafStateHelper(SorghumLeafState& left, SorghumLeaf
   }
 
   const int completed_leaf_size =
-      left_stage.leaves.size() + glm::floor((right_stage.leaves.size() - left_stage.leaves.size()) * a);
+      static_cast<int>(left_stage.leaves.size()) +
+      static_cast<int>(glm::floor(static_cast<float>(right_stage.leaves.size() - left_stage.leaves.size()) * a));
   a = glm::clamp(a * (next_leaf_size - previous_leaf_size) - (completed_leaf_size - previous_leaf_size), 0.0f, 1.0f);
   left = right = right_stage.leaves[leaf_index];
   if (leaf_index >= completed_leaf_size) {
@@ -205,7 +207,8 @@ void SorghumGrowthStagePair::LeafStateHelper(SorghumLeafState& left, SorghumLeaf
 
 int SorghumGrowthStagePair::GetLeafSize(const float a) const {
   if (left_stage.leaves.size() <= right_stage.leaves.size()) {
-    return left_stage.leaves.size() + glm::ceil((right_stage.leaves.size() - left_stage.leaves.size()) * a);
+    return static_cast<int>(left_stage.leaves.size()) +
+           static_cast<int>(glm::ceil(static_cast<float>(right_stage.leaves.size() - left_stage.leaves.size()) * a));
   }
   return left_stage.leaves.size();
 }
@@ -306,7 +309,7 @@ void SorghumGrowthStagePair::ApplyStem(const std::shared_ptr<SorghumDescriptor>&
     stem_node_position = stem_front * stem_unit_length * static_cast<float>(i);
 
     const auto up = glm::normalize(glm::cross(stem_front, stem_left));
-    target_state->stem.spline.segments.emplace_back(stem_node_position, up, stem_front, stem_width, 180.f, 0, 0);
+    target_state->stem.spline.segments.emplace_back(stem_node_position, up, stem_front, stem_width, 180.f, 0.0f, 0.0f);
   }
 }
 
@@ -330,9 +333,9 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       ImGui::TreePop();
     }
     if (last_auto_save_time == 0) {
-      last_auto_save_time = Times::Now();
-    } else if (last_auto_save_time + auto_save_interval < Times::Now()) {
-      last_auto_save_time = Times::Now();
+      last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
+    } else if (last_auto_save_time + auto_save_interval < ApplicationContext::Get().GetTimes().Now()) {
+      last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
       if (!saved_) {
         Save();
         EVOENGINE_LOG(GetTypeName() + " autosaved!");
@@ -586,8 +589,9 @@ bool SorghumGrowthStages::ImportCsv(const std::filesystem::path& file_path) {
         column_indices[time_point].first = current_index;
         current_index++;
       }
-      if (column_indices[time_point].second < leaf_index[row])
-        column_indices[time_point].second = leaf_index[row];
+      const auto current_leaf_index = static_cast<int>(leaf_index[row]);
+      if (column_indices[time_point].second < current_leaf_index)
+        column_indices[time_point].second = current_leaf_index;
     }
 
     sorghum_growth_stages.resize(current_index);
@@ -596,7 +600,7 @@ bool SorghumGrowthStages::ImportCsv(const std::filesystem::path& file_path) {
       auto& state_pair = sorghum_growth_stages[state_index];
       auto& state = state_pair.second;
       if (state.leaves.empty()) {
-        state_pair.first = state_index;
+        state_pair.first = static_cast<float>(state_index);
         state.name = time_points[row];
         state.leaves.resize(column_indices.at(time_points[row]).second);
         for (auto& leaf : state.leaves)
@@ -606,11 +610,12 @@ bool SorghumGrowthStages::ImportCsv(const std::filesystem::path& file_path) {
         state.stem.width_along_stem.max_value = stem_width[row] * 2.0f;
         state.panicle.panicle_size.x = state.panicle.panicle_size.z = panicle_width[row] / 100.0f;
         state.panicle.panicle_size.y = panicle_length[row] / 100.0f;
-        state.panicle.seed_amount =
-            state.panicle.panicle_size.x * state.panicle.panicle_size.y * state.panicle.panicle_size.z / 0.001f;
+        state.panicle.seed_amount = static_cast<int>(state.panicle.panicle_size.x * state.panicle.panicle_size.y *
+                                                     state.panicle.panicle_size.z / 0.001f);
       }
-      auto& leaf = state.leaves[leaf_index[row] - 1];
-      leaf.index = leaf_index[row] - 1;
+      const auto current_leaf_index = static_cast<int>(leaf_index[row]);
+      auto& leaf = state.leaves[current_leaf_index - 1];
+      leaf.index = current_leaf_index - 1;
       leaf.length = leaf_length[row] / 100.0f;
       if (leaf.length == 0)
         leaf.dead = true;

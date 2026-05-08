@@ -1,4 +1,5 @@
 #pragma once
+#include "AssetRef.hpp"
 #include "PointCloud.hpp"
 namespace evo_engine {
 class PointCloudScanner : public IPrivateComponent {
@@ -10,6 +11,7 @@ class PointCloudScanner : public IPrivateComponent {
   std::vector<uint64_t> handles;
   std::vector<glm::vec3> points;
   std::vector<glm::vec3> point_colors;
+  AssetRef point_cloud_drop_ref;
   void ConstructPointCloud(const std::shared_ptr<PointCloud> &point_cloud) const;
 
   void Scan();

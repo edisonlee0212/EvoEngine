@@ -57,16 +57,18 @@
 
 #define VMA_STATIC_VULKAN_FUNCTIONS 0   ///< Disables static Vulkan functions for VMA
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1  ///< Enables dynamic Vulkan functions for VMA
+#include "Utilities/X11MacroCleanup.hpp"
 #include "vk_mem_alloc.h"
 
 #define IMGUI_IMPL_VULKAN_USE_VOLK
 #define IMGUI_DEFINE_MATH_OPERATORS  ///< Enables math operators in ImGui
-#undef Status
 #include <imgui.h>
 #include <imgui_internal.h>
+#include "Utilities/X11MacroCleanup.hpp"
 #define IMGUI_IMPL_GLFW_DISABLE_X11
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
+#include "Utilities/X11MacroCleanup.hpp"
 // #include <imgui_stdlib.hpp>
 
 #ifdef EVOENGINE_WINDOWS
@@ -76,6 +78,7 @@
 #define GLFW_INCLUDE_VULKAN  ///< Enables Vulkan support in GLFW
 #define GLFW_INCLUDE_NONE    ///< Disables default OpenGL bindings in GLFW
 #include "GLFW/glfw3.h"
+#include "Utilities/X11MacroCleanup.hpp"
 
 #ifdef EVOENGINE_WINDOWS
 #  define GLFW_EXPOSE_NATIVE_WIN32  ///< Exposes native Win32 context for GLFW

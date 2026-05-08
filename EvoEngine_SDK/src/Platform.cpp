@@ -18,6 +18,23 @@
 #endif
 
 using namespace evo_engine;
+
+const Platform::Capabilities& Platform::GetCapabilities() const {
+  return capabilities_;
+}
+
+Platform::Capabilities& Platform::GetCapabilities() {
+  return capabilities_;
+}
+
+void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
+  shader_include_paths_.emplace(path);
+}
+
+const std::set<std::filesystem::path>& Platform::GetRegisteredShaderIncludePaths() const {
+  return shader_include_paths_;
+}
+
 void Platform::Initialize(const ApplicationInitializationSettings& application_initialization_settings) {
   auto& graphics = GetInstance();
 #pragma region volk
@@ -36,7 +53,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
 #endif
   graphics.CreateLogicalDevice();
   graphics.SetupVmaAllocator();
-  Shader::RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
+  graphics.RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
   const auto& selected_physical_device = graphics.selected_physical_device;
 
   if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
@@ -75,12 +92,11 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   }
 
   graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
-  if (!RenderTexture::render_texture_present_layout) {
-    RenderTexture::render_texture_present_layout = std::make_shared<DescriptorSetLayout>();
-    RenderTexture::render_texture_present_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    RenderTexture::render_texture_present_layout->Initialize();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    throw std::runtime_error("Platform initialization requires a RenderLayer.");
   }
+  render_layer->InitializeCommonDescriptorSetLayouts(application_initialization_settings);
 #pragma endregion
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     if (selected_physical_device->queue_family_indices.present_family.has_value()) {
@@ -104,7 +120,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
                                                             "Shaders/Graphics/Fragment/TexturePassThrough.frag");
       graphics.render_texture_present_pipeline->geometry_type = GeometryType::Mesh;
       graphics.render_texture_present_pipeline->descriptor_set_layouts.emplace_back(
-          RenderTexture::render_texture_present_layout);
+          render_layer->GetRenderTexturePresentDescriptorSetLayout());
 
       graphics.render_texture_present_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
       graphics.render_texture_present_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -169,15 +185,16 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   TextureStorage::Initialize();
   graphics.draw_call.resize(graphics.max_frame_in_flight_);
   graphics.prim_count.resize(graphics.max_frame_in_flight_);
+  auto& capabilities = graphics.capabilities_;
 
   const uint32_t subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
 
   const uint32_t mesh_work_group_invocations =
       selected_physical_device->mesh_shader_properties_ext.maxPreferredMeshWorkGroupInvocations;
-  Constants::task_work_group_invocations =
+  capabilities.task_work_group_invocations =
       selected_physical_device->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
-  Constants::compute_work_group_invocations = glm::max(Constants::task_work_group_invocations, subgroup_size);
-  Constants::max_compute_work_group_invocations =
+  capabilities.compute_work_group_invocations = glm::max(capabilities.task_work_group_invocations, subgroup_size);
+  capabilities.max_compute_work_group_invocations =
       selected_physical_device->properties.limits.maxComputeWorkGroupInvocations;
 
   const uint32_t mesh_subgroup_count =
@@ -185,16 +202,16 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
                 mesh_work_group_invocations) +
        subgroup_size - 1) /
       subgroup_size;
-  const uint32_t task_subgroup_count = (Constants::task_work_group_invocations + subgroup_size - 1) / subgroup_size;
+  const uint32_t task_subgroup_count = (capabilities.task_work_group_invocations + subgroup_size - 1) / subgroup_size;
   const uint32_t compute_subgroup_count =
-      (Constants::compute_work_group_invocations + subgroup_size - 1) / subgroup_size;
+      (capabilities.compute_work_group_invocations + subgroup_size - 1) / subgroup_size;
 
-  Constants::max_shared_memory_size = selected_physical_device->properties.limits.maxComputeSharedMemorySize;
+  capabilities.max_shared_memory_size = selected_physical_device->properties.limits.maxComputeSharedMemorySize;
 
-  Constants::subgroup_size = glm::max(subgroup_size, 1u);
-  Constants::task_subgroup_count = glm::max(task_subgroup_count, 1u);
-  Constants::mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
-  Constants::compute_subgroup_count = glm::max(compute_subgroup_count, 1u);
+  capabilities.subgroup_size = glm::max(subgroup_size, 1u);
+  capabilities.task_subgroup_count = glm::max(task_subgroup_count, 1u);
+  capabilities.mesh_subgroup_count = glm::max(mesh_subgroup_count, 1u);
+  capabilities.compute_subgroup_count = glm::max(compute_subgroup_count, 1u);
   graphics.shader_global_defines =
       "\n#define MAX_DIRECTIONAL_LIGHT_SIZE " +
       std::to_string(application_initialization_settings.graphics_settings.max_directional_light_size) +
@@ -202,107 +219,13 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       "\n#define MESHLET_MAX_VERTICES_SIZE " + std::to_string(Constants::meshlet_max_vertices_size) +
       "\n#define MESHLET_MAX_TRIANGLES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size) +
       "\n#define MESHLET_MAX_INDICES_SIZE " + std::to_string(Constants::meshlet_max_triangles_size * 3) +
-      "\n#define SUBGROUP_SIZE " + std::to_string(Constants::subgroup_size) + "\n#define COMPUTE_SUBGROUP_COUNT " +
-      std::to_string(Constants::compute_subgroup_count) + "\n#define COMPUTE_WORK_GROUP_INVOCATIONS " +
-      std::to_string(Constants::compute_work_group_invocations) + "\n#define MAX_COMPUTE_WORK_GROUP_INVOCATIONS " +
-      std::to_string(Constants::max_compute_work_group_invocations) + "\n#define EXT_TASK_SUBGROUP_COUNT " +
-      std::to_string(Constants::task_subgroup_count) + "\n#define EXT_MESH_SUBGROUP_COUNT " +
-      std::to_string(Constants::mesh_subgroup_count) + "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " +
-      std::to_string(Constants::task_work_group_invocations) + "\n";
-
-#pragma region DescriptorSet Layouts
-  if (!RenderLayer::per_frame_layout) {
-    RenderLayer::per_frame_layout = std::make_shared<DescriptorSetLayout>();
-    RenderLayer::per_frame_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(
-        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
-        application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
-    RenderLayer::per_frame_layout->PushDescriptorBinding(
-        10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
-            VK_SHADER_STAGE_MISS_BIT_KHR,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
-        application_initialization_settings.graphics_settings.max_cubemap_resource_size);
-    RenderLayer::per_frame_layout->Initialize();
-  }
-  if (!RenderLayer::meshlet_layout) {
-    RenderLayer::meshlet_layout = std::make_shared<DescriptorSetLayout>();
-    RenderLayer::meshlet_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-    RenderLayer::meshlet_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-    RenderLayer::meshlet_layout->Initialize();
-  }
-
-  if (!RenderLayer::lighting_layout) {
-    RenderLayer::lighting_layout = std::make_shared<DescriptorSetLayout>();
-    RenderLayer::lighting_layout->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    RenderLayer::lighting_layout->PushDescriptorBinding(15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    RenderLayer::lighting_layout->PushDescriptorBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    RenderLayer::lighting_layout->Initialize();
-  }
-  if (!RenderLayer::ray_tracing_layout) {
-    RenderLayer::ray_tracing_layout = std::make_shared<DescriptorSetLayout>();
-    RenderLayer::ray_tracing_layout->PushDescriptorBinding(
-        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    RenderLayer::ray_tracing_layout->PushDescriptorBinding(
-        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    RenderLayer::ray_tracing_layout->PushDescriptorBinding(
-        2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    RenderLayer::ray_tracing_layout->Initialize();
-  }
-  if (!RenderLayer::ray_tracing_point_cloud_layout) {
-    RenderLayer::ray_tracing_point_cloud_layout = std::make_shared<DescriptorSetLayout>();
-    RenderLayer::ray_tracing_point_cloud_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                                       VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
-    RenderLayer::ray_tracing_point_cloud_layout->Initialize();
-  }
-  if (!ParticleInfoList::instanced_data_layout) {
-    ParticleInfoList::instanced_data_layout = std::make_shared<DescriptorSetLayout>();
-    ParticleInfoList::instanced_data_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                                   VK_SHADER_STAGE_ALL, 0);
-    ParticleInfoList::instanced_data_layout->Initialize();
-  }
-  if (!BoneMatrices::bone_matrices_layout) {
-    BoneMatrices::bone_matrices_layout = std::make_shared<DescriptorSetLayout>();
-    BoneMatrices::bone_matrices_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                              VK_SHADER_STAGE_VERTEX_BIT, 0);
-    BoneMatrices::bone_matrices_layout->Initialize();
-  }
-  if (!Camera::g_buffer_layout) {
-    Camera::g_buffer_layout = std::make_shared<DescriptorSetLayout>();
-    Camera::g_buffer_layout->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    Camera::g_buffer_layout->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    Camera::g_buffer_layout->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    Camera::g_buffer_layout->Initialize();
-  }
-  if (!RenderTexture::render_texture_storage_layout) {
-    RenderTexture::render_texture_storage_layout = std::make_shared<DescriptorSetLayout>();
-    RenderTexture::render_texture_storage_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                                        VK_SHADER_STAGE_ALL, 0);
-    RenderTexture::render_texture_storage_layout->Initialize();
-  }
-
-#pragma endregion
+      "\n#define SUBGROUP_SIZE " + std::to_string(capabilities.subgroup_size) + "\n#define COMPUTE_SUBGROUP_COUNT " +
+      std::to_string(capabilities.compute_subgroup_count) + "\n#define COMPUTE_WORK_GROUP_INVOCATIONS " +
+      std::to_string(capabilities.compute_work_group_invocations) + "\n#define MAX_COMPUTE_WORK_GROUP_INVOCATIONS " +
+      std::to_string(capabilities.max_compute_work_group_invocations) + "\n#define EXT_TASK_SUBGROUP_COUNT " +
+      std::to_string(capabilities.task_subgroup_count) + "\n#define EXT_MESH_SUBGROUP_COUNT " +
+      std::to_string(capabilities.mesh_subgroup_count) + "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " +
+      std::to_string(capabilities.task_work_group_invocations) + "\n";
 }
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
@@ -430,9 +353,45 @@ void Platform::RecordCommandsMainQueue(const std::function<void(VkCommandBuffer 
 
 void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const VkCommandBuffer vk_command_buffer,
                                     const std::function<void()>& action) {
-  vkCmdBeginRendering(vk_command_buffer, &rendering_info);
+  BeginRendering(vk_command_buffer, rendering_info);
   action();
+  EndRendering(vk_command_buffer);
+}
+
+void Platform::BeginRendering(const VkCommandBuffer vk_command_buffer, const VkRenderingInfo& rendering_info) {
+  vkCmdBeginRendering(vk_command_buffer, &rendering_info);
+}
+
+void Platform::EndRendering(const VkCommandBuffer vk_command_buffer) {
   vkCmdEndRendering(vk_command_buffer);
+}
+
+void Platform::DrawIndexed(const VkCommandBuffer vk_command_buffer, const uint32_t index_count,
+                           const uint32_t instance_count, const uint32_t first_index, const int32_t vertex_offset,
+                           const uint32_t first_instance) {
+  vkCmdDrawIndexed(vk_command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void Platform::DrawIndexedIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                   const VkDeviceSize offset, const uint32_t draw_count, const uint32_t stride) {
+  vkCmdDrawIndexedIndirect(vk_command_buffer, buffer.GetVkBuffer(), offset, draw_count, stride);
+}
+
+void Platform::DrawMeshTasksIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                     const VkDeviceSize offset, const uint32_t draw_count, const uint32_t stride) {
+  vkCmdDrawMeshTasksIndirectEXT(vk_command_buffer, buffer.GetVkBuffer(), offset, draw_count, stride);
+}
+
+void Platform::ClearColorImage(const VkCommandBuffer vk_command_buffer, const Image& image,
+                               const VkClearColorValue& value, const uint32_t range_count,
+                               const VkImageSubresourceRange* ranges) {
+  vkCmdClearColorImage(vk_command_buffer, image.GetVkImage(), image.GetLayout(), &value, range_count, ranges);
+}
+
+void Platform::ClearDepthStencilImage(const VkCommandBuffer vk_command_buffer, const Image& image,
+                                      const VkClearDepthStencilValue& value, const uint32_t range_count,
+                                      const VkImageSubresourceRange* ranges) {
+  vkCmdClearDepthStencilImage(vk_command_buffer, image.GetVkImage(), image.GetLayout(), &value, range_count, ranges);
 }
 
 void Platform::WaitForDeviceIdle() {
@@ -895,19 +854,19 @@ void Platform::SelectPhysicalDevice() {
   }
 #pragma endregion
 
-  if (Constants::support_mesh_shader &&
+  if (capabilities_.support_mesh_shader &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME)) {
     required_device_extension_names_.emplace_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
     required_device_extension_names_.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
-    Constants::support_mesh_shader = true;
+    capabilities_.support_mesh_shader = true;
     EVOENGINE_LOG("Target device supports mesh shader!");
   } else {
-    Constants::support_mesh_shader = false;
+    capabilities_.support_mesh_shader = false;
     EVOENGINE_LOG("Target device doesn't support mesh shader!");
   }
 
-  if (Constants::support_ray_tracing &&
+  if (capabilities_.support_ray_tracing &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
 
@@ -928,21 +887,21 @@ void Platform::SelectPhysicalDevice() {
     required_device_extension_names_.emplace_back(VK_KHR_SPIRV_1_4_EXTENSION_NAME);
 
     required_device_extension_names_.emplace_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
-    Constants::support_ray_tracing = true;
+    capabilities_.support_ray_tracing = true;
     EVOENGINE_LOG("Target device supports ray tracing!");
   } else {
-    Constants::support_ray_tracing = false;
+    capabilities_.support_ray_tracing = false;
     EVOENGINE_LOG("Target device doesn't support ray tracing!");
   }
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   if (selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)) {
     required_device_extension_names_.emplace_back(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME);
-    Constants::support_ray_tracing_validation = true;
+    capabilities_.support_ray_tracing_validation = true;
   } else {
-    Constants::support_ray_tracing_validation = false;
+    capabilities_.support_ray_tracing_validation = false;
   }
 #else
-  Constants::support_ray_tracing_validation = false;
+  capabilities_.support_ray_tracing_validation = false;
 #endif
 }
 
@@ -1116,7 +1075,7 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_vulkan12_features.runtimeDescriptorArray = VK_TRUE;
   vk_physical_device_vulkan12_features.bufferDeviceAddress = VK_TRUE;
 
-  if (Constants::support_ray_tracing) {
+  if (capabilities_.support_ray_tracing) {
     vk_physical_device_vulkan12_features.pNext = &vk_physical_device_acceleration_structure_features_khr;
   } else {
     vk_physical_device_vulkan12_features.pNext = nullptr;
@@ -1130,7 +1089,7 @@ void Platform::CreateLogicalDevice() {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
   vk_physical_device_ray_tracing_validation_features_nv.rayTracingValidation = VK_TRUE;
   vk_physical_device_ray_tracing_validation_features_nv.pNext = &vk_physical_device_vulkan12_features;
-  if (Constants::support_ray_tracing_validation) {
+  if (capabilities_.support_ray_tracing_validation) {
     shader_draw_parameters_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
   } else {
     shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
@@ -1172,7 +1131,7 @@ void Platform::CreateLogicalDevice() {
   physical_device_synchronization2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES;
   physical_device_synchronization2_features.synchronization2 = VK_TRUE;
 
-  if (Constants::support_mesh_shader) {
+  if (capabilities_.support_mesh_shader) {
     physical_device_synchronization2_features.pNext = &mesh_shader_features_ext;
   } else {
     physical_device_synchronization2_features.pNext = &physical_device_multiview_features;
@@ -1687,9 +1646,9 @@ void Platform::PreUpdate() {
 
   if (window_layer) {
     if (window_layer->window_size_.x != 0 || window_layer->window_size_.y != 0) {
-      const auto just_now = Times::Now();
+      const auto just_now = ApplicationContext::Get().GetTimes().Now();
       vulkan_update([&]() {
-        graphics.cpu_wait_time = Times::Now() - just_now;
+        graphics.cpu_wait_time = ApplicationContext::Get().GetTimes().Now() - just_now;
         auto result =
             vkAcquireNextImageKHR(graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
                                   graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(),
@@ -1760,12 +1719,12 @@ void Platform::LateUpdate() {
 
 bool Platform::RayTracingEnabled() {
   const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
-  return Constants::support_ray_tracing && graphics_settings.use_ray_tracing;
+  return GetInstance().capabilities_.support_ray_tracing && graphics_settings.use_ray_tracing;
 }
 
 bool Platform::MeshShaderEnabled() {
   const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
-  return Constants::support_mesh_shader && graphics_settings.use_mesh_shader;
+  return GetInstance().capabilities_.support_mesh_shader && graphics_settings.use_mesh_shader;
 }
 
 bool Platform::Initialized() {

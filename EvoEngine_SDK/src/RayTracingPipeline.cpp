@@ -212,6 +212,13 @@ void RayTracingPipeline::BindDescriptorSet(const VkCommandBuffer vk_command_buff
                           pipeline_layout_->GetVkPipelineLayout(), first_set, 1, &descriptor_set, 0, nullptr);
 }
 
+void RayTracingPipeline::PushConstantData(const VkCommandBuffer vk_command_buffer, const size_t range_index,
+                                          const void* data) const {
+  const auto& range = push_constant_ranges[range_index];
+  vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(), range.stageFlags, range.offset,
+                     range.size, data);
+}
+
 void RayTracingPipeline::Trace(const VkCommandBuffer vk_command_buffer, const uint32_t x, const uint32_t y,
                                const uint32_t z) const {
   VkStridedDeviceAddressRegionKHR raygen_shader_sbt_entry{};

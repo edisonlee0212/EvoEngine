@@ -3,6 +3,8 @@
 
 #include "Application.hpp"
 #include "GeometryStorage.hpp"
+#include "Platform.hpp"
+#include "RenderLayer.hpp"
 using namespace evo_engine;
 void SkinnedVertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
@@ -38,7 +40,8 @@ BoneMatrices::BoneMatrices() {
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
   for (int i = 0; i < max_frames_in_flight; i++) {
     bone_matrices_buffer_.emplace_back(std::make_unique<Buffer>(bone_matrices_crate_info, allocation_create_info));
-    descriptor_set_.emplace_back(std::make_shared<DescriptorSet>(bone_matrices_layout));
+    descriptor_set_.emplace_back(std::make_shared<DescriptorSet>(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetBoneMatricesDescriptorSetLayout()));
   }
 }
 
@@ -146,8 +149,8 @@ void SkinnedMesh::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsP
   if (instances_count == 0)
     return;
   global_pipeline_state.ApplyAllStates(vk_command_buffer);
-  vkCmdDrawIndexed(vk_command_buffer, skinned_triangle_range_->prev_frame_index_count * 3, instances_count,
-                   skinned_triangle_range_->prev_frame_offset * 3, 0, 0);
+  Platform::DrawIndexed(vk_command_buffer, skinned_triangle_range_->prev_frame_index_count * 3, instances_count,
+                        skinned_triangle_range_->prev_frame_offset * 3);
 }
 
 glm::vec3 SkinnedMesh::GetCenter() const {

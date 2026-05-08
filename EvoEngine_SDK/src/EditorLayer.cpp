@@ -84,15 +84,15 @@ void EditorLayer::OnCreate() {
     return false;
   });
   RegisterComponentDataInspector<Transform>([&](const Entity entity, IDataComponent* data, bool) {
-    static Entity previous_entity{};
     auto* ltp = static_cast<Transform*>(static_cast<void*>(data));
     bool edited = false;
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto status = scene->GetDataComponent<TransformUpdateFlag>(entity);
-    const bool reload = previous_entity != entity || previously_stored_transform_.value != ltp->value ||
-                        status.transform_modified || status.global_transform_modified;
+    const bool reload = previous_transform_inspection_entity_ != entity ||
+                        previously_stored_transform_.value != ltp->value || status.transform_modified ||
+                        status.global_transform_modified;
     if (reload) {
-      previous_entity = entity;
+      previous_transform_inspection_entity_ = entity;
       ltp->Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
       previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
       // local_position_selected_ = true;
@@ -201,7 +201,7 @@ void EditorLayer::PreUpdate() {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (lock_camera) {
     auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-    const float elapsed_time = static_cast<float>(Times::Now()) - transition_timer_;
+    const float elapsed_time = static_cast<float>(ApplicationContext::Get().GetTimes().Now()) - transition_timer_;
     float a = 1.0f - glm::pow(1.0 - elapsed_time / transition_time_, 4.0f);
     if (elapsed_time >= transition_time_)
       a = 1.0f;
@@ -357,7 +357,7 @@ void EditorLayer::PreUpdate() {
   }
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
       render_layer && render_layer->need_fade_ != 0 && selection_alpha_ < 256) {
-    selection_alpha_ += static_cast<int>(static_cast<float>(Times::DeltaTime()) * 1280);
+    selection_alpha_ += static_cast<int>(static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * 1280);
   }
 
   selection_alpha_ = glm::clamp(selection_alpha_, 0, 256);
@@ -394,7 +394,8 @@ void EditorLayer::PreUpdate() {
           ImGui::EndDragDropTarget();
         }
         if (selected_hierarchy_display_mode == 0) {
-          scene->UnsafeForEachEntityStorage([&](int i, const std::string& name, const DataComponentStorage& storage) {
+          scene->UnsafeForEachEntityStorage([&](size_t i, const std::string& name,
+                                                const DataComponentStorage& storage) {
             if (i == 0)
               return;
             ImGui::Separator();
@@ -403,7 +404,7 @@ void EditorLayer::PreUpdate() {
               ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
               ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
               ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
-              for (int j = 0; j < storage.entity_alive_count; j++) {
+              for (size_t j = 0; j < storage.entity_alive_count; j++) {
                 Entity entity = storage.chunk_array.entity_array.at(j);
                 std::string title2 = std::to_string(entity.GetIndex()) + ": ";
                 title2 += scene->GetEntityName(entity);
@@ -628,7 +629,9 @@ void EditorLayer::PreUpdate() {
   if (show_package_manager_window) {
     if (ImGui::Begin("Runtime Packages")) {
       if (ImGui::Button("Load All")) {
-        PackageManager::LoadAll();
+        ApplicationContext::Get().QueueEndOfLoopAction([]() {
+          PackageManager::LoadAll();
+        });
       }
       const auto loaded_packages = PackageManager::GetLoadedPackages();
       if (loaded_packages.empty()) {
@@ -651,11 +654,17 @@ void EditorLayer::PreUpdate() {
             ImGui::TreePop();
           }
           if (ImGui::Button(("Reload##" + package.name).c_str())) {
-            PackageManager::Reload(package.name);
+            const auto package_name = package.name;
+            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+              PackageManager::Reload(package_name);
+            });
           }
           ImGui::SameLine();
           if (ImGui::Button(("Unload##" + package.name).c_str())) {
-            PackageManager::Unload(package.name);
+            const auto package_name = package.name;
+            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+              PackageManager::Unload(package_name);
+            });
           }
           ImGui::TreePop();
         }
@@ -684,7 +693,8 @@ void EditorLayer::PreUpdate() {
   }
 
   if (scene) {
-    for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+    const auto layers = ApplicationContext::Get().GetLayers();
+    for (const auto& layer : layers) {
       if (layer->enable_inspection) {
         ImGui::Begin(layer->layer_name_.c_str());
         layer->OnInspect(editor_layer);
@@ -969,22 +979,26 @@ void EditorLayer::SceneCameraWindow() {
             glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
             const glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
             if (Input::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-              sceneCameraPosition += front * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition +=
+                  front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
             }
             if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-              sceneCameraPosition -= front * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition -=
+                  front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
             }
             if (Input::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-              sceneCameraPosition -= right * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition -=
+                  right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
             }
             if (Input::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-              sceneCameraPosition += right * static_cast<float>(Times::DeltaTime()) * velocity;
+              sceneCameraPosition +=
+                  right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * velocity;
             }
             if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-              sceneCameraPosition.y += velocity * static_cast<float>(Times::DeltaTime());
+              sceneCameraPosition.y += velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
             }
             if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-              sceneCameraPosition.y -= velocity * static_cast<float>(Times::DeltaTime());
+              sceneCameraPosition.y -= velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
             }
             if (x_offset != 0.0f || y_offset != 0.0f) {
               front = glm::rotate(front, glm::radians(-x_offset * sensitivity), glm::vec3(0, 1, 0));
@@ -1764,7 +1778,7 @@ void EditorLayer::MoveCamera(const glm::quat& target_rotation, const glm::vec3& 
   previous_rotation_ = sceneCameraRotation;
   previous_position_ = sceneCameraPosition;
   transition_time_ = transition_time;
-  transition_timer_ = static_cast<float>(Times::Now());
+  transition_timer_ = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
   target_rotation_ = target_rotation;
   target_position_ = target_position;
   lock_camera = true;

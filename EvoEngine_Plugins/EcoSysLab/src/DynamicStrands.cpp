@@ -1,5 +1,6 @@
 #include "DynamicStrands.hpp"
 #include <functional>
+#include "Application.hpp"
 #include "DsAlphaShapeUtils.hpp"
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
@@ -741,7 +742,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
   if (!grouping_descriptor_set) {
     grouping_descriptor_set = std::make_shared<DescriptorSet>(grouping_layout);
   }
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   GroupingPushConstant push_constant;
   push_constant.segment_size = segments.size();
@@ -753,7 +754,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
   grouping_descriptor_set->UpdateBufferDescriptorBinding(0, new_group_index_buffer);
 
   if (physics_parameters.dynamic_grouping) {
-    const auto start_time = Times::Now();
+    const auto start_time = ApplicationContext::Get().GetTimes().Now();
     feedback_buffer->Resize(sizeof(uint32_t) * group_size);
     dynamic_grouping_descriptor_set->UpdateBufferDescriptorBinding(0, new_group_index_buffer);
     dynamic_grouping_descriptor_set->UpdateBufferDescriptorBinding(1, feedback_buffer);
@@ -766,13 +767,13 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
       reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+      reset_pipeline->Dispatch(vk_command_buffer, group_size, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     });
     bool updated = true;
     const auto step = [&]() {
       Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-        vkCmdFillBuffer(vk_command_buffer, feedback_buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
+        feedback_buffer->Fill(vk_command_buffer, 0, VK_WHOLE_SIZE, 0);
         Platform::EverythingBarrier(vk_command_buffer);
         dynamic_step_pipeline->Bind(vk_command_buffer);
         dynamic_step_pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -780,7 +781,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
         dynamic_step_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                                  dynamic_grouping_descriptor_set->GetVkDescriptorSet());
         dynamic_step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        dynamic_step_pipeline->Dispatch(vk_command_buffer, group_size, 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
 
         apply_pipeline->Bind(vk_command_buffer);
@@ -788,7 +789,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
                                           strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, grouping_descriptor_set->GetVkDescriptorSet());
         apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        apply_pipeline->Dispatch(vk_command_buffer, group_size, 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       });
       feedback_buffer->DownloadVector(feedback, feedback.size());
@@ -808,14 +809,14 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     }
     max_iterations = glm::max(iterations, max_iterations);
     // EVOENGINE_LOG("Iterations: " + std::to_string(iterations), + ", max: " + std::to_string(max_iterations));
-    const auto method3_time = std::to_string(Times::Now() - start_time);
+    const auto method3_time = std::to_string(ApplicationContext::Get().GetTimes().Now() - start_time);
   } else {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       reset_pipeline->Bind(vk_command_buffer);
       reset_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                         strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       reset_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+      reset_pipeline->Dispatch(vk_command_buffer, group_size, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
       for (int iteration = 0; iteration < physics_parameters.grouping_iteration; iteration++) {
         step_pipeline->Bind(vk_command_buffer);
@@ -823,7 +824,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
                                          strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         step_pipeline->BindDescriptorSet(vk_command_buffer, 1, grouping_descriptor_set->GetVkDescriptorSet());
         step_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        step_pipeline->Dispatch(vk_command_buffer, group_size, 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
 
         apply_pipeline->Bind(vk_command_buffer);
@@ -831,7 +832,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
                                           strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         apply_pipeline->BindDescriptorSet(vk_command_buffer, 1, grouping_descriptor_set->GetVkDescriptorSet());
         apply_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-        vkCmdDispatch(vk_command_buffer, group_size, 1, 1);
+        apply_pipeline->Dispatch(vk_command_buffer, group_size, 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       }
     });

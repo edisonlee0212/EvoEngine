@@ -54,8 +54,6 @@ struct CameraInfoBlock {
  */
 class Camera final : public IPrivateComponent {
  public:
-  inline static std::shared_ptr<DescriptorSetLayout> g_buffer_layout;  ///< Global buffer layout.
-
   /**
    * @brief Enum to define the camera rendering mode.
    */

@@ -527,6 +527,7 @@ class Scene final : public IAsset {
   [[nodiscard]] bool HasPrivateComponent(const Entity& entity, const size_t& type_id) const;
   [[nodiscard]] bool HasPrivateComponentOwners(const size_t& type_id) const;
   size_t ClearPrivateComponentPool(const size_t& type_id);
+  size_t RestoreUnknownRuntimeTypes();
 
   [[maybe_unused]] Entity CreateEntity(const std::string& name = "New Entity");
   [[maybe_unused]] Entity CreateEntity(const EntityArchetype& archetype, const std::string& name = "New Entity",
@@ -871,6 +872,7 @@ class Scene final : public IAsset {
   friend class PrivateComponentStorage;
   friend class Input;
   friend class EditorLayer;
+  friend class PackageManager;
 
   /// Stores the states of pressed keys in the scene.
   std::unordered_map<int, Input::KeyActionType> pressed_keys_ = {};

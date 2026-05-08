@@ -75,7 +75,7 @@ float CubicBezierSpline::GetLength() {
 
 std::vector<CubicSplineSample> CubicBezierSpline::GetSamplesByLength(const float distance) {
   const float length = GetLength();
-  const int sample_num = length / distance;
+  const int sample_num = static_cast<int>(length / distance);
   return GetUniformSamples(sample_num);
 }
 

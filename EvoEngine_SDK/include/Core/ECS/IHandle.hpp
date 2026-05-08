@@ -2,6 +2,8 @@
 #pragma once
 
 namespace evo_engine {
+class File;
+class Folder;
 
 /**
  * The "GUID" for all instances in evo_engine that requires a unique identifier for hashing/serialization.

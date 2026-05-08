@@ -35,7 +35,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto mip_levels = post_processing_stack.result_texture->GetMipLevels();
   const auto base_extent = post_processing_stack.result_texture->GetColorImage()->GetExtent();
-  const auto mesh = Resources::texture_pass_through_quad;
+  const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -80,7 +80,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     render_info2.colorAttachmentCount = color_attachment_infos.size();
     render_info2.pColorAttachments = color_attachment_infos.data();
 
-    vkCmdBeginRendering(vk_command_buffer, &render_info2);
+    Platform::BeginRendering(vk_command_buffer, render_info2);
     copy_pipeline->states.depth_test = false;
     copy_pipeline->states.color_blend_attachment_states.clear();
     copy_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -97,7 +97,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     copy_pipeline->states.view_port = viewport;
     copy_pipeline->states.scissor = scissor;
     mesh->DrawIndexed(vk_command_buffer, copy_pipeline->states, 1);
-    vkCmdEndRendering(vk_command_buffer);
+    Platform::EndRendering(vk_command_buffer);
   });
 
   downsampling_descriptor_set.clear();
@@ -288,7 +288,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     render_info2.colorAttachmentCount = color_attachment_infos.size();
     render_info2.pColorAttachments = color_attachment_infos.data();
     {
-      vkCmdBeginRendering(vk_command_buffer, &render_info2);
+      Platform::BeginRendering(vk_command_buffer, render_info2);
       mix_pipeline->states.depth_test = false;
       mix_pipeline->states.color_blend_attachment_states.clear();
       mix_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -304,7 +304,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       mix_pipeline->states.view_port = viewport;
       mix_pipeline->states.scissor = scissor;
       mesh->DrawIndexed(vk_command_buffer, mix_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
     }
   });
 }
@@ -336,7 +336,8 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
                                     "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
 
     downsampling_pipeline->geometry_type = GeometryType::Mesh;
-    downsampling_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    downsampling_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     downsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
     downsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
     downsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -357,7 +358,8 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
 
     upsampling_pipeline->geometry_type = GeometryType::Mesh;
-    upsampling_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    upsampling_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     upsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
     upsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
     upsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -377,8 +379,10 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
     copy_pipeline->geometry_type = GeometryType::Mesh;
-    copy_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-    copy_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    copy_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    copy_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
     copy_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
     copy_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     copy_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
@@ -393,7 +397,8 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
     mix_pipeline->geometry_type = GeometryType::Mesh;
-    mix_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    mix_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     mix_pipeline->descriptor_set_layouts.emplace_back(mix_layout);
     mix_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
     mix_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -582,7 +587,7 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     blur_pipeline->Initialize();
   }
 
-  const auto mesh = Resources::texture_pass_through_quad;
+  const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
 
   PushConstant push_constant{};
 
@@ -622,7 +627,7 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     render_info2.pColorAttachments = color_attachment_infos.data();
 
     {
-      vkCmdBeginRendering(vk_command_buffer, &render_info2);
+      Platform::BeginRendering(vk_command_buffer, render_info2);
       blur_pipeline->states.depth_test = false;
       blur_pipeline->states.color_blend_attachment_states.clear();
       blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -638,7 +643,7 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
       push_constant.horizontal = true;
       blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
       mesh->DrawIndexed(vk_command_buffer, blur_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
     }
 
     color_attachment_infos.clear();
@@ -647,7 +652,7 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     render_info2.colorAttachmentCount = color_attachment_infos.size();
     render_info2.pColorAttachments = color_attachment_infos.data();
     {
-      vkCmdBeginRendering(vk_command_buffer, &render_info2);
+      Platform::BeginRendering(vk_command_buffer, render_info2);
       blur_pipeline->states.depth_test = false;
       blur_pipeline->states.color_blend_attachment_states.clear();
       blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -663,7 +668,7 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
       push_constant.horizontal = false;
       blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
       mesh->DrawIndexed(vk_command_buffer, blur_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
     }
   });
 }

@@ -8,6 +8,7 @@
 #include "Mesh.hpp"
 #include "RenderInstanceStorage.hpp"
 namespace evo_engine {
+struct ApplicationInitializationSettings;
 
 /**
  * \class RenderLayer
@@ -160,23 +161,16 @@ class RenderLayer final : public ILayer {
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                              const ForwardRenderingView& forward_rendering_view)>&& func);
 
-#pragma region DescriptorSet Layouts
-  /// Descriptor set layout for per-frame data.
-  inline static std::shared_ptr<DescriptorSetLayout> per_frame_layout;
-
-  /// Descriptor set layout for meshlet data.
-  inline static std::shared_ptr<DescriptorSetLayout> meshlet_layout;
-
-  /// Descriptor set layout for lighting.
-  inline static std::shared_ptr<DescriptorSetLayout> lighting_layout;
-
-  /// Descriptor set layout for ray tracing data.
-  inline static std::shared_ptr<DescriptorSetLayout> ray_tracing_layout;
-
-  /// Descriptor set layout for ray tracing data.
-  inline static std::shared_ptr<DescriptorSetLayout> ray_tracing_point_cloud_layout;
-
-#pragma endregion
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetPerFrameDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetMeshletDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetLightingDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRayTracingDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRayTracingPointCloudDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetParticleInstancedDataDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetBoneMatricesDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetCameraGBufferDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
 
  private:
   std::vector<
@@ -209,6 +203,22 @@ class RenderLayer final : public ILayer {
   friend class Application;
   friend class RenderInstanceStorage;
   friend class TextureStorage;
+#pragma region DescriptorSet Layouts
+  std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
+  std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
+  std::shared_ptr<DescriptorSetLayout> lighting_layout_;
+  std::shared_ptr<DescriptorSetLayout> ray_tracing_layout_;
+  std::shared_ptr<DescriptorSetLayout> ray_tracing_point_cloud_layout_;
+  std::shared_ptr<DescriptorSetLayout> particle_instanced_data_layout_;
+  std::shared_ptr<DescriptorSetLayout> bone_matrices_layout_;
+  std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
+  std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
+  std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
+
+  void InitializeCommonDescriptorSetLayouts(
+      const ApplicationInitializationSettings& application_initialization_settings);
+#pragma endregion
+
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
   bool need_fade_ = false;
   std::unique_ptr<Lighting> lighting_;

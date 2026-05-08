@@ -12,65 +12,63 @@ class Times {
   friend class Scene;        ///< Grant access to private members for the `Scene` class.
   friend class Application;  ///< Grant access to private members for the `Application` class.
 
-  static std::chrono::time_point<std::chrono::system_clock>
-      start_time_;  ///< The point in time when the engine started.
-  static std::chrono::time_point<std::chrono::system_clock>
+  std::chrono::time_point<std::chrono::system_clock> start_time_;  ///< The point in time when the engine started.
+  std::chrono::time_point<std::chrono::system_clock>
       last_fixed_update_time_;  ///< The point in time of the last fixed update.
-  static std::chrono::time_point<std::chrono::system_clock>
-      last_update_time_;            ///< The point in time of the last update.
-  static double delta_time_;        ///< Time elapsed between the last two updates.
-  static double fixed_delta_time_;  ///< Time step for fixed updates.
-  static size_t frames_;            ///< Number of frames processed.
-  static size_t steps_;             ///< Number of fixed update steps processed.
-  static double time_step_;         ///< Custom time step value defined by the user.
+  std::chrono::time_point<std::chrono::system_clock> last_update_time_;  ///< The point in time of the last update.
+  double delta_time_ = 0.0;                                              ///< Time elapsed between the last two updates.
+  double fixed_delta_time_ = 0.0;                                        ///< Time step for fixed updates.
+  size_t frames_ = 0;                                                    ///< Number of frames processed.
+  size_t steps_ = 0;                                                     ///< Number of fixed update steps processed.
+  double time_step_ = 0.016;  ///< Custom time step value defined by the user.
 
  public:
   /**
    * @brief Displays the inspection interface for the time settings.
    */
-  static void OnInspect();
+  void OnInspect();
 
   /**
    * @brief Sets the custom time step value.
    * @param value The new time step value.
    */
-  static void SetTimeStep(double value);
+  void SetTimeStep(double value);
 
   /**
    * @brief Gets the custom time step value.
    * @return The current time step value.
    */
-  [[nodiscard]] static double TimeStep();
+  [[nodiscard]] double TimeStep() const;
 
   /**
    * @brief Gets the current time since the engine started.
    * @return The current time in seconds.
    */
-  [[nodiscard]] static double Now();
+  [[nodiscard]] double Now() const;
 
   /**
    * @brief Gets the time step for fixed updates.
    * @return The fixed delta time value.
    */
-  [[nodiscard]] static double FixedDeltaTime();
+  [[nodiscard]] double FixedDeltaTime() const;
 
   /**
    * @brief Gets the time elapsed between the last two updates.
    * @return The delta time value.
    */
-  [[nodiscard]] static double DeltaTime();
+  [[nodiscard]] double DeltaTime() const;
 
   /**
    * @brief Gets the time of the last update.
    * @return The time of the last update in seconds.
    */
-  [[nodiscard]] static double LastUpdateTime();
+  [[nodiscard]] double LastUpdateTime() const;
 
   /**
    * @brief Gets the time of the last fixed update.
    * @return The time of the last fixed update in seconds.
    */
-  [[nodiscard]] static double LastFixedUpdateTime();
+  [[nodiscard]] double LastFixedUpdateTime() const;
 };
 
 }  // namespace evo_engine

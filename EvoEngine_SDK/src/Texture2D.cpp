@@ -272,12 +272,11 @@ bool Texture2D::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Text((std::string("Alpha Channel: ") + (alpha_channel ? "True" : "False")).c_str());
 
   const auto texture_storage = PeekTexture2DStorage();
-  static AssetRef temp;
-  if (editor_layer->DragAndDropButton<Texture2D>(temp, "Apply Opacity...")) {
+  if (editor_layer->DragAndDropButton<Texture2D>(opacity_texture_drop_ref_, "Apply Opacity...")) {
     changed = true;
-    if (const auto tex = temp.Get<Texture2D>()) {
+    if (const auto tex = opacity_texture_drop_ref_.Get<Texture2D>()) {
       ApplyOpacityMap(tex);
-      temp.Clear();
+      opacity_texture_drop_ref_.Clear();
     }
   }
   if (texture_storage.im_texture_id) {

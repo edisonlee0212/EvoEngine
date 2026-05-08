@@ -48,6 +48,7 @@ class ILayer {
   std::weak_ptr<ILayer> self_;
 
   Application* application_ = nullptr;
+  std::string package_owner_{};
 
   /**
    * @brief Grants Application class access to private and protected members of ILayer.

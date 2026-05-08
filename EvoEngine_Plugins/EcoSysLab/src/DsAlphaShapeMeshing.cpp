@@ -1,4 +1,5 @@
 #include "DsAlphaShapeMeshing.hpp"
+#include "Application.hpp"
 #include "ComputePipeline.hpp"
 #include "DsAlphaShapeUtils.hpp"
 #include "DynamicStrands.hpp"
@@ -348,7 +349,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     uniform_particle_initialization_pipeline->Initialize();
   }
 
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   // Update push constant here. You should only access data within dynamic strands.
   BarkFlagInitializationPushConstant push_constant;
@@ -369,7 +370,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     interior_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     interior_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
+    interior_initialization_pipeline->Dispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
@@ -378,7 +379,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     bark_flag_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     bark_flag_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
+    bark_flag_initialization_pipeline->Dispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
@@ -387,7 +388,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     uniform_particle_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     uniform_particle_initialization_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
-    vkCmdDispatch(vk_command_buffer, uniform_particles_group_size, 1, 1);
+    uniform_particle_initialization_pipeline->Dispatch(vk_command_buffer, uniform_particles_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -464,7 +465,7 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
   if (dynamic_strands->segments.empty())
     return;
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const float snow_factor = 100.f;
   const float snow_deduction = 0.1f;
@@ -481,8 +482,9 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
     branches_uniform_particle_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_uniform_particle_update_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
-    vkCmdDispatch(vk_command_buffer,
-                  Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, work_group_invocations), 1, 1);
+    branches_uniform_particle_update_pipeline->Dispatch(
+        vk_command_buffer,
+        Platform::DivUp(uniform_particle_push_constant.uniform_particle_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     // Tetrahedrons
@@ -501,8 +503,8 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
-                  1, 1);
+    branches_tetrahedron_filtering_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     // Triangles
@@ -510,8 +512,8 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
     branches_triangle_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_triangle_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
-                  1, 1);
+    branches_triangle_filtering_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -639,7 +641,8 @@ void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera
     uniform_particle_render_pipeline->fragment_shader = frag_shader;
     uniform_particle_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+    uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     uniform_particle_render_pipeline->descriptor_set_layouts.emplace_back(dynamic_strands->strands_layout);
     uniform_particle_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     uniform_particle_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -699,7 +702,7 @@ void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera
             uniform_particle_render_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
             const uint32_t count = Platform::DivUp(uniform_particles.size(),
                                                    task_work_group_invocations);  // TODO: move to meshing
-            vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+            uniform_particle_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
   });

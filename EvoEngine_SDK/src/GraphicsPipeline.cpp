@@ -279,6 +279,18 @@ void GraphicsPipeline::BindDescriptorSet(const VkCommandBuffer vk_command_buffer
                           first_set, 1, &descriptor_set, 0, nullptr);
 }
 
+void GraphicsPipeline::DrawMeshTasks(const VkCommandBuffer vk_command_buffer, const uint32_t x, const uint32_t y,
+                                     const uint32_t z) const {
+  vkCmdDrawMeshTasksEXT(vk_command_buffer, x, y, z);
+}
+
+void GraphicsPipeline::PushConstantData(const VkCommandBuffer vk_command_buffer, const size_t range_index,
+                                        const void* data) const {
+  const auto& range = push_constant_ranges[range_index];
+  vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(), range.stageFlags, range.offset,
+                     range.size, data);
+}
+
 #pragma region Pipeline Data
 void PipelineShaderStage::Apply(const VkPipelineShaderStageCreateInfo& vk_pipeline_shader_stage_create_info) {
   flags = vk_pipeline_shader_stage_create_info.flags;

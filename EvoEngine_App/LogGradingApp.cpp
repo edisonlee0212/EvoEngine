@@ -11,16 +11,6 @@
 #  include "Tree.hpp"
 using namespace eco_sys_lab_plugin;
 #endif
-#ifdef LOG_SCANNING_PLUGIN
-#  include "JoeScanScanner.hpp"
-using namespace log_scanning_plugin;
-using namespace nlohmann;
-#endif
-#ifdef LOG_GRADING_PLUGIN
-#  include "LogGrader.hpp"
-using namespace log_grading_plugin;
-#endif
-
 #include "EditorLayer.hpp"
 using namespace evo_engine;
 
@@ -72,17 +62,8 @@ int main() {
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
-#ifdef LOG_GRADING_PLUGIN
-  application.RegisterPrivateComponent<LogGrader>("LogGrader");
-#endif
 #ifdef ECOSYSLAB_PLUGIN
   application.RegisterAsset<BasicBarkDescriptor>("BasicBarkDescriptor", {".bs"});
-#endif
-
-#ifdef LOG_SCANNING_PLUGIN
-  application.RegisterAsset<LogScan>("LogScan", {".jscan"});
-
-  application.RegisterPrivateComponent<JoeScanScanner>("JoeScanScanner");
 #endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "Log Grader";

@@ -21,6 +21,7 @@ class EnvironmentalMap final : public IAsset {
   friend class Environment;
   friend class RenderLayer;
   friend class Resources;
+  AssetRef inspection_target_texture_;
 
  public:
   /**

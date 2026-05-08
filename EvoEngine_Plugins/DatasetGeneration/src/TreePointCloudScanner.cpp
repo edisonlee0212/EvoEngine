@@ -146,16 +146,16 @@ void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointClo
   for (int turn_angle = turn_angle_start; turn_angle < turn_angle_end; turn_angle += turn_angle_step) {
     for (int pitch_angle = pitch_angle_start; pitch_angle < pitch_angle_end; pitch_angle += pitch_angle_step) {
       point_cloud_samples.resize((counter + 1) * scan_resolution * scan_resolution);
-      auto scanner_global_transform =
-          GetTransform(glm::vec2(camera_focus_point.x, camera_focus_point.y), turn_angle, pitch_angle);
+      auto scanner_global_transform = GetTransform(glm::vec2(camera_focus_point.x, camera_focus_point.y),
+                                                   static_cast<float>(turn_angle), static_cast<float>(pitch_angle));
       auto front = scanner_global_transform.GetRotation() * glm::vec3(0, 0, -1);
       auto up = scanner_global_transform.GetRotation() * glm::vec3(0, 1, 0);
       auto left = scanner_global_transform.GetRotation() * glm::vec3(1, 0, 0);
       auto position = scanner_global_transform.GetPosition();
       std::vector<std::shared_future<void>> results;
       Jobs::RunParallelFor(scan_resolution * scan_resolution, [&](size_t i) {
-        const float x = i % scan_resolution;
-        const float y = i / scan_resolution;
+        const float x = static_cast<float>(i % scan_resolution);
+        const float y = static_cast<float>(i / scan_resolution);
         const float x_angle = (x - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
                               static_cast<float>(scan_resolution) * camera_fov / 2.0f;
         const float y_angle = (y - scan_resolution / 2.0f + glm::linearRand(-0.5f, 0.5f)) /
@@ -189,8 +189,8 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
   const auto start_point = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance.x,
                                      (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance.y);
 
-  const int y_step_size = grid_size.y * grid_distance.y / step;
-  const int x_step_size = grid_size.x * grid_distance.x / step;
+  const int y_step_size = static_cast<int>(grid_size.y * grid_distance.y / step);
+  const int x_step_size = static_cast<int>(grid_size.x * grid_distance.x / step);
 
   point_cloud_samples.resize((grid_size.x * y_step_size + grid_size.y * x_step_size) *
                              (ground_sample_size + drone_sample_size));
@@ -198,7 +198,7 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
   for (int i = 0; i < grid_size.x; i++) {
     const float x = i * grid_distance.x;
     for (int step = 0; step < y_step_size; step++) {
-      const float z = step * step;
+      const float z = static_cast<float>(step * step);
       const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(ground_sample_size, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[ground_sample_size * (i * y_step_size + step) + sample_index];
@@ -217,7 +217,7 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
   for (int i = 0; i < grid_size.y; i++) {
     const float z = i * grid_distance.y;
     for (int step = 0; step < x_step_size; step++) {
-      const float x = step * step;
+      const float x = static_cast<float>(step * step);
       const glm::vec3 center = glm::vec3{x, ground_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(ground_sample_size, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[start_index + ground_sample_size * (i * x_step_size + step) + sample_index];
@@ -236,7 +236,7 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
   for (int i = 0; i < grid_size.x; i++) {
     const float x = i * grid_distance.x;
     for (int step = 0; step < y_step_size; step++) {
-      const float z = step * step;
+      const float z = static_cast<float>(step * step);
       const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(drone_sample_size, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[drone_sample_size * (i * y_step_size + step) + sample_index];
@@ -251,7 +251,7 @@ void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSa
   for (int i = 0; i < grid_size.y; i++) {
     const float z = i * grid_distance.y;
     for (int step = 0; step < x_step_size; step++) {
-      const float x = step * step;
+      const float x = static_cast<float>(step * step);
       const glm::vec3 center = glm::vec3{x, drone_sample_height, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(drone_sample_size, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[start_index + drone_sample_size * (i * x_step_size + step) + sample_index];
@@ -434,9 +434,9 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
     auto foliage_search = foliage_mesh_renderer_handles.find(sample.handle);
     if (point_settings.instance_index) {
       if (branch_search != branch_mesh_renderer_handles.end()) {
-        instance_index.emplace_back(branch_search->second);
+        instance_index.emplace_back(static_cast<int>(branch_search->second));
       } else if (foliage_search != foliage_mesh_renderer_handles.end()) {
-        instance_index.emplace_back(foliage_search->second);
+        instance_index.emplace_back(static_cast<int>(foliage_search->second));
       } else {
         instance_index.emplace_back(0);
       }

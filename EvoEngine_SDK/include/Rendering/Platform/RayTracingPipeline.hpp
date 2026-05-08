@@ -105,6 +105,14 @@ class RayTracingPipeline final : public IGraphicsResource {
   void PushConstant(VkCommandBuffer vk_command_buffer, size_t range_index, const T& data);
 
   /**
+   * @brief Pushes raw constant data through the SDK binary.
+   *
+   * This keeps the Vulkan command call inside EvoEngine_SDK so runtime packages do not depend on their own volk
+   * function table being loaded.
+   */
+  void PushConstantData(VkCommandBuffer vk_command_buffer, size_t range_index, const void* data) const;
+
+  /**
    * @brief Dispatches a ray tracing command.
    *
    * @param vk_command_buffer The Vulkan command buffer to record the command.
@@ -126,9 +134,7 @@ class RayTracingPipeline final : public IGraphicsResource {
 template <typename T>
 void RayTracingPipeline::PushConstant(const VkCommandBuffer vk_command_buffer, const size_t range_index,
                                       const T& data) {
-  vkCmdPushConstants(vk_command_buffer, pipeline_layout_->GetVkPipelineLayout(),
-                     push_constant_ranges[range_index].stageFlags, push_constant_ranges[range_index].offset,
-                     push_constant_ranges[range_index].size, &data);
+  PushConstantData(vk_command_buffer, range_index, &data);
 }
 
 }  // namespace evo_engine

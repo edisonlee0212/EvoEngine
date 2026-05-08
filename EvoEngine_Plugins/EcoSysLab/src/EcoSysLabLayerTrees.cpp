@@ -404,7 +404,8 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
           }
         } else if (shoot_visualizer.need_update && auto_generate_skeletal_graph_every_frame_) {
           tree->GenerateSkeletalGraph(skeletal_graph_settings, shoot_visualizer.selected_node_handle,
-                                      Resources::Primitives::sphere, Resources::Primitives::cube);
+                                      Resources::GetInstance().GetPrimitives().sphere,
+                                      Resources::GetInstance().GetPrimitives().cube);
         }
         may_need_geometry_generation = false;
       }
@@ -412,51 +413,51 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
       shoot_visualizer.Visualize(shoot_model, global_transform);
     }
     if (tree_visualization_settings_.show_shadow_grid) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube, visualization_camera_,
                                                   shadow_grid_particle_info_list_, glm::mat4(1.0f), 1.0f,
                                                   gizmo_settings);
     }
     if (tree_visualization_settings_.show_lighting_grid) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube, visualization_camera_,
                                                   lighting_grid_particle_info_list_, glm::mat4(1.0f), 1.0f,
                                                   gizmo_settings);
     }
     if (tree_visualization_settings_.display_flowers && !flower_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cone, visualization_camera_, flower_matrices_,
-                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cone, visualization_camera_,
+                                                  flower_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.display_fruits && !fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_, fruit_matrices_,
-                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube, visualization_camera_,
+                                                  fruit_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
     if (tree_visualization_settings_.display_foliage && !foliage_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::quad, visualization_camera_, foliage_matrices_,
-                                                  glm::mat4(1.0f), 1.0f, gizmo_settings);
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().quad, visualization_camera_,
+                                                  foliage_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
     if (tree_visualization_settings_.display_ground_leaves && !ground_leaf_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::quad, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().quad, visualization_camera_,
                                                   ground_leaf_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
     if (tree_visualization_settings_.display_ground_fruits && !ground_fruit_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube, visualization_camera_,
                                                   ground_fruit_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
     if (tree_visualization_settings_.display_ground_flowers &&
         !ground_flower_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cone, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cone, visualization_camera_,
                                                   ground_flower_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
 
     if (tree_visualization_settings_.display_ground_leaves && !ground_leaf_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::quad, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().quad, visualization_camera_,
                                                   ground_leaf_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
 
     if (tree_visualization_settings_.display_bounding_box && !bounding_box_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube, visualization_camera_,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube, visualization_camera_,
                                                   bounding_box_matrices_, glm::mat4(1.0f), 1.0f, gizmo_settings);
     }
 
@@ -507,7 +508,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
   simulated_time_ += target_simulation_settings.delta_time;
   bool tree_grown = false;
   if (tree_entities && !tree_entities->empty()) {
-    float time = Times::Now();
+    float time = ApplicationContext::Get().GetTimes().Now();
 
     std::shared_ptr<Climate> climate;
     std::shared_ptr<Soil> soil;
@@ -630,7 +631,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       tree->shoot_model.RefShootSkeleton().data.dropped_flowers.clear();
       tree->shoot_model.RefShootSkeleton().data.dropped_leaves.clear();
     }
-    target_simulation_stats.last_used_time = Times::Now() - time;
+    target_simulation_stats.last_used_time = ApplicationContext::Get().GetTimes().Now() - time;
     target_simulation_stats.total_time += target_simulation_stats.last_used_time;
 
     for (auto&& i : grown_stat) {
@@ -674,8 +675,8 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
     tree->root_visualizer.need_update = true;
 
     if (auto_generate_skeletal_graph_every_frame_) {
-      tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere,
-                                  Resources::Primitives::cube);
+      tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::GetInstance().GetPrimitives().sphere,
+                                  Resources::GetInstance().GetPrimitives().cube);
     }
   }
   return tree_grown;
@@ -704,8 +705,8 @@ void EcoSysLabLayer::GenerateSkeletalGraphs(const SkeletalGraphSettings& target_
     const auto copied_entities = *tree_entities;
     for (auto tree_entity : copied_entities) {
       if (const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock(); tree->generate_mesh)
-        tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere,
-                                    Resources::Primitives::cube);
+        tree->GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::GetInstance().GetPrimitives().sphere,
+                                    Resources::GetInstance().GetPrimitives().cube);
     }
   }
 }

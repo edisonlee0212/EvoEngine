@@ -21,7 +21,7 @@ void DsBoxCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
   gizmo_settings.draw_settings.line_width = 1.0f;
   gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(Resources::Primitives::cube, editor_camera, color,
+  editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cube, editor_camera, color,
                               glm::translate(global_transform.GetPosition()) *
                                   glm::mat4_cast(global_transform.GetRotation()) * glm::scale(size),
                               1, gizmo_settings);
@@ -150,7 +150,7 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   glm::vec3 size = scale * global_transform.GetScale();
   if (size.x < 0.001f)
     size.x = 0.001f;
@@ -182,7 +182,8 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_position_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_position_pipeline->Bind(vk_command_buffer);
@@ -191,7 +192,8 @@ void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParam
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_position_pipeline->Dispatch(vk_command_buffer,
+                                     Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -202,7 +204,7 @@ void DsBoxCollider::ProjectVelocityConstraint(const DynamicStrands::PhysicsParam
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   glm::vec3 size = scale * global_transform.GetScale();
   if (size.x < 0.001f)
     size.x = 0.001f;
@@ -232,7 +234,8 @@ void DsBoxCollider::ProjectVelocityConstraint(const DynamicStrands::PhysicsParam
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     segment_velocity_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_velocity_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_velocity_pipeline->Bind(vk_command_buffer);
@@ -241,7 +244,8 @@ void DsBoxCollider::ProjectVelocityConstraint(const DynamicStrands::PhysicsParam
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     leaf_velocity_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_velocity_pipeline->Dispatch(vk_command_buffer,
+                                     Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -277,7 +281,7 @@ void DsCylinderCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_
   gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
   gizmo_settings.draw_settings.line_width = 1.0f;
   gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, editor_camera, color,
+  editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cylinder, editor_camera, color,
                               glm::translate(global_transform.GetPosition()) *
                                   glm::mat4_cast(global_transform.GetRotation()) *
                                   glm::scale(glm::vec3(size.x, size.y, size.x)),
@@ -351,7 +355,7 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const glm::vec3 scale = global_transform.GetScale();
   auto size = glm::vec2(radius * glm::max(scale.x, scale.z), height * scale.y);
   if (size.x < 0.001f)
@@ -381,7 +385,8 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_position_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_position_pipeline->Bind(vk_command_buffer);
@@ -390,7 +395,8 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_position_pipeline->Dispatch(vk_command_buffer,
+                                     Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -425,7 +431,7 @@ void DsSphereCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_la
   gizmo_settings.draw_settings.line_width = 1.0f;
   gizmo_settings.depth_test = true;
   editor_layer->DrawGizmoMesh(
-      Resources::Primitives::sphere, editor_camera, color,
+      Resources::GetInstance().GetPrimitives().sphere, editor_camera, color,
       glm::translate(global_transform.GetPosition()) *
           glm::scale(glm::vec3(glm::max(0.001f, radius * 2.f)) * glm::max(glm::max(scale.x, scale.y), scale.z)),
       1, gizmo_settings);
@@ -497,7 +503,7 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const glm::vec3 scale = global_transform.GetScale();
   float size = radius * glm::max(glm::max(scale.x, scale.y), scale.z);
   if (size < 0.001f)
@@ -522,7 +528,8 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     segment_position_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_position_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_position_pipeline->Bind(vk_command_buffer);
@@ -531,7 +538,8 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     leaf_position_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_position_pipeline->Dispatch(vk_command_buffer,
+                                     Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "AssetRef.hpp"
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 #include "Jobs.hpp"
@@ -17,6 +18,7 @@ class Texture2D : public IAsset {
   friend class RenderLayer;
 
   std::shared_ptr<TextureStorageHandle> texture_storage_handle_;
+  AssetRef opacity_texture_drop_ref_;
 
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, bool local_copy);
   void DownloadData();

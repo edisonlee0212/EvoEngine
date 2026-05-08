@@ -1,5 +1,6 @@
 
 #pragma once
+#include <functional>
 #include <memory>
 
 #include "ApplicationContext.hpp"
@@ -85,6 +86,7 @@ class Application final {
   void PreUpdateInternal();  /**< Perform internal pre-update tasks. */
   void UpdateInternal();     /**< Perform internal update tasks. */
   void LateUpdateInternal(); /**< Perform internal late-update tasks. */
+  void ExecuteEndOfLoopActions();
 
   std::vector<std::shared_ptr<ILayer>> layers_; /**< List of all layers added to the application. */
   std::shared_ptr<Scene> active_scene_;         /**< The currently active scene. */
@@ -93,6 +95,7 @@ class Application final {
   std::vector<std::function<void()>> external_update_functions_;       /**< External update functions. */
   std::vector<std::function<void()>> external_fixed_update_functions_; /**< External fixed update functions. */
   std::vector<std::function<void()>> external_late_update_functions_;  /**< External late update functions. */
+  std::vector<std::function<void()>> end_of_loop_actions_;             /**< One-shot actions executed after a loop. */
 
   std::vector<std::function<void(const std::shared_ptr<Scene>& new_scene)>>
       post_attach_scene_functions_; /**< Functions called after a scene is attached. */
@@ -151,6 +154,12 @@ class Application final {
   void RegisterLateUpdateFunction(const std::function<void()>& func);
 
   /**
+   * @brief Queue a one-shot action that will run after the current application loop completes.
+   * @param func The callback function to execute at the end of the loop.
+   */
+  void QueueEndOfLoopAction(const std::function<void()>& func);
+
+  /**
    * @brief Register a function to be called during the fixed update phase.
    * @param func The callback function to register.
    */
@@ -187,7 +196,7 @@ class Application final {
    * @return A shared pointer to the newly added layer.
    */
   template <typename T>
-  std::shared_ptr<T> PushLayer(const std::string& layer_name = "");
+  std::shared_ptr<T> PushLayer(const std::string& layer_name = "", const std::string& package_owner = "");
 
   /**
    * @brief Retrieve a layer of a specific type.
@@ -247,6 +256,13 @@ class Application final {
    * @return A const reference to a vector of shared pointers to ILayer objects.
    */
   const std::vector<std::shared_ptr<ILayer>>& GetLayers() const;
+
+  /**
+   * @brief Destroy and remove all layers owned by a runtime package.
+   * @param package_name Name of the owning runtime package.
+   * @return True if all package-owned layers were removed safely.
+   */
+  bool RemoveLayersOwnedByPackage(const std::string& package_name);
 
   /**
    * @brief Attach a new scene to the application.
@@ -310,8 +326,12 @@ void Application::RegisterSystem(const std::string& name) {
  * @return A shared pointer to the newly added layer.
  */
 template <typename T>
-std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
-  if (execution_status_ != ExecutionStatus::Uninitialized) {
+std::shared_ptr<T> Application::PushLayer(const std::string& layer_name, const std::string& package_owner) {
+  if (execution_status_ == ExecutionStatus::OnDestroy) {
+    EVOENGINE_ERROR("Unable to push layer! Application is being destroyed!");
+    return nullptr;
+  }
+  if (execution_status_ != ExecutionStatus::Uninitialized && package_owner.empty()) {
     EVOENGINE_ERROR("Unable to push layer! Application already started!");
     return nullptr;
   }
@@ -327,6 +347,22 @@ std::shared_ptr<T> Application::PushLayer(const std::string& layer_name) {
     layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
     layers_.back()->self_ = test;
     layers_.back()->application_ = this;
+    layers_.back()->package_owner_ = package_owner;
+    if (this->active_scene_) {
+      layers_.back()->scene_ = this->active_scene_;
+    }
+    if (execution_status_ != ExecutionStatus::Uninitialized) {
+      if (package_owner.empty()) {
+        layers_.back()->RegisterTypes(*this);
+      }
+      layers_.back()->OnCreate();
+    }
+  } else if (!package_owner.empty()) {
+    const auto existing_layer = std::dynamic_pointer_cast<ILayer>(test);
+    if (existing_layer->package_owner_ != package_owner) {
+      EVOENGINE_ERROR("Unable to push runtime package layer! Layer type is already owned by another module.")
+      return nullptr;
+    }
   }
   if (!layer_name.empty())
     std::dynamic_pointer_cast<ILayer>(test)->layer_name_ = layer_name;

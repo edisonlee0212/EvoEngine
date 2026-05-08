@@ -30,12 +30,12 @@ bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &edito
   const auto up = glm::normalize(gt.GetRotation() * glm::vec3(0, 1, 0));
   const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
   if (render_plane) {
-    editor_layer->DrawGizmoMesh(Resources::Primitives::quad, glm::vec4(1, 0, 0, 0.5),
+    editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().quad, glm::vec4(1, 0, 0, 0.5),
                                 glm::translate(gt.GetPosition() + front * 0.5f) *
                                     glm::mat4_cast(glm::quatLookAt(up, glm::normalize(actual_vector))) *
                                     glm::scale(glm::vec3(0.1, 0.5, 0.1f)),
                                 1.0f);
-    editor_layer->DrawGizmoMesh(Resources::Primitives::quad, color,
+    editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().quad, color,
                                 glm::translate(gt.GetPosition()) * glm::mat4_cast(glm::quatLookAt(up, front)) *
                                     glm::scale(glm::vec3(size.x / 2.0f, 1.0, size.y / 2.0f)),
                                 1.0f);
