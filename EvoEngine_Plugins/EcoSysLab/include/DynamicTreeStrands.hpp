@@ -29,7 +29,6 @@ class DynamicTreeStrands : public IPrivateComponent {
    */
   void InitializeFromTree(const std::shared_ptr<Tree>& tree);
 
-
   void Cubic_pattern();
 
   int seed = 0;                ///< Seed for procedural generation.
@@ -305,5 +304,11 @@ class DynamicTreeStrands : public IPrivateComponent {
                                  uint32_t base_seed, bool wrap = true);
 
   float normalize_coord(Axis3 axis, float coord);
+
+  bool isInsideS(float x, float z);
+
+  bool isInsideG(float x, float z);
+
+  bool isInsideP(float x, float z);
 };
 }  // namespace eco_sys_lab_plugin

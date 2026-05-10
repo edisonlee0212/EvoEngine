@@ -64,6 +64,11 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       // values[5] = glm::vec2(0.04f, 0.0f);     // right tangent offset
       changed = true;
     }
+    if (ImGui::Button("Irregular log")) {
+      strand_model_parameters.end_node_strands = 2000;
+      strand_model_parameters.strand_radius_distribution.mean.max_value = 0.003f;
+      changed = true;
+    }
     if (ImGui::Button("Elm")) {
       strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(0.65f, 0.5f, {0, 0}, {1, 1});
       changed = true;

@@ -182,9 +182,16 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
     std::vector<Region> regions;
-    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/800, 0.1f, 1.8f, 10,
+    Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
                                      /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
-                                     3000.f);  // ZY: 800 for pull operator test
+                                     3000.f);  // ZY: N=800 for pull operator test
+
+    // Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
+    //                                  /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f, 3000.f);
+
+    // Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
+    //                                /*tilt_eps=*/0.0f, /*enable_tilt=*/false, regions, 1500.f,
+    //                                3000.f);
 
     std::mt19937 rng(std::random_device{}());
     int K = (int)regions.size();
@@ -197,8 +204,18 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       auto& segment = dynamic_strands->segments[i];
       // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
       //                            segment.particle0.x[1] * 0.5 + 0.1f};
+
       std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
                                  segment.particle0.root_distance * 0.5f + 0.1f};  // for general
+
+      // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 1.5f, segment.profile_polar_coordinate[1]
+      // * 3.0f,
+      //                            segment.particle0.root_distance * 0.15f + 0.1f};  // ZY: thin along longitude
+
+      // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 1.5f, segment.profile_polar_coordinate[1]
+      // * 2.0f,
+      //                            segment.particle0.root_distance * 0.4f + 0.1f};  // ZY: for irregular log
+
       // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1]
       // * 2.0f,
       //                            segment.particle0.root_distance * 0.3f + 0.1f}; //ZY: for oak trunk ONLY
@@ -326,9 +343,9 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 void DynamicTreeStrands::OnCreate() {
   dynamic_strands = std::make_shared<DynamicStrands>(materials);
 
-  //initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-  //initialize_parameters.max_segment_length = 0.01f;
-  //initialize_parameters.min_segment_length = 0.005f; //OAK TRUNK SETTINGS
+  // initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+  // initialize_parameters.max_segment_length = 0.01f;
+  // initialize_parameters.min_segment_length = 0.005f; //OAK TRUNK SETTINGS
 
   dynamic_strands->Init(initialize_parameters.meshing_type);
   leaf_drop = std::make_shared<DsLeafDrop>();
@@ -525,12 +542,12 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
       segment.RB_pre = 1.0f;*/
       Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
         auto& segment = dynamic_strands->segments[i];
-        //segment.C = 0.0f;
-        //segment.C_pre = 0.0f;
+        // segment.C = 0.0f;
+        // segment.C_pre = 0.0f;
         if (segment.particle0.x0[0] < 0.005f && segment.particle0.x0[1] > 1.015f && segment.particle0.x0[2] > 0.0f &&
             segment.particle0.x0[2] < 0.01f) {
-            segment.RB = 1.0f;
-            segment.RB_pre = 1.0f;
+          segment.RB = 1.0f;
+          segment.RB_pre = 1.0f;
         }
       });
       Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
@@ -552,6 +569,18 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
         int id = classify_point_jitter_axis(pt, root, 0.000f, 0xA53A5F1Bu, true);
         segment.color = region_colors[id];
       });
+
+      // Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
+      //   auto& segment = dynamic_strands->segments[i];
+      //   float midX = (segment.particle0.x0[0] + segment.particle1.x0[0]) / 2.0f;
+      //   float midZ = (segment.particle0.x0[2] + segment.particle1.x0[2]) / 2.0f;
+      //   if (!isInsideP(midX, midZ)) {
+      //     segment.HC = 0.0f;
+      //     segment.HC_pre = 0.0f;
+      //     segment.HL = 0.0f;
+      //     segment.HL_pre = 0.0f;
+      //   }
+      // });
     }
   }
   dynamic_strands->Upload();
@@ -840,10 +869,10 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   initialize_parameters.trunk_additional_strength = false;
   DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
   initialized_from_tree = false;
-  //if (settings.fungus_test) {
-  //  initialize_parameters.min_segment_length = 0.015f;
-  //  initialize_parameters.max_segment_length = 0.03f;
-  //}
+  // if (settings.fungus_test) {
+  //   initialize_parameters.min_segment_length = 0.015f;
+  //   initialize_parameters.max_segment_length = 0.03f;
+  // }
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
   const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();
@@ -885,9 +914,9 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   if (settings.fungus_test) {
     if (settings.competition_setting == false) {
       auto& segment = dynamic_strands->segments[0];
-      //segment.RW = 1.0f;
+      // segment.RW = 1.0f;
       segment.RB = 1.0f;
-      //segment.RW_pre = 1.0f;
+      // segment.RW_pre = 1.0f;
       segment.RB_pre = 1.0f;
       /*Jobs::RunParallelFor(dynamic_strands->segments.size(), [&](const auto i) {
         auto& segment = dynamic_strands->segments[i];
@@ -1361,7 +1390,6 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
   initialized_from_tree = true;
   UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
 
-
   Region INIT{0.0f, 100.0f, -glm::pi<float>(), glm::pi<float>(), 0.0f, 1.0f};
   std::vector<Region> regions;
   Node_tilt* root = build_bsp_tilt(INIT, /*N=*/12800, 0.1f, 1.8f, 10,
@@ -1410,15 +1438,14 @@ void DynamicTreeStrands::Cubic_pattern() {
     auto& segment = dynamic_strands->segments[i];
     // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
     //                            segment.particle0.x[1] * 0.5 + 0.1f};
-    //std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
+    // std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 2.f, segment.profile_polar_coordinate[1],
     //                           segment.particle0.root_distance * 0.5f + 0.1f};  // for general
-     std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 1.5f, segment.profile_polar_coordinate[1]
-     * 2.3f, segment.particle0.root_distance * 0.2f + 0.1f}; //ZY: for oak trunk ONLY
-    int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, false);  // ZY:false for pull operator test
+    std::array<float, 3> pt = {segment.profile_polar_coordinate[0] * 1.5f, segment.profile_polar_coordinate[1] * 2.3f,
+                               segment.particle0.root_distance * 0.2f + 0.1f};  // ZY: for oak trunk ONLY
+    int id = classify_point_jitter_axis(pt, root, 0.0f, 0xA53A5F1Bu, false);    // ZY:false for pull operator test
     segment.color = region_colors[id];
   });
 }
-
 
 void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
   if (!dynamic_strands->segments.empty()) {
@@ -1578,6 +1605,7 @@ void DynamicTreeStrands::split_one(const Region& c, float p_min, float p_max, fl
   }
 
   std::mt19937 rng(std::random_device{}());
+  // std::mt19937 rng(42u);
   std::uniform_real_distribution<float> dist(p_min, p_max);
 
   for (int i = 0; i < max_tries; ++i) {
@@ -1772,6 +1800,7 @@ DynamicTreeStrands::Node_tilt* DynamicTreeStrands::build_bsp_tilt(const Region& 
         std::uniform_real_distribution<float> d(-tilt_eps, tilt_eps);
         glm::vec3 nn = base;
         std::mt19937 g_rng(std::random_device{}());
+        // std::mt19937 g_rng(42u);
         if (axis == AX_R) {
           // nn += glm::vec3(0, d(g_rng), d(g_rng));
         } else if (axis == AX_PHI)
@@ -1872,4 +1901,76 @@ int DynamicTreeStrands::classify_point_jitter_axis(const std::array<float, 3>& p
     n = (vj < coord_n) ? n->left : n->right;
   }
   return n->leaf_id;
+}
+
+bool DynamicTreeStrands::isInsideS(float x, float z) {
+  float xMin = 0.0f, xMax = 0.8f;
+  float zMin = -0.25f, zMax = 0.25f;
+  float thickness = 0.1f;
+
+  float xMid = (xMin + xMax) / 2.0f;
+
+  if (x >= xMin && x <= xMin + thickness && z >= zMin && z <= zMax)
+    return true;
+  // Middle Bar
+  if (x >= xMid - thickness / 2.0f && x <= xMid + thickness / 2.0f && z >= zMin && z <= zMax)
+    return true;
+  // Right Bar
+  if (x >= xMax - thickness && x <= xMax && z >= zMin && z <= zMax)
+    return true;
+
+  if (z >= zMax - thickness && z <= zMax && x >= xMin && x <= xMid)
+    return true;
+
+  if (z >= zMin && z <= zMin + thickness && x >= xMid && x <= xMax)
+    return true;
+
+  return false;
+}
+
+bool DynamicTreeStrands::isInsideG(float x, float z) {
+  float xMin = 0.0f, xMax = 0.8f;
+  float zMin = -0.25f, zMax = 0.25f;
+  float thickness = 0.1f;
+
+  float xMid = (xMin + xMax) / 2.0f;
+
+  if (z >= zMin && z <= zMin + thickness && x >= xMin && x <= xMax)
+    return true;
+
+  if (x >= xMax - thickness && x <= xMax && z >= zMin && z <= zMax)
+    return true;
+
+  if (x >= xMin && x <= xMin + thickness && z >= zMin && z <= zMax)
+    return true;
+
+  if (z >= zMax - thickness && z <= zMax && x >= xMin && x <= xMid)
+    return true;
+
+  if (x >= xMid - thickness / 2.0f && x <= xMid + thickness / 2.0f && z >= 0.0f && z <= zMax)
+    return true;
+
+  return false;
+}
+
+bool DynamicTreeStrands::isInsideP(float x, float z) {
+  float xMin = 0.0f, xMax = 0.8f;
+  float zMin = -0.25f, zMax = 0.25f;
+  float thickness = 0.1f;
+
+  float xMid = (xMin + xMax) / 2.0f;
+
+  if (z >= zMin && z <= zMin + thickness && x >= xMin && x <= xMax)
+    return true;
+
+  if (x >= xMax - thickness && x <= xMax && z >= zMin && z <= zMax)
+    return true;
+
+  if (x >= xMid - thickness / 2.0f && x <= xMid + thickness / 2.0f && z >= zMin && z <= zMax)
+    return true;
+
+  if (z >= zMax - thickness && z <= zMax && x >= xMid && x <= xMax)
+    return true;
+
+  return false;
 }

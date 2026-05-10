@@ -206,10 +206,16 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
     if (ImGui::Button("Log Crack")) {
       bundle_strength_factor = 1.2f;
       crack_bd_shrinkage_offset = 0.0f;
-      crack_R_scale = 0.0f;
+      crack_R_scale = 1.0f;
       crack_T_scale = 1.0f;
       boundary_strength_decay_factor = 3.0f;
-      internal_pattern = 1;
+      // internal_pattern = 1;
+      matrixAb = glm::mat3(0.3f, 0.0f, 0.0f, 0.0f, 0.3f, 0.0f, 0.0f, 0.0f, 30.0f);
+      // time_step = 0.005f;
+      bo = 0.0f;
+      be = 0.0f;
+      bb = 0.5f;
+      // dt = 0.00025f;
       changed = true;
     }
     if (ImGui::Button("Oak Trunk Crack Process")) {
@@ -233,7 +239,22 @@ bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLa
       matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f);
       // time_step = 0.005f;
       bb = 0.5f;
-      be = 0.5f; 
+      be = 0.5f;
+      changed = true;
+    }
+    if (ImGui::Button("Irregular log")) {
+      bundle_strength_factor = 1.0f;
+      crack_bd_shrinkage_offset = 0.0f;
+      crack_R_scale = 0.0f;
+      crack_T_scale = 1.0f;
+      boundary_strength_decay_factor = 6.0f;
+      bd_offset = 0.06f;
+      HL_threshold = 0.1f;
+      matrixAb = glm::mat3(0.3f, 0.0f, 0.0f, 0.0f, 0.3f, 0.0f, 0.0f, 0.0f, 5.0f);
+      // time_step = 0.005f;
+      bo = 0.0f;
+      be = 0.0f;
+      bb = 0.5f;
       changed = true;
     }
     if (ImGui::Button("Elm")) {

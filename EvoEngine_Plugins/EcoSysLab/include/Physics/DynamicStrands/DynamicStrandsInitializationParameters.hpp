@@ -11,10 +11,10 @@ enum class MeshingType { AlphaShape, KineticVoronoi };
  * \brief Parameters used during the initialization of the dynamic strand model.
  */
 struct DynamicStrandsInitializeParameters {
-  //MeshingType meshing_type = MeshingType::KineticVoronoi;  ///< The type of meshing algorithm to use.
+  // MeshingType meshing_type = MeshingType::KineticVoronoi;  ///< The type of meshing algorithm to use.
   MeshingType meshing_type = MeshingType::AlphaShape;  ///< The type of meshing algorithm to use.
-  float min_segment_length = 0.03f;                        ///< The minimum length of a segment.
-  float max_segment_length = 0.06f;                        ///< The maximum length of a segment.
+  float min_segment_length = 0.03f;                    ///< The minimum length of a segment.
+  float max_segment_length = 0.06f;                    ///< The maximum length of a segment.
   int uniform_subdivision = 5;                         ///< The number of uniform subdivisions per segment for strands.
   procedural_noise::ProceduralNoise3D damage_graph{};  ///< Noise parameter for simulating structural damage.
   glm::vec3 damage_scale_factor = glm::vec3(0.01f);    ///< Scale factor for damage effects.
