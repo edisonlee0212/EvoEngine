@@ -1220,58 +1220,44 @@ void IDynamicTreeStrands::DeserializeImpl(const YAML::Node& in) {
         }
         switch (data.type) {
           case NodeType::Unknown:
-            ImGui::Text("Unknown");
             break;
           case NodeType::InputSegment:
-            ImGui::Text("Segment");
             data.node_impl = std::make_shared<InputNode>();
             break;
           case NodeType::InputParticle:
-            ImGui::Text("Particle");
             data.node_impl = std::make_shared<InputNode>();
             break;
           case NodeType::OutputDensity:
-            ImGui::Text("Density");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputStretchShearModulus:
-            ImGui::Text("Stretch Shear Modulus");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputBendingModulus:
-            ImGui::Text("Bending Modulus");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputTwistingModulus:
-            ImGui::Text("Twisting Modulus");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputSheerStretchStrength:
-            ImGui::Text("Sheer Stretch Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputBendingStrength:
-            ImGui::Text("Bending Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputTwistingStrength:
-            ImGui::Text("Twisting Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputBundleStrength:
-            ImGui::Text("Bundle Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputConnectivityStrength:
-            ImGui::Text("Connectivity Strength");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::OutputTrunk:
-            ImGui::Text("Trunk");
             data.node_impl = std::make_shared<OutputNode>();
             break;
           case NodeType::Constant:
-            ImGui::Text("Constant");
             data.node_impl = std::make_shared<ConstantNode>();
             break;
           case NodeType::Add:

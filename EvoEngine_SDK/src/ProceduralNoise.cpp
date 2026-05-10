@@ -905,9 +905,8 @@ bool ProceduralNoise2D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
     static Handle current_handle;
 
     static bool show_test_texture = true;
-    static std::shared_ptr<Texture2D> test_texture_2d;
-    if (!test_texture_2d) {
-      test_texture_2d = AssetManager::CreateTemporaryAsset<Texture2D>();
+    if (!test_texture_2d_) {
+      test_texture_2d_ = AssetManager::CreateTemporaryAsset<Texture2D>();
     }
     if (show_test_texture) {
       if (changed || resolution_changed || GetHandle() != current_handle) {
@@ -921,10 +920,10 @@ bool ProceduralNoise2D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
           color[i] = glm::vec4(glm::vec3(GetValue(glm::vec2(x, y) * position_scale + position_offset)), 1.0f);
         });
 
-        test_texture_2d->SetRgbaChannelData(color, glm::uvec2(resolution));
+        test_texture_2d_->SetRgbaChannelData(color, glm::uvec2(resolution));
       }
 
-      const auto texture_storage = test_texture_2d->PeekTexture2DStorage();
+      const auto texture_storage = test_texture_2d_->PeekTexture2DStorage();
       if (texture_storage.im_texture_id) {
         static float debug_scale = 1.f;
         ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
@@ -981,9 +980,8 @@ bool ProceduralNoise3D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       resolution_changed = true;
     }
     static bool show_test_texture = true;
-    static std::shared_ptr<Texture2D> test_texture_2d;
-    if (!test_texture_2d) {
-      test_texture_2d = AssetManager::CreateTemporaryAsset<Texture2D>();
+    if (!test_texture_2d_) {
+      test_texture_2d_ = AssetManager::CreateTemporaryAsset<Texture2D>();
     }
     if (show_test_texture) {
       if (changed || resolution_changed || GetHandle() != current_handle) {
@@ -997,10 +995,10 @@ bool ProceduralNoise3D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
           color[i] = glm::vec4(glm::vec3(GetValue(glm::vec3(x, y, z) * position_scale + position_offset)), 1.0f);
         });
 
-        test_texture_2d->SetRgbaChannelData(color, glm::uvec2(resolution));
+        test_texture_2d_->SetRgbaChannelData(color, glm::uvec2(resolution));
       }
 
-      const auto texture_storage = test_texture_2d->PeekTexture2DStorage();
+      const auto texture_storage = test_texture_2d_->PeekTexture2DStorage();
       if (texture_storage.im_texture_id) {
         static float debug_scale = 1.f;
         ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
@@ -1060,9 +1058,8 @@ bool ProceduralNoise4D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
       resolution_changed = true;
     }
     static bool show_test_texture = true;
-    static std::shared_ptr<Texture2D> test_texture_2d;
-    if (!test_texture_2d) {
-      test_texture_2d = AssetManager::CreateTemporaryAsset<Texture2D>();
+    if (!test_texture_2d_) {
+      test_texture_2d_ = AssetManager::CreateTemporaryAsset<Texture2D>();
     }
     if (show_test_texture) {
       if (changed || resolution_changed || GetHandle() != current_handle) {
@@ -1076,10 +1073,10 @@ bool ProceduralNoise4D::OnInspect(const std::shared_ptr<EditorLayer>& editor_lay
           color[i] = glm::vec4(glm::vec3(GetValue(glm::vec4(x, y, z, w) * position_scale + position_offset)), 1.0f);
         });
 
-        test_texture_2d->SetRgbaChannelData(color, glm::uvec2(resolution));
+        test_texture_2d_->SetRgbaChannelData(color, glm::uvec2(resolution));
       }
 
-      const auto texture_storage = test_texture_2d->PeekTexture2DStorage();
+      const auto texture_storage = test_texture_2d_->PeekTexture2DStorage();
       if (texture_storage.im_texture_id) {
         static float debug_scale = 1.f;
         ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);

@@ -1,4 +1,5 @@
 #include "ReflectionProbe.hpp"
+#include "Application.hpp"
 #include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
@@ -93,8 +94,8 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
   const auto depth_image_view = std::make_shared<ImageView>(depth_view_info);
 #pragma endregion
 
-  const std::unique_ptr<DescriptorSet> temp_set =
-      std::make_unique<DescriptorSet>(RenderTexture::render_texture_present_layout);
+  const std::unique_ptr<DescriptorSet> temp_set = std::make_unique<DescriptorSet>(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
   VkDescriptorImageInfo descriptor_image_info;
   descriptor_image_info.imageView = target_cubemap->GetImageView()->GetVkImageView();
   descriptor_image_info.imageLayout = target_cubemap->GetImage()->GetLayout();
@@ -111,30 +112,29 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
   const auto max_mip_levels = cubemap_->RefStorage().image->GetMipLevels();
-
-  static std::shared_ptr<GraphicsPipeline> prefilter_construct;
-  if (!prefilter_construct) {
-    prefilter_construct = std::make_shared<GraphicsPipeline>();
-    prefilter_construct->vertex_shader =
+  if (!prefilter_construct_pipeline_) {
+    prefilter_construct_pipeline_ = std::make_shared<GraphicsPipeline>();
+    prefilter_construct_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
-    prefilter_construct->fragment_shader = Shader::CreateTemporary(
+    prefilter_construct_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                   "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");
-    prefilter_construct->geometry_type = GeometryType::Mesh;
+    prefilter_construct_pipeline_->geometry_type = GeometryType::Mesh;
 
-    prefilter_construct->depth_attachment_format = Platform::Constants::shadow_map;
-    prefilter_construct->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    prefilter_construct_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
+    prefilter_construct_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
 
-    prefilter_construct->color_attachment_formats = {1, Platform::Constants::texture_2d};
-    prefilter_construct->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    prefilter_construct_pipeline_->color_attachment_formats = {1, Platform::Constants::texture_2d};
+    prefilter_construct_pipeline_->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
 
-    auto& push_constant_range = prefilter_construct->push_constant_ranges.emplace_back();
+    auto& push_constant_range = prefilter_construct_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(glm::mat4) + sizeof(float);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    prefilter_construct->Initialize();
+    prefilter_construct_pipeline_->Initialize();
   }
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -160,8 +160,8 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
       scissor.offset = {0, 0};
       scissor.extent.width = mip_width;
       scissor.extent.height = mip_width;
-      prefilter_construct->states.view_port = viewport;
-      prefilter_construct->states.scissor = scissor;
+      prefilter_construct_pipeline_->states.view_port = viewport;
+      prefilter_construct_pipeline_->states.scissor = scissor;
 #pragma endregion
       GeometryStorage::BindVertices(vk_command_buffer);
       for (int i = 0; i < 6; i++) {
@@ -193,24 +193,24 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
         render_info.colorAttachmentCount = 1;
         render_info.pColorAttachments = &attachment;
         render_info.pDepthAttachment = &depth_attachment;
-        prefilter_construct->states.cull_mode = VK_CULL_MODE_NONE;
-        prefilter_construct->states.color_blend_attachment_states.clear();
-        prefilter_construct->states.color_blend_attachment_states.resize(1);
-        for (auto& i : prefilter_construct->states.color_blend_attachment_states) {
+        prefilter_construct_pipeline_->states.cull_mode = VK_CULL_MODE_NONE;
+        prefilter_construct_pipeline_->states.color_blend_attachment_states.clear();
+        prefilter_construct_pipeline_->states.color_blend_attachment_states.resize(1);
+        for (auto& i : prefilter_construct_pipeline_->states.color_blend_attachment_states) {
           i.colorWriteMask =
               VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
           i.blendEnable = VK_FALSE;
         }
-        vkCmdBeginRendering(vk_command_buffer, &render_info);
-        prefilter_construct->Bind(vk_command_buffer);
-        prefilter_construct->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
-        const auto mesh = Resources::rendering_cube;
+        Platform::BeginRendering(vk_command_buffer, render_info);
+        prefilter_construct_pipeline_->Bind(vk_command_buffer);
+        prefilter_construct_pipeline_->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
+        const auto mesh = Resources::GetInstance().GetRenderingCube();
         EquirectangularToCubemapConstant constant{};
         constant.projection_view = capture_projection * capture_views[i];
         constant.m_preset = roughness;
-        prefilter_construct->PushConstant(vk_command_buffer, 0, constant);
-        mesh->DrawIndexed(vk_command_buffer, prefilter_construct->states, 1);
-        vkCmdEndRendering(vk_command_buffer);
+        prefilter_construct_pipeline_->PushConstant(vk_command_buffer, 0, constant);
+        mesh->DrawIndexed(vk_command_buffer, prefilter_construct_pipeline_->states, 1);
+        Platform::EndRendering(vk_command_buffer);
 #pragma endregion
 
         Platform::EverythingBarrier(vk_command_buffer);

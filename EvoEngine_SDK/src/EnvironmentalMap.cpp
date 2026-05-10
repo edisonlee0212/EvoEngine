@@ -35,14 +35,13 @@ void EnvironmentalMap::ConstructFromRenderTexture(const std::shared_ptr<RenderTe
 
 bool EnvironmentalMap::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
-  static AssetRef target_texture;
 
-  if (editor_layer->DragAndDropButton<Cubemap>(target_texture, "Convert from Skybox")) {
-    if (const auto tex = target_texture.Get<Cubemap>()) {
+  if (editor_layer->DragAndDropButton<Cubemap>(inspection_target_texture_, "Convert from Skybox")) {
+    if (const auto tex = inspection_target_texture_.Get<Cubemap>()) {
       ConstructFromCubemap(tex);
       changed = true;
     }
-    target_texture.Clear();
+    inspection_target_texture_.Clear();
   }
 
   if (ImGui::TreeNode("Sky illumination")) {

@@ -17,6 +17,7 @@
 #  define GLFW_EXPOSE_NATIVE_WAYLAND
 #  include "GLFW/glfw3native.h"
 #endif
+#include "Utilities/X11MacroCleanup.hpp"
 
 using namespace evo_engine;
 std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {

@@ -1,13 +1,6 @@
 #include "VoronoiMesh.hpp"
 #include <unordered_map>
-
-// resolve a macro conflict with /usr/include/X11/X.h:350:21
-#pragma push_macro("Success")
-#undef Success
-
-#include "Dense"
-
-#pragma pop_macro("Success")
+#include "EvoEngine_EigenDense.hpp"
 
 using namespace kinDS;
 

@@ -33,15 +33,15 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
   const glm::vec2 start_point = glm::vec2((static_cast<float>(grid_size.x) * 0.5f - 0.5f) * grid_distance,
                                           (static_cast<float>(grid_size.y) * 0.5f - 0.5f) * grid_distance);
 
-  const int y_step_size = grid_size.y * grid_distance / step;
-  const int x_step_size = grid_size.x * grid_distance / step;
+  const int y_step_size = static_cast<int>(grid_size.y * grid_distance / step);
+  const int x_step_size = static_cast<int>(grid_size.x * grid_distance / step);
 
   point_cloud_samples.resize((grid_size.x * y_step_size + grid_size.y * x_step_size) * drone_sample);
   unsigned start_index = 0;
   for (int i = 0; i < grid_size.x; i++) {
-    float x = i * grid_distance;
+    float x = static_cast<float>(i) * grid_distance;
     for (int step = 0; step < y_step_size; step++) {
-      float z = step * step;
+      float z = static_cast<float>(step * step);
       const glm::vec3 center = glm::vec3{x, drone_height, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(drone_sample, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[drone_sample * (i * y_step_size + step) + sample_index];
@@ -53,9 +53,9 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
   }
   start_index += grid_size.x * y_step_size * drone_sample;
   for (int i = 0; i < grid_size.y; i++) {
-    float z = i * grid_distance;
+    float z = static_cast<float>(i) * grid_distance;
     for (int step = 0; step < x_step_size; step++) {
-      float x = step * step;
+      float x = static_cast<float>(step * step);
       const glm::vec3 center = glm::vec3{x, drone_height, z} - glm::vec3(start_point.x, 0, start_point.y);
       Jobs::RunParallelFor(drone_sample, [&](size_t sample_index) {
         auto& sample = point_cloud_samples[start_index + drone_sample * (i * x_step_size + step) + sample_index];
@@ -91,7 +91,7 @@ void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>
 
   point_cloud_samples.resize(y_step_size * x_step_size * 2 * scanner_angles.size());
   constexpr auto front = glm::vec3(0, -1, 0);
-  const float roll_angle = glm::linearRand(0, 360);
+  const float roll_angle = glm::linearRand(0.0f, 360.0f);
   const auto up = glm::vec3(glm::sin(glm::radians(roll_angle)), 0, glm::cos(glm::radians(roll_angle)));
   Jobs::RunParallelFor(y_step_size * x_step_size, [&](size_t i) {
     const auto x = i / y_step_size;
@@ -275,11 +275,11 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
     auto panicle_search = panicle_mesh_renderer_handles.find(sample.handle);
     if (sorghum_point_cloud_point_settings.instance_index) {
       if (leaf_search != leaf_mesh_renderer_handles.end()) {
-        instance_indices.emplace_back(leaf_search->second.first);
+        instance_indices.emplace_back(static_cast<int>(leaf_search->second.first));
       } else if (stem_search != stem_mesh_renderer_handles.end()) {
-        instance_indices.emplace_back(stem_search->second);
+        instance_indices.emplace_back(static_cast<int>(stem_search->second));
       } else if (panicle_search != panicle_mesh_renderer_handles.end()) {
-        instance_indices.emplace_back(panicle_search->second);
+        instance_indices.emplace_back(static_cast<int>(panicle_search->second));
       } else {
         instance_indices.emplace_back(0);
       }

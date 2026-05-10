@@ -1,3 +1,4 @@
+#include "Application.hpp"
 #include "Delaunay.hpp"
 #include "DsConstraints.hpp"
 #include "DsOperators.hpp"
@@ -37,9 +38,11 @@ void DynamicStrands::BuildSegmentPairsRenderingPipeline() {
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SegmentPairs.frag");
   segment_pairs_visualization_render_pipeline->geometry_type = GeometryType::Mesh;
-  segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-  segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
+  segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   segment_pairs_visualization_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   segment_pairs_visualization_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   segment_pairs_visualization_render_pipeline->color_attachment_formats = {1,
@@ -163,7 +166,7 @@ uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
             vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
         segment_pairs_visualization_render_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
         const uint32_t count = Platform::DivUp(segment_pairs.size(), task_work_group_invocations);
-        vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+        segment_pairs_visualization_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
       });
 
   return segment_pairs.size();

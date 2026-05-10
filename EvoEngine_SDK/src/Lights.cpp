@@ -290,7 +290,8 @@ void Lighting::AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector
 }
 
 Lighting::Lighting() {
-  lighting_descriptor_set = std::make_shared<DescriptorSet>(RenderLayer::lighting_layout);
+  lighting_descriptor_set = std::make_shared<DescriptorSet>(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
 }
 
 void Lighting::Initialize() {

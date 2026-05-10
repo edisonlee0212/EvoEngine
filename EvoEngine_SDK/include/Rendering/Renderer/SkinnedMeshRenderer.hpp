@@ -6,6 +6,7 @@
 #include "SkinnedMesh.hpp"
 
 namespace evo_engine {
+class ParticleInfoList;
 
 /**
  * @brief Represents a component that renders a skinned mesh with bone animation.
@@ -38,6 +39,7 @@ class SkinnedMeshRenderer : public IPrivateComponent {
 
   /// Stores the entities that are bound to the skinned mesh.
   std::vector<EntityRef> bound_entities_;
+  std::shared_ptr<ParticleInfoList> debug_bone_particle_info_list_;
 
  public:
   /**

@@ -183,7 +183,7 @@ void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& 
     gizmo_settings.depth_test = true;
     gizmo_settings.depth_write = true;
     if (!node_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cylinder,
                                                   eco_sys_lab_layer->visualization_camera_, node_matrices_,
                                                   global_transform.value, 1.0f, gizmo_settings);
       if (selected_node_handle != -1) {
@@ -197,8 +197,8 @@ void ShootVisualizer::Visualize(const ShootModel& model, const GlobalTransform& 
                             glm::scale(glm::vec3(2.0f * node.info.thickness + 0.01f, node.info.length / 5.0f,
                                                  2.0f * node.info.thickness + 0.01f));
         constexpr auto color = glm::vec4(1.0f);
-        editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, eco_sys_lab_layer->visualization_camera_, color,
-                                    matrix, 1, gizmo_settings);
+        editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cylinder,
+                                    eco_sys_lab_layer->visualization_camera_, color, matrix, 1, gizmo_settings);
       }
     }
   }
@@ -899,7 +899,7 @@ void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& gl
     gizmo_settings.depth_test = true;
     gizmo_settings.depth_write = true;
     if (!node_matrices_->PeekParticleInfoList().empty()) {
-      editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cylinder,
+      editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cylinder,
                                                   eco_sys_lab_layer->visualization_camera_, node_matrices_,
                                                   global_transform.value, 1.0f, gizmo_settings);
       if (selected_node_handle != -1) {
@@ -913,8 +913,8 @@ void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& gl
                             glm::scale(glm::vec3(2.0f * node.info.thickness + 0.01f, node.info.length / 5.0f,
                                                  2.0f * node.info.thickness + 0.01f));
         constexpr auto color = glm::vec4(1.0f);
-        editor_layer->DrawGizmoMesh(Resources::Primitives::cylinder, eco_sys_lab_layer->visualization_camera_, color,
-                                    matrix, 1, gizmo_settings);
+        editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cylinder,
+                                    eco_sys_lab_layer->visualization_camera_, color, matrix, 1, gizmo_settings);
       }
     }
   }

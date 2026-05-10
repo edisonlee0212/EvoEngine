@@ -35,6 +35,8 @@ class Cubemap final : public IAsset {
    * @brief Handle to the texture storage for this cubemap.
    */
   std::shared_ptr<TextureStorageHandle> texture_storage_handle_;
+  mutable std::shared_ptr<GraphicsPipeline> atmosphere_to_cubemap_pipeline_;
+  mutable std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap_pipeline_;
 
  public:
   /**

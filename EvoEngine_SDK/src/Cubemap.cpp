@@ -82,8 +82,6 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
 
-  static std::shared_ptr<GraphicsPipeline> atmosphere_to_cubemap;
-
   struct PushConstant {
     glm::mat4 projection_view;
     Atmosphere atmosphere;
@@ -99,28 +97,29 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
   push_constant.gamma = sky_illumination.gamma;
   push_constant.ground_color = sky_illumination.ground_color;
   push_constant.ground_transmittance = sky_illumination.ground_transmittance;
-  if (!atmosphere_to_cubemap) {
-    atmosphere_to_cubemap = std::make_shared<GraphicsPipeline>();
-    atmosphere_to_cubemap->vertex_shader =
+  if (!atmosphere_to_cubemap_pipeline_) {
+    atmosphere_to_cubemap_pipeline_ = std::make_shared<GraphicsPipeline>();
+    atmosphere_to_cubemap_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Graphics/Vertex/Lighting/AtmosphereToCubemap.vert");
-    atmosphere_to_cubemap->fragment_shader = Shader::CreateTemporary(
+    atmosphere_to_cubemap_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment,
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Lighting/AtmosphereToCubemap.frag");
-    atmosphere_to_cubemap->geometry_type = GeometryType::Mesh;
+    atmosphere_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
 
-    atmosphere_to_cubemap->depth_attachment_format = Platform::Constants::shadow_map;
-    atmosphere_to_cubemap->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    atmosphere_to_cubemap_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
+    atmosphere_to_cubemap_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
 
-    atmosphere_to_cubemap->color_attachment_formats = {1, Platform::Constants::texture_2d};
-    atmosphere_to_cubemap->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    atmosphere_to_cubemap_pipeline_->color_attachment_formats = {1, Platform::Constants::texture_2d};
+    atmosphere_to_cubemap_pipeline_->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
 
-    auto& push_constant_range = atmosphere_to_cubemap->push_constant_ranges.emplace_back();
+    auto& push_constant_range = atmosphere_to_cubemap_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(PushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    atmosphere_to_cubemap->Initialize();
+    atmosphere_to_cubemap_pipeline_->Initialize();
   }
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -141,8 +140,8 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
     scissor.offset = {0, 0};
     scissor.extent.width = storage.image->GetExtent().width;
     scissor.extent.height = storage.image->GetExtent().height;
-    atmosphere_to_cubemap->states.view_port = viewport;
-    atmosphere_to_cubemap->states.scissor = scissor;
+    atmosphere_to_cubemap_pipeline_->states.view_port = viewport;
+    atmosphere_to_cubemap_pipeline_->states.scissor = scissor;
 #pragma endregion
     for (int i = 0; i < 6; i++) {
 #pragma region Lighting pass
@@ -173,22 +172,22 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
       render_info.colorAttachmentCount = 1;
       render_info.pColorAttachments = &attachment;
       render_info.pDepthAttachment = &depth_attachment;
-      atmosphere_to_cubemap->states.cull_mode = VK_CULL_MODE_NONE;
-      atmosphere_to_cubemap->states.color_blend_attachment_states.clear();
-      atmosphere_to_cubemap->states.color_blend_attachment_states.resize(1);
-      for (auto& i : atmosphere_to_cubemap->states.color_blend_attachment_states) {
+      atmosphere_to_cubemap_pipeline_->states.cull_mode = VK_CULL_MODE_NONE;
+      atmosphere_to_cubemap_pipeline_->states.color_blend_attachment_states.clear();
+      atmosphere_to_cubemap_pipeline_->states.color_blend_attachment_states.resize(1);
+      for (auto& i : atmosphere_to_cubemap_pipeline_->states.color_blend_attachment_states) {
         i.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         i.blendEnable = VK_FALSE;
       }
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      atmosphere_to_cubemap->Bind(vk_command_buffer);
-      const auto mesh = Resources::rendering_cube;
+      Platform::BeginRendering(vk_command_buffer, render_info);
+      atmosphere_to_cubemap_pipeline_->Bind(vk_command_buffer);
+      const auto mesh = Resources::GetInstance().GetRenderingCube();
       GeometryStorage::BindVertices(vk_command_buffer);
       push_constant.projection_view = capture_projection * capture_views[i];
-      atmosphere_to_cubemap->PushConstant(vk_command_buffer, 0, push_constant);
-      mesh->DrawIndexed(vk_command_buffer, atmosphere_to_cubemap->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      atmosphere_to_cubemap_pipeline_->PushConstant(vk_command_buffer, 0, push_constant);
+      mesh->DrawIndexed(vk_command_buffer, atmosphere_to_cubemap_pipeline_->states, 1);
+      Platform::EndRendering(vk_command_buffer);
 #pragma endregion
       Platform::EverythingBarrier(vk_command_buffer);
     }
@@ -240,8 +239,8 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
   const auto depth_image_view = std::make_shared<ImageView>(depth_view_info);
 #pragma endregion
 
-  const std::unique_ptr<DescriptorSet> temp_set =
-      std::make_unique<DescriptorSet>(RenderTexture::render_texture_present_layout);
+  const std::unique_ptr<DescriptorSet> temp_set = std::make_unique<DescriptorSet>(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
   VkDescriptorImageInfo descriptor_image_info{};
   descriptor_image_info.imageView = target_texture->GetVkImageView();
   descriptor_image_info.imageLayout = target_texture->GetLayout();
@@ -257,30 +256,29 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)),
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f)),
       glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, -1.0f, 0.0f))};
-
-  static std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap;
-  if (!equirectangular_to_cubemap) {
-    equirectangular_to_cubemap = std::make_shared<GraphicsPipeline>();
-    equirectangular_to_cubemap->vertex_shader =
+  if (!equirectangular_to_cubemap_pipeline_) {
+    equirectangular_to_cubemap_pipeline_ = std::make_shared<GraphicsPipeline>();
+    equirectangular_to_cubemap_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
                                                         "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
-    equirectangular_to_cubemap->fragment_shader = Shader::CreateTemporary(
+    equirectangular_to_cubemap_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
                                   "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
-    equirectangular_to_cubemap->geometry_type = GeometryType::Mesh;
+    equirectangular_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
 
-    equirectangular_to_cubemap->depth_attachment_format = Platform::Constants::shadow_map;
-    equirectangular_to_cubemap->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    equirectangular_to_cubemap_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
+    equirectangular_to_cubemap_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
 
-    equirectangular_to_cubemap->color_attachment_formats = {1, Platform::Constants::texture_2d};
-    equirectangular_to_cubemap->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    equirectangular_to_cubemap_pipeline_->color_attachment_formats = {1, Platform::Constants::texture_2d};
+    equirectangular_to_cubemap_pipeline_->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
 
-    auto& push_constant_range = equirectangular_to_cubemap->push_constant_ranges.emplace_back();
+    auto& push_constant_range = equirectangular_to_cubemap_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(glm::mat4) + sizeof(float);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    equirectangular_to_cubemap->Initialize();
+    equirectangular_to_cubemap_pipeline_->Initialize();
   }
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -301,8 +299,8 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     scissor.offset = {0, 0};
     scissor.extent.width = storage.image->GetExtent().width;
     scissor.extent.height = storage.image->GetExtent().height;
-    equirectangular_to_cubemap->states.view_port = viewport;
-    equirectangular_to_cubemap->states.scissor = scissor;
+    equirectangular_to_cubemap_pipeline_->states.view_port = viewport;
+    equirectangular_to_cubemap_pipeline_->states.scissor = scissor;
 #pragma endregion
     for (int i = 0; i < 6; i++) {
 #pragma region Lighting pass
@@ -333,24 +331,24 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       render_info.colorAttachmentCount = 1;
       render_info.pColorAttachments = &attachment;
       render_info.pDepthAttachment = &depth_attachment;
-      equirectangular_to_cubemap->states.cull_mode = VK_CULL_MODE_NONE;
-      equirectangular_to_cubemap->states.color_blend_attachment_states.clear();
-      equirectangular_to_cubemap->states.color_blend_attachment_states.resize(1);
-      for (auto& i : equirectangular_to_cubemap->states.color_blend_attachment_states) {
+      equirectangular_to_cubemap_pipeline_->states.cull_mode = VK_CULL_MODE_NONE;
+      equirectangular_to_cubemap_pipeline_->states.color_blend_attachment_states.clear();
+      equirectangular_to_cubemap_pipeline_->states.color_blend_attachment_states.resize(1);
+      for (auto& i : equirectangular_to_cubemap_pipeline_->states.color_blend_attachment_states) {
         i.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
         i.blendEnable = VK_FALSE;
       }
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
-      equirectangular_to_cubemap->Bind(vk_command_buffer);
-      equirectangular_to_cubemap->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
-      const auto mesh = Resources::rendering_cube;
+      Platform::BeginRendering(vk_command_buffer, render_info);
+      equirectangular_to_cubemap_pipeline_->Bind(vk_command_buffer);
+      equirectangular_to_cubemap_pipeline_->BindDescriptorSet(vk_command_buffer, 0, temp_set->GetVkDescriptorSet());
+      const auto mesh = Resources::GetInstance().GetRenderingCube();
       GeometryStorage::BindVertices(vk_command_buffer);
       EquirectangularToCubemapConstant constant{};
       constant.projection_view = capture_projection * capture_views[i];
-      equirectangular_to_cubemap->PushConstant(vk_command_buffer, 0, constant);
-      mesh->DrawIndexed(vk_command_buffer, equirectangular_to_cubemap->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      equirectangular_to_cubemap_pipeline_->PushConstant(vk_command_buffer, 0, constant);
+      mesh->DrawIndexed(vk_command_buffer, equirectangular_to_cubemap_pipeline_->states, 1);
+      Platform::EndRendering(vk_command_buffer);
 #pragma endregion
 
       Platform::EverythingBarrier(vk_command_buffer);

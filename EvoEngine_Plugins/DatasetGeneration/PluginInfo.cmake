@@ -1,0 +1,1 @@
+set(EVOENGINE_PLUGIN_DEPENDS EcoSysLab DigitalAgriculture)

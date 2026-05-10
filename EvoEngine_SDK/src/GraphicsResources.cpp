@@ -468,6 +468,12 @@ const VmaAllocationInfo& Image::GetVmaAllocationInfo() const {
   return vma_allocation_info_;
 }
 
+VkMemoryRequirements Image::GetMemoryRequirements() const {
+  VkMemoryRequirements memory_requirements{};
+  vkGetImageMemoryRequirements(Platform::GetVkDevice(), vk_image_, &memory_requirements);
+  return memory_requirements;
+}
+
 #ifdef _WIN64
 void* Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const {
 #  if ENABLE_EXTERNAL_MEMORY
@@ -721,6 +727,21 @@ void Buffer::CopyFromDepth(Image& src_image, const VkDeviceSize pixel_size) {
   image_copy_info.imageOffset.y = 0;
   image_copy_info.imageOffset.z = 0;
   CopyFromImage(src_image, image_copy_info);
+}
+
+void Buffer::Fill(const VkCommandBuffer vk_command_buffer, const VkDeviceSize offset, const VkDeviceSize size,
+                  const uint32_t data) const {
+  vkCmdFillBuffer(vk_command_buffer, vk_buffer_, offset, size, data);
+}
+
+void Buffer::BindVertex(const VkCommandBuffer vk_command_buffer, const uint32_t first_binding,
+                        const VkDeviceSize offset) const {
+  vkCmdBindVertexBuffers(vk_command_buffer, first_binding, 1, &vk_buffer_, &offset);
+}
+
+void Buffer::BindIndex(const VkCommandBuffer vk_command_buffer, const VkDeviceSize offset,
+                       const VkIndexType index_type) const {
+  vkCmdBindIndexBuffer(vk_command_buffer, vk_buffer_, offset, index_type);
 }
 
 const VkBuffer& Buffer::GetVkBuffer() const {

@@ -12,22 +12,12 @@
 #include "Times.hpp"
 #include "WindowLayer.hpp"
 
-#ifdef UNIVERSE_PLUGIN
-#  include "UniverseLayer.hpp"
-using namespace universe_plugin;
-#endif
-
 #include "PostProcessingStack.hpp"
 #include "Resources.hpp"
 #ifdef PHYSX_PHYSICS_PLUGIN
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
 #endif
-#ifdef TEXTURE_BAKING_PLUGIN
-#  include "TextureBaking.hpp"
-using namespace texture_baking_plugin;
-#endif
-
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
 #  include "SorghumLayer.hpp"
 using namespace digital_agriculture_plugin;
@@ -39,11 +29,6 @@ using namespace digital_agriculture_plugin;
 #  include "ParticlePhysics2DDemo.hpp"
 #  include "Physics2DDemo.hpp"
 using namespace eco_sys_lab_plugin;
-#endif
-
-#ifdef GPR_PLUGIN
-#  include "Gpr.hpp"
-using namespace gpr_plugin;
 #endif
 
 using namespace evo_engine;
@@ -80,19 +65,8 @@ int main() {
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
-#ifdef UNIVERSE_PLUGIN
-  application.RegisterPrivateComponent<PlanetTerrain>("PlanetTerrain");
-#  ifdef TEXTURE_BAKING_PLUGIN
-  application.RegisterPrivateComponent<TextureBaking>("TextureBaking");
-#  endif
-#endif
-
 #ifdef PHYSX_PHYSICS_PLUGIN
   ApplicationContext::Get().PushLayer<PhysicsLayer>();
-#endif
-
-#ifdef UNIVERSE_PLUGIN
-  ApplicationContext::Get().PushLayer<UniverseLayer>("Universe Layer");
 #endif
 
 #ifdef ECOSYSLAB_PLUGIN
@@ -103,9 +77,6 @@ int main() {
 #endif
 #ifdef DIGITAL_AGRICULTURE_PLUGIN
   ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
-#endif
-#ifdef GPR_PLUGIN
-  application.RegisterAsset<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
 #endif
   ApplicationInitializationSettings application_info;
   SetupDemoScene(demo_setup, application_info);
@@ -139,7 +110,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
           transform.SetScale(glm::vec3(4.0f * scale_factor));
           scene->SetDataComponent(sphere, transform);
           const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere).lock();
-          mesh_renderer->mesh = Resources::Primitives::sphere;
+          mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().sphere;
           const auto material = AssetManager::CreateTemporaryAsset<Material>();
           mesh_renderer->material = material;
           material->material_properties.roughness = static_cast<float>(i) / (amount - 1);
@@ -163,7 +134,7 @@ Entity LoadScene(const std::shared_ptr<Scene>& scene, const std::string& base_en
   auto ground_mat = AssetManager::CreateTemporaryAsset<Material>();
 
   ground_mesh_renderer->material = ground_mat;
-  ground_mesh_renderer->mesh = Resources::Primitives::cube;
+  ground_mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
   Transform ground_transform;
   ground_transform.SetValue(glm::vec3(0, -2.05, -0), glm::vec3(0), glm::vec3(30, 1, 60));
   scene->SetDataComponent(ground, ground_transform);
@@ -318,7 +289,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
         point_light_right_renderer->material.Set<Material>(point_light_right_material);
         point_light_right_material->material_properties.albedo_color = glm::vec3(1.0, 0.8, 0.0);
         point_light_right_material->material_properties.emission = 10.0f;
-        point_light_right_renderer->mesh = Resources::Primitives::sphere;
+        point_light_right_renderer->mesh = Resources::GetInstance().GetPrimitives().sphere;
         const auto point_light_right =
             scene->GetOrSetPrivateComponent<PointLight>(left_point_light_right_entity).lock();
         point_light_right->diffuse_brightness = 100;
@@ -342,8 +313,8 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
           const auto current_scene = ApplicationContext::Get().GetActiveScene();
           static float start_time;
           if (!last_frame_playing)
-            start_time = Times::Now();
-          const float current_time = Times::Now() - start_time;
+            start_time = ApplicationContext::Get().GetTimes().Now();
+          const float current_time = ApplicationContext::Get().GetTimes().Now() - start_time;
           const float cos_time = glm::cos(current_time / 2.5f);
 
           Transform current_left_point_light_transform;
@@ -430,7 +401,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
 
         Entity ple = scene->CreateEntity("Point Light 1");
         auto plmmc = scene->GetOrSetPrivateComponent<MeshRenderer>(ple).lock();
-        plmmc->mesh = Resources::Primitives::sphere;
+        plmmc->mesh = Resources::GetInstance().GetPrimitives().sphere;
         plmmc->material.Set<Material>(shared_mat);
         auto plc = scene->GetOrSetPrivateComponent<PointLight>(ple).lock();
         plc->constant = 1.0f;
@@ -452,7 +423,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
         scene->SetDataComponent(ple2, ltw);
         scene->SetEntityName(ple2, "Point Light 2");
         auto plmmc2 = scene->GetOrSetPrivateComponent<MeshRenderer>(ple2).lock();
-        plmmc2->mesh = Resources::Primitives::sphere;
+        plmmc2->mesh = Resources::GetInstance().GetPrimitives().sphere;
         plmmc2->material.Set<Material>(shared_mat);
 
 #  pragma endregion
@@ -461,14 +432,19 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
           Transform ltw;
           ltw.SetScale(glm::vec3(0.5f));
 #  pragma region LightsPosition
-          ltw.SetPosition(glm::vec4(
-              glm::vec3(0.0f, 20.0f * glm::sin(Times::Now() / 2.0f), -20.0f * glm::cos(Times::Now() / 2.0f)), 0.0f));
+          ltw.SetPosition(glm::vec4(glm::vec3(0.0f, 20.0f * glm::sin(ApplicationContext::Get().GetTimes().Now() / 2.0f),
+                                              -20.0f * glm::cos(ApplicationContext::Get().GetTimes().Now() / 2.0f)),
+                                    0.0f));
           scene->SetDataComponent(dle, ltw);
-          ltw.SetPosition(glm::vec4(
-              glm::vec3(-20.0f * glm::cos(Times::Now() / 2.0f), 20.0f * glm::sin(Times::Now() / 2.0f), 0.0f), 0.0f));
+          ltw.SetPosition(
+              glm::vec4(glm::vec3(-20.0f * glm::cos(ApplicationContext::Get().GetTimes().Now() / 2.0f),
+                                  20.0f * glm::sin(ApplicationContext::Get().GetTimes().Now() / 2.0f), 0.0f),
+                        0.0f));
           scene->SetDataComponent(ple, ltw);
-          ltw.SetPosition(glm::vec4(
-              glm::vec3(20.0f * glm::cos(Times::Now() / 2.0f), 15.0f, 20.0f * glm::sin(Times::Now() / 2.0f)), 0.0f));
+          ltw.SetPosition(
+              glm::vec4(glm::vec3(20.0f * glm::cos(ApplicationContext::Get().GetTimes().Now() / 2.0f), 15.0f,
+                                  20.0f * glm::sin(ApplicationContext::Get().GetTimes().Now() / 2.0f)),
+                        0.0f));
           scene->SetDataComponent(ple2, ltw);
 #  pragma endregion
         });

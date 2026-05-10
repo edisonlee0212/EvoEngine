@@ -1,4 +1,5 @@
 #include "DynamicTreeStrands.hpp"
+#include "Application.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "DsAlphaShapeMeshing.hpp"
 #include "DsConstraints.hpp"
@@ -1302,7 +1303,7 @@ void DynamicTreeStrands::InitializeStrandParticles(const DtsStrandGroup& target_
   particle_info_list->SetParticleInfos(particle_infos);
 
   renderer->particle_info_list = particle_info_list;
-  renderer->mesh = Resources::Primitives::cube;
+  renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
   const auto material = AssetManager::CreateTemporaryAsset<Material>();
 
   renderer->material = material;

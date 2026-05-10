@@ -1,14 +1,6 @@
 #pragma once
 #include <iostream>
-
-// resolve a macro conflict with /usr/include/X11/X.h:350:21
-#pragma push_macro("Success")
-#undef Success
-
-#include "../unsupported/Eigen/Polynomials"
-#include "Dense"
-
-#pragma pop_macro("Success")
+#include "EvoEngine_EigenPolynomials.hpp"
 
 namespace kinDS {
 struct Monomial {

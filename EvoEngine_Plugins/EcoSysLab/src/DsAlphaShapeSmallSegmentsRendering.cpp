@@ -1,3 +1,4 @@
+#include "Application.hpp"
 #include "DsAlphaShapeMeshing.hpp"
 
 #include "Delaunay.hpp"
@@ -119,7 +120,7 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToPointLightShadowMap(
 
   small_segments_point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  small_segments_point_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return uniform_particles.size();
 }
 
@@ -150,7 +151,7 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToSpotLightShadowMap(
 
   small_segments_spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  small_segments_spot_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return uniform_particles.size();
 }
 
@@ -181,7 +182,7 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToDirectionalLightShadowMap(
 
   small_segments_directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  small_segments_directional_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return uniform_particles.size();
 }
 
@@ -228,7 +229,7 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToCameraDeferred(
   small_segments_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  small_segments_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);
@@ -329,7 +330,7 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsVisualizationToCameraDeferred(
   small_segments_visualization_render_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  small_segments_visualization_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);
@@ -352,7 +353,8 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   small_segments_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  small_segments_point_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  small_segments_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   small_segments_point_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   small_segments_point_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   small_segments_point_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -376,7 +378,8 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   small_segments_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  small_segments_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  small_segments_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   small_segments_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   small_segments_spot_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   small_segments_spot_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -400,7 +403,8 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   small_segments_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  small_segments_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  small_segments_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   small_segments_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   small_segments_directional_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   small_segments_directional_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -425,9 +429,11 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegments.frag");
   small_segments_render_pipeline->geometry_type = GeometryType::Mesh;
-  small_segments_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  small_segments_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   small_segments_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-  small_segments_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
+  small_segments_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   small_segments_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   small_segments_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   small_segments_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -452,9 +458,11 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegmentsVisualization.frag");
   small_segments_visualization_render_pipeline->geometry_type = GeometryType::Mesh;
-  small_segments_visualization_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  small_segments_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   small_segments_visualization_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-  small_segments_visualization_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
+  small_segments_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   small_segments_visualization_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   small_segments_visualization_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   small_segments_visualization_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};

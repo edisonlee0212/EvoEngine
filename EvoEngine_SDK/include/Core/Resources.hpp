@@ -12,32 +12,24 @@ class EnvironmentalMap;
 
 /**
  * @class Resources
- * @brief A singleton class that manages resources within the engine.
+ * @brief Manages built-in and generated engine resources.
  */
 class Resources {
  public:
   static Resources& GetInstance();
 
- private:
- public:
-  static EVOENGINE_API std::shared_ptr<Texture2D> missing_texture;
-  static EVOENGINE_API std::shared_ptr<Cubemap> default_skybox;
-  static EVOENGINE_API std::shared_ptr<EnvironmentalMap> default_environmental_map;
-
   class Primitives {
     friend class Resources;
-    static void Load();
-    static void OnDestroy();
 
    public:
-    static EVOENGINE_API std::shared_ptr<Mesh> quad;
-    static EVOENGINE_API std::shared_ptr<Mesh> sphere;
-    static EVOENGINE_API std::shared_ptr<Mesh> cube;
-    static EVOENGINE_API std::shared_ptr<Mesh> cone;
-    static EVOENGINE_API std::shared_ptr<Mesh> cylinder;
-    static EVOENGINE_API std::shared_ptr<Mesh> torus;
-    static EVOENGINE_API std::shared_ptr<Mesh> monkey;
-    static EVOENGINE_API std::shared_ptr<Mesh> capsule;
+    std::shared_ptr<Mesh> quad;
+    std::shared_ptr<Mesh> sphere;
+    std::shared_ptr<Mesh> cube;
+    std::shared_ptr<Mesh> cone;
+    std::shared_ptr<Mesh> cylinder;
+    std::shared_ptr<Mesh> torus;
+    std::shared_ptr<Mesh> monkey;
+    std::shared_ptr<Mesh> capsule;
   };
 
  private:
@@ -55,11 +47,20 @@ class Resources {
    * @brief A map of resource handles to their corresponding resource objects.
    */
   std::unordered_map<Handle, std::shared_ptr<IAsset>> resources_;
+  std::shared_ptr<Texture2D> missing_texture_;
+  std::shared_ptr<Cubemap> default_skybox_;
+  std::shared_ptr<EnvironmentalMap> default_environmental_map_;
+  std::shared_ptr<Texture2D> default_environmental_map_texture_;
+  std::shared_ptr<Texture2D> default_skybox_texture_;
+  std::shared_ptr<Mesh> texture_pass_through_quad_;
+  std::shared_ptr<Mesh> rendering_cube_;
+  Primitives primitives_;
 
   /**
    * @brief Loads primitive resources into the engine (implementation-specific).
    */
-  static void LoadPrimitives();
+  void LoadPrimitives();
+  void ClearPrimitives();
 
   /**
    * @brief Initializes the resources system.
@@ -83,9 +84,6 @@ class Resources {
   template <class T>
   static std::shared_ptr<T> CreateResource();
 
-  static std::shared_ptr<Texture2D> default_environmental_map_texture;
-  static std::shared_ptr<Texture2D> default_skybox_texture;
-
   /** @cond DOXYGEN_SHOULD_SKIP_THIS */
   friend class AssetManager;
   friend class EditorLayer;
@@ -101,9 +99,6 @@ class Resources {
   friend class WindowLayer;
   friend class Prefab;
   /** @endcond */
-  static std::shared_ptr<Mesh> texture_pass_through_quad;
-  static std::shared_ptr<Mesh> rendering_cube;
-
   bool show_resources_ = false;
 
   /**
@@ -145,6 +140,15 @@ class Resources {
    * @brief Cleans up and destroys all resources.
    */
   static void OnDestroy();
+
+ public:
+  [[nodiscard]] const std::shared_ptr<Texture2D>& GetMissingTexture() const;
+  [[nodiscard]] const std::shared_ptr<Cubemap>& GetDefaultSkybox() const;
+  [[nodiscard]] const std::shared_ptr<EnvironmentalMap>& GetDefaultEnvironmentalMap() const;
+  [[nodiscard]] const std::shared_ptr<Mesh>& GetTexturePassThroughQuad() const;
+  [[nodiscard]] const std::shared_ptr<Mesh>& GetRenderingCube() const;
+  [[nodiscard]] const Primitives& GetPrimitives() const;
+  [[nodiscard]] Primitives& GetPrimitives();
 };
 
 template <class T>

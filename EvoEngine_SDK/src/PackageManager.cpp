@@ -1,6 +1,7 @@
 #include "PackageManager.hpp"
 
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 
@@ -13,8 +14,17 @@
 using namespace evo_engine;
 
 PackageRegistrar::PackageRegistrar(std::string package_name,
-                                   std::vector<std::string>& registered_private_component_names)
-    : package_name_(std::move(package_name)), registered_private_component_names_(&registered_private_component_names) {
+                                   std::vector<std::string>& registered_private_component_names,
+                                   std::vector<std::string>& registered_asset_names,
+                                   std::vector<std::string>& registered_data_component_names,
+                                   std::vector<std::string>& registered_system_names,
+                                   std::vector<std::string>& registered_layer_names)
+    : package_name_(std::move(package_name)),
+      registered_private_component_names_(&registered_private_component_names),
+      registered_asset_names_(&registered_asset_names),
+      registered_data_component_names_(&registered_data_component_names),
+      registered_system_names_(&registered_system_names),
+      registered_layer_names_(&registered_layer_names) {
 }
 
 bool PackageManager::IsRuntimeBusy() {
@@ -119,6 +129,12 @@ std::vector<std::filesystem::path> PackageManager::BuildDefaultSearchPaths() {
   if (size > 0 && size < buffer.size()) {
     push_unique(std::filesystem::path(buffer.data(), buffer.data() + size).parent_path() / "Packages");
   }
+#elif defined(__linux__)
+  std::error_code executable_path_ec;
+  const auto executable_path = std::filesystem::read_symlink("/proc/self/exe", executable_path_ec);
+  if (!executable_path_ec) {
+    push_unique(executable_path.parent_path() / "Packages");
+  }
 #endif
   return ret_val;
 }
@@ -171,6 +187,33 @@ void PackageManager::ClearPrivateComponentPools(const std::vector<size_t>& type_
     for (const auto type_id : type_ids) {
       scene->ClearPrivateComponentPool(type_id);
     }
+  }
+}
+
+void PackageManager::RestoreUnknownRuntimeTypes() {
+  std::vector<std::shared_ptr<Scene>> scenes;
+  if (const auto active_scene = ApplicationContext::Get().GetActiveScene()) {
+    scenes.emplace_back(active_scene);
+  }
+  if (const auto start_scene = ProjectManager::GetStartScene().lock()) {
+    bool exists = false;
+    for (const auto& scene : scenes) {
+      if (scene.get() == start_scene.get()) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      scenes.emplace_back(start_scene);
+    }
+  }
+
+  size_t restored_count = AssetManager::RestoreUnknownAssets();
+  for (const auto& scene : scenes) {
+    restored_count += scene->RestoreUnknownRuntimeTypes();
+  }
+  if (restored_count > 0) {
+    EVOENGINE_LOG("Restored " + std::to_string(restored_count) + " runtime objects after package load.")
   }
 }
 
@@ -247,7 +290,12 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   }
 
   std::vector<std::string> registered_private_component_names;
-  PackageRegistrar registrar(package_name, registered_private_component_names);
+  std::vector<std::string> registered_asset_names;
+  std::vector<std::string> registered_data_component_names;
+  std::vector<std::string> registered_system_names;
+  std::vector<std::string> registered_layer_names;
+  PackageRegistrar registrar(package_name, registered_private_component_names, registered_asset_names,
+                             registered_data_component_names, registered_system_names, registered_layer_names);
   if (register_types && !register_types(&registrar)) {
     EVOENGINE_ERROR("Runtime package type registration failed: " + package_name)
     Serialization::UnregisterPackageOwnedTypes(package_name);
@@ -279,6 +327,10 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   package.info.original_path = original_path;
   package.info.loaded_path = loaded_path;
   package.info.private_component_types = std::move(registered_private_component_names);
+  package.info.asset_types = std::move(registered_asset_names);
+  package.info.data_component_types = std::move(registered_data_component_names);
+  package.info.system_types = std::move(registered_system_names);
+  package.info.layer_types = std::move(registered_layer_names);
   package.info.live_object_count = GetLiveObjectCount(package_name);
   package.library_handle = library_handle;
   package.unload = unload;
@@ -288,6 +340,7 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
     std::lock_guard lock(manager.mutex_);
     manager.loaded_packages_[package_name] = std::move(package);
   }
+  RestoreUnknownRuntimeTypes();
   EVOENGINE_LOG("Runtime package loaded: " + package_name)
   return true;
 }
@@ -353,6 +406,11 @@ bool PackageManager::Unload(const std::string& package_name) {
     return false;
   }
 
+  if (!ApplicationContext::Get().RemoveLayersOwnedByPackage(package_name)) {
+    EVOENGINE_WARNING("Cannot unload runtime package because package-owned layers are still active: " + package_name)
+    return false;
+  }
+
   ClearPrivateComponentPools(type_ids);
   if (const auto live_count = GetLiveObjectCount(package_name); live_count > 0) {
     EVOENGINE_WARNING("Cannot unload runtime package because " + std::to_string(live_count) +
@@ -361,7 +419,12 @@ bool PackageManager::Unload(const std::string& package_name) {
   }
 
   std::vector<std::string> registered_private_component_names = package.info.private_component_types;
-  PackageRegistrar registrar(package_name, registered_private_component_names);
+  std::vector<std::string> registered_asset_names = package.info.asset_types;
+  std::vector<std::string> registered_data_component_names = package.info.data_component_types;
+  std::vector<std::string> registered_system_names = package.info.system_types;
+  std::vector<std::string> registered_layer_names = package.info.layer_types;
+  PackageRegistrar registrar(package_name, registered_private_component_names, registered_asset_names,
+                             registered_data_component_names, registered_system_names, registered_layer_names);
   package.unload(&registrar);
   Serialization::UnregisterPackageOwnedTypes(package_name);
   CloseLibrary(package.library_handle);

@@ -1,4 +1,5 @@
 #include "SorghumGenerator.hpp"
+#include "Application.hpp"
 #include "ProjectManager.hpp"
 #include "SorghumLayer.hpp"
 
@@ -174,9 +175,9 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
       ImGui::TreePop();
     }
     if (last_auto_save_time == 0) {
-      last_auto_save_time = Times::Now();
-    } else if (last_auto_save_time + auto_save_interval < Times::Now()) {
-      last_auto_save_time = Times::Now();
+      last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
+    } else if (last_auto_save_time + auto_save_interval < ApplicationContext::Get().GetTimes().Now()) {
+      last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
       if (!saved_) {
         Save();
         EVOENGINE_LOG(GetTypeName() + " autosaved!");
@@ -350,7 +351,7 @@ void SorghumGenerator::OnCreate() {
   stem_tilt_angle.deviation = 0.0f;
   internode_length.mean = 0.449999988f;
   internode_length.deviation = 0.150000006f;
-  stem_width.mean = 0.0140000004;
+  stem_width.mean = 0.0140000004f;
   stem_width.deviation = 0.0f;
 
   leaf_amount.mean = 9.0f;
@@ -380,7 +381,7 @@ void SorghumGenerator::OnCreate() {
   leaf_waviness_frequency.mean = {0.0f, 1.0f, Curve2D(0.5f, 0.5f)};
   leaf_waviness_frequency.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
 
-  leaf_length.mean = {0.0f, 2.5f, Curve2D(0.165, 0.247)};
+  leaf_length.mean = {0.0f, 2.5f, Curve2D(0.165f, 0.247f)};
   leaf_length.deviation = {0.0f, 0.0f, Curve2D(0.5f, 0.5f)};
 
   leaf_width.mean = {0.0f, 0.075f, Curve2D(0.5f, 0.5f)};

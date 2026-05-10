@@ -61,6 +61,7 @@ class Material final : public IAsset {
   AssetRef metallic_texture_;   ///< Reference to the metallic texture.
   AssetRef roughness_texture_;  ///< Reference to the roughness texture.
   AssetRef ao_texture_;         ///< Reference to the ambient occlusion texture.
+  AssetRef rma_texture_ref_;    ///< Temporary editor reference for RMA texture unpacking.
 
  public:
   /**

@@ -249,7 +249,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         }
         GizmoSettings gizmo_settings{};
         gizmo_settings.draw_settings.blending = true;
-        editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::cube,
+        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube,
                                                     space_colonization_grid_particle_info_list, glm::mat4(1.0f), 1.0f,
                                                     gizmo_settings);
       }
@@ -329,7 +329,8 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::TreePop();
   }
   if (ImGui::Button("Build skeletal graph")) {
-    GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::Primitives::sphere, Resources::Primitives::cube);
+    GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::GetInstance().GetPrimitives().sphere,
+                          Resources::GetInstance().GetPrimitives().cube);
   }
   ImGui::SameLine();
   if (ImGui::Button("Clear skeletal graph")) {
@@ -408,13 +409,13 @@ void Tree::OnDestroy() {
 }
 
 void Tree::CalculateProfiles() {
-  const float time = Times::Now();
+  const float time = ApplicationContext::Get().GetTimes().Now();
   shoot_strand_model.strand_model_skeleton.Clone(shoot_model.RefShootSkeleton());
   shoot_strand_model.ResetAllProfiles(strand_model_parameters);
   shoot_strand_model.InitializeProfiles(strand_model_parameters);
   const auto worker_handle = shoot_strand_model.CalculateProfiles(strand_model_parameters);
   Jobs::Wait(worker_handle);
-  const float profile_calculation_time = Times::Now() - time;
+  const float profile_calculation_time = ApplicationContext::Get().GetTimes().Now() - time;
   std::string output;
   output += "\nProfile count: [" + std::to_string(shoot_strand_model.strand_model_skeleton.PeekSortedNodeList().size());
   output += "], Strand count: [" +
@@ -428,14 +429,14 @@ void Tree::BuildStrandModel() {
   std::string output;
 
   CalculateProfiles();
-  const float time = Times::Now();
+  const float time = ApplicationContext::Get().GetTimes().Now();
   for (const auto& node_handle : shoot_model.PeekShootSkeleton().PeekSortedNodeList()) {
     shoot_strand_model.strand_model_skeleton.RefNode(node_handle).info =
         shoot_model.PeekShootSkeleton().PeekNode(node_handle).info;
   }
   shoot_strand_model.CalculateStrandProfileAdjustedTransforms(strand_model_parameters);
   shoot_strand_model.ApplyProfiles(strand_model_parameters);
-  const float strand_modeling_time = Times::Now() - time;
+  const float strand_modeling_time = ApplicationContext::Get().GetTimes().Now() - time;
   output += "\nBuild Strand Model Used time: " + std::to_string(strand_modeling_time) + "\n";
   EVOENGINE_LOG(output);
 }

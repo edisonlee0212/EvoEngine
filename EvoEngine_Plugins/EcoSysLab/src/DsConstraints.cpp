@@ -78,7 +78,7 @@ void DsPivotPoint::ProjectPositionConstraint(const DynamicStrands::PhysicsParame
   if (!commands.empty()) {
     const auto current_frame_index = Platform::GetCurrentFrameIndex();
     push_constant.commands_size = commands.size();
-    const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+    const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       segment_update_pipeline->Bind(vk_command_buffer);
       segment_update_pipeline->BindDescriptorSet(
@@ -87,7 +87,8 @@ void DsPivotPoint::ProjectPositionConstraint(const DynamicStrands::PhysicsParame
       segment_update_pipeline->BindDescriptorSet(
           vk_command_buffer, 1, segment_commands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       segment_update_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
+      segment_update_pipeline->Dispatch(vk_command_buffer,
+                                        Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     });
   }
@@ -176,7 +177,7 @@ void DsPivotAxis::ProjectPositionConstraint(const DynamicStrands::PhysicsParamet
   if (!commands.empty()) {
     const auto current_frame_index = Platform::GetCurrentFrameIndex();
     push_constant.commands_size = commands.size();
-    const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+    const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       segment_update_pipeline->Bind(vk_command_buffer);
       segment_update_pipeline->BindDescriptorSet(
@@ -185,7 +186,8 @@ void DsPivotAxis::ProjectPositionConstraint(const DynamicStrands::PhysicsParamet
       segment_update_pipeline->BindDescriptorSet(
           vk_command_buffer, 1, segment_commands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       segment_update_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
+      segment_update_pipeline->Dispatch(vk_command_buffer,
+                                        Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     });
   }
@@ -295,7 +297,7 @@ void DsPivotTransform::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
     push_constant.ring_radius = physics_parameters.pivot_ring_radius;
     push_constant.HC_threshold = physics_parameters.HC_threshold;
     push_constant.HL_threshold = physics_parameters.HL_threshold;
-    const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+    const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       segment_update_pipeline->Bind(vk_command_buffer);
@@ -305,7 +307,8 @@ void DsPivotTransform::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
       segment_update_pipeline->BindDescriptorSet(
           vk_command_buffer, 1, segment_commands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       segment_update_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
+      segment_update_pipeline->Dispatch(vk_command_buffer,
+                                        Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     });
   }
@@ -360,7 +363,7 @@ void DsStiffRod::ProjectPositionConstraint(const DynamicStrands::PhysicsParamete
   stretch_shear_constraint_constant.strand_size = target_dynamic_strands.strands.size();
   stretch_shear_constraint_constant.inv_time_step = 1.f / (physics_parameters.time_step / physics_parameters.sub_step);
   stretch_shear_constraint_constant.frame_index = target_dynamic_strands.GetFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
       pipeline->Bind(vk_command_buffer);
@@ -368,8 +371,8 @@ void DsStiffRod::ProjectPositionConstraint(const DynamicStrands::PhysicsParamete
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
-      vkCmdDispatch(vk_command_buffer,
-                    Platform::DivUp(stretch_shear_constraint_constant.strand_size, work_group_invocations), 1, 1);
+      pipeline->Dispatch(vk_command_buffer,
+                         Platform::DivUp(stretch_shear_constraint_constant.strand_size, work_group_invocations), 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     }
   });
@@ -572,7 +575,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
   constraint_apply_connections_constant.inv_time_step =
       1.f / (physics_parameters.time_step / physics_parameters.sub_step);
 
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
@@ -583,10 +586,11 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_apply_segments_constant.skip_index = skip_index;
         apply_rotation_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
-        vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
-                                      work_group_invocations),
-                      1, 1);
+        apply_rotation_pipeline->Dispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
+                            work_group_invocations),
+            1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
 
@@ -597,10 +601,11 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_apply_segments_constant.skip_index = skip_index;
         apply_position_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
-        vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
-                                      work_group_invocations),
-                      1, 1);
+        apply_position_pipeline->Dispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
+                            work_group_invocations),
+            1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
 
@@ -611,10 +616,11 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_apply_segments_constant.skip_index = skip_index;
         apply_position_rotation_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_segments_constant);
-        vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
-                                      work_group_invocations),
-                      1, 1);
+        apply_position_rotation_pipeline->Dispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(constraint_apply_segments_constant.segment_size, skip_size),
+                            work_group_invocations),
+            1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
 
@@ -624,9 +630,9 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             vk_command_buffer, 0,
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         connections_pipeline->PushConstant(vk_command_buffer, 0, constraint_apply_connections_constant);
-        vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(constraint_apply_connections_constant.segment_pair_size, work_group_invocations),
-                      1, 1);
+        connections_pipeline->Dispatch(
+            vk_command_buffer,
+            Platform::DivUp(constraint_apply_connections_constant.segment_pair_size, work_group_invocations), 1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_stretch_shear_offset = [&](const uint32_t skip_index) {
@@ -636,10 +642,11 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         stretch_shear_constraint_constant.skip_index = skip_index;
         stretch_shear_pipeline->PushConstant(vk_command_buffer, 0, stretch_shear_constraint_constant);
-        vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(Platform::DivUp(stretch_shear_constraint_constant.segment_size, skip_size),
-                                      work_group_invocations),
-                      1, 1);
+        stretch_shear_pipeline->Dispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(stretch_shear_constraint_constant.segment_size, skip_size),
+                            work_group_invocations),
+            1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
       const auto calculate_bend_twist_offset = [&](const uint32_t skip_index) {
@@ -650,10 +657,11 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
 
         bend_twist_constraint_constant.skip_index = skip_index;
         bend_twist_pipeline->PushConstant(vk_command_buffer, 0, bend_twist_constraint_constant);
-        vkCmdDispatch(vk_command_buffer,
-                      Platform::DivUp(Platform::DivUp(bend_twist_constraint_constant.segment_size, skip_size),
-                                      work_group_invocations),
-                      1, 1);
+        bend_twist_pipeline->Dispatch(
+            vk_command_buffer,
+            Platform::DivUp(Platform::DivUp(bend_twist_constraint_constant.segment_size, skip_size),
+                            work_group_invocations),
+            1, 1);
         Platform::EverythingBarrier(vk_command_buffer);
       };
 
@@ -664,7 +672,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_constant.skip_index = skip_index;
         bundle_position_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
-        vkCmdDispatch(
+        bundle_position_pipeline->Dispatch(
             vk_command_buffer,
             Platform::DivUp(Platform::DivUp(constraint_constant.segment_size, skip_size), work_group_invocations), 1,
             1);
@@ -679,7 +687,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
             target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
         constraint_constant.skip_index = skip_index;
         bundle_rotation_pipeline->PushConstant(vk_command_buffer, 0, constraint_constant);
-        vkCmdDispatch(
+        bundle_rotation_pipeline->Dispatch(
             vk_command_buffer,
             Platform::DivUp(Platform::DivUp(constraint_constant.segment_size, skip_size), work_group_invocations), 1,
             1);
@@ -916,14 +924,14 @@ void DsLeafAttachment::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   LeafPredictionPushConstant push_constant;
   push_constant.leaf_size = target_dynamic_strands.foliage.size();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     pipeline->Bind(vk_command_buffer);
     pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(push_constant.leaf_size, work_group_invocations), 1, 1);
+    pipeline->Dispatch(vk_command_buffer, Platform::DivUp(push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

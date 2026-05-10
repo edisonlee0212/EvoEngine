@@ -29,12 +29,12 @@ bool PointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &editor_lay
   const auto up = glm::normalize(gt.GetRotation() * glm::vec3(0, 1, 0));
   const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
   if (render_plane) {
-    editor_layer->DrawGizmoMesh(Resources::Primitives::quad, glm::vec4(1, 0, 0, 0.5),
+    editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().quad, glm::vec4(1, 0, 0, 0.5),
                                 glm::translate(gt.GetPosition() + front * 0.5f) *
                                     glm::mat4_cast(glm::quatLookAt(up, glm::normalize(actual_vector))) *
                                     glm::scale(glm::vec3(0.1, 0.5, 0.1f)),
                                 1.0f);
-    editor_layer->DrawGizmoMesh(Resources::Primitives::quad, color,
+    editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().quad, color,
                                 glm::translate(gt.GetPosition()) * glm::mat4_cast(glm::quatLookAt(up, front)) *
                                     glm::scale(glm::vec3(size.x / 2.0f, 1.0, size.y / 2.0f)),
                                 1.0f);
@@ -50,14 +50,13 @@ bool PointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &editor_lay
       points.clear();
       point_colors.clear();
     }
-    static AssetRef point_cloud;
     ImGui::Text("Construct PointCloud");
     ImGui::SameLine();
-    if (editor_layer->DragAndDropButton<PointCloud>(point_cloud, "Here", false)) {
-      if (const auto ptr = point_cloud.Get<PointCloud>()) {
+    if (editor_layer->DragAndDropButton<PointCloud>(point_cloud_drop_ref, "Here", false)) {
+      if (const auto ptr = point_cloud_drop_ref.Get<PointCloud>()) {
         ConstructPointCloud(ptr);
       }
-      point_cloud.Clear();
+      point_cloud_drop_ref.Clear();
     }
   }
   return changed;
@@ -73,7 +72,7 @@ void PointCloudScanner::Scan() {
   const auto column = static_cast<unsigned>(size.x / distance.x);
   const int column_start = -static_cast<int>(column / 2);
   const auto row = static_cast<unsigned>(size.y / distance.y);
-  const int row_start = -(row / 2);
+  const int row_start = -static_cast<int>(row / 2);
   const auto sample_size = column * row;
   const auto gt = GetScene()->GetDataComponent<GlobalTransform>(GetOwner());
   const glm::vec3 center = gt.GetPosition();

@@ -146,7 +146,7 @@ void PhysicsSystem::OnDestroy() {
 }
 
 void PhysicsSystem::FixedUpdate() {
-  Simulate(Times::TimeStep());
+  Simulate(ApplicationContext::Get().GetTimes().TimeStep());
 }
 
 void PhysicsScene::Simulate(float time) const {

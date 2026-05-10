@@ -1,4 +1,5 @@
 #include "ParticlePhysics2DDemo.hpp"
+#include "Application.hpp"
 
 #include <Times.hpp>
 
@@ -55,19 +56,20 @@ bool ParticlePhysics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor
       }
       ImGui::DragFloat("Edge length limit", &edge_length_limit);
       static float elapsed_time = 0.0f;
-      elapsed_time += Times::DeltaTime();
+      elapsed_time += ApplicationContext::Get().GetTimes().DeltaTime();
       particle_physics_2d_.OnInspect(
           [&](const glm::vec2 position) {
             if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Press ||
                 editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-              if (elapsed_time > Times::TimeStep()) {
+              if (elapsed_time > ApplicationContext::Get().GetTimes().TimeStep()) {
                 elapsed_time = 0.0f;
                 for (int i = 0; i < particle_add_count; i++) {
                   const auto particle_handle = particle_physics_2d_.AllocateParticle();
                   auto& particle = particle_physics_2d_.RefParticle(particle_handle);
                   particle.SetColor(glm::vec4(glm::ballRand(1.0f), 1.0f));
                   particle.SetPosition(position + glm::circularRand(4.0f));
-                  particle.SetVelocity(glm::vec2(particle_initial_speed, 0.0f) / static_cast<float>(Times::TimeStep()),
+                  particle.SetVelocity(glm::vec2(particle_initial_speed, 0.0f) /
+                                           static_cast<float>(ApplicationContext::Get().GetTimes().TimeStep()),
                                        particle_physics_2d_.GetDeltaTime());
                 }
               }
@@ -141,7 +143,7 @@ bool ParticlePhysics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
 void ParticlePhysics2DDemo::FixedUpdate() {
   particle_physics_2d_.Simulate(
-      Times::TimeStep() / particle_physics_2d_.GetDeltaTime(),
+      ApplicationContext::Get().GetTimes().TimeStep() / particle_physics_2d_.GetDeltaTime(),
       [&](auto& grid, const bool grid_resized) {
         if (grid_resized || boundaries_updated_)
           grid.ApplyBoundaries(profile_boundaries_);

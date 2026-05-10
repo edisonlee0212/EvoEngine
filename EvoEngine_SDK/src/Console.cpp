@@ -12,7 +12,7 @@ void Console::Log(const std::string& msg) {
   ConsoleMessage cm;
   cm.m_value = msg;
   cm.m_type = ConsoleMessageType::Log;
-  cm.m_time = Times::Now();
+  cm.m_time = ApplicationContext::Get().GetTimes().Now();
   editor_layer->console_messages_.push_back(cm);
 }
 void Console::Error(const std::string& msg) {
@@ -23,7 +23,7 @@ void Console::Error(const std::string& msg) {
   ConsoleMessage cm;
   cm.m_value = msg;
   cm.m_type = ConsoleMessageType::Error;
-  cm.m_time = Times::Now();
+  cm.m_time = ApplicationContext::Get().GetTimes().Now();
   editor_layer->console_messages_.push_back(cm);
 }
 
@@ -35,6 +35,6 @@ void Console::Warning(const std::string& msg) {
   ConsoleMessage cm;
   cm.m_value = msg;
   cm.m_type = ConsoleMessageType::Warning;
-  cm.m_time = Times::Now();
+  cm.m_time = ApplicationContext::Get().GetTimes().Now();
   editor_layer->console_messages_.push_back(cm);
 }

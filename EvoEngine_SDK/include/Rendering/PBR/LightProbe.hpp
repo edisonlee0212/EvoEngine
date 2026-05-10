@@ -17,6 +17,7 @@ class LightProbe final : public IAsset {
    * @brief The cubemap associated with this light probe.
    */
   std::shared_ptr<Cubemap> cubemap_;
+  std::shared_ptr<GraphicsPipeline> irradiance_construct_pipeline_;
 
   /**
    * @brief Grants RenderLayer access to private members of LightProbe.

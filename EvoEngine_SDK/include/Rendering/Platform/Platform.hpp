@@ -6,6 +6,8 @@
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
 
+#include <set>
+
 #define ENABLE_EXTERNAL_MEMORY true
 
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
@@ -314,8 +316,35 @@ class Platform final {
    * @brief Global defines for shaders, set during initialization.
    */
   std::string shader_global_defines = {};
+  std::set<std::filesystem::path> shader_include_paths_{};
 
  public:
+  /**
+   * @brief Runtime Vulkan capabilities selected for this application.
+   */
+  struct Capabilities {
+    bool support_mesh_shader = true;
+    bool support_ray_tracing = true;
+    bool support_ray_tracing_validation = false;
+    uint32_t subgroup_size = 1;
+    uint32_t task_subgroup_count = 1;
+    uint32_t task_work_group_invocations = 1;
+    uint32_t mesh_subgroup_count = 1;
+    uint32_t compute_subgroup_count = 1;
+    uint32_t compute_work_group_invocations = 1;
+    uint32_t max_compute_work_group_invocations = 1;
+    uint32_t max_shared_memory_size = 1;
+  };
+
+ private:
+  Capabilities capabilities_{};
+
+ public:
+  [[nodiscard]] const Capabilities& GetCapabilities() const;
+  [[nodiscard]] Capabilities& GetCapabilities();
+  void RegisterShaderIncludePath(const std::filesystem::path& path);
+  [[nodiscard]] const std::set<std::filesystem::path>& GetRegisteredShaderIncludePaths() const;
+
   static bool RayTracingEnabled();
   static bool MeshShaderEnabled();
   /**
@@ -371,6 +400,47 @@ class Platform final {
   static void RecordRenderCommands(const VkRenderingInfo& rendering_info, const VkCommandBuffer vk_command_buffer,
                                    const std::function<void()>& action);
 
+  /**
+   * @brief Begins dynamic rendering through the SDK binary.
+   */
+  static void BeginRendering(VkCommandBuffer vk_command_buffer, const VkRenderingInfo& rendering_info);
+
+  /**
+   * @brief Ends dynamic rendering through the SDK binary.
+   */
+  static void EndRendering(VkCommandBuffer vk_command_buffer);
+
+  /**
+   * @brief Records an indexed draw through the SDK binary.
+   */
+  static void DrawIndexed(VkCommandBuffer vk_command_buffer, uint32_t index_count, uint32_t instance_count,
+                          uint32_t first_index = 0, int32_t vertex_offset = 0, uint32_t first_instance = 0);
+
+  /**
+   * @brief Records an indexed indirect draw through the SDK binary.
+   */
+  static void DrawIndexedIndirect(VkCommandBuffer vk_command_buffer, const Buffer& buffer, VkDeviceSize offset,
+                                  uint32_t draw_count, uint32_t stride);
+
+  /**
+   * @brief Records a mesh task indirect draw through the SDK binary.
+   */
+  static void DrawMeshTasksIndirect(VkCommandBuffer vk_command_buffer, const Buffer& buffer, VkDeviceSize offset,
+                                    uint32_t draw_count, uint32_t stride);
+
+  /**
+   * @brief Clears a color image through the SDK binary.
+   */
+  static void ClearColorImage(VkCommandBuffer vk_command_buffer, const Image& image, const VkClearColorValue& value,
+                              uint32_t range_count, const VkImageSubresourceRange* ranges);
+
+  /**
+   * @brief Clears a depth/stencil image through the SDK binary.
+   */
+  static void ClearDepthStencilImage(VkCommandBuffer vk_command_buffer, const Image& image,
+                                     const VkClearDepthStencilValue& value, uint32_t range_count,
+                                     const VkImageSubresourceRange* ranges);
+
   /// Time spent waiting on the CPU in seconds.
   double cpu_wait_time = 0.0f;
 
@@ -390,15 +460,6 @@ class Platform final {
    */
   class Constants {
    public:
-    /// Indicates support for mesh shaders.
-    inline static bool support_mesh_shader = true;
-
-    /// Indicates support for ray tracing.
-    inline static bool support_ray_tracing = true;
-
-    /// Indicates support for ray tracing validation.
-    inline static bool support_ray_tracing_validation = false;
-
     /// Initial descriptor pool maximum size.
     constexpr static uint32_t initial_descriptor_pool_max_size = 16384;
 
@@ -446,30 +507,6 @@ class Platform final {
 
     /// Maximum number of triangles in a meshlet.
     constexpr static uint32_t meshlet_max_triangles_size = 40;
-
-    /// Subgroup size used for compute tasks.
-    inline static uint32_t subgroup_size = 1;
-
-    /// Number of subgroups for task shaders.
-    inline static uint32_t task_subgroup_count = 1;
-
-    /// Number of workgroup invocations for task shaders.
-    inline static uint32_t task_work_group_invocations = 1;
-
-    /// Number of subgroups for mesh shaders.
-    inline static uint32_t mesh_subgroup_count = 1;
-
-    /// Number of subgroups for compute shaders.
-    inline static uint32_t compute_subgroup_count = 1;
-
-    /// Number of workgroup invocations for compute shaders.
-    inline static uint32_t compute_work_group_invocations = 1;
-
-    /// Maximum number of workgroup invocations supported for compute shaders.
-    inline static uint32_t max_compute_work_group_invocations = 1;
-
-    /// Maximum size of shared memory available in shaders.
-    inline static uint32_t max_shared_memory_size = 1;
   };
 
   /**

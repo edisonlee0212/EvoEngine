@@ -354,7 +354,7 @@ void SorghumLayer::CalculateIllumination() {
     if (processing_index == -1) {
       processing = false;
     } else {
-      const float timer = Times::Now();
+      const float timer = ApplicationContext::Get().GetTimes().Now();
       const auto estimator =
           scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(processing_entities[processing_index]).lock();
       estimator->PrepareLightProbeGroup();
@@ -371,12 +371,12 @@ void SorghumLayer::Update() {
     if (processing_index == -1) {
       processing = false;
     } else {
-      const float timer = Times::Now();
+      const float timer = ApplicationContext::Get().GetTimes().Now();
       const auto estimator =
           scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(processing_entities[processing_index]).lock();
       estimator->PrepareLightProbeGroup();
       estimator->SampleLightProbeGroup(ray_properties, m_seed, push_distance);
-      per_plant_calculation_time = Times::Now() - timer;
+      per_plant_calculation_time = ApplicationContext::Get().GetTimes().Now() - timer;
     }
   }
 #endif

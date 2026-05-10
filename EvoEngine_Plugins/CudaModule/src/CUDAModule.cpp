@@ -109,8 +109,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 
   cudaExtMemHandleDesc.handle.fd = image->GetVkImageMemHandle(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
 #  endif
-  VkMemoryRequirements vkMemoryRequirements = {};
-  vkGetImageMemoryRequirements(evo_engine::Platform::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
+  const auto vkMemoryRequirements = image->GetMemoryRequirements();
   size_t totalImageMemSize = vkMemoryRequirements.size;
   cudaExtMemHandleDesc.size = totalImageMemSize;
 
@@ -220,8 +219,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
 
   cudaExtMemHandleDesc.handle.fd = image->GetVkImageMemHandle(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
 #  endif
-  VkMemoryRequirements vkMemoryRequirements = {};
-  vkGetImageMemoryRequirements(evo_engine::Platform::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
+  const auto vkMemoryRequirements = image->GetMemoryRequirements();
   size_t totalImageMemSize = vkMemoryRequirements.size;
   cudaExtMemHandleDesc.size = totalImageMemSize;
 
@@ -330,8 +328,7 @@ std::shared_ptr<CudaImage> CudaModule::ImportRenderTexture(const std::shared_ptr
 
   cudaExtMemHandleDesc.handle.fd = image->GetVkImageMemHandle(VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR);
 #  endif
-  VkMemoryRequirements vkMemoryRequirements = {};
-  vkGetImageMemoryRequirements(evo_engine::Platform::GetVkDevice(), image->GetVkImage(), &vkMemoryRequirements);
+  const auto vkMemoryRequirements = image->GetMemoryRequirements();
   size_t totalImageMemSize = vkMemoryRequirements.size;
   cudaExtMemHandleDesc.size = totalImageMemSize;
 

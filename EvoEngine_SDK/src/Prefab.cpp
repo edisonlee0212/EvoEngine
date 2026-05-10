@@ -274,7 +274,7 @@ std::shared_ptr<Texture2D> CollectTexture(
                     .string();
   }
   if (!std::filesystem::exists(full_path)) {
-    return Resources::missing_texture;
+    return Resources::GetInstance().GetMissingTexture();
   }
   if (const auto search = loaded_textures.find(full_path); search != loaded_textures.end()) {
     return search->second;
@@ -1594,7 +1594,11 @@ bool Prefab::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
 void PrivateComponentHolder::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "e" << YAML::Value << enabled;
-  out << YAML::Key << "tn" << YAML::Value << private_component->GetTypeName();
+  if (const auto unknown_component = std::dynamic_pointer_cast<UnknownPrivateComponent>(private_component)) {
+    out << YAML::Key << "tn" << YAML::Value << unknown_component->GetOriginalTypeName();
+  } else {
+    out << YAML::Key << "tn" << YAML::Value << private_component->GetTypeName();
+  }
   out << YAML::Key << "h" << private_component->GetHandle().GetValue();
   out << YAML::Key << "pc" << YAML::BeginMap;
   private_component->Serialize(out);
@@ -1613,7 +1617,10 @@ void PrivateComponentHolder::Deserialize(const YAML::Node& in) {
     size_t hash_code;
     private_component = std::dynamic_pointer_cast<IPrivateComponent>(
         Serialization::ProduceSerializable("UnknownPrivateComponent", hash_code, handle));
-    std::dynamic_pointer_cast<UnknownPrivateComponent>(private_component)->original_type_name_ = type_name;
+    if (auto unknown_component = std::dynamic_pointer_cast<UnknownPrivateComponent>(private_component)) {
+      unknown_component->SetOriginalTypeName(type_name);
+      unknown_component->SetSerializedNode(in_data);
+    }
   }
   private_component->OnCreate();
   private_component->Deserialize(in_data);

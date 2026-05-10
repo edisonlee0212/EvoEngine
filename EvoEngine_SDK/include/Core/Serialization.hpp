@@ -730,6 +730,12 @@ class Serialization final {
   std::unordered_map<size_t, std::string> data_component_names_{};
 
   /**
+   * @brief Maps package-owned data component type names and IDs to their owning package.
+   */
+  std::unordered_map<std::string, std::string> data_component_type_owners_{};
+  std::unordered_map<size_t, std::string> data_component_type_id_owners_{};
+
+  /**
    * @brief Map to store IDs for private components.
    */
   std::map<std::string, size_t> private_component_ids_{};
@@ -754,6 +760,12 @@ class Serialization final {
    * @brief Map to store names of systems by their IDs.
    */
   std::unordered_map<size_t, std::string> system_names_{};
+
+  /**
+   * @brief Maps package-owned system type names and IDs to their owning package.
+   */
+  std::unordered_map<std::string, std::string> system_type_owners_{};
+  std::unordered_map<size_t, std::string> system_type_id_owners_{};
 
   /**
    * @brief Map to store IDs for serializable components.
@@ -885,9 +897,16 @@ class Serialization final {
 
   static bool UnregisterSerializableType(const std::string& type_name);
   static bool UnregisterPrivateComponentType(const std::string& type_name);
+  static bool UnregisterAssetType(const std::string& type_name);
+  static bool UnregisterDataComponentType(const std::string& type_name);
+  static bool UnregisterSystemType(const std::string& type_name);
   static void SetSerializableTypeOwner(const std::string& type_name, const std::string& owner_name);
   static void SetPrivateComponentTypeOwner(const std::string& type_name, const std::string& owner_name);
+  static void SetDataComponentTypeOwner(const std::string& type_name, const std::string& owner_name);
+  static void SetSystemTypeOwner(const std::string& type_name, const std::string& owner_name);
   static std::vector<size_t> GetPackageOwnedPrivateComponentTypeIds(const std::string& owner_name);
+  static std::vector<size_t> GetPackageOwnedDataComponentTypeIds(const std::string& owner_name);
+  static std::vector<size_t> GetPackageOwnedSystemTypeIds(const std::string& owner_name);
   static void UnregisterPackageOwnedTypes(const std::string& owner_name);
 
  public:

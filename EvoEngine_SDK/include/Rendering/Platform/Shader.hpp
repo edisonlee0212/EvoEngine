@@ -35,10 +35,9 @@ enum class ShaderType {
  * serialization, deserialization, and inspection through the editor layer.
  */
 class Shader final : public IAsset {
-  std::unique_ptr<ShaderModule> shader_module = {};                     /**< Pointer to the compiled shader module */
-  std::string shader_code = {};                                         /**< Source code of the shader */
-  unsigned shader_type = static_cast<unsigned>(ShaderType::Unknown);    /**< Type of the shader (as enum value) */
-  inline static std::set<std::filesystem::path> shader_include_paths{}; /**< Paths to include when compiling shaders */
+  std::unique_ptr<ShaderModule> shader_module = {};                  /**< Pointer to the compiled shader module */
+  std::string shader_code = {};                                      /**< Source code of the shader */
+  unsigned shader_type = static_cast<unsigned>(ShaderType::Unknown); /**< Type of the shader (as enum value) */
 
  protected:
   /**

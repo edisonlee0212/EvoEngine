@@ -49,7 +49,7 @@ bool DsFungus::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                        const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   // First, process diffusion through edges (segment pairs)
   FungusDiffusionEdgePushConstant edge_push_constant;
@@ -98,7 +98,8 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     fungus_diffusion_node_pipeline->PushConstant(vk_command_buffer, 0, node_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
+    fungus_diffusion_node_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     // Then edge diffusion
@@ -107,7 +108,8 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     fungus_diffusion_edge_pipeline->PushConstant(vk_command_buffer, 0, edge_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
+    fungus_diffusion_edge_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -153,7 +155,7 @@ DsPreStep::DsPreStep() {
 void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                         const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   SegmentPreStepPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
@@ -174,7 +176,8 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     segment_pre_step_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_pre_step_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_pre_step_pipeline->Bind(vk_command_buffer);
@@ -183,7 +186,8 @@ void DsPreStep::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     leaf_pre_step_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_pre_step_pipeline->Dispatch(vk_command_buffer,
+                                     Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -257,7 +261,7 @@ bool DsPrediction::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                            const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   SegmentPredictionPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
@@ -281,13 +285,15 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     segment_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_prediction_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     leaf_prediction_pipeline->Bind(vk_command_buffer);
     leaf_prediction_pipeline->BindDescriptorSet(
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     leaf_prediction_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_prediction_pipeline->Dispatch(vk_command_buffer,
+                                       Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     segment_pair_prediction_pipeline->Bind(vk_command_buffer);
@@ -295,8 +301,8 @@ void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_para
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     segment_pair_prediction_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_pair_push_constant.pair_size, work_group_invocations), 1,
-                  1);
+    segment_pair_prediction_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(segment_pair_push_constant.pair_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -341,7 +347,7 @@ DsStructuralDamage::DsStructuralDamage() {
 void DsStructuralDamage::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   SegmentPairBreakingPushConstant segment_pair_push_constant;
   segment_pair_push_constant.segment_pair_size = target_dynamic_strands.segment_pairs.size();
@@ -372,8 +378,9 @@ void DsStructuralDamage::Execute(const DynamicStrands::PhysicsParameters& physic
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       segment_pair_breaking_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
-      vkCmdDispatch(vk_command_buffer,
-                    Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1, 1);
+      segment_pair_breaking_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(segment_pair_push_constant.segment_pair_size, work_group_invocations), 1,
+          1);
       Platform::EverythingBarrier(vk_command_buffer);
     }
 
@@ -382,7 +389,8 @@ void DsStructuralDamage::Execute(const DynamicStrands::PhysicsParameters& physic
         vk_command_buffer, 0,
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     leaf_breaking_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_breaking_pipeline->Dispatch(vk_command_buffer,
+                                     Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -427,7 +435,7 @@ DsVelocityUpdate::DsVelocityUpdate() {
 void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                                const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   SegmentPushConstant segment_push_constant;
   segment_push_constant.segment_size = target_dynamic_strands.segments.size();
   segment_push_constant.max_angular_velocity = max_angular_velocity;
@@ -453,7 +461,8 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     segment_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
+    segment_pipeline->Dispatch(vk_command_buffer,
+                               Platform::DivUp(segment_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     leaf_pipeline->Bind(vk_command_buffer);
@@ -462,7 +471,8 @@ void DsVelocityUpdate::Execute(const DynamicStrands::PhysicsParameters& physics_
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     leaf_pipeline->PushConstant(vk_command_buffer, 0, leaf_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1, 1);
+    leaf_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(leaf_push_constant.leaf_size, work_group_invocations), 1,
+                            1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -547,7 +557,7 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
                                     const DynamicStrands& target_dynamic_strands) {
 #pragma region Partition
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   PartitionPushConstant partition_push_constant;
   partition_push_constant.segment_size = target_dynamic_strands.segments.size();
@@ -560,16 +570,17 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     partition_pipeline->PushConstant(vk_command_buffer, 0, partition_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(partition_push_constant.segment_size, work_group_invocations), 1,
-                  1);
+    partition_pipeline->Dispatch(vk_command_buffer,
+                                 Platform::DivUp(partition_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
 #pragma endregion
 #pragma region Sort
-  const int32_t max_work_group_size = glm::min(Platform::Constants::max_compute_work_group_invocations,
-                                               static_cast<uint32_t>(Platform::Constants::max_shared_memory_size /
-                                                                     sizeof(DynamicStrands::GpuHashedGridElement)));
+  const int32_t max_work_group_size =
+      glm::min(Platform::GetInstance().GetCapabilities().max_compute_work_group_invocations,
+               static_cast<uint32_t>(Platform::GetInstance().GetCapabilities().max_shared_memory_size /
+                                     sizeof(DynamicStrands::GpuHashedGridElement)));
   uint32_t work_group_size;
   const uint32_t segment_size = target_dynamic_strands.segments.size();
   // Adjust workgroup_size_x to get as close to max_workgroup_size as possible.
@@ -632,7 +643,7 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       local_merge_sort_pipeline->PushConstant(vk_command_buffer, 0, lms_push_constant);
-      vkCmdDispatch(vk_command_buffer, workgroup_count, 1, 1);
+      local_merge_sort_pipeline->Dispatch(vk_command_buffer, workgroup_count, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     };
     const auto big_flip = [&](const uint32_t& current_segment_group_size) {
@@ -644,7 +655,7 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       big_flip_pipeline->PushConstant(vk_command_buffer, 0, lms_push_constant);
-      vkCmdDispatch(vk_command_buffer, workgroup_count, 1, 1);
+      big_flip_pipeline->Dispatch(vk_command_buffer, workgroup_count, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     };
     const auto local_disperse = [&](const uint32_t& current_segment_group_size) {
@@ -656,7 +667,7 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       local_disperse_pipeline->PushConstant(vk_command_buffer, 0, lms_push_constant);
-      vkCmdDispatch(vk_command_buffer, workgroup_count, 1, 1);
+      local_disperse_pipeline->Dispatch(vk_command_buffer, workgroup_count, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     };
     const auto global_disperse = [&](const uint32_t& current_segment_group_size) {
@@ -668,7 +679,7 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
           vk_command_buffer, 0,
           target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
       global_disperse_pipeline->PushConstant(vk_command_buffer, 0, lms_push_constant);
-      vkCmdDispatch(vk_command_buffer, workgroup_count, 1, 1);
+      global_disperse_pipeline->Dispatch(vk_command_buffer, workgroup_count, 1, 1);
       Platform::EverythingBarrier(vk_command_buffer);
     };
     local_merge_sort(segment_group_size);
@@ -691,8 +702,7 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
   OffsetPushConstant offset_push_constant;
   offset_push_constant.segment_size = target_dynamic_strands.segments.size();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    vkCmdFillBuffer(vk_command_buffer, target_dynamic_strands.device_hashed_grid_cell_starts_buffer->GetVkBuffer(), 0,
-                    VK_WHOLE_SIZE, 0xFFFFFFFF);
+    target_dynamic_strands.device_hashed_grid_cell_starts_buffer->Fill(vk_command_buffer, 0, VK_WHOLE_SIZE, 0xFFFFFFFF);
     Platform::EverythingBarrier(vk_command_buffer);
     offset_pipeline->Bind(vk_command_buffer);
     offset_pipeline->BindDescriptorSet(
@@ -700,7 +710,8 @@ void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& phy
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     offset_pipeline->PushConstant(vk_command_buffer, 0, offset_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(offset_push_constant.segment_size, work_group_invocations), 1, 1);
+    offset_pipeline->Dispatch(vk_command_buffer,
+                              Platform::DivUp(offset_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 #pragma endregion
@@ -730,7 +741,7 @@ DsSegmentCollision::DsSegmentCollision() {
 void DsSegmentCollision::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   CapsulePushConstant capsule_push_constant;
   capsule_push_constant.segment_size = target_dynamic_strands.segments.size();
@@ -750,7 +761,8 @@ void DsSegmentCollision::Execute(const DynamicStrands::PhysicsParameters& physic
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     spherical_pipeline->PushConstant(vk_command_buffer, 0, capsule_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(capsule_push_constant.segment_size, work_group_invocations), 1, 1);
+    spherical_pipeline->Dispatch(vk_command_buffer,
+                                 Platform::DivUp(capsule_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -779,7 +791,7 @@ DsSegmentCollisionPostStep::DsSegmentCollisionPostStep() {
 void DsSegmentCollisionPostStep::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   SphericalPushConstant capsule_push_constant;
   capsule_push_constant.segment_size = target_dynamic_strands.segments.size();
@@ -791,7 +803,8 @@ void DsSegmentCollisionPostStep::Execute(const DynamicStrands::PhysicsParameters
         target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
 
     spherical_pipeline->PushConstant(vk_command_buffer, 0, capsule_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(capsule_push_constant.segment_size, work_group_invocations), 1, 1);
+    spherical_pipeline->Dispatch(vk_command_buffer,
+                                 Platform::DivUp(capsule_push_constant.segment_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }

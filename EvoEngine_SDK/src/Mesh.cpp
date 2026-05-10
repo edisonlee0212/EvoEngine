@@ -88,34 +88,6 @@ bool Mesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         },
         false);
   }
-
-  /*
-  static bool visualize = true;
-  static std::shared_ptr<Camera> visualizationCamera;
-  static ImVec2 visualizationCameraResolution = { 200, 200 };
-  if (visualize) {
-          if (!visualizationCamera) {
-                  visualizationCamera = Serialization::ProduceSerializable<Camera>();
-                  visualizationCamera->clear_color = glm::vec3(0.0f);
-                  visualizationCamera->use_clear_color = true;
-                  visualizationCamera->OnCreate();
-          }
-          else
-          {
-                  // Show texture first;
-                  // Render for next frame;
-                  visualizationCamera->ResizeResolution(visualizationCameraResolution.x,
-  visualizationCameraResolution.y); visualizationCamera->Clear(); auto renderLayer =
-  ApplicationContext::Get().GetLayer<RenderLayer>(); static GlobalTransform visCameraGT;
-                  renderLayer->RenderToCamera(visualizationCamera, visCameraGT);
-                  ImGui::Image(
-                          reinterpret_cast<ImTextureID>(visualizationCamera->GetTexture()->UnsafeGetGLTexture()->Id()),
-                          visualizationCameraResolution,
-                          ImVec2(0, 1),
-                          ImVec2(1, 0));
-          }
-  }
-  */
   return changed;
 }
 
@@ -137,8 +109,8 @@ void Mesh::DrawIndexed(VkCommandBuffer vk_command_buffer, GraphicsPipelineStates
   if (instances_count == 0)
     return;
   global_pipeline_state.ApplyAllStates(vk_command_buffer);
-  vkCmdDrawIndexed(vk_command_buffer, triangle_range_->prev_frame_index_count * 3, instances_count,
-                   triangle_range_->prev_frame_offset * 3, 0, 0);
+  Platform::DrawIndexed(vk_command_buffer, triangle_range_->prev_frame_index_count * 3, instances_count,
+                        triangle_range_->prev_frame_offset * 3);
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,

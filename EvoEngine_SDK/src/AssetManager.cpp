@@ -3,6 +3,7 @@
 #include "FileManager.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
+#include "UnknownPrivateComponent.hpp"
 using namespace evo_engine;
 
 void AssetManager::Initialize() {
@@ -78,6 +79,44 @@ void AssetManager::OnDestroy() {
   asset_manager.initialized = false;
 }
 
+size_t AssetManager::RestoreUnknownAssets() {
+  auto& asset_manager = GetInstance();
+  std::vector<std::pair<Handle, std::shared_ptr<UnknownAsset>>> unknown_assets;
+  {
+    std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+    for (auto& [handle, weak_asset] : asset_manager.asset_registry_.assets_) {
+      const auto asset = weak_asset.lock();
+      if (const auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(asset)) {
+        unknown_assets.emplace_back(handle, unknown_asset);
+      }
+    }
+  }
+
+  size_t restored_count = 0;
+  for (const auto& [handle, unknown_asset] : unknown_assets) {
+    const auto& original_type_name = unknown_asset->GetOriginalTypeName();
+    if (original_type_name.empty() || !Serialization::HasSerializableType(original_type_name)) {
+      continue;
+    }
+
+    size_t hash_code = 0;
+    auto restored_asset =
+        std::dynamic_pointer_cast<IAsset>(Serialization::ProduceSerializable(original_type_name, hash_code, handle));
+    if (!restored_asset) {
+      continue;
+    }
+    restored_asset->self_ = restored_asset;
+    restored_asset->OnCreate();
+    restored_asset->Deserialize(unknown_asset->GetSerializedNode());
+    {
+      std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+      asset_manager.asset_registry_.assets_[handle] = restored_asset;
+    }
+    ++restored_count;
+  }
+  return restored_count;
+}
+
 void AssetManager::Clear() {
   auto& asset_manager = GetInstance();
   std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
@@ -121,8 +160,12 @@ std::shared_ptr<IAsset> AssetManager::GetAssetImpl(const Handle& asset_handle) {
   }
   if (const std::shared_ptr<File> file = FileManager::GetFile(asset_handle)) {
     size_t hash_code;
-    auto ret_val = std::dynamic_pointer_cast<IAsset>(
-        Serialization::ProduceSerializable(file->asset_type_name_, hash_code, asset_handle));
+    auto ret_val = std::dynamic_pointer_cast<IAsset>(Serialization::ProduceSerializable(
+        Serialization::HasSerializableType(file->asset_type_name_) ? file->asset_type_name_ : "UnknownAsset", hash_code,
+        asset_handle));
+    if (const auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(ret_val)) {
+      unknown_asset->SetOriginalTypeName(file->asset_type_name_);
+    }
     ret_val->file_record_ = file;
     ret_val->self_ = ret_val;
     ret_val->OnCreate();

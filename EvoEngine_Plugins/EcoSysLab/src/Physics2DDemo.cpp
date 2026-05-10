@@ -1,4 +1,5 @@
 #include "Physics2DDemo.hpp"
+#include "Application.hpp"
 
 #include <Times.hpp>
 using namespace eco_sys_lab_plugin;
@@ -44,7 +45,7 @@ bool Physics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
 
 void Physics2DDemo::FixedUpdate() {
   const auto gravity = gravity_direction * gravity_strength;
-  physics_2d_.Simulate(Times::FixedDeltaTime(), [&](auto& particle) {
+  physics_2d_.Simulate(ApplicationContext::Get().GetTimes().FixedDeltaTime(), [&](auto& particle) {
     // Apply gravity
     glm::vec2 acceleration = gravity;
     auto friction = -glm::normalize(particle.GetVelocity()) * this->friction;

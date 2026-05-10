@@ -220,7 +220,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   if (const auto camera_skybox = skybox.Get<Cubemap>()) {
     camera_info_block.skybox_texture_index = camera_skybox->GetTextureStorageIndex();
   } else {
-    const auto default_cubemap = Resources::default_skybox;
+    const auto default_cubemap = Resources::GetInstance().GetDefaultSkybox();
     camera_info_block.skybox_texture_index = default_cubemap->GetTextureStorageIndex();
   }
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
@@ -229,11 +229,11 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
     auto light_probe = scene->environment.GetLightProbe(camera_position);
     auto reflection_probe = scene->environment.GetReflectionProbe(camera_position);
     if (!light_probe) {
-      light_probe = Resources::default_environmental_map->light_probe.Get<LightProbe>();
+      light_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->light_probe.Get<LightProbe>();
     }
     camera_info_block.environmental_irradiance_texture_index = light_probe->cubemap_->GetTextureStorageIndex();
     if (!reflection_probe) {
-      reflection_probe = Resources::default_environmental_map->reflection_probe.Get<ReflectionProbe>();
+      reflection_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->reflection_probe.Get<ReflectionProbe>();
     }
     camera_info_block.environmental_prefiltered_index = reflection_probe->cubemap_->GetTextureStorageIndex();
   }
@@ -300,7 +300,8 @@ void Camera::OnCreate() {
   render_texture_create_info.extent.depth = 1;
   render_texture_ = std::make_unique<RenderTexture>(render_texture_create_info);
 
-  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(g_buffer_layout);
+  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
 
   post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
   UpdateGBuffer();
@@ -475,7 +476,7 @@ void Camera::Deserialize(const YAML::Node& in) {
   if (in["use_clear_color"])
     camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
   if (in["clear_color"])
-    camera_settings.clear_color = glm::vec4(in["clear_color"].as<glm::vec3>(), 1.0f);
+    camera_settings.clear_color = in["clear_color"].as<glm::vec4>();
   if (in["near_distance"])
     camera_settings.near_distance = in["near_distance"].as<float>();
   if (in["far_distance"])

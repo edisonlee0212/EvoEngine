@@ -1,15 +1,6 @@
 #include "Times.hpp"
 using namespace evo_engine;
 
-double Times::time_step_ = 0.016;
-double Times::delta_time_ = 0;
-double Times::fixed_delta_time_ = 0;
-size_t Times::frames_ = 0;
-size_t Times::steps_ = 0;
-std::chrono::time_point<std::chrono::system_clock> Times::start_time_ = {};
-std::chrono::time_point<std::chrono::system_clock> Times::last_fixed_update_time_ = {};
-std::chrono::time_point<std::chrono::system_clock> Times::last_update_time_ = {};
-
 void Times::OnInspect() {
   if (ImGui::CollapsingHeader("Times Settings")) {
     float time_step = time_step_;
@@ -19,32 +10,32 @@ void Times::OnInspect() {
   }
 }
 
-double Times::TimeStep() {
+double Times::TimeStep() const {
   return time_step_;
 }
 void Times::SetTimeStep(const double value) {
   time_step_ = value;
 }
-double Times::FixedDeltaTime() {
+double Times::FixedDeltaTime() const {
   return fixed_delta_time_;
 }
 
-double Times::DeltaTime() {
+double Times::DeltaTime() const {
   return delta_time_;
 }
 
-double Times::Now() {
+double Times::Now() const {
   const auto now = std::chrono::system_clock::now();
   const std::chrono::duration<double> duration = now - start_time_;
   return duration.count();
 }
 
-double Times::LastUpdateTime() {
+double Times::LastUpdateTime() const {
   const std::chrono::duration<double> duration = last_update_time_ - start_time_;
   return duration.count();
 }
 
-double Times::LastFixedUpdateTime() {
+double Times::LastFixedUpdateTime() const {
   const std::chrono::duration<double> duration = last_fixed_update_time_ - start_time_;
   return duration.count();
 }

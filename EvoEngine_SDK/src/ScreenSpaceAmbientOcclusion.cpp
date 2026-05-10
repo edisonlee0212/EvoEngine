@@ -77,7 +77,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
   push_constant.intensity = intensity;
   push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
-  const auto mesh = Resources::texture_pass_through_quad;
+  const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
     VkRect2D render_area;
@@ -121,7 +121,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     render_info2.colorAttachmentCount = color_attachment_infos.size();
     render_info2.pColorAttachments = color_attachment_infos.data();
 
-    vkCmdBeginRendering(vk_command_buffer, &render_info2);
+    Platform::BeginRendering(vk_command_buffer, render_info2);
     geometry_pipeline->states.depth_test = false;
     geometry_pipeline->states.color_blend_attachment_states.clear();
     geometry_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -142,7 +142,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
 
     geometry_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     mesh->DrawIndexed(vk_command_buffer, geometry_pipeline->states, 1);
-    vkCmdEndRendering(vk_command_buffer);
+    Platform::EndRendering(vk_command_buffer);
   });
   BlurPushConstant blur_push_constant{};
   blur_push_constant.avoid_distance = avoid_distance;
@@ -185,7 +185,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     render_info2.pColorAttachments = color_attachment_infos.data();
 
     {
-      vkCmdBeginRendering(vk_command_buffer, &render_info2);
+      Platform::BeginRendering(vk_command_buffer, render_info2);
       blur_pipeline->states.depth_test = false;
       blur_pipeline->states.color_blend_attachment_states.clear();
       blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -203,7 +203,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
       blur_push_constant.horizontal = true;
       blur_pipeline->PushConstant(vk_command_buffer, 0, blur_push_constant);
       mesh->DrawIndexed(vk_command_buffer, blur_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
     }
 
     color_attachment_infos.clear();
@@ -212,7 +212,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     render_info2.colorAttachmentCount = color_attachment_infos.size();
     render_info2.pColorAttachments = color_attachment_infos.data();
     {
-      vkCmdBeginRendering(vk_command_buffer, &render_info2);
+      Platform::BeginRendering(vk_command_buffer, render_info2);
       blur_pipeline->states.depth_test = false;
       blur_pipeline->states.color_blend_attachment_states.clear();
       blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -230,7 +230,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
       blur_push_constant.horizontal = false;
       blur_pipeline->PushConstant(vk_command_buffer, 0, blur_push_constant);
       mesh->DrawIndexed(vk_command_buffer, blur_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
     }
   });
 
@@ -274,7 +274,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     render_info2.colorAttachmentCount = color_attachment_infos.size();
     render_info2.pColorAttachments = color_attachment_infos.data();
     {
-      vkCmdBeginRendering(vk_command_buffer, &render_info2);
+      Platform::BeginRendering(vk_command_buffer, render_info2);
       combine_pipeline->states.depth_test = false;
       combine_pipeline->states.color_blend_attachment_states.clear();
       combine_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
@@ -288,7 +288,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
       combine_pipeline->states.view_port = viewport;
       combine_pipeline->states.scissor = scissor;
       mesh->DrawIndexed(vk_command_buffer, combine_pipeline->states, 1);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
     }
   });
 }
@@ -311,9 +311,12 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
     geometry_pipeline->geometry_type = GeometryType::Mesh;
-    geometry_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
-    geometry_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
-    geometry_pipeline->descriptor_set_layouts.emplace_back(RenderTexture::render_texture_present_layout);
+    geometry_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    geometry_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
+    geometry_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
     geometry_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
     geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     geometry_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
@@ -365,7 +368,8 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
                                                           "Shaders/Graphics/Fragment/PostProcessing/SSAOBlur.frag");
     blur_pipeline->geometry_type = GeometryType::Mesh;
     blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);
-    blur_pipeline->descriptor_set_layouts.emplace_back(Camera::g_buffer_layout);
+    blur_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
     blur_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
     blur_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     blur_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};

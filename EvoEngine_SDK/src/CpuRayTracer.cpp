@@ -920,11 +920,7 @@ struct AggregateSceneInternal {
 };
 void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& rays, std::vector<HitInfo>& hit_infos,
                                              const TraceFlags flags) {
-  static std::shared_ptr<DescriptorSetLayout> trace_descriptor_set_layout;
-  static std::shared_ptr<Shader> trace_shader{};
-  static std::shared_ptr<ComputePipeline> trace_pipeline{};
-
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   if (!trace_descriptor_set_layout) {
     trace_descriptor_set_layout = std::make_shared<DescriptorSetLayout>();
     trace_descriptor_set_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -1015,7 +1011,8 @@ void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& r
     trace_pipeline->Bind(vk_command_buffer);
     trace_pipeline->BindDescriptorSet(vk_command_buffer, 0, ray_tracer_descriptor_set->GetVkDescriptorSet());
     trace_pipeline->PushConstant(vk_command_buffer, 0, ray_cast_config);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(static_cast<uint32_t>(rays.size()), work_group_invocations), 1, 1);
+    trace_pipeline->Dispatch(vk_command_buffer,
+                             Platform::DivUp(static_cast<uint32_t>(rays.size()), work_group_invocations));
   });
 
   std::vector<GpuRayCastingResult> gpu_ray_casting_results(rays.size());

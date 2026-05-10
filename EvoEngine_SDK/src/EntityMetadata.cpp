@@ -5,6 +5,7 @@
 #include "EntityMetadata.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
+#include "UnknownPrivateComponent.hpp"
 using namespace evo_engine;
 
 void EntityMetadata::Deserialize(const YAML::Node &in, const std::shared_ptr<Scene> &scene) {
@@ -32,7 +33,12 @@ void EntityMetadata::Serialize(YAML::Emitter &out, const std::shared_ptr<Scene> 
     out << YAML::Key << "pc" << YAML::Value << YAML::BeginSeq;
     for (const auto &element : private_component_elements) {
       out << YAML::BeginMap;
-      out << YAML::Key << "tn" << YAML::Value << element.private_component_data->type_name_;
+      if (const auto unknown_component =
+              std::dynamic_pointer_cast<UnknownPrivateComponent>(element.private_component_data)) {
+        out << YAML::Key << "tn" << YAML::Value << unknown_component->GetOriginalTypeName();
+      } else {
+        out << YAML::Key << "tn" << YAML::Value << element.private_component_data->type_name_;
+      }
       out << YAML::Key << "e" << YAML::Value << element.private_component_data->enabled_;
       element.private_component_data->Serialize(out);
       out << YAML::EndMap;

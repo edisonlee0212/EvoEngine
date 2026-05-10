@@ -869,14 +869,15 @@ class EditorLayer : public ILayer {
   [[nodiscard]] Entity MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
                                             const glm::vec2& mouse_position) const;
 
-  EntityArchetype basic_entity_archetype_; /**< Archetype for basic entities. */
-  Transform previously_stored_transform_;  /**< Previously stored transform. */
-  glm::vec3 previously_stored_position_;   /**< Previously stored position. */
-  glm::vec3 previously_stored_rotation_;   /**< Previously stored rotation. */
-  glm::vec3 previously_stored_scale_;      /**< Previously stored scale. */
-  bool local_position_selected_ = true;    /**< Indicates if the local position is selected. */
-  bool local_rotation_selected_ = false;   /**< Indicates if the local rotation is selected. */
-  bool local_scale_selected_ = false;      /**< Indicates if the local scale is selected. */
+  EntityArchetype basic_entity_archetype_;        /**< Archetype for basic entities. */
+  Entity previous_transform_inspection_entity_{}; /**< Previously inspected transform entity. */
+  Transform previously_stored_transform_;         /**< Previously stored transform. */
+  glm::vec3 previously_stored_position_;          /**< Previously stored position. */
+  glm::vec3 previously_stored_rotation_;          /**< Previously stored rotation. */
+  glm::vec3 previously_stored_scale_;             /**< Previously stored scale. */
+  bool local_position_selected_ = true;           /**< Indicates if the local position is selected. */
+  bool local_rotation_selected_ = false;          /**< Indicates if the local rotation is selected. */
+  bool local_scale_selected_ = false;             /**< Indicates if the local scale is selected. */
 
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */

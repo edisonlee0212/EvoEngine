@@ -134,10 +134,11 @@ TransformGraph& Application::GetTransformGraph() {
 
 void Application::PreUpdateInternal() {
   ApplicationContextScope application_scope(*this);
+  auto& times = GetTimes();
   const auto now = std::chrono::system_clock::now();
-  const std::chrono::duration<double> delta_time = now - Times::last_update_time_;
-  Times::delta_time_ = delta_time.count();
-  Times::last_update_time_ = std::chrono::system_clock::now();
+  const std::chrono::duration<double> delta_time = now - times.last_update_time_;
+  times.delta_time_ = delta_time.count();
+  times.last_update_time_ = std::chrono::system_clock::now();
   if (this->execution_status_ == ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application uninitialized!")
     return;
@@ -160,21 +161,29 @@ void Application::PreUpdateInternal() {
     }
   }
 
-  for (const auto& i : this->layers_) {
-    i->PreUpdate();
+  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+    const auto layer = this->layers_[layer_index];
+    layer->PreUpdate();
+    if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+      ++layer_index;
+    }
   }
-  if (Times::steps_ == 0) {
-    Times::last_fixed_update_time_ = std::chrono::system_clock::now();
-    Times::steps_ = 1;
+  if (times.steps_ == 0) {
+    times.last_fixed_update_time_ = std::chrono::system_clock::now();
+    times.steps_ = 1;
   }
-  const auto last_fixed_update_time = Times::last_fixed_update_time_;
+  const auto last_fixed_update_time = times.last_fixed_update_time_;
   std::chrono::duration<double> duration = std::chrono::system_clock::now() - last_fixed_update_time;
   size_t step = 1;
-  while (duration.count() >= step * Times::time_step_) {
+  while (duration.count() >= step * times.time_step_) {
     for (const auto& i : this->external_fixed_update_functions_)
       i();
-    for (const auto& i : this->layers_) {
-      i->FixedUpdate();
+    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+      const auto layer = this->layers_[layer_index];
+      layer->FixedUpdate();
+      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+        ++layer_index;
+      }
     }
     if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
       this->active_scene_->FixedUpdate();
@@ -182,9 +191,9 @@ void Application::PreUpdateInternal() {
     duration = std::chrono::system_clock::now() - last_fixed_update_time;
     step++;
     const auto current_time = std::chrono::system_clock::now();
-    const std::chrono::duration<double> fixed_delta_time = current_time - Times::last_fixed_update_time_;
-    Times::fixed_delta_time_ = fixed_delta_time.count();
-    Times::last_fixed_update_time_ = std::chrono::system_clock::now();
+    const std::chrono::duration<double> fixed_delta_time = current_time - times.last_fixed_update_time_;
+    times.fixed_delta_time_ = fixed_delta_time.count();
+    times.last_fixed_update_time_ = std::chrono::system_clock::now();
     if (step > 10) {
       EVOENGINE_WARNING("Fixed update timeout!")
     }
@@ -208,8 +217,12 @@ void Application::UpdateInternal() {
     }
   }
 
-  for (const auto& i : this->layers_) {
-    i->Update();
+  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+    const auto layer = this->layers_[layer_index];
+    layer->Update();
+    if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+      ++layer_index;
+    }
   }
   for (const auto& i : this->external_update_functions_)
     i();
@@ -231,8 +244,12 @@ void Application::LateUpdateInternal() {
     return;
   for (const auto& i : this->external_late_update_functions_)
     i();
-  for (auto i = this->layers_.rbegin(); i != this->layers_.rend(); ++i) {
-    (*i)->LateUpdate();
+  for (size_t layer_index = this->layers_.size(); layer_index > 0;) {
+    --layer_index;
+    if (layer_index >= this->layers_.size()) {
+      continue;
+    }
+    this->layers_[layer_index]->LateUpdate();
   }
 
   const auto render_layer = GetLayer<RenderLayer>();
@@ -277,7 +294,8 @@ std::shared_ptr<Scene> Application::GetActiveScene() const {
 void Application::Reset() {
   ApplicationContextScope application_scope(*this);
   this->execution_status_ = ExecutionStatus::NotPlaying;
-  Times::steps_ = Times::frames_ = 0;
+  auto& times = GetTimes();
+  times.steps_ = times.frames_ = 0;
 }
 
 void Application::Initialize(const ApplicationInitializationSettings& application_create_info) {
@@ -287,6 +305,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterDataComponent<GlobalTransform>("GlobalTransform");
   RegisterDataComponent<TransformUpdateFlag>("TransformUpdateFlag");
   RegisterDataComponent<Ray>("Ray");
+  RegisterDataComponent<UnknownDataComponent>("UnknownDataComponent");
 
   RegisterPrivateComponent<Camera>("Camera");
   RegisterPrivateComponent<AnimationPlayer>("AnimationPlayer");
@@ -303,9 +322,11 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterPrivateComponent<LodGroup>("LodGroup");
   RegisterPrivateComponent<PointCloudScanner>("PointCloudScanner");
   RegisterPrivateComponent<UnknownPrivateComponent>("UnknownPrivateComponent");
+  RegisterSystem<UnknownSystem>("UnknownSystem");
 
   RegisterAsset<PostProcessingStack>("PostProcessingStack", {".evepostprocessingstack"});
   RegisterAsset<IAsset>("IAsset", {".eveasset"});
+  RegisterAsset<UnknownAsset>("UnknownAsset", {".eveunknownasset"});
   RegisterAsset<Material>("Material", {".evematerial"});
   RegisterAsset<procedural_noise::ProceduralNoise2D>("ProceduralNoise2D", {".evenoise2d"});
   RegisterAsset<procedural_noise::ProceduralNoise3D>("ProceduralNoise3D", {".evenoise3d"});
@@ -413,8 +434,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
 
 void Application::Start(const bool autoplay) {
   ApplicationContextScope application_scope(*this);
-  Times::start_time_ = std::chrono::system_clock::now();
-  Times::steps_ = Times::frames_ = 0;
+  auto& times = GetTimes();
+  times.start_time_ = std::chrono::system_clock::now();
+  times.steps_ = times.frames_ = 0;
   if (const auto editor_layer = GetLayer<EditorLayer>(); !editor_layer && autoplay)
     Play();
 }
@@ -430,6 +452,7 @@ bool Application::Loop() {
     PreUpdateInternal();
     UpdateInternal();
     LateUpdateInternal();
+    ExecuteEndOfLoopActions();
     return true;
   }
   return false;
@@ -438,6 +461,19 @@ bool Application::Loop() {
 void Application::End() {
   ApplicationContextScope application_scope(*this);
   this->execution_status_ = ExecutionStatus::OnDestroy;
+}
+
+void Application::ExecuteEndOfLoopActions() {
+  if (this->end_of_loop_actions_.empty()) {
+    return;
+  }
+  auto actions = std::move(this->end_of_loop_actions_);
+  this->end_of_loop_actions_.clear();
+  for (const auto& action : actions) {
+    if (action) {
+      action();
+    }
+  }
 }
 
 void Application::Terminate() {
@@ -468,6 +504,47 @@ void Application::Terminate() {
 
 const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() const {
   return this->layers_;
+}
+
+bool Application::RemoveLayersOwnedByPackage(const std::string& package_name) {
+  ApplicationContextScope application_scope(*this);
+  bool success = true;
+  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+    auto layer = this->layers_[layer_index];
+    if (layer->package_owner_ != package_name) {
+      ++layer_index;
+      continue;
+    }
+
+    if (layer.use_count() > 2) {
+      EVOENGINE_WARNING("Cannot unload runtime package because package layer is still in use: " + layer->layer_name_ +
+                        " (" + package_name + ")")
+      success = false;
+      ++layer_index;
+      continue;
+    }
+
+    layer->OnDestroy();
+    layer->scene_.reset();
+    layer->subsequent_layer_.reset();
+    layer->self_.reset();
+    layer->application_ = nullptr;
+    layer->package_owner_.clear();
+    this->layers_.erase(this->layers_.begin() + layer_index);
+    if (layer.use_count() > 1) {
+      EVOENGINE_WARNING("Cannot unload runtime package because package layer survived destruction: " +
+                        layer->layer_name_ + " (" + package_name + ")")
+      success = false;
+    }
+  }
+
+  for (size_t layer_index = 0; layer_index < this->layers_.size(); ++layer_index) {
+    this->layers_[layer_index]->subsequent_layer_.reset();
+    if (layer_index + 1 < this->layers_.size()) {
+      this->layers_[layer_index]->subsequent_layer_ = this->layers_[layer_index + 1];
+    }
+  }
+  return success;
 }
 
 void Application::Attach(const std::shared_ptr<Scene>& scene) {
@@ -546,6 +623,14 @@ void Application::RegisterLateUpdateFunction(const std::function<void()>& func) 
   ApplicationContextScope application_scope(*this);
   this->external_late_update_functions_.push_back(func);
 }
+
+void Application::QueueEndOfLoopAction(const std::function<void()>& func) {
+  ApplicationContextScope application_scope(*this);
+  if (func) {
+    this->end_of_loop_actions_.push_back(func);
+  }
+}
+
 void Application::RegisterFixedUpdateFunction(const std::function<void()>& func) {
   ApplicationContextScope application_scope(*this);
   this->external_fixed_update_functions_.push_back(func);

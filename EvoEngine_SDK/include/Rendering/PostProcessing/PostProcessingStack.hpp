@@ -14,8 +14,8 @@ class PostProcessingStack : public IAsset {
   glm::uvec2 current_size = glm::uvec2(1);
   void Resize(const glm::uvec2& size);
 
-  inline static std::shared_ptr<DescriptorSetLayout> blur_layout;
-  inline static std::shared_ptr<GraphicsPipeline> blur_pipeline;
+  mutable std::shared_ptr<DescriptorSetLayout> blur_layout;
+  mutable std::shared_ptr<GraphicsPipeline> blur_pipeline;
 
   std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
   std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
@@ -53,8 +53,8 @@ class IPostProcessing {
 
 class ScreenSpaceAmbientOcclusion : public IPostProcessing {
  public:
-  inline static std::shared_ptr<DescriptorSetLayout> blur_layout;
-  inline static std::shared_ptr<GraphicsPipeline> blur_pipeline;
+  std::shared_ptr<DescriptorSetLayout> blur_layout;
+  std::shared_ptr<GraphicsPipeline> blur_pipeline;
 
   std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
   std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
@@ -66,10 +66,10 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
   };
   float avoid_distance = 1.f;
-  inline static std::shared_ptr<DescriptorSetLayout> combine_layout;
+  std::shared_ptr<DescriptorSetLayout> combine_layout;
   std::shared_ptr<DescriptorSet> combine_descriptor_set;
-  inline static std::shared_ptr<GraphicsPipeline> geometry_pipeline;
-  inline static std::shared_ptr<GraphicsPipeline> combine_pipeline;
+  std::shared_ptr<GraphicsPipeline> geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> combine_pipeline;
   /**
    * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
    */
@@ -111,9 +111,9 @@ class ScreenSpaceReflection : public IPostProcessing {
     float thickness;
   };
 
-  inline static std::shared_ptr<DescriptorSetLayout> combine_layout;
-  inline static std::shared_ptr<GraphicsPipeline> reflect_pipeline;
-  inline static std::shared_ptr<GraphicsPipeline> combine_pipeline;
+  std::shared_ptr<DescriptorSetLayout> combine_layout;
+  std::shared_ptr<GraphicsPipeline> reflect_pipeline;
+  std::shared_ptr<GraphicsPipeline> combine_pipeline;
   std::shared_ptr<DescriptorSet> combine_descriptor_set;  // SSR_COMBINE: 0, 1
 
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
@@ -123,12 +123,12 @@ class ScreenSpaceReflection : public IPostProcessing {
 
 class Bloom : public IPostProcessing {
  public:
-  inline static std::shared_ptr<DescriptorSetLayout> mix_layout;
+  std::shared_ptr<DescriptorSetLayout> mix_layout;
   std::shared_ptr<DescriptorSet> mix_descriptor_set;
 
-  inline static std::shared_ptr<DescriptorSetLayout> sampling_layout;
-  inline static std::shared_ptr<GraphicsPipeline> downsampling_pipeline;
-  inline static std::shared_ptr<GraphicsPipeline> upsampling_pipeline;
+  std::shared_ptr<DescriptorSetLayout> sampling_layout;
+  std::shared_ptr<GraphicsPipeline> downsampling_pipeline;
+  std::shared_ptr<GraphicsPipeline> upsampling_pipeline;
 
   struct DownsamplingPushConstant {
     glm::vec2 source_resolution;
@@ -144,8 +144,8 @@ class Bloom : public IPostProcessing {
   int bloom_chain_length = 2;
   std::vector<std::shared_ptr<DescriptorSet>> downsampling_descriptor_set;
   std::vector<std::shared_ptr<DescriptorSet>> upsampling_descriptor_set;
-  inline static std::shared_ptr<GraphicsPipeline> copy_pipeline;
-  inline static std::shared_ptr<GraphicsPipeline> mix_pipeline;
+  std::shared_ptr<GraphicsPipeline> copy_pipeline;
+  std::shared_ptr<GraphicsPipeline> mix_pipeline;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
@@ -164,7 +164,7 @@ class ToneMapping : public IPostProcessing {
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
-  inline static std::shared_ptr<ComputePipeline> pipeline;
+  std::shared_ptr<ComputePipeline> pipeline;
 };
 
 }  // namespace evo_engine

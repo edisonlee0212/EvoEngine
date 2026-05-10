@@ -6,6 +6,10 @@
 #include "Serialization.hpp"
 
 namespace evo_engine {
+class EditorLayer;
+class File;
+class Folder;
+class IAsset;
 
 /**
  * @class AssetManager
@@ -101,9 +105,11 @@ class AssetManager {
    * @brief Clears all loaded assets from the asset manager.
    */
   static void Clear();
+  static size_t RestoreUnknownAssets();
 
   friend class ProjectManager;  ///< Grants ProjectManager access to private and protected members of AssetManager.
   friend class Application;     ///< Grants Application access to private and protected members of AssetManager.
+  friend class PackageManager;  ///< Grants PackageManager access to runtime asset restoration.
   friend class IAsset;          ///< Grants IAsset access to private and protected members of AssetManager.
   friend class Prefab;          ///< Grants Prefab access to private and protected members of AssetManager.
   friend class Scene;           ///< Grants Scene access to private and protected members of AssetManager.

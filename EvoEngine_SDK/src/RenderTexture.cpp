@@ -1,8 +1,10 @@
 #include "RenderTexture.hpp"
 
+#include "Application.hpp"
 #include "Console.hpp"
 #include "EditorLayer.hpp"
 #include "Platform.hpp"
+#include "RenderLayer.hpp"
 
 using namespace evo_engine;
 
@@ -164,16 +166,19 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   }
   extent_ = render_texture_create_info.extent;
   image_view_type_ = render_texture_create_info.image_view_type;
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 
   if (color_) {
-    color_present_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_present_layout);
+    color_present_descriptor_set_ =
+        std::make_shared<DescriptorSet>(render_layer->GetRenderTexturePresentDescriptorSetLayout());
     VkDescriptorImageInfo present_info;
     present_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     present_info.imageView = color_image_views_[0]->GetVkImageView();
     present_info.sampler = color_sampler_->GetVkSampler();
     color_present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
 
-    storage_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_storage_layout);
+    storage_descriptor_set_ =
+        std::make_shared<DescriptorSet>(render_layer->GetRenderTextureStorageDescriptorSetLayout());
     VkDescriptorImageInfo storage_info;
     storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     storage_info.imageView = color_image_views_[0]->GetVkImageView();
@@ -182,7 +187,8 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   }
 
   if (depth_) {
-    depth_present_descriptor_set_ = std::make_shared<DescriptorSet>(render_texture_present_layout);
+    depth_present_descriptor_set_ =
+        std::make_shared<DescriptorSet>(render_layer->GetRenderTexturePresentDescriptorSetLayout());
     VkDescriptorImageInfo present_info;
     present_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     present_info.imageView = depth_image_views_[0]->GetVkImageView();
@@ -203,8 +209,8 @@ void RenderTexture::Clear(VkCommandBuffer vk_command_buffer) const {
     depth_subresource_range.layerCount = 1;
     VkClearDepthStencilValue depth_stencil_value{};
     depth_stencil_value = {1, 0};
-    vkCmdClearDepthStencilImage(vk_command_buffer, depth_image_->GetVkImage(), depth_image_->GetLayout(),
-                                &depth_stencil_value, 1, &depth_subresource_range);
+    Platform::ClearDepthStencilImage(vk_command_buffer, *depth_image_, depth_stencil_value, 1,
+                                     &depth_subresource_range);
     depth_image_->TransitImageLayout(vk_command_buffer, prev_depth_layout);
   }
   if (color_) {
@@ -218,8 +224,7 @@ void RenderTexture::Clear(VkCommandBuffer vk_command_buffer) const {
     color_subresource_range.layerCount = 1;
     VkClearColorValue color_value{};
     color_value = {0, 0, 0, 1};
-    vkCmdClearColorImage(vk_command_buffer, color_image_->GetVkImage(), color_image_->GetLayout(), &color_value, 1,
-                         &color_subresource_range);
+    Platform::ClearColorImage(vk_command_buffer, *color_image_, color_value, 1, &color_subresource_range);
     color_image_->TransitImageLayout(vk_command_buffer, prev_color_layout);
   }
 }
@@ -344,9 +349,9 @@ void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAtta
   render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
   render_info.renderArea = render_area;
   render_info.layerCount = 1;
-  vkCmdBeginRendering(vk_command_buffer, &render_info);
+  Platform::BeginRendering(vk_command_buffer, render_info);
   func();
-  vkCmdEndRendering(vk_command_buffer);
+  Platform::EndRendering(vk_command_buffer);
 }
 
 ImTextureID RenderTexture::GetColorImTextureId(const uint32_t mip_index) const {

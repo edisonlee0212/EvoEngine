@@ -242,6 +242,12 @@ class Image final : public IGraphicsResource {
    */
   [[nodiscard]] const VmaAllocationInfo& GetVmaAllocationInfo() const;
 
+  /**
+   * @brief Retrieves Vulkan memory requirements through the SDK binary.
+   * @return Vulkan memory requirements for this image.
+   */
+  [[nodiscard]] VkMemoryRequirements GetMemoryRequirements() const;
+
 #ifdef _WIN64
   /**
    * @brief Gets the Vulkan image memory handle for Windows platform.
@@ -599,6 +605,32 @@ class Buffer final : public IGraphicsResource {
    * @param pixel_size Pixel size of the depth data.
    */
   void CopyFromDepth(Image& src_image, VkDeviceSize pixel_size = 4);
+
+  /**
+   * @brief Records a buffer fill through the SDK binary.
+   * @param vk_command_buffer The Vulkan command buffer.
+   * @param offset Offset into the buffer.
+   * @param size Number of bytes to fill.
+   * @param data Fill value.
+   */
+  void Fill(VkCommandBuffer vk_command_buffer, VkDeviceSize offset, VkDeviceSize size, uint32_t data) const;
+
+  /**
+   * @brief Binds this buffer as a vertex buffer through the SDK binary.
+   * @param vk_command_buffer The Vulkan command buffer.
+   * @param first_binding First vertex buffer binding slot.
+   * @param offset Offset into the buffer.
+   */
+  void BindVertex(VkCommandBuffer vk_command_buffer, uint32_t first_binding = 0, VkDeviceSize offset = 0) const;
+
+  /**
+   * @brief Binds this buffer as an index buffer through the SDK binary.
+   * @param vk_command_buffer The Vulkan command buffer.
+   * @param offset Offset into the buffer.
+   * @param index_type Vulkan index type.
+   */
+  void BindIndex(VkCommandBuffer vk_command_buffer, VkDeviceSize offset = 0,
+                 VkIndexType index_type = VK_INDEX_TYPE_UINT32) const;
 
   /**
    * @brief Retrieves the Vulkan buffer handle.

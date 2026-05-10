@@ -81,10 +81,10 @@ void WindowLayer::Render() {
       render_info.colorAttachmentCount = 1;
       render_info.pColorAttachments = &color_attachment_info;
 
-      vkCmdBeginRendering(vk_command_buffer, &render_info);
+      Platform::BeginRendering(vk_command_buffer, render_info);
       ImGui::Render();
       ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
-      vkCmdEndRendering(vk_command_buffer);
+      Platform::EndRendering(vk_command_buffer);
       Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),
                                    Platform::GetSwapchain()->GetImageFormat(), 1,
                                    VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
@@ -149,17 +149,17 @@ void WindowLayer::Render() {
           }
           render_texture_present->states.depth_test = VK_FALSE;
           render_texture_present->states.depth_write = VK_FALSE;
-          vkCmdBeginRendering(vk_command_buffer, &render_info);
+          Platform::BeginRendering(vk_command_buffer, render_info);
           // From main camera to swap chain.
           render_texture_present->Bind(vk_command_buffer);
           render_texture_present->BindDescriptorSet(
               vk_command_buffer, 0,
               main_camera->GetRenderTexture()->color_present_descriptor_set_->GetVkDescriptorSet());
 
-          const auto mesh = Resources::texture_pass_through_quad;
+          const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
           GeometryStorage::BindVertices(vk_command_buffer);
           mesh->DrawIndexed(vk_command_buffer, render_texture_present->states, 1);
-          vkCmdEndRendering(vk_command_buffer);
+          Platform::EndRendering(vk_command_buffer);
           Platform::TransitImageLayout(vk_command_buffer, swapchain->GetVkImage(), swapchain->GetImageFormat(), 1,
                                        VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         });

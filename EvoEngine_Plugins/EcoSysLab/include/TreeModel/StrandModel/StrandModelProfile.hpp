@@ -297,7 +297,7 @@ void StrandModelProfile<T>::Update(const std::function<void(ParticleGrid2D& grid
   if (particles_2d_.empty())
     return;
 
-  const auto start_time = Times::Now();
+  const auto start_time = ApplicationContext::Get().GetTimes().Now();
 
   for (auto& particle : particles_2d_) {
     if (particle.enable)
@@ -318,7 +318,7 @@ void StrandModelProfile<T>::Update(const std::function<void(ParticleGrid2D& grid
     particle.Update(update_settings);
   }
 
-  simulation_time_ = Times::Now() - start_time;
+  simulation_time_ = ApplicationContext::Get().GetTimes().Now() - start_time;
 }
 
 template <typename T>

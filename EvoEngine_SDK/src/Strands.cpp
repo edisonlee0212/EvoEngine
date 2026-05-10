@@ -7,6 +7,7 @@
 #include "Console.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
+#include "Platform.hpp"
 #include "RenderLayer.hpp"
 using namespace evo_engine;
 
@@ -325,6 +326,6 @@ void Strands::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsPipel
   if (instances_count == 0)
     return;
   global_pipeline_state.ApplyAllStates(vk_command_buffer);
-  vkCmdDrawIndexed(vk_command_buffer, segment_range_->prev_frame_index_count * 4, instances_count,
-                   segment_range_->prev_frame_offset * 4, 0, 0);
+  Platform::DrawIndexed(vk_command_buffer, segment_range_->prev_frame_index_count * 4, instances_count,
+                        segment_range_->prev_frame_offset * 4);
 }

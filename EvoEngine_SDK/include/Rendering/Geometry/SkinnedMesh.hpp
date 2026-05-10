@@ -52,8 +52,6 @@ class BoneMatrices {
   void UploadData();
 
  public:
-  inline static std::shared_ptr<DescriptorSetLayout>
-      bone_matrices_layout;     /**< Static descriptor set layout for bone matrices. */
   std::vector<glm::mat4> value; /**< Bone matrix values. */
 
   /**

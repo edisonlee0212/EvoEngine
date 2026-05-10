@@ -53,7 +53,7 @@ An EvoEngine app is assembled by pushing layers before initialization. A typical
 - `RenderLayer` for Vulkan rendering, render instance preparation, and external render callbacks.
 - `WindowLayer` for GLFW windows, input callbacks, resize handling, and presentation.
 - `EditorLayer` for ImGui tools, scene views, entity hierarchy, inspectors, asset browser, and console.
-- Plugin layers such as `EcoSysLabLayer`, `SorghumLayer`, or `UniverseLayer`.
+- Plugin layers such as `EcoSysLabLayer` and `SorghumLayer`, plus runtime package layers such as `UniverseLayer`.
 
 The main loop runs in phases: input/platform update, project update, transform graph calculation, fixed update, scene update, render preparation, late update, render execution, and window presentation. Editor play mode clones the start scene for runtime simulation, then restores the project scene when playback stops.
 
@@ -100,7 +100,7 @@ The SDK job system supports scheduled and immediate parallel work. ECS iteration
 | `DemoApp` | General renderer/framework demo with multiple Plugin registrations. |
 | `EcoSysLabApp` | Interactive digital forestry and ecosystem workflow. |
 | `DigitalAgricultureApp` | Interactive sorghum and agriculture workflow. |
-| `LogGradingApp` | Log grading workflow, available when Windows-only Plugins are enabled. |
+| `LogGradingApp` | Log grading workflow; LogGrading and LogScanning features are supplied by runtime packages. |
 | `TreeDataGeneratorApp` | Batch-oriented tree dataset generation. |
 | `SorghumDataGeneratorApp` | Batch-oriented sorghum dataset generation. |
 | `EmptyApp` | Minimal SDK app with render/window/editor layers for quick experiments. |
@@ -123,7 +123,7 @@ EvoEngine now separates two extension models:
 | Plugin | `EvoEngine_Plugins/<Name>` | Static library selected by CMake options such as `EVOENGINE_ENABLE_EcoSysLab_PLUGIN` | Large domain modules that apps and Python bindings link against at build time. |
 | Runtime package | `EvoEngine_Packages/<Name>` | DLL/shared library selected by CMake options such as `EVOENGINE_ENABLE_<Name>_PACKAGE` and loaded from a `Packages` runtime folder | Smaller hot-loadable features that can register types while the app is running. |
 
-When `EVOENGINE_ENABLE_RUNTIME_PACKAGES` is `ON`, the SDK builds as a shared library so apps, Plugins, Python bindings, and runtime packages share one registry/singleton state. Runtime packages export `EvoEnginePackageGetDescriptor`, `EvoEnginePackageLoad`, and `EvoEnginePackageUnload`. Packages may also export `EvoEnginePackageRegisterTypes` so RTTI/reflection types are registered before the normal load callback runs. A package can register a private component with `PackageRegistrar::RegisterPrivateComponent<T>("TypeName")`.
+When `EVOENGINE_ENABLE_RUNTIME_PACKAGES` is `ON`, the SDK builds as a shared library so apps, Plugins, Python bindings, and runtime packages share the same application-owned runtime registries. Runtime packages export `EvoEnginePackageGetDescriptor`, `EvoEnginePackageLoad`, and `EvoEnginePackageUnload`. Packages may also export `EvoEnginePackageRegisterTypes` so RTTI/reflection types are registered before the normal load callback runs. A package can register private components, assets, data components, systems, and layers through `PackageRegistrar`.
 
 ### Build Requirements
 
@@ -266,7 +266,9 @@ When adding new work:
 
 ### Runtime Package Development
 
-Runtime packages live under `EvoEngine_Packages`. `register_evoengine_runtime_package(<Name> ON)` creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option and builds a shared library target, conventionally named `<Name>Package`.
+Runtime packages live under `EvoEngine_Packages`. `register_evoengine_runtime_package(<Name> ON)` creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option and builds a shared library target, conventionally named `<Name>Package`, by default. Disable individual package targets with `EVOENGINE_ENABLE_<Name>_PACKAGE=OFF` when a build should skip them.
+
+Apps do not load runtime packages by default. Set `ApplicationInitializationSettings::enable_runtime_packages = true` or call `PackageManager::Load/LoadAll` from runtime/editor tooling when a workflow needs additional package functionality.
 
 A package must export the descriptor/load/unload entrypoints. Packages that own RTTI/reflection types should also export `EvoEnginePackageRegisterTypes`:
 
@@ -277,13 +279,17 @@ EvoEnginePackageLoad
 EvoEnginePackageUnload
 ```
 
-Use `EvoEnginePackageRegisterTypes` and the provided `PackageRegistrar` to register package-owned RTTI/reflection types. For private components:
+Use `EvoEnginePackageRegisterTypes` and the provided `PackageRegistrar` to register package-owned RTTI/reflection types:
 
 ```cpp
 registrar.RegisterPrivateComponent<MyComponent>("MyComponent");
+registrar.RegisterAsset<MyAsset>("MyAsset", {".myasset"});
+registrar.RegisterDataComponent<MyData>("MyData");
+registrar.RegisterSystem<MySystem>("MySystem");
+registrar.RegisterLayer<MyLayer>("My Layer");
 ```
 
-Package unloading is guarded. Reload/unload is refused while the app is playing or stepping, and it is also refused while package-owned private component instances still exist. On Windows, packages are loaded from a shadow copy so the original DLL can usually be rebuilt while the app process remains open.
+Package unloading is guarded. Reload/unload is refused while the app is playing or stepping, and it is also refused while package-owned private component instances or other package-created objects still exist. On Windows, packages are loaded from a shadow copy so the original DLL can usually be rebuilt while the app process remains open.
 
 ### License
 
@@ -291,22 +297,25 @@ This repository is licensed under the Creative Commons Attribution-NonCommercial
 
 ## 2. Plugin Documentation
 
-Plugin documentation is split into separate Markdown files so each module can grow independently without turning the README into a wall of details.
+Plugin and runtime package documentation is split into separate Markdown files so each module can grow independently without turning the README into a wall of details.
 
 | Plugin | Status | Documentation |
 | --- | --- | --- |
 | EcoSysLab | Enabled by default | [EvoEngine_Plugins/EcoSysLab/README.md](EvoEngine_Plugins/EcoSysLab/README.md) |
 | DigitalAgriculture | Enabled by default | [EvoEngine_Plugins/DigitalAgriculture/README.md](EvoEngine_Plugins/DigitalAgriculture/README.md) |
 | DatasetGeneration | Enabled by default | [EvoEngine_Plugins/DatasetGeneration/README.md](EvoEngine_Plugins/DatasetGeneration/README.md) |
-| Universe | Enabled by default | [EvoEngine_Plugins/Universe/README.md](EvoEngine_Plugins/Universe/README.md) |
-| BillboardClouds | Windows-only registration by default | [EvoEngine_Plugins/BillboardClouds/README.md](EvoEngine_Plugins/BillboardClouds/README.md) |
-| TextureBaking | Windows-only registration by default | [EvoEngine_Plugins/TextureBaking/README.md](EvoEngine_Plugins/TextureBaking/README.md) |
-| MeshRepair | Windows-only registration by default | [EvoEngine_Plugins/MeshRepair/README.md](EvoEngine_Plugins/MeshRepair/README.md) |
-| Gpr | Windows-only registration by default | [EvoEngine_Plugins/Gpr/README.md](EvoEngine_Plugins/Gpr/README.md) |
-| LogGrading | Windows-only registration by default | [EvoEngine_Plugins/LogGrading/README.md](EvoEngine_Plugins/LogGrading/README.md) |
-| LogScanning | Windows-only registration by default | [EvoEngine_Plugins/LogScanning/README.md](EvoEngine_Plugins/LogScanning/README.md) |
 | CudaModule | Present but not registered by default | [EvoEngine_Plugins/CudaModule/README.md](EvoEngine_Plugins/CudaModule/README.md) |
 | PhysXPhysics | Present but disabled in its CMake file | [EvoEngine_Plugins/PhysXPhysics/README.md](EvoEngine_Plugins/PhysXPhysics/README.md) |
+
+| Runtime Package | Status | Documentation |
+| --- | --- | --- |
+| Universe | Built by default | [EvoEngine_Packages/Universe/README.md](EvoEngine_Packages/Universe/README.md) |
+| BillboardClouds | Built by default | [EvoEngine_Packages/BillboardClouds/README.md](EvoEngine_Packages/BillboardClouds/README.md) |
+| TextureBaking | Built by default on Windows | [EvoEngine_Packages/TextureBaking/README.md](EvoEngine_Packages/TextureBaking/README.md) |
+| MeshRepair | Built by default on Windows | [EvoEngine_Packages/MeshRepair/README.md](EvoEngine_Packages/MeshRepair/README.md) |
+| Gpr | Built by default on Windows | [EvoEngine_Packages/Gpr/README.md](EvoEngine_Packages/Gpr/README.md) |
+| LogGrading | Built by default on Windows; requires EcoSysLab | [EvoEngine_Packages/LogGrading/README.md](EvoEngine_Packages/LogGrading/README.md) |
+| LogScanning | Built by default on Windows; requires EcoSysLab and Pinchot | [EvoEngine_Packages/LogScanning/README.md](EvoEngine_Packages/LogScanning/README.md) |
 
 The Plugin index is also available at [EvoEngine_Plugins/README.md](EvoEngine_Plugins/README.md).
 Runtime package documentation is available at [EvoEngine_Packages/README.md](EvoEngine_Packages/README.md).

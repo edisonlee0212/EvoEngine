@@ -28,7 +28,8 @@ class ISystem : public ISerializable {
   friend class Scene;
   friend class Entities;
   friend class Serialization;
-
+  friend class PackageManager;
+  friend class PackageRegistrar;
   /**
    * @brief Indicates whether the system is enabled.
    */

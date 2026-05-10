@@ -5,6 +5,7 @@
 #include <queue>
 #include <utility>
 #include <vector>
+#include "Application.hpp"
 #include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
 #include "DynamicStrands.hpp"
@@ -1026,7 +1027,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::BuildRenderComputePipelines() 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
   if (dynamic_strands->segments.empty())
     return;
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -1037,7 +1038,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
     branches_vertex_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_vertex_update_pipeline->PushConstant(vk_command_buffer, 0, vertex_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(vertex_push_constant.vertex_count, work_group_invocations), 1, 1);
+    branches_vertex_update_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(vertex_push_constant.vertex_count, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
     // Triangles
@@ -1047,8 +1049,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
     branches_triangle_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_triangle_update_pipeline->PushConstant(vk_command_buffer, 0, triangle_push_constant);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(triangle_push_constant.triangle_count, work_group_invocations), 1,
-                  1);
+    branches_triangle_update_pipeline->Dispatch(
+        vk_command_buffer, Platform::DivUp(triangle_push_constant.triangle_count, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
@@ -1240,7 +1242,8 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   segment_meshlet_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  segment_meshlet_point_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  segment_meshlet_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   segment_meshlet_point_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   segment_meshlet_point_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   segment_meshlet_point_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -1266,7 +1269,8 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   segment_meshlet_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  segment_meshlet_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  segment_meshlet_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   segment_meshlet_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
   segment_meshlet_spot_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   segment_meshlet_spot_light_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -1293,7 +1297,8 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
   segment_meshlet_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
-  segment_meshlet_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  segment_meshlet_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   segment_meshlet_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
       DynamicStrands::strands_layout);
   segment_meshlet_directional_light_render_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
@@ -1319,9 +1324,11 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Graphics/Fragment/DynamicStrands/Rendering/KineticVoronoiMeshing/Branches.frag");
   segment_meshlet_render_pipeline->geometry_type = GeometryType::Mesh;
-  segment_meshlet_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::per_frame_layout);
+  segment_meshlet_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
   segment_meshlet_render_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
-  segment_meshlet_render_pipeline->descriptor_set_layouts.emplace_back(RenderLayer::lighting_layout);
+  segment_meshlet_render_pipeline->descriptor_set_layouts.emplace_back(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   segment_meshlet_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   segment_meshlet_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   segment_meshlet_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
@@ -1358,7 +1365,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToPointLightShadowMap(
 
   segment_meshlet_point_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(segment_meshlet_triangles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  segment_meshlet_point_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return segment_meshlet_triangles.size();
 }
 
@@ -1388,7 +1395,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToSpotLightShadowMap(
 
   segment_meshlet_spot_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(segment_meshlet_triangles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  segment_meshlet_spot_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return segment_meshlet_triangles.size();
 }
 
@@ -1418,7 +1425,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToDirectionalLightShadowM
 
   segment_meshlet_directional_light_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const uint32_t count = Platform::DivUp(segment_meshlet_triangles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  segment_meshlet_directional_light_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
   return segment_meshlet_triangles.size();
 }
 
@@ -1430,7 +1437,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   if (!render_parameters.enabled) {
     return 0;
   }
-  if (!Platform::Constants::support_mesh_shader) {
+  if (!Platform::GetInstance().GetCapabilities().support_mesh_shader) {
     EVOENGINE_LOG("Failed to render! Mesh shader unsupported!")
     return 0;
   }
@@ -1481,7 +1488,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   segment_meshlet_render_pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);
 
   const uint32_t count = Platform::DivUp(segment_meshlet_triangles.size(), task_work_group_invocations);
-  vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+  segment_meshlet_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);

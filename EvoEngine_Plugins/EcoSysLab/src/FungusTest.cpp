@@ -1,5 +1,6 @@
 #include "FungusTest.hpp"
 #include <glm/glm.hpp>
+#include "Application.hpp"
 #include "Scene.hpp"
 #include "Shader.hpp"
 #include "Times.hpp"
@@ -41,7 +42,7 @@ bool FungusTest::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   }
   std::vector<ParticleInfo> particle_infos(num_nodes);
-  // const auto time = Times::Now();
+  // const auto time = ApplicationContext::Get().GetTimes().Now();
   Jobs::RunParallelFor(particle_infos.size(), [&](size_t i) {
     auto& particle_info = particle_infos[i];
     particle_info.instance_matrix.SetPosition(
@@ -61,8 +62,9 @@ bool FungusTest::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   gizmo_settings.depth_test = true;
   gizmo_settings.depth_write = true;
 
-  editor_layer->DrawGizmoMeshInstancedColored(Resources::Primitives::sphere, editor_layer->GetSceneCamera(),
-                                              particle_info_list, glm::mat4(1), 0.02f, gizmo_settings);
+  editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().sphere,
+                                              editor_layer->GetSceneCamera(), particle_info_list, glm::mat4(1), 0.02f,
+                                              gizmo_settings);
   return false;
 }
 
@@ -268,7 +270,7 @@ void FungusTest::ExplicitUpdate() {
   push_constants.matrixAc = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.5f);
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     gpu_resources.compute_pipeline->Bind(vk_command_buffer);
@@ -278,8 +280,8 @@ void FungusTest::ExplicitUpdate() {
 
     gpu_resources.compute_pipeline->PushConstant(vk_command_buffer, 0, push_constants);
 
-    // vkCmdDispatch(vk_command_buffer, num_workgroups, 1, 1);
-    vkCmdDispatch(vk_command_buffer, Platform::DivUp(num_nodes, work_group_invocations), 1, 1);
+    gpu_resources.compute_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(num_nodes, work_group_invocations), 1,
+                                             1);
 
     Platform::EverythingBarrier(vk_command_buffer);
   });

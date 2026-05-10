@@ -1,8 +1,10 @@
 
 #pragma once
+#include "ComputePipeline.hpp"
 #include "Mesh.hpp"
 #include "RenderInstanceStorage.hpp"
 #include "Scene.hpp"
+#include "Shader.hpp"
 
 #include "PointCloudSample.hpp"
 
@@ -266,6 +268,9 @@ class CpuRayTracer final {
      * @brief GPU buffer for aggregated scene metadata and offsets.
      */
     std::shared_ptr<Buffer> aggregate_scene_info_buffer{};
+    std::shared_ptr<DescriptorSetLayout> trace_descriptor_set_layout{};
+    std::shared_ptr<Shader> trace_shader{};
+    std::shared_ptr<ComputePipeline> trace_pipeline{};
   };
 
   /**

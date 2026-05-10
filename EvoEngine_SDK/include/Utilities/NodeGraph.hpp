@@ -551,7 +551,7 @@ template <typename Id, typename Od, typename Nd, typename Ld>
 NodeGraphInputPinHandle NodeGraph<Id, Od, Nd, Ld>::AllocateInputPin(const NodeGraphNodeHandle node_handle) {
   NodeGraphInputPinHandle ret_val;
   if (input_pin_pool_.empty()) {
-    input_pins_.emplace_back(input_pins_.size(), node_handle);
+    input_pins_.emplace_back(static_cast<NodeGraphInputPinHandle>(input_pins_.size()), node_handle);
     ret_val = input_pins_.back().handle_;
   } else {
     ret_val = input_pin_pool_.front();
@@ -568,7 +568,7 @@ template <typename Id, typename Od, typename Nd, typename Ld>
 NodeGraphOutputPinHandle NodeGraph<Id, Od, Nd, Ld>::AllocateOutputPin(const NodeGraphNodeHandle node_handle) {
   NodeGraphOutputPinHandle ret_val;
   if (output_pin_pool_.empty()) {
-    output_pins_.emplace_back(output_pins_.size(), node_handle);
+    output_pins_.emplace_back(static_cast<NodeGraphOutputPinHandle>(output_pins_.size()), node_handle);
     ret_val = output_pins_.back().handle_;
   } else {
     ret_val = output_pin_pool_.front();
@@ -587,7 +587,7 @@ NodeGraphLinkHandle NodeGraph<Id, Od, Nd, Ld>::AllocateLink(const NodeGraphOutpu
   assert(input_pins_[end_handle].link_handle_ == -1);
   NodeGraphLinkHandle ret_val;
   if (link_pool_.empty()) {
-    links_.emplace_back(links_.size(), start_handle, end_handle);
+    links_.emplace_back(static_cast<NodeGraphLinkHandle>(links_.size()), start_handle, end_handle);
     ret_val = links_.back().handle_;
   } else {
     ret_val = link_pool_.front();
@@ -612,7 +612,7 @@ void NodeGraph<Id, Od, Nd, Ld>::RecycleLink(const NodeGraphLinkHandle handle) {
   auto& link = links_[handle];
   link.data = {};
   auto& output_pin_link_handles = output_pins_[link.start_].link_handles_;
-  for (int i = 0; i < output_pin_link_handles.size(); i++) {
+  for (size_t i = 0; i < output_pin_link_handles.size(); i++) {
     if (output_pin_link_handles[i] == handle) {
       output_pin_link_handles[i] = output_pin_link_handles.back();
       output_pin_link_handles.pop_back();
@@ -692,7 +692,7 @@ NodeGraphNodeHandle NodeGraph<Id, Od, Nd, Ld>::AllocateNode(const size_t input_p
                                                             const size_t output_pin_count) {
   NodeGraphNodeHandle new_node_handle;
   if (node_pool_.empty()) {
-    nodes_.emplace_back(nodes_.size());
+    nodes_.emplace_back(static_cast<NodeGraphNodeHandle>(nodes_.size()));
     new_node_handle = nodes_.back().handle_;
   } else {
     new_node_handle = node_pool_.front();
@@ -702,10 +702,10 @@ NodeGraphNodeHandle NodeGraph<Id, Od, Nd, Ld>::AllocateNode(const size_t input_p
   node.data = {};
   node.input_pin_handles_.clear();
   node.output_pin_handles_.clear();
-  for (int i = 0; i < input_pin_count; i++) {
+  for (size_t i = 0; i < input_pin_count; i++) {
     node.input_pin_handles_.emplace_back(AllocateInputPin(new_node_handle));
   }
-  for (int i = 0; i < output_pin_count; i++) {
+  for (size_t i = 0; i < output_pin_count; i++) {
     node.output_pin_handles_.emplace_back(AllocateOutputPin(new_node_handle));
   }
   node.recycled_ = false;
@@ -913,28 +913,30 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
   std::unordered_map<NodeGraphLinkHandle, int> link_map;
   std::unordered_map<NodeGraphNodeHandle, int> node_map;
   int index = 0;
-  for (NodeGraphNodeHandle handle = 0; handle < nodes_.size(); handle++) {
+  for (NodeGraphNodeHandle handle = 0; handle < static_cast<NodeGraphNodeHandle>(nodes_.size()); handle++) {
     if (!nodes_[handle].recycled_) {
       node_map[handle] = index;
       index++;
     }
   }
   index = 0;
-  for (NodeGraphOutputPinHandle handle = 0; handle < output_pins_.size(); handle++) {
+  for (NodeGraphOutputPinHandle handle = 0; handle < static_cast<NodeGraphOutputPinHandle>(output_pins_.size());
+       handle++) {
     if (!output_pins_[handle].recycled_) {
       output_pin_map[handle] = index;
       index++;
     }
   }
   index = 0;
-  for (NodeGraphInputPinHandle handle = 0; handle < input_pins_.size(); handle++) {
+  for (NodeGraphInputPinHandle handle = 0; handle < static_cast<NodeGraphInputPinHandle>(input_pins_.size());
+       handle++) {
     if (!input_pins_[handle].recycled_) {
       input_pin_map[handle] = index;
       index++;
     }
   }
   index = 0;
-  for (NodeGraphLinkHandle handle = 0; handle < links_.size(); handle++) {
+  for (NodeGraphLinkHandle handle = 0; handle < static_cast<NodeGraphLinkHandle>(links_.size()); handle++) {
     if (!links_[handle].recycled_) {
       link_map[handle] = index;
       index++;
@@ -942,7 +944,7 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
   }
 
   out << YAML::Key << "Nodes" << YAML::BeginSeq;
-  for (NodeGraphNodeHandle handle = 0; handle < nodes_.size(); handle++) {
+  for (NodeGraphNodeHandle handle = 0; handle < static_cast<NodeGraphNodeHandle>(nodes_.size()); handle++) {
     const auto& node = nodes_[handle];
     if (!node.recycled_) {
       out << YAML::BeginMap;
@@ -972,7 +974,8 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
   }
   out << YAML::EndSeq;
   out << YAML::Key << "OutputPins" << YAML::BeginSeq;
-  for (NodeGraphOutputPinHandle handle = 0; handle < output_pins_.size(); handle++) {
+  for (NodeGraphOutputPinHandle handle = 0; handle < static_cast<NodeGraphOutputPinHandle>(output_pins_.size());
+       handle++) {
     const auto& output_pin = output_pins_[handle];
     if (!output_pin.recycled_) {
       out << YAML::BeginMap;
@@ -993,7 +996,8 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
   out << YAML::EndSeq;
 
   out << YAML::Key << "InputPins" << YAML::BeginSeq;
-  for (NodeGraphInputPinHandle handle = 0; handle < input_pins_.size(); handle++) {
+  for (NodeGraphInputPinHandle handle = 0; handle < static_cast<NodeGraphInputPinHandle>(input_pins_.size());
+       handle++) {
     const auto& input_pin = input_pins_[handle];
     if (!input_pin.recycled_) {
       out << YAML::BeginMap;
@@ -1007,7 +1011,7 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
   }
   out << YAML::EndSeq;
   out << YAML::Key << "Links" << YAML::BeginSeq;
-  for (NodeGraphLinkHandle handle = 0; handle < links_.size(); handle++) {
+  for (NodeGraphLinkHandle handle = 0; handle < static_cast<NodeGraphLinkHandle>(links_.size()); handle++) {
     const auto& link = links_[handle];
     if (!link.recycled_) {
       out << YAML::BeginMap;

@@ -3,6 +3,7 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "LodGroup.hpp"
+#include "Platform.hpp"
 #include "RenderLayer.hpp"
 
 using namespace evo_engine;
@@ -146,7 +147,7 @@ uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
     graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
     const uint32_t count =
         (mesh->meshlet_range_->range + task_work_group_invocations - 1) / task_work_group_invocations;
-    vkCmdDrawMeshTasksEXT(vk_command_buffer, count, 1, 1);
+    graphics_pipeline->DrawMeshTasks(vk_command_buffer, count);
   } else {
     mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
   }

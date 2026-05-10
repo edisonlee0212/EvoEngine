@@ -1,5 +1,6 @@
 #pragma once
 #include "NodeGraph.hpp"
+#include "Texture2D.hpp"
 
 namespace evo_engine::procedural_noise {
 enum class NodeType {
@@ -96,6 +97,8 @@ class IProceduralNoise {
 };
 
 class ProceduralNoise2D : public IAsset, public IProceduralNoise {
+  std::shared_ptr<Texture2D> test_texture_2d_;
+
  public:
   void Reset() override;
   ProceduralNoise2D();
@@ -107,6 +110,8 @@ class ProceduralNoise2D : public IAsset, public IProceduralNoise {
 };
 
 class ProceduralNoise3D : public IAsset, public IProceduralNoise {
+  std::shared_ptr<Texture2D> test_texture_2d_;
+
  public:
   void Reset() override;
   ProceduralNoise3D();
@@ -119,6 +124,8 @@ class ProceduralNoise3D : public IAsset, public IProceduralNoise {
 };
 
 class ProceduralNoise4D : public IAsset, public IProceduralNoise {
+  std::shared_ptr<Texture2D> test_texture_2d_;
+
  public:
   void Reset() override;
   ProceduralNoise4D();

@@ -1,4 +1,5 @@
 #include "GeometryStorage.hpp"
+#include "Application.hpp"
 #include "RenderLayer.hpp"
 #include "meshoptimizer.h"
 using namespace evo_engine;
@@ -172,23 +173,20 @@ const std::shared_ptr<Buffer>& GeometryStorage::GetStrandMeshletBuffer() {
 
 void GeometryStorage::BindVertices(const VkCommandBuffer vk_command_buffer) {
   const auto& storage = GetInstance();
-  constexpr VkDeviceSize offsets[1] = {};
-  vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &storage.vertex_buffer_->GetVkBuffer(), offsets);
-  vkCmdBindIndexBuffer(vk_command_buffer, storage.triangle_buffer_->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+  storage.vertex_buffer_->BindVertex(vk_command_buffer);
+  storage.triangle_buffer_->BindIndex(vk_command_buffer);
 }
 
 void GeometryStorage::BindSkinnedVertices(const VkCommandBuffer vk_command_buffer) {
   const auto& storage = GetInstance();
-  constexpr VkDeviceSize offsets[1] = {};
-  vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &storage.skinned_vertex_buffer_->GetVkBuffer(), offsets);
-  vkCmdBindIndexBuffer(vk_command_buffer, storage.skinned_triangle_buffer_->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+  storage.skinned_vertex_buffer_->BindVertex(vk_command_buffer);
+  storage.skinned_triangle_buffer_->BindIndex(vk_command_buffer);
 }
 
 void GeometryStorage::BindStrandPoints(const VkCommandBuffer vk_command_buffer) {
   const auto& storage = GetInstance();
-  constexpr VkDeviceSize offsets[1] = {};
-  vkCmdBindVertexBuffers(vk_command_buffer, 0, 1, &storage.strand_point_buffer_->GetVkBuffer(), offsets);
-  vkCmdBindIndexBuffer(vk_command_buffer, storage.segment_buffer_->GetVkBuffer(), 0, VK_INDEX_TYPE_UINT32);
+  storage.strand_point_buffer_->BindVertex(vk_command_buffer);
+  storage.segment_buffer_->BindIndex(vk_command_buffer);
 }
 
 const Vertex& GeometryStorage::PeekVertex(const size_t vertex_index) {
@@ -701,7 +699,8 @@ void GeometryStorage::AllocateParticleInfo(const Handle& handle,
   VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   info_data.buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  info_data.descriptor_set = std::make_shared<DescriptorSet>(ParticleInfoList::instanced_data_layout);
+  info_data.descriptor_set = std::make_shared<DescriptorSet>(
+      ApplicationContext::Get().GetLayer<RenderLayer>()->GetParticleInstancedDataDescriptorSetLayout());
   info_data.status = ParticleInfoListDataStatus::UpdatePending;
 }
 

@@ -10,6 +10,7 @@ namespace evo_engine {
  */
 class ReflectionProbe : public IAsset {
   std::shared_ptr<Cubemap> cubemap_;  ///< The cubemap associated with the reflection probe.
+  std::shared_ptr<GraphicsPipeline> prefilter_construct_pipeline_;
 
   friend class RenderLayer;  ///< Grants RenderLayer access to private members of ReflectionProbe.
   friend class Camera;       ///< Grants Camera access to private members of ReflectionProbe.
