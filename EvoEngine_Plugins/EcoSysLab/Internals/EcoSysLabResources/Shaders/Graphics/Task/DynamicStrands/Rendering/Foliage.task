@@ -47,7 +47,7 @@ void main() {
     uint leaf_index_local = laneID + i * WORKGROUP_SIZE;
     uint leaf_index_global = baseID + leaf_index_local;
 
-    bool render = !(leaf_index_global > foliage_size - 1);
+    bool render = leaf_index_global < foliage_size;
 
     uvec4 vote_foliage = subgroupBallot(render);
     uint num_foliage = subgroupBallotBitCount(vote_foliage);

@@ -1,0 +1,131 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+// =============================================================================
+// propagate.comp — depth-banded BFS world-transform propagation.
+//
+// Phase 2a contract (interface-only):
+//   * Mirrors GeometryPass::Execute() (LSystemGraph.hpp lines ~85-100):
+//        global_position = parent.global_position
+//                        + normalize(parent.global_rotation * (0,0,-1)) * parent.length
+//        global_rotation = normalize(parent.global_rotation * local_rotation)
+//   * Dispatched once per BFS depth band. The host issues a memory barrier
+//     between bands so band b+1 reads band b's just-written values.
+//   * One thread per node within the band; the band's range is a
+//     contiguous slice of depth_sorted_index[].
+//   * Writes both global_position (xyz; w = length) and global_rotation
+//     (quat). The w channel of global_position duplicates the freshly-written
+//     length so the mesh shader reads only one buffer for instance pos+length.
+//
+// Bindings (set 0 — to be confirmed in Phase 2b)
+//   push constant   : (band_start, band_count, _pad, _pad)
+//   binding 0  readonly  ParentIndex     int[]
+//   binding 1  readonly  LocalRotation   vec4[]    (quat)
+//   binding 2  readonly  LengthThickness vec2[]    (length, half_thickness)
+//   binding 3  readonly  DepthSortedIndex uint[]
+//   binding 4  buffer    GlobalPosition  vec4[]    (px,py,pz, length)
+//   binding 5  buffer    GlobalRotation  vec4[]    (x,y,z,w)
+//
+// Determinism: this pass is deterministic per upload — no RNG, no atomics.
+// Numerical equivalence with the CPU GeometryPass is exact up to the
+// floating-point rounding of normalize() and quaternion multiply (which is
+// stable across SPIR-V drivers within ULP tolerance).
+// =============================================================================
+
+#define WG_SIZE 64
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(push_constant) uniform PropagateConsts {
+  uint band_start;     // inclusive offset into depth_sorted_index
+  uint band_count;     // node count in this band
+  uint band_index;     // 0 = root band; if 0, we skip parent lookups
+  uint _pad;
+} pc;
+
+layout(set = 0, binding = 0, std430) readonly buffer ParentIndexBuf {
+  int parent_index[];
+};
+layout(set = 0, binding = 1, std430) readonly buffer LocalRotationBuf {
+  vec4 local_rotation[];   // quaternion (x,y,z,w)
+};
+layout(set = 0, binding = 2, std430) readonly buffer LengthThicknessBuf {
+  vec2 length_thickness[]; // (length, half_thickness)
+};
+layout(set = 0, binding = 3, std430) readonly buffer DepthSortedIndexBuf {
+  uint depth_sorted_index[];
+};
+layout(set = 0, binding = 4, std430) buffer GlobalPositionBuf {
+  vec4 global_position[];  // (px,py,pz, length)
+};
+layout(set = 0, binding = 5, std430) buffer GlobalRotationBuf {
+  vec4 global_rotation[];  // quaternion
+};
+
+// ---- quaternion helpers (no GLM in shaders) -----------------------------
+
+vec4 quatMul(vec4 a, vec4 b) {
+  // Hamilton product, (xyz, w) convention matching glm::quat layout.
+  return vec4(
+    a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz),
+    a.w * b.w - dot(a.xyz, b.xyz));
+}
+
+vec3 quatRotate(vec4 q, vec3 v) {
+  // v + 2 * cross(q.xyz, cross(q.xyz, v) + q.w * v)
+  vec3 t = 2.0 * cross(q.xyz, v);
+  return v + q.w * t + cross(q.xyz, t);
+}
+
+vec4 quatNormalize(vec4 q) {
+  float n = length(q);
+  return (n > 0.0) ? (q / n) : vec4(0.0, 0.0, 0.0, 1.0);
+}
+
+// ---- entry --------------------------------------------------------------
+
+void main() {
+  uint local = gl_GlobalInvocationID.x;
+  if (local >= pc.band_count) return;
+
+  uint slot     = pc.band_start + local;
+  uint node_idx = depth_sorted_index[slot];
+
+  // Length always copied through to global_position.w so the mesh shader
+  // can read a single buffer.
+  float length = length_thickness[node_idx].x;
+
+  if (pc.band_index == 0u) {
+    // Root band: keep whatever the host seeded into global_position /
+    // global_rotation. Just refresh the length channel.
+    vec4 gp = global_position[node_idx];
+    gp.w = length;
+    global_position[node_idx] = gp;
+    return;
+  }
+
+  int parent = parent_index[node_idx];
+  if (parent < 0) {
+    // Defensive: a non-root with no parent shouldn't exist. Treat as root.
+    vec4 gp = global_position[node_idx];
+    gp.w = length;
+    global_position[node_idx] = gp;
+    return;
+  }
+
+  vec4 parent_pos = global_position[uint(parent)];
+  vec4 parent_rot = global_rotation[uint(parent)];
+  vec4 local_q    = local_rotation[node_idx];
+
+  // Child position = parent end position.
+  // GetGlobalEndPosition: parent_pos.xyz + normalize(parent_rot * (0,0,-1)) * parent_length
+  // parent_pos.w stores the parent's own length (written when parent's band ran).
+  vec3 parent_dir = normalize(quatRotate(parent_rot, vec3(0.0, 0.0, -1.0)));
+  vec3 child_pos  = parent_pos.xyz + parent_dir * parent_pos.w;
+
+  // Child rotation = parent_rotation * local_rotation, normalized.
+  vec4 child_rot = quatNormalize(quatMul(parent_rot, local_q));
+
+  global_position[node_idx] = vec4(child_pos, length);
+  global_rotation[node_idx] = child_rot;
+}

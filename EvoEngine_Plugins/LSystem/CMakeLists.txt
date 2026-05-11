@@ -9,6 +9,16 @@ file(GLOB_RECURSE LSYSTEM_SOURCES CONFIGURE_DEPENDS ${LSYSTEM_DIRECTORY}/src/*.c
 list(APPEND LSYSTEM_SOURCES ${LSYSTEM_DIRECTORY}/src/ParamSpaceExplorer.cpp)
 list(REMOVE_DUPLICATES LSYSTEM_SOURCES)
 
+# ---------------------------------------------------------------------------
+# GPU pipeline migration flag (Phase 0 of real-time L-system plan).
+# Off by default: the CPU pipeline remains the only build path until the
+# GPU implementation lands. Turning this on does NOT yet change runtime
+# behavior; it only compiles in the gpu/ subtree and exposes the
+# LSYSTEM_GPU_PIPELINE preprocessor symbol so call-sites can branch as
+# subsequent phases are implemented.
+# ---------------------------------------------------------------------------
+option(LSYSTEM_GPU_PIPELINE "Enable GPU-resident L-system derivation, growth, and mesh-shader emission." OFF)
+
 add_library(LSystemPlugin
 	STATIC
 	${LSYSTEM_HEADERS}
@@ -20,6 +30,9 @@ target_compile_definitions(LSystemPlugin
 	${EVOENGINE_PLUGINS_DEFS}
 	LSYSTEM_PLUGIN
 	)
+if(LSYSTEM_GPU_PIPELINE)
+	target_compile_definitions(LSystemPlugin PUBLIC LSYSTEM_GPU_PIPELINE)
+endif()
 target_include_directories(LSystemPlugin
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}

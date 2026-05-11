@@ -3,7 +3,57 @@
 #include "FileManager.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
+#include <fstream>
+#include <yaml-cpp/yaml.h>
 using namespace evo_engine;
+
+namespace {
+
+bool OverwriteAssetDefaultsToFile(const std::shared_ptr<IAsset>& asset,
+                                  std::filesystem::path* written_path) {
+  if (!asset || !asset->SupportsDefaultsOverwrite()) {
+    return false;
+  }
+
+  const auto defaults_path = asset->ResolveWritableDefaultsPath();
+  if (defaults_path.empty()) {
+    EVOENGINE_WARNING("Defaults overwrite failed: no writable defaults path for asset type " +
+                      asset->GetTypeName());
+    return false;
+  }
+
+  try {
+    std::filesystem::create_directories(defaults_path.parent_path());
+
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    asset->Serialize(out);
+    out << YAML::EndMap;
+
+    std::ofstream stream(defaults_path.string(), std::ios::out | std::ios::trunc);
+    if (!stream.is_open()) {
+      EVOENGINE_WARNING("Defaults overwrite failed: cannot open " + defaults_path.string());
+      return false;
+    }
+
+    stream << out.c_str();
+    stream.flush();
+    if (!stream.good()) {
+      EVOENGINE_WARNING("Defaults overwrite failed while writing " + defaults_path.string());
+      return false;
+    }
+
+    if (written_path) {
+      *written_path = defaults_path;
+    }
+    return true;
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING("Defaults overwrite failed at " + defaults_path.string() + ": " + std::string(e.what()));
+    return false;
+  }
+}
+
+}  // namespace
 
 void AssetManager::Initialize() {
   auto& asset_manager = GetInstance();
@@ -54,6 +104,30 @@ void AssetManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               asset->Import(path);
             },
             false);
+
+        if (asset->SupportsDefaultsOverwrite()) {
+          ImGui::SameLine();
+          if (ImGui::Button("Overwrite Descriptor Defaults")) {
+            std::filesystem::path written_path;
+            if (OverwriteAssetDefaultsToFile(asset, &written_path)) {
+              EVOENGINE_LOG("Defaults overwritten for " + asset->GetTypeName() + ": " + written_path.string());
+            } else {
+              EVOENGINE_WARNING("Failed to overwrite defaults for " + asset->GetTypeName());
+            }
+          }
+
+          if (ImGui::IsItemHovered()) {
+            const auto defaults_path = asset->ResolveWritableDefaultsPath();
+            std::string tip =
+                "Write this asset's current serialized values as defaults for future assets of the same type.";
+            if (!defaults_path.empty()) {
+              tip += "\nPath: " + defaults_path.string();
+            } else {
+              tip += "\nPath resolution failed.";
+            }
+            ImGui::SetTooltip("%s", tip.c_str());
+          }
+        }
 
         ImGui::Separator();
         if (asset->OnInspect(editor_layer))

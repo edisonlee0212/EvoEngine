@@ -20,6 +20,8 @@ namespace l_system_plugin {
  */
 class LSystemDescriptor : public evo_engine::IAsset {
  public:
+  LSystemDescriptor();
+
   int derivation_steps = 5;          ///< Number of derivation iterations.
   unsigned int seed = 42;            ///< RNG seed for stochastic rules.
   glm::vec3 root_position = glm::vec3(0.0f);     ///< World-space root position.
@@ -29,6 +31,10 @@ class LSystemDescriptor : public evo_engine::IAsset {
   bool auto_derive_on_change = true; ///< Re-derive when parameters change in editor.
 
   bool OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) override;
+  [[nodiscard]] bool SupportsDefaultsOverwrite() const override {
+    return true;
+  }
+  [[nodiscard]] std::filesystem::path ResolveWritableDefaultsPath() const override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
 };

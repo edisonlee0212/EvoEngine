@@ -21,6 +21,14 @@ typedef int LFlowHandle;
 #pragma region Structural Info
 
 struct LNodeInfo {
+  struct TemporalState {
+    bool initialized = false;
+    float birth_thermal_gdd = 0.0f;
+    float age_thermal_gdd = 0.0f;
+    float birth_absolute_years = 0.0f;
+    float age_absolute_years = 0.0f;
+  };
+
   bool locked = false;
 
   glm::vec3 global_position = glm::vec3(0.0f);
@@ -34,6 +42,8 @@ struct LNodeInfo {
   glm::quat regulated_global_rotation = glm::vec3(0.0f);
 
   glm::vec4 color = glm::vec4(1.0f);
+
+  TemporalState temporal{};
 
   float volume = 0;
   float descendant_total_volume = 0;

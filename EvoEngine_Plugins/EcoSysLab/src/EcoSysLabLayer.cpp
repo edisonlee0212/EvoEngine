@@ -46,6 +46,19 @@ PrivateComponentRegistration<BillboardCloudsConverter> billboard_clouds_converte
 namespace {
 constexpr const char* kMonthNames[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
                                         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+constexpr glm::vec4 kDefaultVisualizationBackground(0.5f, 0.5f, 0.5f, 1.f);
+
+float CalendarDayInYear(const float simulated_time) {
+  return glm::mod(simulated_time + ClimateModel::spring_start_offset, 365.f);
+}
+
+glm::vec4 ComputeSeasonalBackgroundColor(const float simulated_time, const std::array<glm::vec4, 4>& colors) {
+  const float season_phase = CalendarDayInYear(simulated_time) / 365.f * 4.f;
+  const int lower_index = static_cast<int>(glm::floor(season_phase)) % 4;
+  const int upper_index = (lower_index + 1) % 4;
+  const float t = season_phase - static_cast<float>(lower_index);
+  return glm::mix(colors[lower_index], colors[upper_index], t);
+}
 
 // Draw calendar + climate summary lines into the current ImGui context.
 // Expects simulated_time in days.  Fetches climate data from the model at origin.
@@ -116,6 +129,12 @@ void EcoSysLabLayer::Serialize(YAML::Emitter& out) const {
 
   out << YAML::Key << "show_visualization_camera_info" << YAML::Value << show_visualization_camera_info;
   out << YAML::Key << "enable_visualization_background" << YAML::Value << enable_visualization_background;
+  out << YAML::Key << "enable_seasonal_background_tint" << YAML::Value << enable_seasonal_background_tint_;
+  out << YAML::Key << "seasonal_background_colors" << YAML::Value << YAML::BeginSeq;
+  for (const auto& color : seasonal_background_colors_) {
+    out << color;
+  }
+  out << YAML::EndSeq;
   out << YAML::Key << "need_full_flow_update" << YAML::Value << need_full_flow_update;
   out << YAML::Key << "tree_operator_mode" << YAML::Value << tree_operator_mode;
   out << YAML::Key << "tree_reduce_rate" << YAML::Value << tree_reduce_rate;
@@ -370,6 +389,14 @@ void EcoSysLabLayer::Deserialize(const YAML::Node& in) {
     show_visualization_camera_info = in["show_visualization_camera_info"].as<bool>();
   if (in["enable_visualization_background"])
     enable_visualization_background = in["enable_visualization_background"].as<bool>();
+  if (in["enable_seasonal_background_tint"])
+    enable_seasonal_background_tint_ = in["enable_seasonal_background_tint"].as<bool>();
+  if (in["seasonal_background_colors"] && in["seasonal_background_colors"].IsSequence()) {
+    const auto colors = in["seasonal_background_colors"];
+    for (size_t i = 0; i < seasonal_background_colors_.size() && i < colors.size(); i++) {
+      seasonal_background_colors_[i] = colors[i].as<glm::vec4>();
+    }
+  }
   if (in["need_full_flow_update"])
     need_full_flow_update = in["need_full_flow_update"].as<bool>();
   if (in["tree_operator_mode"])
@@ -663,10 +690,32 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   auto scene = GetScene();
   bool simulate = false;
   visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
+
+  const glm::vec4 seasonal_background =
+      ComputeSeasonalBackgroundColor(simulated_time_, seasonal_background_colors_);
+  const glm::vec4 active_background_color =
+      enable_seasonal_background_tint_ ? seasonal_background : kDefaultVisualizationBackground;
+  visualization_camera_->camera_settings.use_clear_color = true;
+  visualization_camera_->camera_settings.clear_color = active_background_color;
+
   if (const auto scene_camera = editor_layer->GetSceneCamera()) {
     visualization_camera_->camera_settings.near_distance = scene_camera->camera_settings.near_distance;
     visualization_camera_->camera_settings.far_distance = scene_camera->camera_settings.far_distance;
     visualization_camera_->camera_settings.fov = scene_camera->camera_settings.fov;
+
+    if (enable_seasonal_background_tint_) {
+      if (!seasonal_scene_camera_override_active_) {
+        seasonal_scene_camera_prev_use_clear_color_ = scene_camera->camera_settings.use_clear_color;
+        seasonal_scene_camera_prev_clear_color_ = scene_camera->camera_settings.clear_color;
+        seasonal_scene_camera_override_active_ = true;
+      }
+      scene_camera->camera_settings.use_clear_color = true;
+      scene_camera->camera_settings.clear_color = active_background_color;
+    } else if (seasonal_scene_camera_override_active_) {
+      scene_camera->camera_settings.use_clear_color = seasonal_scene_camera_prev_use_clear_color_;
+      scene_camera->camera_settings.clear_color = seasonal_scene_camera_prev_clear_color_;
+      seasonal_scene_camera_override_active_ = false;
+    }
   }
 
   if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
@@ -968,7 +1017,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
                                                   ImGuiWindowFlags_NoSavedSettings |
                                                   ImGuiWindowFlags_NoFocusOnAppearing;
         if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-            ImGui::BeginChild("Render Info", ImVec2(300, 200), child_flags, window_flags)) {
+            ImGui::BeginChild("Render Info", ImVec2(320, 340), child_flags, window_flags)) {
           ImGui::Text("Info & Settings");
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
           if (const auto climate_wp = FindClimate(); !climate_wp.expired()) {
@@ -977,6 +1026,15 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           }
           ImGui::Separator();
           ImGui::Checkbox("Background", &enable_visualization_background);
+          ImGui::Checkbox("Seasonal Sky Tint", &enable_seasonal_background_tint_);
+          if (enable_seasonal_background_tint_) {
+            const float season_day = CalendarDayInYear(simulated_time_);
+            ImGui::Text("Season day: %.1f / 365", season_day);
+            const char* season_names[] = {"Spring", "Summer", "Fall", "Winter"};
+            for (size_t i = 0; i < seasonal_background_colors_.size(); i++) {
+              ImGui::ColorEdit4(season_names[i], &seasonal_background_colors_[i].r);
+            }
+          }
           uint32_t mode = static_cast<uint32_t>(visualization_camera_->camera_render_mode);
           if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
             visualization_camera_->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);

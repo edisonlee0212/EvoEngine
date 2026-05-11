@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <optional>
 #include <random>
@@ -36,6 +37,262 @@ using namespace dataset_generation_plugin;
 #endif
 
 using namespace evo_engine;
+
+namespace {
+struct GeneratorRunOptions {
+  uint32_t output_count = 8u;
+  uint32_t sample_index_start = 0u;
+  uint32_t dataset_seed = 42u;
+  bool use_hashed_seed = true;
+  bool force_target_points = true;
+  uint32_t target_points = 8000u;
+  // TODO(perf): Default capture mode flipped to CPU for headless reliability.
+  // GPU PT capture (PointCloud::SampleCurrentScene) requires a live RenderLayer
+  // with valid swapchain-equivalent resources; whether it initializes correctly
+  // in fully windowless mode has not been validated. CPU CpuRayTracer is
+  // deterministic and runs without RenderLayer at all (Cpu branch of
+  // run_windowless skips RenderLayer push). Re-evaluate after Phase 4+ when
+  // the GPU pipeline is mature enough to validate windowless GPU PT capture.
+  bool use_gpu_capture = false;
+  bool realistic_noise = true;
+  bool apply_per_seed_scanner_jitter = true;
+  bool export_mesh = true;
+  bool export_point_cloud = true;
+  bool export_flow_graph = true;
+  bool export_node_graph = true;
+  bool open_output_folder = true;
+  std::filesystem::path output_folder_override{};
+};
+
+bool ParseUintArg(const std::string& text, uint32_t& value) {
+  try {
+    size_t consumed = 0;
+    const auto parsed = std::stoull(text, &consumed, 10);
+    if (consumed != text.size()) {
+      return false;
+    }
+    if (parsed > std::numeric_limits<uint32_t>::max()) {
+      return false;
+    }
+    value = static_cast<uint32_t>(parsed);
+    return true;
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+void PrintUsage() {
+  EVOENGINE_LOG("MaizeDataGeneratorApp options:\n"
+                "  --count <N>                 Number of Tassel_* samples to generate.\n"
+                "  --index-start <N>           Starting sample index for naming (Tassel_<N>).\n"
+                "  --seed <N>                  Dataset seed base.\n"
+                "  --seed-hashed               Use hash-mixed per-sample seeds (default).\n"
+                "  --seed-incremental          Use incremental per-sample seeds (seed + sample_index).\n"
+                "  --target-points <N>         Override capture target points mean (default: 8000).\n"
+                "  --no-target-points-override Disable target points override and use scene/descriptor value.\n"
+                "  --output-folder <path>      Override output folder (default: .../SyntheticTassels).\n"
+                "  --cpu | --gpu               Capture backend (default: --cpu).\n"
+                "  --realistic-noise | --no-realistic-noise\n"
+                "                              Toggle stochastic scanner noise profile.\n"
+                "  --jitter | --no-jitter      Toggle per-sample scanner/capture jitter.\n"
+                "  --export-mesh | --no-export-mesh\n"
+                "  --export-point-cloud | --no-export-point-cloud\n"
+                "  --export-flow-graph | --no-export-flow-graph\n"
+                "  --export-node-graph | --no-export-node-graph\n"
+                "  --open-output-folder | --no-open-output-folder\n"
+                "  --help                      Print this help message.");
+}
+
+bool ParseGeneratorRunOptions(const int argc,
+                              char** argv,
+                              GeneratorRunOptions& options,
+                              bool& show_help,
+                              std::string& error_message) {
+  show_help = false;
+  for (int i = 1; i < argc; i++) {
+    const std::string arg = argv[i];
+    const auto require_value = [&](const char* flag) -> const char* {
+      if (i + 1 >= argc) {
+        error_message = std::string("Missing value for ") + flag;
+        return nullptr;
+      }
+      i++;
+      return argv[i];
+    };
+
+    if (arg == "--help" || arg == "-h") {
+      show_help = true;
+      return true;
+    }
+
+    if (arg == "--count") {
+      const char* value = require_value("--count");
+      if (!value) {
+        return false;
+      }
+      if (!ParseUintArg(value, options.output_count)) {
+        error_message = "Invalid value for --count: " + std::string(value);
+        return false;
+      }
+      continue;
+    }
+
+    if (arg == "--index-start") {
+      const char* value = require_value("--index-start");
+      if (!value) {
+        return false;
+      }
+      if (!ParseUintArg(value, options.sample_index_start)) {
+        error_message = "Invalid value for --index-start: " + std::string(value);
+        return false;
+      }
+      continue;
+    }
+
+    if (arg == "--seed") {
+      const char* value = require_value("--seed");
+      if (!value) {
+        return false;
+      }
+      if (!ParseUintArg(value, options.dataset_seed)) {
+        error_message = "Invalid value for --seed: " + std::string(value);
+        return false;
+      }
+      continue;
+    }
+
+    if (arg == "--seed-hashed") {
+      options.use_hashed_seed = true;
+      continue;
+    }
+    if (arg == "--seed-incremental") {
+      options.use_hashed_seed = false;
+      continue;
+    }
+
+    if (arg == "--target-points") {
+      const char* value = require_value("--target-points");
+      if (!value) {
+        return false;
+      }
+      if (!ParseUintArg(value, options.target_points)) {
+        error_message = "Invalid value for --target-points: " + std::string(value);
+        return false;
+      }
+      options.force_target_points = true;
+      continue;
+    }
+    if (arg == "--no-target-points-override") {
+      options.force_target_points = false;
+      continue;
+    }
+
+    if (arg == "--output-folder") {
+      const char* value = require_value("--output-folder");
+      if (!value) {
+        return false;
+      }
+      options.output_folder_override = std::filesystem::path(value);
+      continue;
+    }
+
+    if (arg == "--cpu") {
+      options.use_gpu_capture = false;
+      continue;
+    }
+    if (arg == "--gpu") {
+      options.use_gpu_capture = true;
+      continue;
+    }
+
+    if (arg == "--realistic-noise") {
+      options.realistic_noise = true;
+      continue;
+    }
+    if (arg == "--no-realistic-noise") {
+      options.realistic_noise = false;
+      continue;
+    }
+
+    if (arg == "--jitter") {
+      options.apply_per_seed_scanner_jitter = true;
+      continue;
+    }
+    if (arg == "--no-jitter") {
+      options.apply_per_seed_scanner_jitter = false;
+      continue;
+    }
+
+    if (arg == "--export-mesh") {
+      options.export_mesh = true;
+      continue;
+    }
+    if (arg == "--no-export-mesh") {
+      options.export_mesh = false;
+      continue;
+    }
+
+    if (arg == "--export-point-cloud") {
+      options.export_point_cloud = true;
+      continue;
+    }
+    if (arg == "--no-export-point-cloud") {
+      options.export_point_cloud = false;
+      continue;
+    }
+
+    if (arg == "--export-flow-graph") {
+      options.export_flow_graph = true;
+      continue;
+    }
+    if (arg == "--no-export-flow-graph") {
+      options.export_flow_graph = false;
+      continue;
+    }
+
+    if (arg == "--export-node-graph") {
+      options.export_node_graph = true;
+      continue;
+    }
+    if (arg == "--no-export-node-graph") {
+      options.export_node_graph = false;
+      continue;
+    }
+
+    if (arg == "--open-output-folder") {
+      options.open_output_folder = true;
+      continue;
+    }
+    if (arg == "--no-open-output-folder") {
+      options.open_output_folder = false;
+      continue;
+    }
+
+    error_message = "Unknown option: " + arg;
+    return false;
+  }
+
+  if (options.output_count == 0) {
+    error_message = "--count must be greater than 0.";
+    return false;
+  }
+
+  if (!options.export_point_cloud &&
+      !options.export_flow_graph &&
+      !options.export_node_graph &&
+      !options.export_mesh) {
+    error_message = "At least one export output must be enabled.";
+    return false;
+  }
+
+  if (options.force_target_points && options.target_points == 0) {
+    error_message = "--target-points must be greater than 0 when override is enabled.";
+    return false;
+  }
+
+  return true;
+}
+}  // namespace
 
 void register_classes() {
 #ifdef DATASET_GENERATION_PLUGIN
@@ -153,7 +410,7 @@ enum class TasselSamplingQualityPreset {
   Ultra,
 };
 
-// [deprecated] Legacy descriptor discovery retained for fallback/testing workflows.
+// [deprecated] Legacy descriptor discovery retained for fallback workflows.
 std::filesystem::path ResolveTasselDescriptorPath(const std::filesystem::path& project_assets_folder) {
   const std::array<std::filesystem::path, 3> descriptor_candidates = {
       std::filesystem::path("LSystem") / "TasselSample.mtassel",
@@ -458,7 +715,28 @@ void ApplyPerSeedBaselineScannerJitter(
   data_generation_parameters.point_cloud_capture_settings = jittered_capture_settings;
 }
 
-// [deprecated] Legacy quality presets retained for fallback/testing workflows.
+void ApplyBaselineScannerSettings(
+    DatasetGenerator::TasselDataGenerationParameters& data_generation_parameters,
+    const TasselPointCloudPointSettings& baseline_point_settings,
+    const TasselPointCloudGridCaptureSettings& baseline_capture_settings,
+    const bool realistic_noise,
+    const PointCloudCaptureSettings::CaptureMode capture_mode) {
+  auto capture_settings = std::make_shared<TasselPointCloudGridCaptureSettings>(baseline_capture_settings);
+  capture_settings->capture_mode = capture_mode;
+  data_generation_parameters.point_cloud_capture_settings = capture_settings;
+
+  auto& point_settings = data_generation_parameters.tassel_point_cloud_point_settings;
+  point_settings = baseline_point_settings;
+
+  if (!realistic_noise) {
+    point_settings.range_noise_base_sigma = 0.0f;
+    point_settings.range_noise_scale = 0.0f;
+    point_settings.dropout_probability = 0.0f;
+    point_settings.angular_noise_sigma = 0.0f;
+  }
+}
+
+// [deprecated] Legacy quality presets retained for fallback workflows.
 void ApplyTasselCapturePreset(
   const std::shared_ptr<TasselPointCloudGridCaptureSettings>& capture_settings,
   const TasselSamplingQualityPreset preset,
@@ -504,7 +782,7 @@ void ApplyTasselCapturePreset(
   }
 }
 
-// [deprecated] Legacy fixed noise profile retained for fallback/testing workflows.
+// [deprecated] Legacy fixed noise profile retained for fallback workflows.
 void ApplyTasselPointCloudNoiseProfile(
   DatasetGenerator::TasselDataGenerationParameters& data_generation_parameters,
   const bool realistic_noise) {
@@ -534,7 +812,7 @@ void ApplyTasselPointCloudNoiseProfile(
   settings.max_range = 0.0f;
 }
 
-// [deprecated] Legacy broad photowalk randomization retained for fallback/testing workflows.
+// [deprecated] Legacy broad photowalk randomization retained for fallback workflows.
 void ApplyPerSeedPhotowalkCaptureSettings(
   const std::shared_ptr<TasselPointCloudGridCaptureSettings>& capture_settings,
   const int sample_seed,
@@ -606,7 +884,7 @@ void ApplyPerSeedPhotowalkCaptureSettings(
   }
 }
 
-// [deprecated] Legacy broad noise randomization retained for fallback/testing workflows.
+// [deprecated] Legacy broad noise randomization retained for fallback workflows.
 void ApplyPerSeedTasselPointCloudNoiseProfile(
     DatasetGenerator::TasselDataGenerationParameters& data_generation_parameters,
     const bool realistic_noise,
@@ -641,12 +919,21 @@ void ApplyPerSeedTasselPointCloudNoiseProfile(
 }
 
 void tassel_mesh_point_cloud_skeleton(const uint32_t output_size,
+                                      const uint32_t sample_index_start,
                                       const SceneTasselGenerationContext& scene_context,
                                       const bool use_existing_scene_entities,
                                       const PointCloudCaptureSettings::CaptureMode capture_mode,
                                       const std::filesystem::path& output_folder,
                                       const bool realistic_noise = false,
-                                      const uint32_t dataset_seed = 42u) {
+                                      const uint32_t dataset_seed = 42u,
+                                      const bool use_hashed_seed = true,
+                                      const bool apply_per_seed_scanner_jitter = true,
+                                      const bool force_target_points = true,
+                                      const uint32_t target_points = 8000u,
+                                      const bool export_mesh = true,
+                                      const bool export_point_cloud = true,
+                                      const bool export_flow_graph = true,
+                                      const bool export_node_graph = true) {
 #ifndef DATASET_GENERATION_PLUGIN
   throw std::runtime_error("DatasetGeneration plugin missing!");
 #endif
@@ -654,10 +941,10 @@ void tassel_mesh_point_cloud_skeleton(const uint32_t output_size,
   std::filesystem::create_directories(output_folder);
 
   DatasetGenerator::TasselDataGenerationParameters data_generation_parameters{};
-  data_generation_parameters.export_mesh = true;
-  data_generation_parameters.export_point_cloud = true;
-  data_generation_parameters.export_flow_graph = true;
-  data_generation_parameters.export_node_graph = true;
+  data_generation_parameters.export_mesh = export_mesh;
+  data_generation_parameters.export_point_cloud = export_point_cloud;
+  data_generation_parameters.export_flow_graph = export_flow_graph;
+  data_generation_parameters.export_node_graph = export_node_graph;
   data_generation_parameters.max_growth_steps_per_frame = 0;
   data_generation_parameters.uncapped_growth = true;
   data_generation_parameters.use_existing_scene_entities = use_existing_scene_entities;
@@ -682,18 +969,31 @@ void tassel_mesh_point_cloud_skeleton(const uint32_t output_size,
   };
 
   for (uint32_t i = 0; i < output_size; i++) {
-    const int sample_seed = static_cast<int>(dataset_seed + i);
+    const uint32_t sample_index = sample_index_start + i;
+    const uint32_t sampled_seed = use_hashed_seed
+                                      ? MixSeed(static_cast<int>(sample_index), dataset_seed)
+                                      : (dataset_seed + sample_index);
+    const int sample_seed = static_cast<int>(sampled_seed & 0x7FFFFFFFu);
     data_generation_parameters.seed = sample_seed;
 
     data_generation_parameters.target_gdd = sample_biased_target_gdd(i);
 
-    ApplyPerSeedBaselineScannerJitter(
-      data_generation_parameters,
-      scene_context.scanner_point_baseline,
-      scene_context.scanner_capture_baseline,
-      sample_seed,
-      realistic_noise,
-      capture_mode);
+    if (apply_per_seed_scanner_jitter) {
+      ApplyPerSeedBaselineScannerJitter(
+        data_generation_parameters,
+        scene_context.scanner_point_baseline,
+        scene_context.scanner_capture_baseline,
+        sample_seed,
+        realistic_noise,
+        capture_mode);
+    } else {
+      ApplyBaselineScannerSettings(
+        data_generation_parameters,
+        scene_context.scanner_point_baseline,
+        scene_context.scanner_capture_baseline,
+        realistic_noise,
+        capture_mode);
+    }
 
     auto sample_capture_settings = std::dynamic_pointer_cast<TasselPointCloudGridCaptureSettings>(
       data_generation_parameters.point_cloud_capture_settings);
@@ -702,8 +1002,22 @@ void tassel_mesh_point_cloud_skeleton(const uint32_t output_size,
       return;
     }
 
-    data_generation_parameters.output_file_name = "Tassel_" + std::to_string(i);
+    if (force_target_points) {
+      // The scanner's point-budget enforcement is gated on Circular scan_mode
+      // (see TasselPointCloudScanner.cpp budget_state setup). Hemisphere/Gantry
+      // ignore target_points entirely, producing wildly over-budget PLYs
+      // (10k-500k points). Force Circular here so --target-points actually
+      // binds. Per-seed jitter still randomizes pitch/turn sweeps within
+      // Circular for view-diversity.
+      sample_capture_settings->scan_mode = TasselScanMode::Circular;
+      sample_capture_settings->point_budget_enabled = true;
+      sample_capture_settings->target_points = std::max<uint32_t>(1u, target_points);
+      sample_capture_settings->target_points_deviation = 0;
+    }
+
+    data_generation_parameters.output_file_name = "Tassel_" + std::to_string(sample_index);
     EVOENGINE_LOG("Generating " + data_generation_parameters.output_file_name +
+                  " index=" + std::to_string(sample_index) +
                   " seed=" + std::to_string(sample_seed) +
                   " gdd=" + std::to_string(data_generation_parameters.target_gdd) +
                   " scan_mode=" + ToString(sample_capture_settings->scan_mode) +
@@ -715,7 +1029,20 @@ void tassel_mesh_point_cloud_skeleton(const uint32_t output_size,
 }
 #endif
 
-int main() {
+int main(int argc, char** argv) {
+  GeneratorRunOptions run_options{};
+  bool show_help = false;
+  std::string parse_error;
+  if (!ParseGeneratorRunOptions(argc, argv, run_options, show_help, parse_error)) {
+    EVOENGINE_ERROR(parse_error);
+    PrintUsage();
+    return 1;
+  }
+  if (show_help) {
+    PrintUsage();
+    return 0;
+  }
+
   std::filesystem::path resource_folder_path("../../../../../Resources");
   if (!std::filesystem::exists(resource_folder_path)) {
     resource_folder_path = "../../../../Resources";
@@ -735,20 +1062,18 @@ int main() {
   const std::filesystem::path project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "maize_data_generator.eveproj");
 
-  // Enable GPU ray-traced capture for true LiDAR-like sampling.
-  constexpr bool kUseGpuRayTracingCapture = true;
   const auto capture_mode =
-      kUseGpuRayTracingCapture ? PointCloudCaptureSettings::CaptureMode::Gpu
-                               : PointCloudCaptureSettings::CaptureMode::Cpu;
+      run_options.use_gpu_capture ? PointCloudCaptureSettings::CaptureMode::Gpu
+                                  : PointCloudCaptureSettings::CaptureMode::Cpu;
 
   run_windowless(capture_mode, project_path);
   const std::filesystem::path synthetic_dataset_root = resource_folder_path.parent_path() / "MaizeTasselSyntheticPointCloud";
-  const std::filesystem::path output_folder_path = synthetic_dataset_root / "SyntheticTassels";
-  constexpr uint32_t kTasselOutputCount = 8;
+  const std::filesystem::path output_folder_path =
+      run_options.output_folder_override.empty()
+          ? (synthetic_dataset_root / "SyntheticTassels")
+          : std::filesystem::absolute(run_options.output_folder_override);
 
 #ifdef LSYSTEM_PLUGIN
-  constexpr bool kUseRealisticLidarNoise = true;
-  constexpr uint32_t kTasselDatasetSeed = 42u;
   constexpr TasselGenerationContextMode kTasselGenerationContextMode = TasselGenerationContextMode::Auto;
 
   bool use_existing_scene_entities = false;
@@ -789,18 +1114,49 @@ int main() {
 
   const auto tassel_output_folder = output_folder_path;
   EVOENGINE_LOG("Synthetic tassel export folder: " + tassel_output_folder.string());
-  EVOENGINE_LOG("Synthetic tassel sample count: " + std::to_string(kTasselOutputCount));
-  tassel_mesh_point_cloud_skeleton(kTasselOutputCount, scene_tassel_context, use_existing_scene_entities,
+  EVOENGINE_LOG("Synthetic tassel sample count: " + std::to_string(run_options.output_count));
+  EVOENGINE_LOG("Synthetic tassel sample index start: " + std::to_string(run_options.sample_index_start));
+  EVOENGINE_LOG("Synthetic tassel dataset seed base: " + std::to_string(run_options.dataset_seed));
+  EVOENGINE_LOG("Synthetic tassel seed mode: " +
+                std::string(run_options.use_hashed_seed ? "hashed" : "incremental"));
+  EVOENGINE_LOG("Target points override: " +
+                std::string(run_options.force_target_points ? "enabled" : "disabled") +
+                (run_options.force_target_points
+                     ? (", target_points=" + std::to_string(run_options.target_points))
+                     : ""));
+  EVOENGINE_LOG("Scanner capture jitter: " + std::string(run_options.apply_per_seed_scanner_jitter ? "enabled" : "disabled"));
+  EVOENGINE_LOG("Exports mesh/point/flow/node: " +
+                std::string(run_options.export_mesh ? "1" : "0") + "/" +
+                std::string(run_options.export_point_cloud ? "1" : "0") + "/" +
+                std::string(run_options.export_flow_graph ? "1" : "0") + "/" +
+                std::string(run_options.export_node_graph ? "1" : "0"));
+
+  tassel_mesh_point_cloud_skeleton(run_options.output_count,
+                                   run_options.sample_index_start,
+                                   scene_tassel_context,
+                                   use_existing_scene_entities,
                                    capture_mode,
-                                   tassel_output_folder, kUseRealisticLidarNoise, kTasselDatasetSeed);
+                                   tassel_output_folder,
+                                   run_options.realistic_noise,
+                                   run_options.dataset_seed,
+                                   run_options.use_hashed_seed,
+                                   run_options.apply_per_seed_scanner_jitter,
+                                   run_options.force_target_points,
+                                   run_options.target_points,
+                                   run_options.export_mesh,
+                                   run_options.export_point_cloud,
+                                   run_options.export_flow_graph,
+                                   run_options.export_node_graph);
 #endif
 
   EVOENGINE_LOG("Generation Finished!")
 
   // Open File Explorer for generated files.
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-  const auto folder_path = output_folder_path.string();
-  ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
+  if (run_options.open_output_folder) {
+    const auto folder_path = output_folder_path.string();
+    ShellExecuteA(nullptr, "open", folder_path.c_str(), nullptr, nullptr, SW_SHOWDEFAULT);
+  }
 #endif
   Application::Terminate();
   return 0;

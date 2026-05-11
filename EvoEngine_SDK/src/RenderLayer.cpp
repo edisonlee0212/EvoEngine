@@ -18,6 +18,10 @@
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
+#include <algorithm>
+#include <cctype>
+#include <limits>
+#include <sstream>
 using namespace evo_engine;
 
 void RenderLayer::RenderToPointLightShadowMap(
@@ -1126,6 +1130,10 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (Platform::MeshShaderEnabled())
     ImGui::Checkbox("Meshlet", &enable_meshlet);
   ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
+  ImGui::Checkbox("Needle state audit", &debug_needle_state_audit);
+  ImGui::Checkbox("Needle hard reset", &debug_needle_hard_reset);
+  ImGui::DragInt("Needle max logs/frame", &debug_needle_max_logs_per_frame, 1.0f, 1, 256);
+  debug_needle_max_logs_per_frame = std::max(1, debug_needle_max_logs_per_frame);
   render_settings.OnInspect(editor_layer);
 }
 
@@ -1920,15 +1928,142 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           instanced_deferred_prepass_pipeline->Bind(vk_command_buffer);
           instanced_deferred_prepass_pipeline->BindDescriptorSet(
               vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+
+          const auto current_frame = Platform::GetFrameCount();
+          static uint32_t last_debug_frame = std::numeric_limits<uint32_t>::max();
+          static int debug_logs_this_frame = 0;
+          if (last_debug_frame != current_frame) {
+            last_debug_frame = current_frame;
+            debug_logs_this_frame = 0;
+          }
+
+          const auto to_lower = [](std::string value) {
+            std::transform(value.begin(), value.end(), value.begin(),
+                           [](const unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return value;
+          };
+
+          const auto maybe_get_needle_instance =
+              [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance)
+              -> std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance> {
+            const auto instanced_instance =
+                std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
+            if (!instanced_instance || !instanced_instance->material || !instanced_instance->material->vertex_color_only) {
+              return {};
+            }
+            if (!scene || !scene->IsEntityValid(instanced_instance->owner)) {
+              return instanced_instance;
+            }
+            const auto entity_name_lower = to_lower(scene->GetEntityName(instanced_instance->owner));
+            if (entity_name_lower.find("needle") != std::string::npos ||
+                entity_name_lower.find("pine") != std::string::npos) {
+              return instanced_instance;
+            }
+            // Any instanced vertex-color-only draw is relevant to this audit.
+            return instanced_instance;
+          };
+
+          const auto log_needle_draw_audit =
+              [&](const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& instanced_instance,
+                  const RenderInstancePushConstant& push_constant) {
+            if (!debug_needle_state_audit || !instanced_instance ||
+                debug_logs_this_frame >= debug_needle_max_logs_per_frame) {
+              return;
+            }
+            std::string entity_name = "<api>";
+            if (scene && scene->IsEntityValid(instanced_instance->owner)) {
+              entity_name = scene->GetEntityName(instanced_instance->owner);
+            }
+
+            const auto& material_blocks = current_render_instances->GetMaterialInfoBlocks();
+            const auto& instance_blocks = current_render_instances->GetInstanceInfoBlocks();
+
+            const int material_index = instanced_instance->material_index;
+            const bool valid_material_index = material_index >= 0 && material_index < static_cast<int>(material_blocks.size());
+            const bool valid_instance_index =
+                push_constant.instance_index >= 0 && push_constant.instance_index < static_cast<int>(instance_blocks.size());
+
+            int block_material_index = -1;
+            int block_vertex_color_only = -1;
+            float block_transmission = -1.0f;
+            if (valid_material_index) {
+              block_vertex_color_only = material_blocks[material_index].vertex_color_only;
+              block_transmission = material_blocks[material_index].transmission;
+            }
+            if (valid_instance_index) {
+              block_material_index = instance_blocks[push_constant.instance_index].material_index;
+            }
+
+            const auto particle_count =
+                instanced_instance->particle_infos
+                    ? static_cast<int>(instanced_instance->particle_infos->PeekParticleInfoList().size())
+                    : 0;
+
+            VkDescriptorSet set0 = VK_NULL_HANDLE;
+            VkDescriptorSet set1 = VK_NULL_HANDLE;
+            if (per_frame_descriptor_sets_[current_frame_index]) {
+              set0 = per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet();
+            }
+            if (instanced_instance->particle_infos) {
+              set1 = instanced_instance->particle_infos->GetDescriptorSet()->GetVkDescriptorSet();
+            }
+
+            std::ostringstream os;
+            os << "NeedleDrawAudit frame=" << current_frame << " cam=" << camera_index
+               << " drawInstance=" << push_constant.instance_index
+               << " entity='" << entity_name << "'"
+               << " matIdx(render)=" << material_index
+               << " matIdx(block)=" << block_material_index
+               << " vco(cpu)=" << static_cast<int>(instanced_instance->material->vertex_color_only)
+               << " vco(block)=" << block_vertex_color_only
+               << " transmission(block)=" << block_transmission
+               << " castShadow=" << static_cast<int>(instanced_instance->cast_shadow)
+               << " particleCount=" << particle_count
+                     << " set0=" << set0
+                     << " set1=" << set1
+               << " meshAttr[n/t/uv/c]="
+               << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.normal : false)
+               << "/"
+               << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.tangent : false)
+               << "/"
+               << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.tex_coord : false)
+               << "/"
+               << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.color : false);
+            EVOENGINE_WARNING(os.str());
+            debug_logs_this_frame++;
+          };
+
+          const auto hard_reset_instanced_state =
+              [&](const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& instanced_instance) {
+            if (!debug_needle_hard_reset || !instanced_instance || !instanced_instance->particle_infos) {
+              return;
+            }
+            instanced_deferred_prepass_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+            instanced_deferred_prepass_pipeline->states.SetViewportScissor(view_port);
+            instanced_deferred_prepass_pipeline->Bind(vk_command_buffer);
+            instanced_deferred_prepass_pipeline->BindDescriptorSet(
+                vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+            instanced_deferred_prepass_pipeline->BindDescriptorSet(
+                vk_command_buffer, 1, instanced_instance->particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
+            GeometryStorage::BindVertices(vk_command_buffer);
+          };
+
           current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
               [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = camera_index;
                 push_constant.instance_index = render_instance->instance_index;
+
+                const auto needle_instance = maybe_get_needle_instance(render_instance);
+                hard_reset_instanced_state(needle_instance);
+
                 instanced_deferred_prepass_pipeline->states.polygon_mode =
                     wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
                 instanced_deferred_prepass_pipeline->states.cull_mode = render_instance->cull_mode;
                 instanced_deferred_prepass_pipeline->states.line_width = render_instance->line_width;
+
+                log_needle_draw_audit(needle_instance, push_constant);
+
                 const auto prim_count =
                     render_instance->Render(vk_command_buffer, push_constant, instanced_deferred_prepass_pipeline);
                 if (count_draw_calls) {

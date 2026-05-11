@@ -7,10 +7,9 @@
 #include <string>
 #include <vector>
 #include <Plot2D.hpp>
+#include "ILSystemExplorableDescriptor.hpp"
 
 namespace l_system_plugin {
-
-class MaizeTasselDescriptor;
 
 enum class ParamMotionMode : int {
   Stopped = 0,
@@ -36,7 +35,10 @@ class ParamSpaceExplorer {
   float speed = 1.0f;
   bool playing = false;
 
-  void Bind(MaizeTasselDescriptor& desc);
+  /// Bind any descriptor that implements ILSystemExplorableDescriptor.
+  /// Triggers RebuildAxes() which delegates axis registration back to the
+  /// descriptor via RegisterExplorableAxes.
+  void Bind(ILSystemExplorableDescriptor& desc);
   bool IsBound() const { return bound_desc_ != nullptr; }
 
   /// Draw controls + parallel-coords canvas. Returns true if any parameter changed.
@@ -46,8 +48,33 @@ class ParamSpaceExplorer {
   void SaveSnapshotA();
   void SaveSnapshotB();
 
+  // -- Axis registration helpers (called from ILSystemExplorableDescriptor
+  //    ::RegisterExplorableAxes implementations). --
+
+  void AddAxis(const std::string& label,
+               const std::string& short_label,
+               float min_val,
+               float max_val,
+               std::function<float()> getter,
+               std::function<void(float)> setter);
+
+  void AddSingle(const std::string& label_prefix,
+                 const std::string& short_prefix,
+                 evo_engine::SingleDistribution<float>& dist,
+                 float mean_min,
+                 float mean_max,
+                 float deviation_max);
+
+  void AddPlotted(const std::string& label_prefix,
+                  const std::string& short_prefix,
+                  evo_engine::PlottedDistribution<float>& dist);
+
+  void AddCurve(const std::string& label_prefix,
+                const std::string& short_prefix,
+                evo_engine::Curve2D& curve);
+
  private:
-  MaizeTasselDescriptor* bound_desc_ = nullptr;
+  ILSystemExplorableDescriptor* bound_desc_ = nullptr;
   std::vector<ParamSpaceAxis> axes_;
   uint64_t schema_signature_ = 0;
 
@@ -76,28 +103,6 @@ class ParamSpaceExplorer {
   // Helpers.
   void RebuildAxes();
   uint64_t ComputeSchemaSignature() const;
-
-  void AddAxis(const std::string& label,
-               const std::string& short_label,
-               float min_val,
-               float max_val,
-               std::function<float()> getter,
-               std::function<void(float)> setter);
-
-  void AddSingle(const std::string& label_prefix,
-                 const std::string& short_prefix,
-                 evo_engine::SingleDistribution<float>& dist,
-                 float mean_min,
-                 float mean_max,
-                 float deviation_max);
-
-  void AddPlotted(const std::string& label_prefix,
-                  const std::string& short_prefix,
-                  evo_engine::PlottedDistribution<float>& dist);
-
-  void AddCurve(const std::string& label_prefix,
-                const std::string& short_prefix,
-                evo_engine::Curve2D& curve);
 
   float GetNormalized(size_t i) const;
   void SetNormalized(size_t i, float t01);

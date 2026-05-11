@@ -1,0 +1,184 @@
+// =============================================================================
+//  tassel_internode.mesh — Phase 1a mesh shader for tassel internode cylinders.
+//
+//  One workgroup per surviving internode instance. Reads the compact
+//  TasselInternodeInstance SoA (48 B per instance) and procedurally emits a
+//  6-radial-segment cylinder (12 vertices, 12 triangles) whose unit mesh
+//  matches the CPU-side GenerateUnitCylinderMesh helper in MaizeTassel.cpp.
+//
+//  Phase 1a invariant: visual output must be pixel-equivalent to the
+//  existing ParticleInfo path so the Phase 1 visual-diff acceptance gate
+//  passes. The CPU packer (TasselInstancePacker.cpp) pre-applies the
+//  cylinder_axis_fix quaternion so this shader does a single quat_rotate
+//  per vertex to transform from cylinder-local space into world space.
+//
+//  See TasselInstanceSoA.hpp for the C++ mirror of the SSBO struct.
+// =============================================================================
+
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+// NOTE: BasicConstants.glsl is intentionally NOT included (see the matching
+// note in tassel_internode.task). The combined push block below carries
+// camera_index for use with EE_CAMERAS[...].
+#include "PerFrame.glsl"
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+
+// Must match kTasselInternodeRadialSegments in TasselInstanceSoA.hpp.
+const uint RADIAL = 6u;
+const uint V_COUNT = 2u * RADIAL;   // bottom ring + top ring
+const uint T_COUNT = 2u * RADIAL;   // two triangles per radial sector
+
+layout(max_vertices = 12, max_primitives = 12) out;
+
+// ---- Vertex / primitive outputs (match EcoSysLab convention) ----------------
+
+layout(location = 0) out MS_V_OUT {
+    vec3 FragPos;
+    vec3 Normal;
+    vec3 Tangent;
+    vec2 TexCoord;
+    vec4 Color;
+} ms_v_out[];
+
+layout(location = 5) perprimitiveEXT out MS_PRIM_OUT {
+    int MaterialIndex;
+} ms_prim[];
+
+// ---- TasselInternodeInstance SSBO (mirror of tassel_internode.task) --------
+
+struct TasselInternodeInstance {
+    vec4 pos_length;
+    vec4 rot;
+    vec4 color_thick;
+};
+
+// TODO(phase1b): finalize set/binding alongside the pipeline state object.
+layout(set = 1, binding = 0) readonly buffer TasselInternodeBuffer {
+    TasselInternodeInstance tassel_internodes[];
+};
+
+// Mirrors the block in tassel_internode.task. Must match exactly: the same
+// push range is bound for both stages.
+layout(push_constant) uniform TASSEL_INTERNODE_CONSTANTS {
+    int  instance_index;
+    int  camera_index;
+    int  light_split_index;
+    uint tassel_internode_count;
+    // World transform of the owning MaizeTassel entity (see .task).
+    mat4 model;
+};
+
+// ---- Task payload (mirror of tassel_internode.task's Payload) --------------
+
+struct Payload {
+    uint base_id;
+    uint count;
+    uint8_t delta_ids[EXT_TASK_WORK_GROUP_INVOCATIONS];
+};
+
+taskPayloadSharedEXT Payload payload;
+
+// ---- Math helpers ----------------------------------------------------------
+
+// Rotate vector v by quaternion q = (x, y, z, w). Standard identity:
+//   v' = 2 (q.xyz . v) q.xyz + (w^2 - q.xyz . q.xyz) v + 2 w (q.xyz x v)
+vec3 quat_rotate(vec4 q, vec3 v) {
+    vec3 qv = q.xyz;
+    float w  = q.w;
+    return 2.0 * dot(qv, v) * qv
+         + (w * w - dot(qv, qv)) * v
+         + 2.0 * w * cross(qv, v);
+}
+
+void main() {
+    uint local_id = gl_LocalInvocationID.x;
+
+    // Resolve which SoA instance this workgroup renders. The task shader
+    // packed surviving instance ids as (base_id + delta_ids[group]).
+    uint delta = uint(payload.delta_ids[gl_WorkGroupID.x]);
+    uint instance_index = payload.base_id + delta;
+
+    TasselInternodeInstance inst = tassel_internodes[instance_index];
+
+    vec3  pos        = inst.pos_length.xyz;
+    float length     = inst.pos_length.w;
+    vec4  rot        = inst.rot;
+    vec3  color      = inst.color_thick.rgb;
+    float half_thick = inst.color_thick.w;
+
+    // Declare output counts once per workgroup.
+    SetMeshOutputsEXT(V_COUNT, T_COUNT);
+
+    // ----- Vertices: 2 rings x RADIAL vertices ----------------------------
+    // Ring 0 at y=0 (base of cylinder), ring 1 at y=length (tip).
+    // Each thread handles at most one vertex (V_COUNT=12 <= WORKGROUP_SIZE).
+    if (local_id < V_COUNT) {
+        uint ring = local_id / RADIAL;
+        uint s    = local_id % RADIAL;
+
+        float angle = float(s) * (2.0 * 3.14159265358979323846 / float(RADIAL));
+        float cx = cos(angle);
+        float cz = sin(angle);
+
+        // Local cylinder (unit radius, +Y axis).
+        vec3 local_pos = vec3(cx * half_thick,
+                              float(ring) * length,
+                              cz * half_thick);
+        vec3 local_n   = vec3(cx, 0.0, cz);
+        vec3 local_t   = vec3(0.0, 1.0, 0.0);
+
+        vec3 entity_pos = pos + quat_rotate(rot, local_pos);
+        vec3 entity_n   = quat_rotate(rot, local_n);
+        vec3 entity_t   = quat_rotate(rot, local_t);
+
+        // Lift entity-local space (info.global_position is local to the
+        // MaizeTassel owner) into world space via the per-draw model matrix.
+        // Assumes uniform scale; non-uniform scale would require a normal
+        // matrix (transpose(inverse(mat3(model)))).
+        vec3 world_pos = (model * vec4(entity_pos, 1.0)).xyz;
+        mat3 m3        = mat3(model);
+        vec3 world_n   = normalize(m3 * entity_n);
+        vec3 world_t   = normalize(m3 * entity_t);
+
+        mat4 vp = EE_CAMERAS[camera_index].projection_view;
+        gl_MeshVerticesEXT[local_id].gl_Position = vp * vec4(world_pos, 1.0);
+
+        ms_v_out[local_id].FragPos  = world_pos;
+        ms_v_out[local_id].Normal   = world_n;
+        ms_v_out[local_id].Tangent  = world_t;
+        ms_v_out[local_id].TexCoord = vec2(float(s) / float(RADIAL), float(ring));
+        ms_v_out[local_id].Color    = vec4(color, 1.0);
+    }
+
+    // ----- Triangles: 2 per radial sector --------------------------------
+    //   even t (=2s)   : (s_bottom, s_top, s1_bottom)
+    //   odd  t (=2s+1) : (s1_bottom, s_top, s1_top)
+    //
+    // Winding matches GenerateUnitCylinderMesh(...) in MaizeTassel.cpp.
+    if (local_id < T_COUNT) {
+        uint s  = local_id >> 1u;
+        uint s1 = (s + 1u) % RADIAL;
+
+        uint s_bottom  = s;
+        uint s_top     = s + RADIAL;
+        uint s1_bottom = s1;
+        uint s1_top    = s1 + RADIAL;
+
+        uvec3 tri;
+        if ((local_id & 1u) == 0u) {
+            tri = uvec3(s_bottom, s_top, s1_bottom);
+        } else {
+            tri = uvec3(s1_bottom, s_top, s1_top);
+        }
+        gl_PrimitiveTriangleIndicesEXT[local_id] = tri;
+        ms_prim[local_id].MaterialIndex = 0;  // Phase 1a: single tassel material.
+    }
+}

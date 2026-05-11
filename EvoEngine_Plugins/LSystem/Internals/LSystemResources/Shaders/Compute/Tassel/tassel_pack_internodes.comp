@@ -1,0 +1,183 @@
+// =============================================================================
+//  tassel_pack_internodes.comp — Phase 2b.2.
+//
+//  GPU equivalent of TasselInstancePacker::PackTasselInternodes(). One
+//  thread per growth-SoA node. Reads the growth outputs (length_thickness,
+//  global_position, global_rotation, type_tag) and writes the existing
+//  TasselInternodeInstance[] SSBO that tassel_internode.{task,mesh} already
+//  consume.
+//
+//  Differences vs the CPU pack (intentional, scoped):
+//    * Sparse 1:1 output (no compaction). Skipped nodes get pos_length.w=0
+//      and the task shader culls them per-instance. Eliminates the need
+//      for an atomic counter / indirect-draw arg buffer in Phase 2b.2.
+//    * Pair internodes are NOT packed (same as the CPU path's current
+//      Phase 1a behaviour — they were never wired into the GPU SSBO).
+//    * Color hashing for ByNode uses node_random_misc.w as the source
+//      handle index (the host packer must stuff node.GetIndex() there).
+//
+//  Coloring mirrors HashToColor + ResolveColor in TasselInstancePacker.cpp
+//  exactly so the visual output is bit-equivalent in synthetic tests.
+// =============================================================================
+
+#extension GL_ARB_shading_language_include : enable
+#extension GL_GOOGLE_include_directive : enable
+
+const uint WORKGROUP_SIZE = 64;
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+// Mirrors gpu::TasselTypeTag.
+const uint TAG_INTERNODE     = 1u;
+const uint TAG_SPIKELET_PAIR = 3u;
+
+// Mirrors gpu::ColorMode (TasselInstancePacker.hpp).
+const uint COLOR_SHADED      = 0u;
+const uint COLOR_BY_TYPE     = 1u;
+const uint COLOR_BY_INSTANCE = 2u;
+const uint COLOR_BY_NODE     = 3u;
+
+// Pre-computed cylinder_axis_fix = angleAxis(-pi/2, +X).
+// (cos(-pi/4), sin(-pi/4)*x, 0, 0) = (0.7071, -0.7071, 0, 0) in (w,x,y,z).
+// glm-stride memory layout: (x, y, z, w).
+const vec4 CYLINDER_AXIS_FIX =
+    vec4(-0.70710678118654752440, 0.0, 0.0, 0.70710678118654752440);
+
+// ---- Growth SoA bindings (set=0) -------------------------------------------
+// Same layout as tassel_grow.comp / tassel_propagate.comp. Bindings unused
+// by this kernel are still declared so a single descriptor set can serve
+// all three compute pipelines.
+layout(set = 0, binding = 0, std430) readonly buffer TasselGrowthHeader_b {
+    uint node_count;
+    uint depth_band_count;
+    uint instance_id;
+    uint flags;
+    uint depth_band_offsets[];
+} header;
+
+layout(set = 0, binding = 1, std430) readonly buffer ParentIndex_b      { int  parent_index[];     };
+layout(set = 0, binding = 2, std430) readonly buffer Depth_b            { uint node_depth[];       };
+layout(set = 0, binding = 3, std430) readonly buffer TypeTag_b          { uint type_tag[];         };
+layout(set = 0, binding = 4, std430) readonly buffer LocalRotation_b    { vec4 local_rotation[];   };
+layout(set = 0, binding = 5, std430) readonly buffer GrowthState_b      { vec4 growth_state[];     };
+layout(set = 0, binding = 6, std430) readonly buffer NodeRandomMisc_b   { vec4 node_random_misc[]; };
+layout(set = 0, binding = 7, std430) readonly buffer LengthThickness_b  { vec2 length_thickness[]; };
+layout(set = 0, binding = 8, std430) readonly buffer GlobalPosition_b   { vec4 global_position[];  };
+layout(set = 0, binding = 9, std430) readonly buffer GlobalRotation_b   { vec4 global_rotation[];  };
+layout(set = 0, binding = 10, std430) readonly buffer DepthSortedIndex_b { uint depth_sorted_index[]; };
+layout(set = 0, binding = 11, std430) readonly buffer CurveAtlas_b {
+    uint num_curves;
+    uint samples_per_curve;
+    uint stride;
+    uint _pad;
+    float taps[];
+} atlas;
+
+// ---- Output: TasselInternodeInstance[] (set=1, binding=0) ------------------
+// Exact mirror of gpu::TasselInternodeInstance (TasselInstanceSoA.hpp). 48 B.
+struct TasselInternodeInstance {
+    vec4 pos_length;   // (px, py, pz, length) — length=0 sentinel = skip
+    vec4 rot;          // quaternion (x, y, z, w) AFTER cylinder_axis_fix mul
+    vec4 color_thick;  // (r, g, b, half_thickness)
+};
+layout(set = 1, binding = 0, std430) buffer TasselInternodeBuffer {
+    TasselInternodeInstance tassel_internodes[];
+};
+
+// ---- Push constant ---------------------------------------------------------
+layout(push_constant) uniform PackPC {
+    uint  node_count;
+    uint  color_mode;       // gpu::ColorMode
+    vec4  instance_color;   // ByInstance only (xyz used)
+} pc;
+
+// Hamilton product q = a * b. Quaternion (x,y,z,w) convention.
+vec4 quat_mul(vec4 a, vec4 b) {
+    return vec4(
+        a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+    );
+}
+
+// Mirror of TasselInstancePacker.cpp::HashToColor() (anonymous namespace).
+vec3 hash_to_color(uint id) {
+    // Knuth hash, take low 10 bits → 1024 hue bins.
+    uint hash = id * 2654435761u;
+    float hue = float(hash & 1023u) / 1024.0;
+    const float s = 0.72;
+    const float v = 0.92;
+    float h6 = hue * 6.0;
+    int sector = int(floor(h6));
+    float f = h6 - float(sector);
+    float p = v * (1.0 - s);
+    float q = v * (1.0 - s * f);
+    float t = v * (1.0 - s * (1.0 - f));
+    int idx = sector - 6 * (sector / 6);
+    if (idx < 0) idx += 6;
+    if      (idx == 0) return vec3(v, t, p);
+    else if (idx == 1) return vec3(q, v, p);
+    else if (idx == 2) return vec3(p, v, t);
+    else if (idx == 3) return vec3(p, q, v);
+    else if (idx == 4) return vec3(t, p, v);
+    else               return vec3(v, p, q);
+}
+
+// Mirror of TasselInstancePacker.cpp::ResolveColor().
+vec3 resolve_color(uint mode, uint node_index) {
+    if (mode == COLOR_BY_NODE)     return hash_to_color(node_index);
+    if (mode == COLOR_BY_INSTANCE) return pc.instance_color.rgb;
+    if (mode == COLOR_BY_TYPE)     return vec3(0.22, 0.82, 0.33);
+    return vec3(0.45, 0.55, 0.20);  // Shaded
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.node_count) return;
+
+    uint tag = type_tag[i];
+    vec2 lt  = length_thickness[i];
+    float length_w   = lt.x;
+    float half_thick = lt.y;
+
+    // Sentinel for non-internodes / zero-length / zero-thickness — task
+    // shader will skip these. Matches the CPU pack's three skip rules.
+    // Note: TAG_SPIKELET_PAIR nodes are NOT packed as internodes (matches
+    // the CPU path's `node.data.Is<TasselInternode>()` filter exactly).
+    // Pair internodes are still drawn via a separate path (Phase 1a TODO).
+    bool alive = (tag == TAG_INTERNODE) && (length_w > 0.0) && (half_thick > 0.0);
+    if (!alive) {
+        TasselInternodeInstance dead;
+        dead.pos_length  = vec4(0.0);
+        dead.rot         = vec4(0.0, 0.0, 0.0, 1.0);
+        dead.color_thick = vec4(0.0);
+        tassel_internodes[i] = dead;
+        return;
+    }
+
+    vec4 gpos = global_position[i];
+    vec4 grot = global_rotation[i];
+
+    // Apply cylinder_axis_fix so the unit cylinder's local +Y axis maps
+    // onto the node's growth direction (which propagate.comp aligns to
+    // -Z via local-rotation composition). Matches CPU pack:
+    //   instance_rotation = global_rotation * cylinder_axis_fix
+    vec4 fixed_rot = quat_mul(grot, CYLINDER_AXIS_FIX);
+    float n = sqrt(dot(fixed_rot, fixed_rot));
+    fixed_rot = (n > 0.0) ? (fixed_rot / n) : vec4(0.0, 0.0, 0.0, 1.0);
+
+    // ByNode hash key: GPU pack uses the SoA slot index `i` directly
+    // rather than node.GetIndex() (the CPU pack's input). Result: ByNode
+    // colors WILL differ between CPU and GPU paths visually, but each
+    // node still gets a deterministic unique color. Acceptable because
+    // ByNode is a debug visualization mode only. Adding a dedicated
+    // node_handle channel to the SoA is deferred to Phase 4 when the
+    // multi-instance buffer reshuffle happens anyway.
+    vec3 color = resolve_color(pc.color_mode, i);
+
+    TasselInternodeInstance inst;
+    inst.pos_length  = vec4(gpos.xyz, length_w);
+    inst.rot         = fixed_rot;
+    inst.color_thick = vec4(color, half_thick);
+    tassel_internodes[i] = inst;
+}

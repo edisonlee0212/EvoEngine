@@ -7,13 +7,16 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "Particles.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
+#include "CpuRayTracer.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -1139,6 +1142,70 @@ void EditorLayer::SceneCameraWindow() {
           prev_y = mouse_scene_window_position_.y;
           is_dragging_previously = mouse_drag;
 
+          static bool lmb_down_previously = false;
+          static float lmb_hold_timer = 0.0f;
+          static bool long_lmb_pick_consumed = false;
+          static bool has_manual_orbit_focus_point = false;
+          static bool manual_orbit_focus_dirty = false;
+          static glm::vec3 manual_orbit_focus_point(0.0f);
+
+          const auto lmb_state = Input::GetKey(GLFW_MOUSE_BUTTON_LEFT);
+          const bool lmb_down =
+              lmb_state == Input::KeyActionType::Press || lmb_state == Input::KeyActionType::Hold;
+          if (lmb_down && !lmb_down_previously) {
+            lmb_hold_timer = 0.0f;
+            long_lmb_pick_consumed = false;
+          }
+          if (lmb_down) {
+            lmb_hold_timer += static_cast<float>(Times::DeltaTime());
+          } else {
+            lmb_hold_timer = 0.0f;
+            long_lmb_pick_consumed = false;
+          }
+
+          const bool can_pick_orbit_anchor = !lock_camera && !gizmo_using_ && scene_camera_window_hovered_ &&
+                                             !mouse_out_of_bounds;
+          if (can_pick_orbit_anchor && lmb_down && !long_lmb_pick_consumed && lmb_hold_timer >= 1.0f) {
+            if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+              auto render_instances = render_layer->GetCurrentRenderInstanceStorage();
+              if (!render_instances) {
+                render_instances = std::make_shared<RenderInstanceStorage>();
+                Bound world_bound;
+                render_instances->BuildFromScene({}, scene, world_bound);
+              }
+              if (render_instances) {
+                CpuRayTracer cpu_ray_tracer;
+                cpu_ray_tracer.Initialize(
+                    render_instances,
+                    [](uint32_t, const std::shared_ptr<Mesh>&) {
+                    },
+                    [](const uint32_t, const Entity&) {
+                    });
+
+                GlobalTransform camera_ltw;
+                camera_ltw.value = glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation);
+                const auto camera_ray = scene_camera->ScreenPointToRay(camera_ltw, mouse_scene_window_position_);
+
+                CpuRayTracer::RayDescriptor ray_descriptor{};
+                ray_descriptor.origin = camera_ray.start;
+                ray_descriptor.direction = camera_ray.direction;
+                ray_descriptor.t_min = 0.0f;
+                ray_descriptor.t_max = camera_ray.length;
+
+                CpuRayTracer::HitInfo hit_info{};
+                cpu_ray_tracer.Trace(ray_descriptor, hit_info);
+                if (hit_info.has_hit && std::isfinite(hit_info.hit.x) && std::isfinite(hit_info.hit.y) &&
+                    std::isfinite(hit_info.hit.z)) {
+                  manual_orbit_focus_point = hit_info.hit;
+                  has_manual_orbit_focus_point = true;
+                  manual_orbit_focus_dirty = true;
+                }
+              }
+            }
+            long_lmb_pick_consumed = true;
+          }
+          lmb_down_previously = lmb_down;
+
           if (mouse_drag && !lock_camera) {
             glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
             const glm::vec3 right = sceneCameraRotation * glm::vec3(1, 0, 0);
@@ -1180,36 +1247,197 @@ void EditorLayer::SceneCameraWindow() {
           bool has_selected_center = false;
           glm::vec3 selected_center(0.0f);
           glm::vec3 orbit_center(0.0f);
+          Entity orbit_target_entity{};
+          bool has_orbit_center = false;
           const auto is_finite_vec3 = [](const glm::vec3& value) {
             return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
           };
-          if (scene->IsEntityValid(selected_entity_)) {
-            const auto selected_bound = scene->GetEntityBoundingBox(selected_entity_);
-            selected_center = selected_bound.Center();
-            if (!is_finite_vec3(selected_center)) {
-              selected_center = scene->GetDataComponent<GlobalTransform>(selected_entity_).GetPosition();
+          const auto is_valid_bound = [](const Bound& bound) {
+            const bool min_finite =
+                std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z);
+            const bool max_finite =
+                std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z);
+            const bool ordered =
+                bound.min.x <= bound.max.x && bound.min.y <= bound.max.y && bound.min.z <= bound.max.z;
+            return min_finite && max_finite && ordered;
+          };
+          const auto compute_visible_center_of_mass = [&](const Entity& entity, glm::vec3& center) {
+            if (!scene->IsEntityValid(entity)) {
+              return false;
             }
+
+            auto descendants = scene->GetDescendants(entity);
+            descendants.emplace_back(entity);
+
+            glm::vec3 weighted_sum(0.0f);
+            float total_weight = 0.0f;
+            bool has_visible_geometry = false;
+
+            const auto accumulate_world_bound = [&](const Bound& bound, const glm::mat4& transform) {
+              if (!is_valid_bound(bound)) {
+                return;
+              }
+              Bound world_bound = bound;
+              world_bound.ApplyTransform(transform);
+              if (!is_valid_bound(world_bound)) {
+                return;
+              }
+
+              const glm::vec3 size = glm::max(world_bound.Size(), glm::vec3(0.0f));
+              float weight = size.x * size.y * size.z;
+              if (!std::isfinite(weight) || weight <= 1e-6f) {
+                weight = 1.0f;
+              }
+
+              weighted_sum += world_bound.Center() * weight;
+              total_weight += weight;
+              has_visible_geometry = true;
+            };
+
+            for (const auto& walker : descendants) {
+              if (!scene->IsEntityValid(walker) || !scene->IsEntityEnabled(walker)) {
+                continue;
+              }
+
+              const auto gt = scene->GetDataComponent<GlobalTransform>(walker);
+              if (scene->HasPrivateComponent<MeshRenderer>(walker)) {
+                const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(walker).lock();
+                if (mesh_renderer && mesh_renderer->IsEnabled()) {
+                  if (const auto mesh = mesh_renderer->mesh.Get<Mesh>()) {
+                    accumulate_world_bound(mesh->GetBound(), gt.value);
+                  }
+                }
+              }
+              if (scene->HasPrivateComponent<SkinnedMeshRenderer>(walker)) {
+                const auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(walker).lock();
+                if (skinned_mesh_renderer && skinned_mesh_renderer->IsEnabled()) {
+                  if (const auto skinned_mesh = skinned_mesh_renderer->skinned_mesh.Get<SkinnedMesh>()) {
+                    accumulate_world_bound(skinned_mesh->GetBound(), gt.value);
+                  }
+                }
+              }
+              if (scene->HasPrivateComponent<Particles>(walker)) {
+                const auto particles = scene->GetOrSetPrivateComponent<Particles>(walker).lock();
+                if (particles && particles->IsEnabled()) {
+                  accumulate_world_bound(particles->bounding_box, gt.value);
+                }
+              }
+              if (scene->HasPrivateComponent<StrandsRenderer>(walker)) {
+                const auto strands_renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(walker).lock();
+                if (strands_renderer && strands_renderer->IsEnabled()) {
+                  if (const auto strands = strands_renderer->strands.Get<Strands>()) {
+                    accumulate_world_bound(strands->GetBound(), gt.value);
+                  }
+                }
+              }
+            }
+
+            if (!has_visible_geometry || total_weight <= 0.0f) {
+              return false;
+            }
+
+            center = weighted_sum / total_weight;
+            return is_finite_vec3(center);
+          };
+          const auto resolve_orbit_center = [&](const Entity& entity, glm::vec3& center) {
+            if (!scene->IsEntityValid(entity)) {
+              return false;
+            }
+            if (compute_visible_center_of_mass(entity, center)) {
+              return true;
+            }
+
+            const auto fallback_bound = scene->GetEntityBoundingBox(entity);
+            center = fallback_bound.Center();
+            if (!is_finite_vec3(center)) {
+              center = scene->GetDataComponent<GlobalTransform>(entity).GetPosition();
+            }
+            return is_finite_vec3(center);
+          };
+
+          if (scene->IsEntityValid(selected_entity_) && resolve_orbit_center(selected_entity_, selected_center)) {
             has_selected_center = true;
             orbit_center = selected_center;
+            orbit_target_entity = selected_entity_;
+            has_orbit_center = true;
             last_orbit_target_entity_ = selected_entity_;
-          } else if (scene->IsEntityValid(last_orbit_target_entity_)) {
-            orbit_center = scene->GetEntityBoundingBox(last_orbit_target_entity_).Center();
-            if (!is_finite_vec3(orbit_center)) {
-              orbit_center = scene->GetDataComponent<GlobalTransform>(last_orbit_target_entity_).GetPosition();
-            }
           }
 
+          static bool orbit_focus_initialized = false;
+          static Entity orbit_focus_target_entity{};
+          static glm::vec3 orbit_focus_point(0.0f);
+          static bool orbit_focus_uses_manual_source = false;
+
           const bool middle_mouse_orbit = Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold;
+          const bool middle_mouse_pressed = Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Press;
           if (!lock_camera && middle_mouse_orbit) {
+            if (middle_mouse_pressed) {
+              if (has_manual_orbit_focus_point) {
+                if (!orbit_focus_initialized || !orbit_focus_uses_manual_source || manual_orbit_focus_dirty ||
+                    !is_finite_vec3(orbit_focus_point)) {
+                  orbit_focus_point = manual_orbit_focus_point;
+                }
+                orbit_focus_target_entity = Entity{};
+                orbit_focus_uses_manual_source = true;
+                manual_orbit_focus_dirty = false;
+              } else if (has_orbit_center) {
+                if (!orbit_focus_initialized || orbit_focus_uses_manual_source ||
+                    orbit_focus_target_entity != orbit_target_entity || !is_finite_vec3(orbit_focus_point)) {
+                  orbit_focus_point = orbit_center;
+                }
+                orbit_focus_target_entity = orbit_target_entity;
+                orbit_focus_uses_manual_source = false;
+              } else {
+                orbit_focus_point = sceneCameraPosition + sceneCameraRotation * glm::vec3(0, 0, -1) * 2.0f;
+                orbit_focus_target_entity = Entity{};
+                orbit_focus_uses_manual_source = false;
+              }
+              orbit_focus_initialized = true;
+            } else if (!orbit_focus_initialized || !is_finite_vec3(orbit_focus_point)) {
+              if (has_manual_orbit_focus_point) {
+                orbit_focus_point = manual_orbit_focus_point;
+                orbit_focus_target_entity = Entity{};
+                orbit_focus_uses_manual_source = true;
+                manual_orbit_focus_dirty = false;
+              } else if (has_orbit_center) {
+                orbit_focus_point = orbit_center;
+                orbit_focus_target_entity = orbit_target_entity;
+                orbit_focus_uses_manual_source = false;
+              } else {
+                orbit_focus_point = sceneCameraPosition + sceneCameraRotation * glm::vec3(0, 0, -1) * 2.0f;
+                orbit_focus_target_entity = Entity{};
+                orbit_focus_uses_manual_source = false;
+              }
+              orbit_focus_initialized = true;
+            }
+
+            float current_velocity = velocity;
+            if (Input::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+              current_velocity *= 5.0f;
+            }
+            float pivot_vertical_delta = 0.0f;
+            if (Input::GetKey(GLFW_KEY_E) == Input::KeyActionType::Hold) {
+              pivot_vertical_delta += current_velocity * static_cast<float>(Times::DeltaTime());
+            }
+            if (Input::GetKey(GLFW_KEY_Q) == Input::KeyActionType::Hold) {
+              pivot_vertical_delta -= current_velocity * static_cast<float>(Times::DeltaTime());
+            }
+            if (pivot_vertical_delta != 0.0f) {
+              orbit_focus_point.y += pivot_vertical_delta;
+            }
+
+            orbit_center = orbit_focus_point;
+
             const auto& mouse_delta = ImGui::GetIO().MouseDelta;
             if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f) {
               const float orbit_sensitivity = sensitivity * 2.0f;
               auto offset = sceneCameraPosition - orbit_center;
-              float distance = glm::length(offset);
-              distance = glm::max(distance, 0.001f);
               offset = glm::rotate(offset, glm::radians(-mouse_delta.x * orbit_sensitivity), glm::vec3(0, 1, 0));
 
-              const auto view_dir = glm::normalize(orbit_center - sceneCameraPosition);
+              const auto to_center = orbit_center - sceneCameraPosition;
+              const auto view_dir = glm::length(to_center) > glm::epsilon<float>()
+                                        ? glm::normalize(to_center)
+                                        : sceneCameraRotation * glm::vec3(0, 0, -1);
               auto orbit_right = glm::cross(view_dir, glm::vec3(0, 1, 0));
               if (glm::length(orbit_right) > glm::epsilon<float>()) {
                 orbit_right = glm::normalize(orbit_right);
@@ -1222,10 +1450,19 @@ void EditorLayer::SceneCameraWindow() {
               }
 
               sceneCameraPosition = orbit_center + offset;
-              const auto front = glm::normalize(orbit_center - sceneCameraPosition);
-              const auto right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
-              const auto up = glm::normalize(glm::cross(right, front));
-              sceneCameraRotation = glm::quatLookAt(front, up);
+            }
+
+            if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f || pivot_vertical_delta != 0.0f) {
+              const auto front = orbit_center - sceneCameraPosition;
+              if (glm::length(front) > glm::epsilon<float>()) {
+                const auto front_direction = glm::normalize(front);
+                auto right = glm::cross(front_direction, glm::vec3(0.0f, 1.0f, 0.0f));
+                if (glm::length(right) > glm::epsilon<float>()) {
+                  right = glm::normalize(right);
+                  const auto up = glm::normalize(glm::cross(right, front_direction));
+                  sceneCameraRotation = glm::quatLookAt(front_direction, up);
+                }
+              }
             }
           }
 
@@ -1233,6 +1470,7 @@ void EditorLayer::SceneCameraWindow() {
             const bool ctrl_held = Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
                                    Input::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold;
             if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f && !ctrl_held) {
+              const float qe_reference_step = glm::max(0.01f, velocity * static_cast<float>(Times::DeltaTime()));
               const bool right_mouse_held = Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold;
               if (right_mouse_held) {
                 velocity = glm::max(0.001f, velocity * (1.0f + scroll * 0.1f));
@@ -1240,14 +1478,14 @@ void EditorLayer::SceneCameraWindow() {
                 const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
                 auto offset = sceneCameraPosition - selected_center;
                 float distance = glm::length(offset);
-                float move_amount = scroll * glm::max(0.05f, distance * 0.025f);
+                float move_amount = scroll * glm::max(qe_reference_step, distance * (0.025f / 3.0f));
                 if (move_amount > distance - 0.01f) {
                   move_amount = distance - 0.01f;
                 }
                 sceneCameraPosition += front * move_amount;
               } else if (!lock_camera) {
                 const glm::vec3 front = sceneCameraRotation * glm::vec3(0, 0, -1);
-                const float move_amount = scroll * glm::max(0.05f, velocity * 0.125f);
+                const float move_amount = scroll * qe_reference_step;
                 sceneCameraPosition += front * move_amount;
               }
             }

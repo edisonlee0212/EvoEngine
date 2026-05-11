@@ -1,0 +1,91 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+// =============================================================================
+// compact.comp — stream-compact survivors + staged successors into a fresh
+// module SoA after derive.comp.
+//
+// Phase 3a contract (interface lock):
+//   Input:
+//     * Module SoA from the previous step (read-only).
+//     * pending_rule_kind[] — 0xFFFFFFFFu means "not rewritten" (survives
+//                              as-is); a Death rule (max_successors==0)
+//                              means "drop self".
+//     * staged[] from derive.comp — already populated by pass B.
+//   Output:
+//     * New module SoA with surviving + new modules contiguous.
+//     * New parent_index[] — re-mapped through the survival permutation.
+//     * Unique alive_count returned via the StagingCounterBuf.staging_counter
+//       (reused as the new module count after compaction).
+//
+// Algorithm (Phase 3b plan; this file is the entry-point + binding lock):
+//   Pass C1: per-old-node, classify (Survive | Drop | Replace) and
+//            atomic-allocate one slot in the new SoA per Survive/Replace.
+//            Replace also reserves rule.max_successors extra slots.
+//   Pass C2: scatter survivors and staged successors into reserved slots.
+//   Pass C3: rebuild parent_index by reading old_to_new[parent_old].
+//
+// Phase 3a stub: only Pass C1 is sketched — body is a TODO marker. The
+// host will run derive then immediately copy old SoA back as new SoA so
+// the rest of the per-frame pipeline keeps running while compaction is
+// being implemented.
+// =============================================================================
+
+#define WG_SIZE 64
+
+#define COMPACT_PASS_CLASSIFY 0u
+#define COMPACT_PASS_SCATTER  1u
+#define COMPACT_PASS_REPARENT 2u
+
+layout(local_size_x = WG_SIZE) in;
+
+layout(push_constant) uniform CompactConsts {
+  uint old_node_count;
+  uint pass;
+  uint instance_id;
+  uint flags;
+} pc;
+
+// Re-uses the same bindings as derive.comp where possible (so the same
+// descriptor set can serve both shaders) — Phase 3b will finalise.
+layout(set = 0, binding = 0, std430) readonly buffer TypeTagBufOld   { uint type_tag_old[]; };
+layout(set = 0, binding = 1, std430) readonly buffer ParentIndexOld  { int  parent_index_old[]; };
+layout(set = 0, binding = 5, std430) readonly buffer PendingRuleKind {
+  uint pending_rule_kind[];
+};
+layout(set = 0, binding = 9, std430) buffer OldToNewBuf {
+  // For each old node, maps to its new index after compaction. 0xFFFFFFFFu
+  // means "dropped". For Replace rules, this stores the new index of the
+  // FIRST staged successor; the remaining successors live at consecutive
+  // indices.
+  uint old_to_new[];
+};
+layout(set = 0, binding = 8, std430) buffer NewCountBuf {
+  uint new_count;
+};
+
+void main() {
+  uint old_idx = gl_GlobalInvocationID.x;
+  if (old_idx >= pc.old_node_count) return;
+
+  if (pc.pass == COMPACT_PASS_CLASSIFY) {
+    uint rk = pending_rule_kind[old_idx];
+    // Phase 3a: simple classifier. Phase 3b extends with rule-aware logic
+    // (e.g. an Apex rewritten by Order0AxisExtension is replaced, not
+    // survived — but the rewriting rule already emitted a "new apex" in
+    // its successors so the old apex is dropped and the new one takes
+    // its place via the staged buffer).
+    if (rk == 0xFFFFFFFFu) {
+      // No rule matched → survive in place.
+      uint new_idx = atomicAdd(new_count, 1u);
+      old_to_new[old_idx] = new_idx;
+    } else {
+      // Rewritten → drop self; staged successors will be compacted from
+      // the staging buffer in COMPACT_PASS_SCATTER.
+      old_to_new[old_idx] = 0xFFFFFFFFu;
+    }
+    return;
+  }
+
+  // COMPACT_PASS_SCATTER and COMPACT_PASS_REPARENT bodies: TODO Phase 3b.
+}

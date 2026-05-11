@@ -48,6 +48,15 @@ class RenderLayer final : public ILayer {
   /// Specifies whether indirect rendering is enabled.
   bool enable_indirect_rendering = true;
 
+  /// Logs per-draw material/instance state for needle-like instanced draws.
+  bool debug_needle_state_audit = true;
+
+  /// Rebinds pipeline/descriptors/vertex buffers before each needle-like instanced draw.
+  bool debug_needle_hard_reset = true;
+
+  /// Per-frame log cap for needle draw auditing.
+  int debug_needle_max_logs_per_frame = 8;
+
   /// Specifies the rendering settings.
   RenderSettings render_settings{};
 

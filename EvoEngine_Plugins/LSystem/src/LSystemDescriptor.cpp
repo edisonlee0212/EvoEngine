@@ -1,8 +1,111 @@
 #include "LSystemDescriptor.hpp"
 #include <EditorLayer.hpp>
+#include <ProjectManager.hpp>
+#include <array>
+#include <fstream>
+#include <sstream>
+#include <yaml-cpp/yaml.h>
 
 using namespace l_system_plugin;
 using namespace evo_engine;
+
+namespace {
+
+std::filesystem::path ResolveDefaultLSystemDescriptorPath() {
+  const std::array<std::filesystem::path, 6> resource_candidates = {
+      std::filesystem::path("./LSystemResources/Defaults/LSystemDescriptor_Default.lsys"),
+      std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
+          "LSystemDescriptor_Default.lsys",
+      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New LSystemDescriptor.lsys"),
+      std::filesystem::path("./DigitalAgricultureProject/Assets/New LSystemDescriptor.lsys"),
+      std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+          "New LSystemDescriptor.lsys",
+      std::filesystem::path("./04_EvoEngine/EvoEngine_Plugins/LSystem/Internals/") /
+          "LSystemResources/Defaults/LSystemDescriptor_Default.lsys"};
+
+  for (const auto& relative_candidate : resource_candidates) {
+    const auto absolute_candidate = std::filesystem::absolute(relative_candidate);
+    if (std::filesystem::exists(absolute_candidate)) {
+      return absolute_candidate;
+    }
+  }
+
+  const auto assets_folder = ProjectManager::GetAssetsFolderPath();
+  if (!assets_folder.empty()) {
+    const std::array<std::filesystem::path, 2> project_asset_candidates = {
+        std::filesystem::path("LSystem") / "New LSystemDescriptor.lsys",
+        "New LSystemDescriptor.lsys"};
+    for (const auto& relative_candidate : project_asset_candidates) {
+      const auto absolute_candidate = assets_folder / relative_candidate;
+      if (std::filesystem::exists(absolute_candidate)) {
+        return absolute_candidate;
+      }
+    }
+  }
+
+  return {};
+}
+
+std::filesystem::path ResolveWritableLSystemDescriptorDefaultsPath() {
+  if (const auto existing = ResolveDefaultLSystemDescriptorPath(); !existing.empty()) {
+    return existing;
+  }
+
+  const std::array<std::filesystem::path, 2> writable_template_candidates = {
+      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") /
+          "New LSystemDescriptor.lsys",
+      std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+          "New LSystemDescriptor.lsys"};
+  for (const auto& candidate : writable_template_candidates) {
+    const auto absolute_candidate = std::filesystem::absolute(candidate);
+    if (std::filesystem::exists(absolute_candidate.parent_path())) {
+      return absolute_candidate;
+    }
+  }
+
+  return std::filesystem::absolute(
+      std::filesystem::path("./LSystemResources/Defaults/LSystemDescriptor_Default.lsys"));
+}
+
+bool LoadLSystemDescriptorDefaultsFromFile(LSystemDescriptor& descriptor,
+                                           const std::filesystem::path& file_path) {
+  if (file_path.empty() || !std::filesystem::exists(file_path)) {
+    return false;
+  }
+
+  try {
+    const std::ifstream stream(file_path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    const YAML::Node defaults = YAML::Load(string_stream.str());
+    if (!defaults || !defaults.IsMap()) {
+      return false;
+    }
+    descriptor.Deserialize(defaults);
+    return true;
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING("Failed to load LSystemDescriptor defaults from " + file_path.string() + ": " +
+                      std::string(e.what()));
+    return false;
+  }
+}
+
+}  // namespace
+
+LSystemDescriptor::LSystemDescriptor() {
+  const auto defaults_path = ResolveDefaultLSystemDescriptorPath();
+  if (!LoadLSystemDescriptorDefaultsFromFile(*this, defaults_path)) {
+    static bool warned_once = false;
+    if (!warned_once) {
+      warned_once = true;
+      EVOENGINE_WARNING("LSystemDescriptor defaults file not found or invalid. Using inline member defaults.");
+    }
+  }
+}
+
+std::filesystem::path LSystemDescriptor::ResolveWritableDefaultsPath() const {
+  return ResolveWritableLSystemDescriptorDefaultsPath();
+}
 
 bool LSystemDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

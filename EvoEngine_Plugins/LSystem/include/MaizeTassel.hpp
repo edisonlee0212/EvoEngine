@@ -22,6 +22,18 @@ class MaizeTassel final : public IPrivateComponent {
   static void SetGlobalColorMode(ColorMode mode);
   [[nodiscard]] static ColorMode GetGlobalColorMode();
 
+  /// Process-wide scanner-compatibility toggle. When true, RebuildGeometry()
+  /// always emits the legacy CPU `Particles` "Tassel Internodes" entity
+  /// instead of the GPU mesh-shader SSBO path, so TasselPointCloudScanner
+  /// (which enumerates only standard renderable components via
+  /// RenderInstanceStorage) can see the internodes. Default false: keep the
+  /// per-frame GPU win for interactive editing. Headless dataset generators
+  /// (DatasetGenerator::GenerateDataForTassel) flip this on for the
+  /// duration of generation. Do NOT toggle during interactive editing of an
+  /// already-rendering tassel.
+  static void SetForceCpuParticlesPath(bool force);
+  [[nodiscard]] static bool IsForceCpuParticlesPath();
+
   /// Reference to the genotype descriptor asset (required).
   AssetRef descriptor_ref;
 
@@ -49,9 +61,19 @@ class MaizeTassel final : public IPrivateComponent {
   uint32_t last_spikelet_count = 0;
   uint32_t last_invalid_instance_count = 0;
 
+#ifdef LSYSTEM_GPU_PIPELINE
+  /// Phase 1b: GPU pipeline instance id allocated lazily in RebuildGeometry.
+  /// 0 means "never allocated for this component"; the engine reserves 0
+  /// as the sentinel and starts handing out ids at 1. Released in
+  /// OnDestroy via LSystemGPUEngine::DestroyInstance.
+  uint32_t gpu_instance_id = 0;
+#endif
+
   void GenerateGeometryEntities(bool uncapped_growth = false);
   void GeneratePreviewGeometryEntities(float preview_target_gdd, uint32_t preview_max_growth_steps);
   void GrowToTargetGDD(bool uncapped_growth = false);
+  void SetSeasonalChronologicalMode(bool enable_independent_chronological_clock);
+  bool AdvanceChronologicalAging(float delta_years);
   void RebuildGeometry();
   void ClearGeometryEntities() const;
   void ExportObj(const std::filesystem::path& path) const;

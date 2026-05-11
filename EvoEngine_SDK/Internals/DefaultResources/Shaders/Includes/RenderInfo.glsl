@@ -19,6 +19,11 @@ struct RenderInfo {
   int point_light_size;
   int spot_light_size;
   int brdf_lut_map_index;
+
+  int instance_size;
+  int material_size;
+  int padding_1;
+  int padding_2;
 };
 
 layout(set = EE_RENDER_INFO_BLOCK_SET, binding = EE_RENDER_INFO_BLOCK_BINDING) uniform EE_RENDER_INFO_BLOCK {

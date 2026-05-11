@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <string>
 
 namespace dataset_generation_plugin {
 using namespace evo_engine;
@@ -103,6 +104,14 @@ class TasselPointCloudGridCaptureSettings : public PointCloudCaptureSettings {
   int scan_resolution = 128;       // Rays per image edge.
   int scan_resolution_deviation = 0;
 
+  // --- Circular mode point-budget controls ---
+  bool point_budget_enabled = false;
+  int target_points = 0;
+  int target_points_deviation = 0;
+  float target_points_tolerance_ratio = 0.10f;
+  int target_points_max_retry_passes = 1;
+  bool downsample_to_budget_max = true;
+
   bool OnInspect() override;
   void Save(const std::string& name, YAML::Emitter& out) const override;
   void Load(const std::string& name, const YAML::Node& in) override;
@@ -201,6 +210,32 @@ class TasselPointCloudScanner : public IPrivateComponent {
 
  private:
   struct ScanExecutionResult {
+    struct CountSummary {
+      size_t generated_samples = 0;
+      size_t ray_hit_samples = 0;
+      size_t sample_filter_rejected = 0;
+      size_t range_filter_rejected = 0;
+      size_t dropout_rejected = 0;
+      size_t bound_rejected = 0;
+      size_t kept_before_budget = 0;
+      size_t kept_after_budget = 0;
+      int scan_resolution_used = 0;
+      int circular_view_count = 0;
+    };
+
+    struct BudgetSummary {
+      bool enabled = false;
+      int target_points = 0;
+      int min_points = 0;
+      int max_points = 0;
+      float tolerance_ratio = 0.0f;
+      int max_retry_passes = 0;
+      int retry_passes_used = 0;
+      bool downsample_to_budget_max = false;
+      bool downsample_applied = false;
+      std::string status = "disabled";
+    };
+
     std::vector<PointCloudSample> samples;
     std::vector<uint8_t> sample_kept;
     std::vector<glm::vec3> sample_points;
@@ -208,6 +243,14 @@ class TasselPointCloudScanner : public IPrivateComponent {
     std::vector<int> instance_indices;
     std::vector<int> type_indices;
     std::vector<glm::vec3> colors;
+
+    CountSummary counts{};
+    BudgetSummary budget{};
+    std::string scan_mode_name = "Unknown";
+    int scan_seed = 0;
+    TasselPointCloudPointSettings effective_point_settings{};
+    bool has_effective_capture_settings = false;
+    TasselPointCloudGridCaptureSettings effective_capture_settings{};
   };
 
   bool ExecuteDeterministicScan(const std::shared_ptr<TasselPointCloudScannerDescriptor>& active_descriptor,

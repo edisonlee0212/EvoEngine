@@ -1,0 +1,216 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+// =============================================================================
+// derive.comp — GPU topology rewriting (scaffold).
+//
+// Phase 3a contract (interface lock; per-rule kernels stubbed):
+//   Two-pass rewriting following CPU DerivationEngine::ApplyTopologyRules
+//   (DerivationEngine.hpp lines 138-208).
+//
+//     Pass A (this file)
+//       For each live module:
+//         1. Find best matching rule (predicate test + priority tiebreak)
+//         2. Compute upper-bound successor count (≤ rule.max_successors)
+//         3. Reserve N output slots in the staging buffer via atomic add
+//         4. Stamp pending_rule_kind[i] + pending_slot_base[i]
+//
+//     Pass B (the host issues the same shader with a different push-constant
+//             flag — alternative: split into a second shader file, deferred
+//             to Phase 3b once we know whether the divergence cost matters)
+//       For each module with a pending rule:
+//         1. Re-derive RNG state (stateless — keyed on node_random + salt)
+//         2. Run the per-rule kernel that writes Successor records into
+//            the reserved slots
+//         3. Mark self as Death/Replace per ProductionResult semantics
+//
+//   Compaction: a separate compact.comp pass copies surviving + new
+//   modules into a contiguous output buffer when fragmentation crosses
+//   threshold.
+//
+// Phase 3a deliberately stubs every rule kernel — the complete kernels
+// live in derive_tassel_kernels.glsl (Phase 3b). This file pins:
+//   - SSBO bindings (1 RuleTable + 1 ParamBlock + module SoA + staging)
+//   - hash-RNG include site (hash_rng.glsl)
+//   - per-rule switch dispatch shape
+//   - atomic reservation pattern
+//   - max_successors bound check
+//
+// Determinism notes:
+//   * RNG draws are keyed on (node_random, rule_salt, draw_index). Both
+//     passes derive the same root from the same node — re-running pass B
+//     reproduces pass A's reservation exactly (so the upper-bound count
+//     never overshoots).
+//   * pending_slot_base is monotonically assigned by pass A's atomic
+//     order, which IS divergent across runs. The output module ORDER
+//     therefore differs run-to-run; the SortLists() that the CPU calls
+//     after each derivation step is reproduced GPU-side by the
+//     subsequent topology-aware re-pack (Phase 3b: a parallel BFS sort
+//     keyed on parent_index — matches DerivationEngine flow).
+// =============================================================================
+
+#include "hash_rng.glsl"
+
+#define WG_SIZE 64
+#define MAX_SUCCESSORS_PER_RULE 4u
+
+#define DERIVE_PASS_RESERVE 0u
+#define DERIVE_PASS_EMIT    1u
+
+layout(local_size_x = WG_SIZE) in;
+
+// ---- Push constants ------------------------------------------------------
+
+layout(push_constant) uniform DeriveConsts {
+  uint node_count;
+  uint rule_count;
+  uint pass;             // DERIVE_PASS_RESERVE or DERIVE_PASS_EMIT
+  uint derivation_step;  // for staging-buffer base offset
+  uint instance_id;
+  uint flags;            // reserved
+  uint _pad0;
+  uint _pad1;
+} pc;
+
+// ---- Bindings (set 0; final indices TBD in Phase 3b PSO registration) ---
+
+// Module SoA (read-only; produced by TasselGrowthPacker in Phase 3a)
+layout(set = 0, binding = 0, std430) readonly buffer TypeTagBuf       { uint type_tag[]; };
+layout(set = 0, binding = 1, std430) readonly buffer GrowthStateBuf   { vec4 growth_state[]; };
+layout(set = 0, binding = 2, std430) readonly buffer NodeRandomMisc   { vec4 node_random_misc[]; };
+
+// Rule table (one descriptor per rule)
+struct RuleDescriptor {
+  uint rule_kind;
+  int  predecessor_symbol;
+  uint priority;
+  uint max_successors;
+  uint rng_salt;
+  uint param_block_offset;
+  uint param_block_size;
+  uint _pad;
+};
+layout(set = 0, binding = 3, std430) readonly buffer RuleTableBuf {
+  RuleDescriptor rules[];
+};
+layout(set = 0, binding = 4, std430) readonly buffer ParamBlockBuf {
+  uint param_block[];   // raw bytes, indexed as uint words; per-rule layout
+};
+
+// Per-node pending state — written by pass A, read by pass B
+layout(set = 0, binding = 5, std430) buffer PendingRuleKindBuf {
+  uint pending_rule_kind[];   // = 0xFFFFFFFFu if no rule matched
+};
+layout(set = 0, binding = 6, std430) buffer PendingSlotBaseBuf {
+  uint pending_slot_base[];   // index into successor_staging
+};
+
+// Successor staging buffer (atomically reserved, written in pass B)
+struct StagedSuccessor {
+  uint  symbol_id;
+  uint  parent_node_idx;   // module that produced this successor
+  uint  rule_kind;
+  uint  flags;             // bit 0 = is_branch (start a new flow)
+  vec4  growth_state;      // packed identically to TasselGrowthSoA
+  vec4  node_random_misc;  // ditto
+  vec4  local_rotation;    // pre-baked per-successor (Phase 3b will compute)
+};
+layout(set = 0, binding = 7, std430) buffer SuccessorStagingBuf {
+  StagedSuccessor staged[];
+};
+
+// Atomic counter — single uint, used to reserve staging slots in pass A.
+layout(set = 0, binding = 8, std430) buffer StagingCounterBuf {
+  uint staging_counter;
+};
+
+// ---- Helpers -------------------------------------------------------------
+
+// Map node_idx → which rule (if any) wins. Returns 0xFFFFFFFFu on no match.
+// Phase 3a: predicate evaluation reads only the type tag + a small set of
+// fields embedded in growth_state. Per-rule predicate kernels are not yet
+// implemented — this stub picks the lowest-priority rule whose
+// predecessor_symbol matches the type tag.
+uint findMatchingRuleStub(uint node_idx) {
+  uint tag = type_tag[node_idx];
+  uint best        = 0xFFFFFFFFu;
+  uint best_pri    = 0xFFFFFFFFu;
+  for (uint r = 0; r < pc.rule_count; ++r) {
+    int  pred = rules[r].predecessor_symbol;
+    if (pred >= 0 && uint(pred) != tag) continue;
+    if (rules[r].priority < best_pri) {
+      best_pri = rules[r].priority;
+      best     = r;
+    }
+  }
+  return best;
+}
+
+// Phase 3a stub: returns a conservative upper bound from the rule's
+// max_successors. Phase 3b will tighten this per-rule by inspecting the
+// branch-probability draws (e.g. order-0 axis emits 2-4 successors
+// depending on branch_prob and main_pair gating).
+uint conservativeSuccessorCount(uint rule_idx) {
+  return rules[rule_idx].max_successors;
+}
+
+// ---- Entry --------------------------------------------------------------
+
+void main() {
+  uint node_idx = gl_GlobalInvocationID.x;
+  if (node_idx >= pc.node_count) return;
+
+  if (pc.pass == DERIVE_PASS_RESERVE) {
+    uint r = findMatchingRuleStub(node_idx);
+    pending_rule_kind[node_idx] = r;
+    if (r == 0xFFFFFFFFu) {
+      pending_slot_base[node_idx] = 0xFFFFFFFFu;
+      return;
+    }
+    uint count = conservativeSuccessorCount(r);
+    if (count == 0u) {
+      // Death rule (e.g. exhaustion): no slot reservation needed.
+      pending_slot_base[node_idx] = 0xFFFFFFFFu;
+      return;
+    }
+    uint base = atomicAdd(staging_counter, count);
+    pending_slot_base[node_idx] = base;
+    return;
+  }
+
+  // DERIVE_PASS_EMIT
+  uint r = pending_rule_kind[node_idx];
+  if (r == 0xFFFFFFFFu) return;
+
+  uint base = pending_slot_base[node_idx];
+  uint kind = rules[r].rule_kind;
+  uint salt = rules[r].rng_salt;
+
+  // Re-derive the RNG root identically to pass A. node_random is in the
+  // misc.x channel.
+  float node_random = node_random_misc[node_idx].x;
+  uint  rng_root    = hashNodeSeedShared(node_random, salt);
+
+  // Phase 3a stub — actual per-rule kernel dispatch lives in
+  // derive_tassel_kernels.glsl (Phase 3b). We only zero-fill the reserved
+  // slots so the buffer is well-defined for diagnostic readback.
+  if (base == 0xFFFFFFFFu) return;
+  uint count = rules[r].max_successors;
+  for (uint i = 0; i < count; ++i) {
+    StagedSuccessor s;
+    s.symbol_id        = 0xFFFFFFFFu;
+    s.parent_node_idx  = node_idx;
+    s.rule_kind        = kind;
+    s.flags            = 0u;
+    s.growth_state     = vec4(0.0);
+    s.node_random_misc = vec4(toUnit01(pcgHashU32(rng_root, i)), 0.0, 0.0, 0.0);
+    s.local_rotation   = vec4(0.0, 0.0, 0.0, 1.0);
+    staged[base + i]   = s;
+  }
+
+  // The SuccessorTooLargeForBudget overflow case (Phase 3b): if any rule
+  // ever requests more successors than max_successors, derive.comp must
+  // detect and either (a) skip the emit and surface a warning flag, or
+  // (b) defer to a second-pass shader with a wider budget. The CPU rules
+  // currently never exceed 4, so the budget is safe.
+}

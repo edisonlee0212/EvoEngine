@@ -733,7 +733,7 @@ void GeometryStorage::UpdateParticleInfo(const std::shared_ptr<RangeDescriptor>&
                                          const std::vector<ParticleInfo>& particle_infos) {
   auto& storage = GetInstance();
   assert(range_descriptor->offset < storage.particle_info_list_data_list_.size());
-  auto& info_data = storage.particle_info_list_data_list_.at(range_descriptor->offset);
+      auto& info_data = storage.particle_info_list_data_list_.at(range_descriptor->offset);
   assert(info_data.status != ParticleInfoListDataStatus::Removed);
   if (particle_infos.empty() && info_data.particle_info_list.empty()) {
     return;

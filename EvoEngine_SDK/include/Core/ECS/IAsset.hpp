@@ -165,6 +165,22 @@ class IAsset : public ISerializable {
   }
 
   /**
+   * @brief Whether this asset exposes a writable defaults target used by the shared Asset Inspector action.
+   * @return True when ResolveWritableDefaultsPath() returns a valid target path.
+   */
+  [[nodiscard]] virtual bool SupportsDefaultsOverwrite() const {
+    return false;
+  }
+
+  /**
+   * @brief Resolves where "Overwrite Descriptor Defaults" should write this asset's serialized state.
+   * @return Absolute writable path, or empty path when unsupported/unavailable.
+   */
+  [[nodiscard]] virtual std::filesystem::path ResolveWritableDefaultsPath() const {
+    return {};
+  }
+
+  /**
    * @brief Marks all AssetRef members for serialization during prefab and scene serialization.
    * @param list A list to collect the AssetRef of all members. Push all AssetRef instances of the class members to this
    *             list to ensure proper deserialization behavior.

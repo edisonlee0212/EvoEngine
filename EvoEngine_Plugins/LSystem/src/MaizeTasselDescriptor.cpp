@@ -63,47 +63,6 @@ std::filesystem::path ResolveWritableMaizeTasselDescriptorDefaultsPath() {
       std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"));
 }
 
-bool SaveMaizeTasselDescriptorDefaultsToFile(const MaizeTasselDescriptor& descriptor,
-                                             const std::filesystem::path& file_path) {
-  if (file_path.empty()) {
-    return false;
-  }
-
-  try {
-    std::filesystem::create_directories(file_path.parent_path());
-
-    YAML::Emitter out;
-    out << YAML::BeginMap;
-    descriptor.Serialize(out);
-    out << YAML::EndMap;
-
-    std::ofstream stream(file_path.string(), std::ios::out | std::ios::trunc);
-    if (!stream.is_open()) {
-      EVOENGINE_WARNING("Failed to open defaults file for writing: " + file_path.string());
-      return false;
-    }
-
-    stream << out.c_str();
-    stream.flush();
-    if (!stream.good()) {
-      EVOENGINE_WARNING("Failed while writing defaults file: " + file_path.string());
-      return false;
-    }
-
-    return true;
-  } catch (const std::exception& e) {
-    EVOENGINE_WARNING("Failed to save MaizeTasselDescriptor defaults to " + file_path.string() + ": " +
-                      std::string(e.what()));
-    return false;
-  }
-}
-
-template <typename T>
-void SetSingleDistributionToExact(evo_engine::SingleDistribution<T>& distribution, const T value) {
-  distribution.mean = value;
-  distribution.deviation = 0.0f;
-}
-
 void LoadSingleDistributionWithScalarFallback(const YAML::Node& in,
                                               const char* key,
                                               evo_engine::SingleDistribution<float>& distribution) {
@@ -121,112 +80,10 @@ void LoadSingleDistributionWithScalarFallback(const YAML::Node& in,
   }
 }
 
-void OverwriteDescriptorFromSampledParams(MaizeTasselDescriptor& descriptor,
-                                          const SampledTasselParams& sampled) {
-  // Branch zone.
-  SetSingleDistributionToExact(descriptor.branch_node_count, static_cast<float>(sampled.branch_node_count));
-  descriptor.branch_internode_length = sampled.branch_internode_length;
-  descriptor.branch_internode_thickness = sampled.branch_internode_thickness;
-  descriptor.lateral_insertion_angle = sampled.lateral_insertion_angle;
-  descriptor.lateral_internode_length = sampled.lateral_internode_length;
-  descriptor.lateral_node_count = sampled.lateral_node_count;
-  descriptor.peduncle_branch_probability = sampled.peduncle_branch_probability;
-
-  // Central spike.
-  SetSingleDistributionToExact(descriptor.spike_node_count, static_cast<float>(sampled.spike_node_count));
-  descriptor.spike_internode_length = sampled.spike_internode_length;
-  descriptor.spike_internode_thickness = sampled.spike_internode_thickness;
-  descriptor.spike_zone_branch_probability = sampled.spike_zone_branch_probability;
-
-  // Main-rachis pair morphology.
-  descriptor.main_pair_proximal_scale_x = sampled.main_pair_proximal_scale_x;
-  descriptor.main_pair_proximal_scale_y = sampled.main_pair_proximal_scale_y;
-  descriptor.main_pair_proximal_scale_z = sampled.main_pair_proximal_scale_z;
-  descriptor.main_pair_proximal_angle = sampled.main_pair_proximal_angle;
-  descriptor.main_pair_internode_length = sampled.main_pair_internode_length;
-  descriptor.main_pair_internode_thickness = sampled.main_pair_internode_thickness;
-  descriptor.main_pair_internode_angle = sampled.main_pair_internode_angle;
-  descriptor.main_pair_distal_scale_x = sampled.main_pair_distal_scale_x;
-  descriptor.main_pair_distal_scale_y = sampled.main_pair_distal_scale_y;
-  descriptor.main_pair_distal_scale_z = sampled.main_pair_distal_scale_z;
-  descriptor.main_pair_distal_angle = sampled.main_pair_distal_angle;
-
-  // Non-main-axis pair morphology.
-  descriptor.branch_pair_proximal_scale_x = sampled.branch_pair_proximal_scale_x;
-  descriptor.branch_pair_proximal_scale_y = sampled.branch_pair_proximal_scale_y;
-  descriptor.branch_pair_proximal_scale_z = sampled.branch_pair_proximal_scale_z;
-  descriptor.branch_pair_proximal_angle = sampled.branch_pair_proximal_angle;
-  descriptor.branch_pair_internode_length = sampled.branch_pair_internode_length;
-  descriptor.branch_pair_internode_thickness = sampled.branch_pair_internode_thickness;
-  descriptor.branch_pair_internode_angle = sampled.branch_pair_internode_angle;
-  descriptor.branch_pair_distal_scale_x = sampled.branch_pair_distal_scale_x;
-  descriptor.branch_pair_distal_scale_y = sampled.branch_pair_distal_scale_y;
-  descriptor.branch_pair_distal_scale_z = sampled.branch_pair_distal_scale_z;
-  descriptor.branch_pair_distal_angle = sampled.branch_pair_distal_angle;
-
-  // Thermal and branch timing.
-  descriptor.lateral_initiation_delay_gdd = sampled.lateral_initiation_delay_gdd;
-  descriptor.spike_anthesis_offset_gdd = sampled.spike_anthesis_offset_gdd;
-  descriptor.primary_lateral_branch_probability = sampled.primary_lateral_branch_probability;
-  descriptor.secondary_lateral_branch_probability = sampled.secondary_lateral_branch_probability;
-
-  // Shared and secondary branch controls.
-  SetSingleDistributionToExact(descriptor.phyllotaxis_angle, sampled.phyllotaxis_angle);
-  descriptor.branch_azimuth_offset = sampled.branch_azimuth_offset;
-  SetSingleDistributionToExact(descriptor.lateral_thickness_ratio, sampled.lateral_thickness_ratio);
-  SetSingleDistributionToExact(descriptor.secondary_insertion_angle, sampled.secondary_insertion_angle);
-  SetSingleDistributionToExact(descriptor.secondary_internode_length, sampled.secondary_internode_length);
-  SetSingleDistributionToExact(descriptor.secondary_internode_thickness, sampled.secondary_internode_thickness);
-  SetSingleDistributionToExact(descriptor.secondary_node_count, static_cast<float>(sampled.secondary_node_count));
-  descriptor.final_age_gdd = sampled.final_age_gdd;
-
-  // Curves.
-  descriptor.rachis_elongation_curve = sampled.rachis_elongation_curve;
-  descriptor.rachis_thickness_curve = sampled.rachis_thickness_curve;
-  descriptor.lateral_elongation_curve = sampled.lateral_elongation_curve;
-  descriptor.lateral_thickness_curve = sampled.lateral_thickness_curve;
-  descriptor.lateral_angle_development_curve = sampled.lateral_angle_development_curve;
-  descriptor.pair_proximal_scale_curve = sampled.pair_proximal_scale_curve;
-  descriptor.pair_proximal_angle_curve = sampled.pair_proximal_angle_curve;
-  descriptor.pair_internode_length_curve = sampled.pair_internode_length_curve;
-  descriptor.pair_internode_thickness_curve = sampled.pair_internode_thickness_curve;
-  descriptor.pair_internode_angle_curve = sampled.pair_internode_angle_curve;
-  descriptor.pair_distal_scale_curve = sampled.pair_distal_scale_curve;
-  descriptor.pair_distal_angle_curve = sampled.pair_distal_angle_curve;
-
-  // Dynamic tropisms: snapshot active sampled tropisms to exact entries.
-  descriptor.tropisms.clear();
-  descriptor.tropisms.reserve(sampled.tropisms.size());
-  for (const auto& sampled_tropism : sampled.tropisms) {
-    TropismEntry entry;
-    SetSingleDistributionToExact(entry.direction_x, sampled_tropism.direction.x);
-    SetSingleDistributionToExact(entry.direction_y, sampled_tropism.direction.y);
-    SetSingleDistributionToExact(entry.direction_z, sampled_tropism.direction.z);
-    SetSingleDistributionToExact(entry.strength, sampled_tropism.strength);
-    entry.usage_chance_percent = 100.0f;
-    entry.order_response = sampled_tropism.order_response;
-    descriptor.tropisms.emplace_back(std::move(entry));
-  }
-
-  // Thermal timing.
-  SetSingleDistributionToExact(descriptor.base_temperature, sampled.base_temperature);
-  SetSingleDistributionToExact(descriptor.plastochron_gdd, sampled.plastochron_gdd);
-  SetSingleDistributionToExact(descriptor.anthesis_gdd, sampled.anthesis_gdd);
-  SetSingleDistributionToExact(descriptor.maturity_gdd, sampled.maturity_gdd);
-  SetSingleDistributionToExact(descriptor.main_axis_plastochron_scale, sampled.main_axis_plastochron_scale);
-  SetSingleDistributionToExact(descriptor.lateral_axis_plastochron_scale, sampled.lateral_axis_plastochron_scale);
-  SetSingleDistributionToExact(descriptor.lateral_bud_plastochron_scale, sampled.lateral_bud_plastochron_scale);
-  SetSingleDistributionToExact(descriptor.maturity_initiation_coupling, sampled.maturity_initiation_coupling);
-  SetSingleDistributionToExact(descriptor.reference_maturity_gdd, sampled.reference_maturity_gdd);
-  SetSingleDistributionToExact(descriptor.branch_angle_relaxation, sampled.branch_angle_relaxation);
-  SetSingleDistributionToExact(descriptor.pair_angle_relaxation, sampled.pair_angle_relaxation);
-  SetSingleDistributionToExact(descriptor.stage_1_end_t, sampled.stage_1_end_t);
-  SetSingleDistributionToExact(descriptor.stage_2_end_t, sampled.stage_2_end_t);
-  SetSingleDistributionToExact(descriptor.stage_3_end_t, sampled.stage_3_end_t);
-  SetSingleDistributionToExact(descriptor.secondary_ramp_start_t, sampled.secondary_ramp_start_t);
-  SetSingleDistributionToExact(descriptor.secondary_ramp_end_t, sampled.secondary_ramp_end_t);
-  SetSingleDistributionToExact(descriptor.mature_droop_start_t, sampled.mature_droop_start_t);
-  SetSingleDistributionToExact(descriptor.mature_droop_strength, sampled.mature_droop_strength);
+float SampleTargetGddForSeed(const evo_engine::SingleDistribution<float>& distribution,
+                             const uint32_t seed) {
+  std::mt19937 rng(seed);
+  return std::max(0.0f, SampleDistribution(distribution, rng));
 }
 
 bool LoadMaizeTasselDescriptorDefaultsFromFile(MaizeTasselDescriptor& descriptor,
@@ -263,6 +120,10 @@ MaizeTasselDescriptor::MaizeTasselDescriptor() {
           "MaizeTasselDescriptor defaults file not found or invalid. Using inline member defaults.");
     }
   }
+}
+
+std::filesystem::path MaizeTasselDescriptor::ResolveWritableDefaultsPath() const {
+  return ResolveWritableMaizeTasselDescriptorDefaultsPath();
 }
 
 // ---------------------------------------------------------------------------
@@ -410,6 +271,7 @@ Entity MaizeTasselDescriptor::Instantiate() const {
   const auto entity = scene->CreateEntity(GetTitle());
   const auto tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(entity).lock();
   tassel->descriptor_ref = GetSelf();
+  tassel->target_gdd = SampleTargetGddForSeed(target_gdd, tassel->seed);
   tassel->GenerateGeometryEntities();
 
   return entity;
@@ -432,82 +294,11 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     }
   };
 
-  const auto capture_from_selected_instance = [&](const bool emit_warning) -> bool {
-    const auto scene = Application::GetActiveScene();
-    if (!scene) {
-      if (emit_warning) {
-        EVOENGINE_WARNING("Capture failed. No active scene.");
-      }
-      return false;
-    }
-
-    const auto selected_entity = editor_layer->GetSelectedEntity();
-    if (!scene->IsEntityValid(selected_entity) || !scene->HasPrivateComponent<MaizeTassel>(selected_entity)) {
-      if (emit_warning) {
-        EVOENGINE_WARNING("Capture failed. Select a MaizeTassel entity that uses this descriptor.");
-      }
-      return false;
-    }
-
-    const auto tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(selected_entity).lock();
-    if (!tassel || tassel->descriptor_ref.Get<MaizeTasselDescriptor>().get() != this) {
-      if (emit_warning) {
-        EVOENGINE_WARNING("Capture failed. Selected MaizeTassel uses a different descriptor.");
-      }
-      return false;
-    }
-
-    if (!tassel->growth_model.IsInitialized()) {
-      tassel->GenerateGeometryEntities();
-    }
-    if (!tassel->growth_model.IsInitialized()) {
-      if (emit_warning) {
-        EVOENGINE_WARNING("Capture failed. Selected MaizeTassel has no initialized growth model.");
-      }
-      return false;
-    }
-
-    OverwriteDescriptorFromSampledParams(*this, tassel->growth_model.sampled);
-    changed = true;
-    EVOENGINE_LOG("Captured sampled parameters from selected MaizeTassel instance into descriptor: " +
-                  GetTitle());
-    return true;
-  };
-
   // -- Instantiation controls --
   if (ImGui::Button("Instantiate")) {
     editor_layer->SetSelectedEntity(Instantiate());
   }
   show_item_hover_description("Create a new MaizeTassel entity using this descriptor and select it in the scene.");
-
-  ImGui::SameLine();
-  if (ImGui::Button("Capture From Selected Instance")) {
-    capture_from_selected_instance(true);
-  }
-  show_item_hover_description("Copy sampled runtime parameters from the selected MaizeTassel entity into this descriptor.\n"
-                              "Use this to freeze a generated instance as new descriptor defaults.");
-
-  ImGui::SameLine();
-  if (ImGui::Button("Overwrite Descriptor Defaults")) {
-    const bool captured_from_instance = capture_from_selected_instance(false);
-    if (captured_from_instance) {
-      EVOENGINE_LOG("Using selected MaizeTassel instance sampled parameters for defaults overwrite.");
-    }
-
-    const auto defaults_path = ResolveWritableMaizeTasselDescriptorDefaultsPath();
-    if (SaveMaizeTasselDescriptorDefaultsToFile(*this, defaults_path)) {
-      EVOENGINE_LOG("MaizeTasselDescriptor defaults overwritten: " + defaults_path.string());
-    } else {
-      EVOENGINE_WARNING("Failed to overwrite MaizeTasselDescriptor defaults.");
-    }
-  }
-  if (ImGui::IsItemHovered()) {
-    const auto defaults_path = ResolveWritableMaizeTasselDescriptorDefaultsPath();
-    const std::string tip =
-        "Write new defaults for future MaizeTasselDescriptor assets. If a compatible MaizeTassel instance is selected, its sampled runtime values are captured first.\nPath: " +
-                            defaults_path.string();
-    ImGui::SetTooltip("%s", tip.c_str());
-  }
 
   ImGui::SameLine();
   if (ImGui::Checkbox("Live Preview", &live_preview)) {
@@ -606,6 +397,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
             const auto tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(entity).lock();
             tassel->descriptor_ref = GetSelf();
             tassel->seed = base_seed + static_cast<unsigned int>(i * grid_cols + j);
+            tassel->target_gdd = SampleTargetGddForSeed(target_gdd, tassel->seed);
 
             scene->SetParent(entity, container, false);
 
@@ -935,6 +727,15 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
       ImGui::TableHeadersRow();
 
       changed |= inspect_global_distribution_row(
+        "Target GDD",
+        target_gdd,
+        5.0f,
+        0.0f,
+        4000.0f,
+        4000.0f,
+        "Per-instance thermal target used to set MaizeTassel growth stop (target_gdd)."
+      );
+      changed |= inspect_global_distribution_row(
         "Base Temperature",
         base_temperature,
         0.5f,
@@ -1097,6 +898,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
       distribution.deviation = std::max(0.0f, distribution.deviation);
     };
 
+    clamp_distribution(target_gdd, 0.0f, 4000.0f);
     clamp_distribution(base_temperature, 0.0f, 30.0f);
     clamp_distribution(plastochron_gdd, 1.0f, 200.0f);
     clamp_distribution(anthesis_gdd, 10.0f, 1000.0f);
@@ -1180,6 +982,8 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
               if (tassel->descriptor_ref.Get<MaizeTasselDescriptor>().get() != this)
                 continue;
 
+              tassel->target_gdd = SampleTargetGddForSeed(target_gdd, tassel->seed);
+
               const float preview_target_gdd = live_preview_cap_target_gdd
                   ? std::min(tassel->target_gdd, preview_target_cap)
                   : tassel->target_gdd;
@@ -1204,6 +1008,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
               if (tassel->descriptor_ref.Get<MaizeTasselDescriptor>().get() != this)
                 continue;
 
+              tassel->target_gdd = SampleTargetGddForSeed(target_gdd, tassel->seed);
               tassel->GenerateGeometryEntities(true);
               applied_any = true;
             }
@@ -1304,6 +1109,7 @@ void MaizeTasselDescriptor::Serialize(YAML::Emitter& out) const {
   pair_distal_scale_curve.Save("pair_distal_scale_curve", out);
   pair_distal_angle_curve.Save("pair_distal_angle_curve", out);
 
+  target_gdd.Save("target_gdd", out);
   base_temperature.Save("base_temperature", out);
   plastochron_gdd.Save("plastochron_gdd", out);
   anthesis_gdd.Save("anthesis_gdd", out);
@@ -1487,6 +1293,7 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
     // Legacy compatibility: keep loading old assets that still contain this key.
   }
 
+  LoadSingleDistributionWithScalarFallback(in, "target_gdd", target_gdd);
   LoadSingleDistributionWithScalarFallback(in, "base_temperature", base_temperature);
   LoadSingleDistributionWithScalarFallback(in, "plastochron_gdd", plastochron_gdd);
   LoadSingleDistributionWithScalarFallback(in, "anthesis_gdd", anthesis_gdd);
@@ -1515,6 +1322,8 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
   LoadSingleDistributionWithScalarFallback(in, "mature_droop_start_t", mature_droop_start_t);
   LoadSingleDistributionWithScalarFallback(in, "mature_droop_strength", mature_droop_strength);
 
+  target_gdd.mean = std::clamp(target_gdd.mean, 0.0f, 4000.0f);
+  target_gdd.deviation = std::max(0.0f, target_gdd.deviation);
   base_temperature.mean = std::clamp(base_temperature.mean, 0.0f, 30.0f);
   base_temperature.deviation = std::max(0.0f, base_temperature.deviation);
   plastochron_gdd.mean = std::max(1.0f, plastochron_gdd.mean);
@@ -1603,6 +1412,110 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
       entry.order_response.Load(prefix + "order_response", in);
       tropisms.push_back(std::move(entry));
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ILSystemExplorableDescriptor: enumerate every tunable field for the
+// generic ParamSpaceExplorer panel. Lifted verbatim (incl. label keys) from
+// the previous MaizeTassel-specific ParamSpaceExplorer::RebuildAxes body so
+// axis ordering, ranges, and schema signatures stay bit-identical.
+// ---------------------------------------------------------------------------
+void MaizeTasselDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
+  auto& d = *this;
+
+  // Single distributions (mean + deviation).
+  explorer.AddSingle("branch_node_count", "BNC", d.branch_node_count, 0.0f, 80.0f, 20.0f);
+  explorer.AddSingle("spike_node_count", "SNC", d.spike_node_count, 0.0f, 120.0f, 30.0f);
+  explorer.AddSingle("phyllotaxis_angle", "PHY", d.phyllotaxis_angle, 0.0f, 360.0f, 180.0f);
+  explorer.AddSingle("branch_azimuth_offset", "BAO", d.branch_azimuth_offset, -180.0f, 180.0f, 180.0f);
+  explorer.AddSingle("lateral_thickness_ratio", "LTR", d.lateral_thickness_ratio, 0.0f, 2.0f, 1.0f);
+  explorer.AddSingle("secondary_insertion_angle", "SIA", d.secondary_insertion_angle, 0.0f, 120.0f, 60.0f);
+  explorer.AddSingle("secondary_internode_length", "SIL", d.secondary_internode_length, 0.0f, 20.0f, 10.0f);
+  explorer.AddSingle("secondary_internode_thickness", "SIT", d.secondary_internode_thickness, 0.0f, 2.0f, 1.0f);
+  explorer.AddSingle("secondary_node_count", "SNN", d.secondary_node_count, 0.0f, 20.0f, 10.0f);
+  explorer.AddSingle("final_age_gdd", "FAG", d.final_age_gdd, 0.0f, 3000.0f, 1500.0f);
+
+  // Global development distributions.
+  explorer.AddSingle("target_gdd", "TGD", d.target_gdd, 0.0f, 5000.0f, 2500.0f);
+  explorer.AddSingle("base_temperature", "TMP", d.base_temperature, -10.0f, 60.0f, 30.0f);
+  explorer.AddSingle("plastochron_gdd", "PGD", d.plastochron_gdd, 1.0f, 500.0f, 250.0f);
+  explorer.AddSingle("anthesis_gdd", "AGD", d.anthesis_gdd, 0.0f, 3000.0f, 1500.0f);
+  explorer.AddSingle("maturity_gdd", "MGD", d.maturity_gdd, 0.0f, 5000.0f, 2500.0f);
+
+  // All plotted distributions: ranges + all curve control points.
+  explorer.AddPlotted("branch_internode_length", "BIL", d.branch_internode_length);
+  explorer.AddPlotted("branch_internode_thickness", "BIT", d.branch_internode_thickness);
+  explorer.AddPlotted("lateral_insertion_angle", "LIA", d.lateral_insertion_angle);
+  explorer.AddPlotted("lateral_internode_length", "LIL", d.lateral_internode_length);
+  explorer.AddPlotted("lateral_node_count", "LNC", d.lateral_node_count);
+  explorer.AddPlotted("peduncle_branch_probability", "PBP", d.peduncle_branch_probability);
+  explorer.AddPlotted("spike_internode_length", "SIL", d.spike_internode_length);
+  explorer.AddPlotted("spike_internode_thickness", "SIT", d.spike_internode_thickness);
+  explorer.AddPlotted("spike_zone_branch_probability", "SZP", d.spike_zone_branch_probability);
+
+  explorer.AddPlotted("main_pair_proximal_scale_x", "MPX", d.main_pair_proximal_scale_x);
+  explorer.AddPlotted("main_pair_proximal_scale_y", "MPY", d.main_pair_proximal_scale_y);
+  explorer.AddPlotted("main_pair_proximal_scale_z", "MPZ", d.main_pair_proximal_scale_z);
+  explorer.AddPlotted("main_pair_proximal_angle", "MPA", d.main_pair_proximal_angle);
+  explorer.AddPlotted("main_pair_internode_length", "MIL", d.main_pair_internode_length);
+  explorer.AddPlotted("main_pair_internode_thickness", "MIT", d.main_pair_internode_thickness);
+  explorer.AddPlotted("main_pair_internode_angle", "MIA", d.main_pair_internode_angle);
+  explorer.AddPlotted("main_pair_distal_scale_x", "MDX", d.main_pair_distal_scale_x);
+  explorer.AddPlotted("main_pair_distal_scale_y", "MDY", d.main_pair_distal_scale_y);
+  explorer.AddPlotted("main_pair_distal_scale_z", "MDZ", d.main_pair_distal_scale_z);
+  explorer.AddPlotted("main_pair_distal_angle", "MDA", d.main_pair_distal_angle);
+
+  explorer.AddPlotted("branch_pair_proximal_scale_x", "BPX", d.branch_pair_proximal_scale_x);
+  explorer.AddPlotted("branch_pair_proximal_scale_y", "BPY", d.branch_pair_proximal_scale_y);
+  explorer.AddPlotted("branch_pair_proximal_scale_z", "BPZ", d.branch_pair_proximal_scale_z);
+  explorer.AddPlotted("branch_pair_proximal_angle", "BPA", d.branch_pair_proximal_angle);
+  explorer.AddPlotted("branch_pair_internode_length", "BIL", d.branch_pair_internode_length);
+  explorer.AddPlotted("branch_pair_internode_thickness", "BIT", d.branch_pair_internode_thickness);
+  explorer.AddPlotted("branch_pair_internode_angle", "BIA", d.branch_pair_internode_angle);
+  explorer.AddPlotted("branch_pair_distal_scale_x", "BDX", d.branch_pair_distal_scale_x);
+  explorer.AddPlotted("branch_pair_distal_scale_y", "BDY", d.branch_pair_distal_scale_y);
+  explorer.AddPlotted("branch_pair_distal_scale_z", "BDZ", d.branch_pair_distal_scale_z);
+  explorer.AddPlotted("branch_pair_distal_angle", "BDA", d.branch_pair_distal_angle);
+
+  explorer.AddPlotted("lateral_initiation_delay_gdd", "LID", d.lateral_initiation_delay_gdd);
+  explorer.AddPlotted("spike_anthesis_offset_gdd", "SAO", d.spike_anthesis_offset_gdd);
+  explorer.AddPlotted("primary_lateral_branch_probability", "PLP", d.primary_lateral_branch_probability);
+  explorer.AddPlotted("secondary_lateral_branch_probability", "SLP", d.secondary_lateral_branch_probability);
+
+  // Direct curve axes.
+  explorer.AddCurve("rachis_elongation_curve", "REC", d.rachis_elongation_curve);
+  explorer.AddCurve("rachis_thickness_curve", "RTC", d.rachis_thickness_curve);
+  explorer.AddCurve("lateral_elongation_curve", "LEC", d.lateral_elongation_curve);
+  explorer.AddCurve("lateral_thickness_curve", "LTC", d.lateral_thickness_curve);
+  explorer.AddCurve("lateral_angle_development_curve", "LAC", d.lateral_angle_development_curve);
+  explorer.AddCurve("pair_proximal_scale_curve", "PPS", d.pair_proximal_scale_curve);
+  explorer.AddCurve("pair_proximal_angle_curve", "PPA", d.pair_proximal_angle_curve);
+  explorer.AddCurve("pair_internode_length_curve", "PIL", d.pair_internode_length_curve);
+  explorer.AddCurve("pair_internode_thickness_curve", "PIT", d.pair_internode_thickness_curve);
+  explorer.AddCurve("pair_internode_angle_curve", "PIA", d.pair_internode_angle_curve);
+  explorer.AddCurve("pair_distal_scale_curve", "PDS", d.pair_distal_scale_curve);
+  explorer.AddCurve("pair_distal_angle_curve", "PDA", d.pair_distal_angle_curve);
+
+  // Dynamic tropism dimensions.
+  for (size_t i = 0; i < d.tropisms.size(); i++) {
+    auto& tropism = d.tropisms[i];
+    const std::string p = "tropism[" + std::to_string(i) + "]";
+    const std::string s = "T" + std::to_string(i);
+
+    explorer.AddSingle(p + ".direction_x", s + "X", tropism.direction_x, -1.0f, 1.0f, 1.0f);
+    explorer.AddSingle(p + ".direction_y", s + "Y", tropism.direction_y, -1.0f, 1.0f, 1.0f);
+    explorer.AddSingle(p + ".direction_z", s + "Z", tropism.direction_z, -1.0f, 1.0f, 1.0f);
+    explorer.AddSingle(p + ".strength", s + "S", tropism.strength, -5.0f, 5.0f, 5.0f);
+
+    auto* tropism_ptr = &d.tropisms[i];
+    explorer.AddAxis(p + ".usage_chance_percent", s + "U", 0.0f, 100.0f,
+                     [tropism_ptr]() { return tropism_ptr->usage_chance_percent; },
+                     [tropism_ptr](float v) {
+                       tropism_ptr->usage_chance_percent = std::clamp(v, 0.0f, 100.0f);
+                     });
+
+    explorer.AddPlotted(p + ".order_response", s + "O", tropism.order_response);
   }
 }
 

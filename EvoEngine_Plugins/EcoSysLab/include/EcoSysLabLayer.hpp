@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include "Climate.hpp"
 #include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
@@ -401,6 +403,18 @@ class EcoSysLabLayer : public ILayer {
   std::vector<Flower> flowers_;  ///< Stores leaf entities.
 
   std::shared_ptr<Camera> visualization_camera_;  ///< Camera used for visualization.
+
+  bool enable_seasonal_background_tint_ = true;
+  std::array<glm::vec4, 4> seasonal_background_colors_ = {
+      glm::vec4(0.42f, 0.74f, 0.44f, 1.0f),  // Spring: green
+      glm::vec4(0.90f, 0.82f, 0.30f, 1.0f),  // Summer: yellow
+      glm::vec4(0.91f, 0.49f, 0.20f, 1.0f),  // Fall: orange
+      glm::vec4(0.35f, 0.58f, 0.86f, 1.0f),  // Winter: blue
+  };
+  bool seasonal_scene_camera_override_active_ = false;
+  bool seasonal_scene_camera_prev_use_clear_color_ = false;
+  glm::vec4 seasonal_scene_camera_prev_clear_color_ = glm::vec4(59.0f / 255.0f, 85.0f / 255.0f, 143.0f / 255.0f,
+                                                                 1.0f);
 
   bool visualization_camera_window_focused_ = false;  ///< Flag indicating if the visualization window is focused.
 

@@ -136,7 +136,7 @@ void main() {
   [[unroll]]
   for (uint i = 0; i < uint(SMALL_SEGMENT_VERTEX_ITERATIONS); ++i) {
     uint vertex_index = laneID + i * WORKGROUP_SIZE;
-    if (vertex_index > SMALL_SEGMENT_VERTICES_SIZE)
+    if (vertex_index >= SMALL_SEGMENT_VERTICES_SIZE)
       break;
 
     vec3 vertex_position = positions[vertex_index];
@@ -152,7 +152,7 @@ void main() {
   [[unroll]]
   for (uint i = 0; i < uint(SMALL_SEGMENT_PRIMITIVE_ITERATIONS); ++i) {
     uint triangle_index = laneID + i * WORKGROUP_SIZE;
-    if (triangle_index <= SMALL_SEGMENT_TRIANGLE_SIZE) {
+    if (triangle_index < SMALL_SEGMENT_TRIANGLE_SIZE) {
       gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
     }
   }

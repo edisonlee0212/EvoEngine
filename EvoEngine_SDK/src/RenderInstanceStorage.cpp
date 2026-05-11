@@ -595,6 +595,18 @@ void RenderInstanceStorage::MaterialInfoBlock::Apply(const std::shared_ptr<Mater
     displacement_texture_index = -1;
   }
   displacement_intensity = target_material->material_properties.displacement_intensity;
+
+  subsurface_factor = target_material->material_properties.subsurface_factor;
+  specular_val = target_material->material_properties.specular;
+  specular_tint = target_material->material_properties.specular_tint;
+  sheen = target_material->material_properties.sheen;
+  sheen_tint = target_material->material_properties.sheen_tint;
+  clear_coat = target_material->material_properties.clear_coat;
+  clear_coat_roughness = target_material->material_properties.clear_coat_roughness;
+  ior = target_material->material_properties.ior;
+  transmission = target_material->material_properties.transmission;
+  transmission_roughness = target_material->material_properties.transmission_roughness;
+  vertex_color_only = target_material->vertex_color_only ? 1 : 0;
 }
 
 bool RenderInstanceStorage::MaterialInfoBlock::operator!=(const MaterialInfoBlock& other) const {
@@ -634,6 +646,28 @@ bool RenderInstanceStorage::MaterialInfoBlock::operator!=(const MaterialInfoBloc
   if (displacement_texture_index != other.displacement_texture_index)
     return true;
   if (displacement_intensity != other.displacement_intensity)
+    return true;
+  if (subsurface_factor != other.subsurface_factor)
+    return true;
+  if (specular_val != other.specular_val)
+    return true;
+  if (specular_tint != other.specular_tint)
+    return true;
+  if (sheen != other.sheen)
+    return true;
+  if (sheen_tint != other.sheen_tint)
+    return true;
+  if (clear_coat != other.clear_coat)
+    return true;
+  if (clear_coat_roughness != other.clear_coat_roughness)
+    return true;
+  if (ior != other.ior)
+    return true;
+  if (transmission != other.transmission)
+    return true;
+  if (transmission_roughness != other.transmission_roughness)
+    return true;
+  if (vertex_color_only != other.vertex_color_only)
     return true;
   return false;
 }

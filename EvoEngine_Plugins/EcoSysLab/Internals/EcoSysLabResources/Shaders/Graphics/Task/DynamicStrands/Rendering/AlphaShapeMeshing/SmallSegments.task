@@ -92,7 +92,7 @@ void main() {
       next_single = uniform_particles[uniform_particle.next_particle_handle].is_single_strand_particle != 0;
     }
 
-    bool render = !(uniform_particle_index_global > uniform_particles_size - 1) &&
+    bool render = (uniform_particle_index_global < uniform_particles_size) &&
                   uniform_particle.prev_particle_handle != -1 && length_valid;
     // render = render && (single || prev_single || prev_prev_single || next_single);
 

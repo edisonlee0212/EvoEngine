@@ -140,6 +140,20 @@ class AssetRef final : public ISerializable {
   }
 
   /**
+   * @brief Retrieves the underlying asset from a const asset reference.
+   *
+   * AssetRef maintains a lazy cache in Update(); allow const call sites
+   * to use the same lookup path.
+   *
+   * @tparam T The asset type, defaults to `IAsset`.
+   * @return Shared pointer to the asset if available, otherwise `nullptr`.
+   */
+  template <typename T = IAsset>
+  [[nodiscard]] std::shared_ptr<T> Get() const {
+    return const_cast<AssetRef *>(this)->Get<T>();
+  }
+
+  /**
    * @brief Assigns an asset to this `AssetRef`.
    * @tparam T The asset type, defaults to `IAsset`.
    * @param target Shared pointer to the asset to assign.

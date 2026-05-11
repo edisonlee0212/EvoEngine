@@ -9,6 +9,7 @@ layout (location = 0) in VS_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	vec2 TexCoord;
+	vec4 Color;
 } fs_in;
 
 layout (location = 0) out vec4 outNormal;
@@ -30,11 +31,15 @@ void main()
 	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	outNormal.a = instance_index;
 
-	// When instance color differs from the default white, tint albedo and use
-	// the info_index+2 convention so the lighting pass reads the stored color
-	// directly (same mechanism used by DynamicStrands visualization).
-	bool has_tint = instanceColor.r < 0.999 || instanceColor.g < 0.999 || instanceColor.b < 0.999;
-	if (has_tint) {
+	// Optional per-vertex tint path for aggregate procedural meshes.
+	// Alpha < 0.5 selects vertex-color tinting to avoid changing default
+	// instanced behavior for assets that only use instance color.
+	bool use_vertex_tint = instanceColor.a < 0.5;
+	bool has_instance_tint = instanceColor.r < 0.999 || instanceColor.g < 0.999 || instanceColor.b < 0.999;
+	if (use_vertex_tint) {
+		vec3 tinted = albedo.rgb * clamp(fs_in.Color.rgb, vec3(0.0), vec3(1.0));
+		outMaterial = vec4(tinted, instance.info_index + 2);
+	} else if (has_instance_tint) {
 		vec3 tinted = albedo.rgb * instanceColor.rgb;
 		outMaterial = vec4(tinted, instance.info_index + 2);
 	} else {

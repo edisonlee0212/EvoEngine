@@ -214,9 +214,10 @@ struct SingleDistribution {
    * @param name The name of the distribution to be displayed in the UI.
    * @param speed Adjustment speed for the distribution controls.
    * @param tip Tooltip string for the UI.
+   * @param format printf-style format string for the DragFloat widgets (e.g. "%.6f" for SI metres).
    * @return `true` if any changes were made during inspection.
    */
-  bool OnInspect(const std::string& name, float speed = 0.01f, const std::string& tip = "");
+  bool OnInspect(const std::string& name, float speed = 0.01f, const std::string& tip = "", const char* format = "%.3f");
 
   /**
    * @brief Serializes the single distribution data to a YAML emitter.
@@ -446,7 +447,7 @@ void SingleDistribution<T>::Load(const std::string& name, const YAML::Node& in) 
  * @return `true` if any changes were made during inspection.
  */
 template <class T>
-bool SingleDistribution<T>::OnInspect(const std::string& name, const float speed, const std::string& tip) {
+bool SingleDistribution<T>::OnInspect(const std::string& name, const float speed, const std::string& tip, const char* format) {
   bool changed = false;
   ImGui::PushID(name.c_str());
   if (ImGui::BeginTable("SingleDistributionInline", 3,
@@ -470,19 +471,19 @@ bool SingleDistribution<T>::OnInspect(const std::string& name, const float speed
     ImGui::TableSetColumnIndex(1);
     ImGui::SetNextItemWidth(-FLT_MIN);
     if (typeid(T).hash_code() == typeid(float).hash_code()) {
-      if (ImGui::DragFloat("##Mean", reinterpret_cast<float*>(&mean), speed))
+      if (ImGui::DragFloat("##Mean", reinterpret_cast<float*>(&mean), speed, 0.0f, 0.0f, format))
         changed = true;
     } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-      if (ImGui::DragFloat2("##Mean", reinterpret_cast<float*>(&mean), speed))
+      if (ImGui::DragFloat2("##Mean", reinterpret_cast<float*>(&mean), speed, 0.0f, 0.0f, format))
         changed = true;
     } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-      if (ImGui::DragFloat3("##Mean", reinterpret_cast<float*>(&mean), speed))
+      if (ImGui::DragFloat3("##Mean", reinterpret_cast<float*>(&mean), speed, 0.0f, 0.0f, format))
         changed = true;
     }
 
     ImGui::TableSetColumnIndex(2);
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::DragFloat("##Deviation", &deviation, speed))
+    if (ImGui::DragFloat("##Deviation", &deviation, speed, 0.0f, 0.0f, format))
       changed = true;
 
     ImGui::EndTable();

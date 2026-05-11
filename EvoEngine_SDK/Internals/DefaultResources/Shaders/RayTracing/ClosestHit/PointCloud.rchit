@@ -78,15 +78,11 @@ void main()
 	
 	float roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, tex_coord, vec4(materialProperties.roughness, 0, 0, 0)).r;
 	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, tex_coord, vec4(materialProperties.metallic, 0, 0, 0)).r;
+	float specular = clamp(materialProperties.specular, 0.0f, 1.0f);
+	float transmission = clamp(materialProperties.transmission, 0.0f, 1.0f);
 	float emission = materialProperties.emission;
 	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, tex_coord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
 	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
-
-	//Proceed...
-	float f = 1.0f;
-	if (metallic >= 0.0f){
-		f = (metallic + 2) / (metallic + 1);
-	}
 
 	hit_value.hit_count += 1;
 
@@ -95,11 +91,19 @@ void main()
 		const vec3 sample_direction = BRDF(metallic, hit_value.seed, gl_WorldRayDirectionEXT, worldNormal);
 		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, worldPosition, 1e-3f, sample_direction, 1e20f, 0);
 		const vec3 received_color = hit_value.hit_info.color.xyz;
-		combined_color = albedo.xyz * clamp(abs(dot(worldNormal, sample_direction)) * roughness + (1.f - roughness) * f, 0.0f, 1.0f) * received_color;
+		const vec3 reflected_dir = normalize(Reflect(gl_WorldRayDirectionEXT, worldNormal));
+		const float diffuse_lobe = mix(max(dot(worldNormal, sample_direction), 0.0f),
+		                               max(dot(-worldNormal, sample_direction), 0.0f),
+		                               transmission);
+		const float reflected_alignment = max(dot(reflected_dir, sample_direction), 0.0f);
+		const float specular_power = mix(48.0f, 4.0f, roughness);
+		const float specular_lobe = pow(reflected_alignment, specular_power);
+		const float shading_term = clamp((1.0f - specular) * diffuse_lobe + specular * specular_lobe, 0.0f, 1.0f);
+		combined_color = albedo.xyz * shading_term * received_color;
 	}else{
 		combined_color = EE_SKY_COLOR(worldNormal) * 1e-3f;
 	}
-	hit_value.hit_info.color = vec4(combined_color + emission * albedo.xyz, 1.0f);
+	hit_value.hit_info.color = vec4(combined_color * ao + emission * albedo.xyz, 1.0f);
 
 	hit_value.hit_info.position = worldPosition;
 	hit_value.hit_info.normal = worldNormal;

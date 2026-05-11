@@ -1,0 +1,137 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+// =============================================================================
+// grow.comp — per-node elongation + thickness update from baked Curve2D atlas.
+//
+// Phase 2a contract (interface-only; no engine-side dispatch yet):
+//   * One thread per node. Writes length_thickness[]. Optionally bumps
+//     growth_state.x (age_gdd) by gdd_step.
+//   * Reads CurveAtlas SSBO baked by CurveBaker; samples linearly.
+//   * No inter-node deps — embarrassingly parallel.
+//
+// Bindings (set 0 — to be confirmed in Phase 2b when we wire pipeline state)
+//   binding 0  uniform GrowConsts            : push-constant-ish header
+//   binding 1  readonly buffer GrowthState   : vec4[]
+//   binding 2  readonly buffer NodeRandomMisc: vec4[]
+//   binding 3  readonly buffer TypeTag       : uint[]
+//   binding 4  readonly buffer CurveAtlas    : header + float taps[]
+//   binding 5  writeonly buffer LengthThickness : vec2[]
+//
+// Curve indices used by the tassel (must match CPU bake order; see
+// MaizeTasselDescriptor.hpp for the 12 curves and their order):
+//   0 internode_length_curve
+//   1 thickness_growth_curve
+//   2 branch_angle_curve
+//   3 internode_length_along_axis_curve
+//   4..11 reserved
+//
+// Type tag values (mirror TasselTypeTag):
+//   0 Apex   1 Internode   2 Lateral   3 SpikeletPair   4 SpikeApex
+//
+// Phase 3 will replace this with a derive-aware variant that also produces
+// successor counts. Phase 7 will add async-compute overlap with the
+// previous frame's mesh-emit.
+// =============================================================================
+
+#define WG_SIZE 64
+#define TYPE_INTERNODE     1u
+#define TYPE_SPIKELET_PAIR 3u
+
+#define CURVE_INTERNODE_LENGTH    0u
+#define CURVE_THICKNESS_GROWTH    1u
+
+layout(local_size_x = WG_SIZE) in;
+
+// ---- push constant header (mirrors TasselGrowthHeader's hot fields) ------
+layout(push_constant) uniform GrowConsts {
+  uint  node_count;
+  uint  derivation_step;   // for hash-RNG keying in Phase 3
+  float gdd_step;          // thermal-time delta this frame
+  float maturity_gdd;      // shared denominator for curve sampling
+  uint  instance_id;
+  uint  flags;             // bit 0 = advance_age (skip if 0)
+  uint  _pad0;
+  uint  _pad1;
+} pc;
+
+// ---- buffers (set/binding pairs are TODO for Phase 2b) -------------------
+
+layout(set = 0, binding = 1, std430) readonly buffer GrowthStateBuf {
+  vec4 growth_state[];   // (age_gdd, target_length, target_thickness, packed_flags_as_float)
+};
+layout(set = 0, binding = 2, std430) readonly buffer NodeRandomMiscBuf {
+  vec4 node_random_misc[]; // (node_random, order, growth_progress_in, _)
+};
+layout(set = 0, binding = 3, std430) readonly buffer TypeTagBuf {
+  uint type_tag[];
+};
+layout(set = 0, binding = 4, std430) readonly buffer CurveAtlasBuf {
+  uint  num_curves;
+  uint  samples_per_curve;
+  uint  stride;            // == samples_per_curve * 2
+  uint  _pad;
+  float taps[];
+};
+layout(set = 0, binding = 5, std430) buffer LengthThicknessBuf {
+  vec2 length_thickness[]; // (length, half_thickness) — output
+};
+// growth_state is rebound writable so we can advance age_gdd in place.
+layout(set = 0, binding = 6, std430) buffer GrowthStateRwBuf {
+  vec4 growth_state_rw[];
+};
+
+// ---- helpers -------------------------------------------------------------
+
+float sampleCurve(uint curve_id, float t) {
+  if (num_curves == 0u || samples_per_curve < 2u || curve_id >= num_curves) return 0.0;
+  float clamped = clamp(t, 0.0, 1.0);
+  float scaled  = clamped * float(samples_per_curve - 1u);
+  uint  i0 = uint(floor(scaled));
+  uint  i1 = min(i0 + 1u, samples_per_curve - 1u);
+  float frac = scaled - float(i0);
+  uint  base = curve_id * stride;
+  float v0 = taps[base + i0 * 2u + 0u];
+  float v1 = taps[base + i1 * 2u + 0u];
+  return mix(v0, v1, frac);
+}
+
+// ---- entry ---------------------------------------------------------------
+
+void main() {
+  uint node_idx = gl_GlobalInvocationID.x;
+  if (node_idx >= pc.node_count) return;
+
+  uint tag = type_tag[node_idx];
+  vec4 gs   = growth_state[node_idx];
+  vec4 misc = node_random_misc[node_idx];
+
+  // Optional age advance.
+  float age_gdd = gs.x;
+  if ((pc.flags & 1u) != 0u) {
+    age_gdd += pc.gdd_step;
+    growth_state_rw[node_idx].x = age_gdd;
+  }
+
+  vec2 out_lt = vec2(0.0);
+
+  if (tag == TYPE_INTERNODE) {
+    float t = (pc.maturity_gdd > 0.0) ? clamp(age_gdd / pc.maturity_gdd, 0.0, 1.0) : 0.0;
+    float length_factor    = sampleCurve(CURVE_INTERNODE_LENGTH, t);
+    float thickness_factor = sampleCurve(CURVE_THICKNESS_GROWTH, t);
+    float length     = gs.y * length_factor;        // target_length * factor
+    float thickness  = gs.z * thickness_factor;     // target_thickness * factor
+    out_lt = vec2(length, thickness * 0.5);          // mesh shader expects half-thickness
+  } else if (tag == TYPE_SPIKELET_PAIR) {
+    // Pair internode follows the same length curve but uses pair targets.
+    float t = (pc.maturity_gdd > 0.0) ? clamp(age_gdd / pc.maturity_gdd, 0.0, 1.0) : 0.0;
+    float length_factor    = sampleCurve(CURVE_INTERNODE_LENGTH, t);
+    float thickness_factor = sampleCurve(CURVE_THICKNESS_GROWTH, t);
+    out_lt = vec2(gs.y * length_factor, gs.z * thickness_factor * 0.5);
+  } else {
+    // Apex / Lateral / SpikeApex have no rendered geometry of their own.
+    out_lt = vec2(0.0, 0.0);
+  }
+
+  length_thickness[node_idx] = out_lt;
+}

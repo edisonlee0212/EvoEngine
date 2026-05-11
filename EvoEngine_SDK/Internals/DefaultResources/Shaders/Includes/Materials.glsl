@@ -21,6 +21,19 @@ struct MaterialProperties {
 
   int displacement_map_index;
   float displacement_intensity;
+
+  float subsurface_factor;
+  float specular;
+  float specular_tint;
+  float sheen;
+
+  float sheen_tint;
+  float clear_coat;
+  float clear_coat_roughness;
+  float ior;
+
+  float transmission;
+  float transmission_roughness;
   int padding_mat_0;
   int padding_mat_1;
 };

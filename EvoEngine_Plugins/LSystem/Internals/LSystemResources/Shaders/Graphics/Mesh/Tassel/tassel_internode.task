@@ -1,0 +1,114 @@
+// =============================================================================
+//  tassel_internode.task — Phase 1a task shader for tassel internode cylinders.
+//
+//  Responsibilities:
+//    * Read the compact TasselInternodeInstance SoA (48 B per instance) from
+//      its SSBO binding, one thread per instance.
+//    * Pack surviving instance indices into the task payload for the paired
+//      mesh shader.
+//
+//  Phase 1a deliberately does NOT cull: every instance is passed through.
+//  Frustum + distance + LOD culling lands in Phase 4 when the engine
+//  exposes per-instance world bounds.
+//
+//  Descriptor set / binding for TassselInternodes is a placeholder until
+//  Phase 1b wires the pipeline state object in RenderLayer.cpp. The layout
+//  declaration here is the single source of truth that the C++ side must
+//  mirror (see TasselInstanceSoA.hpp).
+//
+//  Extension set matches EcoSysLab/SegmentMeshlet/Rendering.mesh.
+// =============================================================================
+
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shader_draw_parameters : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+// NOTE: BasicConstants.glsl is intentionally NOT included here. It declares
+// the engine push_constant block EE_BASIC_CONSTANTS, and Vulkan permits
+// only ONE push_constant block per stage. We instead define a combined
+// block (TASSEL_INTERNODE_CONSTANTS) below that supersets the engine
+// fields plus our own count, matching EcoSysLab's Segments.task pattern.
+
+const uint WORKGROUP_SIZE = EXT_TASK_WORK_GROUP_INVOCATIONS;
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+// ---- TasselInternodeInstance SSBO (layout must match TasselInstanceSoA.hpp) -
+
+struct TasselInternodeInstance {
+    vec4 pos_length;    // xyz = world position, w = length
+    vec4 rot;           // quaternion xyzw (cylinder +Y axis → growth dir)
+    vec4 color_thick;   // xyz = rgb, w = half_thickness
+};
+
+// TODO(phase1b): finalize set/binding once the pipeline state object is
+// registered; mirror the binding in tassel_internode.mesh.
+layout(set = 1, binding = 0) readonly buffer TasselInternodeBuffer {
+    TasselInternodeInstance tassel_internodes[];
+};
+
+// Single combined push-constant block. The first three ints mirror the
+// engine's EE_BASIC_CONSTANTS layout (instance_index, camera_index,
+// light_split_index) so that this PSO remains slot-compatible with
+// engine-wide push semantics. Field 4 is our per-PSO instance count.
+//
+// CPU-side struct: l_system_plugin::LSystemLayer::TasselInternodePushConstant
+// (must keep the same field order and size = 16 bytes).
+layout(push_constant) uniform TASSEL_INTERNODE_CONSTANTS {
+    int  instance_index;
+    int  camera_index;
+    int  light_split_index;
+    uint tassel_internode_count;
+    // World-space model matrix of the owning MaizeTassel entity. Mesh
+    // shader applies it to local-space (info.global_position) packed
+    // positions/normals so the GPU draw matches the CPU `Particles`
+    // path which is auto-transformed by the engine renderer.
+    mat4 model;
+};
+
+// ---- Task payload ------------------------------------------------------------
+
+struct Payload {
+    uint base_id;
+    uint count;  // number of valid deltaIDs
+    uint8_t delta_ids[EXT_TASK_WORK_GROUP_INVOCATIONS];
+};
+
+taskPayloadSharedEXT Payload payload;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    uint lid = gl_LocalInvocationID.x;
+    uint base = gl_WorkGroupID.x * WORKGROUP_SIZE;
+
+    // Write the base id from lane 0 so downstream readers get a coherent value.
+    if (lid == 0u) {
+        payload.base_id = base;
+        payload.count = 0u;  // accumulated via atomicAdd below
+    }
+    memoryBarrierShared();
+    barrier();
+
+    bool alive = (gid < tassel_internode_count);
+    // Phase 2b.3 sentinel cull: tassel_pack_internodes.comp writes
+    // length=0 for non-internode SoA slots (Apex/Lateral/SpikeApex,
+    // and any node with non-finite pose). Skip those so the mesh
+    // shader doesn't emit degenerate cylinders.
+    if (alive && tassel_internodes[gid].pos_length.w <= 0.0) {
+        alive = false;
+    }
+    // Phase 4 hook: insert frustum / distance tests here and derive `alive`.
+
+    if (alive) {
+        uint slot = atomicAdd(payload.count, 1u);
+        payload.delta_ids[slot] = uint8_t(lid);
+    }
+
+    memoryBarrierShared();
+    barrier();
+
+    if (lid == 0u) {
+        EmitMeshTasksEXT(payload.count, 1u, 1u);
+    }
+}

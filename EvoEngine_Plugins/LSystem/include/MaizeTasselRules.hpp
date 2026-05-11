@@ -1,6 +1,8 @@
 #pragma once
 
 #include "DerivationEngine.hpp"
+#include "LSystemRuleHelpers.hpp"  // SampleDistribution, SamplePlotted, SampleUnit01,
+                                   // HashNodeSeed, MakeNodeRng, TropismEntry, SampledTropism.
 #include "MaizeTasselModules.hpp"
 #include <Plot2D.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -10,81 +12,17 @@
 
 namespace l_system_plugin {
 
-// ---------------------------------------------------------------------------
-// Helper: deterministic sampling from a SingleDistribution using a seeded RNG.
-// ---------------------------------------------------------------------------
-
-template <typename T>
-T SampleDistribution(const evo_engine::SingleDistribution<T>& dist, std::mt19937& rng) {
-  if (dist.deviation <= 0.0f)
-    return dist.mean;
-  std::normal_distribution<float> normal(0.0f, 1.0f);
-  return dist.mean + T(dist.deviation * normal(rng));
-}
-
-// ---------------------------------------------------------------------------
-// Helper: deterministic sampling from a PlottedDistribution using a seeded RNG.
-// ---------------------------------------------------------------------------
-
-inline float SamplePlotted(const evo_engine::PlottedDistribution<float>& pd, float t, std::mt19937& rng) {
-  const float mean_val = pd.mean.GetValue(t);
-  const float dev_val = pd.deviation.GetValue(t);
-  if (dev_val <= 0.0f)
-    return mean_val;
-  std::normal_distribution<float> dist(mean_val, dev_val);
-  return dist(rng);
-}
-
-inline uint32_t HashNodeSeed(const float node_random, const uint32_t salt) {
-  const float clamped = std::clamp(node_random, 0.0f, 1.0f);
-  uint32_t x = static_cast<uint32_t>(clamped * 4294967295.0f) ^ (salt + 0x9e3779b9u);
-  x ^= x >> 16;
-  x *= 0x7feb352du;
-  x ^= x >> 15;
-  x *= 0x846ca68bu;
-  x ^= x >> 16;
-  return x;
-}
-
-inline std::mt19937 MakeNodeRng(const float node_random, const uint32_t salt) {
-  return std::mt19937(HashNodeSeed(node_random, salt));
-}
-
-inline float SampleUnit01(std::mt19937& rng) {
-  std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-  return dist(rng);
-}
+// Generic helpers (SampleDistribution, SamplePlotted, HashNodeSeed,
+// MakeNodeRng, SampleUnit01, TropismEntry, SampledTropism) live in
+// LSystemRuleHelpers.hpp so additional species can reuse them. Forward
+// declarations for the maize-specific timing helpers stay here because they
+// depend on SampledTasselParams, which is defined below.
 
 struct SampledTasselParams;
 float ComputeMaturityInitiationScale(const SampledTasselParams& params);
 float ComputeInitiationPlastochronGdd(const SampledTasselParams& params,
                                       int order,
                                       bool is_lateral_bud);
-
-// ---------------------------------------------------------------------------
-// TropismEntry — user-facing tropism descriptor (one per dynamic list entry).
-// ---------------------------------------------------------------------------
-
-struct TropismEntry {
-  evo_engine::SingleDistribution<float> direction_x{0.0f};
-  evo_engine::SingleDistribution<float> direction_y{-1.0f};
-  evo_engine::SingleDistribution<float> direction_z{0.0f};
-  evo_engine::SingleDistribution<float> strength{0.0f};
-  float usage_chance_percent = 100.0f;  ///< Per-plant activation chance in [0, 100].
-
-  /// Curve: x = normalized branching order (0=rachis..1=max order), y = response multiplier.
-  evo_engine::PlottedDistribution<float> order_response;
-};
-
-// ---------------------------------------------------------------------------
-// SampledTropism — concrete sampled tropism values for one instance.
-// ---------------------------------------------------------------------------
-
-struct SampledTropism {
-  glm::vec3 direction{0.0f, -1.0f, 0.0f};
-  float strength = 0.0f;
-  evo_engine::PlottedDistribution<float> order_response;
-};
 
 // ---------------------------------------------------------------------------
 // SampledTasselParams — two-zone architecture.

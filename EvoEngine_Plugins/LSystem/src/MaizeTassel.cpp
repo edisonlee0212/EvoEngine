@@ -10,15 +10,23 @@
 #include <Times.hpp>
 #include <Transform.hpp>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <fstream>
 #include <unordered_set>
+
+#ifdef LSYSTEM_GPU_PIPELINE
+#include "gpu/LSystemGPUEngine.hpp"
+#include "gpu/TasselInstancePacker.hpp"
+#include "gpu/TasselGrowthPacker.hpp"
+#endif
 
 using namespace l_system_plugin;
 using namespace evo_engine;
 
 namespace {
 MaizeTassel::ColorMode g_maize_tassel_color_mode = MaizeTassel::ColorMode::Shaded;
+std::atomic<bool> g_force_cpu_particles_path{false};
 
 bool IsFiniteQuat(const glm::quat& q) {
   return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
@@ -190,6 +198,14 @@ void MaizeTassel::SetGlobalColorMode(const ColorMode mode) {
 
 MaizeTassel::ColorMode MaizeTassel::GetGlobalColorMode() {
   return g_maize_tassel_color_mode;
+}
+
+void MaizeTassel::SetForceCpuParticlesPath(const bool force) {
+  g_force_cpu_particles_path.store(force, std::memory_order_relaxed);
+}
+
+bool MaizeTassel::IsForceCpuParticlesPath() {
+  return g_force_cpu_particles_path.load(std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +496,34 @@ void MaizeTassel::GrowToTargetGDD(const bool uncapped_growth) {
   RebuildGeometry();
 }
 
+void MaizeTassel::SetSeasonalChronologicalMode(
+    const bool enable_independent_chronological_clock) {
+  growth_model.SetChronologicalCoupledToThermal(
+      !enable_independent_chronological_clock);
+}
+
+bool MaizeTassel::AdvanceChronologicalAging(const float delta_years) {
+  if (!std::isfinite(delta_years) || delta_years <= 0.0f) {
+    return false;
+  }
+
+  auto descriptor = descriptor_ref.Get<MaizeTasselDescriptor>();
+  if (!descriptor) {
+    return false;
+  }
+
+  if (!growth_model.IsInitialized()) {
+    growth_model.Initialize(*descriptor, seed);
+  }
+
+  growth_model.AdvanceChronologicalYears(delta_years);
+  const bool changed = growth_model.AgeOnlyStep();
+  if (changed) {
+    RebuildGeometry();
+  }
+  return changed;
+}
+
 // ---------------------------------------------------------------------------
 // Rebuild geometry from current growth model state (no re-initialization)
 // ---------------------------------------------------------------------------
@@ -616,6 +660,108 @@ void MaizeTassel::RebuildGeometry() {
 
     last_internode_count = static_cast<uint32_t>(infos.size());
 
+    // Scanner-compat runtime branch. When IsForceCpuParticlesPath() is true
+    // (set by headless DatasetGenerator::GenerateDataForTassel), fall through
+    // to the legacy CPU `Particles` "Tassel Internodes" entity so that
+    // TasselPointCloudScanner / RenderInstanceStorage can see the geometry.
+    // Otherwise (interactive editing default), use the Phase 2b.3 GPU path.
+#ifdef LSYSTEM_GPU_PIPELINE
+    const bool use_gpu_internodes = !IsForceCpuParticlesPath();
+#else
+    constexpr bool use_gpu_internodes = false;
+#endif
+
+    if (use_gpu_internodes) {
+#ifdef LSYSTEM_GPU_PIPELINE
+    // ---- Phase 2b.3: GPU pack path ----------------------------------------
+    // Replaces the per-frame CPU walk in PackTasselInternodes with a GPU
+    // compute dispatch. Flow per frame:
+    //   1. CPU `PackTasselGrowth` flattens the live TasselGraph into the
+    //      growth SoA (one walk; cheap O(N)). global_position /
+    //      global_rotation / length_thickness are seeded from
+    //      `node.info.*` so the GPU pack reads CPU-truth values without
+    //      needing to run grow.comp / propagate.comp.
+    //   2. `UploadTasselGrowth` pushes the SoA into per-instance SSBOs
+    //      (the engine's growth_layout descriptor set).
+    //   3. `DispatchPackInternodesGpu` runs tassel_pack_internodes.comp
+    //      to write the existing TasselInternodeInstance SSBO that the
+    //      mesh shader already binds. Bit-equivalent to the CPU pack
+    //      output for the current runtime path.
+    //
+    // grow.comp / propagate.comp are intentionally NOT dispatched yet —
+    // the CPU growth_model remains the source of truth for length /
+    // pose. Phase 3+ will flip the dependency direction (GPU drives,
+    // CPU shadows for diagnostics).
+    //
+    // The CPU `Particles` entity is NOT created in this path — the
+    // deferred-rendering callback registered from LSystemLayer::Update()
+    // draws directly from the SSBO via tassel_internode.{task,mesh,frag}.
+    // Any pre-existing CPU-path child entity is deleted to avoid
+    // double-rendering.
+    if (scene->IsEntityValid(internode_entity)) {
+      scene->DeleteEntity(internode_entity);
+      internode_entity = {};
+    }
+    {
+      static thread_local gpu::TasselGrowthSoA gpu_growth_cache;
+      auto& soa = gpu_growth_cache;
+
+      gpu::PackGrowthOptions growth_opts;
+      growth_opts.instance_id = gpu_instance_id;
+      // Pack-only path doesn't read local_rotation (propagate.comp isn't
+      // dispatched), but the packer requires a non-null function. Pass
+      // identity; if a future revision dispatches propagate, swap this
+      // for the real per-type rotation function from GeometryPass.
+      growth_opts.local_rotation_fn = [](const auto&, const auto&) {
+        return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+      };
+      growth_opts.reject_non_finite = false;
+      const double pack_start = Times::Now();
+      const gpu::PackGrowthResult growth_result =
+          gpu::PackTasselGrowth(growth_model.graph, growth_opts, soa);
+      (void)growth_result;
+      last_rebuild_internode_collect_seconds += (Times::Now() - pack_start);
+
+      if (gpu_instance_id == 0u) {
+        gpu_instance_id = gpu::LSystemGPUEngine::Get().CreateInstance("MaizeTassel", seed);
+      }
+
+      const double upload_start = Times::Now();
+      auto& engine = gpu::LSystemGPUEngine::Get();
+      engine.UploadTasselGrowth(gpu_instance_id, soa);
+      const float ic[4] = {instance_color.r, instance_color.g, instance_color.b, instance_color.a};
+      const bool ok = engine.DispatchPackInternodesGpu(
+          gpu_instance_id,
+          static_cast<uint32_t>(color_mode),
+          ic);
+      // Fallback: if the GPU pack pipeline failed to initialize (e.g.
+      // shader compile error at startup), drop to the legacy CPU pack
+      // so the visualization still renders. This keeps headless
+      // runs and broken-driver environments alive.
+      if (!ok) {
+        static thread_local std::vector<gpu::TasselInternodeInstance> gpu_pack_cache;
+        auto& packed = gpu_pack_cache;
+        packed.clear();
+        gpu::PackInternodesOptions opts;
+        opts.color_mode = static_cast<gpu::ColorMode>(static_cast<int>(color_mode));
+        opts.instance_color = instance_color;
+        opts.include_pair_internodes = true;
+        gpu::PackTasselInternodes(growth_model.graph, opts, packed);
+        engine.UploadTasselInternodes(gpu_instance_id, packed.data(),
+                                      static_cast<uint32_t>(packed.size()));
+      }
+      last_rebuild_internode_upload_seconds = Times::Now() - upload_start;
+    }
+#endif  // LSYSTEM_GPU_PIPELINE (GPU branch body)
+    } else {
+#ifdef LSYSTEM_GPU_PIPELINE
+    // Scanner-compat CPU path. If the GPU SSBO was previously populated for
+    // this instance, zero it so the deferred mesh-shader callback draws
+    // nothing and we don't double-render alongside the CPU Particles entity.
+    if (gpu_instance_id != 0u) {
+      gpu::LSystemGPUEngine::Get().UploadTasselInternodes(gpu_instance_id, nullptr, 0);
+    }
+#endif
     if (!infos.empty()) {
       std::shared_ptr<Particles> particles;
       std::shared_ptr<ParticleInfoList> particle_info_list;
@@ -657,6 +803,7 @@ void MaizeTassel::RebuildGeometry() {
       if (scene->IsEntityValid(internode_entity))
         scene->DeleteEntity(internode_entity);
     }
+    }  // end runtime CPU branch
   }
 
   // --- Spikelets (Particles) ---
@@ -909,6 +1056,12 @@ void MaizeTassel::ExportNodeGraph(const std::filesystem::path& path) {
 
 void MaizeTassel::OnDestroy() {
   ClearGeometryEntities();
+#ifdef LSYSTEM_GPU_PIPELINE
+  if (gpu_instance_id != 0u) {
+    gpu::LSystemGPUEngine::Get().DestroyInstance(gpu_instance_id);
+    gpu_instance_id = 0u;
+  }
+#endif
 }
 
 // ---------------------------------------------------------------------------

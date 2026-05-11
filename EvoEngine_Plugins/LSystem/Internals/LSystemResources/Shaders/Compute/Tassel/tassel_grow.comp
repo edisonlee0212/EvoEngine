@@ -1,0 +1,115 @@
+// =============================================================================
+//  tassel_grow.comp — Phase 2b.1 GPU mirror of RunGrowCpu (LSystemGPUEngine.cpp).
+//
+//  One thread per node. Reads `growth_state`, `type_tag`, and the curve
+//  atlas; writes `length_thickness`. Optionally advances `growth_state.x`
+//  (age_gdd) by `gdd_step`.
+//
+//  Acceptance gate: bitwise-equivalent (within fp32 ULPs) to RunGrowCpu()
+//  for the same inputs. Validated via a CPU-vs-GPU diff inside
+//  LSystemGPUEngine::DispatchGrowAndPropagateGpu().
+//
+//  Curve atlas binding: a single flat std430 float[] SSBO; the shader
+//  resolves per-curve tap windows via the header's samples_per_curve and
+//  stride (== samples_per_curve * 2 — channel R = value, G reserved).
+// =============================================================================
+
+#extension GL_ARB_shading_language_include : enable
+#extension GL_GOOGLE_include_directive : enable
+
+const uint WORKGROUP_SIZE = 64;
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+// Type-tag values mirror gpu::TasselTypeTag (TasselGrowthSoA.hpp).
+const uint TAG_INTERNODE     = 1u;
+const uint TAG_SPIKELET_PAIR = 3u;
+
+// Curve indices mirror CurveBaker enumeration order
+// (TasselGrowthPacker.cpp).
+const uint CURVE_INTERNODE_LENGTH = 0u;
+const uint CURVE_THICKNESS_GROWTH = 1u;
+
+// ---- Header SSBO (set=0, binding=0) ----------------------------------------
+// Mirrors gpu::TasselGrowthHeader. Only `node_count` is read here; the
+// depth_band_offsets array is consumed by tassel_propagate.comp.
+layout(set = 0, binding = 0, std430) readonly buffer TasselGrowthHeader_b {
+    uint node_count;
+    uint depth_band_count;
+    uint instance_id;
+    uint flags;
+    uint depth_band_offsets[];  // length kMaxDepthBands+1, set host-side
+} header;
+
+// ---- SoA channels ----------------------------------------------------------
+// Layout is one binding per channel so each can be uploaded independently.
+// std430 stride: int=4, uint=4, vec2=8, vec4=16. No vec3 anywhere.
+layout(set = 0, binding = 1, std430) readonly buffer ParentIndex_b      { int  parent_index[];     };
+layout(set = 0, binding = 2, std430) readonly buffer Depth_b            { uint node_depth[];       };
+layout(set = 0, binding = 3, std430) readonly buffer TypeTag_b          { uint type_tag[];         };
+layout(set = 0, binding = 4, std430) readonly buffer LocalRotation_b    { vec4 local_rotation[];   };
+layout(set = 0, binding = 5, std430) buffer          GrowthState_b      { vec4 growth_state[];     };
+layout(set = 0, binding = 6, std430) readonly buffer NodeRandomMisc_b   { vec4 node_random_misc[]; };
+layout(set = 0, binding = 7, std430) writeonly buffer LengthThickness_b { vec2 length_thickness[]; };
+layout(set = 0, binding = 8, std430) buffer          GlobalPosition_b   { vec4 global_position[];  };
+layout(set = 0, binding = 9, std430) buffer          GlobalRotation_b   { vec4 global_rotation[];  };
+layout(set = 0, binding = 10, std430) readonly buffer DepthSortedIndex_b { uint depth_sorted_index[]; };
+
+// ---- Curve atlas SSBO (set=0, binding=11) ----------------------------------
+// Single packed float[] holding all curves. The header carries layout info.
+layout(set = 0, binding = 11, std430) readonly buffer CurveAtlas_b {
+    uint num_curves;
+    uint samples_per_curve;
+    uint stride;            // == samples_per_curve * 2
+    uint _pad;
+    float taps[];           // num_curves * stride
+} atlas;
+
+// ---- Push constant ---------------------------------------------------------
+layout(push_constant) uniform GrowPC {
+    uint  node_count;
+    float gdd_step;
+    float maturity_gdd;
+    uint  advance_age;     // 0 or 1
+} pc;
+
+// Linear-interp sample of curve `c` at parametric t in [0,1].
+// Mirrors gpu::CurveAtlas::SampleLinear() (CurveBaker.cpp). Channel R only;
+// out-of-range curves return 0 (matches the CPU clamp).
+float SampleCurveLinear(uint c, float t) {
+    if (c >= atlas.num_curves || atlas.samples_per_curve == 0u) return 0.0;
+    float tc = clamp(t, 0.0, 1.0);
+    float fpos = tc * float(atlas.samples_per_curve - 1u);
+    uint i0 = uint(floor(fpos));
+    uint i1 = min(i0 + 1u, atlas.samples_per_curve - 1u);
+    float frac = fpos - float(i0);
+    uint base = c * atlas.stride;
+    // R channel only (G reserved). Each tap pair = 2 floats; R is at +0.
+    float v0 = atlas.taps[base + i0 * 2u + 0u];
+    float v1 = atlas.taps[base + i1 * 2u + 0u];
+    return mix(v0, v1, frac);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= pc.node_count) return;
+
+    vec4 gs = growth_state[i];
+    if (pc.advance_age != 0u) {
+        gs.x += pc.gdd_step;
+        growth_state[i] = gs;
+    }
+    float age = gs.x;
+    float t = (pc.maturity_gdd > 0.0)
+            ? clamp(age / pc.maturity_gdd, 0.0, 1.0)
+            : 0.0;
+
+    vec2 outv = vec2(0.0);
+    uint tag = type_tag[i];
+    if (tag == TAG_INTERNODE || tag == TAG_SPIKELET_PAIR) {
+        float lf = SampleCurveLinear(CURVE_INTERNODE_LENGTH, t);
+        float tf = SampleCurveLinear(CURVE_THICKNESS_GROWTH, t);
+        // gs.y = target_length, gs.z = target_thickness. half_thickness = gs.z * tf * 0.5.
+        outv = vec2(gs.y * lf, gs.z * tf * 0.5);
+    }
+    length_thickness[i] = outv;
+}

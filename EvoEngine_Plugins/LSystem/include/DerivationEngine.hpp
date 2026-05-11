@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <random>
 #include <vector>
 #include "LSystemGraph.hpp"
@@ -97,41 +99,128 @@ int DerivationEngine<GraphData, FlowData, ModuleData>::DeriveN(int n, GraphType&
   return topology_changes;
 }
 
+// Two-stage stochastic dispatch (P&L 1990 / vlab `cpfg` semantics).
+//
+// Stage 1: filter rules to the highest matching `priority`.
+// Stage 2:
+//   - bucket size 1                                          -> return it (no RNG)
+//   - bucket size > 1 AND all probabilities default (1.0f)   -> return first
+//                                                               match (legacy
+//                                                               "first wins";
+//                                                               consumes no RNG
+//                                                               state)
+//   - bucket size > 1 AND any rule opts in (probability!=1)  -> weighted random
+//                                                               pick using
+//                                                               ctx.rng with all
+//                                                               bucket weights
+//                                                               (vlab `SelectProd`).
+//
+// Negative or non-finite probabilities are clamped to 0.
+
+namespace derivation_engine_detail {
+
+template <typename RuleType>
+const RuleType* PickFromBucket(const std::vector<const RuleType*>& bucket,
+                                std::mt19937& rng) {
+  if (bucket.empty()) return nullptr;
+  if (bucket.size() == 1) return bucket.front();
+
+  bool any_stochastic = false;
+  float total = 0.0f;
+  for (const auto* r : bucket) {
+    const float w = (r && std::isfinite(r->probability) && r->probability > 0.0f)
+                        ? r->probability : 0.0f;
+    if (r && r->probability != 1.0f) any_stochastic = true;
+    total += w;
+  }
+
+  if (!any_stochastic) {
+    // Legacy deterministic path: return first (preserves prior behavior of
+    // the original `if (!best || rule.priority > best->priority)` loop,
+    // which never replaced a same-priority earlier match).
+    return bucket.front();
+  }
+
+  if (total <= 0.0f) return bucket.front();
+
+  std::uniform_real_distribution<float> uni(0.0f, 1.0f);
+  float draw = total * uni(rng);
+  for (const auto* r : bucket) {
+    const float w = (r && std::isfinite(r->probability) && r->probability > 0.0f)
+                        ? r->probability : 0.0f;
+    draw -= w;
+    if (draw <= 0.0f) return r;
+  }
+  return bucket.back();
+}
+
+}  // namespace derivation_engine_detail
+
 template <typename GraphData, typename FlowData, typename ModuleData>
 const typename DerivationEngine<GraphData, FlowData, ModuleData>::RuleType*
 DerivationEngine<GraphData, FlowData, ModuleData>::FindMatchingRule(
     const std::vector<RuleType>& rules, const ContextType& ctx) const {
-  const RuleType* best = nullptr;
+  // Stage 1: find max priority among matching rules.
+  int max_prio = std::numeric_limits<int>::min();
+  bool any = false;
   for (const auto& rule : rules) {
-    // Check symbol match.
     if (rule.predecessor_symbol >= 0 && rule.predecessor_symbol != ctx.self.symbol_id)
       continue;
-    // Check condition.
     if (rule.condition && !rule.condition(ctx))
       continue;
-    // Higher priority wins.
-    if (!best || rule.priority > best->priority)
-      best = &rule;
+    if (!any || rule.priority > max_prio) {
+      max_prio = rule.priority;
+      any = true;
+    }
   }
-  return best;
+  if (!any) return nullptr;
+
+  // Stage 2: collect bucket of matches at max_prio (stable order).
+  std::vector<const RuleType*> bucket;
+  bucket.reserve(rules.size());
+  for (const auto& rule : rules) {
+    if (rule.priority != max_prio) continue;
+    if (rule.predecessor_symbol >= 0 && rule.predecessor_symbol != ctx.self.symbol_id)
+      continue;
+    if (rule.condition && !rule.condition(ctx))
+      continue;
+    bucket.push_back(&rule);
+  }
+  return derivation_engine_detail::PickFromBucket(bucket, ctx.rng);
 }
 
 template <typename GraphData, typename FlowData, typename ModuleData>
 const typename DerivationEngine<GraphData, FlowData, ModuleData>::RuleType*
 DerivationEngine<GraphData, FlowData, ModuleData>::FindMatchingRule(
     const std::vector<const RuleType*>& rules, const ContextType& ctx) const {
-  const RuleType* best = nullptr;
+  // Stage 1: find max priority among matching rules.
+  int max_prio = std::numeric_limits<int>::min();
+  bool any = false;
   for (const auto* rule : rules) {
-    if (!rule)
-      continue;
+    if (!rule) continue;
     if (rule->predecessor_symbol >= 0 && rule->predecessor_symbol != ctx.self.symbol_id)
       continue;
     if (rule->condition && !rule->condition(ctx))
       continue;
-    if (!best || rule->priority > best->priority)
-      best = rule;
+    if (!any || rule->priority > max_prio) {
+      max_prio = rule->priority;
+      any = true;
+    }
   }
-  return best;
+  if (!any) return nullptr;
+
+  // Stage 2: collect bucket of matches at max_prio (stable order).
+  std::vector<const RuleType*> bucket;
+  bucket.reserve(rules.size());
+  for (const auto* rule : rules) {
+    if (!rule || rule->priority != max_prio) continue;
+    if (rule->predecessor_symbol >= 0 && rule->predecessor_symbol != ctx.self.symbol_id)
+      continue;
+    if (rule->condition && !rule->condition(ctx))
+      continue;
+    bucket.push_back(rule);
+  }
+  return derivation_engine_detail::PickFromBucket(bucket, ctx.rng);
 }
 
 template <typename GraphData, typename FlowData, typename ModuleData>

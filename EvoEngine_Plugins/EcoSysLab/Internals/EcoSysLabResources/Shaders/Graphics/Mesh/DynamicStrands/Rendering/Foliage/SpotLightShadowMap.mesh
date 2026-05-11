@@ -70,7 +70,7 @@ void main() {
   [[unroll]]
   for (uint i = 0; i < uint(LEAF_VERTEX_ITERATIONS); ++i) {
     uint vertex_index = laneID + i * WORKGROUP_SIZE;
-    if (vertex_index > LEAF_VERTICES_SIZE)
+    if (vertex_index >= LEAF_VERTICES_SIZE)
       break;
     vec3 vertex_position = positions[vertex_index];
 
@@ -85,7 +85,7 @@ void main() {
   [[unroll]]
   for (uint i = 0; i < uint(LEAF_PRIMITIVE_ITERATIONS); ++i) {
     uint triangle_index = laneID + i * WORKGROUP_SIZE;
-    if (triangle_index <= LEAF_TRIANGLE_SIZE) {
+    if (triangle_index < LEAF_TRIANGLE_SIZE) {
       gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
     }
   }

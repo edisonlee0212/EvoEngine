@@ -1,5 +1,5 @@
 #include "ParamSpaceExplorer.hpp"
-#include "MaizeTasselDescriptor.hpp"
+#include "ILSystemExplorableDescriptor.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -75,7 +75,7 @@ void SymmetricRange(float min_source, float max_source, float& min_out, float& m
 // Bind
 // ---------------------------------------------------------------------------
 
-void ParamSpaceExplorer::Bind(MaizeTasselDescriptor& d) {
+void ParamSpaceExplorer::Bind(ILSystemExplorableDescriptor& d) {
   bound_desc_ = &d;
   RebuildAxes();
 }
@@ -258,71 +258,18 @@ uint64_t ParamSpaceExplorer::ComputeSchemaSignature() const {
     return 0;
   }
 
-  const auto& d = *bound_desc_;
+  // Hash the registered axis labels and count, then combine with the
+  // descriptor's structural fingerprint (e.g. dynamic-array sizes). The
+  // descriptor fingerprint catches schema drift that hasn't been reflected
+  // in axes_ yet (so OnInspect can auto-rebuild); the axis hash catches the
+  // post-rebuild state.
   uint64_t h = 1469598103934665603ULL;
-
-  auto add_curve = [&](const evo_engine::Curve2D& curve) {
-    const size_t n = const_cast<evo_engine::Curve2D&>(curve).UnsafeGetValues().size();
-    h = HashCombine(h, static_cast<uint64_t>(n));
-  };
-  auto add_plot = [&](const evo_engine::PlottedDistribution<float>& pd) {
-    add_curve(pd.mean.curve);
-    add_curve(pd.deviation.curve);
-  };
-
-  add_plot(d.branch_internode_length);
-  add_plot(d.branch_internode_thickness);
-  add_plot(d.lateral_insertion_angle);
-  add_plot(d.lateral_internode_length);
-  add_plot(d.lateral_node_count);
-  add_plot(d.peduncle_branch_probability);
-  add_plot(d.spike_internode_length);
-  add_plot(d.spike_internode_thickness);
-  add_plot(d.spike_zone_branch_probability);
-  add_plot(d.main_pair_proximal_scale_x);
-  add_plot(d.main_pair_proximal_scale_y);
-  add_plot(d.main_pair_proximal_scale_z);
-  add_plot(d.main_pair_proximal_angle);
-  add_plot(d.main_pair_internode_length);
-  add_plot(d.main_pair_internode_thickness);
-  add_plot(d.main_pair_internode_angle);
-  add_plot(d.main_pair_distal_scale_x);
-  add_plot(d.main_pair_distal_scale_y);
-  add_plot(d.main_pair_distal_scale_z);
-  add_plot(d.main_pair_distal_angle);
-  add_plot(d.branch_pair_proximal_scale_x);
-  add_plot(d.branch_pair_proximal_scale_y);
-  add_plot(d.branch_pair_proximal_scale_z);
-  add_plot(d.branch_pair_proximal_angle);
-  add_plot(d.branch_pair_internode_length);
-  add_plot(d.branch_pair_internode_thickness);
-  add_plot(d.branch_pair_internode_angle);
-  add_plot(d.branch_pair_distal_scale_x);
-  add_plot(d.branch_pair_distal_scale_y);
-  add_plot(d.branch_pair_distal_scale_z);
-  add_plot(d.branch_pair_distal_angle);
-  add_plot(d.lateral_initiation_delay_gdd);
-  add_plot(d.spike_anthesis_offset_gdd);
-  add_plot(d.primary_lateral_branch_probability);
-  add_plot(d.secondary_lateral_branch_probability);
-
-  add_curve(d.rachis_elongation_curve);
-  add_curve(d.rachis_thickness_curve);
-  add_curve(d.lateral_elongation_curve);
-  add_curve(d.lateral_thickness_curve);
-  add_curve(d.lateral_angle_development_curve);
-  add_curve(d.pair_proximal_scale_curve);
-  add_curve(d.pair_proximal_angle_curve);
-  add_curve(d.pair_internode_length_curve);
-  add_curve(d.pair_internode_thickness_curve);
-  add_curve(d.pair_internode_angle_curve);
-  add_curve(d.pair_distal_scale_curve);
-  add_curve(d.pair_distal_angle_curve);
-
-  h = HashCombine(h, static_cast<uint64_t>(d.tropisms.size()));
-  for (const auto& t : d.tropisms) {
-    add_plot(t.order_response);
+  h = HashCombine(h, static_cast<uint64_t>(axes_.size()));
+  for (const auto& a : axes_) {
+    h = HashCombine(h, std::hash<std::string>{}(a.label));
+    h = HashCombine(h, std::hash<std::string>{}(a.short_label));
   }
+  h = HashCombine(h, bound_desc_->ExplorableSchemaFingerprint());
   return h;
 }
 
@@ -332,99 +279,12 @@ void ParamSpaceExplorer::RebuildAxes() {
     return;
   }
 
-  auto& d = *bound_desc_;
   axes_.clear();
 
-  // Single distributions (mean + deviation).
-  AddSingle("branch_node_count", "BNC", d.branch_node_count, 0.0f, 80.0f, 20.0f);
-  AddSingle("spike_node_count", "SNC", d.spike_node_count, 0.0f, 120.0f, 30.0f);
-  AddSingle("phyllotaxis_angle", "PHY", d.phyllotaxis_angle, 0.0f, 360.0f, 180.0f);
-  AddSingle("branch_azimuth_offset", "BAO", d.branch_azimuth_offset, -180.0f, 180.0f, 180.0f);
-  AddSingle("lateral_thickness_ratio", "LTR", d.lateral_thickness_ratio, 0.0f, 2.0f, 1.0f);
-  AddSingle("secondary_insertion_angle", "SIA", d.secondary_insertion_angle, 0.0f, 120.0f, 60.0f);
-  AddSingle("secondary_internode_length", "SIL", d.secondary_internode_length, 0.0f, 20.0f, 10.0f);
-  AddSingle("secondary_internode_thickness", "SIT", d.secondary_internode_thickness, 0.0f, 2.0f, 1.0f);
-  AddSingle("secondary_node_count", "SNN", d.secondary_node_count, 0.0f, 20.0f, 10.0f);
-  AddSingle("final_age_gdd", "FAG", d.final_age_gdd, 0.0f, 3000.0f, 1500.0f);
-
-  // Global development distributions.
-  AddSingle("base_temperature", "TMP", d.base_temperature, -10.0f, 60.0f, 30.0f);
-  AddSingle("plastochron_gdd", "PGD", d.plastochron_gdd, 1.0f, 500.0f, 250.0f);
-  AddSingle("anthesis_gdd", "AGD", d.anthesis_gdd, 0.0f, 3000.0f, 1500.0f);
-  AddSingle("maturity_gdd", "MGD", d.maturity_gdd, 0.0f, 5000.0f, 2500.0f);
-
-  // All plotted distributions: ranges + all curve control points.
-  AddPlotted("branch_internode_length", "BIL", d.branch_internode_length);
-  AddPlotted("branch_internode_thickness", "BIT", d.branch_internode_thickness);
-  AddPlotted("lateral_insertion_angle", "LIA", d.lateral_insertion_angle);
-  AddPlotted("lateral_internode_length", "LIL", d.lateral_internode_length);
-  AddPlotted("lateral_node_count", "LNC", d.lateral_node_count);
-  AddPlotted("peduncle_branch_probability", "PBP", d.peduncle_branch_probability);
-  AddPlotted("spike_internode_length", "SIL", d.spike_internode_length);
-  AddPlotted("spike_internode_thickness", "SIT", d.spike_internode_thickness);
-  AddPlotted("spike_zone_branch_probability", "SZP", d.spike_zone_branch_probability);
-
-  AddPlotted("main_pair_proximal_scale_x", "MPX", d.main_pair_proximal_scale_x);
-  AddPlotted("main_pair_proximal_scale_y", "MPY", d.main_pair_proximal_scale_y);
-  AddPlotted("main_pair_proximal_scale_z", "MPZ", d.main_pair_proximal_scale_z);
-  AddPlotted("main_pair_proximal_angle", "MPA", d.main_pair_proximal_angle);
-  AddPlotted("main_pair_internode_length", "MIL", d.main_pair_internode_length);
-  AddPlotted("main_pair_internode_thickness", "MIT", d.main_pair_internode_thickness);
-  AddPlotted("main_pair_internode_angle", "MIA", d.main_pair_internode_angle);
-  AddPlotted("main_pair_distal_scale_x", "MDX", d.main_pair_distal_scale_x);
-  AddPlotted("main_pair_distal_scale_y", "MDY", d.main_pair_distal_scale_y);
-  AddPlotted("main_pair_distal_scale_z", "MDZ", d.main_pair_distal_scale_z);
-  AddPlotted("main_pair_distal_angle", "MDA", d.main_pair_distal_angle);
-
-  AddPlotted("branch_pair_proximal_scale_x", "BPX", d.branch_pair_proximal_scale_x);
-  AddPlotted("branch_pair_proximal_scale_y", "BPY", d.branch_pair_proximal_scale_y);
-  AddPlotted("branch_pair_proximal_scale_z", "BPZ", d.branch_pair_proximal_scale_z);
-  AddPlotted("branch_pair_proximal_angle", "BPA", d.branch_pair_proximal_angle);
-  AddPlotted("branch_pair_internode_length", "BIL", d.branch_pair_internode_length);
-  AddPlotted("branch_pair_internode_thickness", "BIT", d.branch_pair_internode_thickness);
-  AddPlotted("branch_pair_internode_angle", "BIA", d.branch_pair_internode_angle);
-  AddPlotted("branch_pair_distal_scale_x", "BDX", d.branch_pair_distal_scale_x);
-  AddPlotted("branch_pair_distal_scale_y", "BDY", d.branch_pair_distal_scale_y);
-  AddPlotted("branch_pair_distal_scale_z", "BDZ", d.branch_pair_distal_scale_z);
-  AddPlotted("branch_pair_distal_angle", "BDA", d.branch_pair_distal_angle);
-
-  AddPlotted("lateral_initiation_delay_gdd", "LID", d.lateral_initiation_delay_gdd);
-  AddPlotted("spike_anthesis_offset_gdd", "SAO", d.spike_anthesis_offset_gdd);
-  AddPlotted("primary_lateral_branch_probability", "PLP", d.primary_lateral_branch_probability);
-  AddPlotted("secondary_lateral_branch_probability", "SLP", d.secondary_lateral_branch_probability);
-
-  // Direct curve axes.
-  AddCurve("rachis_elongation_curve", "REC", d.rachis_elongation_curve);
-  AddCurve("rachis_thickness_curve", "RTC", d.rachis_thickness_curve);
-  AddCurve("lateral_elongation_curve", "LEC", d.lateral_elongation_curve);
-  AddCurve("lateral_thickness_curve", "LTC", d.lateral_thickness_curve);
-  AddCurve("lateral_angle_development_curve", "LAC", d.lateral_angle_development_curve);
-  AddCurve("pair_proximal_scale_curve", "PPS", d.pair_proximal_scale_curve);
-  AddCurve("pair_proximal_angle_curve", "PPA", d.pair_proximal_angle_curve);
-  AddCurve("pair_internode_length_curve", "PIL", d.pair_internode_length_curve);
-  AddCurve("pair_internode_thickness_curve", "PIT", d.pair_internode_thickness_curve);
-  AddCurve("pair_internode_angle_curve", "PIA", d.pair_internode_angle_curve);
-  AddCurve("pair_distal_scale_curve", "PDS", d.pair_distal_scale_curve);
-  AddCurve("pair_distal_angle_curve", "PDA", d.pair_distal_angle_curve);
-
-  // Dynamic tropism dimensions.
-  for (size_t i = 0; i < d.tropisms.size(); i++) {
-    auto& tropism = d.tropisms[i];
-    const std::string p = "tropism[" + std::to_string(i) + "]";
-    const std::string s = "T" + std::to_string(i);
-
-    AddSingle(p + ".direction_x", s + "X", tropism.direction_x, -1.0f, 1.0f, 1.0f);
-    AddSingle(p + ".direction_y", s + "Y", tropism.direction_y, -1.0f, 1.0f, 1.0f);
-    AddSingle(p + ".direction_z", s + "Z", tropism.direction_z, -1.0f, 1.0f, 1.0f);
-    AddSingle(p + ".strength", s + "S", tropism.strength, -5.0f, 5.0f, 5.0f);
-
-    auto* tropism_ptr = &d.tropisms[i];
-    AddAxis(p + ".usage_chance_percent", s + "U", 0.0f, 100.0f,
-            [tropism_ptr]() { return tropism_ptr->usage_chance_percent; },
-            [tropism_ptr](float v) { tropism_ptr->usage_chance_percent = std::clamp(v, 0.0f, 100.0f); });
-
-    AddPlotted(p + ".order_response", s + "O", tropism.order_response);
-  }
+  // Delegate axis registration to the descriptor. Any class implementing
+  // ILSystemExplorableDescriptor enumerates its tunable fields here by
+  // calling AddSingle / AddPlotted / AddCurve / AddAxis on this explorer.
+  bound_desc_->RegisterExplorableAxes(*this);
 
   schema_signature_ = ComputeSchemaSignature();
 

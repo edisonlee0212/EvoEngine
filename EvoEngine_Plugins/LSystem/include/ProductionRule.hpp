@@ -84,6 +84,24 @@ struct ProductionRule {
   std::function<ProductionResult<ModuleData>(RuleContext<GraphType>&)> produce;
 
   int priority = 0;  ///< Higher priority rules are checked first.
+
+  /**
+   * @brief Stochastic-selection weight (P&L 1990 / vlab `cpfg` style).
+   *
+   * When two or more rules share the highest matching priority for a given
+   * node, the engine performs a weighted random pick using these weights.
+   *
+  * Dispatch contract: weighted selection only fires when at least one rule in
+   * the matching same-priority bucket has a `probability` that differs from
+   * the default `1.0f`. If every rule in the bucket keeps the default, the
+   * engine falls back to the legacy "first match wins" path and consumes no
+  * RNG state, keeping existing single-rule-per-priority L-systems unchanged.
+   *
+   * To opt in, register multiple rules at the same priority and set their
+   * `probability` fields (any positive scalar; weights are normalized at
+   * dispatch time).
+   */
+  float probability = 1.0f;
 };
 
 }  // namespace l_system_plugin

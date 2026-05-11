@@ -18,7 +18,9 @@
 #include <filesystem>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
+#include <iomanip>
 #include <limits>
+#include <numeric>
 #include <random>
 #include <sstream>
 
@@ -110,6 +112,148 @@ const char* ScanModeName(const TasselScanMode mode) {
       return "Circular";
   }
   return "Unknown";
+}
+
+const char* CaptureModeName(const PointCloudCaptureSettings::CaptureMode mode) {
+  switch (mode) {
+    case PointCloudCaptureSettings::CaptureMode::Cpu:
+      return "CPU";
+    case PointCloudCaptureSettings::CaptureMode::Gpu:
+      return "GPU Ray Tracing";
+  }
+  return "Unknown";
+}
+
+int CountCircularViewCount(const TasselPointCloudGridCaptureSettings& settings) {
+  int pitch_count = 0;
+  for (int pitch = settings.pitch_angle_start; pitch <= settings.pitch_angle_end;
+       pitch += std::max(1, settings.pitch_angle_step)) {
+    pitch_count++;
+  }
+
+  int turn_count = 0;
+  for (int turn = settings.turn_angle_start; turn < settings.turn_angle_end;
+       turn += std::max(1, settings.turn_angle_step)) {
+    turn_count++;
+  }
+
+  return std::max(1, pitch_count * turn_count);
+}
+
+std::string EscapeJsonString(const std::string& value) {
+  std::string escaped;
+  escaped.reserve(value.size() + 8);
+  for (const char ch : value) {
+    switch (ch) {
+      case '\\':
+        escaped += "\\\\";
+        break;
+      case '"':
+        escaped += "\\\"";
+        break;
+      case '\n':
+        escaped += "\\n";
+        break;
+      case '\r':
+        escaped += "\\r";
+        break;
+      case '\t':
+        escaped += "\\t";
+        break;
+      default:
+        escaped += ch;
+        break;
+    }
+  }
+  return escaped;
+}
+
+uint32_t ExpandBits10(const uint32_t value) {
+  uint32_t x = value & 0x3FFu;
+  x = (x | (x << 16)) & 0x030000FFu;
+  x = (x | (x << 8)) & 0x0300F00Fu;
+  x = (x | (x << 4)) & 0x030C30C3u;
+  x = (x | (x << 2)) & 0x09249249u;
+  return x;
+}
+
+uint32_t Morton3D10(const uint32_t x, const uint32_t y, const uint32_t z) {
+  return (ExpandBits10(x) << 2u) | (ExpandBits10(y) << 1u) | ExpandBits10(z);
+}
+
+std::vector<size_t> BuildDeterministicSpatialSampleIndices(
+    const std::vector<glm::vec3>& points, const size_t target_count) {
+  std::vector<size_t> indices;
+  if (points.empty() || target_count == 0) {
+    return indices;
+  }
+
+  if (target_count >= points.size()) {
+    indices.resize(points.size());
+    std::iota(indices.begin(), indices.end(), static_cast<size_t>(0));
+    return indices;
+  }
+
+  glm::vec3 bound_min = points.front();
+  glm::vec3 bound_max = points.front();
+  for (const auto& point : points) {
+    bound_min = glm::min(bound_min, point);
+    bound_max = glm::max(bound_max, point);
+  }
+  const glm::vec3 extent = glm::max(bound_max - bound_min, glm::vec3(1e-6f));
+
+  struct KeyedIndex {
+    uint32_t key = 0;
+    size_t index = 0;
+  };
+
+  std::vector<KeyedIndex> keyed;
+  keyed.reserve(points.size());
+  for (size_t index = 0; index < points.size(); index++) {
+    const glm::vec3 normalized = glm::clamp((points[index] - bound_min) / extent, glm::vec3(0.0f), glm::vec3(1.0f));
+    const uint32_t qx = static_cast<uint32_t>(glm::clamp(normalized.x * 1023.0f, 0.0f, 1023.0f));
+    const uint32_t qy = static_cast<uint32_t>(glm::clamp(normalized.y * 1023.0f, 0.0f, 1023.0f));
+    const uint32_t qz = static_cast<uint32_t>(glm::clamp(normalized.z * 1023.0f, 0.0f, 1023.0f));
+    keyed.push_back({Morton3D10(qx, qy, qz), index});
+  }
+
+  std::sort(keyed.begin(), keyed.end(), [](const KeyedIndex& a, const KeyedIndex& b) {
+    if (a.key != b.key) {
+      return a.key < b.key;
+    }
+    return a.index < b.index;
+  });
+
+  indices.reserve(target_count);
+  const double stride = static_cast<double>(keyed.size()) / static_cast<double>(target_count);
+  size_t last_pos = std::numeric_limits<size_t>::max();
+  for (size_t i = 0; i < target_count; i++) {
+    size_t pos = static_cast<size_t>(std::floor((static_cast<double>(i) + 0.5) * stride));
+    pos = std::min(pos, keyed.size() - 1);
+    if (pos == last_pos && pos + 1 < keyed.size()) {
+      pos += 1;
+    }
+    indices.emplace_back(keyed[pos].index);
+    last_pos = pos;
+  }
+
+  return indices;
+}
+
+template <typename T>
+void GatherByIndices(std::vector<T>& values, const std::vector<size_t>& keep_indices) {
+  if (values.empty()) {
+    return;
+  }
+
+  std::vector<T> gathered;
+  gathered.reserve(keep_indices.size());
+  for (const auto index : keep_indices) {
+    if (index < values.size()) {
+      gathered.emplace_back(values[index]);
+    }
+  }
+  values = std::move(gathered);
 }
 
 std::filesystem::path ResolveDefaultTasselScannerDescriptorPath() {
@@ -664,6 +808,13 @@ TasselPointCloudGridCaptureSettings SampleCaptureSettingsForScan(
   sampled.fov = glm::clamp(SampleFloatMeanDeviation(rng, input.fov, input.fov_deviation), 1.0f, 179.0f);
   sampled.scan_resolution = std::max(
       2, SampleIntMeanDeviation(rng, input.scan_resolution, input.scan_resolution_deviation));
+  sampled.point_budget_enabled = input.point_budget_enabled;
+  sampled.target_points = std::max(
+      0, SampleIntMeanDeviation(rng, input.target_points, input.target_points_deviation));
+  sampled.target_points_deviation = std::max(0, input.target_points_deviation);
+  sampled.target_points_tolerance_ratio = glm::clamp(input.target_points_tolerance_ratio, 0.0f, 0.95f);
+  sampled.target_points_max_retry_passes = std::max(0, input.target_points_max_retry_passes);
+  sampled.downsample_to_budget_max = input.downsample_to_budget_max;
 
   if (sampled.pitch_angle_end <= sampled.pitch_angle_start) {
     sampled.pitch_angle_end = std::min(89, sampled.pitch_angle_start + 1);
@@ -1045,6 +1196,40 @@ bool TasselPointCloudGridCaptureSettings::OnInspect() {
           "Per-view ray grid resolution (scan_resolution x scan_resolution).");
       ImGui::EndTable();
     }
+
+    if (ImGui::Checkbox("Enable Point Budget", &point_budget_enabled)) {
+      changed = true;
+    }
+    ShowItemHoverDescription(
+        "When enabled, Circular mode aims for a target point-count range by retuning scan resolution.");
+
+    if (point_budget_enabled) {
+      if (BeginMeanDeviationTable("CaptureCircularBudgetTable")) {
+        changed |= InspectIntMeanDeviation(
+            "Target Points", target_points, target_points_deviation,
+            32.0f, 0, 100000000, 0, 100000000,
+            "Desired pre-degradation output point count for Circular mode.");
+        ImGui::EndTable();
+      }
+
+      if (ImGui::DragFloat("Target Tolerance Ratio", &target_points_tolerance_ratio, 0.01f, 0.0f, 0.95f)) {
+        changed = true;
+      }
+      ShowItemHoverDescription(
+          "Accepted relative range around target points. Example: 0.10 means ±10%.");
+
+      if (ImGui::DragInt("Max Retry Passes", &target_points_max_retry_passes, 1.0f, 0, 8)) {
+        changed = true;
+      }
+      ShowItemHoverDescription(
+          "Maximum additional trace passes if the first attempt is outside the target range.");
+
+      if (ImGui::Checkbox("Downsample To Budget Max", &downsample_to_budget_max)) {
+        changed = true;
+      }
+      ShowItemHoverDescription(
+          "If enabled, over-budget captures are deterministically downsampled to the upper budget bound.");
+    }
   }
 
   bounding_box_size = std::max(0.001f, bounding_box_size);
@@ -1078,6 +1263,10 @@ bool TasselPointCloudGridCaptureSettings::OnInspect() {
   fov_deviation = std::max(0.0f, fov_deviation);
   scan_resolution = std::max(2, scan_resolution);
   scan_resolution_deviation = std::max(0, scan_resolution_deviation);
+  target_points = std::max(0, target_points);
+  target_points_deviation = std::max(0, target_points_deviation);
+  target_points_tolerance_ratio = glm::clamp(target_points_tolerance_ratio, 0.0f, 0.95f);
+  target_points_max_retry_passes = std::max(0, target_points_max_retry_passes);
   if (pitch_angle_end <= pitch_angle_start) {
     pitch_angle_end = std::min(90, pitch_angle_start + 1);
   }
@@ -1132,6 +1321,11 @@ void TasselPointCloudGridCaptureSettings::Save(const std::string& name, YAML::Em
   SaveIntMeanDeviation(out, "turn_angle_step", turn_angle_step, turn_angle_step_deviation);
   SaveFloatMeanDeviation(out, "fov", fov, fov_deviation);
   SaveIntMeanDeviation(out, "scan_resolution", scan_resolution, scan_resolution_deviation);
+  out << YAML::Key << "point_budget_enabled" << YAML::Value << point_budget_enabled;
+  SaveIntMeanDeviation(out, "target_points", target_points, target_points_deviation);
+  out << YAML::Key << "target_points_tolerance_ratio" << YAML::Value << target_points_tolerance_ratio;
+  out << YAML::Key << "target_points_max_retry_passes" << YAML::Value << target_points_max_retry_passes;
+  out << YAML::Key << "downsample_to_budget_max" << YAML::Value << downsample_to_budget_max;
   out << YAML::EndMap;
 }
 
@@ -1192,6 +1386,19 @@ void TasselPointCloudGridCaptureSettings::Load(const std::string& name, const YA
   LoadIntMeanDeviation(n, "turn_angle_step", turn_angle_step, turn_angle_step_deviation);
   LoadFloatMeanDeviation(n, "fov", fov, fov_deviation);
   LoadIntMeanDeviation(n, "scan_resolution", scan_resolution, scan_resolution_deviation);
+  if (n["point_budget_enabled"]) {
+    point_budget_enabled = n["point_budget_enabled"].as<bool>();
+  }
+  LoadIntMeanDeviation(n, "target_points", target_points, target_points_deviation);
+  if (n["target_points_tolerance_ratio"]) {
+    target_points_tolerance_ratio = n["target_points_tolerance_ratio"].as<float>();
+  }
+  if (n["target_points_max_retry_passes"]) {
+    target_points_max_retry_passes = n["target_points_max_retry_passes"].as<int>();
+  }
+  if (n["downsample_to_budget_max"]) {
+    downsample_to_budget_max = n["downsample_to_budget_max"].as<bool>();
+  }
 
   grid_size = glm::max(grid_size, glm::ivec2(1));
   grid_size_deviation = glm::max(grid_size_deviation, glm::ivec2(0));
@@ -1224,6 +1431,10 @@ void TasselPointCloudGridCaptureSettings::Load(const std::string& name, const YA
   fov_deviation = std::max(0.0f, fov_deviation);
   scan_resolution = std::max(2, scan_resolution);
   scan_resolution_deviation = std::max(0, scan_resolution_deviation);
+  target_points = std::max(0, target_points);
+  target_points_deviation = std::max(0, target_points_deviation);
+  target_points_tolerance_ratio = glm::clamp(target_points_tolerance_ratio, 0.0f, 0.95f);
+  target_points_max_retry_passes = std::max(0, target_points_max_retry_passes);
   if (pitch_angle_end <= pitch_angle_start) {
     pitch_angle_end = std::min(90, pitch_angle_start + 1);
   }
@@ -1810,29 +2021,8 @@ bool TasselPointCloudScanner::ExecuteDeterministicScan(
     AutoScaleTasselCaptureSettingsToPlantBound(active_capture_settings, plant_bound);
   }
 
-  out.samples.clear();
-  active_capture_settings->GenerateSamples(out.samples);
-  if (out.samples.empty()) {
-    EVOENGINE_ERROR("Tassel point cloud capture generated zero ray samples before tracing.");
-    return false;
-  }
-
-  const auto& settings = sampled_point_settings;
-  if (settings.angular_noise_sigma > 0.0f) {
-    std::mt19937 angular_rng(MixSeed(active_descriptor->scan_seed, kAngularNoiseSeedSalt));
-    std::normal_distribution<float> angular_dist(0.0f, settings.angular_noise_sigma);
-    for (auto& sample : out.samples) {
-      glm::vec3 tangent;
-      if (glm::abs(sample.direction.y) < 0.999f) {
-        tangent = glm::normalize(glm::cross(sample.direction, glm::vec3(0, 1, 0)));
-      } else {
-        tangent = glm::normalize(glm::cross(sample.direction, glm::vec3(1, 0, 0)));
-      }
-      const glm::vec3 bitangent = glm::cross(sample.direction, tangent);
-      sample.direction = glm::normalize(
-          sample.direction + angular_dist(angular_rng) * tangent + angular_dist(angular_rng) * bitangent);
-    }
-  }
+  auto active_tassel_capture_settings =
+      std::dynamic_pointer_cast<TasselPointCloudGridCaptureSettings>(active_capture_settings);
 
   const auto render_layer = Application::GetLayer<RenderLayer>();
   if (active_capture_settings->capture_mode == PointCloudCaptureSettings::CaptureMode::Gpu) {
@@ -1846,163 +2036,327 @@ bool TasselPointCloudScanner::ExecuteDeterministicScan(
     }
   }
 
-  switch (active_capture_settings->capture_mode) {
-    case PointCloudCaptureSettings::CaptureMode::Cpu: {
-      std::shared_ptr<RenderInstanceStorage> render_instances{};
-      if (render_layer) {
-        render_instances = render_layer->GetCurrentRenderInstanceStorage();
-      }
-      if (!render_instances) {
-        render_instances = std::make_shared<RenderInstanceStorage>();
-        Bound world_bound;
-        render_instances->BuildFromScene({}, scene, world_bound);
-      }
-      CpuRayTracer cpu_ray_tracer;
-      cpu_ray_tracer.Initialize(
-          render_instances,
-          [&](uint32_t, const std::shared_ptr<Mesh>&) {
+  struct CircularBudgetState {
+    bool enabled = false;
+    int target_points = 0;
+    int min_points = 0;
+    int max_points = 0;
+    float tolerance_ratio = 0.0f;
+    int max_retry_passes = 0;
+    bool downsample_to_budget_max = false;
+    int circular_view_count = 0;
+  } budget_state;
 
-          },
-          [&](const uint32_t, const Entity&) {
+  if (active_tassel_capture_settings &&
+      active_tassel_capture_settings->scan_mode == TasselScanMode::Circular &&
+      active_tassel_capture_settings->point_budget_enabled &&
+      active_tassel_capture_settings->target_points > 0) {
+    budget_state.enabled = true;
+    budget_state.target_points = active_tassel_capture_settings->target_points;
+    budget_state.tolerance_ratio = glm::clamp(active_tassel_capture_settings->target_points_tolerance_ratio,
+                                              0.0f, 0.95f);
+    budget_state.max_retry_passes = std::max(0, active_tassel_capture_settings->target_points_max_retry_passes);
+    budget_state.downsample_to_budget_max = active_tassel_capture_settings->downsample_to_budget_max;
+    budget_state.circular_view_count = CountCircularViewCount(*active_tassel_capture_settings);
 
-          });
-      cpu_ray_tracer.SamplePointCloud(out.samples);
-    } break;
-    case PointCloudCaptureSettings::CaptureMode::Gpu:
-      PointCloud::SampleCurrentScene(out.samples);
-      break;
+    const double span = static_cast<double>(budget_state.target_points) * static_cast<double>(budget_state.tolerance_ratio);
+    budget_state.min_points = std::max(1, static_cast<int>(std::floor(
+        static_cast<double>(budget_state.target_points) - span)));
+    budget_state.max_points = std::max(budget_state.min_points, static_cast<int>(std::ceil(
+        static_cast<double>(budget_state.target_points) + span)));
   }
 
-  const bool has_ray_hits = std::any_of(out.samples.begin(), out.samples.end(),
-                                        [](const PointCloudSample& sample) {
-                                          return sample.hit_count > 0;
-                                        });
-  if (!has_ray_hits) {
-    EVOENGINE_ERROR("Tassel point cloud capture returned zero hits after tracing.");
+  auto run_capture_pass = [&](ScanExecutionResult& pass_out) -> bool {
+    pass_out = ScanExecutionResult{};
+
+    pass_out.samples.clear();
+    active_capture_settings->GenerateSamples(pass_out.samples);
+    if (pass_out.samples.empty()) {
+      EVOENGINE_ERROR("Tassel point cloud capture generated zero ray samples before tracing.");
+      return false;
+    }
+    pass_out.counts.generated_samples = pass_out.samples.size();
+
+    const auto& settings = sampled_point_settings;
+    if (settings.angular_noise_sigma > 0.0f) {
+      std::mt19937 angular_rng(MixSeed(active_descriptor->scan_seed, kAngularNoiseSeedSalt));
+      std::normal_distribution<float> angular_dist(0.0f, settings.angular_noise_sigma);
+      for (auto& sample : pass_out.samples) {
+        glm::vec3 tangent;
+        if (glm::abs(sample.direction.y) < 0.999f) {
+          tangent = glm::normalize(glm::cross(sample.direction, glm::vec3(0, 1, 0)));
+        } else {
+          tangent = glm::normalize(glm::cross(sample.direction, glm::vec3(1, 0, 0)));
+        }
+        const glm::vec3 bitangent = glm::cross(sample.direction, tangent);
+        sample.direction = glm::normalize(
+            sample.direction + angular_dist(angular_rng) * tangent + angular_dist(angular_rng) * bitangent);
+      }
+    }
+
+    switch (active_capture_settings->capture_mode) {
+      case PointCloudCaptureSettings::CaptureMode::Cpu: {
+        std::shared_ptr<RenderInstanceStorage> render_instances{};
+        if (render_layer) {
+          render_instances = render_layer->GetCurrentRenderInstanceStorage();
+        }
+        if (!render_instances) {
+          render_instances = std::make_shared<RenderInstanceStorage>();
+          Bound world_bound;
+          render_instances->BuildFromScene({}, scene, world_bound);
+        }
+        CpuRayTracer cpu_ray_tracer;
+        cpu_ray_tracer.Initialize(
+            render_instances,
+            [&](uint32_t, const std::shared_ptr<Mesh>&) {
+
+            },
+            [&](const uint32_t, const Entity&) {
+
+            });
+        cpu_ray_tracer.SamplePointCloud(pass_out.samples);
+      } break;
+      case PointCloudCaptureSettings::CaptureMode::Gpu:
+        PointCloud::SampleCurrentScene(pass_out.samples);
+        break;
+    }
+
+    pass_out.sample_kept.assign(pass_out.samples.size(), static_cast<uint8_t>(0));
+    pass_out.sample_points.assign(pass_out.samples.size(), glm::vec3(0.0f));
+    pass_out.points.clear();
+    pass_out.instance_indices.clear();
+    pass_out.type_indices.clear();
+    pass_out.colors.clear();
+
+    std::mt19937 noise_rng(MixSeed(active_descriptor->scan_seed, kPointNoiseSeedSalt));
+    std::uniform_real_distribution<float> dropout_dist(0.0f, 1.0f);
+
+    size_t ray_hit_samples = 0;
+    size_t sample_filter_rejected = 0;
+    size_t range_filter_rejected = 0;
+    size_t dropout_rejected = 0;
+    size_t bound_rejected = 0;
+
+    for (size_t sample_index = 0; sample_index < pass_out.samples.size(); sample_index++) {
+      const auto& sample = pass_out.samples[sample_index];
+      if (sample.hit_count == 0) {
+        continue;
+      }
+      ray_hit_samples++;
+
+      if (!active_capture_settings->SampleFilter(sample)) {
+        sample_filter_rejected++;
+        continue;
+      }
+
+      const float distance = glm::distance(sample.hit_info.position, sample.start);
+      if (settings.min_range > 0.0f && distance < settings.min_range) {
+        range_filter_rejected++;
+        continue;
+      }
+      if (settings.max_range > 0.0f && distance > settings.max_range) {
+        range_filter_rejected++;
+        continue;
+      }
+
+      if (settings.dropout_probability > 0.0f && dropout_dist(noise_rng) < settings.dropout_probability) {
+        dropout_rejected++;
+        continue;
+      }
+
+      if (has_plant_bound &&
+          !PointInsideExpandedBound(sample.hit_info.position, plant_bound, settings.bounding_box_limit)) {
+        bound_rejected++;
+        continue;
+      }
+
+      const glm::vec3 ball_rand = SampleBall(noise_rng, settings.hit_ball_jitter_radius);
+
+      glm::vec3 range_noise(0.0f);
+      if (settings.range_noise_base_sigma > 0.0f || settings.range_noise_scale > 0.0f) {
+        const float sigma = settings.range_noise_base_sigma + settings.range_noise_scale * distance;
+        range_noise = glm::vec3(
+            SampleGaussian(noise_rng, sigma),
+            SampleGaussian(noise_rng, sigma),
+            SampleGaussian(noise_rng, sigma));
+      }
+
+      glm::vec3 distance_scaled_noise(0.0f);
+      if (settings.distance_sigma_scale > 0.0f) {
+        distance_scaled_noise = distance * glm::vec3(
+            SampleGaussian(noise_rng, settings.distance_sigma_scale),
+            SampleGaussian(noise_rng, settings.distance_sigma_scale),
+            SampleGaussian(noise_rng, settings.distance_sigma_scale));
+      }
+
+      const glm::vec3 final_point = sample.hit_info.position + distance_scaled_noise + range_noise + ball_rand;
+      pass_out.sample_kept[sample_index] = static_cast<uint8_t>(1);
+      pass_out.sample_points[sample_index] = final_point;
+      pass_out.points.emplace_back(final_point);
+
+      if (settings.color_output) {
+        pass_out.colors.emplace_back(glm::vec3(sample.hit_info.color));
+      }
+
+      const auto stem_search = stem_particle_handles.find(sample.handle);
+      const auto spikelet_search = spikelet_particle_handles.find(sample.handle);
+
+      if (settings.instance_index) {
+        if (stem_search != stem_particle_handles.end()) {
+          pass_out.instance_indices.emplace_back(static_cast<int>(stem_search->second));
+        } else if (spikelet_search != spikelet_particle_handles.end()) {
+          pass_out.instance_indices.emplace_back(static_cast<int>(spikelet_search->second));
+        } else {
+          pass_out.instance_indices.emplace_back(0);
+        }
+      }
+
+      if (settings.type_index) {
+        if (stem_search != stem_particle_handles.end()) {
+          pass_out.type_indices.emplace_back(0);
+        } else if (spikelet_search != spikelet_particle_handles.end()) {
+          pass_out.type_indices.emplace_back(1);
+        } else {
+          pass_out.type_indices.emplace_back(-1);
+        }
+      }
+    }
+
+    pass_out.counts.ray_hit_samples = ray_hit_samples;
+    pass_out.counts.sample_filter_rejected = sample_filter_rejected;
+    pass_out.counts.range_filter_rejected = range_filter_rejected;
+    pass_out.counts.dropout_rejected = dropout_rejected;
+    pass_out.counts.bound_rejected = bound_rejected;
+    pass_out.counts.kept_before_budget = pass_out.points.size();
+    pass_out.counts.kept_after_budget = pass_out.points.size();
+    return true;
+  };
+
+  ScanExecutionResult final_result{};
+  bool has_final_result = false;
+  int retry_passes_used = 0;
+  const int max_attempts = 1 + (budget_state.enabled ? budget_state.max_retry_passes : 0);
+  for (int attempt = 0; attempt < max_attempts; attempt++) {
+    ScanExecutionResult attempt_result{};
+    if (!run_capture_pass(attempt_result)) {
+      return false;
+    }
+
+    const size_t kept_points = attempt_result.points.size();
+    const bool within_budget = !budget_state.enabled ||
+                               (kept_points >= static_cast<size_t>(budget_state.min_points) &&
+                                kept_points <= static_cast<size_t>(budget_state.max_points));
+    const bool can_retry =
+        budget_state.enabled &&
+        attempt < (max_attempts - 1) &&
+        active_tassel_capture_settings &&
+        active_tassel_capture_settings->scan_mode == TasselScanMode::Circular &&
+        kept_points > 0 &&
+        !within_budget;
+
+    if (can_retry) {
+      const int current_resolution = std::max(2, active_tassel_capture_settings->scan_resolution);
+      const double ratio = static_cast<double>(budget_state.target_points) /
+                           static_cast<double>(std::max<size_t>(1, kept_points));
+      int proposed_resolution = static_cast<int>(std::llround(
+          static_cast<double>(current_resolution) * std::sqrt(std::max(1e-6, ratio))));
+      proposed_resolution = glm::clamp(proposed_resolution, 2, 4096);
+      if (proposed_resolution == current_resolution) {
+        proposed_resolution = ratio > 1.0
+                                  ? std::min(4096, current_resolution + 1)
+                                  : std::max(2, current_resolution - 1);
+      }
+      active_tassel_capture_settings->scan_resolution = proposed_resolution;
+      retry_passes_used++;
+      continue;
+    }
+
+    final_result = std::move(attempt_result);
+    has_final_result = true;
+    break;
+  }
+
+  if (!has_final_result) {
+    EVOENGINE_ERROR("Tassel point cloud capture failed to produce a final scan result.");
     return false;
   }
 
-  out.sample_kept.assign(out.samples.size(), static_cast<uint8_t>(0));
-  out.sample_points.assign(out.samples.size(), glm::vec3(0.0f));
-  out.points.clear();
-  out.instance_indices.clear();
-  out.type_indices.clear();
-  out.colors.clear();
+  out = std::move(final_result);
+  out.scan_seed = active_descriptor->scan_seed;
+  out.effective_point_settings = sampled_point_settings;
+  out.scan_mode_name = active_tassel_capture_settings
+                           ? ScanModeName(active_tassel_capture_settings->scan_mode)
+                           : "Unknown";
+  out.has_effective_capture_settings = static_cast<bool>(active_tassel_capture_settings);
+  if (active_tassel_capture_settings) {
+    out.effective_capture_settings = *active_tassel_capture_settings;
+    out.counts.scan_resolution_used = active_tassel_capture_settings->scan_resolution;
+  }
+  out.counts.circular_view_count = budget_state.circular_view_count;
 
-  std::mt19937 noise_rng(MixSeed(active_descriptor->scan_seed, kPointNoiseSeedSalt));
-  std::uniform_real_distribution<float> dropout_dist(0.0f, 1.0f);
+  out.budget.enabled = budget_state.enabled;
+  out.budget.target_points = budget_state.target_points;
+  out.budget.min_points = budget_state.min_points;
+  out.budget.max_points = budget_state.max_points;
+  out.budget.tolerance_ratio = budget_state.tolerance_ratio;
+  out.budget.max_retry_passes = budget_state.max_retry_passes;
+  out.budget.retry_passes_used = retry_passes_used;
+  out.budget.downsample_to_budget_max = budget_state.downsample_to_budget_max;
 
-  size_t ray_hit_samples = 0;
-  size_t sample_filter_rejected = 0;
-  size_t range_filter_rejected = 0;
-  size_t dropout_rejected = 0;
-  size_t bound_rejected = 0;
+  const size_t kept_before_budget = out.points.size();
+  out.counts.kept_before_budget = kept_before_budget;
+  if (budget_state.enabled &&
+      budget_state.downsample_to_budget_max &&
+      kept_before_budget > static_cast<size_t>(budget_state.max_points)) {
+    const auto keep_indices = BuildDeterministicSpatialSampleIndices(
+        out.points, static_cast<size_t>(budget_state.max_points));
+    const size_t original_size = out.points.size();
 
-  for (size_t sample_index = 0; sample_index < out.samples.size(); sample_index++) {
-    const auto& sample = out.samples[sample_index];
-    if (sample.hit_count == 0) {
-      continue;
+    GatherByIndices(out.points, keep_indices);
+    if (out.instance_indices.size() == original_size) {
+      GatherByIndices(out.instance_indices, keep_indices);
     }
-    ray_hit_samples++;
-
-    if (!active_capture_settings->SampleFilter(sample)) {
-      sample_filter_rejected++;
-      continue;
+    if (out.type_indices.size() == original_size) {
+      GatherByIndices(out.type_indices, keep_indices);
     }
-
-    const float distance = glm::distance(sample.hit_info.position, sample.start);
-    if (settings.min_range > 0.0f && distance < settings.min_range) {
-      range_filter_rejected++;
-      continue;
-    }
-    if (settings.max_range > 0.0f && distance > settings.max_range) {
-      range_filter_rejected++;
-      continue;
-    }
-
-    if (settings.dropout_probability > 0.0f && dropout_dist(noise_rng) < settings.dropout_probability) {
-      dropout_rejected++;
-      continue;
-    }
-
-    if (has_plant_bound &&
-        !PointInsideExpandedBound(sample.hit_info.position, plant_bound, settings.bounding_box_limit)) {
-      bound_rejected++;
-      continue;
+    if (out.colors.size() == original_size) {
+      GatherByIndices(out.colors, keep_indices);
     }
 
-    const glm::vec3 ball_rand = SampleBall(noise_rng, settings.hit_ball_jitter_radius);
+    out.budget.downsample_applied = out.points.size() < original_size;
+  }
+  out.counts.kept_after_budget = out.points.size();
 
-    glm::vec3 range_noise(0.0f);
-    if (settings.range_noise_base_sigma > 0.0f || settings.range_noise_scale > 0.0f) {
-      const float sigma = settings.range_noise_base_sigma + settings.range_noise_scale * distance;
-      range_noise = glm::vec3(
-          SampleGaussian(noise_rng, sigma),
-          SampleGaussian(noise_rng, sigma),
-          SampleGaussian(noise_rng, sigma));
-    }
-
-    glm::vec3 distance_scaled_noise(0.0f);
-    if (settings.distance_sigma_scale > 0.0f) {
-      distance_scaled_noise = distance * glm::vec3(
-          SampleGaussian(noise_rng, settings.distance_sigma_scale),
-          SampleGaussian(noise_rng, settings.distance_sigma_scale),
-          SampleGaussian(noise_rng, settings.distance_sigma_scale));
-    }
-
-    const glm::vec3 final_point = sample.hit_info.position + distance_scaled_noise + range_noise + ball_rand;
-    out.sample_kept[sample_index] = static_cast<uint8_t>(1);
-    out.sample_points[sample_index] = final_point;
-    out.points.emplace_back(final_point);
-
-    if (settings.color_output) {
-      out.colors.emplace_back(glm::vec3(sample.hit_info.color));
-    }
-
-    const auto stem_search = stem_particle_handles.find(sample.handle);
-    const auto spikelet_search = spikelet_particle_handles.find(sample.handle);
-
-    if (settings.instance_index) {
-      if (stem_search != stem_particle_handles.end()) {
-        out.instance_indices.emplace_back(static_cast<int>(stem_search->second));
-      } else if (spikelet_search != spikelet_particle_handles.end()) {
-        out.instance_indices.emplace_back(static_cast<int>(spikelet_search->second));
-      } else {
-        out.instance_indices.emplace_back(0);
-      }
-    }
-
-    if (settings.type_index) {
-      if (stem_search != stem_particle_handles.end()) {
-        out.type_indices.emplace_back(0);
-      } else if (spikelet_search != spikelet_particle_handles.end()) {
-        out.type_indices.emplace_back(1);
-      } else {
-        out.type_indices.emplace_back(-1);
-      }
-    }
+  if (!budget_state.enabled) {
+    out.budget.status = "disabled";
+  } else if (out.points.size() < static_cast<size_t>(budget_state.min_points)) {
+    out.budget.status = "under_target";
+  } else if (out.points.size() > static_cast<size_t>(budget_state.max_points)) {
+    out.budget.status = "over_target_unclamped";
+  } else if (out.budget.downsample_applied) {
+    out.budget.status = "over_clamped";
+  } else {
+    out.budget.status = "within_range";
   }
 
   if (out.points.empty()) {
     const auto post_filter_rejected =
-        sample_filter_rejected + range_filter_rejected + dropout_rejected + bound_rejected;
-    std::string active_scan_mode = "Unknown";
-    float active_sample_filter_bbox = 0.0f;
-    if (const auto active_tassel_capture_settings =
-            std::dynamic_pointer_cast<TasselPointCloudGridCaptureSettings>(active_capture_settings)) {
-      active_scan_mode = ScanModeName(active_tassel_capture_settings->scan_mode);
-      active_sample_filter_bbox = active_tassel_capture_settings->bounding_box_size;
-    }
+        out.counts.sample_filter_rejected +
+        out.counts.range_filter_rejected +
+        out.counts.dropout_rejected +
+        out.counts.bound_rejected;
+    const float active_sample_filter_bbox =
+        active_tassel_capture_settings ? active_tassel_capture_settings->bounding_box_size : 0.0f;
     EVOENGINE_ERROR(
         "Tassel capture produced zero kept points after filtering. "
-        "samples=" + std::to_string(out.samples.size()) +
-        ", hit_samples=" + std::to_string(ray_hit_samples) +
-        ", sample_filter_rejected=" + std::to_string(sample_filter_rejected) +
-        ", range_filter_rejected=" + std::to_string(range_filter_rejected) +
-        ", dropout_rejected=" + std::to_string(dropout_rejected) +
-        ", bound_rejected=" + std::to_string(bound_rejected) +
+        "samples=" + std::to_string(out.counts.generated_samples) +
+        ", hit_samples=" + std::to_string(out.counts.ray_hit_samples) +
+        ", sample_filter_rejected=" + std::to_string(out.counts.sample_filter_rejected) +
+        ", range_filter_rejected=" + std::to_string(out.counts.range_filter_rejected) +
+        ", dropout_rejected=" + std::to_string(out.counts.dropout_rejected) +
+        ", bound_rejected=" + std::to_string(out.counts.bound_rejected) +
         ", filtered_out=" + std::to_string(post_filter_rejected) +
-        ", scan_mode=" + active_scan_mode +
+        ", scan_mode=" + out.scan_mode_name +
         ", sample_filter_bbox=" + std::to_string(active_sample_filter_bbox));
   }
 
@@ -2517,17 +2871,119 @@ void TasselPointCloudScanner::Capture(const std::filesystem::path& save_path,
     EVOENGINE_ERROR("No MaizeTassel entities found!");
     return;
   }
-  std::vector<glm::vec3> points;
-  std::vector<int> instance_indices;
-  std::vector<int> type_indices;
-  std::vector<glm::vec3> colors;
+  AssetRef descriptor_ref_copy = scanner_descriptor_ref_;
+  const auto active_descriptor = descriptor_ref_copy.Get<TasselPointCloudScannerDescriptor>();
+  ScanExecutionResult execution{};
+  if (!ExecuteDeterministicScan(active_descriptor, capture_settings, execution)) {
+    return;
+  }
 
-  Scan(capture_settings, points, instance_indices, type_indices, colors);
-  if (points.empty()) {
+  if (execution.points.empty()) {
     EVOENGINE_ERROR("Tassel capture aborted: scan produced no points.");
     return;
   }
-  SavePointCloud(save_path, points, instance_indices, type_indices, colors);
+
+  SavePointCloud(save_path, execution.points, execution.instance_indices, execution.type_indices, execution.colors);
+
+  const auto sidecar_path = save_path.parent_path() / (save_path.stem().string() + "_scanmeta.json");
+  try {
+    if (!sidecar_path.parent_path().empty()) {
+      std::filesystem::create_directories(sidecar_path.parent_path());
+    }
+
+    std::ofstream sidecar(sidecar_path.string(), std::ios::out | std::ios::trunc);
+    if (!sidecar.is_open()) {
+      EVOENGINE_WARNING("Failed to write tassel scanner metadata sidecar: " + sidecar_path.string());
+      return;
+    }
+
+    const auto write_vec3 = [&](const glm::vec3& value) {
+      sidecar << "[" << value.x << ", " << value.y << ", " << value.z << "]";
+    };
+
+    sidecar << std::boolalpha << std::fixed << std::setprecision(6);
+    sidecar << "{\n";
+    sidecar << "  \"schema_version\": 1,\n";
+    sidecar << "  \"scan_seed\": " << execution.scan_seed << ",\n";
+    sidecar << "  \"scan_mode\": \"" << EscapeJsonString(execution.scan_mode_name) << "\",\n";
+    sidecar << "  \"capture_mode\": \""
+            << EscapeJsonString(CaptureModeName(
+                   execution.has_effective_capture_settings
+                       ? execution.effective_capture_settings.capture_mode
+                       : PointCloudCaptureSettings::CaptureMode::Cpu))
+            << "\",\n";
+
+    sidecar << "  \"point_settings\": {\n";
+    sidecar << "    \"distance_sigma_scale\": " << execution.effective_point_settings.distance_sigma_scale << ",\n";
+    sidecar << "    \"hit_ball_jitter_radius\": " << execution.effective_point_settings.hit_ball_jitter_radius << ",\n";
+    sidecar << "    \"range_noise_base_sigma\": " << execution.effective_point_settings.range_noise_base_sigma << ",\n";
+    sidecar << "    \"range_noise_scale\": " << execution.effective_point_settings.range_noise_scale << ",\n";
+    sidecar << "    \"dropout_probability\": " << execution.effective_point_settings.dropout_probability << ",\n";
+    sidecar << "    \"angular_noise_sigma\": " << execution.effective_point_settings.angular_noise_sigma << ",\n";
+    sidecar << "    \"min_range\": " << execution.effective_point_settings.min_range << ",\n";
+    sidecar << "    \"max_range\": " << execution.effective_point_settings.max_range << ",\n";
+    sidecar << "    \"bounding_box_limit\": " << execution.effective_point_settings.bounding_box_limit << "\n";
+    sidecar << "  },\n";
+
+    if (execution.has_effective_capture_settings) {
+      const auto& settings = execution.effective_capture_settings;
+      sidecar << "  \"effective_capture_settings\": {\n";
+      sidecar << "    \"scan_mode\": \"" << EscapeJsonString(ScanModeName(settings.scan_mode)) << "\",\n";
+      sidecar << "    \"capture_mode\": \"" << EscapeJsonString(CaptureModeName(settings.capture_mode)) << "\",\n";
+      sidecar << "    \"grid_size\": [" << settings.grid_size.x << ", " << settings.grid_size.y << "],\n";
+      sidecar << "    \"grid_distance\": " << settings.grid_distance << ",\n";
+      sidecar << "    \"step\": " << settings.step << ",\n";
+      sidecar << "    \"samples_per_step\": " << settings.samples_per_step << ",\n";
+      sidecar << "    \"sample_height\": " << settings.sample_height << ",\n";
+      sidecar << "    \"scan_center\": ";
+      write_vec3(settings.scan_center);
+      sidecar << ",\n";
+      sidecar << "    \"look_target_height\": " << settings.look_target_height << ",\n";
+      sidecar << "    \"scanner_distance\": " << settings.scanner_distance << ",\n";
+      sidecar << "    \"pitch_angle_start\": " << settings.pitch_angle_start << ",\n";
+      sidecar << "    \"pitch_angle_end\": " << settings.pitch_angle_end << ",\n";
+      sidecar << "    \"pitch_angle_step\": " << settings.pitch_angle_step << ",\n";
+      sidecar << "    \"turn_angle_start\": " << settings.turn_angle_start << ",\n";
+      sidecar << "    \"turn_angle_end\": " << settings.turn_angle_end << ",\n";
+      sidecar << "    \"turn_angle_step\": " << settings.turn_angle_step << ",\n";
+      sidecar << "    \"fov\": " << settings.fov << ",\n";
+      sidecar << "    \"scan_resolution\": " << settings.scan_resolution << ",\n";
+      sidecar << "    \"bounding_box_size\": " << settings.bounding_box_size << "\n";
+      sidecar << "  },\n";
+    } else {
+      sidecar << "  \"effective_capture_settings\": null,\n";
+    }
+
+    sidecar << "  \"budget\": {\n";
+    sidecar << "    \"enabled\": " << execution.budget.enabled << ",\n";
+    sidecar << "    \"target_points\": " << execution.budget.target_points << ",\n";
+    sidecar << "    \"target_min_points\": " << execution.budget.min_points << ",\n";
+    sidecar << "    \"target_max_points\": " << execution.budget.max_points << ",\n";
+    sidecar << "    \"tolerance_ratio\": " << execution.budget.tolerance_ratio << ",\n";
+    sidecar << "    \"max_retry_passes\": " << execution.budget.max_retry_passes << ",\n";
+    sidecar << "    \"retry_passes_used\": " << execution.budget.retry_passes_used << ",\n";
+    sidecar << "    \"downsample_to_budget_max\": " << execution.budget.downsample_to_budget_max << ",\n";
+    sidecar << "    \"downsample_applied\": " << execution.budget.downsample_applied << ",\n";
+    sidecar << "    \"status\": \"" << EscapeJsonString(execution.budget.status) << "\"\n";
+    sidecar << "  },\n";
+
+    sidecar << "  \"counts\": {\n";
+    sidecar << "    \"generated_samples\": " << execution.counts.generated_samples << ",\n";
+    sidecar << "    \"ray_hit_samples\": " << execution.counts.ray_hit_samples << ",\n";
+    sidecar << "    \"sample_filter_rejected\": " << execution.counts.sample_filter_rejected << ",\n";
+    sidecar << "    \"range_filter_rejected\": " << execution.counts.range_filter_rejected << ",\n";
+    sidecar << "    \"dropout_rejected\": " << execution.counts.dropout_rejected << ",\n";
+    sidecar << "    \"bound_rejected\": " << execution.counts.bound_rejected << ",\n";
+    sidecar << "    \"kept_before_budget\": " << execution.counts.kept_before_budget << ",\n";
+    sidecar << "    \"kept_after_budget\": " << execution.counts.kept_after_budget << ",\n";
+    sidecar << "    \"scan_resolution_used\": " << execution.counts.scan_resolution_used << ",\n";
+    sidecar << "    \"circular_view_count\": " << execution.counts.circular_view_count << "\n";
+    sidecar << "  }\n";
+    sidecar << "}\n";
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING(
+        "Failed to write tassel scanner metadata sidecar " + sidecar_path.string() + ": " + std::string(e.what()));
+  }
 }
 
 bool TasselPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -2776,7 +3232,7 @@ bool TasselPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& edit
         "Max Hits / View [deprecated]", active_descriptor->visual_scan_max_hits_per_view,
         active_descriptor->visual_scan_max_hits_per_view_deviation,
         1.0f, 1, 1000000, 0, 1000000,
-        "Deprecated: playback now injects the full deterministic kept-hit set for parity with Run Scan and Capture.");
+        "Deprecated: playback now injects the full kept-hit set to match Run Scan and Capture.");
       changed |= InspectFloatMeanDeviation(
         "Heat Point Size", active_descriptor->visual_scan_point_size,
         active_descriptor->visual_scan_point_size_deviation,

@@ -1,0 +1,109 @@
+// =============================================================================
+//  tassel_propagate.comp — Phase 2b.1 GPU mirror of RunPropagateCpu.
+//
+//  One thread per slot in the depth-permuted index window [band_begin,
+//  band_end). The host loops over depth bands, dispatching one wave per
+//  band with an EverythingBarrier between, so each child observes its
+//  parent's already-written global pose (matches the host barrier
+//  discipline of the CPU reference).
+//
+//  For root nodes (parent < 0) only `global_position.w` is refreshed
+//  (= length). Internal nodes compute child position by translating
+//  parent_position by parent_rotation * (0,0,-1) * parent_position.w
+//  and child rotation by Hamilton(parent_rotation, local_rotation),
+//  followed by quaternion normalization.
+// =============================================================================
+
+#extension GL_ARB_shading_language_include : enable
+#extension GL_GOOGLE_include_directive : enable
+
+const uint WORKGROUP_SIZE = 64;
+layout(local_size_x = WORKGROUP_SIZE) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer TasselGrowthHeader_b {
+    uint node_count;
+    uint depth_band_count;
+    uint instance_id;
+    uint flags;
+    uint depth_band_offsets[];
+} header;
+
+layout(set = 0, binding = 1, std430) readonly buffer ParentIndex_b      { int  parent_index[];     };
+layout(set = 0, binding = 2, std430) readonly buffer Depth_b            { uint node_depth[];       };
+layout(set = 0, binding = 3, std430) readonly buffer TypeTag_b          { uint type_tag[];         };
+layout(set = 0, binding = 4, std430) readonly buffer LocalRotation_b    { vec4 local_rotation[];   };
+layout(set = 0, binding = 5, std430) readonly buffer GrowthState_b      { vec4 growth_state[];     };
+layout(set = 0, binding = 6, std430) readonly buffer NodeRandomMisc_b   { vec4 node_random_misc[]; };
+layout(set = 0, binding = 7, std430) readonly buffer LengthThickness_b  { vec2 length_thickness[]; };
+layout(set = 0, binding = 8, std430) buffer          GlobalPosition_b   { vec4 global_position[];  };
+layout(set = 0, binding = 9, std430) buffer          GlobalRotation_b   { vec4 global_rotation[];  };
+layout(set = 0, binding = 10, std430) readonly buffer DepthSortedIndex_b { uint depth_sorted_index[]; };
+layout(set = 0, binding = 11, std430) readonly buffer CurveAtlas_b {
+    uint num_curves;
+    uint samples_per_curve;
+    uint stride;
+    uint _pad;
+    float taps[];
+} atlas;
+
+layout(push_constant) uniform PropagatePC {
+    uint band_begin;   // inclusive index into depth_sorted_index
+    uint band_end;     // exclusive
+    uint _pad0;
+    uint _pad1;
+} pc;
+
+// Hamilton product q = a * b. Quaternion (x,y,z,w) convention.
+vec4 quat_mul(vec4 a, vec4 b) {
+    return vec4(
+        a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+    );
+}
+
+// Rotate vector v by quaternion q. Standard identity.
+vec3 quat_rotate(vec4 q, vec3 v) {
+    vec3 qv = q.xyz;
+    float w = q.w;
+    return 2.0 * dot(qv, v) * qv
+         + (w * w - dot(qv, qv)) * v
+         + 2.0 * w * cross(qv, v);
+}
+
+void main() {
+    uint slot = pc.band_begin + gl_GlobalInvocationID.x;
+    if (slot >= pc.band_end) return;
+
+    uint i = depth_sorted_index[slot];
+    int parent = parent_index[i];
+    float seg_length = length_thickness[i].x;
+
+    // Root or orphan: keep host-seeded pose, just refresh w = length.
+    if (parent < 0) {
+        vec4 p = global_position[i];
+        p.w = seg_length;
+        global_position[i] = p;
+        return;
+    }
+
+    vec4 parent_pos = global_position[parent];
+    vec4 parent_rot = global_rotation[parent];
+    vec4 local_q    = local_rotation[i];
+
+    // Direction along which to advance from parent: rotate (0,0,-1) by parent_rot.
+    vec3 dir = quat_rotate(parent_rot, vec3(0.0, 0.0, -1.0));
+    float dn = length(dir);
+    if (dn > 0.0) dir /= dn;
+
+    vec3 child_pos = parent_pos.xyz + dir * parent_pos.w;
+
+    // Child rotation = parent_rot * local_q (Hamilton).
+    vec4 cq = quat_mul(parent_rot, local_q);
+    float cn = sqrt(dot(cq, cq));
+    cq = (cn > 0.0) ? (cq / cn) : vec4(0.0, 0.0, 0.0, 1.0);
+
+    global_position[i] = vec4(child_pos, seg_length);
+    global_rotation[i] = cq;
+}

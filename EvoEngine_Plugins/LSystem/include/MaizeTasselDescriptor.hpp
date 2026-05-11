@@ -4,6 +4,7 @@
 #include <Plot2D.hpp>
 #include "MaizeTasselRules.hpp"
 #include "ParamSpaceExplorer.hpp"
+#include "ILSystemExplorableDescriptor.hpp"
 #include <cstdint>
 #include <random>
 
@@ -17,7 +18,7 @@ namespace l_system_plugin {
  *
  * File extension: .mtassel
  */
-class MaizeTasselDescriptor : public evo_engine::IAsset {
+class MaizeTasselDescriptor : public evo_engine::IAsset, public ILSystemExplorableDescriptor {
  public:
   MaizeTasselDescriptor();
 
@@ -100,6 +101,7 @@ class MaizeTasselDescriptor : public evo_engine::IAsset {
   std::vector<TropismEntry> tropisms;
 
   // -- GDD milestones --
+  evo_engine::SingleDistribution<float> target_gdd{400.0f};
   evo_engine::SingleDistribution<float> base_temperature{10.0f};
   evo_engine::SingleDistribution<float> plastochron_gdd{30.0f};
   evo_engine::SingleDistribution<float> anthesis_gdd{200.0f};
@@ -129,8 +131,18 @@ class MaizeTasselDescriptor : public evo_engine::IAsset {
   [[nodiscard]] evo_engine::Entity Instantiate() const;
 
   bool OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) override;
+  [[nodiscard]] bool SupportsDefaultsOverwrite() const override {
+    return true;
+  }
+  [[nodiscard]] std::filesystem::path ResolveWritableDefaultsPath() const override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;
+
+  // -- ILSystemExplorableDescriptor --
+  void RegisterExplorableAxes(ParamSpaceExplorer& explorer) override;
+  uint64_t ExplorableSchemaFingerprint() const override {
+    return static_cast<uint64_t>(tropisms.size());
+  }
 
   // -- Editor preferences (serialized) --
   bool live_preview = false;

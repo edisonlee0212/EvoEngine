@@ -1184,6 +1184,9 @@ pair_distal_angle_curve:
     - [-0.1, 0]
     - [1, 1]
     - [0.1, 0]
+target_gdd:
+  mean: 180
+  deviation: 0
 base_temperature: 10
 plastochron_gdd: 55
 anthesis_gdd: 130

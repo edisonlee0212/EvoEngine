@@ -1043,6 +1043,22 @@ void DatasetGenerator::GenerateDataForTassel(const TasselDataGenerationParameter
     return;
   }
 
+  // Scanner-compat toggle: force MaizeTassel::RebuildGeometry() down the
+  // legacy CPU `Particles` path for the duration of headless generation so
+  // TasselPointCloudScanner (which enumerates only standard renderable
+  // components via RenderInstanceStorage) can see the internodes. The GPU
+  // mesh-shader SSBO path is invisible to the scanner. RAII restores the
+  // prior global state on every exit path.
+  struct ForceCpuParticlesGuard {
+    bool prev;
+    ForceCpuParticlesGuard() : prev(MaizeTassel::IsForceCpuParticlesPath()) {
+      MaizeTassel::SetForceCpuParticlesPath(true);
+    }
+    ~ForceCpuParticlesGuard() { MaizeTassel::SetForceCpuParticlesPath(prev); }
+    ForceCpuParticlesGuard(const ForceCpuParticlesGuard&) = delete;
+    ForceCpuParticlesGuard& operator=(const ForceCpuParticlesGuard&) = delete;
+  } force_cpu_particles_guard;
+
   const auto scene = Application::GetActiveScene();
   if (!scene) {
     EVOENGINE_ERROR("No active scene!");

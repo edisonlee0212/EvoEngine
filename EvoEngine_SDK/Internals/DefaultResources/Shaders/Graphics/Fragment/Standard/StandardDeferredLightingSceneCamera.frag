@@ -30,13 +30,18 @@ void main()
     vec3 normal       = normalSample.xyz;
     int  instance_index = int(round(normalSample.a));
 
+    int max_instance_index = max(EE_RENDER_INFO.instance_size - 1, 0);
+    int max_material_index = max(EE_RENDER_INFO.material_size - 1, 0);
+    instance_index = clamp(instance_index, 0, max_instance_index);
+    material_index = clamp(material_index, 0, max_material_index);
+
     bool instance_selected = (info_index & 1) == 1; // faster than % 2
 
     vec3 fragPos        = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, fs_in.TexCoord, ndcDepth);
     vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
     vec3 skyColor       = EE_SKY_COLOR(fragPos - cameraPosition);
 
-    // Precompute texel offset once; used in both “sky” and “solid” paths
+    // Precompute texel offset once; used in both ï¿½skyï¿½ and ï¿½solidï¿½ paths
     vec2 texelSize  = vec2(textureSize(inMaterial, 0));
     vec2 texOffset  = 1.0 / texelSize;
 
@@ -80,21 +85,49 @@ void main()
     // --------------------------------------------------------------------
     float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 
-    MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
+    float roughness;
+    float metallic;
+    float specular;
+    float emission;
+    float ao;
+    vec4 albedo;
+    bool receiveShadow = true;
 
-    float roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, materialTexCoord, vec4(materialProperties.roughness, 0, 0, 0)).r;
-	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, materialTexCoord, vec4(materialProperties.metallic, 0, 0, 0)).r;
-	float emission = materialProperties.emission;
-	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, materialTexCoord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, materialTexCoord, materialProperties.albedo);
+    if (info_index > 1) {
+        // Tinted g-buffer path stores albedo directly in outMaterial.rgb.
+        // Recover material properties via instance index so lighting remains
+        // material-driven instead of using the previous implicit fallback.
+        Instance instance = EE_INSTANCES[instance_index];
+        int instance_material_index = clamp(instance.material_index, 0, max_material_index);
+        MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[instance_material_index];
+        roughness = materialProperties.roughness;
+        metallic = materialProperties.metallic;
+        specular = materialProperties.specular;
+        emission = materialProperties.emission;
+        ao = materialProperties.ambient_occulusion;
+        albedo = vec4(matSample.rgb, 1.0);
+        receiveShadow = materialProperties.receive_shadow;
+    } else {
+        MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
+        roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, materialTexCoord, vec4(materialProperties.roughness, 0, 0, 0)).r;
+        metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, materialTexCoord, vec4(materialProperties.metallic, 0, 0, 0)).r;
+        specular = materialProperties.specular;
+        emission = materialProperties.emission;
+        ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, materialTexCoord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
+        albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, materialTexCoord, materialProperties.albedo);
+        receiveShadow = materialProperties.receive_shadow;
+    }
 
     // --------------------------------------------------------------------
     // Debug visualization (branchless override, but keeps default behavior)
     // --------------------------------------------------------------------
     vec3 base  = matSample.rgb;
-    vec3 kMat  = abs(EE_UNIFORM_KERNEL[material_index  % MAX_KERNEL_AMOUNT].xyz);
-    vec3 kInst = abs(EE_UNIFORM_KERNEL[instance_index  % MAX_KERNEL_AMOUNT].xyz);
-    vec3 kInfo = abs(EE_UNIFORM_KERNEL[info_index      % MAX_KERNEL_AMOUNT].xyz);
+    int mat_kernel_index = (material_index % MAX_KERNEL_AMOUNT + MAX_KERNEL_AMOUNT) % MAX_KERNEL_AMOUNT;
+    int inst_kernel_index = (instance_index % MAX_KERNEL_AMOUNT + MAX_KERNEL_AMOUNT) % MAX_KERNEL_AMOUNT;
+    int info_kernel_index = (info_index % MAX_KERNEL_AMOUNT + MAX_KERNEL_AMOUNT) % MAX_KERNEL_AMOUNT;
+    vec3 kMat  = abs(EE_UNIFORM_KERNEL[mat_kernel_index].xyz);
+    vec3 kInst = abs(EE_UNIFORM_KERNEL[inst_kernel_index].xyz);
+    vec3 kInfo = abs(EE_UNIFORM_KERNEL[info_kernel_index].xyz);
 
     float dv   = float(EE_RENDER_INFO.debug_visualization);
 
@@ -119,19 +152,19 @@ void main()
     // Lighting
     // --------------------------------------------------------------------
     vec3 viewDir = normalize(cameraPosition - fragPos);
-    bool receiveShadow = true;
 
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo.rgb, metallic);
 
     vec3 direct  = EE_FUNC_CALCULATE_LIGHTS(receiveShadow,
-                                            albedo.rgb, 1.0, depth,
+                                            albedo.rgb, specular, depth,
                                             normal, viewDir, fragPos,
                                             metallic, roughness, F0);
     vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb,
                                                          normal, viewDir,
                                                          metallic, roughness, F0);
-    vec3 color = direct + emission * normalize(albedo.rgb) + ambient * ao;
+    vec3 safe_albedo_dir = dot(albedo.rgb, albedo.rgb) > 1e-8 ? normalize(albedo.rgb) : vec3(0.0);
+    vec3 color = direct + emission * safe_albedo_dir + ambient * ao;
 
     // --------------------------------------------------------------------
     // Selection / neighborhood highlight

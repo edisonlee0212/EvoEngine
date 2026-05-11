@@ -180,7 +180,22 @@ class RenderInstanceStorage {
 
     alignas(4) int displacement_texture_index = -1;  ///< Displacement map texture index.
     alignas(4) float displacement_intensity = 0.1f;  ///< Displacement intensity/scale.
-    alignas(4) int padding_mat_0 = 0;
+
+    // Advanced PBR scalars kept in CPU/GPU parity with MaterialProperties.
+    alignas(4) float subsurface_factor = 0.0f;
+    alignas(4) float specular_val = 0.5f;
+    alignas(4) float specular_tint = 0.0f;
+    alignas(4) float sheen = 0.0f;
+
+    alignas(4) float sheen_tint = 0.5f;
+    alignas(4) float clear_coat = 0.0f;
+    alignas(4) float clear_coat_roughness = 0.03f;
+    alignas(4) float ior = 1.45f;
+
+    alignas(4) float transmission = 0.0f;
+    alignas(4) float transmission_roughness = 0.0f;
+    // std430 bool is 32-bit; mirror as int. Drives vertex-color tinting in shaders.
+    alignas(4) int vertex_color_only = 0;
     alignas(4) int padding_mat_1 = 0;
 
     /**

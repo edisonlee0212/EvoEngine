@@ -1151,15 +1151,14 @@ void RayTracedGeometry::BuildGas(const OptixDeviceContext &context) {
           static_cast<Vertex *>(vertices_buffer.d_ptr), static_cast<glm::vec3 *>(device_position_buffer.d_ptr),
           static_cast<Vertex *>(vertex_data_buffer.d_ptr));
       CUDA_SYNC_CHECK();
-      auto triangles = std::vector<glm::uvec3>();
-      triangles.resize(this->triangles->size() * instance_matrices->size());
-      unsigned offset = 0;
-      for (const auto &matrix : *instance_matrices) {
-        for (const auto &i : *this->triangles) {
-          triangles.push_back(i);
-          triangles.back() += glm::uvec3(offset);
+      std::vector<glm::uvec3> triangles;
+      triangles.reserve(this->triangles->size() * instance_matrices->size());
+      uint32_t offset = 0;
+      for (size_t instance_index = 0; instance_index < instance_matrices->size(); instance_index++) {
+        for (const auto &triangle : *this->triangles) {
+          triangles.emplace_back(triangle + glm::uvec3(offset));
         }
-        offset += vertices->size();
+        offset += static_cast<uint32_t>(vertices->size());
       }
       triangle_buffer.Upload(triangles);
       build_input = {};
@@ -1185,7 +1184,6 @@ void RayTracedGeometry::BuildGas(const OptixDeviceContext &context) {
       build_input.triangleArray.sbtIndexOffsetSizeInBytes = 0;
       build_input.triangleArray.sbtIndexOffsetStrideInBytes = 0;
       vertices_buffer.Free();
-      instance_matrices_buffer.Free();
       instance_matrices_buffer.Free();
     } break;
   }
