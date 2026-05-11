@@ -2,7 +2,7 @@
 #include "EvoEngine_XAtlas.hpp"
 #include "Prefab.hpp"
 
-using namespace billboard_clouds_plugin;
+using namespace billboard_clouds_package;
 
 #pragma region Projection
 

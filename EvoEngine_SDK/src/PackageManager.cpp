@@ -95,8 +95,15 @@ std::filesystem::path PackageManager::CreateShadowCopy(const std::filesystem::pa
   const auto timestamp =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
-  const auto shadow_path = shadow_root / (source.stem().string() + "_" + std::to_string(timestamp) + "_" +
-                                          std::to_string(copy_index) + source.extension().string());
+  const auto shadow_directory =
+      shadow_root / (source.stem().string() + "_" + std::to_string(timestamp) + "_" + std::to_string(copy_index));
+  std::filesystem::create_directories(shadow_directory, ec);
+  if (ec) {
+    EVOENGINE_ERROR("Failed to create runtime package shadow directory: " + shadow_directory.string())
+    return {};
+  }
+
+  const auto shadow_path = shadow_directory / source.filename();
   std::filesystem::copy_file(source, shadow_path, std::filesystem::copy_options::overwrite_existing, ec);
   if (ec) {
     EVOENGINE_ERROR("Failed to shadow-copy runtime package " + source.string() + ": " + ec.message())
@@ -137,6 +144,131 @@ std::vector<std::filesystem::path> PackageManager::BuildDefaultSearchPaths() {
   }
 #endif
   return ret_val;
+}
+
+bool PackageManager::ReadManifest(const std::filesystem::path& manifest_path, PackageManifest& manifest) {
+  try {
+    const auto in = YAML::LoadFile(manifest_path.string());
+    if (!in["name"] || !in["library"]) {
+      EVOENGINE_WARNING("Runtime package manifest is missing name or library: " + manifest_path.string())
+      return false;
+    }
+
+    manifest.name = in["name"].as<std::string>();
+    manifest.library = in["library"].as<std::string>();
+    manifest.version = in["version"] ? in["version"].as<std::string>() : "";
+    manifest.description = in["description"] ? in["description"].as<std::string>() : "";
+    manifest.dependencies.clear();
+    if (in["dependencies"] && in["dependencies"].IsSequence()) {
+      for (const auto& dependency : in["dependencies"]) {
+        manifest.dependencies.emplace_back(dependency.as<std::string>());
+      }
+    }
+    manifest.manifest_path = std::filesystem::absolute(manifest_path);
+    manifest.library_path = manifest.manifest_path.parent_path() / manifest.library;
+    return true;
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING("Failed to read runtime package manifest " + manifest_path.string() + ": " + e.what())
+    return false;
+  }
+}
+
+void PackageManager::RefreshManifests() {
+  auto& manager = GetInstance();
+  std::vector<std::filesystem::path> search_paths;
+  {
+    std::lock_guard lock(manager.mutex_);
+    search_paths = manager.search_paths_;
+  }
+  if (search_paths.empty()) {
+    search_paths = BuildDefaultSearchPaths();
+  }
+
+  std::unordered_map<std::string, PackageManifest> manifests;
+  for (const auto& search_path : search_paths) {
+    std::error_code ec;
+    if (!std::filesystem::exists(search_path, ec) || !std::filesystem::is_directory(search_path, ec)) {
+      continue;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(search_path, ec)) {
+      if (ec)
+        break;
+      if (!entry.is_regular_file() || entry.path().extension().string() != ".evepackage") {
+        continue;
+      }
+      PackageManifest manifest;
+      if (ReadManifest(entry.path(), manifest)) {
+        manifests[manifest.name] = std::move(manifest);
+      }
+    }
+  }
+
+  {
+    std::lock_guard lock(manager.mutex_);
+    manager.package_manifests_ = std::move(manifests);
+  }
+}
+
+bool PackageManager::LoadManifestWithDependencies(const std::string& package_name,
+                                                  std::vector<std::string>& loading_stack) {
+  {
+    auto& manager = GetInstance();
+    std::lock_guard lock(manager.mutex_);
+    if (manager.loaded_packages_.find(package_name) != manager.loaded_packages_.end()) {
+      return true;
+    }
+  }
+
+  if (std::find(loading_stack.begin(), loading_stack.end(), package_name) != loading_stack.end()) {
+    EVOENGINE_ERROR("Runtime package dependency cycle detected while loading: " + package_name)
+    return false;
+  }
+
+  PackageManifest manifest;
+  {
+    auto& manager = GetInstance();
+    std::lock_guard lock(manager.mutex_);
+    const auto search = manager.package_manifests_.find(package_name);
+    if (search == manager.package_manifests_.end()) {
+      EVOENGINE_ERROR("Runtime package manifest not found: " + package_name)
+      return false;
+    }
+    manifest = search->second;
+  }
+
+  loading_stack.emplace_back(package_name);
+  for (const auto& dependency_name : manifest.dependencies) {
+    if (!LoadManifestWithDependencies(dependency_name, loading_stack)) {
+      loading_stack.pop_back();
+      EVOENGINE_ERROR("Failed to load runtime package dependency [" + dependency_name + "] for [" + package_name + "]")
+      return false;
+    }
+  }
+  loading_stack.pop_back();
+
+  if (!std::filesystem::exists(manifest.library_path)) {
+    EVOENGINE_ERROR("Runtime package library from manifest does not exist: " + manifest.library_path.string())
+    return false;
+  }
+  return Load(manifest.library_path);
+}
+
+bool PackageManager::HasLoadedDependents(const std::string& package_name, std::string* dependent_name) {
+  auto& manager = GetInstance();
+  std::lock_guard lock(manager.mutex_);
+  for (const auto& [loaded_package_name, package] : manager.loaded_packages_) {
+    if (loaded_package_name == package_name) {
+      continue;
+    }
+    if (std::find(package.info.dependencies.begin(), package.info.dependencies.end(), package_name) !=
+        package.info.dependencies.end()) {
+      if (dependent_name) {
+        *dependent_name = loaded_package_name;
+      }
+      return true;
+    }
+  }
+  return false;
 }
 
 bool PackageManager::HasLivePrivateComponentOwners(const std::vector<size_t>& type_ids) {
@@ -217,7 +349,8 @@ void PackageManager::RestoreUnknownRuntimeTypes() {
   }
 }
 
-void PackageManager::Initialize(const std::vector<std::filesystem::path>& package_search_paths) {
+void PackageManager::Initialize(const std::vector<std::filesystem::path>& package_search_paths,
+                                const std::vector<std::string>& startup_packages) {
   auto& manager = GetInstance();
   {
     std::lock_guard lock(manager.mutex_);
@@ -238,7 +371,23 @@ void PackageManager::Initialize(const std::vector<std::filesystem::path>& packag
         manager.search_paths_.emplace_back(absolute_path);
     }
   }
-  LoadAll();
+  RefreshManifests();
+  for (const auto& package_name : startup_packages) {
+    Load(package_name);
+  }
+}
+
+bool PackageManager::Load(const std::string& package_name) {
+  RefreshManifests();
+  std::vector<std::string> loading_stack;
+  return LoadManifestWithDependencies(package_name, loading_stack);
+}
+
+bool PackageManager::Load(const char* package_name) {
+  if (!package_name) {
+    return false;
+  }
+  return Load(std::string(package_name));
 }
 
 bool PackageManager::Load(const std::filesystem::path& package_path) {
@@ -247,6 +396,20 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   if (ec || !std::filesystem::exists(original_path)) {
     EVOENGINE_ERROR("Runtime package does not exist: " + package_path.string())
     return false;
+  }
+
+  std::vector<std::string> manifest_dependencies;
+  {
+    auto& manager = GetInstance();
+    std::lock_guard lock(manager.mutex_);
+    for (const auto& [_, manifest] : manager.package_manifests_) {
+      std::error_code manifest_ec;
+      const auto manifest_library_path = std::filesystem::absolute(manifest.library_path, manifest_ec);
+      if (!manifest_ec && manifest_library_path == original_path) {
+        manifest_dependencies = manifest.dependencies;
+        break;
+      }
+    }
   }
 
   const auto loaded_path = CreateShadowCopy(original_path);
@@ -324,6 +487,7 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   package.info.name = package_name;
   package.info.version = descriptor->version ? descriptor->version : "";
   package.info.description = descriptor->description ? descriptor->description : "";
+  package.info.dependencies = std::move(manifest_dependencies);
   package.info.original_path = original_path;
   package.info.loaded_path = loaded_path;
   package.info.private_component_types = std::move(registered_private_component_names);
@@ -346,6 +510,22 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
 }
 
 bool PackageManager::LoadAll() {
+  RefreshManifests();
+  std::vector<std::string> manifest_package_names;
+  {
+    auto& manager = GetInstance();
+    std::lock_guard lock(manager.mutex_);
+    for (const auto& [package_name, _] : manager.package_manifests_) {
+      manifest_package_names.emplace_back(package_name);
+    }
+  }
+  std::sort(manifest_package_names.begin(), manifest_package_names.end());
+
+  bool success = true;
+  for (const auto& package_name : manifest_package_names) {
+    success = Load(package_name) && success;
+  }
+
   std::vector<std::filesystem::path> search_paths;
   {
     auto& manager = GetInstance();
@@ -356,7 +536,6 @@ bool PackageManager::LoadAll() {
     search_paths = BuildDefaultSearchPaths();
   }
 
-  bool success = true;
 #if defined(_WIN32)
   const std::string package_extension = ".dll";
 #elif defined(__APPLE__)
@@ -373,6 +552,22 @@ bool PackageManager::LoadAll() {
       if (ec)
         break;
       if (!entry.is_regular_file() || entry.path().extension().string() != package_extension) {
+        continue;
+      }
+      bool covered_by_manifest = false;
+      {
+        auto& manager = GetInstance();
+        std::lock_guard lock(manager.mutex_);
+        for (const auto& [_, manifest] : manager.package_manifests_) {
+          std::error_code manifest_ec;
+          if (std::filesystem::absolute(manifest.library_path, manifest_ec) ==
+              std::filesystem::absolute(entry.path(), manifest_ec)) {
+            covered_by_manifest = true;
+            break;
+          }
+        }
+      }
+      if (covered_by_manifest) {
         continue;
       }
       success = Load(entry.path()) && success;
@@ -397,6 +592,13 @@ bool PackageManager::Unload(const std::string& package_name) {
       return false;
     }
     package = search->second;
+  }
+
+  std::string dependent_name;
+  if (HasLoadedDependents(package_name, &dependent_name)) {
+    EVOENGINE_WARNING("Cannot unload runtime package [" + package_name + "] while dependent runtime package [" +
+                      dependent_name + "] is loaded.")
+    return false;
   }
 
   const auto type_ids = Serialization::GetPackageOwnedPrivateComponentTypeIds(package_name);
@@ -433,6 +635,7 @@ bool PackageManager::Unload(const std::string& package_name) {
   if (!package.info.loaded_path.empty() && package.info.loaded_path != package.info.original_path) {
     std::error_code ec;
     std::filesystem::remove(package.info.loaded_path, ec);
+    std::filesystem::remove(package.info.loaded_path.parent_path(), ec);
   }
 #endif
 
@@ -465,17 +668,70 @@ bool PackageManager::Reload(const std::string& package_name) {
 }
 
 void PackageManager::UnloadAll() {
-  std::vector<std::string> package_names;
-  {
-    auto& manager = GetInstance();
-    std::lock_guard lock(manager.mutex_);
-    for (const auto& [name, package] : manager.loaded_packages_) {
-      package_names.emplace_back(name);
+  while (true) {
+    std::vector<std::string> package_names;
+    {
+      auto& manager = GetInstance();
+      std::lock_guard lock(manager.mutex_);
+      for (const auto& [name, _] : manager.loaded_packages_) {
+        package_names.emplace_back(name);
+      }
+    }
+    if (package_names.empty()) {
+      return;
+    }
+
+    bool unloaded_any = false;
+    for (const auto& name : package_names) {
+      if (!HasLoadedDependents(name)) {
+        unloaded_any = Unload(name) || unloaded_any;
+      }
+    }
+
+    if (!unloaded_any) {
+      EVOENGINE_WARNING("Unable to unload all runtime packages because their dependencies could not be resolved.")
+      return;
     }
   }
-  for (const auto& name : package_names) {
-    Unload(name);
+}
+
+void PackageManager::ScanAvailablePackages() {
+  RefreshManifests();
+}
+
+std::vector<std::filesystem::path> PackageManager::GetSearchPaths() {
+  auto& manager = GetInstance();
+  std::lock_guard lock(manager.mutex_);
+  if (manager.search_paths_.empty()) {
+    return BuildDefaultSearchPaths();
   }
+  return manager.search_paths_;
+}
+
+std::vector<AvailablePackageInfo> PackageManager::GetAvailablePackages() {
+  auto& manager = GetInstance();
+  std::vector<AvailablePackageInfo> ret_val;
+  {
+    std::lock_guard lock(manager.mutex_);
+    ret_val.reserve(manager.package_manifests_.size());
+    for (const auto& [package_name, manifest] : manager.package_manifests_) {
+      std::error_code ec;
+      AvailablePackageInfo info;
+      info.name = package_name;
+      info.version = manifest.version;
+      info.description = manifest.description;
+      info.dependencies = manifest.dependencies;
+      info.manifest_path = manifest.manifest_path;
+      info.library_path = manifest.library_path;
+      info.library_exists = std::filesystem::exists(manifest.library_path, ec);
+      info.loaded = manager.loaded_packages_.find(package_name) != manager.loaded_packages_.end();
+      ret_val.emplace_back(std::move(info));
+    }
+  }
+  std::sort(ret_val.begin(), ret_val.end(), [](const AvailablePackageInfo& lhs, const AvailablePackageInfo& rhs) {
+    return lhs.name < rhs.name;
+  });
+  return ret_val;
 }
 
 std::vector<LoadedPackageInfo> PackageManager::GetLoadedPackages() {

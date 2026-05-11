@@ -1,6 +1,6 @@
 #pragma once
 
-namespace mesh_repair_plugin {
+namespace mesh_repair_package {
 using namespace evo_engine;
 class VisibilityTest {
  public:
@@ -33,4 +33,4 @@ class VisibilityTest {
                       const VisibilityTestParams& visibility_test_params, std::vector<Visibility>& visibility_results);
 };
 
-}  // namespace mesh_repair_plugin
+}  // namespace mesh_repair_package

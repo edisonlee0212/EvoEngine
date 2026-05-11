@@ -4,7 +4,7 @@
 #include "CpuRayTracer.hpp"
 #include "Times.hpp"
 using namespace evo_engine;
-using namespace texture_baking_plugin;
+using namespace texture_baking_package;
 #define TEXTURE_BAKER_REPORT_TIME 1;
 
 inline glm::vec3 Barycentric(const glm::vec2& p, const glm::vec2& p0, const glm::vec2& p1, const glm::vec2& p2) {

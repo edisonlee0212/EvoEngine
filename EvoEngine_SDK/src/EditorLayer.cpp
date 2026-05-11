@@ -228,6 +228,7 @@ void EditorLayer::PreUpdate() {
         }
         ImGui::EndMenu();
       }
+      ImGui::MenuItem("Runtime Packages", nullptr, &show_package_manager_window);
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Project")) {
@@ -627,49 +628,180 @@ void EditorLayer::PreUpdate() {
     ImGui::End();
   }
   if (show_package_manager_window) {
-    if (ImGui::Begin("Runtime Packages")) {
+    if (!runtime_package_manager_scanned_) {
+      PackageManager::ScanAvailablePackages();
+      runtime_package_manager_scanned_ = true;
+    }
+
+    bool package_manager_open = show_package_manager_window;
+    if (ImGui::Begin("Runtime Package Manager", &package_manager_open)) {
+      if (ImGui::Button("Scan")) {
+        PackageManager::ScanAvailablePackages();
+        runtime_package_manager_scanned_ = true;
+      }
+      ImGui::SameLine();
+      ImGui::BeginDisabled(selected_runtime_package_names_.empty());
+      if (ImGui::Button("Load Selected")) {
+        std::vector<std::string> selected_packages(selected_runtime_package_names_.begin(),
+                                                   selected_runtime_package_names_.end());
+        selected_runtime_package_names_.clear();
+        ApplicationContext::Get().QueueEndOfLoopAction([selected_packages]() {
+          for (const auto& package_name : selected_packages) {
+            PackageManager::Load(package_name);
+          }
+        });
+      }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
       if (ImGui::Button("Load All")) {
         ApplicationContext::Get().QueueEndOfLoopAction([]() {
           PackageManager::LoadAll();
         });
       }
+
+      const auto search_paths = PackageManager::GetSearchPaths();
+      const auto available_packages = PackageManager::GetAvailablePackages();
       const auto loaded_packages = PackageManager::GetLoadedPackages();
-      if (loaded_packages.empty()) {
-        ImGui::Text("No runtime packages loaded.");
+
+      ImGui::Text("Available: %zu", available_packages.size());
+      ImGui::SameLine();
+      ImGui::Text("Loaded: %zu", loaded_packages.size());
+
+      if (ImGui::TreeNode("Search paths")) {
+        for (const auto& path : search_paths) {
+          ImGui::BulletText("%s", path.string().c_str());
+        }
+        ImGui::TreePop();
       }
-      for (const auto& package : loaded_packages) {
-        if (ImGui::TreeNode(package.name.c_str())) {
-          ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
-          ImGui::Text("Live objects: %zu", package.live_object_count);
-          ImGui::Text("Path:");
-          ImGui::SameLine();
-          ImGui::TextUnformatted(package.original_path.string().c_str());
-          if (!package.description.empty()) {
-            ImGui::TextWrapped("%s", package.description.c_str());
+
+      ImGui::Separator();
+      ImGui::TextUnformatted("Available Packages");
+      if (ImGui::BeginChild("AvailablePackages", ImVec2(0, 260), true)) {
+        if (available_packages.empty()) {
+          ImGui::TextUnformatted("No package manifests found.");
+        }
+        for (const auto& package : available_packages) {
+          const bool can_load = !package.loaded && package.library_exists;
+          if (!can_load) {
+            selected_runtime_package_names_.erase(package.name);
           }
-          if (ImGui::TreeNode("Private components")) {
-            for (const auto& type_name : package.private_component_types) {
-              ImGui::BulletText("%s", type_name.c_str());
+
+          bool selected = selected_runtime_package_names_.find(package.name) != selected_runtime_package_names_.end();
+          ImGui::PushID(package.name.c_str());
+          ImGui::BeginDisabled(!can_load);
+          if (ImGui::Checkbox("##Select", &selected)) {
+            if (selected) {
+              selected_runtime_package_names_.insert(package.name);
+            } else {
+              selected_runtime_package_names_.erase(package.name);
+            }
+          }
+          ImGui::EndDisabled();
+          ImGui::SameLine();
+
+          auto package_label = package.name;
+          if (package.loaded) {
+            package_label += " (loaded)";
+          } else if (!package.library_exists) {
+            package_label += " (missing library)";
+          }
+
+          if (ImGui::TreeNodeEx("Package", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", package_label.c_str())) {
+            ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+            if (!package.description.empty()) {
+              ImGui::TextWrapped("%s", package.description.c_str());
+            }
+            if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
+              for (const auto& dependency : package.dependencies) {
+                ImGui::BulletText("%s", dependency.c_str());
+              }
+              ImGui::TreePop();
+            }
+            ImGui::TextUnformatted("Manifest:");
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", package.manifest_path.string().c_str());
+            ImGui::TextUnformatted("Library:");
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", package.library_path.string().c_str());
+            ImGui::BeginDisabled(!can_load);
+            if (ImGui::Button("Load")) {
+              const auto package_name = package.name;
+              selected_runtime_package_names_.erase(package.name);
+              ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+                PackageManager::Load(package_name);
+              });
+            }
+            ImGui::EndDisabled();
+            ImGui::TreePop();
+          }
+          ImGui::PopID();
+        }
+      }
+      ImGui::EndChild();
+
+      ImGui::Separator();
+      ImGui::TextUnformatted("Loaded Packages");
+      if (ImGui::BeginChild("LoadedPackages", ImVec2(0, 0), true)) {
+        if (loaded_packages.empty()) {
+          ImGui::TextUnformatted("No runtime packages loaded.");
+        }
+        for (const auto& package : loaded_packages) {
+          if (ImGui::TreeNode(package.name.c_str())) {
+            ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+            ImGui::Text("Live objects: %zu", package.live_object_count);
+            if (!package.description.empty()) {
+              ImGui::TextWrapped("%s", package.description.c_str());
+            }
+            if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
+              for (const auto& dependency : package.dependencies) {
+                ImGui::BulletText("%s", dependency.c_str());
+              }
+              ImGui::TreePop();
+            }
+            ImGui::TextUnformatted("Original path:");
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", package.original_path.string().c_str());
+            ImGui::TextUnformatted("Loaded path:");
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", package.loaded_path.string().c_str());
+
+            const auto draw_type_list = [](const char* label, const std::vector<std::string>& type_names) {
+              if (type_names.empty()) {
+                return;
+              }
+              if (ImGui::TreeNode(label)) {
+                for (const auto& type_name : type_names) {
+                  ImGui::BulletText("%s", type_name.c_str());
+                }
+                ImGui::TreePop();
+              }
+            };
+            draw_type_list("Private components", package.private_component_types);
+            draw_type_list("Assets", package.asset_types);
+            draw_type_list("Data components", package.data_component_types);
+            draw_type_list("Systems", package.system_types);
+            draw_type_list("Layers", package.layer_types);
+
+            if (ImGui::Button(("Reload##" + package.name).c_str())) {
+              const auto package_name = package.name;
+              ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+                PackageManager::Reload(package_name);
+              });
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(("Unload##" + package.name).c_str())) {
+              const auto package_name = package.name;
+              ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+                PackageManager::Unload(package_name);
+              });
             }
             ImGui::TreePop();
           }
-          if (ImGui::Button(("Reload##" + package.name).c_str())) {
-            const auto package_name = package.name;
-            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-              PackageManager::Reload(package_name);
-            });
-          }
-          ImGui::SameLine();
-          if (ImGui::Button(("Unload##" + package.name).c_str())) {
-            const auto package_name = package.name;
-            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-              PackageManager::Unload(package_name);
-            });
-          }
-          ImGui::TreePop();
         }
       }
+      ImGui::EndChild();
     }
+    show_package_manager_window = package_manager_open;
     ImGui::End();
   }
   if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {

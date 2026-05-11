@@ -14,26 +14,13 @@
 
 #include "PostProcessingStack.hpp"
 #include "Resources.hpp"
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
 #  include "PhysicsLayer.hpp"
 #  include "RigidBody.hpp"
 #endif
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
-#  include "SorghumLayer.hpp"
-using namespace digital_agriculture_plugin;
-#endif
-
-#ifdef ECOSYSLAB_PLUGIN
-#  include "EcoSysLabLayer.hpp"
-#  include "ObjectRotator.hpp"
-#  include "ParticlePhysics2DDemo.hpp"
-#  include "Physics2DDemo.hpp"
-using namespace eco_sys_lab_plugin;
-#endif
-
 using namespace evo_engine;
 #pragma region Helpers
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
 Entity CreateDynamicCube(const float& mass, const glm::vec3& color, const glm::vec3& position,
                          const glm::vec3& rotation, const glm::vec3& scale, const std::string& name);
 
@@ -65,19 +52,10 @@ int main() {
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
   ApplicationContext::Get().PushLayer<PhysicsLayer>();
 #endif
 
-#ifdef ECOSYSLAB_PLUGIN
-  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
-  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
-  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-#endif
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
-  ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
-#endif
   ApplicationInitializationSettings application_info;
   SetupDemoScene(demo_setup, application_info);
 
@@ -267,7 +245,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
 
 #pragma endregion
 
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
         LoadScene(scene, "Rendering Demo", false);
         const auto physics_demo = LoadPhysicsScene(scene, "Physics Demo");
         Transform physics_demo_transform;
@@ -331,7 +309,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
       application_info.application_name = "Universe Demo";
 
       application_info.project_path = resource_folder_path / "EvoEngine-DemoProjects/Universe/Universe.eveproj";
-#ifdef UNIVERSE_PLUGIN
+#ifdef UNIVERSE_PACKAGE
       ProjectManager::SetActionAfterNewScene([&](const std::shared_ptr<Scene>& scene) {
 #  pragma region Preparations
         const auto main_camera = scene->main_camera.Get<Camera>();
@@ -456,7 +434,7 @@ void SetupDemoScene(DemoSetup demo_setup, ApplicationInitializationSettings& app
   }
 #pragma endregion
 }
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
 Entity LoadPhysicsScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name) {
   const auto base_entity = scene->CreateEntity(base_entity_name);
 #  pragma region Create 9 spheres in different PBR properties

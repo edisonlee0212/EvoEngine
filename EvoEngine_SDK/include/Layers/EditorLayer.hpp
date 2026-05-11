@@ -15,6 +15,8 @@
 #include "Strands.hpp"
 #include "Texture2D.hpp"
 
+#include <unordered_set>
+
 namespace evo_engine {
 
 /**
@@ -258,7 +260,7 @@ class EditorLayer : public ILayer {
   bool show_scene_info = true;              /**< Indicates whether the scene info window is visible. */
   bool show_entity_explorer_window = true;  /**< Indicates whether the entity explorer window is visible. */
   bool show_entity_inspector_window = true; /**< Indicates whether the entity inspector window is visible. */
-  bool show_package_manager_window = true;  /**< Indicates whether the runtime package manager window is visible. */
+  bool show_package_manager_window = false; /**< Indicates whether the runtime package manager window is visible. */
   bool main_camera_focus_override = false;  /**< Indicates if the main camera focus has been overridden. */
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
@@ -839,6 +841,9 @@ class EditorLayer : public ILayer {
 
   std::vector<ConsoleMessage> console_messages_; /**< List of console messages. */
   std::mutex console_message_mutex_;             /**< Mutex for accessing console messages. */
+
+  bool runtime_package_manager_scanned_ = false;                   /**< Whether package manifests were scanned. */
+  std::unordered_set<std::string> selected_runtime_package_names_; /**< Selected runtime packages for bulk loading. */
 
   bool enable_console_logs_ = true;     /**< Indicates if console logs are enabled. */
   bool enable_console_errors_ = true;   /**< Indicates if console errors are enabled. */

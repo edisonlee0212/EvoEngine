@@ -3,7 +3,7 @@
 #include "Json.hpp"
 #include "Prefab.hpp"
 
-namespace log_scanning_plugin {
+namespace log_scanning_package {
 using namespace evo_engine;
 struct JoeScanConfig {
   struct ScanHead {
@@ -32,4 +32,4 @@ class LogScan : public IAsset {
   void Regularize();
   void Recenter();
 };
-}  // namespace log_scanning_plugin
+}  // namespace log_scanning_package

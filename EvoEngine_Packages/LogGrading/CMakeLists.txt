@@ -1,7 +1,7 @@
 set(LOG_GRADING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
-if(NOT TARGET EcoSysLabPlugin)
-	message("LogGradingPackage requires EcoSysLabPlugin and will not be built.")
+if(NOT TARGET EcoSysLabPackage)
+	message("LogGradingPackage requires EcoSysLabPackage and will not be built.")
 	return()
 endif()
 
@@ -28,6 +28,6 @@ target_include_directories(LogGradingPackage
 target_link_libraries(LogGradingPackage
 	PRIVATE
 	EvoEngine_SDK
-	EcoSysLabPlugin
+	EcoSysLabPackage
 	)
 evoengine_configure_runtime_package(LogGradingPackage)

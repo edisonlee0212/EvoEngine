@@ -1,6 +1,6 @@
 
 #include "BillboardCloud.hpp"
-using namespace billboard_clouds_plugin;
+using namespace billboard_clouds_package;
 
 std::vector<BillboardCloud::Cluster> BillboardCloud::StochasticClusterize(
     std::vector<ClusterTriangle> operating_triangles, const ClusterizationSettings& clusterize_settings) {

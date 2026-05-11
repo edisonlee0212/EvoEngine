@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
+#ifdef DIGITAL_AGRICULTURE_PACKAGE
 
 #  include "AnimationPlayer.hpp"
 #  include "Application.hpp"
@@ -27,20 +27,20 @@
 #  include "pybind11/pybind11.h"
 #  include "pybind11/stl/filesystem.h"
 
-#  if DATASET_GENERATION_PLUGIN
+#  if DATASET_GENERATION_PACKAGE
 #    include <SorghumPointCloudScanner.hpp>
 #    include "DatasetGenerator.hpp"
 #  endif
 #  include "PyEvoEngine.hpp"
 
-namespace py_digital_agriculture_plugin {
-#  if DATASET_GENERATION_PLUGIN
-using namespace dataset_generation_plugin;
+namespace py_digital_agriculture_package {
+#  if DATASET_GENERATION_PACKAGE
+using namespace dataset_generation_package;
 #  endif
 
 using namespace evo_engine;
 using namespace py_evo_engine;
-using namespace digital_agriculture_plugin;
+using namespace digital_agriculture_package;
 
 class PyDigitalAgriculture {
  public:
@@ -62,6 +62,6 @@ class PyDigitalAgriculture {
    */
   static void Initialize(pybind11::module& m);
 };
-}  // namespace py_digital_agriculture_plugin
+}  // namespace py_digital_agriculture_package
 
 #endif

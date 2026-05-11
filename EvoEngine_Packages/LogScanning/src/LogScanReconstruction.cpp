@@ -1,6 +1,6 @@
 #include "LogScanReconstruction.hpp"
 
-using namespace log_scanning_plugin;
+using namespace log_scanning_package;
 
 bool LogScanReconstruction::ReconstructionParameter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;

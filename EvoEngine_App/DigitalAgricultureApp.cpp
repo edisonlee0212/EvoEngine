@@ -3,24 +3,17 @@
 //
 #include <Application.hpp>
 
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
 #include "ClassRegistry.hpp"
 #include "Times.hpp"
-#ifdef ECOSYSLAB_PLUGIN
-#  include "ObjectRotator.hpp"
-using namespace eco_sys_lab_plugin;
-#endif
 
 #include "ProjectManager.hpp"
 
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
-#  include "SorghumLayer.hpp"
-using namespace digital_agriculture_plugin;
-#endif
 #include "EditorLayer.hpp"
+#include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 void EngineSetup();
@@ -73,25 +66,21 @@ int main() {
   EngineSetup();
 
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
   ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
-  ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer")->enable_inspection = true;
-#endif
-#ifdef ECOSYSLAB_PLUGIN
-  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-#endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "DigitalAgriculture";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
+  application_configs.enable_runtime_packages = true;
+  application_configs.startup_runtime_packages = {"DigitalAgriculture"};
   ApplicationContext::Get().Initialize(application_configs);
 
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
 
   auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
 #endif

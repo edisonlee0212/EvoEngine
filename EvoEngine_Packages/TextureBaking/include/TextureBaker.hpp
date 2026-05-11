@@ -1,6 +1,6 @@
 #pragma once
 
-namespace texture_baking_plugin {
+namespace texture_baking_package {
 using namespace evo_engine;
 
 class TextureBaker {
@@ -51,4 +51,4 @@ class TextureBaker {
                       const std::shared_ptr<Material>& reference_material, const std::shared_ptr<Mesh>& target_mesh,
                       const std::shared_ptr<Material>& target_material);
 };
-}  // namespace texture_baking_plugin
+}  // namespace texture_baking_package

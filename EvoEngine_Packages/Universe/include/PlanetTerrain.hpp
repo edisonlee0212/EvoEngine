@@ -4,7 +4,7 @@
 #include "TerrainChunk.hpp"
 #include "TerrainConstructionStageBase.hpp"
 
-namespace universe_plugin {
+namespace universe_package {
 using namespace evo_engine;
 struct PlanetInfo {
   unsigned max_lod_level;
@@ -45,4 +45,4 @@ class PlanetTerrain : public IPrivateComponent {
   void Start() override;
   void PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) override;
 };
-}  // namespace universe_plugin
+}  // namespace universe_package

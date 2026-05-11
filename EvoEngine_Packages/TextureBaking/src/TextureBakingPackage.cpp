@@ -3,7 +3,7 @@
 #include "TextureBaking.hpp"
 
 using namespace evo_engine;
-using namespace texture_baking_plugin;
+using namespace texture_baking_package;
 
 namespace {
 PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "TextureBaking", "0.1.0",

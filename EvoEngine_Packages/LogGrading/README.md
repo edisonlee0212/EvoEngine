@@ -8,7 +8,7 @@ LogGrading provides forestry log modeling and grading tools. It represents log g
 
 - Registered in the Windows block of `EvoEngine_Packages/CMakeLists.txt` by default.
 - Builds as the shared library target `LogGradingPackage`.
-- Requires `EcoSysLabPlugin` because `LogGrader` references `BasicBarkDescriptor`.
+- Requires `EcoSysLabPackage` because `LogGrader` references `BasicBarkDescriptor`.
 - Registers `LogGrader` through `PackageRegistrar`.
 
 ## Main Responsibilities

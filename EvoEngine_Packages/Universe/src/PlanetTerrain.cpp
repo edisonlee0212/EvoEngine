@@ -2,7 +2,7 @@
 #include "EditorLayer.hpp"
 #include "yaml-cpp/yaml.h"
 
-using namespace universe_plugin;
+using namespace universe_package;
 void PlanetTerrain::Serialize(YAML::Emitter &out) const {
   out << YAML::Key << "planet_info";
   out << YAML::BeginMap;

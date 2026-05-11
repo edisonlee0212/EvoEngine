@@ -1,11 +1,11 @@
 #include "PyEcoSysLab.hpp"
 #include "PyEvoEngine.hpp"
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 namespace py = pybind11;
-using namespace py_eco_sys_lab_plugin;
+using namespace py_eco_sys_lab_package;
 void register_classes() {
-#  ifdef ECOSYSLAB_PLUGIN
+#  ifdef ECOSYSLAB_PACKAGE
   auto& application = PyEvoEngine::GetRuntime().GetApplication();
   application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
   application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");

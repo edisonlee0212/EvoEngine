@@ -20,7 +20,7 @@ set(EVOENGINE_INSTALL_APP_RUNTIME_DIR ${CMAKE_INSTALL_BINDIR} CACHE STRING
 set(EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR python CACHE STRING
 	"Install directory for EvoEngine Python binding runtimes.")
 option(EVOENGINE_INSTALL_PDBS "Install available MSVC PDB files with EvoEngine runtimes." ON)
-option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build and load EvoEngine runtime packages." ON)
+option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build EvoEngine runtime package support and package targets." ON)
 
 # ------------------------------------------------------------------
 # Build types
@@ -68,18 +68,18 @@ set(EVOENGINE_SDK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_SDK)
 add_subdirectory(${EVOENGINE_SDK_DIR})
 
 # ------------------------------------------------------------------
-# EvoEngine - Plugins
+# EvoEngine - Services
 # ------------------------------------------------------------------
-set(PLUGINS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_Plugins)
-add_subdirectory(${PLUGINS_DIR})
+set(SERVICES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_Services)
+add_subdirectory(${SERVICES_DIR})
 
-set(EVOENGINE_DEFS ${EVOENGINE_SDK_DEFS} ${EVOENGINE_PLUGINS_DEFS})
-set(EVOENGINE_INCLUDES ${EVOENGINE_SDK_INCLUDES} ${EVOENGINE_PLUGINS_INCLUDES})
-set(EVOENGINE_PCHS ${EVOENGINE_SDK_PCH} ${EVOENGINE_PLUGINS_PCHS})
-set(EVOENGINE_RUNTIME_LIBRARIES ${EVOENGINE_SDK_RUNTIME_LIBRARIES} ${3RDPARTY_RUNTIME_LIBRARIES} ${EVOENGINE_PLUGINS_RUNTIME_LIBRARIES})
-set(EVOENGINE_PDBS ${EVOENGINE_SDK_PDBS} ${3RDPARTY_PDBS} ${EVOENGINE_PLUGINS_PDBS})
+set(EVOENGINE_DEFS ${EVOENGINE_SDK_DEFS} ${EVOENGINE_SERVICES_DEFS})
+set(EVOENGINE_INCLUDES ${EVOENGINE_SDK_INCLUDES} ${EVOENGINE_SERVICES_INCLUDES})
+set(EVOENGINE_PCHS ${EVOENGINE_SDK_PCH} ${EVOENGINE_SERVICES_PCHS})
+set(EVOENGINE_RUNTIME_LIBRARIES ${EVOENGINE_SDK_RUNTIME_LIBRARIES} ${3RDPARTY_RUNTIME_LIBRARIES} ${EVOENGINE_SERVICES_RUNTIME_LIBRARIES})
+set(EVOENGINE_PDBS ${EVOENGINE_SDK_PDBS} ${3RDPARTY_PDBS} ${EVOENGINE_SERVICES_PDBS})
 
-set(EVOENGINE_RESOURCES ${EVOENGINE_SDK_RESOURCES} ${EVOENGINE_PLUGINS_RESOURCES})
+set(EVOENGINE_RESOURCES ${EVOENGINE_SDK_RESOURCES} ${EVOENGINE_SERVICES_RESOURCES})
 
 # ------------------------------------------------------------------
 # EvoEngine SDK - Copy resources
@@ -191,7 +191,7 @@ if (NOT ${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 
 	set(EVOENGINE_RESOURCES ${EVOENGINE_RESOURCES} PARENT_SCOPE)
 
-	set(EvoEngine_Plugins ${EvoEngine_Plugins} PARENT_SCOPE)
+	set(EvoEngine_Services ${EvoEngine_Services} PARENT_SCOPE)
 endif ()
 
 message("===============================")

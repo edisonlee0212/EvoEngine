@@ -12,13 +12,16 @@ add_library(BillboardCloudsPackage
 	${BILLBOARD_CLOUDS_SOURCES}
 	)
 target_compile_definitions(BillboardCloudsPackage
+	PUBLIC
+	BILLBOARD_CLOUDS_PACKAGE
 	PRIVATE
 	${EVOENGINE_SDK_DEFS}
 	)	
 target_include_directories(BillboardCloudsPackage
+	PUBLIC
+	${BILLBOARD_CLOUDS_INCLUDES}
 	PRIVATE
 	${EVOENGINE_INCLUDES}
-	${BILLBOARD_CLOUDS_INCLUDES}
 	)
 
 target_link_libraries(BillboardCloudsPackage

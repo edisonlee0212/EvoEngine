@@ -1,16 +1,16 @@
 #include "PyEcoSysLab.hpp"
 #include "PyEvoEngine.hpp"
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 namespace py = pybind11;
-using namespace py_eco_sys_lab_plugin;
+using namespace py_eco_sys_lab_package;
 
 #endif
 void PyEcoSysLab::PushEcoSysLabLayer() {
   ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
 }
 void PyEcoSysLab::RegisterClasses() {
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
   auto& application = PyEvoEngine::GetRuntime().GetApplication();
   application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
   application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
@@ -43,7 +43,7 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .def_readwrite("max_scatter_point_connection_height",
                      &ConnectivityGraphSettings::max_scatter_point_connection_height);
 
-#ifdef DATASET_GENERATION_PLUGIN
+#ifdef DATASET_GENERATION_PACKAGE
   py::class_<TreePointCloudPointSettings>(m, "TreePointCloudPointSettings")
       .def(py::init<>())
       .def_readwrite("variance", &TreePointCloudPointSettings::variance)

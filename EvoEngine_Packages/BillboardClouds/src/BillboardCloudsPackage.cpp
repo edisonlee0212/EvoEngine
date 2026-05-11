@@ -3,7 +3,7 @@
 #include "BillboardCloudsConverter.hpp"
 
 using namespace evo_engine;
-using namespace billboard_clouds_plugin;
+using namespace billboard_clouds_package;
 
 namespace {
 PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "BillboardClouds", "0.1.0",

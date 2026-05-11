@@ -2,7 +2,7 @@
 
 #include "gpr.h"
 
-namespace gpr_plugin {
+namespace gpr_package {
 using namespace evo_engine;
 
 class Gpr : public IAsset {
@@ -22,4 +22,4 @@ class Gpr : public IAsset {
   Gpr();
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
-}  // namespace gpr_plugin
+}  // namespace gpr_package

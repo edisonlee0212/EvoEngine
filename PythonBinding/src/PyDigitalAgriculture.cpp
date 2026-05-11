@@ -1,15 +1,15 @@
 #include "PyDigitalAgriculture.hpp"
 
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
+#ifdef DIGITAL_AGRICULTURE_PACKAGE
 namespace py = pybind11;
-using namespace py_digital_agriculture_plugin;
+using namespace py_digital_agriculture_package;
 void PyDigitalAgriculture::PushSorghumLayer() {
   ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
 }
 void PyDigitalAgriculture::RegisterClasses() {
   auto& application = PyEvoEngine::GetRuntime().GetApplication();
   application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-#  ifdef DATASET_GENERATION_PLUGIN
+#  ifdef DATASET_GENERATION_PACKAGE
   application.RegisterPrivateComponent<SorghumPointCloudScanner>("SorghumPointCloudScanner");
 #  endif
 }

@@ -1,5 +1,5 @@
 #include "PyEvoEngine.hpp"
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
 #endif
 using namespace py_evo_engine;
@@ -245,7 +245,7 @@ void PyEvoEngine::PushEditorLayer() {
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 }
 void PyEvoEngine::PushRayTracerLayer() {
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
   ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
 }

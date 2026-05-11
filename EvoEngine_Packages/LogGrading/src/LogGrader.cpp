@@ -1,6 +1,6 @@
 #include "LogGrader.hpp"
 
-using namespace log_grading_plugin;
+using namespace log_grading_package;
 
 bool ProceduralLogParameters::OnInspect() {
   bool changed = false;

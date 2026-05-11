@@ -3,7 +3,7 @@
 #include "PlanetTerrain.hpp"
 #include "TerrainChunk.hpp"
 
-namespace universe_plugin {
+namespace universe_package {
 using namespace evo_engine;
 /// <summary>
 /// The calculated precise position of the star.
@@ -274,4 +274,4 @@ class UniverseLayer : public ILayer {
   void ClearAllStars();
 };
 
-}  // namespace universe_plugin
+}  // namespace universe_package

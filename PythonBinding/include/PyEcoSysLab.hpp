@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 #  include "AnimationPlayer.hpp"
 #  include "Application.hpp"
 #  include "AssetManager.hpp"
@@ -21,7 +21,7 @@
 #  include "pybind11/pybind11.h"
 #  include "pybind11/stl/filesystem.h"
 
-#  if DATASET_GENERATION_PLUGIN
+#  if DATASET_GENERATION_PACKAGE
 #    include <TreePointCloudScanner.hpp>
 #    include "DatasetGenerator.hpp"
 #  endif
@@ -42,13 +42,13 @@
 
 #  include "PyEvoEngine.hpp"
 
-namespace py_eco_sys_lab_plugin {
-#  if DATASET_GENERATION_PLUGIN
-using namespace dataset_generation_plugin;
+namespace py_eco_sys_lab_package {
+#  if DATASET_GENERATION_PACKAGE
+using namespace dataset_generation_package;
 #  endif
 using namespace evo_engine;
 using namespace py_evo_engine;
-using namespace eco_sys_lab_plugin;
+using namespace eco_sys_lab_package;
 
 class PyEcoSysLab {
  public:
@@ -63,6 +63,6 @@ class PyEcoSysLab {
    */
   static void Initialize(pybind11::module& m);
 };
-}  // namespace py_eco_sys_lab_plugin
+}  // namespace py_eco_sys_lab_package
 
 #endif

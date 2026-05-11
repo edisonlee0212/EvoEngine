@@ -383,7 +383,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   }
   Resources::Initialize();
   if (this->initialization_settings.enable_runtime_packages) {
-    PackageManager::Initialize(this->initialization_settings.package_search_paths);
+    PackageManager::Initialize(this->initialization_settings.package_search_paths,
+                               this->initialization_settings.startup_runtime_packages);
   }
   for (const auto& layer : this->layers_) {
     layer->OnCreate();

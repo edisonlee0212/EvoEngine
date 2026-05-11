@@ -29,4 +29,4 @@ The package works with SDK `Scene`, `Entity`, `Mesh`, editor inspection, and pri
 
 ## Future Work Notes
 
-Keep domain-specific repair operations here. General mesh APIs that other Plugins need repeatedly may be candidates for the SDK.
+Keep domain-specific repair operations here. General mesh APIs that other packages need repeatedly may be candidates for the SDK.

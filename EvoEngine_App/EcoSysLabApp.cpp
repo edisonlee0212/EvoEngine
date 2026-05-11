@@ -3,21 +3,14 @@
 //
 #include <Application.hpp>
 
+#include "ClassRegistry.hpp"
 #include "PostProcessingStack.hpp"
 #include "Times.hpp"
-#ifdef ECOSYSLAB_PLUGIN
-#  include "EcoSysLabLayer.hpp"
-#  include "FungusTest.hpp"
-#  include "ObjectRotator.hpp"
-#  include "ParticlePhysics2DDemo.hpp"
-#  include "Physics2DDemo.hpp"
-using namespace eco_sys_lab_plugin;
-#endif
-#include "ClassRegistry.hpp"
 
 #include "ProjectManager.hpp"
 
 #include "EditorLayer.hpp"
+#include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 void EngineSetup();
@@ -73,23 +66,18 @@ int main() {
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
   ApplicationContext::Get().PushLayer<PhysicsLayer>();
-#endif
-#ifdef ECOSYSLAB_PLUGIN
-  ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer")->enable_inspection = true;
-  application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
-  application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
-  application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-  application.RegisterPrivateComponent<FungusTest>("FungusTest");
 #endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
+  application_configs.enable_runtime_packages = true;
+  application_configs.startup_runtime_packages = {"EcoSysLab"};
   ApplicationContext::Get().Initialize(application_configs);
 
-#ifdef PHYSX_PHYSICS_PLUGIN
+#ifdef PHYSX_PHYSICS_SERVICE
   ApplicationContext::Get().GetActiveScene()->GetOrCreateSystem<PhysicsSystem>(1);
 #endif
   // adjust default camera speed

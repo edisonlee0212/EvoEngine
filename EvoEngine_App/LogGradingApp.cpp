@@ -4,14 +4,9 @@
 #include <Application.hpp>
 #include "ClassRegistry.hpp"
 
-#include "WindowLayer.hpp"
-#ifdef ECOSYSLAB_PLUGIN
-#  include "BasicBarkDescriptor.hpp"
-#  include "HeightField.hpp"
-#  include "Tree.hpp"
-using namespace eco_sys_lab_plugin;
-#endif
 #include "EditorLayer.hpp"
+#include "RenderLayer.hpp"
+#include "WindowLayer.hpp"
 using namespace evo_engine;
 
 int main() {
@@ -62,13 +57,12 @@ int main() {
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
-#ifdef ECOSYSLAB_PLUGIN
-  application.RegisterAsset<BasicBarkDescriptor>("BasicBarkDescriptor", {".bs"});
-#endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "Log Grader";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "LogGradingProject" / "Default.eveproj");
+  application_configs.enable_runtime_packages = true;
+  application_configs.startup_runtime_packages = {"LogGrading"};
   ApplicationContext::Get().Initialize(application_configs);
 
   // adjust default camera speed

@@ -50,6 +50,7 @@ struct ApplicationInitializationSettings {
   bool full_screen = false;                      /**< Whether the application starts in full-screen mode. */
   bool enable_runtime_packages = false;          /**< Whether to load runtime packages during initialization. */
   std::vector<std::filesystem::path> package_search_paths; /**< Additional runtime package search paths. */
+  std::vector<std::string> startup_runtime_packages;       /**< Runtime packages to load during initialization. */
 
   GraphicsInitializationSettings graphics_settings{};
 };

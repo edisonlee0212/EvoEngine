@@ -3,7 +3,7 @@
 #include "MeshColoring.hpp"
 
 using namespace evo_engine;
-using namespace mesh_repair_plugin;
+using namespace mesh_repair_package;
 
 namespace {
 PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "MeshRepair", "0.1.0",
