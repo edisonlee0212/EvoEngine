@@ -1,8 +1,8 @@
 #include "TerrainChunk.hpp"
 #include "PlanetTerrain.hpp"
 #include "ProjectManager.hpp"
-glm::dvec3 universe_plugin::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_position, const double radius,
-                                                              const glm::quat rotation) const {
+glm::dvec3 universe_package::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &planet_position, const double radius,
+                                                               const glm::quat rotation) const {
   const int actual_detail_level = (int)glm::pow(2, detail_level);
   glm::dvec2 percent = glm::dvec2(0.5, 0.5) / (double)actual_detail_level;
   glm::dvec3 point = local_up +
@@ -30,10 +30,10 @@ glm::dvec3 universe_plugin::TerrainChunk::ChunkCenterPosition(const glm::dvec3 &
   return ret;
 }
 
-universe_plugin::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain> &planet_terrain,
-                                            const std::shared_ptr<TerrainChunk> &parent, unsigned detail_level,
-                                            glm::ivec2 chunk_coordinate, ChunkDirection direction,
-                                            glm::dvec3 local_up) {
+universe_package::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain> &planet_terrain,
+                                             const std::shared_ptr<TerrainChunk> &parent, unsigned detail_level,
+                                             glm::ivec2 chunk_coordinate, ChunkDirection direction,
+                                             glm::dvec3 local_up) {
   this->planet_terrain_ = planet_terrain;
   this->chunk_coordinate = chunk_coordinate;
   this->detail_level = detail_level;
@@ -44,7 +44,7 @@ universe_plugin::TerrainChunk::TerrainChunk(const std::shared_ptr<PlanetTerrain>
   this->local_up = glm::normalize(this->local_up);
 }
 
-void universe_plugin::TerrainChunk::Expand(std::mutex &mutex) {
+void universe_package::TerrainChunk::Expand(std::mutex &mutex) {
   if (!active)
     return;
   if (!c0) {
@@ -87,8 +87,8 @@ void universe_plugin::TerrainChunk::Expand(std::mutex &mutex) {
   children_active = true;
 }
 
-void universe_plugin::TerrainChunk::GenerateTerrain(std::mutex &mutex,
-                                                    std::shared_ptr<TerrainChunk> &target_chunk) const {
+void universe_package::TerrainChunk::GenerateTerrain(std::mutex &mutex,
+                                                     std::shared_ptr<TerrainChunk> &target_chunk) const {
   if (target_chunk->mesh) {
     Console::Error("Mesh Exist!");
   }
@@ -127,7 +127,7 @@ void universe_plugin::TerrainChunk::GenerateTerrain(std::mutex &mutex,
   target_chunk->mesh = std::move(mesh);
 }
 
-void universe_plugin::TerrainChunk::Collapse() {
+void universe_package::TerrainChunk::Collapse() {
   if (!c0 || !c1 || !c2 || !c3)
     return;
   if (!c0->active || !c1->active || !c2->active || !c3->active)

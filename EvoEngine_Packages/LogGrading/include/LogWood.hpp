@@ -1,6 +1,6 @@
 #pragma once
 
-namespace log_grading_plugin {
+namespace log_grading_package {
 using namespace evo_engine;
 struct Vec4 {
   float v0 = 0;
@@ -132,4 +132,4 @@ class LogWood {
   void CalculateGradingData(std::vector<LogGrading>& log_grading) const;
   void ColorBasedOnGrading(const LogGrading& log_grading_data);
 };
-}  // namespace log_grading_plugin
+}  // namespace log_grading_package

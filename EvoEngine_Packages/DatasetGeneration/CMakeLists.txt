@@ -1,0 +1,41 @@
+set(DATASET_GENERATION_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(DATASET_GENERATION_INCLUDES
+	${DATASET_GENERATION_DIRECTORY}/include
+	${DATASET_GENERATION_DIRECTORY}/include/SorghumModel
+	)
+file(GLOB_RECURSE DATASET_GENERATION_HEADERS ${DATASET_GENERATION_DIRECTORY}/include/*.hpp)
+file(GLOB_RECURSE DATASET_GENERATION_SOURCES ${DATASET_GENERATION_DIRECTORY}/src/*.cpp)
+
+add_library(DatasetGenerationPackage
+	SHARED
+	${DATASET_GENERATION_HEADERS}
+	${DATASET_GENERATION_SOURCES}
+	)
+target_compile_definitions(DatasetGenerationPackage
+	PUBLIC
+	DATASET_GENERATION_PACKAGE
+	PRIVATE
+	${EVOENGINE_SDK_DEFS}
+	${EVOENGINE_SERVICES_DEFS}
+	)
+target_include_directories(DatasetGenerationPackage
+	PUBLIC
+	${EVOENGINE_SDK_INCLUDES}
+	${DATASET_GENERATION_INCLUDES}
+	PRIVATE
+	${EVOENGINE_SERVICES_INCLUDES}
+	)
+target_link_libraries(DatasetGenerationPackage
+	PUBLIC
+	EcoSysLabPackage
+	DigitalAgriculturePackage
+	PRIVATE
+	EvoEngine_SDK
+	${EvoEngine_Services}
+	)
+
+set(DATASET_GENERATION_PCH ${DATASET_GENERATION_DIRECTORY}/include/DatasetGeneration_PCH.hpp)
+evoengine_configure_runtime_package(DatasetGenerationPackage
+	EXTRA_PCH ${DATASET_GENERATION_PCH}
+	)

@@ -61,6 +61,7 @@ struct LoadedPackageInfo {
   std::string name;
   std::string version;
   std::string description;
+  std::vector<std::string> dependencies;
   std::filesystem::path original_path;
   std::filesystem::path loaded_path;
   std::vector<std::string> private_component_types;
@@ -69,6 +70,17 @@ struct LoadedPackageInfo {
   std::vector<std::string> system_types;
   std::vector<std::string> layer_types;
   size_t live_object_count = 0;
+};
+
+struct AvailablePackageInfo {
+  std::string name;
+  std::string version;
+  std::string description;
+  std::vector<std::string> dependencies;
+  std::filesystem::path manifest_path;
+  std::filesystem::path library_path;
+  bool library_exists = false;
+  bool loaded = false;
 };
 
 class PackageManager final {
@@ -84,8 +96,19 @@ class PackageManager final {
     EvoEnginePackageUnloadFn unload = nullptr;
   };
 
+  struct PackageManifest {
+    std::string name;
+    std::string library;
+    std::string version;
+    std::string description;
+    std::vector<std::string> dependencies;
+    std::filesystem::path manifest_path;
+    std::filesystem::path library_path;
+  };
+
   std::mutex mutex_;
   std::vector<std::filesystem::path> search_paths_;
+  std::unordered_map<std::string, PackageManifest> package_manifests_;
   std::unordered_map<std::string, LoadedPackage> loaded_packages_;
   std::unordered_map<std::string, size_t> live_object_counts_;
   uint64_t shadow_copy_index_ = 0;
@@ -96,17 +119,27 @@ class PackageManager final {
   static void* GetSymbol(void* handle, const char* name);
   static std::filesystem::path CreateShadowCopy(const std::filesystem::path& source);
   static std::vector<std::filesystem::path> BuildDefaultSearchPaths();
+  static bool ReadManifest(const std::filesystem::path& manifest_path, PackageManifest& manifest);
+  static void RefreshManifests();
+  static bool LoadManifestWithDependencies(const std::string& package_name, std::vector<std::string>& loading_stack);
+  static bool HasLoadedDependents(const std::string& package_name, std::string* dependent_name = nullptr);
   static bool HasLivePrivateComponentOwners(const std::vector<size_t>& type_ids);
   static void ClearPrivateComponentPools(const std::vector<size_t>& type_ids);
   static void RestoreUnknownRuntimeTypes();
 
  public:
-  static void Initialize(const std::vector<std::filesystem::path>& package_search_paths = {});
+  static void Initialize(const std::vector<std::filesystem::path>& package_search_paths = {},
+                         const std::vector<std::string>& startup_packages = {});
+  static bool Load(const std::string& package_name);
+  static bool Load(const char* package_name);
   static bool Load(const std::filesystem::path& package_path);
   static bool LoadAll();
   static bool Unload(const std::string& package_name);
   static bool Reload(const std::string& package_name);
   static void UnloadAll();
+  static void ScanAvailablePackages();
+  static std::vector<std::filesystem::path> GetSearchPaths();
+  static std::vector<AvailablePackageInfo> GetAvailablePackages();
   static std::vector<LoadedPackageInfo> GetLoadedPackages();
 
   static void IncrementLiveObject(const std::string& package_name);

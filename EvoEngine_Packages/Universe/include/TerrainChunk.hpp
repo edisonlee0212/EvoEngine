@@ -2,7 +2,7 @@
 #include "Application.hpp"
 #include "Mesh.hpp"
 
-namespace universe_plugin {
+namespace universe_package {
 using namespace evo_engine;
 enum class ChunkDirection { Root, UpperLeft, UpperRight, LowerLeft, LowerRight };
 class PlanetTerrain;
@@ -36,4 +36,4 @@ class TerrainChunk {
   void GenerateTerrain(std::mutex& mutex, std::shared_ptr<TerrainChunk>& target_chunk) const;
   void Collapse();
 };
-}  // namespace universe_plugin
+}  // namespace universe_package

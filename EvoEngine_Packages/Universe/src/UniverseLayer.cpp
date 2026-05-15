@@ -3,7 +3,7 @@
 #include "Application.hpp"
 #include "Times.hpp"
 
-using namespace universe_plugin;
+using namespace universe_package;
 
 void UniverseLayer::RegisterTypes(Application &application) {
   application.RegisterDataComponent<StarPosition>("StarPosition");

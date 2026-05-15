@@ -2,7 +2,7 @@
 #include "CellGrid.hpp"
 #include "LogScan.hpp"
 
-namespace log_scanning_plugin {
+namespace log_scanning_package {
 using namespace evo_engine;
 class LogScanReconstruction {
  public:
@@ -38,7 +38,7 @@ class LogScanReconstruction {
       Skipped,
     } type = Type::Invalid;
   };
-  class ProfileGrid : public eco_sys_lab_plugin::CellGrid<CellData> {
+  class ProfileGrid : public eco_sys_lab_package::CellGrid<CellData> {
    public:
     void Clear() override;
     void AddPoint(const glm::vec2& grid_center, const ProcessedPoint& processed_point,
@@ -50,4 +50,4 @@ class LogScanReconstruction {
 
   void Clear();
 };
-}  // namespace log_scanning_plugin
+}  // namespace log_scanning_package

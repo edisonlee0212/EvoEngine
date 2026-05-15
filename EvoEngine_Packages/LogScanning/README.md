@@ -8,7 +8,7 @@ LogScanning provides scanning and reconstruction support for forestry log workfl
 
 - Registered in the Windows block of `EvoEngine_Packages/CMakeLists.txt` by default.
 - Builds as the shared library target `LogScanningPackage`.
-- Requires `EcoSysLabPlugin` because reconstruction utilities use `CellGrid`.
+- Requires `EcoSysLabPackage` because reconstruction utilities use `CellGrid`.
 - Links the vendored Pinchot library on Windows and copies `pinchot.dll` beside the package.
 
 ## Main Responsibilities

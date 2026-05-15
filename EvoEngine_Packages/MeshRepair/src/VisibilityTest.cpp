@@ -3,7 +3,7 @@
 #include "CpuRayTracer.hpp"
 #include "Times.hpp"
 
-using namespace mesh_repair_plugin;
+using namespace mesh_repair_package;
 
 void VisibilityTest::GenerateSamples(const std::shared_ptr<Mesh>& mesh,
                                      const VisibilityTestParams& visibility_test_params,

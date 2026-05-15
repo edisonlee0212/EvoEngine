@@ -5,15 +5,15 @@
 ![Linux Release](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-RelWithDebInfo.yml/badge.svg)
 ![Linux Debug](https://github.com/edisonlee0212/EvoEngine/actions/workflows/Linux-Debug.yml/badge.svg)
 
-EvoEngine is a C++17 research framework for interactive simulation, digital forestry, digital agriculture, synthetic dataset generation, and Vulkan rendering. The repository is built around a general-purpose SDK, compile-time domain Plugins, and a new runtime package layer. The SDK provides the application runtime, editor, ECS, renderer, asset system, serialization, and automation hooks; Plugins add research workflows at build time; runtime packages are shared-library modules that can be loaded while the app is running.
+EvoEngine is a C++17 research framework for interactive simulation, digital forestry, digital agriculture, synthetic dataset generation, and Vulkan rendering. The repository is built around a general-purpose SDK, compile-time domain Services, and a new runtime package layer. The SDK provides the application runtime, editor, ECS, renderer, asset system, serialization, and automation hooks; Services add research workflows at build time; runtime packages are shared-library modules that can be loaded while the app is running.
 
-Windows is the primary development platform. Linux builds are supported for the core stack, while several Plugins are Windows-only or require optional SDKs.
+Windows is the primary development platform. Linux builds are supported for the core stack, while several Services are Windows-only or require optional SDKs.
 
 ![EvoEngine rendering demo](Resources/GitHub/RenderingDemo.png)
 
 ## 1. EvoEngine SDK
 
-The SDK is the foundation of the framework. It lives in `EvoEngine_SDK` and is responsible for the reusable engine/runtime systems that Plugins and applications build on.
+The SDK is the foundation of the framework. It lives in `EvoEngine_SDK` and is responsible for the reusable engine/runtime systems that Services and applications build on.
 
 ### SDK Responsibilities
 
@@ -30,7 +30,7 @@ The SDK provides:
 - global geometry and texture storage
 - material, mesh, camera, light, render texture, and post-processing assets/components
 - job scheduling, input events, and frame/fixed-step timing
-- resource copying and shader include registration support for Plugins
+- resource copying and shader include registration support for Services
 - runtime package loading, guarded unloading/reloading, and package-owned private component registration
 
 ### Repository Layout
@@ -38,9 +38,9 @@ The SDK provides:
 | Path | Purpose |
 | --- | --- |
 | `EvoEngine_SDK` | Core runtime, ECS, editor, renderer, assets, serialization, jobs, input, and utilities. |
-| `EvoEngine_Plugins` | Build-time domain modules that extend the SDK and are linked into apps/Python bindings. |
+| `EvoEngine_Services` | Build-time domain modules that extend the SDK and are linked into apps/Python bindings. |
 | `EvoEngine_Packages` | Runtime package shared-library modules loaded from `Packages` folders. |
-| `EvoEngine_App` | Executable apps that choose which SDK layers and Plugins to run. |
+| `EvoEngine_App` | Executable apps that choose SDK layers and startup runtime packages. |
 | `PythonBinding` | pybind11 modules for scripted workflows. |
 | `Resources` | Demo projects, screenshots, textures, scripts, and build helpers. |
 | `Extern` | Vendored third-party libraries and submodules. |
@@ -53,7 +53,7 @@ An EvoEngine app is assembled by pushing layers before initialization. A typical
 - `RenderLayer` for Vulkan rendering, render instance preparation, and external render callbacks.
 - `WindowLayer` for GLFW windows, input callbacks, resize handling, and presentation.
 - `EditorLayer` for ImGui tools, scene views, entity hierarchy, inspectors, asset browser, and console.
-- Plugin layers such as `EcoSysLabLayer` and `SorghumLayer`, plus runtime package layers such as `UniverseLayer`.
+- Runtime package layers such as `EcoSysLabLayer`, `SorghumLayer`, and `UniverseLayer`.
 
 The main loop runs in phases: input/platform update, project update, transform graph calculation, fixed update, scene update, render preparation, late update, render execution, and window presentation. Editor play mode clones the start scene for runtime simulation, then restores the project scene when playback stops.
 
@@ -87,7 +87,7 @@ The SDK renderer is Vulkan-based and centered on `RenderLayer`. The renderer inc
 
 Scene components describe rendering intent. Render instance storage converts scene state into GPU-friendly material, instance, camera, light, and environment buffers. Geometry and texture storage keep mesh and texture resources globally available to render passes.
 
-Plugins can extend rendering through `RenderLayer` callbacks for shadow maps, deferred rendering, forward rendering, and custom render instance registration.
+Services can extend rendering through `RenderLayer` callbacks for shadow maps, deferred rendering, forward rendering, and custom render instance registration.
 
 ### Jobs, Input, and Time
 
@@ -97,7 +97,7 @@ The SDK job system supports scheduled and immediate parallel work. ECS iteration
 
 | Target | Purpose |
 | --- | --- |
-| `DemoApp` | General renderer/framework demo with multiple Plugin registrations. |
+| `DemoApp` | General renderer/framework demo with multiple Service registrations. |
 | `EcoSysLabApp` | Interactive digital forestry and ecosystem workflow. |
 | `DigitalAgricultureApp` | Interactive sorghum and agriculture workflow. |
 | `LogGradingApp` | Log grading workflow; LogGrading and LogScanning features are supplied by runtime packages. |
@@ -109,21 +109,20 @@ The SDK job system supports scheduled and immediate parallel work. ECS iteration
 
 `PythonBinding` builds pybind11 modules for automation:
 
-- `PyEcoSysLab`
-- `PyDigitalAgriculture`
+- core Python scripts and bindings that do not depend on runtime package C++ APIs
 
-These modules expose selected SDK/Plugin workflows for scripted tree and sorghum generation. Example scripts live in `PythonBinding`.
+Package-specific Python C++ APIs for EcoSysLab and DigitalAgriculture are currently disabled while those domains move to runtime packages. Example scripts live in `PythonBinding`; package-level Python APIs should be added through a dedicated dynamic package interface later.
 
-### Plugins and Runtime Packages
+### Services and Runtime Packages
 
 EvoEngine now separates two extension models:
 
 | Extension type | Folder | Build/runtime model | Use for |
 | --- | --- | --- | --- |
-| Plugin | `EvoEngine_Plugins/<Name>` | Static library selected by CMake options such as `EVOENGINE_ENABLE_EcoSysLab_PLUGIN` | Large domain modules that apps and Python bindings link against at build time. |
-| Runtime package | `EvoEngine_Packages/<Name>` | DLL/shared library selected by CMake options such as `EVOENGINE_ENABLE_<Name>_PACKAGE` and loaded from a `Packages` runtime folder | Smaller hot-loadable features that can register types while the app is running. |
+| Service | `EvoEngine_Services/<Name>` | Static library selected by CMake options such as `EVOENGINE_ENABLE_CudaModule_SERVICE` | Build-time modules that apps or packages link against directly. |
+| Runtime package | `EvoEngine_Packages/<Name>` | DLL/shared library selected by CMake options such as `EVOENGINE_ENABLE_<Name>_PACKAGE` and loaded from a `Packages` runtime folder | Domain features that can be rebuilt, loaded, unloaded, or reloaded independently from the app. |
 
-When `EVOENGINE_ENABLE_RUNTIME_PACKAGES` is `ON`, the SDK builds as a shared library so apps, Plugins, Python bindings, and runtime packages share the same application-owned runtime registries. Runtime packages export `EvoEnginePackageGetDescriptor`, `EvoEnginePackageLoad`, and `EvoEnginePackageUnload`. Packages may also export `EvoEnginePackageRegisterTypes` so RTTI/reflection types are registered before the normal load callback runs. A package can register private components, assets, data components, systems, and layers through `PackageRegistrar`.
+When `EVOENGINE_ENABLE_RUNTIME_PACKAGES` is `ON`, the SDK builds as a shared library so apps, services, Python bindings, and runtime packages share the same runtime registries. Runtime packages export `EvoEnginePackageGetDescriptor`, `EvoEnginePackageLoad`, and `EvoEnginePackageUnload`. Packages may also export `EvoEnginePackageRegisterTypes` so RTTI/reflection types are registered before the normal load callback runs. A package can register private components, assets, data components, systems, and layers through `PackageRegistrar`.
 
 ### Build Requirements
 
@@ -181,7 +180,7 @@ Debug
 Release
 ```
 
-Build outputs are generated under `out/build/<platform>-<config>/`. App binaries are produced under the `EvoEngine_App` build directory and Python modules are produced under the `PythonBinding` build directory. Runtime packages are copied under the app runtime `Packages` folder. Post-build steps still copy engine resources, Plugin resources, runtime libraries (`.dll` on Windows, `.so` on Linux), PDBs when available, runtime packages, and `imgui.ini` beside build-tree binaries for fast local development.
+Build outputs are generated under `out/build/<platform>-<config>/`. App binaries are produced under the `EvoEngine_App` build directory and Python modules are produced under the `PythonBinding` build directory. Runtime packages are copied under the app runtime `Packages` folder. Post-build steps still copy engine resources, Service resources, runtime libraries (`.dll` on Windows, `.so` on Linux), PDBs when available, runtime packages, and `imgui.ini` beside build-tree binaries for fast local development.
 
 CMake install provides a cleaner runtime deployment tree:
 
@@ -260,15 +259,17 @@ When adding new work:
 - Add a system when behavior should run over a scene independently of one component instance.
 - Add an asset when data should be reusable, referenceable, and stored in projects.
 - Add a layer when behavior is global to the application or needs top-level UI/render/input hooks.
-- Add a Plugin when the feature is domain-specific and should remain outside the SDK.
+- Add a service when the feature is a build-time dependency and should remain outside the SDK.
 - Add a runtime package when the feature should be loaded, unloaded, or rebuilt independently from a running app.
 - Add a Python binding when a workflow should run from scripts.
 
 ### Runtime Package Development
 
-Runtime packages live under `EvoEngine_Packages`. `register_evoengine_runtime_package(<Name> ON)` creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option and builds a shared library target, conventionally named `<Name>Package`, by default. Disable individual package targets with `EVOENGINE_ENABLE_<Name>_PACKAGE=OFF` when a build should skip them.
+Runtime packages live under `EvoEngine_Packages`. The package CMake entry scans package folders automatically, reads optional metadata from `PackageInfo.cmake`, creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option, and builds a shared library target named `<Name>Package` by default. Disable individual package targets with `EVOENGINE_ENABLE_<Name>_PACKAGE=OFF` when a build should skip them.
 
-Apps do not load runtime packages by default. Set `ApplicationInitializationSettings::enable_runtime_packages = true` or call `PackageManager::Load/LoadAll` from runtime/editor tooling when a workflow needs additional package functionality.
+Apps do not load runtime packages by default. Set `ApplicationInitializationSettings::enable_runtime_packages = true` and add names to `ApplicationInitializationSettings::startup_runtime_packages`, or call `PackageManager::Load/LoadAll` from runtime/editor tooling when a workflow needs additional package functionality.
+
+Package dependencies are declared with `EVOENGINE_PACKAGE_DEPENDS` in `PackageInfo.cmake`. CMake builds dependencies first and emits a sidecar `.evepackage` manifest beside each package binary so the runtime can discover and load dependencies before opening a package DLL/shared library.
 
 A package must export the descriptor/load/unload entrypoints. Packages that own RTTI/reflection types should also export `EvoEnginePackageRegisterTypes`:
 
@@ -295,44 +296,44 @@ Package unloading is guarded. Reload/unload is refused while the app is playing 
 
 This repository is licensed under the Creative Commons Attribution-NonCommercial 4.0 International license. See `LICENSE` for the full text.
 
-## 2. Plugin Documentation
+## 2. Service Documentation
 
-Plugin and runtime package documentation is split into separate Markdown files so each module can grow independently without turning the README into a wall of details.
+Service and runtime package documentation is split into separate Markdown files so each module can grow independently without turning the README into a wall of details.
 
-| Plugin | Status | Documentation |
+| Service | Status | Documentation |
 | --- | --- | --- |
-| EcoSysLab | Enabled by default | [EvoEngine_Plugins/EcoSysLab/README.md](EvoEngine_Plugins/EcoSysLab/README.md) |
-| DigitalAgriculture | Enabled by default | [EvoEngine_Plugins/DigitalAgriculture/README.md](EvoEngine_Plugins/DigitalAgriculture/README.md) |
-| DatasetGeneration | Enabled by default | [EvoEngine_Plugins/DatasetGeneration/README.md](EvoEngine_Plugins/DatasetGeneration/README.md) |
-| CudaModule | Present but not registered by default | [EvoEngine_Plugins/CudaModule/README.md](EvoEngine_Plugins/CudaModule/README.md) |
-| PhysXPhysics | Present but disabled in its CMake file | [EvoEngine_Plugins/PhysXPhysics/README.md](EvoEngine_Plugins/PhysXPhysics/README.md) |
+| CudaModule | Present but disabled by default | [EvoEngine_Services/CudaModule/README.md](EvoEngine_Services/CudaModule/README.md) |
+| PhysXPhysics | Present but disabled in its CMake file | [EvoEngine_Services/PhysXPhysics/README.md](EvoEngine_Services/PhysXPhysics/README.md) |
 
 | Runtime Package | Status | Documentation |
 | --- | --- | --- |
 | Universe | Built by default | [EvoEngine_Packages/Universe/README.md](EvoEngine_Packages/Universe/README.md) |
 | BillboardClouds | Built by default | [EvoEngine_Packages/BillboardClouds/README.md](EvoEngine_Packages/BillboardClouds/README.md) |
+| EcoSysLab | Built by default; depends on BillboardClouds | [EvoEngine_Packages/EcoSysLab/README.md](EvoEngine_Packages/EcoSysLab/README.md) |
+| DigitalAgriculture | Built by default; depends on EcoSysLab | [EvoEngine_Packages/DigitalAgriculture/README.md](EvoEngine_Packages/DigitalAgriculture/README.md) |
+| DatasetGeneration | Built by default; depends on EcoSysLab and DigitalAgriculture | [EvoEngine_Packages/DatasetGeneration/README.md](EvoEngine_Packages/DatasetGeneration/README.md) |
 | TextureBaking | Built by default on Windows | [EvoEngine_Packages/TextureBaking/README.md](EvoEngine_Packages/TextureBaking/README.md) |
 | MeshRepair | Built by default on Windows | [EvoEngine_Packages/MeshRepair/README.md](EvoEngine_Packages/MeshRepair/README.md) |
 | Gpr | Built by default on Windows | [EvoEngine_Packages/Gpr/README.md](EvoEngine_Packages/Gpr/README.md) |
 | LogGrading | Built by default on Windows; requires EcoSysLab | [EvoEngine_Packages/LogGrading/README.md](EvoEngine_Packages/LogGrading/README.md) |
 | LogScanning | Built by default on Windows; requires EcoSysLab and Pinchot | [EvoEngine_Packages/LogScanning/README.md](EvoEngine_Packages/LogScanning/README.md) |
 
-The Plugin index is also available at [EvoEngine_Plugins/README.md](EvoEngine_Plugins/README.md).
+The Service index is also available at [EvoEngine_Services/README.md](EvoEngine_Services/README.md).
 Runtime package documentation is available at [EvoEngine_Packages/README.md](EvoEngine_Packages/README.md).
 
-### Plugin Build Model
+### Service Build Model
 
-Plugins are registered from `EvoEngine_Plugins/CMakeLists.txt`. The registration macro creates an `EVOENGINE_ENABLE_<PluginName>_PLUGIN` option, adds the Plugin subdirectory, and appends the Plugin target, include paths, compile definitions, precompiled headers, copied resources, and runtime libraries to the shared EvoEngine build variables.
+Services are registered from `EvoEngine_Services/CMakeLists.txt`. The registration macro creates an `EVOENGINE_ENABLE_<ServiceName>_SERVICE` option, adds the Service subdirectory, and appends the Service target, include paths, compile definitions, precompiled headers, copied resources, and runtime libraries to the shared EvoEngine build variables.
 
 The common pattern is:
 
-- Plugin source lives under `EvoEngine_Plugins/<PluginName>/include` and `src`
-- Plugin target is a static library named `<PluginName>Plugin`
-- Plugin compile definitions are uppercase module names such as `ECOSYSLAB_PLUGIN` or `DIGITAL_AGRICULTURE_PLUGIN`
-- Plugin resources may be copied from an `Internals` folder
-- app targets link against the enabled Plugin list
+- Service source lives under `EvoEngine_Services/<ServiceName>/include` and `src`
+- Service target is a static library named `<ServiceName>Service`
+- Service compile definitions are uppercase module names such as `CUDA_MODULE_SERVICE` or `PHYSX_PHYSICS_SERVICE`
+- Service resources may be copied from an `Internals` folder
+- app targets link against the enabled Service list
 
-For example, configure with `-DEVOENGINE_ENABLE_EcoSysLab_PLUGIN=OFF` to disable the EcoSysLab plugin for a build.
+For example, configure with `-DEVOENGINE_ENABLE_CudaModule_SERVICE=OFF` to disable a build-time service, or `-DEVOENGINE_ENABLE_EcoSysLab_PACKAGE=OFF` to skip a runtime package and its dependents.
 
 ### Demo Projects and Visual Results
 

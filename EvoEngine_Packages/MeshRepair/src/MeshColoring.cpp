@@ -5,7 +5,7 @@
 #include "Prefab.hpp"
 #include "Times.hpp"
 #include "VisibilityTest.hpp"
-using namespace mesh_repair_plugin;
+using namespace mesh_repair_package;
 
 bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto scene = GetScene();

@@ -34,8 +34,8 @@ set_property(TARGET PyResourceCopy PROPERTY FOLDER PostBuildActions)
 function(register_python_binding target_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		set(option_name PythonBinding-${target_name})
-		option(option_name "Add Python binding for ${target_name}" default_enable)
-		if(option_name)
+		option(${option_name} "Add Python binding for ${target_name}" ${default_enable})
+		if(${option_name})
 			pybind11_add_module(${target_name} 
 				${CMAKE_CURRENT_SOURCE_DIR}/src/PyEvoEngine.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}.cpp
@@ -57,12 +57,12 @@ function(register_python_binding target_name default_enable)
 			target_link_libraries(${target_name}
 				PRIVATE
 				EvoEngine_SDK
-				${EvoEngine_Plugins}
+				${EvoEngine_Services}
 				)
 
 			if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 				target_compile_options(${target_name} PRIVATE -Werror)
-			elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+			elseif (MSVC)
 				target_compile_options(${target_name} PRIVATE /EHsc /W2 /c)
 			elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 				target_compile_options(${target_name} PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
@@ -79,8 +79,11 @@ function(register_python_binding target_name default_enable)
 	endif ()
 endfunction()
 
-register_python_binding(PyEcoSysLab ON)
-register_python_binding(PyDigitalAgriculture ON)
+set("PythonBinding-PyEcoSysLab" OFF CACHE BOOL "Package-specific Python bindings are disabled during runtime package migration." FORCE)
+set("PythonBinding-PyDigitalAgriculture" OFF CACHE BOOL
+	"Package-specific Python bindings are disabled during runtime package migration." FORCE)
+register_python_binding(PyEcoSysLab OFF)
+register_python_binding(PyDigitalAgriculture OFF)
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")

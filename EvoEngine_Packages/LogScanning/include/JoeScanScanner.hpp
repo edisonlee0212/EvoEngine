@@ -4,7 +4,7 @@
 #include "LogScan.hpp"
 #include "jsSetupConfigParser.hpp"
 
-namespace log_scanning_plugin {
+namespace log_scanning_package {
 using namespace nlohmann;
 using namespace evo_engine;
 
@@ -41,4 +41,4 @@ class JoeScanScanner : public IPrivateComponent {
   void OnDestroy() override;
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
-}  // namespace log_scanning_plugin
+}  // namespace log_scanning_package

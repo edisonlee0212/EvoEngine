@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Format EvoEngine C++ source files with clang-format.
 
-By default this script formats .cpp and .hpp files under the SDK, plugins,
+By default this script formats .cpp and .hpp files under the SDK, services,
 runtime packages, and app folders. It intentionally does not walk Extern or
 other third-party dependency folders.
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 DEFAULT_ROOTS = (
     "EvoEngine_SDK",
-    "EvoEngine_Plugins",
+    "EvoEngine_Services",
     "EvoEngine_Packages",
     "EvoEngine_App",
 )

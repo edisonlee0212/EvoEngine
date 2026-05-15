@@ -1,8 +1,8 @@
 #include "PyDigitalAgriculture.hpp"
 
-#ifdef DIGITAL_AGRICULTURE_PLUGIN
+#ifdef DIGITAL_AGRICULTURE_PACKAGE
 namespace py = pybind11;
-using namespace py_digital_agriculture_plugin;
+using namespace py_digital_agriculture_package;
 
 void GenerateDataForSorghum(const bool use_gpu, const Entity& sorghum_entity,
                             const SorghumGantryCaptureSettings& capture_settings,

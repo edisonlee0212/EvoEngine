@@ -26,8 +26,8 @@ set_property(TARGET AppResourceCopy PROPERTY FOLDER PostBuildActions)
 function(register_evoengine_app app_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		set(option_name EvoEngine_App-${app_name})
-		option(option_name "Build ${app_name} application" default_enable)
-		if(option_name)
+		option(${option_name} "Build ${app_name} application" ${default_enable})
+		if(${option_name})
 			if (WIN32)
 				add_executable(${app_name}
 					${app_name}.cpp
@@ -54,12 +54,15 @@ function(register_evoengine_app app_name default_enable)
 			target_link_libraries(${app_name}
 				PRIVATE
 				EvoEngine_SDK
-				${EvoEngine_Plugins}
+				${EvoEngine_Services}
 				)
+			if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
+				add_dependencies(${app_name} ${EvoEngine_RuntimePackages})
+			endif()
 
 			if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 				target_compile_options(${app_name} PRIVATE -Werror)
-			elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+			elseif (MSVC)
 				target_compile_options(${app_name} PRIVATE /EHsc /W2 /c)
 			elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 				target_compile_options(${app_name} PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
@@ -89,8 +92,8 @@ register_evoengine_app(SorghumDataGeneratorApp ON)
 # Setup an empty application for quicker compilation for testing SDK
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	set(option_name EvoEngine_App-EmptyApp)
-	option(option_name "Build Empty application" default_enable)
-	if(option_name)
+	option(${option_name} "Build Empty application" ON)
+	if(${option_name})
 		add_executable(EmptyApp
 			EmptyApp.cpp
 			)
@@ -111,10 +114,13 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 			PRIVATE
 			EvoEngine_SDK
 		)
+		if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
+			add_dependencies(EmptyApp ${EvoEngine_RuntimePackages})
+		endif()
 
 		if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
 			target_compile_options(EmptyApp PRIVATE -Werror)
-		elseif (CMAKE_CXX_COMPILER_ID STREQUAL MSVC)
+		elseif (MSVC)
 			target_compile_options(EmptyApp PRIVATE /EHsc /W2 /c)
 		elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 			target_compile_options(EmptyApp PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)

@@ -2,7 +2,7 @@
 
 #include "Material.hpp"
 #include "Mesh.hpp"
-namespace billboard_clouds_plugin {
+namespace billboard_clouds_package {
 using namespace evo_engine;
 class BillboardCloud {
  public:
@@ -334,4 +334,4 @@ void BillboardCloud::Dilate(std::vector<T>& data, std::vector<bool>& valid_pixel
     }
   }
 }
-}  // namespace billboard_clouds_plugin
+}  // namespace billboard_clouds_package

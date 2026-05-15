@@ -1,6 +1,6 @@
 #pragma once
 
-namespace texture_baking_plugin {
+namespace texture_baking_package {
 using namespace evo_engine;
 
 class TextureBaking : public IPrivateComponent {
@@ -14,4 +14,4 @@ class TextureBaking : public IPrivateComponent {
   void Deserialize(const YAML::Node& in) override;
   void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) override;
 };
-}  // namespace texture_baking_plugin
+}  // namespace texture_baking_package

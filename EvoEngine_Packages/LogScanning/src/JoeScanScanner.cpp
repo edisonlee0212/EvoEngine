@@ -2,7 +2,7 @@
 #include "Json.hpp"
 #include "Prefab.hpp"
 #include "Scene.hpp"
-using namespace log_scanning_plugin;
+using namespace log_scanning_package;
 using namespace nlohmann;
 
 void logger(const jsError err, const std::string msg) {

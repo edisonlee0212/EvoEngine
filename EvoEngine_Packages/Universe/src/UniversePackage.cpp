@@ -3,7 +3,7 @@
 #include "UniverseLayer.hpp"
 
 using namespace evo_engine;
-using namespace universe_plugin;
+using namespace universe_package;
 
 namespace {
 PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "Universe", "0.1.0",

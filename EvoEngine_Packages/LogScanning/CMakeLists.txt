@@ -1,7 +1,7 @@
 set(LOG_SCANNING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
-if(NOT TARGET EcoSysLabPlugin)
-	message("LogScanningPackage requires EcoSysLabPlugin and will not be built.")
+if(NOT TARGET EcoSysLabPackage)
+	message("LogScanningPackage requires EcoSysLabPackage and will not be built.")
 	return()
 endif()
 
@@ -35,7 +35,7 @@ endif ()
 target_link_libraries(LogScanningPackage
 	PRIVATE
 	EvoEngine_SDK
-	EcoSysLabPlugin
+	EcoSysLabPackage
 	${PINCHOT_LIB})
 
 evoengine_configure_runtime_package(LogScanningPackage)

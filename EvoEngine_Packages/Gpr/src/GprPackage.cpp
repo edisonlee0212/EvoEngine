@@ -3,7 +3,7 @@
 #include "Gpr.hpp"
 
 using namespace evo_engine;
-using namespace gpr_plugin;
+using namespace gpr_package;
 
 namespace {
 PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "Gpr", "0.1.0", "GoPro Raw asset runtime package."};

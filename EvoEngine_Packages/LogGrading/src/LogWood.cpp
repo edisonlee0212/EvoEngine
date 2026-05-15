@@ -1,6 +1,6 @@
 #include "LogWood.hpp"
 
-using namespace log_grading_plugin;
+using namespace log_grading_package;
 
 float radians(const float degrees) {
   return degrees * static_cast<float>(0.01745329251994329576923690768489);

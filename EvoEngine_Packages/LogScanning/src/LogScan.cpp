@@ -5,7 +5,7 @@
 #include "Prefab.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
-using namespace log_scanning_plugin;
+using namespace log_scanning_package;
 using namespace nlohmann;
 
 void LogScan::Serialize(YAML::Emitter& out) const {

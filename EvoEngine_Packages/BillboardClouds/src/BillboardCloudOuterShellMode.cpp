@@ -1,6 +1,6 @@
 #include "BillboardCloud.hpp"
 #include "EvoEngine_EigenDense.hpp"
-using namespace billboard_clouds_plugin;
+using namespace billboard_clouds_package;
 
 class Discretization {
  public:

@@ -7,7 +7,7 @@
 #include "vc5_decoder/vc5_decoder.h"
 
 using namespace evo_engine;
-using namespace gpr_plugin;
+using namespace gpr_package;
 bool Gpr::SaveInternal(const std::filesystem::path& path) const {
   const auto path_string = path.string();
   write_to_file(&input_buffer_, path_string.c_str());

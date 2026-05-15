@@ -49,4 +49,4 @@ Universe is a strong example of SDK data components, archetypes, entity queries,
 
 ## Future Work Notes
 
-Use this Plugin as a reference for ECS-scale demos. Features that are specifically about stars, orbital visualization, or planet terrain belong here; general ECS or renderer improvements belong in the SDK.
+Use this package as a reference for ECS-scale demos. Features that are specifically about stars, orbital visualization, or planet terrain belong here; general ECS or renderer improvements belong in the SDK.
