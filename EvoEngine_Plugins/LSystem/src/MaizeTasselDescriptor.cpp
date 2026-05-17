@@ -1,66 +1,64 @@
 #include "MaizeTasselDescriptor.hpp"
+#include "LSystemDescriptorDefaults.hpp"
 #include "MaizeTassel.hpp"
 #include <Application.hpp>
 #include <EditorLayer.hpp>
-#include <ProjectManager.hpp>
 #include <Scene.hpp>
 #include <Transform.hpp>
 #include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <fstream>
-#include <sstream>
 #include <yaml-cpp/yaml.h>
 
 using namespace l_system_plugin;
 using namespace evo_engine;
 
 namespace {
+
+constexpr char kMaizeDescriptorName[] = "MaizeTasselDescriptor";
+
+const std::array<std::filesystem::path, 6> kMaizeResourceCandidates = {
+    std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"),
+    std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
+        "MaizeTasselDescriptor_Default.mtassel",
+    std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New MaizeTasselDescriptor.mtassel"),
+    std::filesystem::path("./DigitalAgricultureProject/Assets/New MaizeTasselDescriptor.mtassel"),
+    std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+        "New MaizeTasselDescriptor.mtassel",
+    std::filesystem::path("./04_EvoEngine/EvoEngine_Plugins/LSystem/Internals/") /
+        "LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"};
+
+const std::array<std::filesystem::path, 2> kMaizeProjectAssetCandidates = {
+    std::filesystem::path("LSystem") / "New MaizeTasselDescriptor.mtassel",
+    "New MaizeTasselDescriptor.mtassel"};
+
+const std::array<std::filesystem::path, 2> kMaizeWritableTemplateCandidates = {
+    std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") /
+        "New MaizeTasselDescriptor.mtassel",
+    std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+        "New MaizeTasselDescriptor.mtassel"};
+
+const std::filesystem::path kMaizeFallbackDefaultsPath =
+    std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel");
+
 double GetSteadyTimeSeconds() {
   return std::chrono::duration<double>(
       std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
 std::filesystem::path ResolveDefaultMaizeTasselDescriptorPath() {
-  const std::array<std::filesystem::path, 4> resource_candidates = {
-      std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"),
-      std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
-          "MaizeTasselDescriptor_Default.mtassel",
-      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New MaizeTasselDescriptor.mtassel"),
-      std::filesystem::path("./DigitalAgricultureProject/Assets/New MaizeTasselDescriptor.mtassel")};
-
-  for (const auto& relative_candidate : resource_candidates) {
-    const auto absolute_candidate = std::filesystem::absolute(relative_candidate);
-    if (std::filesystem::exists(absolute_candidate)) {
-      return absolute_candidate;
-    }
-  }
-
-  const auto assets_folder = ProjectManager::GetAssetsFolderPath();
-  if (!assets_folder.empty()) {
-    const std::array<std::filesystem::path, 2> project_asset_candidates = {
-        std::filesystem::path("LSystem") / "New MaizeTasselDescriptor.mtassel",
-        "New MaizeTasselDescriptor.mtassel"};
-    for (const auto& relative_candidate : project_asset_candidates) {
-      const auto absolute_candidate = assets_folder / relative_candidate;
-      if (std::filesystem::exists(absolute_candidate)) {
-        return absolute_candidate;
-      }
-    }
-  }
-
-  return {};
+  return descriptor_defaults::ResolveExistingDefaultsPath(
+      kMaizeResourceCandidates,
+      kMaizeProjectAssetCandidates);
 }
 
 std::filesystem::path ResolveWritableMaizeTasselDescriptorDefaultsPath() {
-  if (const auto existing = ResolveDefaultMaizeTasselDescriptorPath(); !existing.empty()) {
-    return existing;
-  }
-
-  // Preferred write target for project-wide defaults.
-  return std::filesystem::absolute(
-      std::filesystem::path("./LSystemResources/Defaults/MaizeTasselDescriptor_Default.mtassel"));
+  return descriptor_defaults::ResolveWritableDefaultsPath(
+      kMaizeResourceCandidates,
+      kMaizeProjectAssetCandidates,
+      kMaizeWritableTemplateCandidates,
+      kMaizeFallbackDefaultsPath);
 }
 
 void LoadSingleDistributionWithScalarFallback(const YAML::Node& in,
@@ -88,25 +86,15 @@ float SampleTargetGddForSeed(const evo_engine::SingleDistribution<float>& distri
 
 bool LoadMaizeTasselDescriptorDefaultsFromFile(MaizeTasselDescriptor& descriptor,
                                                const std::filesystem::path& file_path) {
-  if (file_path.empty() || !std::filesystem::exists(file_path)) {
+  YAML::Node defaults;
+  if (!descriptor_defaults::LoadDefaultsYamlMap(
+          file_path,
+          defaults,
+          kMaizeDescriptorName)) {
     return false;
   }
-
-  try {
-    const std::ifstream stream(file_path.string());
-    std::stringstream string_stream;
-    string_stream << stream.rdbuf();
-    const YAML::Node defaults = YAML::Load(string_stream.str());
-    if (!defaults || !defaults.IsMap()) {
-      return false;
-    }
-    descriptor.Deserialize(defaults);
-    return true;
-  } catch (const std::exception& e) {
-    EVOENGINE_WARNING("Failed to load MaizeTasselDescriptor defaults from " + file_path.string() + ": " +
-                      std::string(e.what()));
-    return false;
-  }
+  descriptor.Deserialize(defaults);
+  return true;
 }
 }
 
@@ -228,7 +216,6 @@ SampledTasselParams MaizeTasselDescriptor::Sample(std::mt19937& rng) const {
   }
 
   // Thermal timing.
-  p.base_temperature = std::clamp(SampleDistribution(base_temperature, rng), 0.0f, 30.0f);
   p.plastochron_gdd = std::max(1.0f, SampleDistribution(plastochron_gdd, rng));
   p.anthesis_gdd = std::max(0.0f, SampleDistribution(anthesis_gdd, rng));
   p.maturity_gdd = std::max(p.anthesis_gdd + 1.0f, SampleDistribution(maturity_gdd, rng));
@@ -736,13 +723,14 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
         "Per-instance thermal target used to set MaizeTassel growth stop (target_gdd)."
       );
       changed |= inspect_global_distribution_row(
-        "Base Temperature",
-        base_temperature,
-        0.5f,
+        "Thermal GDD/day",
+        gdd_per_day,
+        0.25f,
         0.0f,
-        30.0f,
-        30.0f,
-        "Thermal baseline (deg C) used for growing-degree-day accumulation.");
+        500.0f,
+        500.0f,
+        "Per-instance thermal progression rate used by auto-grow (GDD per day)."
+      );
       changed |= inspect_global_distribution_row(
         "Plastochron GDD",
         plastochron_gdd,
@@ -899,7 +887,7 @@ bool MaizeTasselDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor
     };
 
     clamp_distribution(target_gdd, 0.0f, 4000.0f);
-    clamp_distribution(base_temperature, 0.0f, 30.0f);
+    clamp_distribution(gdd_per_day, 0.0f, 500.0f);
     clamp_distribution(plastochron_gdd, 1.0f, 200.0f);
     clamp_distribution(anthesis_gdd, 10.0f, 1000.0f);
     clamp_distribution(maturity_gdd, 10.0f, 2000.0f);
@@ -1110,7 +1098,7 @@ void MaizeTasselDescriptor::Serialize(YAML::Emitter& out) const {
   pair_distal_angle_curve.Save("pair_distal_angle_curve", out);
 
   target_gdd.Save("target_gdd", out);
-  base_temperature.Save("base_temperature", out);
+  gdd_per_day.Save("gdd_per_day", out);
   plastochron_gdd.Save("plastochron_gdd", out);
   anthesis_gdd.Save("anthesis_gdd", out);
   maturity_gdd.Save("max_gdd", out);
@@ -1294,7 +1282,12 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
   }
 
   LoadSingleDistributionWithScalarFallback(in, "target_gdd", target_gdd);
-  LoadSingleDistributionWithScalarFallback(in, "base_temperature", base_temperature);
+  if (in["gdd_per_day"]) {
+    LoadSingleDistributionWithScalarFallback(in, "gdd_per_day", gdd_per_day);
+  } else {
+    // Legacy compatibility for assets authored before descriptor thermal-rate migration.
+    LoadSingleDistributionWithScalarFallback(in, "gdd_per_second", gdd_per_day);
+  }
   LoadSingleDistributionWithScalarFallback(in, "plastochron_gdd", plastochron_gdd);
   LoadSingleDistributionWithScalarFallback(in, "anthesis_gdd", anthesis_gdd);
   if (in["max_gdd"]) {
@@ -1324,8 +1317,8 @@ void MaizeTasselDescriptor::Deserialize(const YAML::Node& in) {
 
   target_gdd.mean = std::clamp(target_gdd.mean, 0.0f, 4000.0f);
   target_gdd.deviation = std::max(0.0f, target_gdd.deviation);
-  base_temperature.mean = std::clamp(base_temperature.mean, 0.0f, 30.0f);
-  base_temperature.deviation = std::max(0.0f, base_temperature.deviation);
+  gdd_per_day.mean = std::clamp(gdd_per_day.mean, 0.0f, 500.0f);
+  gdd_per_day.deviation = std::max(0.0f, gdd_per_day.deviation);
   plastochron_gdd.mean = std::max(1.0f, plastochron_gdd.mean);
   plastochron_gdd.deviation = std::max(0.0f, plastochron_gdd.deviation);
   anthesis_gdd.mean = std::max(0.0f, anthesis_gdd.mean);
@@ -1438,7 +1431,7 @@ void MaizeTasselDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer)
 
   // Global development distributions.
   explorer.AddSingle("target_gdd", "TGD", d.target_gdd, 0.0f, 5000.0f, 2500.0f);
-  explorer.AddSingle("base_temperature", "TMP", d.base_temperature, -10.0f, 60.0f, 30.0f);
+  explorer.AddSingle("gdd_per_day", "GPD", d.gdd_per_day, 0.0f, 500.0f, 500.0f);
   explorer.AddSingle("plastochron_gdd", "PGD", d.plastochron_gdd, 1.0f, 500.0f, 250.0f);
   explorer.AddSingle("anthesis_gdd", "AGD", d.anthesis_gdd, 0.0f, 3000.0f, 1500.0f);
   explorer.AddSingle("maturity_gdd", "MGD", d.maturity_gdd, 0.0f, 5000.0f, 2500.0f);

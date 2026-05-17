@@ -102,7 +102,7 @@ class MaizeTasselDescriptor : public evo_engine::IAsset, public ILSystemExplorab
 
   // -- GDD milestones --
   evo_engine::SingleDistribution<float> target_gdd{400.0f};
-  evo_engine::SingleDistribution<float> base_temperature{10.0f};
+  evo_engine::SingleDistribution<float> gdd_per_day{10.0f};
   evo_engine::SingleDistribution<float> plastochron_gdd{30.0f};
   evo_engine::SingleDistribution<float> anthesis_gdd{200.0f};
   evo_engine::SingleDistribution<float> maturity_gdd{400.0f};

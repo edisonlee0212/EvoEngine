@@ -215,11 +215,7 @@ void MaizeTassel::ClearGeometryEntities() const {
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
   for (const auto& child : children) {
-    const auto name = scene->GetEntityName(child);
-    if (name == "Tassel Internodes" || name == "Tassel Spikelets" ||
-        name == "Tassel Stem Mesh") {
-      scene->DeleteEntity(child);
-    }
+    scene->DeleteEntity(child);
   }
 }
 
@@ -470,6 +466,7 @@ void MaizeTassel::GeneratePreviewGeometryEntities(const float preview_target_gdd
 // ---------------------------------------------------------------------------
 
 void MaizeTassel::GrowToTargetGDD(const bool uncapped_growth) {
+  (void)uncapped_growth;
   const double grow_start = Times::Now();
   auto descriptor = descriptor_ref.Get<MaizeTasselDescriptor>();
   if (!descriptor) {
@@ -491,7 +488,7 @@ void MaizeTassel::GrowToTargetGDD(const bool uncapped_growth) {
     growth_model.Initialize(*descriptor, seed);
   }
 
-  growth_model.GrowToGDD(target_gdd, uncapped_growth ? 0u : max_growth_steps_per_frame);
+  growth_model.GrowToGDD(target_gdd);
   last_grow_seconds = Times::Now() - grow_start;
   RebuildGeometry();
 }

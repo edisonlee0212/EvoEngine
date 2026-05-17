@@ -6,6 +6,7 @@
 #include "Platform.hpp"
 #include "RenderInstanceStorage.hpp"
 #include "Utilities.hpp"
+#include <cmath>
 
 using namespace evo_engine;
 
@@ -1342,9 +1343,25 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
+  uint32_t skipped_non_finite_instances = 0;
+
+  const auto is_finite_mat4 = [](const glm::mat4& m) {
+    for (int c = 0; c < 4; c++) {
+      for (int r = 0; r < 4; r++) {
+        if (!std::isfinite(m[c][r])) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
 
   const auto append_instance = [&](const glm::mat4& world_transform, const int32_t instance_index,
                                    const VkDeviceAddress blas_device_address) {
+    if (!is_finite_mat4(world_transform)) {
+      skipped_non_finite_instances++;
+      return;
+    }
     auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
     const auto transform_transposed = glm::transpose(world_transform);
     memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(transform_transposed),
@@ -1384,6 +1401,11 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
           append_instance(render_instance->model.value, render_instance->instance_index, blas_device_address);
         }
       });
+
+  if (skipped_non_finite_instances > 0) {
+    EVOENGINE_WARNING("TopLevelAccelerationStructure: skipped " + std::to_string(skipped_non_finite_instances) +
+                      " instances with non-finite transforms.")
+  }
 
   if (acceleration_structure_instances.empty()) {
     EVOENGINE_WARNING("TopLevelAccelerationStructure: no render instances available for TLAS build.")

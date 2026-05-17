@@ -718,19 +718,30 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     }
   }
 
-  if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
-      EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
+  const auto left_ctrl_state = EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL);
+  const auto right_ctrl_state = EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL);
+  const bool ctrl_down =
+      left_ctrl_state == Input::KeyActionType::Hold ||
+      left_ctrl_state == Input::KeyActionType::Press ||
+      right_ctrl_state == Input::KeyActionType::Hold ||
+      right_ctrl_state == Input::KeyActionType::Press;
+  if (ctrl_down) {
     if (const float scroll = ImGui::GetIO().MouseWheel; scroll != 0.0f) {
       if (editor_layer->SceneCameraWindowFocused() || editor_layer->SceneCameraWindowHovered()) {
-        simulation_settings.delta_time = glm::max(0.1f, simulation_settings.delta_time + scroll * 0.1f);
+        simulation_settings.delta_time =
+            glm::max(0.1f, simulation_settings.delta_time + scroll * 0.1f);
       }
     }
     if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
-      const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      ResetAllTrees(tree_entities);
-      ClearMeshes();
-      ClearGroundFruitAndLeaf();
-      auto_time_target_ = 0.0f;
+      if (Application::IsPlaying()) {
+        Application::Stop();
+      } else {
+        const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+        ResetAllTrees(tree_entities);
+        ClearMeshes();
+        ClearGroundFruitAndLeaf();
+        auto_time_target_ = 0.0f;
+      }
     }
     if (EditorLayer::GetKey(GLFW_KEY_F) == Input::KeyActionType::Press) {
       const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();

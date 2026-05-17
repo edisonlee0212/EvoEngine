@@ -24,7 +24,9 @@ layout(location = 6) out vec4 instanceColor;
 
 void main()
 {
-	currentInstanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
+	// Instanced prepass uses one explicit draw call per render instance in this path.
+	// Use push-constant instance index directly to avoid driver-dependent gl_DrawID drift.
+	currentInstanceIndex = uint(EE_INSTANCE_INDEX);
 	instanceColor = EE_INSTANCED_DATA[gl_InstanceIndex].color;
 	mat4 matrix = EE_INSTANCES[currentInstanceIndex].model * EE_INSTANCED_DATA[gl_InstanceIndex].instance_matrix;
 	vs_out.FragPos = vec3(matrix * vec4(inPosition, 1.0));

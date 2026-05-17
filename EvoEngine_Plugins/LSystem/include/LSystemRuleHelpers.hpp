@@ -60,6 +60,24 @@ inline std::mt19937 MakeNodeRng(const float node_random, const uint32_t salt) {
   return std::mt19937(HashNodeSeed(node_random, salt));
 }
 
+inline float EvaluatePlottedDeterministic(const evo_engine::PlottedDistribution<float>& pd,
+                                          const float t,
+                                          const float node_random,
+                                          const uint32_t salt,
+                                          const float lo = -std::numeric_limits<float>::infinity(),
+                                          const float hi = std::numeric_limits<float>::infinity()) {
+  const float mean_val = pd.mean.GetValue(t);
+  const float sigma_val = std::max(0.0f, pd.deviation.GetValue(t));
+  if (!(sigma_val > 0.0f)) {
+    return std::clamp(mean_val, lo, hi);
+  }
+
+  auto rng = MakeNodeRng(node_random, salt);
+  std::normal_distribution<float> unit_normal(0.0f, 1.0f);
+  const float z = unit_normal(rng);
+  return std::clamp(mean_val + sigma_val * z, lo, hi);
+}
+
 inline float SampleUnit01(std::mt19937& rng) {
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
   return dist(rng);

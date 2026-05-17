@@ -6,6 +6,7 @@ using namespace evo_engine;
 // https://github.com/nem0/LumixEngine/blob/39e46c18a58111cc3c8c10a4d5ebbb614f19b1b8/external/imgui/imgui_user.inl#L505-L930
 
 bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, unsigned flags) {
+  ImGui::PushID(static_cast<const void*>(this));
   enum class StorageValues : ImGuiID { FromX = 100, FromY, Width, Height, IsPanning, PointStartX, PointStartY };
   int changed_idx = -1;
   bool changed = false;
@@ -31,6 +32,7 @@ bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, uns
   if (ImGuiID id = parent_window->GetID(label.c_str());
       !ImGui::BeginChildFrame(id, size, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
     ImGui::EndChildFrame();
+    ImGui::PopID();
     return false;
   }
 
@@ -39,6 +41,7 @@ bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, uns
   ImGuiWindow* window = ImGui::GetCurrentWindow();
   if (window->SkipItems) {
     ImGui::EndChildFrame();
+    ImGui::PopID();
     return false;
   }
 
@@ -401,7 +404,9 @@ bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, uns
     ImGui::SliderFloat("X", &test, 0.0f, 1.0f);
     ImGui::Text("Y: %.3f", GetValue(test));
   }
-  return changed_idx != -1 || changed;
+  const bool result = changed_idx != -1 || changed;
+  ImGui::PopID();
+  return result;
 }
 std::vector<glm::vec2>& Curve2D::UnsafeGetValues() {
   return values_;

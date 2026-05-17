@@ -945,7 +945,6 @@ void tassel_mesh_point_cloud_skeleton(const uint32_t output_size,
   data_generation_parameters.export_point_cloud = export_point_cloud;
   data_generation_parameters.export_flow_graph = export_flow_graph;
   data_generation_parameters.export_node_graph = export_node_graph;
-  data_generation_parameters.max_growth_steps_per_frame = 0;
   data_generation_parameters.uncapped_growth = true;
   data_generation_parameters.use_existing_scene_entities = use_existing_scene_entities;
   if (use_existing_scene_entities) {

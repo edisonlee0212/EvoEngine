@@ -142,7 +142,6 @@ class DatasetGenerator {
 
     int seed = 0;
     float target_gdd = 400.0f;
-    uint32_t max_growth_steps_per_frame = 0;
     bool uncapped_growth = true;
 
     bool use_existing_scene_entities = false;

@@ -77,6 +77,7 @@ register_evoengine_app(TreeDataGeneratorApp ON)
 register_evoengine_app(SorghumDataGeneratorApp ON)
 register_evoengine_app(MaizeDataGeneratorApp ON)
 register_evoengine_app(ScotsPineGrowthApp ON)
+register_evoengine_app(ScotsPineSmokeApp ON)
 
 
 

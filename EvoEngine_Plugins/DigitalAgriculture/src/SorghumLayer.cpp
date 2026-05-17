@@ -4,6 +4,7 @@
 #  include "RayTracerLayer.hpp"
 #endif
 #include <SorghumLayer.hpp>
+#include "Application.hpp"
 #include "ClassRegistry.hpp"
 #include "Platform.hpp"
 #include "SkyIlluminance.hpp"
@@ -376,20 +377,30 @@ void SorghumLayer::CalculateIllumination() {
 void SorghumLayer::Update() {
   const auto scene = GetScene();
 
-  if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
-      EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
+  const auto left_ctrl_state = EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL);
+  const auto right_ctrl_state = EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL);
+  const bool ctrl_down =
+      left_ctrl_state == Input::KeyActionType::Hold ||
+      left_ctrl_state == Input::KeyActionType::Press ||
+      right_ctrl_state == Input::KeyActionType::Hold ||
+      right_ctrl_state == Input::KeyActionType::Press;
+  if (ctrl_down) {
     if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
-      auto_increase_crop_target_gdd_ = false;
-      if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-          sorghum_entities && !sorghum_entities->empty()) {
-        for (const auto& sorghum_entity : *sorghum_entities) {
-          const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
-          if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
-            continue;
+      if (Application::IsPlaying()) {
+        Application::Stop();
+      } else {
+        auto_increase_crop_target_gdd_ = false;
+        if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
+            sorghum_entities && !sorghum_entities->empty()) {
+          for (const auto& sorghum_entity : *sorghum_entities) {
+            const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
+            if (!sorghum || !sorghum->crop_descriptor.Get<CropDescriptor>()) {
+              continue;
+            }
+            sorghum->GrowCropToGdd(0.0f, crop_growth_daily_temperature_);
+            sorghum->sorghum_descriptor.Clear();
+            sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
           }
-          sorghum->GrowCropToGdd(0.0f, crop_growth_daily_temperature_);
-          sorghum->sorghum_descriptor.Clear();
-          sorghum->GenerateGeometryEntities(sorghum_mesh_generator_settings);
         }
       }
     }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IPrivateComponent.hpp"
+#include "LSystemComponentBase.hpp"
 #include "TasselGrowthModel.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -10,7 +10,7 @@ using namespace evo_engine;
 
 class MaizeTasselDescriptor;
 
-class MaizeTassel final : public IPrivateComponent {
+class MaizeTassel final : public LSystemComponentBase<MaizeTassel> {
  public:
   enum class ColorMode : int {
     Shaded = 0,
@@ -34,17 +34,8 @@ class MaizeTassel final : public IPrivateComponent {
   static void SetForceCpuParticlesPath(bool force);
   [[nodiscard]] static bool IsForceCpuParticlesPath();
 
-  /// Reference to the genotype descriptor asset (required).
-  AssetRef descriptor_ref;
-
-  /// Seed for deterministic generation.
-  unsigned int seed = 42;
-
-  /// Target GDD to grow to after topology derivation.
-  float target_gdd = 0.0f;
-
-  /// Optional per-frame growth step cap forwarded to TasselGrowthModel (0 = unlimited).
-  uint32_t max_growth_steps_per_frame = 0;
+  /// Returns infancy GDD for reset.
+  [[nodiscard]] float GetInfancyTargetGDD() const { return 0.0f; }
 
   /// The growth model (non-serialized, rebuilt on Generate).
   TasselGrowthModel growth_model;

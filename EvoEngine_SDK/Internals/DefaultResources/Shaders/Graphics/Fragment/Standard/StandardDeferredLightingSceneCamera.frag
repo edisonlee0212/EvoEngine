@@ -24,7 +24,10 @@ void main()
     vec4 matSample   = texture(inMaterial, fs_in.TexCoord);
     vec2 materialTexCoord = matSample.xy;
     int  material_index   = int(round(matSample.z));
-    int  info_index       = int(round(matSample.w));
+    int  encoded_info_index = int(round(matSample.w));
+    bool tinted_gbuffer_path = encoded_info_index > 1;
+    int  packed_material_index = tinted_gbuffer_path ? (encoded_info_index >> 2) : -1;
+    int  info_index = tinted_gbuffer_path ? (encoded_info_index & 3) : encoded_info_index;
 
     vec4 normalSample = texture(inNormal, fs_in.TexCoord);
     vec3 normal       = normalSample.xyz;
@@ -34,6 +37,9 @@ void main()
     int max_material_index = max(EE_RENDER_INFO.material_size - 1, 0);
     instance_index = clamp(instance_index, 0, max_instance_index);
     material_index = clamp(material_index, 0, max_material_index);
+    if (packed_material_index >= 0) {
+        packed_material_index = clamp(packed_material_index, 0, max_material_index);
+    }
 
     bool instance_selected = (info_index & 1) == 1; // faster than % 2
 
@@ -49,7 +55,7 @@ void main()
     // Background (depth == 1.0) path
     // --------------------------------------------------------------------
     if (ndcDepth == 1.0) {
-        if (!instance_selected && EE_INSTANCE_INDEX == 1) {
+        if (!instance_selected && EE_INSTANCE_INDEX == 1 && info_index <= 1) {
             bool foundNeighbor = false;
 
             // 7x7 neighborhood search for selected instances
@@ -59,6 +65,9 @@ void main()
                         texture(inMaterial,
                                 fs_in.TexCoord + vec2(texOffset.x * float(i),
                                                       texOffset.y * float(j))).w));
+                    if (info_index_local > 1) {
+                        info_index_local &= 3;
+                    }
                     if ((info_index_local & 1) == 1) {
                         FragColor = mix(vec4(1.0, 0.75, 0.0, 1.0),
                                         vec4(skyColor, 1.0),
@@ -92,14 +101,14 @@ void main()
     float ao;
     vec4 albedo;
     bool receiveShadow = true;
+    bool vertex_color_only = false;
 
     if (info_index > 1) {
         // Tinted g-buffer path stores albedo directly in outMaterial.rgb.
-        // Recover material properties via instance index so lighting remains
-        // material-driven instead of using the previous implicit fallback.
-        Instance instance = EE_INSTANCES[instance_index];
-        int instance_material_index = clamp(instance.material_index, 0, max_material_index);
-        MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[instance_material_index];
+        // Material index is packed into outMaterial.a alongside info bits.
+        int resolved_material_index =
+            packed_material_index >= 0 ? packed_material_index : material_index;
+        MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[resolved_material_index];
         roughness = materialProperties.roughness;
         metallic = materialProperties.metallic;
         specular = materialProperties.specular;
@@ -107,6 +116,7 @@ void main()
         ao = materialProperties.ambient_occulusion;
         albedo = vec4(matSample.rgb, 1.0);
         receiveShadow = materialProperties.receive_shadow;
+        vertex_color_only = materialProperties.vertex_color_only != 0;
     } else {
         MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
         roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, materialTexCoord, vec4(materialProperties.roughness, 0, 0, 0)).r;
@@ -116,6 +126,7 @@ void main()
         ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, materialTexCoord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
         albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, materialTexCoord, materialProperties.albedo);
         receiveShadow = materialProperties.receive_shadow;
+        vertex_color_only = materialProperties.vertex_color_only != 0;
     }
 
     // --------------------------------------------------------------------
@@ -153,6 +164,23 @@ void main()
     // --------------------------------------------------------------------
     vec3 viewDir = normalize(cameraPosition - fragPos);
 
+    // Guard against degenerate/invalid g-buffer normals from thin procedural
+    // geometry; keep a stable fallback orientation.
+    float normal_len2 = dot(normal, normal);
+    bool normal_has_nan = any(notEqual(normal, normal));
+    if (normal_has_nan || normal_len2 <= 1e-8 || normal_len2 > 1e8) {
+        normal = vec3(0.0, 1.0, 0.0);
+    } else {
+        normal *= inversesqrt(normal_len2);
+    }
+
+    // Needle/folliage meshes are rendered two-sided and may contain mixed
+    // winding from procedural sweeps. Keep normals camera-facing so one
+    // side never collapses into near-black due winding/front-face state.
+    if (vertex_color_only && dot(normal, viewDir) < 0.0) {
+        normal = -normal;
+    }
+
     vec3 F0 = vec3(0.04);
     F0 = mix(F0, albedo.rgb, metallic);
 
@@ -166,12 +194,20 @@ void main()
     vec3 safe_albedo_dir = dot(albedo.rgb, albedo.rgb) > 1e-8 ? normalize(albedo.rgb) : vec3(0.0);
     vec3 color = direct + emission * safe_albedo_dir + ambient * ao;
 
+    if (vertex_color_only) {
+        // Preserve authored foliage hue and only transfer luminance from the
+        // lighting solve; this removes purple/orange hue drift on needles.
+        float lit = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
+        lit = clamp(lit, 0.22, 1.35);
+        color = albedo.rgb * lit;
+    }
+
     // --------------------------------------------------------------------
     // Selection / neighborhood highlight
     // --------------------------------------------------------------------
     vec4 outputColor;
 
-    if (!instance_selected && EE_INSTANCE_INDEX == 1) {
+    if (!instance_selected && EE_INSTANCE_INDEX == 1 && info_index <= 1) {
         bool foundNeighbor = false;
 
         for (int i = -3; i <= 3 && !foundNeighbor; ++i) {
@@ -180,6 +216,9 @@ void main()
                     texture(inMaterial,
                             fs_in.TexCoord + vec2(texOffset.x * float(i),
                                                   texOffset.y * float(j))).w));
+                if (info_index_local > 1) {
+                    info_index_local &= 3;
+                }
                 if ((info_index_local & 1) == 1) {
                     outputColor = mix(vec4(1.0, 0.75, 0.0, 1.0),
                                       vec4(color, 1.0),

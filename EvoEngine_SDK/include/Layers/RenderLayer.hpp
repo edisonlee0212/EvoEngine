@@ -49,6 +49,7 @@ class RenderLayer final : public ILayer {
   bool enable_indirect_rendering = true;
 
   /// Logs per-draw material/instance state for needle-like instanced draws.
+  /// Default-on while diagnosing the multi-ScotsPine missing-needle / wrong-color bug.
   bool debug_needle_state_audit = true;
 
   /// Rebinds pipeline/descriptors/vertex buffers before each needle-like instanced draw.
@@ -56,6 +57,12 @@ class RenderLayer final : public ILayer {
 
   /// Per-frame log cap for needle draw auditing.
   int debug_needle_max_logs_per_frame = 8;
+
+  /// Logs per-draw material/instance state for stem-like instanced draws.
+  bool debug_stem_state_audit = false;
+
+  /// Per-frame log cap for stem draw auditing.
+  int debug_stem_max_logs_per_frame = 2;
 
   /// Specifies the rendering settings.
   RenderSettings render_settings{};

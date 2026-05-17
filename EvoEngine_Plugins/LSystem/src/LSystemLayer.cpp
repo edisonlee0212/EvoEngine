@@ -6,6 +6,8 @@
 #include "MaizeTasselDescriptor.hpp"
 #include "ScotsPine.hpp"
 #include "ScotsPineDescriptor.hpp"
+#include "SorghumLS.hpp"
+#include "SorghumLSDescriptor.hpp"
 #include "Scene.hpp"
 #include "Application.hpp"
 #include "Times.hpp"
@@ -65,6 +67,16 @@ float SampleDescriptorTargetGdd(MaizeTassel& tassel) {
   return std::max(0.0f, SampleDistribution(descriptor->target_gdd, rng));
 }
 
+float SampleDescriptorGddPerDay(MaizeTassel& tassel) {
+  const auto descriptor = tassel.descriptor_ref.Get<MaizeTasselDescriptor>();
+  if (!descriptor) {
+    return 0.0f;
+  }
+
+  std::mt19937 rng(static_cast<uint32_t>(tassel.seed) ^ 0x3c6ef372u);
+  return std::max(0.0f, SampleDistribution(descriptor->gdd_per_day, rng));
+}
+
 float SampleDescriptorTargetGddForPine(ScotsPine& pine) {
   auto descriptor = pine.descriptor_ref.Get<ScotsPineDescriptor>();
   if (pine.enable_repot_profile_switch &&
@@ -79,6 +91,43 @@ float SampleDescriptorTargetGddForPine(ScotsPine& pine) {
   }
   std::mt19937 rng(pine.seed);
   return std::max(0.0f, SampleDistribution(descriptor->target_gdd, rng));
+}
+
+float SampleDescriptorTargetGddForSorghum(SorghumLS& sorghum) {
+  const auto descriptor = sorghum.descriptor_ref.Get<SorghumLSDescriptor>();
+  if (!descriptor) {
+    return -1.0f;
+  }
+
+  std::mt19937 rng(sorghum.seed);
+  return std::max(0.0f, SampleDistribution(descriptor->target_gdd, rng));
+}
+
+float SampleDescriptorGddPerDayForSorghum(SorghumLS& sorghum) {
+  const auto descriptor = sorghum.descriptor_ref.Get<SorghumLSDescriptor>();
+  if (!descriptor) {
+    return 0.0f;
+  }
+
+  std::mt19937 rng(static_cast<uint32_t>(sorghum.seed) ^ 0x9e3779b9u);
+  return std::max(0.0f, SampleDistribution(descriptor->gdd_per_day, rng));
+}
+
+float ResolvePineResetTargetGdd(ScotsPine& pine) {
+  const float descriptor_target_gdd = SampleDescriptorTargetGddForPine(pine);
+  if (descriptor_target_gdd <= 0.0f) {
+    return 0.0f;
+  }
+
+  // Keep Ctrl+W visually stable (avoid seedling needle dropouts) while still
+  // allowing Ctrl+F continuous growth to advance after reset.
+  constexpr float kWarmStartRatio = 0.20f;
+  constexpr float kWarmStartMinGdd = 250.0f;
+  constexpr float kWarmStartMaxGdd = 900.0f;
+  const float warm_start = std::clamp(descriptor_target_gdd * kWarmStartRatio,
+                                      kWarmStartMinGdd,
+                                      kWarmStartMaxGdd);
+  return std::min(warm_start, descriptor_target_gdd);
 }
 
 float NormalizeDayOfYear(float day) {
@@ -114,8 +163,10 @@ void ApplyGlobalPlantColorMode(const int selected_mode,
   const int effective_mode =
       ResolveEffectiveColorMode(selected_mode, scene_plant_view_tint_enabled);
   const int maize_mode = std::clamp(effective_mode, 0, 3);
+  const int sorghum_mode = std::clamp(effective_mode, 0, 4);
   const int pine_mode = ClampColorModeIndex(effective_mode);
   MaizeTassel::SetGlobalColorMode(static_cast<MaizeTassel::ColorMode>(maize_mode));
+  SorghumLS::SetGlobalColorMode(static_cast<SorghumLS::ColorMode>(sorghum_mode));
   ScotsPine::SetGlobalColorMode(static_cast<ScotsPine::ColorMode>(pine_mode));
 }
 
@@ -148,6 +199,20 @@ void RebuildAllPlantGeometry(const std::shared_ptr<Scene>& scene) {
       auto pine = scene->GetOrSetPrivateComponent<ScotsPine>(entity).lock();
       if (pine) {
         pine->RebuildGeometry();
+      }
+    }
+  }
+
+  if (const auto* sorghum_entities_ptr =
+          scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    const std::vector<Entity> sorghum_entities = *sorghum_entities_ptr;
+    for (const auto& entity : sorghum_entities) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+      if (sorghum) {
+        sorghum->RebuildGeometry();
       }
     }
   }
@@ -193,6 +258,8 @@ AssetRegistration<MaizeTasselDescriptor> maize_tassel_desc_registry("MaizeTassel
 PrivateComponentRegistration<MaizeTassel> maize_tassel_component_registry("MaizeTassel");
 AssetRegistration<ScotsPineDescriptor> scots_pine_desc_registry("ScotsPineDescriptor", {".spine"});
 PrivateComponentRegistration<ScotsPine> scots_pine_component_registry("ScotsPine");
+AssetRegistration<SorghumLSDescriptor> sorghum_ls_desc_registry("SorghumLSDescriptor", {".sorghumls"});
+PrivateComponentRegistration<SorghumLS> sorghum_ls_component_registry("SorghumLS");
 
 void LSystemLayer::OnCreate() {
   simulation_day_of_year =
@@ -279,7 +346,7 @@ void LSystemLayer::ExportProfileCsv(const std::string& path) const {
       << "apply_growth_rules_ms,apply_topology_rules_ms,sort_lists_ms,update_node_info_ms,"
       << "propagate_geometry_ms,topology_scan_ms,"
       << "rebuild_internode_collect_ms,rebuild_internode_upload_ms,rebuild_spikelet_collect_ms,rebuild_spikelet_upload_ms,"
-      << "tassels,growth_steps,nodes,internodes,spikelets,invalid_instances\n";
+      << "tassels,sorghums,growth_steps,nodes,internodes,spikelets,leaves,live_leaves,invalid_instances\n";
   for (size_t i = 0; i < profiling_history.size(); i++) {
     const auto& f = profiling_history[i];
     out << i << ","
@@ -298,10 +365,13 @@ void LSystemLayer::ExportProfileCsv(const std::string& path) const {
         << f.rebuild_spikelet_collect_ms << ","
         << f.rebuild_spikelet_upload_ms << ","
         << f.tassel_count << ","
+        << f.sorghum_count << ","
         << f.growth_steps << ","
         << f.node_count << ","
         << f.internode_count << ","
         << f.spikelet_count << ","
+        << f.leaf_count << ","
+        << f.live_leaf_count << ","
         << f.invalid_instance_count << "\n";
   }
 }
@@ -420,26 +490,6 @@ void LSystemLayer::Update() {
     const bool in_active_season =
       !seasonality_enabled ||
       IsInActiveSeason(simulation_day_of_year, season_start_day, season_end_day);
-
-    // Phenology DOY-based GDD Curve (Sine wave approximating temperature)
-    // Assume peak summer is DOY 200, coldest winter is DOY 20.
-    float daily_gdd_rate = 0.0f;
-    if (seasonality_enabled) {
-      // rough approximation of a temperature curve
-      const float doy_offset = simulation_day_of_year - 20.0f;
-      const float temp_curve = -std::cos(doy_offset * 3.14159265359f / 182.5f);
-      // Only accumulate GDD if temp_curve is positive (approx spring/summer)
-      daily_gdd_rate = std::max(0.0f, temp_curve * 15.0f); // arbitrarily max 15 GDD/day
-    } else {
-      daily_gdd_rate = gdd_per_second; // fallback to continuous
-    }
-
-    const float raw_delta_gdd = seasonality_enabled ? (daily_gdd_rate * delta_days) : (gdd_per_second * dt);
-    const float capped_delta_gdd = max_gdd_per_frame > 0.0f
-                     ? std::min(raw_delta_gdd, max_gdd_per_frame)
-                     : raw_delta_gdd;
-
-    const float delta_gdd = in_active_season ? capped_delta_gdd : 0.0f;
     const float delta_years = seasonality_enabled ? (delta_days / 365.0f) : 0.0f;
 
   const auto* tassel_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<MaizeTassel>();
@@ -484,14 +534,14 @@ void LSystemLayer::Update() {
       continue;
     }
 
+    const float descriptor_delta_gdd =
+      SampleDescriptorGddPerDay(*tassel) * std::max(0.0f, delta_days);
     const float descriptor_target_gdd = SampleDescriptorTargetGdd(*tassel);
-    const float next_target_gdd = std::max(0.0f, tassel->target_gdd + delta_gdd);
+    const float next_target_gdd = std::max(0.0f, tassel->target_gdd + descriptor_delta_gdd);
     tassel->target_gdd = descriptor_target_gdd >= 0.0f
       ? std::min(next_target_gdd, descriptor_target_gdd)
       : next_target_gdd;
 
-    tassel->max_growth_steps_per_frame =
-        static_cast<uint32_t>(std::max(0, max_growth_steps_per_frame));
     tassel->GrowToTargetGDD();
 
     if (profiling_enabled) {
@@ -520,6 +570,75 @@ void LSystemLayer::Update() {
     }
   }
 
+  // ---- Sorghum auto-grow ----
+  if (const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    const std::vector<Entity> sorghum_entities = *sorghum_entities_ptr;
+    for (const auto& entity : sorghum_entities) {
+      if (!scene->IsEntityValid(entity))
+        continue;
+      auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+      if (!sorghum)
+        continue;
+
+      frame.sorghum_count++;
+      sorghum->SetSeasonalChronologicalMode(seasonality_enabled);
+
+      bool age_only_changed = false;
+      if (seasonality_enabled && delta_years > 0.0f) {
+        if (in_active_season) {
+          if (!sorghum->growth_model.IsInitialized()) {
+            if (const auto descriptor =
+                    sorghum->descriptor_ref.Get<SorghumLSDescriptor>()) {
+              sorghum->growth_model.Initialize(*descriptor, sorghum->seed);
+            }
+          }
+          sorghum->growth_model.AdvanceChronologicalYears(delta_years);
+        } else {
+          age_only_changed = sorghum->AdvanceChronologicalAging(delta_years);
+        }
+      }
+
+      if (!in_active_season) {
+        if (profiling_enabled && age_only_changed) {
+          frame.rebuild_ms += sorghum->last_rebuild_seconds * 1000.0;
+          frame.node_count += sorghum->last_node_count;
+          frame.internode_count += sorghum->last_internode_count;
+          frame.leaf_count += sorghum->last_leaf_count;
+          frame.live_leaf_count += sorghum->last_live_leaf_count;
+        }
+        continue;
+      }
+
+      const float descriptor_delta_gdd =
+        SampleDescriptorGddPerDayForSorghum(*sorghum) * std::max(0.0f, delta_days);
+      const float descriptor_target_gdd = SampleDescriptorTargetGddForSorghum(*sorghum);
+      const float next_target_gdd = std::max(0.0f, sorghum->target_gdd + descriptor_delta_gdd);
+      sorghum->target_gdd = descriptor_target_gdd >= 0.0f
+        ? std::min(next_target_gdd, descriptor_target_gdd)
+        : next_target_gdd;
+
+      sorghum->GrowToTargetGDD();
+
+      if (profiling_enabled) {
+        const auto& grow_profile = sorghum->growth_model.last_grow_to_gdd_profile;
+        frame.grow_ms += sorghum->last_grow_seconds * 1000.0;
+        frame.rebuild_ms += sorghum->last_rebuild_seconds * 1000.0;
+        frame.apply_growth_rules_ms += grow_profile.apply_growth_rules_seconds * 1000.0;
+        frame.apply_topology_rules_ms += grow_profile.apply_topology_rules_seconds * 1000.0;
+        frame.sort_lists_ms += grow_profile.sort_lists_seconds * 1000.0;
+        frame.update_node_info_ms += grow_profile.update_node_info_seconds * 1000.0;
+        frame.propagate_geometry_ms += grow_profile.propagate_geometry_seconds * 1000.0;
+        frame.topology_scan_ms += grow_profile.topology_scan_seconds * 1000.0;
+        frame.growth_steps += sorghum->growth_model.last_growth_steps;
+        frame.node_count += sorghum->last_node_count;
+        frame.internode_count += sorghum->last_internode_count;
+        frame.leaf_count += sorghum->last_leaf_count;
+        frame.live_leaf_count += sorghum->last_live_leaf_count;
+        frame.invalid_instance_count += sorghum->last_invalid_instance_count;
+      }
+    }
+  }
+
   // ---- Pine auto-grow ----
   // Pine vigor and calendar windows are sampled per plant from the
   // ScotsPineDescriptor. LSystemLayer provides only day progression speed.
@@ -541,11 +660,8 @@ void LSystemLayer::Update() {
                            pine_temporal.season_end_day);
       const float pine_raw_delta_gdd =
           std::max(0.0f, pine_temporal.gdd_per_day) * delta_days;
-      const float pine_capped_delta_gdd = max_gdd_per_frame > 0.0f
-          ? std::min(pine_raw_delta_gdd, max_gdd_per_frame)
-          : pine_raw_delta_gdd;
       const float pine_delta_gdd =
-          pine_in_active_season ? pine_capped_delta_gdd : 0.0f;
+          pine_in_active_season ? pine_raw_delta_gdd : 0.0f;
 
       const float pine_season_days =
           (pine_temporal.season_end_day >= pine_temporal.season_start_day)
@@ -609,8 +725,6 @@ void LSystemLayer::Update() {
         ? std::min(next_target_gdd, descriptor_target_gdd)
         : next_target_gdd;
 
-      pine->max_growth_steps_per_frame =
-          static_cast<uint32_t>(std::max(0, max_growth_steps_per_frame));
       pine->GrowToTargetGDD();
     }
   }
@@ -623,64 +737,77 @@ void LSystemLayer::Update() {
 }
 
 void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) {
-  auto reset_all_tassels = [this]() {
+  auto reset_all_lsystems = [this]() {
     const auto scene = GetScene();
     if (!scene)
       return;
 
-    const auto* tassel_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<MaizeTassel>();
-    const std::vector<Entity> tassel_entities = tassel_entities_ptr ? *tassel_entities_ptr : std::vector<Entity>{};
     unsigned int base_seed = 0u;
     if (reseed_on_reset) {
       base_seed = static_cast<unsigned int>(
           std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFFFFu);
     }
-
     unsigned int seed_offset = 0u;
-    for (const auto& entity : tassel_entities) {
-      if (!scene->IsEntityValid(entity))
-        continue;
-      auto tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(entity).lock();
-      if (!tassel)
-        continue;
 
-      if (reseed_on_reset) {
-        tassel->seed = base_seed + seed_offset;
-        seed_offset++;
+    const auto reset_component = [&](auto& entities) {
+      for (const auto& entity : entities) {
+        if (!scene->IsEntityValid(entity)) continue;
+        auto comp = scene->template GetOrSetPrivateComponent<typename std::decay_t<decltype(entities)>::value_type::element_type>(entity).lock();
+        if (!comp) continue;
+
+        if (reseed_on_reset) {
+          comp->seed = base_seed + seed_offset++;
+        }
+        comp->ResetToInfancy();
       }
+    };
 
-      tassel->target_gdd = 0.0f;
-      tassel->GenerateGeometryEntities();
+    if (const auto* tassel_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<MaizeTassel>()) {
+      const std::vector<Entity> tassel_entities = *tassel_entities_ptr;
+      for (const auto& entity : tassel_entities) {
+        if (!scene->IsEntityValid(entity)) continue;
+        auto tassel = scene->GetOrSetPrivateComponent<MaizeTassel>(entity).lock();
+        if (!tassel) continue;
+        if (reseed_on_reset) tassel->seed = base_seed + seed_offset++;
+        tassel->ResetToInfancy();
+      }
     }
-
-    // ---- Pine reset (mirrors maize loop above) ----
+    
     if (const auto* pine_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<ScotsPine>()) {
       const std::vector<Entity> pine_entities = *pine_entities_ptr;
       for (const auto& entity : pine_entities) {
-        if (!scene->IsEntityValid(entity))
-          continue;
+        if (!scene->IsEntityValid(entity)) continue;
         auto pine = scene->GetOrSetPrivateComponent<ScotsPine>(entity).lock();
-        if (!pine)
-          continue;
-
-        if (reseed_on_reset) {
-          pine->seed = base_seed + seed_offset;
-          seed_offset++;
-        }
-
-        pine->target_gdd = 0.0f;
-        pine->GenerateGeometryEntities();
+        if (!pine) continue;
+        if (reseed_on_reset) pine->seed = base_seed + seed_offset++;
+        pine->ResetToInfancy();
       }
     }
 
-    auto_grow = false;
+    if (const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+      const std::vector<Entity> sorghum_entities = *sorghum_entities_ptr;
+      for (const auto& entity : sorghum_entities) {
+        if (!scene->IsEntityValid(entity)) continue;
+        auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+        if (!sorghum) continue;
+        if (reseed_on_reset) sorghum->seed = base_seed + seed_offset++;
+        sorghum->ResetToInfancy();
+      }
+    }
+
     simulation_day_of_year =
       NormalizeDayOfYear(static_cast<float>(std::clamp(season_start_day, 0, 364)));
   };
 
   // --- Keyboard shortcuts (polling, matching EcoSysLab pattern) ---
-  if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold ||
-      EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL) == Input::KeyActionType::Hold) {
+  const auto left_ctrl_state = EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL);
+  const auto right_ctrl_state = EditorLayer::GetKey(GLFW_KEY_RIGHT_CONTROL);
+  const bool ctrl_down =
+      left_ctrl_state == Input::KeyActionType::Hold ||
+      left_ctrl_state == Input::KeyActionType::Press ||
+      right_ctrl_state == Input::KeyActionType::Hold ||
+      right_ctrl_state == Input::KeyActionType::Press;
+  if (ctrl_down) {
     if (EditorLayer::GetKey(GLFW_KEY_F) == Input::KeyActionType::Press) {
       auto_grow = !auto_grow;
       if (auto_grow) {
@@ -689,7 +816,11 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
       }
     }
     if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
-      reset_all_tassels();
+      if (Application::IsPlaying()) {
+        Application::Stop();
+      }
+      auto_grow = false;
+      reset_all_lsystems();
     }
   }
 
@@ -698,15 +829,7 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
     fps_failsafe_tripped_ = false;
     last_failsafe_fps_ = 0.0f;
   }
-  ImGui::DragFloat("Thermal GDD/sec (Vigor)", &gdd_per_second, 1.0f, 1.0f, 500.0f);
-  ImGui::TextDisabled("Maize uses layer GDD/sec; Scots pine uses descriptor GDD/day.");
-  ImGui::DragFloat("Max GDD/Frame (0=Unlimited)", &max_gdd_per_frame, 0.1f, 0.0f, 500.0f);
-  ImGui::DragInt("Max Growth Steps/Frame (0=Unlimited)",
-                 &max_growth_steps_per_frame,
-                 1.0f,
-                 0,
-                 5000);
-  ImGui::TextDisabled("Use both caps to smooth thermal growth after long frames.");
+  ImGui::TextDisabled("Thermal rates are descriptor-owned (maize/sorghum GDD/day, pine GDD/day).");
 
   ImGui::SeparatorText("Seasonality");
   ImGui::Checkbox("Enable Calendar Seasonality", &seasonality_enabled);
@@ -728,7 +851,7 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
       IsInActiveSeason(simulation_day_of_year, season_start_day, season_end_day);
   ImGui::Text("Season State: %s", inspector_active_season ? "Active" : "Dormant");
 
-  ImGui::Checkbox("Reseed on Reset (Ctrl+W)", &reseed_on_reset);
+  ImGui::Checkbox("Reseed on Reset (Ctrl+W when stopped)", &reseed_on_reset);
   if (fps_failsafe_tripped_) {
     ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f),
                        "Auto-grow stopped by 5 FPS failsafe (last: %.2f FPS).",
@@ -750,7 +873,7 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
       "By Type",
       "By Instance",
       "By Node",
-      "Pine: Needle Lignification",
+      "Sorghum: Leaf Senescence / Pine: Needle Lignification",
       "Pine: Needle Stripe Proxy",
       "Pine: Needle Sheath"
     };
@@ -759,11 +882,26 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
       ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
       RebuildAllPlantGeometry(GetScene());
     }
-    ImGui::TextDisabled("Modes 4-6 are pine-only needle diagnostics.");
+    ImGui::TextDisabled("Mode 4 also visualizes Sorghum leaf senescence.");
   }
 
-  if (ImGui::Button("Reset All Tassels (Ctrl+W)")) {
-    reset_all_tassels();
+  if (ImGui::Button("Reset Plant Color View (Shaded)")) {
+    tassel_color_mode = 0;
+    scene_plant_view_tint_enabled = false;
+#ifdef LSYSTEM_GPU_PIPELINE
+    if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
+      render_layer->render_settings.enable_debug_visualization = false;
+      render_layer->render_settings.debug_visualization_mode = 1;
+    }
+#endif
+    ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
+    RebuildAllPlantGeometry(GetScene());
+  }
+  ImGui::SameLine();
+  ImGui::TextDisabled("Use this when scene coloring looks unintentionally tinted.");
+
+  if (ImGui::Button("Reset All LSystems (Ctrl+W)")) {
+    reset_all_lsystems();
   }
 
   ImGui::Separator();
@@ -837,11 +975,15 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
     ImGui::Text("Last Grow: %.3f ms", last_profile_frame.grow_ms);
     ImGui::Text("Last Rebuild: %.3f ms", last_profile_frame.rebuild_ms);
     ImGui::Text("Last Tassels: %u", last_profile_frame.tassel_count);
+    ImGui::Text("Last Sorghums: %u", last_profile_frame.sorghum_count);
     ImGui::Text("Last Growth Steps: %u", last_profile_frame.growth_steps);
     ImGui::Text("Last Nodes/Internodes/Spikelets: %u / %u / %u",
                 last_profile_frame.node_count,
                 last_profile_frame.internode_count,
                 last_profile_frame.spikelet_count);
+    ImGui::Text("Last Leaves (all/live): %u / %u",
+          last_profile_frame.leaf_count,
+          last_profile_frame.live_leaf_count);
     ImGui::Text("Last Invalid Instances: %u", last_profile_frame.invalid_instance_count);
     ImGui::Text("Last Growth phases ms (rules/topology/sort/prop): %.3f / %.3f / %.3f / %.3f",
                 last_profile_frame.apply_growth_rules_ms,
@@ -871,9 +1013,6 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
 
 void LSystemLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "auto_grow" << YAML::Value << auto_grow;
-  out << YAML::Key << "gdd_per_second" << YAML::Value << gdd_per_second;
-  out << YAML::Key << "max_gdd_per_frame" << YAML::Value << max_gdd_per_frame;
-  out << YAML::Key << "max_growth_steps_per_frame" << YAML::Value << max_growth_steps_per_frame;
   out << YAML::Key << "seasonality_enabled" << YAML::Value << seasonality_enabled;
   out << YAML::Key << "season_start_day" << YAML::Value << season_start_day;
   out << YAML::Key << "season_end_day" << YAML::Value << season_end_day;
@@ -893,12 +1032,6 @@ void LSystemLayer::Serialize(YAML::Emitter& out) const {
 void LSystemLayer::Deserialize(const YAML::Node& in) {
   if (in["auto_grow"])
     auto_grow = in["auto_grow"].as<bool>();
-  if (in["gdd_per_second"])
-    gdd_per_second = in["gdd_per_second"].as<float>();
-  if (in["max_gdd_per_frame"])
-    max_gdd_per_frame = std::max(0.0f, in["max_gdd_per_frame"].as<float>());
-  if (in["max_growth_steps_per_frame"])
-    max_growth_steps_per_frame = std::max(0, in["max_growth_steps_per_frame"].as<int>());
   if (in["seasonality_enabled"]) {
     seasonality_enabled = in["seasonality_enabled"].as<bool>();
   }

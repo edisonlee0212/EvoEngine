@@ -449,7 +449,7 @@ void SingleDistribution<T>::Load(const std::string& name, const YAML::Node& in) 
 template <class T>
 bool SingleDistribution<T>::OnInspect(const std::string& name, const float speed, const std::string& tip, const char* format) {
   bool changed = false;
-  ImGui::PushID(name.c_str());
+  ImGui::PushID(static_cast<const void*>(this));
   if (ImGui::BeginTable("SingleDistributionInline", 3,
                         ImGuiTableFlags_NoSavedSettings |
                             ImGuiTableFlags_SizingStretchProp |
@@ -514,6 +514,7 @@ T SingleDistribution<T>::GetValue() const {
 template <class T>
 bool PlottedDistribution<T>::OnInspect(const std::string& name, const PlottedDistributionSettings& settings) {
   bool changed = false;
+  ImGui::PushID(static_cast<const void*>(this));
   if (ImGui::TreeNode(name.c_str())) {
     if (!settings.tip.empty() && ImGui::IsItemHovered()) {
       ImGui::BeginTooltip();
@@ -523,31 +524,32 @@ bool PlottedDistribution<T>::OnInspect(const std::string& name, const PlottedDis
     if constexpr (std::is_same_v<T, float>) {
       if (settings.show_uncertainty_preview) {
         ImGui::TextUnformatted("Uncertainty Preview");
-        const std::string preview_id = "uncertainty_preview##" + name;
-        DrawPlottedDistributionUncertaintyPreview(mean, deviation, preview_id.c_str());
+        DrawPlottedDistributionUncertaintyPreview(mean, deviation, "uncertainty_preview");
       }
     }
 
-    const auto mean_title = name + " (mean)";
-    const auto dev_title = name + " (deviation)";
-    const std::string table_id = "PlottedDistributionInline##" + name;
-    if (ImGui::BeginTable(table_id.c_str(), 2,
+    if (ImGui::BeginTable("PlottedDistributionInline", 2,
                           ImGuiTableFlags_NoSavedSettings |
                               ImGuiTableFlags_SizingStretchSame |
                               ImGuiTableFlags_BordersInnerV)) {
+      ImGui::TableSetupColumn("Mean");
+      ImGui::TableSetupColumn("Std (sigma)");
+      ImGui::TableHeadersRow();
+
       ImGui::TableNextRow();
 
       ImGui::TableSetColumnIndex(0);
-      changed |= mean.OnInspect(mean_title, settings.mean_settings);
+      changed |= mean.OnInspect("Mean", settings.mean_settings);
 
       ImGui::TableSetColumnIndex(1);
-      if (deviation.OnInspect(dev_title, settings.dev_settings))
+      if (deviation.OnInspect("Std (sigma)", settings.dev_settings))
         changed = true;
 
       ImGui::EndTable();
     }
     ImGui::TreePop();
   }
+  ImGui::PopID();
   return changed;
 }
 
@@ -610,6 +612,7 @@ T PlottedDistribution<T>::GetValue(float t) const {
 template <class T>
 bool Plot2D<T>::OnInspect(const std::string& name, const CurveDescriptorSettings& settings) {
   bool changed = false;
+  ImGui::PushID(static_cast<const void*>(this));
   if (ImGui::TreeNode(name.c_str())) {
     if (!settings.m_tip.empty() && ImGui::IsItemHovered()) {
       ImGui::BeginTooltip();
@@ -618,16 +621,16 @@ bool Plot2D<T>::OnInspect(const std::string& name, const CurveDescriptorSettings
     }
     if (settings.min_max_control) {
       if (typeid(T).hash_code() == typeid(float).hash_code()) {
-        changed = ImGui::DragFloat(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
+        changed = ImGui::DragFloat("Min", static_cast<float*>(&min_value), settings.speed);
+        if (ImGui::DragFloat("Max", static_cast<float*>(&max_value), settings.speed))
           changed = true;
       } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-        changed = ImGui::DragFloat2(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat2(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
+        changed = ImGui::DragFloat2("Min", static_cast<float*>(&min_value), settings.speed);
+        if (ImGui::DragFloat2("Max", static_cast<float*>(&max_value), settings.speed))
           changed = true;
       } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-        changed = ImGui::DragFloat3(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat3(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
+        changed = ImGui::DragFloat3("Min", static_cast<float*>(&min_value), settings.speed);
+        if (ImGui::DragFloat3("Max", static_cast<float*>(&max_value), settings.speed))
           changed = true;
       }
     }
@@ -636,12 +639,13 @@ bool Plot2D<T>::OnInspect(const std::string& name, const CurveDescriptorSettings
             ? static_cast<unsigned>(CurveEditorFlags::AllowResize) | static_cast<unsigned>(CurveEditorFlags::ShowGrid)
             : static_cast<unsigned>(CurveEditorFlags::AllowResize) | static_cast<unsigned>(CurveEditorFlags::ShowGrid) |
                   static_cast<unsigned>(CurveEditorFlags::DisableStartEndY);
-    if (curve.OnInspect(("Curve2D##" + name).c_str(), ImVec2(-1, -1), flag)) {
+    if (curve.OnInspect("Curve2D", ImVec2(-1, -1), flag)) {
       changed = true;
     }
 
     ImGui::TreePop();
   }
+  ImGui::PopID();
   return changed;
 }
 

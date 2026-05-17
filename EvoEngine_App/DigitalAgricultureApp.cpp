@@ -123,6 +123,9 @@ int main() {
 #endif
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "DigitalAgriculture";
+  // Keep startup in raster mode by default. Ray tracing can be re-enabled
+  // intentionally from app configuration once RT resource stability is verified.
+  application_configs.graphics_settings.use_ray_tracing = false;
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
   Application::Initialize(application_configs);

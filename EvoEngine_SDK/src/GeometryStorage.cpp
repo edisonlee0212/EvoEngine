@@ -1,6 +1,7 @@
 #include "GeometryStorage.hpp"
 #include "RenderLayer.hpp"
 #include "meshoptimizer.h"
+#include <sstream>
 using namespace evo_engine;
 
 void GeometryStorage::UploadData() {
@@ -68,6 +69,57 @@ void GeometryStorage::UploadData() {
   for (const auto& triangle_range : storage.segment_range_descriptor_) {
     triangle_range->prev_frame_index_count = triangle_range->index_count;
     triangle_range->prev_frame_offset = triangle_range->offset;
+  }
+
+  // Iteration 5: dump CPU vs GPU buffer sizes once per second (~60 frames)
+  // to confirm/deny the GPU buffer truncation hypothesis for the
+  // multi-ScotsPine missing-needles bug. If vertex_buffer_ GPU size <
+  // vertex_data_chunks_.size() * sizeof(VertexDataChunk), or triangle_buffer_
+  // GPU size < triangles_.size() * sizeof(glm::uvec3), late draws into the
+  // global buffer will read garbage / zero, producing the observed pattern.
+  {
+    static int frame_throttle = 0;
+    if ((frame_throttle++ % 30) == 0) {
+      const size_t chunk_size = sizeof(decltype(storage.vertex_data_chunks_)::value_type);
+      const size_t tri_size = sizeof(decltype(storage.triangles_)::value_type);
+      const size_t meshlet_size = sizeof(decltype(storage.meshlets_)::value_type);
+      const size_t cpu_vtx_bytes = storage.vertex_data_chunks_.size() * chunk_size;
+      const size_t cpu_tri_bytes = storage.triangles_.size() * tri_size;
+      const size_t cpu_meshlet_bytes = storage.meshlets_.size() * meshlet_size;
+      const VkDeviceSize gpu_vtx_bytes =
+          storage.vertex_buffer_ ? storage.vertex_buffer_->GetVmaAllocationInfo().size : 0;
+      const VkDeviceSize gpu_tri_bytes =
+          storage.triangle_buffer_ ? storage.triangle_buffer_->GetVmaAllocationInfo().size : 0;
+      const VkDeviceSize gpu_meshlet_bytes =
+          storage.meshlet_buffer_ ? storage.meshlet_buffer_->GetVmaAllocationInfo().size : 0;
+      std::ostringstream os;
+      os << "[GeoStorageSizes]"
+         << " chunks=" << storage.vertex_data_chunks_.size()
+         << " tris=" << storage.triangles_.size()
+         << " meshlets=" << storage.meshlets_.size()
+         << " triRanges=" << storage.triangle_range_descriptor_.size()
+         << " cpuVtxBytes=" << cpu_vtx_bytes
+         << " gpuVtxBytes=" << gpu_vtx_bytes
+         << " cpuTriBytes=" << cpu_tri_bytes
+         << " gpuTriBytes=" << gpu_tri_bytes
+         << " cpuMeshletBytes=" << cpu_meshlet_bytes
+         << " gpuMeshletBytes=" << gpu_meshlet_bytes
+         << " reqMeshUpdate=" << (require_mesh_data_device_update_ ? 1 : 0);
+      // Per-range max-index sanity: for each triangle_range, max possible
+      // triangle index referenced by its draw = (prev_offset + prev_count) * 3
+      // (in indices). If this exceeds cpuTriBytes/sizeof(uint32_t) the CPU
+      // already overran; if it exceeds gpuTriBytes/sizeof(uint32_t) the GPU
+      // buffer is too small to hold this draw's referenced indices.
+      uint32_t max_tri_end = 0;
+      for (const auto& r : storage.triangle_range_descriptor_) {
+        const uint32_t end = r->prev_frame_offset + r->prev_frame_index_count;
+        if (end > max_tri_end) max_tri_end = end;
+      }
+      os << " maxTriEnd=" << max_tri_end
+         << " maxIdxNeeded=" << (max_tri_end * 3u)
+         << " gpuTriIdxCapacity=" << (gpu_tri_bytes / sizeof(uint32_t));
+      EVOENGINE_WARNING(os.str());
+    }
   }
 }
 

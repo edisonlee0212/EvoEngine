@@ -66,10 +66,13 @@ class LSystemLayer : public evo_engine::ILayer {
     double rebuild_spikelet_collect_ms = 0.0;
     double rebuild_spikelet_upload_ms = 0.0;
     uint32_t tassel_count = 0;
+    uint32_t sorghum_count = 0;
     uint32_t growth_steps = 0;
     uint32_t node_count = 0;
     uint32_t internode_count = 0;
     uint32_t spikelet_count = 0;
+    uint32_t leaf_count = 0;
+    uint32_t live_leaf_count = 0;
     uint32_t invalid_instance_count = 0;
   };
 
@@ -78,15 +81,6 @@ class LSystemLayer : public evo_engine::ILayer {
 
   /// When true, Ctrl+W reset assigns fresh seeds to every tassel before regeneration.
   bool reseed_on_reset = false;
-
-  /// Thermal-time accumulation rate during auto-grow (developmental vigor).
-  float gdd_per_second = 60.0f;
-
-  /// Optional per-frame GDD cap during auto-grow (0 = unlimited).
-  float max_gdd_per_frame = 10.0f;
-
-  /// Optional per-tassel growth step cap per frame (0 = unlimited).
-  int max_growth_steps_per_frame = 10;
 
   /// Enable EcoSysLab-style calendar season gating for auto-grow.
   bool seasonality_enabled = false;
@@ -126,7 +120,8 @@ class LSystemLayer : public evo_engine::ILayer {
   void Deserialize(const YAML::Node& in) override;
 
  private:
-    static constexpr float kAutoGrowFailsafeMinFps = 5.0f;
+    // Keep failsafe low enough that dense scenes can still advance under Ctrl+F.
+    static constexpr float kAutoGrowFailsafeMinFps = 1.0f;
     bool fps_failsafe_tripped_ = false;
     float last_failsafe_fps_ = 0.0f;
 

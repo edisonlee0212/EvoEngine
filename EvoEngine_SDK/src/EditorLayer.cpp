@@ -1745,6 +1745,19 @@ void EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
       case GLFW_KEY_ESCAPE:
         Application::Stop();
         break;
+      case GLFW_KEY_W: {
+        const auto left_ctrl_state = Input::GetKey(GLFW_KEY_LEFT_CONTROL);
+        const auto right_ctrl_state = Input::GetKey(GLFW_KEY_RIGHT_CONTROL);
+        const bool ctrl_down =
+            left_ctrl_state == Input::KeyActionType::Hold ||
+            left_ctrl_state == Input::KeyActionType::Press ||
+            right_ctrl_state == Input::KeyActionType::Hold ||
+            right_ctrl_state == Input::KeyActionType::Press;
+        if (ctrl_down) {
+          Application::Stop();
+        }
+        break;
+      }
       case GLFW_KEY_S:
         if (Input::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
           ProjectManager::SaveProject();

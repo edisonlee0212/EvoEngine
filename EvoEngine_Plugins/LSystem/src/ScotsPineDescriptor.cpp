@@ -1,17 +1,15 @@
 #include "ScotsPineDescriptor.hpp"
+#include "LSystemDescriptorDefaults.hpp"
 #include "ScotsPine.hpp"
 #include <Application.hpp>
 #include <EditorLayer.hpp>
-#include <ProjectManager.hpp>
 #include <Scene.hpp>
 #include <Transform.hpp>
 #include <array>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <fstream>
 #include <limits>
-#include <sstream>
 #include <yaml-cpp/yaml.h>
 
 using namespace l_system_plugin;
@@ -24,6 +22,31 @@ using namespace evo_engine;
 namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
+constexpr char kScotsPineDescriptorName[] = "ScotsPineDescriptor";
+
+const std::array<std::filesystem::path, 6> kScotsPineResourceCandidates = {
+  std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"),
+  std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
+    "ScotsPineDescriptor_Default.spine",
+  std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New ScotsPineDescriptor.spine"),
+  std::filesystem::path("./DigitalAgricultureProject/Assets/New ScotsPineDescriptor.spine"),
+  std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+    "New ScotsPineDescriptor.spine",
+  std::filesystem::path("./04_EvoEngine/EvoEngine_Plugins/LSystem/Internals/") /
+    "LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"};
+
+const std::array<std::filesystem::path, 2> kScotsPineProjectAssetCandidates = {
+  std::filesystem::path("LSystem") / "New ScotsPineDescriptor.spine",
+  "New ScotsPineDescriptor.spine"};
+
+const std::array<std::filesystem::path, 2> kScotsPineWritableTemplateCandidates = {
+  std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") /
+    "New ScotsPineDescriptor.spine",
+  std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+    "New ScotsPineDescriptor.spine"};
+
+const std::filesystem::path kScotsPineFallbackDefaultsPath =
+  std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine");
 
 void SetCurveToSinusoidalRange(evo_engine::Curve2D& curve,
                                const float y0,
@@ -118,59 +141,17 @@ double GetSteadyTimeSeconds() {
 }
 
 std::filesystem::path ResolveDefaultScotsPineDescriptorPath() {
-  const std::array<std::filesystem::path, 6> resource_candidates = {
-      std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"),
-      std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
-          "ScotsPineDescriptor_Default.spine",
-      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New ScotsPineDescriptor.spine"),
-      std::filesystem::path("./DigitalAgricultureProject/Assets/New ScotsPineDescriptor.spine"),
-      std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
-          "New ScotsPineDescriptor.spine",
-      std::filesystem::path("./04_EvoEngine/EvoEngine_Plugins/LSystem/Internals/") /
-          "LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"};
-
-  for (const auto& relative_candidate : resource_candidates) {
-    const auto absolute_candidate = std::filesystem::absolute(relative_candidate);
-    if (std::filesystem::exists(absolute_candidate)) {
-      return absolute_candidate;
-    }
-  }
-
-  const auto assets_folder = ProjectManager::GetAssetsFolderPath();
-  if (!assets_folder.empty()) {
-    const std::array<std::filesystem::path, 2> project_asset_candidates = {
-        std::filesystem::path("LSystem") / "New ScotsPineDescriptor.spine",
-        "New ScotsPineDescriptor.spine"};
-    for (const auto& relative_candidate : project_asset_candidates) {
-      const auto absolute_candidate = assets_folder / relative_candidate;
-      if (std::filesystem::exists(absolute_candidate)) {
-        return absolute_candidate;
-      }
-    }
-  }
-
-  return {};
+  return descriptor_defaults::ResolveExistingDefaultsPath(
+      kScotsPineResourceCandidates,
+      kScotsPineProjectAssetCandidates);
 }
 
 std::filesystem::path ResolveWritableScotsPineDescriptorDefaultsPath() {
-  if (const auto existing = ResolveDefaultScotsPineDescriptorPath(); !existing.empty()) {
-    return existing;
-  }
-
-  const std::array<std::filesystem::path, 2> writable_template_candidates = {
-      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") /
-          "New ScotsPineDescriptor.spine",
-      std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
-          "New ScotsPineDescriptor.spine"};
-  for (const auto& candidate : writable_template_candidates) {
-    const auto absolute_candidate = std::filesystem::absolute(candidate);
-    if (std::filesystem::exists(absolute_candidate.parent_path())) {
-      return absolute_candidate;
-    }
-  }
-
-  return std::filesystem::absolute(
-      std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"));
+  return descriptor_defaults::ResolveWritableDefaultsPath(
+      kScotsPineResourceCandidates,
+      kScotsPineProjectAssetCandidates,
+      kScotsPineWritableTemplateCandidates,
+      kScotsPineFallbackDefaultsPath);
 }
 
 void LoadSingleDistributionWithScalarFallback(const YAML::Node& in,
@@ -212,20 +193,15 @@ float SampleTargetGddForSeed(const evo_engine::SingleDistribution<float>& distri
 
 bool LoadScotsPineDescriptorDefaultsFromFile(ScotsPineDescriptor& descriptor,
                                              const std::filesystem::path& file_path) {
-  if (file_path.empty() || !std::filesystem::exists(file_path)) return false;
-  try {
-    const std::ifstream stream(file_path.string());
-    std::stringstream string_stream;
-    string_stream << stream.rdbuf();
-    const YAML::Node defaults = YAML::Load(string_stream.str());
-    if (!defaults || !defaults.IsMap()) return false;
-    descriptor.Deserialize(defaults);
-    return true;
-  } catch (const std::exception& e) {
-    EVOENGINE_WARNING("Failed to load ScotsPineDescriptor defaults from " + file_path.string() + ": " +
-                      std::string(e.what()));
+  YAML::Node defaults;
+  if (!descriptor_defaults::LoadDefaultsYamlMap(
+          file_path,
+          defaults,
+          kScotsPineDescriptorName)) {
     return false;
   }
+  descriptor.Deserialize(defaults);
+  return true;
 }
 
 }  // namespace
@@ -725,24 +701,23 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Triangle instantiation --
   if (ImGui::TreeNodeEx("Triangle Instantiate")) {
-    if (ImGui::DragFloat("Side Length", &triangle_side_length, 0.1f, 0.5f, 50.0f)) {
-      triangle_side_length = std::clamp(triangle_side_length, 0.5f, 50.0f);
-    }
-    show_item_hover_description("World-space side length for an equilateral 3-pine triangle.");
+    ImGui::DragFloat("Side Length", &triangle_side_length, 0.1f);
+    show_item_hover_description(
+      "World-space side length for an equilateral 3-pine triangle on the horizontal XZ plane.");
 
     if (ImGui::Button("Instantiate Triangle")) {
       const auto scene = Application::GetActiveScene();
       if (scene) {
         const auto container = scene->CreateEntity("Pine Triangle");
-        const float side_length = std::clamp(triangle_side_length, 0.5f, 50.0f);
+        const float side_length = triangle_side_length;
         const float half_side = side_length * 0.5f;
         const float triangle_height = side_length * std::sqrt(3.0f) * 0.5f;
         const float centroid_to_apex = (2.0f / 3.0f) * triangle_height;
         const float centroid_to_base = (1.0f / 3.0f) * triangle_height;
         const std::array<glm::vec3, 3> triangle_positions = {
-            glm::vec3(0.0f, 0.0f, centroid_to_apex),
-            glm::vec3(0.0f, -half_side, -centroid_to_base),
-            glm::vec3(0.0f, half_side, -centroid_to_base),
+          glm::vec3(0.0f, 0.0f, centroid_to_apex),
+          glm::vec3(-half_side, 0.0f, -centroid_to_base),
+          glm::vec3(half_side, 0.0f, -centroid_to_base),
         };
 
         const auto base_seed = static_cast<unsigned int>(
@@ -767,6 +742,40 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     }
     show_item_hover_description(
         "Spawn 3 ScotsPine entities in an equilateral triangle with unique seeds.");
+
+    ImGui::SameLine();
+    if (ImGui::Button("Delete Triangle")) {
+      const auto scene = Application::GetActiveScene();
+      if (scene) {
+        const auto* pine_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<ScotsPine>();
+        if (pine_entities_ptr) {
+          const std::vector<Entity> pine_entities = *pine_entities_ptr;
+          std::vector<Entity> to_delete;
+          std::vector<Entity> containers;
+          for (const auto& entity : pine_entities) {
+            if (!scene->IsEntityValid(entity)) continue;
+            auto pine = scene->GetOrSetPrivateComponent<ScotsPine>(entity).lock();
+            if (!pine) continue;
+            if (pine->descriptor_ref.Get<ScotsPineDescriptor>().get() == this) {
+              to_delete.push_back(entity);
+              const auto parent = scene->GetParent(entity);
+              if (scene->IsEntityValid(parent) && scene->GetEntityName(parent) == "Pine Triangle") {
+                containers.push_back(parent);
+              }
+            }
+          }
+          for (const auto& entity : to_delete) scene->DeleteEntity(entity);
+          std::sort(containers.begin(), containers.end(),
+                    [](const Entity& a, const Entity& b) { return a.GetIndex() < b.GetIndex(); });
+          containers.erase(std::unique(containers.begin(), containers.end()), containers.end());
+          for (const auto& container : containers) {
+            if (scene->IsEntityValid(container)) scene->DeleteEntity(container);
+          }
+        }
+      }
+    }
+    show_item_hover_description(
+        "Delete ScotsPine entities that use this descriptor and remove now-empty triangle containers.");
 
     ImGui::TreePop();
   }
@@ -2042,7 +2051,7 @@ void ScotsPineDescriptor::Deserialize(const YAML::Node& in) {
   if (in["grid_cols"]) grid_cols = in["grid_cols"].as<int>();
   if (in["grid_spacing"]) grid_spacing = in["grid_spacing"].as<float>();
   if (in["triangle_side_length"])
-    triangle_side_length = std::clamp(in["triangle_side_length"].as<float>(), 0.5f, 50.0f);
+    triangle_side_length = in["triangle_side_length"].as<float>();
 
   tropisms.clear();
   if (in["tropism_count"]) {

@@ -17,6 +17,7 @@ struct RenderSettings {
   float max_shadow_distance = 100;                              ///< Maximum shadow distance in the scene.
   float shadow_cascade_split[4] = {0.075f, 0.15f, 0.3f, 1.0f};  ///< Splits for shadow cascades.
   bool enable_debug_visualization = false;                      ///< Whether debug visualization is enabled.
+  int debug_visualization_mode = 1;                             ///< Debug visualization mode id (1-3 legacy, 10-15 needle probes).
 
   int pcf_sample_amount = 32;   ///< Sample amount for PCF shadows.
   float seam_fix_ratio = 0.1f;  ///< Ratio for fixing seam issues in shadows.

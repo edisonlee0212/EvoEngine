@@ -929,15 +929,31 @@ void RenderLayer::PrepareForRendering() {
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
 
   if (Platform::RayTracingEnabled()) {
-    current_render_instances->UpdateTopLevelAccelerationStructure(scene);
+    bool needs_ray_tracing_tlas = false;
+    for (const auto& camera_pair : current_render_instances->cameras) {
+      const auto& camera = camera_pair.second;
+      if (!camera || !camera->require_rendering_) {
+        continue;
+      }
+      if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+        needs_ray_tracing_tlas = true;
+        break;
+      }
+    }
 
-    if (current_render_instances->mesh_top_level_acceleration_structure) {
-      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-          0, GeometryStorage::GetVertexBuffer());
-      ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-          1, GeometryStorage::GetTriangleBuffer());
-      ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
-          2, current_render_instances->mesh_top_level_acceleration_structure);
+    if (needs_ray_tracing_tlas) {
+      current_render_instances->UpdateTopLevelAccelerationStructure(scene);
+
+      if (current_render_instances->mesh_top_level_acceleration_structure) {
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+            0, GeometryStorage::GetVertexBuffer());
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+            1, GeometryStorage::GetTriangleBuffer());
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
+            2, current_render_instances->mesh_top_level_acceleration_structure);
+      }
+    } else {
+      current_render_instances->mesh_top_level_acceleration_structure.reset();
     }
   }
 }
@@ -1134,6 +1150,9 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Needle hard reset", &debug_needle_hard_reset);
   ImGui::DragInt("Needle max logs/frame", &debug_needle_max_logs_per_frame, 1.0f, 1, 256);
   debug_needle_max_logs_per_frame = std::max(1, debug_needle_max_logs_per_frame);
+  ImGui::Checkbox("Stem state audit", &debug_stem_state_audit);
+  ImGui::DragInt("Stem max logs/frame", &debug_stem_max_logs_per_frame, 1.0f, 1, 64);
+  debug_stem_max_logs_per_frame = std::max(1, debug_stem_max_logs_per_frame);
   render_settings.OnInspect(editor_layer);
 }
 
@@ -1932,9 +1951,11 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           const auto current_frame = Platform::GetFrameCount();
           static uint32_t last_debug_frame = std::numeric_limits<uint32_t>::max();
           static int debug_logs_this_frame = 0;
+          static int debug_stem_logs_this_frame = 0;
           if (last_debug_frame != current_frame) {
             last_debug_frame = current_frame;
             debug_logs_this_frame = 0;
+            debug_stem_logs_this_frame = 0;
           }
 
           const auto to_lower = [](std::string value) {
@@ -1948,19 +1969,39 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               -> std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance> {
             const auto instanced_instance =
                 std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
-            if (!instanced_instance || !instanced_instance->material || !instanced_instance->material->vertex_color_only) {
+            if (!instanced_instance || !instanced_instance->material) {
+              return {};
+            }
+            // Audit needle geometry only so log budget captures all needle
+            // instances in grid tests (internodes can otherwise consume slots).
+            if (!scene || !scene->IsEntityValid(instanced_instance->owner)) {
+              return {};
+            }
+            const auto entity_name_lower = to_lower(scene->GetEntityName(instanced_instance->owner));
+            if (entity_name_lower.find("needle") != std::string::npos) {
+              return instanced_instance;
+            }
+            // [deprecated] Catch-all return removed; was: return instanced_instance;
+            return {};
+          };
+
+          const auto maybe_get_stem_instance =
+              [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance)
+              -> std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance> {
+            const auto instanced_instance =
+                std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
+            if (!instanced_instance || !instanced_instance->material) {
               return {};
             }
             if (!scene || !scene->IsEntityValid(instanced_instance->owner)) {
-              return instanced_instance;
+              return {};
             }
             const auto entity_name_lower = to_lower(scene->GetEntityName(instanced_instance->owner));
-            if (entity_name_lower.find("needle") != std::string::npos ||
-                entity_name_lower.find("pine") != std::string::npos) {
+            if (entity_name_lower.find("internode") != std::string::npos ||
+                entity_name_lower.find("stem") != std::string::npos) {
               return instanced_instance;
             }
-            // Any instanced vertex-color-only draw is relevant to this audit.
-            return instanced_instance;
+            return {};
           };
 
           const auto log_needle_draw_audit =
@@ -1977,6 +2018,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 
             const auto& material_blocks = current_render_instances->GetMaterialInfoBlocks();
             const auto& instance_blocks = current_render_instances->GetInstanceInfoBlocks();
+            const int debug_visualization_mode = current_render_instances->render_info_block.debug_visualization;
 
             const int material_index = instanced_instance->material_index;
             const bool valid_material_index = material_index >= 0 && material_index < static_cast<int>(material_blocks.size());
@@ -1986,9 +2028,15 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             int block_material_index = -1;
             int block_vertex_color_only = -1;
             float block_transmission = -1.0f;
+            int block_albedo_texture_index = -999;
+            float block_albedo_alpha = -1.0f;
+            float block_roughness = -1.0f;
             if (valid_material_index) {
               block_vertex_color_only = material_blocks[material_index].vertex_color_only;
               block_transmission = material_blocks[material_index].transmission;
+              block_albedo_texture_index = material_blocks[material_index].albedo_texture_index;
+              block_albedo_alpha = material_blocks[material_index].albedo_color_val.a;
+              block_roughness = material_blocks[material_index].roughness_val;
             }
             if (valid_instance_index) {
               block_material_index = instance_blocks[push_constant.instance_index].material_index;
@@ -2008,19 +2056,150 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
               set1 = instanced_instance->particle_infos->GetDescriptorSet()->GetVkDescriptorSet();
             }
 
+            glm::vec4 first_instance_color(0.0f);
+            if (instanced_instance->particle_infos) {
+              const auto& particle_infos = instanced_instance->particle_infos->PeekParticleInfoList();
+              if (!particle_infos.empty()) {
+                first_instance_color = particle_infos.front().instance_color;
+              }
+            }
+
+            glm::vec4 first_vertex_color(0.0f);
+            // Iteration 4: sample mid and last vertex colors as well, plus
+            // per-channel min/max across a stride of samples. If a needle
+            // mesh's color variance is near-zero we have a per-pine vertex
+            // color assignment bug in BuildNeedleAggregateMesh; if it's
+            // healthy, the bug is purely transform/material-side.
+            glm::vec4 mid_vertex_color(0.0f);
+            glm::vec4 last_vertex_color(0.0f);
+            glm::vec4 vc_min(1.0e9f);
+            glm::vec4 vc_max(-1.0e9f);
+            uint32_t vertex_total = 0u;
+            uint32_t sampled = 0u;
+            if (instanced_instance->mesh) {
+              const auto& vertices = instanced_instance->mesh->UnsafeGetVertices();
+              vertex_total = static_cast<uint32_t>(vertices.size());
+              if (!vertices.empty()) {
+                first_vertex_color = vertices.front().color;
+                mid_vertex_color = vertices[vertices.size() / 2].color;
+                last_vertex_color = vertices.back().color;
+                // Stride-sample up to 64 vertices to estimate color spread
+                // without blowing log/CPU cost.
+                const uint32_t stride = std::max(1u, vertex_total / 64u);
+                for (uint32_t vi = 0u; vi < vertex_total; vi += stride) {
+                  const glm::vec4& c = vertices[vi].color;
+                  vc_min = glm::min(vc_min, c);
+                  vc_max = glm::max(vc_max, c);
+                  ++sampled;
+                }
+              }
+            }
+            const glm::vec4 vc_range = (sampled > 0u) ? (vc_max - vc_min) : glm::vec4(0.0f);
+
+            // Per-tree distinguishing fields: asset handles, geometry/particle
+            // versions, owner entity index, model translation. Used to detect
+            // shared GPU asset reuse across multiple needle entities.
+            const uint64_t mesh_handle =
+                instanced_instance->mesh ? static_cast<uint64_t>(instanced_instance->mesh->GetHandle().GetValue()) : 0ull;
+            const uint64_t material_handle =
+                instanced_instance->material ? static_cast<uint64_t>(instanced_instance->material->GetHandle().GetValue()) : 0ull;
+            const uint64_t particle_handle =
+                instanced_instance->particle_infos
+                    ? static_cast<uint64_t>(instanced_instance->particle_infos->GetHandle().GetValue())
+                    : 0ull;
+            const uint32_t mesh_version =
+                instanced_instance->mesh ? instanced_instance->mesh->GetVersion() : 0u;
+            const uint32_t particle_version =
+                instanced_instance->particle_infos ? instanced_instance->particle_infos->GetVersion() : 0u;
+            const uint32_t owner_index = instanced_instance->owner.GetIndex();
+            const glm::vec3 model_translation =
+                glm::vec3(instanced_instance->model.value[3]);
+            const uint32_t triangle_offset =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->offset
+                    : 0u;
+            const uint32_t triangle_range_size =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->range
+                    : 0u;
+            // Capture the values that actually drive vkCmdDrawIndexed inside
+            // Mesh::DrawIndexed (uses prev_frame_*). If these drift from the
+            // current offset/index_count we have a stale-snapshot bug; if the
+            // tri_range_ptr is shared between two needle entities we have an
+            // aliasing bug.
+            const uint32_t triangle_index_count =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->index_count
+                    : 0u;
+            const uint32_t triangle_prev_frame_offset =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->prev_frame_offset
+                    : 0u;
+            const uint32_t triangle_prev_frame_index_count =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->prev_frame_index_count
+                    : 0u;
+            const void* tri_range_ptr =
+                instanced_instance->mesh ? static_cast<const void*>(instanced_instance->mesh->triangle_range_.get()) : nullptr;
+            const void* meshlet_range_ptr =
+                instanced_instance->mesh ? static_cast<const void*>(instanced_instance->mesh->meshlet_range_.get()) : nullptr;
+            glm::vec3 local_bound_center(0.0f);
+            glm::vec3 local_bound_extent(0.0f);
+            glm::vec3 world_bound_center(0.0f);
+            if (instanced_instance->mesh) {
+              const Bound local_bound = instanced_instance->mesh->GetBound();
+              local_bound_center = (local_bound.min + local_bound.max) * 0.5f;
+              local_bound_extent = local_bound.max - local_bound.min;
+              world_bound_center = glm::vec3(instanced_instance->model.value * glm::vec4(local_bound_center, 1.0f));
+            }
+
             std::ostringstream os;
             os << "NeedleDrawAudit frame=" << current_frame << " cam=" << camera_index
                << " drawInstance=" << push_constant.instance_index
                << " entity='" << entity_name << "'"
+               << " ownerIdx=" << owner_index
                << " matIdx(render)=" << material_index
                << " matIdx(block)=" << block_material_index
+               << " dbgVis=" << debug_visualization_mode
                << " vco(cpu)=" << static_cast<int>(instanced_instance->material->vertex_color_only)
                << " vco(block)=" << block_vertex_color_only
                << " transmission(block)=" << block_transmission
+               << " albTex(block)=" << block_albedo_texture_index
+               << " albA(block)=" << block_albedo_alpha
+               << " rough(block)=" << block_roughness
+               << " cull=" << static_cast<uint32_t>(instanced_instance->cull_mode)
                << " castShadow=" << static_cast<int>(instanced_instance->cast_shadow)
                << " particleCount=" << particle_count
-                     << " set0=" << set0
-                     << " set1=" << set1
+               << " p0Color=(" << first_instance_color.x << "," << first_instance_color.y
+               << "," << first_instance_color.z << "," << first_instance_color.w << ")"
+               << " vtx0Color=(" << first_vertex_color.x << "," << first_vertex_color.y
+               << "," << first_vertex_color.z << "," << first_vertex_color.w << ")"
+               << " vtxMidColor=(" << mid_vertex_color.x << "," << mid_vertex_color.y
+               << "," << mid_vertex_color.z << "," << mid_vertex_color.w << ")"
+               << " vtxLastColor=(" << last_vertex_color.x << "," << last_vertex_color.y
+               << "," << last_vertex_color.z << "," << last_vertex_color.w << ")"
+               << " vtxColorRange=(" << vc_range.x << "," << vc_range.y
+               << "," << vc_range.z << "," << vc_range.w << ")"
+               << " vertexCount=" << vertex_total
+               << " sampledCount=" << sampled
+               << " meshHandle=" << mesh_handle
+               << " materialHandle=" << material_handle
+               << " particleHandle=" << particle_handle
+               << " meshVersion=" << mesh_version
+               << " particleVersion=" << particle_version
+               << " triOffset=" << triangle_offset
+               << " triRange=" << triangle_range_size
+               << " triIdxCount=" << triangle_index_count
+               << " triPrevOffset=" << triangle_prev_frame_offset
+               << " triPrevIdxCount=" << triangle_prev_frame_index_count
+               << " triRangePtr=" << tri_range_ptr
+               << " meshletRangePtr=" << meshlet_range_ptr
+               << " modelT=(" << model_translation.x << "," << model_translation.y << "," << model_translation.z << ")"
+               << " localC=(" << local_bound_center.x << "," << local_bound_center.y << "," << local_bound_center.z << ")"
+               << " worldC=(" << world_bound_center.x << "," << world_bound_center.y << "," << world_bound_center.z << ")"
+               << " localE=(" << local_bound_extent.x << "," << local_bound_extent.y << "," << local_bound_extent.z << ")"
+               << " set0=" << set0
+               << " set1=" << set1
                << " meshAttr[n/t/uv/c]="
                << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.normal : false)
                << "/"
@@ -2029,8 +2208,117 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.tex_coord : false)
                << "/"
                << static_cast<int>(instanced_instance->mesh ? instanced_instance->mesh->vertex_attributes_.color : false);
+            // Iteration 5b: append GPU global buffer sizes + this pine's
+            // max-needed index so we can spot GPU buffer truncation per draw.
+            // If thisPineMaxIdx > gpuTriIdxCap, this pine's draw reads past
+            // the end of the global triangle buffer ==> CONFIRMED truncation.
+            {
+              const auto& gpu_vtx_buf = GeometryStorage::GetVertexBuffer();
+              const auto& gpu_tri_buf = GeometryStorage::GetTriangleBuffer();
+              const auto& gpu_meshlet_buf = GeometryStorage::GetMeshletBuffer();
+              const VkDeviceSize gpu_vtx_bytes =
+                  gpu_vtx_buf ? gpu_vtx_buf->GetVmaAllocationInfo().size : 0;
+              const VkDeviceSize gpu_tri_bytes =
+                  gpu_tri_buf ? gpu_tri_buf->GetVmaAllocationInfo().size : 0;
+              const VkDeviceSize gpu_meshlet_bytes =
+                  gpu_meshlet_buf ? gpu_meshlet_buf->GetVmaAllocationInfo().size : 0;
+              const uint64_t this_pine_max_idx =
+                  (static_cast<uint64_t>(triangle_prev_frame_offset)
+                   + static_cast<uint64_t>(triangle_prev_frame_index_count)) * 3ull;
+              const uint64_t gpu_tri_idx_cap =
+                  gpu_tri_bytes / sizeof(uint32_t);
+              os << " gpuVtxBytes=" << gpu_vtx_bytes
+                 << " gpuTriBytes=" << gpu_tri_bytes
+                 << " gpuMeshletBytes=" << gpu_meshlet_bytes
+                 << " thisPineMaxIdx=" << this_pine_max_idx
+                 << " gpuTriIdxCap=" << gpu_tri_idx_cap
+                 << " truncated=" << ((this_pine_max_idx > gpu_tri_idx_cap) ? 1 : 0);
+            }
             EVOENGINE_WARNING(os.str());
             debug_logs_this_frame++;
+          };
+
+          const auto log_stem_draw_audit =
+              [&](const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& instanced_instance,
+                  const RenderInstancePushConstant& push_constant) {
+            if (!debug_stem_state_audit || !instanced_instance ||
+                debug_stem_logs_this_frame >= debug_stem_max_logs_per_frame) {
+              return;
+            }
+            std::string entity_name = "<api>";
+            if (scene && scene->IsEntityValid(instanced_instance->owner)) {
+              entity_name = scene->GetEntityName(instanced_instance->owner);
+            }
+
+            const auto& material_blocks = current_render_instances->GetMaterialInfoBlocks();
+            const auto& instance_blocks = current_render_instances->GetInstanceInfoBlocks();
+            const int debug_visualization_mode = current_render_instances->render_info_block.debug_visualization;
+
+            const int material_index = instanced_instance->material_index;
+            const bool valid_material_index =
+                material_index >= 0 && material_index < static_cast<int>(material_blocks.size());
+            const bool valid_instance_index =
+                push_constant.instance_index >= 0 &&
+                push_constant.instance_index < static_cast<int>(instance_blocks.size());
+
+            int block_material_index = -1;
+            int block_vertex_color_only = -1;
+            float block_roughness = -1.0f;
+            if (valid_material_index) {
+              block_vertex_color_only = material_blocks[material_index].vertex_color_only;
+              block_roughness = material_blocks[material_index].roughness_val;
+            }
+            if (valid_instance_index) {
+              block_material_index = instance_blocks[push_constant.instance_index].material_index;
+            }
+
+            const auto particle_count =
+                instanced_instance->particle_infos
+                    ? static_cast<int>(instanced_instance->particle_infos->PeekParticleInfoList().size())
+                    : 0;
+
+            VkDescriptorSet set1 = VK_NULL_HANDLE;
+            if (instanced_instance->particle_infos) {
+              set1 = instanced_instance->particle_infos->GetDescriptorSet()->GetVkDescriptorSet();
+            }
+
+            glm::vec4 first_instance_color(0.0f);
+            if (instanced_instance->particle_infos) {
+              const auto& particle_infos = instanced_instance->particle_infos->PeekParticleInfoList();
+              if (!particle_infos.empty()) {
+                first_instance_color = particle_infos.front().instance_color;
+              }
+            }
+
+            const uint32_t owner_index = instanced_instance->owner.GetIndex();
+            const uint32_t triangle_prev_frame_offset =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->prev_frame_offset
+                    : 0u;
+            const uint32_t triangle_prev_frame_index_count =
+                (instanced_instance->mesh && instanced_instance->mesh->triangle_range_)
+                    ? instanced_instance->mesh->triangle_range_->prev_frame_index_count
+                    : 0u;
+
+            std::ostringstream os;
+            os << "StemDrawAudit frame=" << current_frame << " cam=" << camera_index
+               << " drawInstance=" << push_constant.instance_index
+               << " entity='" << entity_name << "'"
+               << " ownerIdx=" << owner_index
+               << " matIdx(render)=" << material_index
+               << " matIdx(block)=" << block_material_index
+               << " dbgVis=" << debug_visualization_mode
+               << " vco(block)=" << block_vertex_color_only
+               << " rough(block)=" << block_roughness
+               << " particleCount=" << particle_count
+               << " p0Color=(" << first_instance_color.x << "," << first_instance_color.y
+               << "," << first_instance_color.z << "," << first_instance_color.w << ")"
+               << " triPrevOffset=" << triangle_prev_frame_offset
+               << " triPrevIdxCount=" << triangle_prev_frame_index_count
+               << " set1=" << set1;
+
+            EVOENGINE_WARNING(os.str());
+            debug_stem_logs_this_frame++;
           };
 
           const auto hard_reset_instanced_state =
@@ -2055,6 +2343,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 push_constant.instance_index = render_instance->instance_index;
 
                 const auto needle_instance = maybe_get_needle_instance(render_instance);
+                const auto stem_instance = maybe_get_stem_instance(render_instance);
                 hard_reset_instanced_state(needle_instance);
 
                 instanced_deferred_prepass_pipeline->states.polygon_mode =
@@ -2063,6 +2352,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                 instanced_deferred_prepass_pipeline->states.line_width = render_instance->line_width;
 
                 log_needle_draw_audit(needle_instance, push_constant);
+                log_stem_draw_audit(stem_instance, push_constant);
 
                 const auto prim_count =
                     render_instance->Render(vk_command_buffer, push_constant, instanced_deferred_prepass_pipeline);

@@ -15,6 +15,7 @@
 #include <EditorLayer.hpp>
 #include <Material.hpp>
 #include <Mesh.hpp>
+#include <MeshRenderer.hpp>
 #include <Particles.hpp>
 #include <Scene.hpp>
 #include <Times.hpp>
@@ -78,11 +79,7 @@ bool IsNeedleAggregateMeshValid(const std::vector<Vertex>& vertices,
   if (vertices.empty() || triangles.empty()) return true;
 
   for (const auto& v : vertices) {
-    if (!IsFiniteVec3(v.position) ||
-        !IsFiniteVec3(v.normal) ||
-        !IsFiniteVec3(v.tangent) ||
-        !IsFiniteVec2(v.tex_coord) ||
-        !IsFiniteVec4(v.color)) {
+    if (!IsFiniteVec3(v.position)) {
       return false;
     }
   }
@@ -95,6 +92,37 @@ bool IsNeedleAggregateMeshValid(const std::vector<Vertex>& vertices,
   }
 
   return true;
+}
+
+void SanitizeNeedleAggregateMeshVertices(std::vector<Vertex>& vertices) {
+  for (auto& v : vertices) {
+    if (!IsFiniteVec3(v.normal) || glm::length(v.normal) <= 1.0e-8f) {
+      v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    } else {
+      v.normal = glm::normalize(v.normal);
+    }
+
+    if (!IsFiniteVec3(v.tangent) || glm::length(v.tangent) <= 1.0e-8f) {
+      // Keep tangent orthogonal to the sanitized normal to avoid NaN TBN in shading.
+      glm::vec3 ref(1.0f, 0.0f, 0.0f);
+      if (std::abs(glm::dot(ref, v.normal)) > 0.95f) {
+        ref = glm::vec3(0.0f, 0.0f, 1.0f);
+      }
+      v.tangent = glm::normalize(ref - v.normal * glm::dot(ref, v.normal));
+    } else {
+      v.tangent = glm::normalize(v.tangent);
+    }
+
+    if (!IsFiniteVec2(v.tex_coord)) {
+      v.tex_coord = glm::vec2(0.0f);
+    }
+
+    if (!IsFiniteVec4(v.color)) {
+      v.color = glm::vec4(1.0f);
+    } else {
+      v.color = glm::clamp(v.color, glm::vec4(0.0f), glm::vec4(1.0f));
+    }
+  }
 }
 
 bool HasNeedleSenescenceOrAbscission(const PineGraph& graph,
@@ -269,6 +297,46 @@ void AppendParticlesToMesh(const std::shared_ptr<Scene>& scene, const Entity& en
     for (const auto& st : source_triangles) {
       out_triangles.emplace_back(vertex_offset + st.x, vertex_offset + st.y, vertex_offset + st.z);
     }
+  }
+}
+
+void AppendMeshRendererToMesh(const std::shared_ptr<Scene>& scene, const Entity& entity,
+                              std::vector<Vertex>& out_vertices, std::vector<glm::uvec3>& out_triangles) {
+  if (!scene->IsEntityValid(entity) || !scene->HasPrivateComponent<MeshRenderer>(entity)) return;
+  const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+  if (!mesh_renderer) return;
+  const auto mesh = mesh_renderer->mesh.Get<Mesh>();
+  if (!mesh) return;
+
+  const auto& source_vertices = mesh->UnsafeGetVertices();
+  const auto& source_triangles = mesh->UnsafeGetTriangles();
+  if (source_vertices.empty() || source_triangles.empty()) return;
+
+  const auto entity_global_transform = scene->GetDataComponent<GlobalTransform>(entity);
+  const glm::mat4 world_transform = entity_global_transform.value;
+  if (!IsFiniteMat4(world_transform)) return;
+
+  const glm::mat3 world_3x3(world_transform);
+  glm::mat3 normal_transform(1.0f);
+  const float det = glm::determinant(world_3x3);
+  if (std::isfinite(det) && std::abs(det) > 1e-8f) {
+    normal_transform = glm::transpose(glm::inverse(world_3x3));
+  }
+
+  const auto vertex_offset = static_cast<uint32_t>(out_vertices.size());
+  out_vertices.reserve(out_vertices.size() + source_vertices.size());
+  out_triangles.reserve(out_triangles.size() + source_triangles.size());
+  for (const auto& sv : source_vertices) {
+    Vertex v = sv;
+    v.position = glm::vec3(world_transform * glm::vec4(sv.position, 1.0f));
+    const glm::vec3 tn = normal_transform * sv.normal;
+    if (IsFiniteVec3(tn) && glm::length(tn) > 1e-8f) v.normal = glm::normalize(tn);
+    const glm::vec3 tt = normal_transform * sv.tangent;
+    if (IsFiniteVec3(tt) && glm::length(tt) > 1e-8f) v.tangent = glm::normalize(tt);
+    out_vertices.emplace_back(v);
+  }
+  for (const auto& st : source_triangles) {
+    out_triangles.emplace_back(vertex_offset + st.x, vertex_offset + st.y, vertex_offset + st.z);
   }
 }
 
@@ -469,9 +537,13 @@ inline void BuildPineNeedleAggregateMesh(const PineGraph& graph,
                                           std::vector<Vertex>& out_vertices,
                                           std::vector<glm::uvec3>& out_triangles,
                                           const int station_count,
-                                          const int perimeter_count) {
+                                          const int perimeter_count,
+                                          std::vector<ScotsPine::NeedleSkeletonLine>* out_needle_skeleton_lines) {
   out_vertices.clear();
   out_triangles.clear();
+  if (out_needle_skeleton_lines) {
+    out_needle_skeleton_lines->clear();
+  }
 
   // Geometry parameters (Phase 1 defaults). station/perimeter are caller-
   // supplied so auto-grow can use a cheaper tessellation while growth is
@@ -723,6 +795,28 @@ inline void BuildPineNeedleAggregateMesh(const PineGraph& graph,
         centerline = std::move(deflected);
       }
 
+      if (out_needle_skeleton_lines) {
+        ScotsPine::NeedleSkeletonLine line;
+        line.cluster_node_handle = static_cast<int>(handle);
+        line.parent_node_handle = static_cast<int>(parent_handle);
+        line.needle_index = n;
+
+        const float centerline_length = std::max(0.0f, centerline.TotalLength());
+        const int station_n = std::max(2, kStations);
+        line.points_world.reserve(static_cast<size_t>(station_n));
+
+        for (int si = 0; si < station_n; ++si) {
+          const float s_norm = static_cast<float>(si) / static_cast<float>(station_n - 1);
+          const float s = centerline_length * s_norm;
+          const auto sample = centerline.Sample(s);
+          const glm::vec3 world_pos =
+              anchor.base_position + anchor.orientation * sample.position;
+          line.points_world.emplace_back(world_pos);
+        }
+
+        out_needle_skeleton_lines->emplace_back(std::move(line));
+      }
+
       GeneralizedCylinderMesherConfig cfg;
       cfg.station_count = kStations;
       cfg.perimeter_count = kPerimeter;
@@ -842,6 +936,23 @@ inline void BuildPineNeedleAggregateMesh(const PineGraph& graph,
 
 // ===========================================================================
 
+float ScotsPine::GetInfancyTargetGDD() const {
+  float descriptor_tgt = 18000.0f;
+  if (auto desc = descriptor_ref.Get<ScotsPineDescriptor>()) {
+    std::mt19937 rng(seed);
+    descriptor_tgt = std::max(0.0f, SampleDistribution(desc->target_gdd, rng));
+  }
+  if (descriptor_tgt <= 0.0f) {
+    return 0.0f;
+  }
+  constexpr float kWarmStartRatio = 0.20f;
+  constexpr float kWarmStartMinGdd = 250.0f;
+  constexpr float kWarmStartMaxGdd = 900.0f;
+  const float warm_start = std::clamp(descriptor_tgt * kWarmStartRatio,
+                                      kWarmStartMinGdd, kWarmStartMaxGdd);
+  return std::min(warm_start, descriptor_tgt);
+}
+
 void ScotsPine::SetGlobalColorMode(const ColorMode mode) { g_scots_pine_color_mode = mode; }
 ScotsPine::ColorMode ScotsPine::GetGlobalColorMode() { return g_scots_pine_color_mode; }
 void ScotsPine::SetForceCpuParticlesPath(const bool force) {
@@ -877,11 +988,7 @@ void ScotsPine::ClearGeometryEntities() const {
   const auto self = GetOwner();
   const auto children = scene->GetChildren(self);
   for (const auto& child : children) {
-    const auto name = scene->GetEntityName(child);
-    if (name == "Pine Internodes" || name == "Pine Needles" ||
-        name == "Pine Needles Geometry") {
-      scene->DeleteEntity(child);
-    }
+    scene->DeleteEntity(child);
   }
 }
 
@@ -919,6 +1026,7 @@ void ScotsPine::GeneratePreviewGeometryEntities(const float preview_target_gdd,
 }
 
 void ScotsPine::GrowToTargetGDD(const bool uncapped_growth) {
+  (void)uncapped_growth;
   const double grow_start = Times::Now();
   auto descriptor = descriptor_ref.Get<ScotsPineDescriptor>();
   if (!descriptor) {
@@ -941,8 +1049,7 @@ void ScotsPine::GrowToTargetGDD(const bool uncapped_growth) {
                             post_descriptor.get(), repot_switch_gdd_value);
     reinitialized = true;
   }
-  growth_model.GrowToGDDWithProfileSwitch(target_gdd,
-                                          uncapped_growth ? 0u : max_growth_steps_per_frame);
+  growth_model.GrowToGDDWithProfileSwitch(target_gdd);
   last_grow_seconds = Times::Now() - grow_start;
 
   // Auto-grow calls this every frame; when no growth step was taken, a full
@@ -1077,18 +1184,40 @@ void ScotsPine::RebuildGeometry() {
     scene->SetParent(needles_container, owner);
   }
   Entity internode_entity, needle_entity, needle_geom_entity;
+  // Track and reap duplicate siblings: any extra entity matching a managed
+  // name beyond the first observed instance is deleted before bind. Prevents
+  // sibling-explosion if a prior rebuild bound a different entity than this
+  // pass picks up (root-cause guard for the multi-tree needle bug).
+  std::vector<Entity> duplicate_internodes, duplicate_needles, duplicate_needle_geoms;
   for (const auto& child : scene->GetChildren(stem_container)) {
     const auto name = scene->GetEntityName(child);
-    if (name == "Pine Internodes")
-      internode_entity = child;
+    if (name == "Pine Internodes") {
+      if (!scene->IsEntityValid(internode_entity)) {
+        internode_entity = child;
+      } else {
+        duplicate_internodes.push_back(child);
+      }
+    }
   }
   for (const auto& child : scene->GetChildren(needles_container)) {
     const auto name = scene->GetEntityName(child);
-    if (name == "Pine Needles")
-      needle_entity = child;
-    else if (name == "Pine Needles Geometry")
-      needle_geom_entity = child;
+    if (name == "Pine Needles") {
+      if (!scene->IsEntityValid(needle_entity)) {
+        needle_entity = child;
+      } else {
+        duplicate_needles.push_back(child);
+      }
+    } else if (name == "Pine Needles Geometry") {
+      if (!scene->IsEntityValid(needle_geom_entity)) {
+        needle_geom_entity = child;
+      } else {
+        duplicate_needle_geoms.push_back(child);
+      }
+    }
   }
+  for (const auto& dup : duplicate_internodes) scene->DeleteEntity(dup);
+  for (const auto& dup : duplicate_needles) scene->DeleteEntity(dup);
+  for (const auto& dup : duplicate_needle_geoms) scene->DeleteEntity(dup);
   // Migration: if a previous build placed these directly under `owner`,
   // delete the orphans so a fresh pair is created in the new containers.
   for (const auto& child : scene->GetChildren(owner)) {
@@ -1163,8 +1292,12 @@ void ScotsPine::RebuildGeometry() {
 
       if (!scene->IsEntityValid(internode_entity)) {
         internode_entity = scene->CreateEntity("Pine Internodes");
-        particles = scene->GetOrSetPrivateComponent<Particles>(internode_entity).lock();
+        scene->SetParent(internode_entity, stem_container);
+      }
 
+      particles = scene->GetOrSetPrivateComponent<Particles>(internode_entity).lock();
+
+      const auto rebuild_internode_mesh = [&]() {
         const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
         std::vector<Vertex> cyl_verts;
         std::vector<unsigned int> cyl_idx;
@@ -1178,39 +1311,47 @@ void ScotsPine::RebuildGeometry() {
         attrs.color = true;
         attrs.tex_coord = true;
         mesh->SetVertices(attrs, cyl_verts, cyl_idx);
-
-        const auto material = AssetManager::CreateTemporaryAsset<Material>();
-        // Internode mesh has uniform vertex.color (1,1,1); per-instance
-        // ColorMode tint is delivered through ParticleInfo::instance_color.
-        // The legacy `has_instance_tint` path in StandardDeferredInstanced.frag
-        // multiplies albedo by instanceColor, which is exactly what we want.
-        // Keep vertex_color_only=false so that path is taken even if a saved
-        // scene's mesh asset still carries old baked vertex colors.
-        material->vertex_color_only = false;
-
-        // Wire the freshly created assets onto Particles. Without these
-        // assignments, particle_info_list would remain a null shared_ptr and
-        // the SetParticleInfos() call below would deref null (manifesting as
-        // an assertion deep in GeometryStorage::UpdateParticleInfo because
-        // the default RangeDescriptor is unregistered).
-        particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
         particles->mesh = mesh;
-        particles->material = material;
-        particles->particle_info_list = particle_info_list;
-        scene->SetParent(internode_entity, stem_container);
-      } else {
-        particles = scene->GetOrSetPrivateComponent<Particles>(internode_entity).lock();
+      };
+
+      const auto internode_mesh = particles->mesh.Get<Mesh>();
+      bool needs_mesh_rebuild = !internode_mesh;
+      if (internode_mesh) {
+        const auto& vertices = internode_mesh->UnsafeGetVertices();
+        const auto& triangles = internode_mesh->UnsafeGetTriangles();
+        needs_mesh_rebuild = vertices.empty() || triangles.empty();
+        if (!needs_mesh_rebuild) {
+          const auto first_color = vertices.front().color;
+          const bool near_white = std::abs(first_color.r - 1.0f) <= 1.0e-3f &&
+                                  std::abs(first_color.g - 1.0f) <= 1.0e-3f &&
+                                  std::abs(first_color.b - 1.0f) <= 1.0e-3f;
+          if (!IsFiniteVec4(first_color) || !near_white) {
+            needs_mesh_rebuild = true;
+          }
+        }
+      }
+      if (needs_mesh_rebuild) {
+        rebuild_internode_mesh();
+      }
+
+      auto internode_material = particles->material.Get<Material>();
+      if (!internode_material) {
+        internode_material = AssetManager::CreateTemporaryAsset<Material>();
+        particles->material = internode_material;
+      }
+
+      if (scene->IsEntityValid(internode_entity)) {
         particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
         if (!particle_info_list) {
           particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-          particles->particle_info_list = particle_info_list;
         }
+        particles->particle_info_list = particle_info_list;
       }
 
-      if (const auto internode_material = particles->material.Get<Material>()) {
+      if (internode_material) {
         // See note in the creation block above: stem cylinder uses
         // ParticleInfo instance_color exclusively, not per-vertex tint.
-        internode_material->vertex_color_only = false;
+        internode_material->vertex_color_only = true;
         internode_material->SetAlbedoTexture(nullptr);
         internode_material->material_properties.albedo_color = glm::vec3(1.0f);
         internode_material->draw_settings.blending = false;
@@ -1238,18 +1379,11 @@ void ScotsPine::RebuildGeometry() {
       g_use_generalized_cylinder_needles.load(std::memory_order_relaxed);
 
   if (use_new_needle_geometry) {
-    // Aggregate-mesh path. World-space vertices baked in; instance is identity.
+    // Aggregate-mesh path. World-space vertices baked in and rendered through
+    // MeshRenderer to bypass the instanced Particles needle path.
     static thread_local std::vector<Vertex> needle_geom_vertices;
     static thread_local std::vector<glm::uvec3> needle_geom_triangles;
     static thread_local std::vector<unsigned int> needle_geom_flat_indices;
-    glm::vec4 needle_instance_tint(1.0f, 1.0f, 1.0f, 0.0f);
-    if (color_mode == ColorMode::ByInstance) {
-      needle_instance_tint = instance_color;
-      needle_instance_tint.a = 1.0f;
-    }
-    // In aggregate mode, all non-ByInstance modes are vertex-colored
-    // (including pine-only diagnostic overlays) while ByInstance stays
-    // instance-tinted for consistency with the debug palette.
 
     // Avoid LOD topology switching once senescence/abscission starts.
     // Shrinking/vanishing needle cohorts already change geometry; keeping
@@ -1284,7 +1418,10 @@ void ScotsPine::RebuildGeometry() {
           growth_model.sampled.needle_specularity_plasticity_year1,
           growth_model.sampled.needle_specularity_plasticity_year2plus,
                    needle_geom_vertices, needle_geom_triangles,
-                   needle_station_count, needle_perimeter_count);
+                   needle_station_count, needle_perimeter_count,
+                   &last_needle_skeleton_lines);
+
+    SanitizeNeedleAggregateMeshVertices(needle_geom_vertices);
 
     // Count needles for telemetry: vertices / (kStations * kPerimeter).
     last_needle_count = needle_geom_triangles.empty() ? 0u :
@@ -1303,51 +1440,31 @@ void ScotsPine::RebuildGeometry() {
     if (scene->IsEntityValid(needle_entity)) scene->DeleteEntity(needle_entity);
 
     if (needle_mesh_valid && !needle_geom_triangles.empty()) {
-      std::shared_ptr<Particles> particles;
-      std::shared_ptr<ParticleInfoList> particle_info_list;
+      std::shared_ptr<MeshRenderer> mesh_renderer;
       std::shared_ptr<Mesh> mesh;
-      ParticleInfo identity;
-      identity.instance_matrix.value = glm::mat4(1.0f);
-      // Alpha < 0.5 selects vertex-color tint path in StandardDeferredInstanced.
-      identity.instance_color = needle_instance_tint;
+      const glm::vec3 by_instance_tint = glm::clamp(glm::vec3(instance_color), glm::vec3(0.0f), glm::vec3(1.0f));
 
       if (!scene->IsEntityValid(needle_geom_entity)) {
         needle_geom_entity = scene->CreateEntity("Pine Needles Geometry");
-        particles = scene->GetOrSetPrivateComponent<Particles>(needle_geom_entity).lock();
-
-        mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-
-        const auto material = AssetManager::CreateTemporaryAsset<Material>();
-        material->vertex_color_only = true;
-        material->material_properties.albedo_color = glm::vec3(1.0f);
-        material->material_properties.metallic = 0.0f;
-        material->material_properties.roughness = 1.0f;
-
-        particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-        particle_info_list->SetParticleInfos({identity});
-
-        particles->mesh = mesh;
-        particles->material = material;
-        particles->particle_info_list = particle_info_list;
         scene->SetParent(needle_geom_entity, needles_container);
-      } else {
-        particles = scene->GetOrSetPrivateComponent<Particles>(needle_geom_entity).lock();
-        mesh = particles->mesh.Get<Mesh>();
-        if (!mesh) {
-          mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-          particles->mesh = mesh;
-        }
-        particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
-        if (!particle_info_list) {
-          particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-          particle_info_list->SetParticleInfos({identity});
-          particles->particle_info_list = particle_info_list;
-        } else {
-          particle_info_list->SetParticleInfos({identity});
-        }
       }
 
-      if (const auto needle_material = particles->material.Get<Material>()) {
+      // Compatibility migration: older scenes may still carry a Particles
+      // component on this entity from previous pipeline revisions.
+      if (scene->HasPrivateComponent<Particles>(needle_geom_entity)) {
+        scene->RemovePrivateComponent<Particles>(needle_geom_entity);
+      }
+
+      mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(needle_geom_entity).lock();
+      mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
+      mesh_renderer->mesh = mesh;
+      mesh_renderer->material = material;
+      // Dense needle clouds are unstable as shadow casters and can appear
+      // needleless under self-shadowing; keep casting disabled.
+      mesh_renderer->cast_shadow = false;
+
+      if (const auto needle_material = mesh_renderer->material.Get<Material>()) {
         const float needle_specularity = std::clamp(
           0.5f * (growth_model.sampled.needle_specularity_plasticity_year1 +
                   growth_model.sampled.needle_specularity_plasticity_year2plus),
@@ -1363,26 +1480,27 @@ void ScotsPine::RebuildGeometry() {
 
         needle_material->vertex_color_only = true;
         needle_material->SetAlbedoTexture(nullptr);
-        needle_material->material_properties.albedo_color = glm::vec3(1.0f);
+        needle_material->material_properties.albedo_color =
+          color_mode == ColorMode::ByInstance ? by_instance_tint : glm::vec3(1.0f);
         needle_material->draw_settings.blending = false;
+        needle_material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
         needle_material->material_properties.metallic = 0.0f;
+        // Keep a stable diffuse-first response for dense procedural needles.
+        // This avoids random near-black appearances from high-frequency
+        // transmission/specular interactions under varying scene lighting.
         needle_material->material_properties.specular =
-          std::clamp(0.08f + 0.35f * needle_specularity, 0.05f, 0.50f);
+          std::clamp(0.04f + 0.08f * needle_specularity, 0.04f, 0.12f);
         needle_material->material_properties.specular_tint =
-          std::clamp(0.10f + 0.25f * stomatal_density, 0.0f, 0.50f);
+          std::clamp(0.02f + 0.05f * stomatal_density, 0.0f, 0.10f);
         needle_material->material_properties.roughness =
-          std::clamp(0.88f - 0.42f * needle_specularity, 0.35f, 0.95f);
-        needle_material->material_properties.subsurface_factor =
-          std::clamp(0.05f + 0.20f * (1.0f - 0.5f * needle_lignification), 0.0f, 0.45f);
-        needle_material->material_properties.ior = 1.36f;
-        needle_material->material_properties.transmission =
-          std::clamp(0.18f + 0.35f * stomatal_density, 0.0f, 0.75f);
-        needle_material->material_properties.transmission_roughness =
-          std::clamp(0.45f + 0.35f * needle_lignification, 0.0f, 1.0f);
-        needle_material->material_properties.clear_coat =
-          std::clamp(0.05f + 0.20f * needle_specularity, 0.0f, 0.35f);
-        needle_material->material_properties.clear_coat_roughness =
-          std::clamp(0.70f - 0.45f * needle_specularity, 0.05f, 1.0f);
+          std::clamp(0.90f + 0.06f * needle_lignification, 0.85f, 0.98f);
+        needle_material->material_properties.subsurface_factor = 0.0f;
+        needle_material->material_properties.ior = 1.33f;
+        needle_material->material_properties.transmission = 0.0f;
+        needle_material->material_properties.transmission_roughness = 1.0f;
+        needle_material->material_properties.clear_coat = 0.0f;
+        needle_material->material_properties.clear_coat_roughness = 1.0f;
+        needle_material->material_properties.emission = 0.0f;
       }
 
       VertexAttributes attrs{};
@@ -1403,6 +1521,7 @@ void ScotsPine::RebuildGeometry() {
       scene->DeleteEntity(needle_geom_entity);
     }
   } else {
+    last_needle_skeleton_lines.clear();
     // [deprecated] Phase 1 baseline: per-cluster octahedron marker. Kept so an
     // operator can A/B the new geometry; once Phase 6 ships the elastica
     // solver this entire block is slated for removal.
@@ -1468,18 +1587,31 @@ void ScotsPine::RebuildGeometry() {
         material->material_properties.metallic = 0.0f;
         material->material_properties.roughness = 1.0f;
 
-        particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+        particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
+        if (!particle_info_list) {
+          particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+        }
         particles->mesh = mesh;
         particles->material = material;
         particles->particle_info_list = particle_info_list;
         scene->SetParent(needle_entity, needles_container);
       } else {
         particles = scene->GetOrSetPrivateComponent<Particles>(needle_entity).lock();
-        particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
-        if (!particle_info_list) {
-          particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-          particles->particle_info_list = particle_info_list;
-        }
+        const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+        std::vector<Vertex> oct_verts;
+        std::vector<unsigned int> oct_idx;
+        GenerateUnitOctahedronMesh(oct_verts, oct_idx, glm::vec4(1.0f));
+        VertexAttributes attrs{};
+        attrs.normal = true;
+        attrs.color = true;
+        attrs.tex_coord = true;
+        mesh->SetVertices(attrs, oct_verts, oct_idx);
+
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
+        particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+        particles->mesh = mesh;
+        particles->material = material;
+        particles->particle_info_list = particle_info_list;
       }
       if (const auto needle_material = particles->material.Get<Material>()) {
         needle_material->vertex_color_only = false;
@@ -1512,7 +1644,11 @@ void ScotsPine::ExportObj(const std::filesystem::path& path) const {
     const auto name = scene->GetEntityName(child);
     if (name == "Pine Internodes" || name == "Pine Needles" ||
         name == "Pine Needles Geometry") {
-      AppendParticlesToMesh(scene, child, vertices, triangles);
+      if (scene->HasPrivateComponent<Particles>(child)) {
+        AppendParticlesToMesh(scene, child, vertices, triangles);
+      } else {
+        AppendMeshRendererToMesh(scene, child, vertices, triangles);
+      }
     }
   }
 
@@ -1612,6 +1748,43 @@ void ScotsPine::ExportNodeGraph(const std::filesystem::path& path) {
     YAML::Emitter out;
     out << YAML::BeginMap;
     ExportNodeGraph(out);
+    out << YAML::EndMap;
+    std::ofstream output_file(path.string());
+    output_file << out.c_str();
+    output_file.flush();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR(std::string("Failed to save: ") + e.what());
+  }
+}
+
+void ScotsPine::ExportNeedleSkeleton(YAML::Emitter& out) {
+  const int segment_count = growth_model.IsInitialized()
+                                ? std::max(1, growth_model.sampled.needle_segment_count)
+                                : 1;
+
+  out << YAML::Key << "NeedleSegmentCount" << YAML::Value << segment_count;
+  out << YAML::Key << "NeedleStationCount" << YAML::Value << (segment_count + 1);
+  out << YAML::Key << "Needles" << YAML::Value << YAML::BeginSeq;
+  for (const auto& line : last_needle_skeleton_lines) {
+    out << YAML::BeginMap;
+    out << YAML::Key << "CI" << YAML::Value << line.cluster_node_handle;
+    out << YAML::Key << "PI" << YAML::Value << line.parent_node_handle;
+    out << YAML::Key << "NI" << YAML::Value << line.needle_index;
+    out << YAML::Key << "P" << YAML::Value << YAML::BeginSeq;
+    for (const auto& point : line.points_world) {
+      out << point;
+    }
+    out << YAML::EndSeq;
+    out << YAML::EndMap;
+  }
+  out << YAML::EndSeq;
+}
+
+void ScotsPine::ExportNeedleSkeleton(const std::filesystem::path& path) {
+  try {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    ExportNeedleSkeleton(out);
     out << YAML::EndMap;
     std::ofstream output_file(path.string());
     output_file << out.c_str();

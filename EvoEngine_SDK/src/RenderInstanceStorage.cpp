@@ -4,11 +4,30 @@
 #include "EditorLayer.hpp"
 #include "LodGroup.hpp"
 #include "RenderLayer.hpp"
+#include <cmath>
+#include <sstream>
 
 using namespace evo_engine;
 
+namespace {
+bool IsFiniteMat4(const glm::mat4& m) {
+  for (int c = 0; c < 4; c++) {
+    for (int r = 0; r < 4; r++) {
+      if (!std::isfinite(m[c][r])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+}  // namespace
+
 void RenderSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Show entities", &enable_debug_visualization);
+  if (enable_debug_visualization) {
+    ImGui::SliderInt("Debug mode", &debug_visualization_mode, 1, 15);
+    ImGui::TextUnformatted("1-3: legacy debug, 10-15: instanced needle probe modes");
+  }
   if (ImGui::CollapsingHeader("Shadow", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Distance")) {
       if (ImGui::DragFloat("Max shadow distance", &max_shadow_distance, 1.0f, 10.f, 1000.f)) {
@@ -462,10 +481,14 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
   if (const auto render_layer = Application::GetLayer<RenderLayer>()) {
     brdflut_texture_index = render_layer->environmental_brdf_lut_->GetTextureStorageIndex();
   }
-  if (target_render_settings.enable_debug_visualization)
-    debug_visualization = 1;
-  else
+  if (target_render_settings.enable_debug_visualization) {
+    debug_visualization = target_render_settings.debug_visualization_mode;
+    if (debug_visualization < 1) {
+      debug_visualization = 1;
+    }
+  } else {
     debug_visualization = 0;
+  }
 
   pcf_sample_amount = target_render_settings.pcf_sample_amount;
   seam_fix_ratio = target_render_settings.seam_fix_ratio;
@@ -1749,16 +1772,35 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     return false;
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
-  auto mesh_bound = mesh->GetBound();
-  mesh_bound.ApplyTransform(ltw);
-  glm::vec3 center = mesh_bound.Center();
+  const auto base_mesh_bound = mesh->GetBound();
+  bool has_valid_instance_bound = false;
+  for (const auto& particle_info : particle_info_list->PeekParticleInfoList()) {
+    const glm::mat4 world_transform = ltw * particle_info.instance_matrix.value;
+    if (!IsFiniteMat4(world_transform)) {
+      continue;
+    }
+    auto instance_bound = base_mesh_bound;
+    instance_bound.ApplyTransform(world_transform);
+    const glm::vec3 center = instance_bound.Center();
+    const glm::vec3 size = instance_bound.Size();
+    min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
+                          (glm::min)(min_bound.z, center.z - size.z));
 
-  glm::vec3 size = mesh_bound.Size();
-  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
-                        (glm::min)(min_bound.z, center.z - size.z));
+    max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                          glm::max(max_bound.z, center.z + size.z));
+    has_valid_instance_bound = true;
+  }
 
-  max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
-                        glm::max(max_bound.z, center.z + size.z));
+  if (!has_valid_instance_bound) {
+    auto mesh_bound = base_mesh_bound;
+    mesh_bound.ApplyTransform(ltw);
+    const glm::vec3 center = mesh_bound.Center();
+    const glm::vec3 size = mesh_bound.Size();
+    min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
+                          (glm::min)(min_bound.z, center.z - size.z));
+    max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                          glm::max(max_bound.z, center.z + size.z));
+  }
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
@@ -1781,6 +1823,52 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->line_width = material->draw_settings.line_width;
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
+
+  // Per-pine registration audit: emit one log line per Particles instance
+  // each frame so a 4-line diff across pines reveals shared GPU resources
+  // (matIdx, pil descriptor set, mesh triangle range) that would explain
+  // the multi-ScotsPine "first-enabled wins colors" bug.
+  {
+    const auto entity_name = target_scene->GetEntityName(owner);
+    const auto mesh_tri_offset = mesh->triangle_range_ ? mesh->triangle_range_->offset : 0u;
+    const auto mesh_tri_range  = mesh->triangle_range_ ? mesh->triangle_range_->range  : 0u;
+    const auto pil_descriptor_set = particle_info_list->GetDescriptorSet();
+    const void* pil_vk_set = pil_descriptor_set
+                                 ? static_cast<const void*>(pil_descriptor_set->GetVkDescriptorSet())
+                                 : nullptr;
+    const auto& pil_infos = particle_info_list->PeekParticleInfoList();
+    const auto pil_count = pil_infos.size();
+    glm::vec4 first_pi_color(0.0f);
+    glm::vec3 min_pi_color(1.0f);
+    glm::vec3 max_pi_color(0.0f);
+    if (!pil_infos.empty()) {
+      first_pi_color = pil_infos.front().instance_color;
+      for (const auto& pi : pil_infos) {
+        min_pi_color = glm::min(min_pi_color, glm::vec3(pi.instance_color));
+        max_pi_color = glm::max(max_pi_color, glm::vec3(pi.instance_color));
+      }
+    }
+    std::ostringstream nro;
+    nro << "[NeedleEntityRegister] frame=" << Platform::GetFrameCount()
+        << " owner=" << owner.GetIndex() << " name='" << entity_name << "'"
+        << " meshHandle=" << mesh->GetHandle().GetValue()
+        << " meshTriOffset=" << mesh_tri_offset
+        << " meshTriRange=" << mesh_tri_range
+        << " matHandle=" << material->GetHandle().GetValue()
+        << " matIdx=" << render_instance->material_index
+        << " matVCO=" << static_cast<int>(material->vertex_color_only)
+        << " matBlend=" << static_cast<int>(material->draw_settings.blending)
+        << " pilHandle=" << particle_info_list->GetHandle().GetValue()
+        << " pilCount=" << pil_count
+        << " pilVkDescriptorSet=" << pil_vk_set
+        << " pi0Color=(" << first_pi_color.x << "," << first_pi_color.y << ","
+        << first_pi_color.z << "," << first_pi_color.w << ")"
+        << " piMinRgb=(" << min_pi_color.x << "," << min_pi_color.y << ","
+        << min_pi_color.z << ")"
+        << " piMaxRgb=(" << max_pi_color.x << "," << max_pi_color.y << ","
+        << max_pi_color.z << ")";
+    EVOENGINE_LOG(nro.str());
+  }
 
   if (material->draw_settings.blending) {
     transparent_instanced_render_instances->Register(render_instance);

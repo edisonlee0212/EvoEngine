@@ -113,7 +113,6 @@ void TasselGrowthModel::Initialize(const MaizeTasselDescriptor& descriptor, unsi
   accumulated_gdd = 0.0f;
   gdd_per_growth_step = 1.0f;
   sampled.gdd_step = gdd_per_growth_step;
-  sampled.base_temperature = std::clamp(sampled.base_temperature, 0.0f, 30.0f);
   sampled.plastochron_gdd = std::max(1.0f, sampled.plastochron_gdd);
   sampled.anthesis_gdd = std::max(0.0f, sampled.anthesis_gdd);
   sampled.maturity_gdd = std::max(sampled.anthesis_gdd + 1.0f, sampled.maturity_gdd);

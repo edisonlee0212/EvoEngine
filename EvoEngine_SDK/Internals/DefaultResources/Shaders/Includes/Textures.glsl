@@ -8,17 +8,10 @@ vec4 EE_SAMPLE_TEXTURE_2D(
     vec2 uv,                // texture coordinates
     vec4 fallbackValue    // returned when texIndex == -1
 ) {
-    // 1. Determine if the map exists (1.0 or 0.0, branchless)
-    float hasMap = texIndex != -1 ? 1.0 : 0.0;
-
-    // 2. Use texture 0 as safe dummy if texIndex == -1
-    int validIndex = max(texIndex, 0);
-
-    // 3. Sample texture (still done even if unused — avoids branches)
-    vec4 texel = texture(EE_TEXTURE_2DS[validIndex], uv);
-
-    // 4. Blend between fallback and sampled (branchless)
-    return mix(fallbackValue, texel, hasMap);
+    if (texIndex < 0) {
+        return fallbackValue;
+    }
+    return texture(EE_TEXTURE_2DS[texIndex], uv);
 }
 
 // General branchless texture sampling with fallback
@@ -35,14 +28,12 @@ vec3 EE_SAMPLE_NORMAL(
     vec3 fallbackNormal,   // usually fs_in.Normal
     vec3 tangent           // fs_in.Tangent
 ) {
-    // Determine if a normal map exists
-    float hasMap = texIndex != -1 ? 1.0 : 0.0;
-
-    // Use texture 0 if texIndex == -1
-    int validIndex = max(texIndex, 0);
+    if (texIndex < 0) {
+        return normalize(fallbackNormal);
+    }
 
     // Sample tangent-space normal
-    vec3 sampled = texture(EE_TEXTURE_2DS[validIndex], uv).rgb;
+    vec3 sampled = texture(EE_TEXTURE_2DS[texIndex], uv).rgb;
     sampled = sampled * 2.0 - 1.0;
 
     // Build TBN
@@ -55,6 +46,5 @@ vec3 EE_SAMPLE_NORMAL(
     // Transform sampled normal
     vec3 mapped = normalize(TBN * sampled);
 
-    // Mix based on whether we have a normal map
-    return normalize(mix(N, mapped, hasMap));
+    return normalize(mapped);
 }

@@ -1156,7 +1156,6 @@ void DatasetGenerator::GenerateDataForTassel(const TasselDataGenerationParameter
   }
   tassel->seed = static_cast<unsigned int>(std::max(0, data_generation_parameters.seed));
   tassel->target_gdd = std::max(0.0f, data_generation_parameters.target_gdd);
-  tassel->max_growth_steps_per_frame = data_generation_parameters.max_growth_steps_per_frame;
   tassel->GenerateGeometryEntities(data_generation_parameters.uncapped_growth);
 
   const auto cleanup_created_tassel = [&]() {

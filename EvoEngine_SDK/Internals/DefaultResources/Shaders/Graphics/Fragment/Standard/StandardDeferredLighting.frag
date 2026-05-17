@@ -33,24 +33,28 @@ void main()
 	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 
 	vec4 matSample = texture(inMaterial, fs_in.TexCoord);
-	int info_index = int(round(matSample.w));
+	int encoded_info_index = int(round(matSample.w));
+	int packed_material_index = encoded_info_index > 1 ? (encoded_info_index >> 2) : -1;
+	int info_index = encoded_info_index > 1 ? (encoded_info_index & 3) : encoded_info_index;
 	int material_index = int(round(matSample.z));
 	int max_instance_index = max(EE_RENDER_INFO.instance_size - 1, 0);
 	int max_material_index = max(EE_RENDER_INFO.material_size - 1, 0);
 	instance_index = clamp(instance_index, 0, max_instance_index);
 	material_index = clamp(material_index, 0, max_material_index);
+	if (packed_material_index >= 0) {
+		packed_material_index = clamp(packed_material_index, 0, max_material_index);
+	}
 
 	vec4 albedo;
 	float roughness, metallic, specular, emission, ao;
 	bool receiveShadow = true;
 
 	if (info_index > 1) {
-		// Tinted path stores albedo in rgb and keeps instance index in normal.a.
-		// Recover material properties from the instance so shaded materials do
-		// not collapse to hardcoded roughness/metallic values.
-		Instance instance = EE_INSTANCES[instance_index];
-		int instance_material_index = clamp(instance.material_index, 0, max_material_index);
-		MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[instance_material_index];
+		// Tinted path stores albedo in rgb and packs material index in alpha.
+		int resolved_material_index = packed_material_index >= 0
+			? packed_material_index
+			: material_index;
+		MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[resolved_material_index];
 		albedo = vec4(matSample.rgb, 1.0);
 		roughness = materialProperties.roughness;
 		metallic = materialProperties.metallic;

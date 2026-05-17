@@ -1187,7 +1187,7 @@ pair_distal_angle_curve:
 target_gdd:
   mean: 180
   deviation: 0
-base_temperature: 10
+gdd_per_day: 10
 plastochron_gdd: 55
 anthesis_gdd: 130
 max_gdd: 180

@@ -1,9 +1,11 @@
 #pragma once
 
-#include "IPrivateComponent.hpp"
+#include "LSystemComponentBase.hpp"
 #include "PineGrowthModel.hpp"
 #include <cstdint>
 #include <filesystem>
+#include <glm/vec3.hpp>
+#include <vector>
 
 namespace l_system_plugin {
 using namespace evo_engine;
@@ -18,14 +20,21 @@ class ScotsPineDescriptor;
  *   - Annual scheduling driven by `target_gdd` (growing degree-days), matching MaizeTassel.
  *   - Owns a PineGrowthModel that runs single-shot topology derivation
  *     (Phase 3 grammar — no per-frame growth animation yet).
- *   - CPU `Particles` render path only (no GPU mesh-shader pipeline).
+ *   - Hybrid render path: internodes via `Particles`, aggregate needles via `MeshRenderer`.
  *
  * Geometry is emitted as two child entities:
  *   - "Pine Internodes" — instanced unit cylinders (one per PineInternode).
- *   - "Pine Needles"    — instanced octahedron markers (one per PineNeedleCluster).
+ *   - "Pine Needles" / "Pine Needles Geometry" — legacy markers or aggregate swept needle mesh.
  */
-class ScotsPine final : public IPrivateComponent {
+class ScotsPine final : public LSystemComponentBase<ScotsPine> {
  public:
+  struct NeedleSkeletonLine {
+    int cluster_node_handle = -1;
+    int parent_node_handle = -1;
+    int needle_index = -1;
+    std::vector<glm::vec3> points_world;
+  };
+
   enum class ColorMode : int {
     Shaded = 0,
     ByType = 1,
@@ -45,9 +54,6 @@ class ScotsPine final : public IPrivateComponent {
   static void SetForceCpuParticlesPath(bool force);
   [[nodiscard]] static bool IsForceCpuParticlesPath();
 
-  /// Reference to the genotype descriptor asset (required).
-  AssetRef descriptor_ref;
-
   /// Optional post-repot descriptor used after the switch trigger is reached.
   AssetRef post_repot_descriptor_ref;
 
@@ -57,15 +63,8 @@ class ScotsPine final : public IPrivateComponent {
   /// Trigger GDD where post-repot profile becomes active.
   float repot_switch_gdd = 6000.0f;
 
-  /// Seed for deterministic generation.
-  unsigned int seed = 42;
-
-  /// Target growth in GDD (growing degree-days) to grow to. Mirrors MaizeTassel::target_gdd.
-  float target_gdd = 18000.0f;
-
-  /// Forwarded to growth model for future per-frame stepping (currently unused
-  /// since Phase 3 grammar is single-shot). Kept for API parity.
-  uint32_t max_growth_steps_per_frame = 0;
+  /// Returns infancy GDD for reset.
+  [[nodiscard]] float GetInfancyTargetGDD() const;
 
   /// The growth model (non-serialized, rebuilt on Generate).
   PineGrowthModel growth_model;
@@ -90,6 +89,11 @@ class ScotsPine final : public IPrivateComponent {
   void ExportFlowGraph(const std::filesystem::path& path);
   void ExportNodeGraph(YAML::Emitter& out);
   void ExportNodeGraph(const std::filesystem::path& path);
+  void ExportNeedleSkeleton(YAML::Emitter& out);
+  void ExportNeedleSkeleton(const std::filesystem::path& path);
+
+  // Last generated needle centerlines in world space (runtime only).
+  std::vector<NeedleSkeletonLine> last_needle_skeleton_lines;
 
   void OnDestroy() override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;

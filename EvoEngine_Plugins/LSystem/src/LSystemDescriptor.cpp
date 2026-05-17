@@ -1,9 +1,7 @@
 #include "LSystemDescriptor.hpp"
+#include "LSystemDescriptorDefaults.hpp"
 #include <EditorLayer.hpp>
-#include <ProjectManager.hpp>
 #include <array>
-#include <fstream>
-#include <sstream>
 #include <yaml-cpp/yaml.h>
 
 using namespace l_system_plugin;
@@ -11,83 +9,57 @@ using namespace evo_engine;
 
 namespace {
 
-std::filesystem::path ResolveDefaultLSystemDescriptorPath() {
-  const std::array<std::filesystem::path, 6> resource_candidates = {
-      std::filesystem::path("./LSystemResources/Defaults/LSystemDescriptor_Default.lsys"),
-      std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
-          "LSystemDescriptor_Default.lsys",
-      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New LSystemDescriptor.lsys"),
-      std::filesystem::path("./DigitalAgricultureProject/Assets/New LSystemDescriptor.lsys"),
-      std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
-          "New LSystemDescriptor.lsys",
-      std::filesystem::path("./04_EvoEngine/EvoEngine_Plugins/LSystem/Internals/") /
-          "LSystemResources/Defaults/LSystemDescriptor_Default.lsys"};
+constexpr char kLSystemDescriptorName[] = "LSystemDescriptor";
 
-  for (const auto& relative_candidate : resource_candidates) {
-    const auto absolute_candidate = std::filesystem::absolute(relative_candidate);
-    if (std::filesystem::exists(absolute_candidate)) {
-      return absolute_candidate;
-    }
-  }
+const std::array<std::filesystem::path, 6> kLSystemResourceCandidates = {
+    std::filesystem::path("./LSystemResources/Defaults/LSystemDescriptor_Default.lsys"),
+    std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
+        "LSystemDescriptor_Default.lsys",
+    std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New LSystemDescriptor.lsys"),
+    std::filesystem::path("./DigitalAgricultureProject/Assets/New LSystemDescriptor.lsys"),
+    std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
+        "New LSystemDescriptor.lsys",
+    std::filesystem::path("./04_EvoEngine/EvoEngine_Plugins/LSystem/Internals/") /
+        "LSystemResources/Defaults/LSystemDescriptor_Default.lsys"};
 
-  const auto assets_folder = ProjectManager::GetAssetsFolderPath();
-  if (!assets_folder.empty()) {
-    const std::array<std::filesystem::path, 2> project_asset_candidates = {
-        std::filesystem::path("LSystem") / "New LSystemDescriptor.lsys",
+const std::array<std::filesystem::path, 2> kLSystemProjectAssetCandidates = {
+    std::filesystem::path("LSystem") / "New LSystemDescriptor.lsys",
+    "New LSystemDescriptor.lsys"};
+
+const std::array<std::filesystem::path, 2> kLSystemWritableTemplateCandidates = {
+    std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") /
+        "New LSystemDescriptor.lsys",
+    std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
         "New LSystemDescriptor.lsys"};
-    for (const auto& relative_candidate : project_asset_candidates) {
-      const auto absolute_candidate = assets_folder / relative_candidate;
-      if (std::filesystem::exists(absolute_candidate)) {
-        return absolute_candidate;
-      }
-    }
-  }
 
-  return {};
+const std::filesystem::path kLSystemFallbackDefaultsPath =
+    std::filesystem::path("./LSystemResources/Defaults/LSystemDescriptor_Default.lsys");
+
+std::filesystem::path ResolveDefaultLSystemDescriptorPath() {
+  return descriptor_defaults::ResolveExistingDefaultsPath(
+      kLSystemResourceCandidates,
+      kLSystemProjectAssetCandidates);
 }
 
 std::filesystem::path ResolveWritableLSystemDescriptorDefaultsPath() {
-  if (const auto existing = ResolveDefaultLSystemDescriptorPath(); !existing.empty()) {
-    return existing;
-  }
-
-  const std::array<std::filesystem::path, 2> writable_template_candidates = {
-      std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") /
-          "New LSystemDescriptor.lsys",
-      std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
-          "New LSystemDescriptor.lsys"};
-  for (const auto& candidate : writable_template_candidates) {
-    const auto absolute_candidate = std::filesystem::absolute(candidate);
-    if (std::filesystem::exists(absolute_candidate.parent_path())) {
-      return absolute_candidate;
-    }
-  }
-
-  return std::filesystem::absolute(
-      std::filesystem::path("./LSystemResources/Defaults/LSystemDescriptor_Default.lsys"));
+  return descriptor_defaults::ResolveWritableDefaultsPath(
+      kLSystemResourceCandidates,
+      kLSystemProjectAssetCandidates,
+      kLSystemWritableTemplateCandidates,
+      kLSystemFallbackDefaultsPath);
 }
 
 bool LoadLSystemDescriptorDefaultsFromFile(LSystemDescriptor& descriptor,
                                            const std::filesystem::path& file_path) {
-  if (file_path.empty() || !std::filesystem::exists(file_path)) {
+  YAML::Node defaults;
+  if (!descriptor_defaults::LoadDefaultsYamlMap(
+          file_path,
+          defaults,
+          kLSystemDescriptorName)) {
     return false;
   }
-
-  try {
-    const std::ifstream stream(file_path.string());
-    std::stringstream string_stream;
-    string_stream << stream.rdbuf();
-    const YAML::Node defaults = YAML::Load(string_stream.str());
-    if (!defaults || !defaults.IsMap()) {
-      return false;
-    }
-    descriptor.Deserialize(defaults);
-    return true;
-  } catch (const std::exception& e) {
-    EVOENGINE_WARNING("Failed to load LSystemDescriptor defaults from " + file_path.string() + ": " +
-                      std::string(e.what()));
-    return false;
-  }
+  descriptor.Deserialize(defaults);
+  return true;
 }
 
 }  // namespace

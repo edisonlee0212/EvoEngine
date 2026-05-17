@@ -34,7 +34,7 @@ struct MaterialProperties {
 
   float transmission;
   float transmission_roughness;
-  int padding_mat_0;
+  int vertex_color_only;
   int padding_mat_1;
 };
 

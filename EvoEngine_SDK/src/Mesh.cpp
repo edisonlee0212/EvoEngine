@@ -235,8 +235,14 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   GeometryStorage::AllocateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_);
 
   version_++;
-  if (Platform::RayTracingEnabled()) {
+  constexpr size_t kMaxTemporaryMeshTrianglesForBlas = 25000;
+  const bool skip_temporary_blas = IsTemporary() && t_c.size() > kMaxTemporaryMeshTrianglesForBlas;
+  if (Platform::RayTracingEnabled() && !skip_temporary_blas) {
     blas_ = std::make_shared<BottomLevelAccelerationStructure>(v_c, t_c);
+  } else {
+    // Large temporary procedural meshes are frequently rebuilt and can
+    // destabilize device memory under multi-entity scenes.
+    blas_.reset();
   }
 
   saved_ = false;
@@ -470,6 +476,7 @@ void ParticleInfoList::Deserialize(const YAML::Node& in) {
     std::vector<ParticleInfo> particle_infos;
     Serialization::DeserializeVector("particle_infos", particle_infos, in);
     GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+    SetUnsaved();
   }
 }
 
@@ -486,6 +493,7 @@ void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const glm::vec4& 
     particle_infos[i].instance_color = color;
   });
   GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+  const_cast<ParticleInfoList*>(this)->SetUnsaved();
 }
 
 void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const std::vector<glm::vec4>& colors,
@@ -502,6 +510,7 @@ void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const std::vector
     particle_infos[i].instance_color = colors[i];
   });
   GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+  const_cast<ParticleInfoList*>(this)->SetUnsaved();
 }
 
 void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, const std::vector<glm::vec3>& ends,
@@ -520,6 +529,7 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
     particle_infos[i].instance_color = color;
   });
   GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+  const_cast<ParticleInfoList*>(this)->SetUnsaved();
 }
 
 void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, const std::vector<glm::vec3>& ends,
@@ -538,6 +548,7 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
     particle_infos[i].instance_color = colors[i];
   });
   GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+  const_cast<ParticleInfoList*>(this)->SetUnsaved();
 }
 
 void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, const std::vector<glm::vec3>& ends,
@@ -558,10 +569,12 @@ void ParticleInfoList::ApplyConnections(const std::vector<glm::vec3>& starts, co
     particle_infos[i].instance_color = colors[i];
   });
   GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+  const_cast<ParticleInfoList*>(this)->SetUnsaved();
 }
 
 void ParticleInfoList::SetParticleInfos(const std::vector<ParticleInfo>& particle_infos) const {
   GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
+  const_cast<ParticleInfoList*>(this)->SetUnsaved();
 }
 
 const std::vector<ParticleInfo>& ParticleInfoList::PeekParticleInfoList() const {

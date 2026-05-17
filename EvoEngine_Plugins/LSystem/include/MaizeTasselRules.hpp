@@ -112,7 +112,6 @@ struct SampledTasselParams {
   std::vector<SampledTropism> tropisms;
 
   // Thermal timing.
-  float base_temperature = 10.0f;
   float plastochron_gdd = 30.0f;
   float anthesis_gdd = 200.0f;
   float maturity_gdd = 400.0f;
