@@ -76,16 +76,36 @@ void main()
 
 	vec2 tex_coord = fs_in.TexCoord;
 	vec4 safe_instance_color = clamp(instanceColor, vec4(0.0), vec4(1.0));
+	vec3 safe_instance_tint = clamp(safe_instance_color.rgb, vec3(0.0), vec3(1.0));
+	vec3 safe_vertex_tint = clamp(fs_in.Color.rgb, vec3(0.0), vec3(1.0));
+	vec3 safe_material_tint = clamp(materialProperties.albedo.rgb, vec3(0.0), vec3(1.0));
+	float instance_tint_max = max(max(safe_instance_tint.r, safe_instance_tint.g), safe_instance_tint.b);
+	float instance_tint_min = min(min(safe_instance_tint.r, safe_instance_tint.g), safe_instance_tint.b);
+	float instance_tint_chroma = instance_tint_max - instance_tint_min;
+	float material_tint_max = max(max(safe_material_tint.r, safe_material_tint.g), safe_material_tint.b);
+	float material_tint_min = min(min(safe_material_tint.r, safe_material_tint.g), safe_material_tint.b);
+	float material_tint_chroma = material_tint_max - material_tint_min;
 	bool vertex_color_only = materialProperties.vertex_color_only != 0;
-	// For vertex_color_only materials (e.g. ScotsPine internodes), default to
-	// instance tint unless alpha explicitly selects vertex-color tint override.
-	bool use_vertex_tint = vertex_color_only && safe_instance_color.a < 0.5;
-	bool has_instance_tint =
-		safe_instance_color.r < 0.999 || safe_instance_color.g < 0.999 || safe_instance_color.b < 0.999;
-	bool use_instance_tint = vertex_color_only ? !use_vertex_tint : has_instance_tint;
-	bool uses_tint_path = use_vertex_tint || use_instance_tint;
+	// Vertex-color-only instanced materials (e.g. ScotsPine internodes) should
+	// prefer per-instance tint but fall back to material albedo when instance
+	// data is unset/neutral, so stems do not collapse to white.
+	bool near_white_instance_tint =
+		safe_instance_tint.r >= 0.999 && safe_instance_tint.g >= 0.999 && safe_instance_tint.b >= 0.999;
+	bool near_white_vertex_tint =
+		safe_vertex_tint.r >= 0.999 && safe_vertex_tint.g >= 0.999 && safe_vertex_tint.b >= 0.999;
+	bool near_white_material_tint =
+		safe_material_tint.r >= 0.999 && safe_material_tint.g >= 0.999 && safe_material_tint.b >= 0.999;
+	bool has_instance_tint = !near_white_instance_tint && dot(safe_instance_tint, safe_instance_tint) > 1e-6;
+	bool has_vertex_tint = !near_white_vertex_tint && dot(safe_vertex_tint, safe_vertex_tint) > 1e-6;
+	bool has_material_tint = !near_white_material_tint && dot(safe_material_tint, safe_material_tint) > 1e-6;
+	bool instance_tint_achromatic = instance_tint_chroma < 0.05;
+	bool material_tint_chromatic = material_tint_chroma > 0.05;
+	bool uses_tint_path = vertex_color_only || has_instance_tint;
+	// Treat vertex-color-only as authoritative color from per-instance data.
+	// Do not attenuate with material albedo, which can mute intended stem hues.
+	vec3 vertex_only_base_albedo = vec3(1.0);
 	vec4 albedo = vertex_color_only
-		? vec4(materialProperties.albedo.rgb, 1.0)
+		? vec4(vertex_only_base_albedo, 1.0)
 		: (materialProperties.albedo_map_index < 0
 			? vec4(materialProperties.albedo.rgb, 1.0)
 			: EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo));
@@ -101,14 +121,17 @@ void main()
 
 	int packed_info = instance.material_index * 4 + instance.info_index + 2;
 
-	// Optional per-vertex tint path for aggregate procedural meshes.
-	// Alpha < 0.5 selects vertex-color tinting to avoid changing default
-	// instanced behavior for assets that only use instance color.
-	if (use_vertex_tint) {
-		vec3 tinted = albedo.rgb * clamp(fs_in.Color.rgb, vec3(0.0), vec3(1.0));
-		outMaterial = vec4(tinted, float(packed_info));
-	} else if (use_instance_tint) {
-		vec3 tinted = albedo.rgb * safe_instance_color.rgb;
+	if (uses_tint_path) {
+		vec3 selected_tint;
+		if (vertex_color_only) {
+			bool prefer_material_over_instance = has_instance_tint && has_material_tint && instance_tint_achromatic && material_tint_chromatic;
+			selected_tint = has_instance_tint
+				? (prefer_material_over_instance ? safe_material_tint : safe_instance_tint)
+				: (has_material_tint ? safe_material_tint : (has_vertex_tint ? safe_vertex_tint : vec3(1.0)));
+		} else {
+			selected_tint = safe_instance_tint;
+		}
+		vec3 tinted = albedo.rgb * selected_tint;
 		outMaterial = vec4(tinted, float(packed_info));
 	} else {
 		outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);

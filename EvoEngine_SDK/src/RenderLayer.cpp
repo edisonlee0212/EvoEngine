@@ -961,10 +961,53 @@ void RenderLayer::PrepareForRendering() {
 void RenderLayer::RenderAll() {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
+  const auto scene = GetScene();
+  const auto current_frame = Platform::GetFrameCount();
+  static uint32_t last_camera_audit_frame = std::numeric_limits<uint32_t>::max();
+  static int camera_audit_logs_this_frame = 0;
+  if (last_camera_audit_frame != current_frame) {
+    last_camera_audit_frame = current_frame;
+    camera_audit_logs_this_frame = 0;
+  }
+  const auto log_camera_path = [&](const std::shared_ptr<Camera>& camera, const char* route,
+                                   const bool can_ray_trace, const bool force_rasterization_fallback) {
+    if (!debug_camera_path_audit || !camera || camera_audit_logs_this_frame >= debug_camera_max_logs_per_frame) {
+      return;
+    }
+    std::string owner_name = "<camera>";
+    uint32_t owner_index = 0;
+    if (scene && scene->IsEntityValid(camera->GetOwner())) {
+      owner_name = scene->GetEntityName(camera->GetOwner());
+      owner_index = camera->GetOwner().GetIndex();
+    }
+    const auto size = camera->GetSize();
+    std::ostringstream os;
+    os << "CameraPathAudit frame=" << current_frame << " ownerIdx=" << owner_index
+       << " owner='" << owner_name << "'"
+       << " camIdx=" << current_render_instances->GetCameraIndex(camera->GetHandle())
+       << " route=" << route
+       << " mode="
+       << (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing ? "RayTracing" : "Rasterization")
+       << " requireRendering=" << static_cast<int>(camera->require_rendering_)
+       << " rendered=" << static_cast<int>(camera->rendered_)
+       << " canRayTrace=" << static_cast<int>(can_ray_trace)
+       << " forceRasterFallback=" << static_cast<int>(force_rasterization_fallback)
+       << " size=(" << size.x << "," << size.y << ")";
+    EVOENGINE_WARNING(os.str());
+    camera_audit_logs_this_frame++;
+  };
+
+  const bool can_ray_trace =
+      Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure;
   PreparePointAndSpotLightShadowMap();
   for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
     camera->rendered_ = false;
     if (camera->require_rendering_) {
+      if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
+        log_camera_path(camera, "RenderToCamera", can_ray_trace, false);
+      } else {
+        log_camera_path(camera, "RenderToCamera(skip_non_raster)", can_ray_trace, false);
+      }
       RenderToCamera(cameraGlobalTransform, camera);
     }
   }
@@ -976,15 +1019,16 @@ void RenderLayer::RenderAll() {
   deferred_rendering_external_functions.clear();
   forward_rendering_external_functions.clear();
 
-  const bool can_ray_trace = Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure;
   for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
     if (!camera->require_rendering_ || camera->camera_render_mode != Camera::CameraRenderMode::RayTracing) {
       continue;
     }
     if (can_ray_trace) {
+      log_camera_path(camera, "RenderToCameraRayTracing", can_ray_trace, false);
       RenderToCameraRayTracing(cameraGlobalTransform, camera);
     } else {
       // Keep scene view valid when RT mode is selected but no acceleration structure exists.
+      log_camera_path(camera, "RenderToCamera(force_rasterization_fallback)", can_ray_trace, true);
       RenderToCamera(cameraGlobalTransform, camera, true);
     }
   }
@@ -1153,6 +1197,10 @@ void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Stem state audit", &debug_stem_state_audit);
   ImGui::DragInt("Stem max logs/frame", &debug_stem_max_logs_per_frame, 1.0f, 1, 64);
   debug_stem_max_logs_per_frame = std::max(1, debug_stem_max_logs_per_frame);
+  ImGui::Checkbox("Camera path audit", &debug_camera_path_audit);
+  ImGui::DragInt("Camera max logs/frame", &debug_camera_max_logs_per_frame, 1.0f, 1, 256);
+  debug_camera_max_logs_per_frame = std::max(1, debug_camera_max_logs_per_frame);
+  ImGui::Checkbox("Force scene camera standard lighting", &debug_force_scene_camera_standard_lighting);
   render_settings.OnInspect(editor_layer);
 }
 
@@ -1851,6 +1899,39 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
       if (need_fade_ && editor_layer->highlight_selection_)
         need_fade = true;
     }
+    const bool use_scene_camera_lighting_pipeline =
+        is_scene_camera && !debug_force_scene_camera_standard_lighting;
+    const auto current_frame = Platform::GetFrameCount();
+    static uint32_t last_raster_audit_frame = std::numeric_limits<uint32_t>::max();
+    static int raster_audit_logs_this_frame = 0;
+    if (last_raster_audit_frame != current_frame) {
+      last_raster_audit_frame = current_frame;
+      raster_audit_logs_this_frame = 0;
+    }
+    if (debug_camera_path_audit && raster_audit_logs_this_frame < debug_camera_max_logs_per_frame) {
+      std::string owner_name = "<camera>";
+      uint32_t owner_index = 0;
+      if (scene && scene->IsEntityValid(camera->GetOwner())) {
+        owner_name = scene->GetEntityName(camera->GetOwner());
+        owner_index = camera->GetOwner().GetIndex();
+      }
+      std::ostringstream os;
+      os << "CameraRasterAudit frame=" << current_frame << " ownerIdx=" << owner_index
+         << " owner='" << owner_name << "'"
+         << " camIdx=" << camera_index
+         << " inputMode="
+         << (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing ? "RayTracing" : "Rasterization")
+         << " forceRasterFallback=" << static_cast<int>(force_rasterization_fallback)
+         << " isSceneCamera=" << static_cast<int>(is_scene_camera)
+        << " forceSceneStandardLighting=" << static_cast<int>(debug_force_scene_camera_standard_lighting)
+         << " lightingPipeline="
+        << (use_scene_camera_lighting_pipeline ? "StandardDeferredLightingSceneCamera"
+                                  : "StandardDeferredLighting")
+         << " useMeshShader=" << static_cast<int>(use_mesh_shader)
+         << " needFade=" << static_cast<int>(need_fade);
+      EVOENGINE_WARNING(os.str());
+      raster_audit_logs_this_frame++;
+    }
 
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
@@ -2057,10 +2138,23 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             }
 
             glm::vec4 first_instance_color(0.0f);
+            int particle_achromatic_count = 0;
+            float particle_avg_chroma = 0.0f;
             if (instanced_instance->particle_infos) {
               const auto& particle_infos = instanced_instance->particle_infos->PeekParticleInfoList();
               if (!particle_infos.empty()) {
                 first_instance_color = particle_infos.front().instance_color;
+                float chroma_sum = 0.0f;
+                for (const auto& pi : particle_infos) {
+                  const float max_c = glm::max(glm::max(pi.instance_color.r, pi.instance_color.g), pi.instance_color.b);
+                  const float min_c = glm::min(glm::min(pi.instance_color.r, pi.instance_color.g), pi.instance_color.b);
+                  const float chroma = max_c - min_c;
+                  chroma_sum += chroma;
+                  if (chroma < 0.05f) {
+                    particle_achromatic_count++;
+                  }
+                }
+                particle_avg_chroma = chroma_sum / static_cast<float>(particle_infos.size());
               }
             }
 
@@ -2170,6 +2264,8 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                << " cull=" << static_cast<uint32_t>(instanced_instance->cull_mode)
                << " castShadow=" << static_cast<int>(instanced_instance->cast_shadow)
                << " particleCount=" << particle_count
+               << " pAchroCount=" << particle_achromatic_count
+               << " pAvgChroma=" << particle_avg_chroma
                << " p0Color=(" << first_instance_color.x << "," << first_instance_color.y
                << "," << first_instance_color.z << "," << first_instance_color.w << ")"
                << " vtx0Color=(" << first_vertex_color.x << "," << first_vertex_color.y
@@ -2264,9 +2360,21 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             int block_material_index = -1;
             int block_vertex_color_only = -1;
             float block_roughness = -1.0f;
+            float block_metallic = -1.0f;
+            float block_specular = -1.0f;
+            float block_ao = -1.0f;
+            float block_emission = -1.0f;
+            int block_receive_shadow = -1;
+            glm::vec4 block_albedo(0.0f);
             if (valid_material_index) {
               block_vertex_color_only = material_blocks[material_index].vertex_color_only;
               block_roughness = material_blocks[material_index].roughness_val;
+              block_metallic = material_blocks[material_index].metallic_val;
+              block_specular = material_blocks[material_index].specular_val;
+              block_ao = material_blocks[material_index].ao_val;
+              block_emission = material_blocks[material_index].emission_val;
+              block_receive_shadow = material_blocks[material_index].receive_shadow;
+              block_albedo = material_blocks[material_index].albedo_color_val;
             }
             if (valid_instance_index) {
               block_material_index = instance_blocks[push_constant.instance_index].material_index;
@@ -2310,6 +2418,13 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
                << " dbgVis=" << debug_visualization_mode
                << " vco(block)=" << block_vertex_color_only
                << " rough(block)=" << block_roughness
+               << " metal(block)=" << block_metallic
+               << " spec(block)=" << block_specular
+               << " ao(block)=" << block_ao
+               << " emis(block)=" << block_emission
+               << " recvShadow(block)=" << block_receive_shadow
+               << " alb(block)=(" << block_albedo.x << "," << block_albedo.y
+               << "," << block_albedo.z << "," << block_albedo.w << ")"
                << " particleCount=" << particle_count
                << " p0Color=(" << first_instance_color.x << "," << first_instance_color.y
                << "," << first_instance_color.z << "," << first_instance_color.w << ")"
@@ -2344,7 +2459,13 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 
                 const auto needle_instance = maybe_get_needle_instance(render_instance);
                 const auto stem_instance = maybe_get_stem_instance(render_instance);
-                hard_reset_instanced_state(needle_instance);
+                if (needle_instance) {
+                  hard_reset_instanced_state(needle_instance);
+                } else if (stem_instance) {
+                  // Stems share the same instanced deferred path and can hit
+                  // identical descriptor/pipeline stale-state issues.
+                  hard_reset_instanced_state(stem_instance);
+                }
 
                 instanced_deferred_prepass_pipeline->states.polygon_mode =
                     wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
@@ -2445,7 +2566,8 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
         lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer,
                                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         const auto& deferred_lighting_pipeline =
-            is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
+            use_scene_camera_lighting_pipeline ? deferred_lighting_pass_pipeline_scene_camera
+                                               : deferred_lighting_pass_pipeline;
         Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
           deferred_lighting_pipeline->states.ResetAllStates(color_attachment_infos.size());
           deferred_lighting_pipeline->states.depth_test = false;
@@ -2498,6 +2620,38 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const auto scene = Application::GetActiveScene();
 
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+    const auto current_frame = Platform::GetFrameCount();
+    static uint32_t last_rt_audit_frame = std::numeric_limits<uint32_t>::max();
+    static int rt_audit_logs_this_frame = 0;
+    if (last_rt_audit_frame != current_frame) {
+      last_rt_audit_frame = current_frame;
+      rt_audit_logs_this_frame = 0;
+    }
+    if (debug_camera_path_audit && rt_audit_logs_this_frame < debug_camera_max_logs_per_frame) {
+      bool is_scene_camera = false;
+      if (const auto editor_layer = Application::GetLayer<EditorLayer>()) {
+        if (camera.get() == editor_layer->GetSceneCamera().get()) {
+          is_scene_camera = true;
+        }
+      }
+      std::string owner_name = "<camera>";
+      uint32_t owner_index = 0;
+      if (scene && scene->IsEntityValid(camera->GetOwner())) {
+        owner_name = scene->GetEntityName(camera->GetOwner());
+        owner_index = camera->GetOwner().GetIndex();
+      }
+      std::ostringstream os;
+      os << "CameraRTAudit frame=" << current_frame << " ownerIdx=" << owner_index
+         << " owner='" << owner_name << "'"
+         << " camIdx=" << camera_index
+         << " isSceneCamera=" << static_cast<int>(is_scene_camera)
+         << " rtPipelineReady=" << static_cast<int>(ray_tracing_camera_pipeline != nullptr)
+         << " tlasReady="
+         << static_cast<int>(current_render_instances->mesh_top_level_acceleration_structure != nullptr)
+         << " frameId=" << camera->frame_count_;
+      EVOENGINE_WARNING(os.str());
+      rt_audit_logs_this_frame++;
+    }
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       Platform::EverythingBarrier(vk_command_buffer);
       camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);

@@ -136,8 +136,18 @@ void PineGrowthModel::ApplyActiveSampledProfile(
 }
 
 void PineGrowthModel::RefreshEngineRulesForActiveProfile() {
-  engine_.topology_rules = CreatePineTopologyRules(sampled);
+  engine_.topology_rules = CreatePineTopologyRules(sampled, needle_topology_enabled_);
   engine_.growth_rules = CreatePineGrowthRules(sampled);
+}
+
+void PineGrowthModel::SetNeedleTopologyEnabled(const bool enabled) {
+  if (needle_topology_enabled_ == enabled) {
+    return;
+  }
+  needle_topology_enabled_ = enabled;
+  if (initialized_) {
+    RefreshEngineRulesForActiveProfile();
+  }
 }
 
 void PineGrowthModel::ActivatePostRepotProfile() {
@@ -251,7 +261,9 @@ void PineGrowthModel::Initialize(const ScotsPineDescriptor& descriptor,
                                  const glm::vec3& root_position,
                                  const glm::quat& root_rotation,
                                  const ScotsPineDescriptor* post_repot_descriptor,
-                                 const float repot_switch_gdd) {
+                                 const float repot_switch_gdd,
+                                 const bool enable_needle_topology) {
+  needle_topology_enabled_ = enable_needle_topology;
   Reset();
 
   rng_.seed(seed);

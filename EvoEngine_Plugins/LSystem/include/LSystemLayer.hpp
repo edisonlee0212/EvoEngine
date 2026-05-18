@@ -103,6 +103,10 @@ class LSystemLayer : public evo_engine::ILayer {
   /// False forces effective color mode to Shaded while preserving selection.
   bool scene_plant_view_tint_enabled = true;
 
+  /// Editor-global Scots pine topology policy. True suppresses needle module
+  /// generation (stem-only CPU/GPU geometry) and is persisted with the layer.
+  bool pine_stem_only_mode = true;
+
   /// Profiling controls.
   bool profiling_enabled = false;
   int profiling_history_size = 240;

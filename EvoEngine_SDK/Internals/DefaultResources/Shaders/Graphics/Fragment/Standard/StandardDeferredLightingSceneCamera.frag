@@ -40,6 +40,12 @@ void main()
     if (packed_material_index >= 0) {
         packed_material_index = clamp(packed_material_index, 0, max_material_index);
     }
+    int instance_material_index = material_index;
+    bool instance_vertex_color_only = false;
+    if (EE_RENDER_INFO.instance_size > 0) {
+        instance_material_index = clamp(EE_INSTANCES[instance_index].material_index, 0, max_material_index);
+        instance_vertex_color_only = EE_MATERIAL_PROPERTIES[instance_material_index].vertex_color_only != 0;
+    }
 
     bool instance_selected = (info_index & 1) == 1; // faster than % 2
 
@@ -129,6 +135,51 @@ void main()
         vertex_color_only = materialProperties.vertex_color_only != 0;
     }
 
+    // Recover from decode drift by trusting the instance material contract.
+    if (!vertex_color_only && instance_vertex_color_only) {
+        MaterialProperties fallbackProperties = EE_MATERIAL_PROPERTIES[instance_material_index];
+        roughness = fallbackProperties.roughness;
+        metallic = fallbackProperties.metallic;
+        specular = fallbackProperties.specular;
+        emission = fallbackProperties.emission;
+        ao = fallbackProperties.ambient_occulusion;
+        receiveShadow = fallbackProperties.receive_shadow;
+        vertex_color_only = true;
+    }
+
+    // Vertex-color-only instanced stems should always use g-buffer rgb tint.
+    // If info decode drifts on alpha, matSample.rgb still carries the tint.
+    if (vertex_color_only) {
+        int tint_material_index = instance_material_index;
+        if (info_index > 1 && packed_material_index >= 0) {
+            tint_material_index = packed_material_index;
+        } else if (info_index <= 1) {
+            tint_material_index = material_index;
+        }
+        vec3 gbuffer_tint = clamp(matSample.rgb, vec3(0.0), vec3(1.0));
+        vec3 material_tint = clamp(EE_MATERIAL_PROPERTIES[tint_material_index].albedo.rgb, vec3(0.0), vec3(1.0));
+        float gbuffer_chroma = max(max(gbuffer_tint.r, gbuffer_tint.g), gbuffer_tint.b) -
+                               min(min(gbuffer_tint.r, gbuffer_tint.g), gbuffer_tint.b);
+        float material_chroma = max(max(material_tint.r, material_tint.g), material_tint.b) -
+                                min(min(material_tint.r, material_tint.g), material_tint.b);
+        bool gbuffer_tint_valid = info_index > 1;
+        bool has_gbuffer_tint = gbuffer_tint_valid && dot(gbuffer_tint, gbuffer_tint) > 1e-6;
+        bool has_material_tint = dot(material_tint, material_tint) > 1e-6;
+        bool gbuffer_chromatic = gbuffer_chroma > 0.05;
+        bool material_chromatic = material_chroma > 0.05;
+        if (has_gbuffer_tint && gbuffer_chromatic) {
+            albedo.rgb = gbuffer_tint;
+        } else if (has_material_tint && material_chromatic) {
+            albedo.rgb = material_tint;
+        } else if (has_gbuffer_tint) {
+            albedo.rgb = gbuffer_tint;
+        } else if (has_material_tint) {
+            // Non-tinted payload encodes texcoord/material metadata in rgb.
+            // Never reinterpret that metadata as color for vertex_color_only.
+            albedo.rgb = material_tint;
+        }
+    }
+
     // --------------------------------------------------------------------
     // Debug visualization (branchless override, but keeps default behavior)
     // --------------------------------------------------------------------
@@ -142,7 +193,7 @@ void main()
 
     float dv   = float(EE_RENDER_INFO.debug_visualization);
 
-    float is0 = float(dv == 0.0 && info_index > 1);
+    float is0 = float(dv == 0.0 && info_index > 1 && !vertex_color_only);
     float is1 = float(dv == 1.0);
     float is2 = float(dv == 2.0);
     float is3 = float(dv == 3.0);
@@ -200,6 +251,15 @@ void main()
         float lit = dot(max(color, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722));
         lit = clamp(lit, 0.22, 1.35);
         color = albedo.rgb * lit;
+
+        // Keep per-instance tinted geometry from collapsing to black when one
+        // material channel or normal decode goes numerically invalid.
+        bool color_has_nan = any(notEqual(color, color));
+        float color_len2 = dot(color, color);
+        float albedo_len2 = dot(albedo.rgb, albedo.rgb);
+        if (color_has_nan || color_len2 < 1e-6) {
+            color = albedo_len2 > 1e-8 ? albedo.rgb * 0.35 : vec3(0.35);
+        }
     }
 
     // --------------------------------------------------------------------
@@ -207,7 +267,7 @@ void main()
     // --------------------------------------------------------------------
     vec4 outputColor;
 
-    if (!instance_selected && EE_INSTANCE_INDEX == 1 && info_index <= 1) {
+    if (!vertex_color_only && !instance_selected && EE_INSTANCE_INDEX == 1 && info_index <= 1) {
         bool foundNeighbor = false;
 
         for (int i = -3; i <= 3 && !foundNeighbor; ++i) {

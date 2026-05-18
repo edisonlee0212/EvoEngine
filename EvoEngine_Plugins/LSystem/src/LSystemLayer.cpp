@@ -170,6 +170,30 @@ void ApplyGlobalPlantColorMode(const int selected_mode,
   ScotsPine::SetGlobalColorMode(static_cast<ScotsPine::ColorMode>(pine_mode));
 }
 
+void ApplyPineStemOnlyMode(const std::shared_ptr<Scene>& scene,
+                           const bool stem_only_mode,
+                           const bool regenerate_existing_pines) {
+  ScotsPine::SetGenerateNeedleTopologyEnabled(!stem_only_mode);
+
+  if (!regenerate_existing_pines || !scene) {
+    return;
+  }
+
+  if (const auto* pine_entities_ptr =
+          scene->UnsafeGetPrivateComponentOwnersList<ScotsPine>()) {
+    const std::vector<Entity> pine_entities = *pine_entities_ptr;
+    for (const auto& entity : pine_entities) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      auto pine = scene->GetOrSetPrivateComponent<ScotsPine>(entity).lock();
+      if (pine) {
+        pine->GrowToTargetGDD();
+      }
+    }
+  }
+}
+
 void RebuildAllPlantGeometry(const std::shared_ptr<Scene>& scene) {
   if (!scene) {
     return;
@@ -266,6 +290,7 @@ void LSystemLayer::OnCreate() {
       NormalizeDayOfYear(static_cast<float>(std::clamp(season_start_day, 0, 364)));
 
   ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
+  ApplyPineStemOnlyMode(GetScene(), pine_stem_only_mode, true);
 
 #ifdef LSYSTEM_GPU_PIPELINE
   // -------------------------------------------------------------------------
@@ -690,7 +715,8 @@ void LSystemLayer::Update() {
               }
               pine->growth_model.Initialize(*descriptor, pine->seed,
                                             glm::vec3(0), kDefaultRootRotation,
-                                            post_descriptor.get(), repot_switch_gdd);
+                                            post_descriptor.get(), repot_switch_gdd,
+                                            ScotsPine::IsGenerateNeedleTopologyEnabled());
             }
           }
           pine->growth_model.AdvanceChronologicalYears(delta_years);
@@ -859,6 +885,13 @@ void LSystemLayer::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& edi
     ImGui::TextDisabled("Re-enable Auto-Grow to resume growth.");
   }
 
+  if (ImGui::Checkbox("Scots Pine Stem-Only Mode", &pine_stem_only_mode)) {
+    ApplyPineStemOnlyMode(GetScene(), pine_stem_only_mode, true);
+  }
+  ImGui::TextDisabled(
+      "When enabled, pine topology emits internodes only (no needle clusters).\n"
+      "This affects both CPU and GPU geometry generation paths.");
+
   if (ImGui::Checkbox("Enable Scene/Plant View Tint", &scene_plant_view_tint_enabled)) {
     ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
     RebuildAllPlantGeometry(GetScene());
@@ -1024,6 +1057,8 @@ void LSystemLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "tassel_color_mode" << YAML::Value << tassel_color_mode;
   out << YAML::Key << "scene_plant_view_tint_enabled" << YAML::Value
       << scene_plant_view_tint_enabled;
+  out << YAML::Key << "pine_stem_only_mode" << YAML::Value
+      << pine_stem_only_mode;
   out << YAML::Key << "profiling_enabled" << YAML::Value << profiling_enabled;
   out << YAML::Key << "profiling_history_size" << YAML::Value << profiling_history_size;
   out << YAML::Key << "profiling_export_path" << YAML::Value << profiling_export_path;
@@ -1053,7 +1088,10 @@ void LSystemLayer::Deserialize(const YAML::Node& in) {
     tassel_color_mode = ClampColorModeIndex(in["tassel_color_mode"].as<int>());
   if (in["scene_plant_view_tint_enabled"])
     scene_plant_view_tint_enabled = in["scene_plant_view_tint_enabled"].as<bool>();
+  if (in["pine_stem_only_mode"])
+    pine_stem_only_mode = in["pine_stem_only_mode"].as<bool>();
   ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
+  ApplyPineStemOnlyMode(GetScene(), pine_stem_only_mode, true);
   RebuildAllPlantGeometry(GetScene());
   if (in["profiling_enabled"])
     profiling_enabled = in["profiling_enabled"].as<bool>();

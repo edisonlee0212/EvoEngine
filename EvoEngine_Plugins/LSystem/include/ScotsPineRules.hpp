@@ -606,7 +606,8 @@ inline PineApex MakeLateralApex(const SampledPineParams& params,
 //   R4. WhorlBud(dormancy <= 0) -> N * Apex(branch, order+1) (activation)
 // ---------------------------------------------------------------------------
 
-inline std::vector<PineRule> CreatePineTopologyRules(const SampledPineParams& params) {
+inline std::vector<PineRule> CreatePineTopologyRules(const SampledPineParams& params,
+                                                     const bool enable_needle_topology = true) {
   std::vector<PineRule> rules;
 
   // R0: year rollover. Highest priority so a stale apex always refreshes its
@@ -682,7 +683,7 @@ inline std::vector<PineRule> CreatePineTopologyRules(const SampledPineParams& pa
       const float elapsed = now_years - apex.t_last_emission_years;
       return elapsed >= std::max(0.0f, apex.sampled_plastochron_years);
     };
-    rule.produce = [params](RuleContext<PineGraph>& ctx) -> ProductionResult<PineModuleData> {
+    rule.produce = [params, enable_needle_topology](RuleContext<PineGraph>& ctx) -> ProductionResult<PineModuleData> {
       const auto& apex = ctx.self.data.Get<PineApex>();
       const auto& clock = ctx.graph.data.clock;
       auto node_rng = MakeNodeRng(apex.node_random, 0xA1F00D01u);
@@ -726,7 +727,8 @@ inline std::vector<PineRule> CreatePineTopologyRules(const SampledPineParams& pa
       //    per-emission bare_zone draw landed above the achievable
       //    temporal_progress. The new gate is independent of the
       //    GDD<->calendar coupling and stable across plastochron resamples.
-      if (apex.phytomers_this_year >= apex.bare_phytomers_this_year) {
+      if (enable_needle_topology &&
+          apex.phytomers_this_year >= apex.bare_phytomers_this_year) {
         Successor<PineModuleData> s;
         s.is_branch = true;
         s.symbol_id = PineSymbol::NeedleCluster;

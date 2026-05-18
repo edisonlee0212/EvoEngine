@@ -26,6 +26,7 @@
 #include <fstream>
 #include <glm/gtx/quaternion.hpp>
 #include <limits>
+#include <mutex>
 #include <unordered_set>
 
 using namespace l_system_plugin;
@@ -41,6 +42,18 @@ std::atomic<bool> g_force_cpu_particles_path{false};
 // cylinder needle geometry. Defaults true; set to false to compare against
 // the legacy visual baseline.
 std::atomic<bool> g_use_generalized_cylinder_needles{true};
+
+// Visualization-only knobs (see ScotsPine.hpp for contract notes).
+// All three default to neutral values that reproduce existing behaviour
+// byte-identically when no caller opts in.
+std::atomic<float> g_internode_visual_radius_multiplier{1.0f};
+std::atomic<bool> g_render_needles_enabled{true};
+std::atomic<bool> g_generate_needle_topology_enabled{true};
+// Leader debug colour stored as four floats; protected by a coarse mutex
+// because atomic<glm::vec4> is not portable. Reads happen once per rebuild
+// in the same thread that calls into RebuildGeometry; contention is nil.
+std::mutex g_leader_internode_debug_color_mutex;
+glm::vec4 g_leader_internode_debug_color{0.0f, 0.0f, 0.0f, 0.0f};
 
 bool IsFiniteQuat(const glm::quat& q) {
   return std::isfinite(q.x) && std::isfinite(q.y) && std::isfinite(q.z) && std::isfinite(q.w);
@@ -962,6 +975,39 @@ bool ScotsPine::IsForceCpuParticlesPath() {
   return g_force_cpu_particles_path.load(std::memory_order_relaxed);
 }
 
+void ScotsPine::SetInternodeVisualRadiusMultiplier(const float multiplier) {
+  // Clamp to a sensible non-negative range. Caller may pass 0 to make the
+  // visualised trunk vanish; negative values are nonsensical here.
+  const float safe = std::isfinite(multiplier) ? std::max(multiplier, 0.0f) : 1.0f;
+  g_internode_visual_radius_multiplier.store(safe, std::memory_order_relaxed);
+}
+float ScotsPine::GetInternodeVisualRadiusMultiplier() {
+  return g_internode_visual_radius_multiplier.load(std::memory_order_relaxed);
+}
+
+void ScotsPine::SetRenderNeedlesEnabled(const bool enabled) {
+  g_render_needles_enabled.store(enabled, std::memory_order_relaxed);
+}
+bool ScotsPine::IsRenderNeedlesEnabled() {
+  return g_render_needles_enabled.load(std::memory_order_relaxed);
+}
+
+void ScotsPine::SetGenerateNeedleTopologyEnabled(const bool enabled) {
+  g_generate_needle_topology_enabled.store(enabled, std::memory_order_relaxed);
+}
+bool ScotsPine::IsGenerateNeedleTopologyEnabled() {
+  return g_generate_needle_topology_enabled.load(std::memory_order_relaxed);
+}
+
+void ScotsPine::SetLeaderInternodeDebugColor(const glm::vec4& color) {
+  std::lock_guard<std::mutex> lock(g_leader_internode_debug_color_mutex);
+  g_leader_internode_debug_color = color;
+}
+glm::vec4 ScotsPine::GetLeaderInternodeDebugColor() {
+  std::lock_guard<std::mutex> lock(g_leader_internode_debug_color_mutex);
+  return g_leader_internode_debug_color;
+}
+
 namespace {
 std::shared_ptr<ScotsPineDescriptor> ResolvePostRepotDescriptorForGrowth(
     const ScotsPine& pine) {
@@ -978,6 +1024,10 @@ float ResolveRepotSwitchGddForGrowth(const ScotsPine& pine,
     return -1.0f;
   }
   return std::max(0.0f, pine.repot_switch_gdd);
+}
+
+bool ResolveNeedleTopologyEnabledForGrowth() {
+  return g_generate_needle_topology_enabled.load(std::memory_order_relaxed);
 }
 }  // namespace
 
@@ -1014,9 +1064,11 @@ void ScotsPine::GeneratePreviewGeometryEntities(const float preview_target_gdd,
     return;
   }
   const auto post_descriptor = ResolvePostRepotDescriptorForGrowth(*this);
+  const bool enable_needle_topology = ResolveNeedleTopologyEnabledForGrowth();
   growth_model.Initialize(*descriptor, seed, glm::vec3(0), kDefaultRootRotation,
                           post_descriptor.get(),
-                          ResolveRepotSwitchGddForGrowth(*this, post_descriptor));
+                          ResolveRepotSwitchGddForGrowth(*this, post_descriptor),
+                          enable_needle_topology);
   const float clamped_target_gdd = std::min(target_gdd, std::max(0.0f, preview_target_gdd));
   const uint32_t step_cap = std::max(1u, preview_max_growth_steps);
   growth_model.GrowToGDDWithProfileSwitch(clamped_target_gdd, step_cap);
@@ -1036,26 +1088,57 @@ void ScotsPine::GrowToTargetGDD(const bool uncapped_growth) {
   const auto post_descriptor = ResolvePostRepotDescriptorForGrowth(*this);
   const float repot_switch_gdd_value =
       ResolveRepotSwitchGddForGrowth(*this, post_descriptor);
+  const bool enable_needle_topology = ResolveNeedleTopologyEnabledForGrowth();
+  bool reinitialized = false;
   if (!growth_model.IsInitialized()) {
     growth_model.Initialize(*descriptor, seed, glm::vec3(0), kDefaultRootRotation,
-                            post_descriptor.get(), repot_switch_gdd_value);
+                            post_descriptor.get(), repot_switch_gdd_value,
+                            enable_needle_topology);
+    reinitialized = true;
   }
-  bool reinitialized = false;
+  const bool topology_policy_changed =
+      growth_model.IsNeedleTopologyEnabled() != enable_needle_topology;
   // Backward-scrubbing: if the user has dragged target_gdd backward beyond a step,
   // re-init from scratch so geometry shrinks instead of being stuck at the high-water mark.
   const float gdd_step = std::max(1e-5f, growth_model.gdd_per_growth_step);
-  if (target_gdd + gdd_step < growth_model.accumulated_gdd) {
+  if (topology_policy_changed || target_gdd + gdd_step < growth_model.accumulated_gdd) {
     growth_model.Initialize(*descriptor, seed, glm::vec3(0), kDefaultRootRotation,
-                            post_descriptor.get(), repot_switch_gdd_value);
+                            post_descriptor.get(), repot_switch_gdd_value,
+                            enable_needle_topology);
     reinitialized = true;
   }
   growth_model.GrowToGDDWithProfileSwitch(target_gdd);
   last_grow_seconds = Times::Now() - grow_start;
 
+  const float current_internode_visual_radius_multiplier =
+      std::max(0.0f, g_internode_visual_radius_multiplier.load(std::memory_order_relaxed));
+  const bool current_render_needles_enabled =
+      g_render_needles_enabled.load(std::memory_order_relaxed);
+  const glm::vec4 current_leader_debug_color = []() {
+    std::lock_guard<std::mutex> lock(g_leader_internode_debug_color_mutex);
+    return g_leader_internode_debug_color;
+  }();
+  const int current_color_mode = static_cast<int>(GetGlobalColorMode());
+  const auto approx_equal = [](const float a, const float b) {
+    return std::isfinite(a) && std::isfinite(b) && std::abs(a - b) <= 1.0e-6f;
+  };
+  const auto vec4_equal = [&](const glm::vec4& a, const glm::vec4& b) {
+    return approx_equal(a.x, b.x) && approx_equal(a.y, b.y) &&
+           approx_equal(a.z, b.z) && approx_equal(a.w, b.w);
+  };
+  const bool visual_settings_changed =
+      !approx_equal(last_applied_internode_visual_radius_multiplier,
+                    current_internode_visual_radius_multiplier) ||
+      last_applied_render_needles_enabled != current_render_needles_enabled ||
+      !vec4_equal(last_applied_leader_debug_color, current_leader_debug_color) ||
+      last_applied_color_mode != current_color_mode;
+
   // Auto-grow calls this every frame; when no growth step was taken, a full
   // mesh rebuild is wasted work. Preserve exact behavior on explicit
   // reinitialization (backward scrub), where geometry must always be refreshed.
-  if (!reinitialized && growth_model.last_growth_steps == 0) {
+  // But loaded scenes may deserialize stale particle buffers; if any visual-only
+  // knob changed, force one rebuild even when growth itself did not advance.
+  if (!reinitialized && growth_model.last_growth_steps == 0 && !visual_settings_changed) {
     return;
   }
   RebuildGeometry();
@@ -1079,9 +1162,11 @@ bool ScotsPine::AdvanceChronologicalAging(const float delta_years) {
 
   if (!growth_model.IsInitialized()) {
     const auto post_descriptor = ResolvePostRepotDescriptorForGrowth(*this);
+    const bool enable_needle_topology = ResolveNeedleTopologyEnabledForGrowth();
     growth_model.Initialize(*descriptor, seed, glm::vec3(0), kDefaultRootRotation,
                             post_descriptor.get(),
-                            ResolveRepotSwitchGddForGrowth(*this, post_descriptor));
+                            ResolveRepotSwitchGddForGrowth(*this, post_descriptor),
+                            enable_needle_topology);
   }
 
   growth_model.AdvanceChronologicalYears(delta_years);
@@ -1114,8 +1199,9 @@ void ScotsPine::RebuildGeometry() {
   const glm::vec4 instance_color = HashToColor(owner.GetIndex());
   const glm::vec4 kDefaultNeedleColor(0.16f, 0.45f, 0.18f, 1.0f);
   const glm::vec4 kDefaultNeedleOldColor(0.42f, 0.27f, 0.10f, 1.0f);
-  const glm::vec4 kDefaultStemColor(0.60f, 0.78f, 0.50f, 1.0f);
-  const glm::vec4 kDefaultStemOldColor(0.45f, 0.34f, 0.22f, 1.0f);
+  // Match ScotsPineDescriptor inline defaults to keep fallback bark tint stable.
+  const glm::vec4 kDefaultStemColor(0.83f, 0.72f, 0.50f, 1.0f);
+  const glm::vec4 kDefaultStemOldColor(0.45f, 0.30f, 0.20f, 1.0f);
   constexpr float kDefaultNeedleAxialAgeSpan = 0.35f;
   constexpr float kDefaultNeedleAxialAgeExponent = 1.0f;
   constexpr float kDefaultInternodeAgeExponent = 1.0f;
@@ -1149,6 +1235,15 @@ void ScotsPine::RebuildGeometry() {
     // Guard against corrupted descriptor color fields that zero out all needles.
     needle_base_color = kDefaultNeedleColor;
     needle_old_color = kDefaultNeedleOldColor;
+  }
+  const float stem_color_energy =
+      std::max(stem_base_color.r, std::max(stem_base_color.g, stem_base_color.b));
+  const float stem_old_color_energy =
+      std::max(stem_old_color.r, std::max(stem_old_color.g, stem_old_color.b));
+  if (stem_color_energy <= 1.0e-4f && stem_old_color_energy <= 1.0e-4f) {
+    // Guard against corrupted descriptor color fields that black out the stem.
+    stem_base_color = kDefaultStemColor;
+    stem_old_color = kDefaultStemOldColor;
   }
   const float t_now_years = growth_model.graph.data.clock.NowYears();
   // Stem-age color denominator: use needle lifespan as a coarse browning
@@ -1239,6 +1334,17 @@ void ScotsPine::RebuildGeometry() {
     const glm::quat cylinder_axis_fix =
         glm::angleAxis(-glm::half_pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f));
 
+    // Snapshot visualization-only knobs once per rebuild.
+    // half_thick is scaled for the RENDERED cylinder only; node.info.thickness
+    // remains the ground-truth value used by all geometry exporters.
+    const float internode_visual_radius_multiplier =
+        std::max(0.0f, g_internode_visual_radius_multiplier.load(std::memory_order_relaxed));
+    const glm::vec4 leader_debug_color = []() {
+      std::lock_guard<std::mutex> lock(g_leader_internode_debug_color_mutex);
+      return g_leader_internode_debug_color;
+    }();
+    const bool leader_debug_color_active = leader_debug_color.a > 0.0f;
+
     for (const auto handle : sorted) {
       const auto& node = growth_model.graph.PeekNode(handle);
       if (!node.data.template Is<PineInternode>()) continue;
@@ -1249,14 +1355,20 @@ void ScotsPine::RebuildGeometry() {
         last_invalid_instance_count++;
         continue;
       }
-      const float half_thick = node.info.thickness * 0.5f;
+        const float per_node_visual_multiplier =
+          node.info.order == 0 ? internode_visual_radius_multiplier : 1.0f;
+        const float half_thick =
+          node.info.thickness * 0.5f * per_node_visual_multiplier;
       if (half_thick <= 0.0f) continue;
-        const float internode_age_years =
+      const float internode_age_years =
           std::max(0.0f, t_now_years - internode.continuous_growth.t_init_years);
-        float internode_age_norm = std::clamp(internode_age_years / max_internode_age_years, 0.0f, 1.0f);
-        internode_age_norm = std::pow(internode_age_norm, std::max(0.1f, internode_age_exponent));
-        const glm::vec4 internode_age_color =
+      float internode_age_norm = std::clamp(internode_age_years / max_internode_age_years, 0.0f, 1.0f);
+      internode_age_norm = std::pow(internode_age_norm, std::max(0.1f, internode_age_exponent));
+      glm::vec4 stem_age_color =
           glm::mix(stem_base_color, stem_old_color, internode_age_norm);
+      stem_age_color.a = 1.0f;
+      const glm::vec4 stem_type_color(stem_base_color.r, stem_base_color.g,
+                                      stem_base_color.b, 1.0f);
 
       glm::quat instance_rotation =
           glm::normalize(node.info.global_rotation * cylinder_axis_fix);
@@ -1278,10 +1390,25 @@ void ScotsPine::RebuildGeometry() {
       } else if (color_mode == ColorMode::ByInstance) {
         pi.instance_color = instance_color;
       } else if (color_mode == ColorMode::ByType) {
-        pi.instance_color = internode_age_color;
+        // ByType is a stable bark tint, independent of age progression.
+        pi.instance_color = stem_type_color;
+      } else if (color_mode == ColorMode::Shaded ||
+                 color_mode == ColorMode::NeedleLignification ||
+                 color_mode == ColorMode::NeedleStripeProxy ||
+                 color_mode == ColorMode::NeedleSheath) {
+        pi.instance_color = stem_age_color;
       } else {
-        pi.instance_color = internode_age_color;
+        pi.instance_color = stem_age_color;
       }
+      // Visualization-only debug override: if a leader (order==0) override
+      // colour is active, force every leader-axis internode to that colour
+      // regardless of ColorMode. Skips lateral branches so the main trunk
+      // can be visually disentangled from the rest of the architecture.
+      if (leader_debug_color_active && node.info.order == 0) {
+        pi.instance_color = leader_debug_color;
+      }
+      // Keep instanced stem shading on the instance-tint path in deferred pass.
+      pi.instance_color.a = 1.0f;
       infos.push_back(pi);
     }
     last_internode_count = static_cast<uint32_t>(infos.size());
@@ -1293,6 +1420,15 @@ void ScotsPine::RebuildGeometry() {
       if (!scene->IsEntityValid(internode_entity)) {
         internode_entity = scene->CreateEntity("Pine Internodes");
         scene->SetParent(internode_entity, stem_container);
+      }
+
+      // Compatibility migration: older scene states can carry a MeshRenderer
+      // on this entity from pre-particles internode paths. That creates a
+      // duplicate opaque draw which can override one instanced stem tint.
+      if (scene->HasPrivateComponent<MeshRenderer>(internode_entity)) {
+        scene->RemovePrivateComponent<MeshRenderer>(internode_entity);
+        EVOENGINE_LOG("[ScotsPineInternodeMigration] Removed legacy MeshRenderer from Pine Internodes owner=" +
+                      std::to_string(internode_entity.GetIndex()));
       }
 
       particles = scene->GetOrSetPrivateComponent<Particles>(internode_entity).lock();
@@ -1321,12 +1457,18 @@ void ScotsPine::RebuildGeometry() {
         const auto& triangles = internode_mesh->UnsafeGetTriangles();
         needs_mesh_rebuild = vertices.empty() || triangles.empty();
         if (!needs_mesh_rebuild) {
-          const auto first_color = vertices.front().color;
-          const bool near_white = std::abs(first_color.r - 1.0f) <= 1.0e-3f &&
-                                  std::abs(first_color.g - 1.0f) <= 1.0e-3f &&
-                                  std::abs(first_color.b - 1.0f) <= 1.0e-3f;
-          if (!IsFiniteVec4(first_color) || !near_white) {
-            needs_mesh_rebuild = true;
+          // Validate every vertex color, not just the first one. Legacy/corrupted
+          // cached internode meshes can carry mixed per-vertex tint data that
+          // produces brown/black/magenta stem palettes in instanced rendering.
+          for (const auto& vertex : vertices) {
+            const auto color = vertex.color;
+            const bool near_white = std::abs(color.r - 1.0f) <= 1.0e-3f &&
+                                    std::abs(color.g - 1.0f) <= 1.0e-3f &&
+                                    std::abs(color.b - 1.0f) <= 1.0e-3f;
+            if (!IsFiniteVec4(color) || !near_white) {
+              needs_mesh_rebuild = true;
+              break;
+            }
           }
         }
       }
@@ -1378,7 +1520,17 @@ void ScotsPine::RebuildGeometry() {
   const bool use_new_needle_geometry =
       g_use_generalized_cylinder_needles.load(std::memory_order_relaxed);
 
-  if (use_new_needle_geometry) {
+  // Visualization-only opt-out for trunk-isolation diagnostics. When false,
+  // tear down any previously-built needle entities and skip needle build.
+  // Does not affect needle skeleton export (last_needle_skeleton_lines) or
+  // any flow-graph / OBJ exporter.
+  const bool render_needles_enabled =
+      g_render_needles_enabled.load(std::memory_order_relaxed);
+  if (!render_needles_enabled) {
+    if (scene->IsEntityValid(needle_geom_entity)) scene->DeleteEntity(needle_geom_entity);
+    if (scene->IsEntityValid(needle_entity)) scene->DeleteEntity(needle_entity);
+    last_needle_count = 0;
+  } else if (use_new_needle_geometry) {
     // Aggregate-mesh path. World-space vertices baked in and rendered through
     // MeshRenderer to bypass the instanced Particles needle path.
     static thread_local std::vector<Vertex> needle_geom_vertices;
@@ -1625,6 +1777,15 @@ void ScotsPine::RebuildGeometry() {
     }
   }
 
+  last_applied_internode_visual_radius_multiplier =
+      std::max(0.0f, g_internode_visual_radius_multiplier.load(std::memory_order_relaxed));
+  last_applied_render_needles_enabled =
+      g_render_needles_enabled.load(std::memory_order_relaxed);
+  {
+    std::lock_guard<std::mutex> lock(g_leader_internode_debug_color_mutex);
+    last_applied_leader_debug_color = g_leader_internode_debug_color;
+  }
+  last_applied_color_mode = static_cast<int>(GetGlobalColorMode());
   last_rebuild_seconds = Times::Now() - rebuild_start;
 }
 

@@ -1,5 +1,7 @@
 #include "RenderTexture.hpp"
 
+#include <cmath>
+
 #include "Console.hpp"
 #include "EditorLayer.hpp"
 #include "Platform.hpp"
@@ -404,6 +406,22 @@ void RenderTexture::StoreToPng(const std::filesystem::path& path, int resize_x, 
   Buffer image_buffer(sizeof(glm::vec4) * resolution_x * resolution_y);
   image_buffer.CopyFromImage(*color_image_);
   image_buffer.DownloadVector(dst, resolution_x * resolution_y * channels);
+  // The render target is a linear HDR texture
+  // (Platform::Constants::render_texture_color = VK_FORMAT_R32G32B32A32_SFLOAT)
+  // and the editor presents it through an sRGB swapchain
+  // (vk_surface_format_ preferred = VK_FORMAT_B8G8R8A8_SRGB), so Vulkan applies
+  // the linear -> sRGB OETF automatically during present. The headless PNG path
+  // previously skipped that conversion, which made thin/medium-luminance pixels
+  // (e.g. brown internode stems) collapse to near-black 8-bit values and
+  // disappear in the saved render. Apply the standard IEC 61966-2-1 OETF here
+  // so PNG outputs visually match what the editor shows.
+  const auto srgb_encode = [](float linear) {
+    if (!std::isfinite(linear)) return 0.0f;
+    if (linear <= 0.0f) return 0.0f;
+    if (linear >= 1.0f) return 1.0f;
+    if (linear <= 0.0031308f) return 12.92f * linear;
+    return 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+  };
   std::vector<uint8_t> pixels;
   if (resize_x > 0 && resize_y > 0 && (resize_x != resolution_x || resize_y != resolution_y)) {
     std::vector<float> res;
@@ -412,9 +430,9 @@ void RenderTexture::StoreToPng(const std::filesystem::path& path, int resize_x, 
                               static_cast<stbir_pixel_layout>(store_channels));
     pixels.resize(resize_x * resize_y * store_channels);
     for (int i = 0; i < resize_x * resize_y; i++) {
-      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * res[i * channels]), 0, 255);
-      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * res[i * channels + 1]), 0, 255);
-      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * res[i * channels + 2]), 0, 255);
+      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * srgb_encode(res[i * channels])), 0, 255);
+      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * srgb_encode(res[i * channels + 1])), 0, 255);
+      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * srgb_encode(res[i * channels + 2])), 0, 255);
       if (store_channels == 4)
         pixels[i * store_channels + 3] = 255;
     }
@@ -423,9 +441,9 @@ void RenderTexture::StoreToPng(const std::filesystem::path& path, int resize_x, 
   } else {
     pixels.resize(resolution_x * resolution_y * channels);
     for (int i = 0; i < resolution_x * resolution_y; i++) {
-      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * dst[i * channels]), 0, 255);
-      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * dst[i * channels + 1]), 0, 255);
-      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * dst[i * channels + 2]), 0, 255);
+      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * srgb_encode(dst[i * channels])), 0, 255);
+      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * srgb_encode(dst[i * channels + 1])), 0, 255);
+      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * srgb_encode(dst[i * channels + 2])), 0, 255);
       if (store_channels == 4)
         pixels[i * store_channels + 3] = 255;
     }

@@ -13,7 +13,9 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -21,6 +23,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #ifdef CUDA_MODULE_PLUGIN
@@ -63,6 +66,7 @@ struct Options {
   std::filesystem::path post_repot_descriptor_path{};
   std::filesystem::path camera_rig_file{};
   bool use_empty_scene = true;
+  bool use_scene_main_camera = false;
 
   uint32_t seed = 42u;
   std::optional<uint32_t> seed_a = std::nullopt;
@@ -93,6 +97,15 @@ struct Options {
   float triangle_offset_x = 0.0f;
   float triangle_offset_z = 0.0f;
   float triangle_yaw_deg = 0.0f;
+
+  // Visualization-only knobs. Defaults are neutral and reproduce existing
+  // behaviour byte-identically when no caller opts in. None of these affect
+  // exported flow-graph YAML, node-graph YAML, OBJ meshes, or needle
+  // skeletons -- ground-truth geometry is preserved.
+  float trunk_visual_thickness_multiplier = 1.0f;
+  bool render_needles = true;
+  bool leader_debug_color_set = false;
+  glm::vec3 leader_debug_color = glm::vec3(0.0f);
 };
 
 struct PineInstance {
@@ -168,7 +181,7 @@ std::string SanitizeLabelForFilename(const std::string& value) {
 
 void PrintUsage() {
   EVOENGINE_LOG(
-      "ScotsPineGrowthApp options:\n"
+  "ScotsPineDataGeneratorApp options:\n"
       "  --output-root <path>         Folder for generated outputs (required).\n"
       "  --output-name <name>         File prefix (default: scotspine).\n"
       "  --project-path <path>        .eveproj path (default: DigitalAgricultureProject/test.eveproj).\n"
@@ -178,6 +191,7 @@ void PrintUsage() {
       "  --descriptor-path <path>     Scots pine descriptor path (default: New ScotsPineDescriptor.spine).\n"
       "  --post-repot-descriptor-path <path> Optional post-repot descriptor for profile switching.\n"
       "  --camera-rig-file <path>     Optional camera rig text file (one line per view).\n"
+      "  --use-scene-main-camera      Use loaded scene main camera when no camera rig file is provided.\n"
       "  --seed <N>                   Base deterministic seed (default: 42).\n"
       "  --seed-a <N>                 Seed for tree A (default: --seed).\n"
       "  --seed-b <N>                 Seed for tree B (default: --seed + 1).\n"
@@ -203,6 +217,14 @@ void PrintUsage() {
       "  --export-needle-skeleton     Export per-needle centerline YAML per frame/tree.\n"
       "  --uncapped-growth            Use uncapped growth solve (default).\n"
       "  --capped-growth              Use capped growth solve.\n"
+      "  --trunk-visual-thickness-multiplier <float>\n"
+      "                                Visualization-only scale on rendered internode\n"
+      "                                cylinder radius. Does NOT alter exported geometry.\n"
+      "                                Default 1.0. Use e.g. 5 to thicken sub-pixel trunks.\n"
+      "  --no-needles                 Skip building needle entities; trunk-only render.\n"
+      "                                Does NOT affect needle skeleton export.\n"
+      "  --leader-debug-color R G B   Override leader-axis (order==0) internode colour\n"
+      "                                with the given RGB (0..1 each). Visualization-only.\n"
       "  --help                       Print this help message.\n"
       "\n"
       "Camera rig line format:\n"
@@ -334,6 +356,11 @@ bool ParseOptions(const int argc, char** argv, Options& options, bool& show_help
         return false;
       }
       options.camera_rig_file = std::filesystem::path(value);
+      continue;
+    }
+
+    if (arg == "--use-scene-main-camera") {
+      options.use_scene_main_camera = true;
       continue;
     }
 
@@ -588,6 +615,46 @@ bool ParseOptions(const int argc, char** argv, Options& options, bool& show_help
       continue;
     }
 
+    if (arg == "--trunk-visual-thickness-multiplier") {
+      const auto* value = require_value("--trunk-visual-thickness-multiplier");
+      if (!value) {
+        return false;
+      }
+      if (!ParseF32(value, options.trunk_visual_thickness_multiplier) ||
+          options.trunk_visual_thickness_multiplier < 0.0f) {
+        error_message = "Invalid value for --trunk-visual-thickness-multiplier: " + std::string(value);
+        return false;
+      }
+      continue;
+    }
+
+    if (arg == "--no-needles") {
+      options.render_needles = false;
+      continue;
+    }
+
+    if (arg == "--leader-debug-color") {
+      // Consume three floats (R G B in 0..1).
+      if (i + 3 >= argc) {
+        error_message = "--leader-debug-color requires three values: R G B";
+        return false;
+      }
+      const std::string r_str = argv[i + 1];
+      const std::string g_str = argv[i + 2];
+      const std::string b_str = argv[i + 3];
+      float r = 0.0f;
+      float g = 0.0f;
+      float b = 0.0f;
+      if (!ParseF32(r_str, r) || !ParseF32(g_str, g) || !ParseF32(b_str, b)) {
+        error_message = "Invalid floats for --leader-debug-color: " + r_str + " " + g_str + " " + b_str;
+        return false;
+      }
+      options.leader_debug_color = glm::vec3(r, g, b);
+      options.leader_debug_color_set = true;
+      i += 3;
+      continue;
+    }
+
     error_message = "Unknown option: " + arg;
     return false;
   }
@@ -610,6 +677,16 @@ bool ParseOptions(const int argc, char** argv, Options& options, bool& show_help
   }
   if (!options.seed_c.has_value()) {
     options.seed_c = options.seed + 2u;
+  }
+
+  if (options.use_scene_main_camera && options.use_empty_scene) {
+    error_message = "--use-scene-main-camera requires --load-scene.";
+    return false;
+  }
+
+  if (options.use_scene_main_camera && !options.camera_rig_file.empty()) {
+    error_message = "--use-scene-main-camera cannot be combined with --camera-rig-file.";
+    return false;
   }
 
   return true;
@@ -665,6 +742,205 @@ CameraRigView MakeDefaultCameraView(const Options& options) {
   view.cy = half_h;
 
   return view;
+}
+
+std::string ToLowerAscii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value;
+}
+
+std::string NormalizePathForComparison(const std::filesystem::path& path) {
+  std::error_code ec;
+  const auto canonical = std::filesystem::weakly_canonical(path, ec);
+  const auto normalized = (ec ? std::filesystem::absolute(path) : canonical).lexically_normal();
+  return ToLowerAscii(normalized.generic_string());
+}
+
+bool IsSameOrChildPath(const std::filesystem::path& candidate_path,
+                       const std::filesystem::path& parent_path) {
+  const auto candidate = NormalizePathForComparison(candidate_path);
+  const auto parent = NormalizePathForComparison(parent_path);
+  if (candidate.size() < parent.size()) {
+    return false;
+  }
+  if (candidate.compare(0, parent.size(), parent) != 0) {
+    return false;
+  }
+  if (candidate.size() == parent.size()) {
+    return true;
+  }
+  return candidate[parent.size()] == '/';
+}
+
+std::string BuildIsolationRunToken(const Options& options) {
+  const auto now = std::chrono::system_clock::now();
+  const auto now_time_t = std::chrono::system_clock::to_time_t(now);
+  const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) %
+                            std::chrono::seconds(1);
+
+  std::tm utc_tm{};
+#if defined(_WIN32)
+  gmtime_s(&utc_tm, &now_time_t);
+#else
+  gmtime_r(&now_time_t, &utc_tm);
+#endif
+
+  std::ostringstream out;
+  out << SanitizeLabelForFilename(options.output_name) << "_";
+  out << std::put_time(&utc_tm, "%Y%m%d_%H%M%S");
+  out << "_" << std::setw(3) << std::setfill('0') << milliseconds.count();
+  return out.str();
+}
+
+bool PrepareIsolatedProjectCopy(const Options& options,
+                                std::filesystem::path& out_isolated_project_path,
+                                std::filesystem::path& out_isolated_project_root,
+                                std::string& error_message) {
+  out_isolated_project_path.clear();
+  out_isolated_project_root.clear();
+
+  const auto source_project_path = std::filesystem::absolute(options.project_path).lexically_normal();
+  const auto source_project_root = source_project_path.parent_path();
+  if (!std::filesystem::exists(source_project_root) ||
+      !std::filesystem::is_directory(source_project_root)) {
+    error_message = "Project root folder does not exist: " + source_project_root.string();
+    return false;
+  }
+
+  const auto output_root = std::filesystem::absolute(options.output_root).lexically_normal();
+  if (IsSameOrChildPath(output_root, source_project_root)) {
+    error_message = "--output-root must be outside the source project folder to avoid recursive copies.";
+    return false;
+  }
+
+  std::error_code ec;
+  const auto isolated_parent = output_root / "_isolated_projects";
+  std::filesystem::create_directories(isolated_parent, ec);
+  if (ec) {
+    error_message = "Failed to create isolated project parent folder: " + isolated_parent.string() +
+                    " (" + ec.message() + ")";
+    return false;
+  }
+
+  std::string folder_base = SanitizeLabelForFilename(source_project_root.filename().string());
+  if (folder_base.empty() || folder_base == "view") {
+    folder_base = "Project";
+  }
+
+  const std::string run_token = BuildIsolationRunToken(options);
+  std::filesystem::path isolated_project_root = isolated_parent / (folder_base + "_" + run_token);
+  uint32_t collision_suffix = 1u;
+  while (std::filesystem::exists(isolated_project_root)) {
+    isolated_project_root =
+        isolated_parent / (folder_base + "_" + run_token + "_" + std::to_string(collision_suffix++));
+  }
+
+  std::filesystem::copy(source_project_root, isolated_project_root,
+                        std::filesystem::copy_options::recursive, ec);
+  if (ec) {
+    std::filesystem::remove_all(isolated_project_root);
+    error_message = "Failed to copy project folder for isolation: " + ec.message();
+    return false;
+  }
+
+  const auto isolated_project_path = isolated_project_root / source_project_path.filename();
+  if (!std::filesystem::exists(isolated_project_path)) {
+    std::filesystem::remove_all(isolated_project_root);
+    error_message = "Isolated project copy is missing .eveproj file: " + isolated_project_path.string();
+    return false;
+  }
+
+  out_isolated_project_path = isolated_project_path;
+  out_isolated_project_root = isolated_project_root;
+  return true;
+}
+
+void CleanupIsolatedProjectCopy(const std::filesystem::path& isolated_project_root) {
+  if (isolated_project_root.empty()) {
+    return;
+  }
+
+  std::error_code ec;
+  std::filesystem::remove_all(isolated_project_root, ec);
+  if (ec) {
+    EVOENGINE_WARNING("Failed to delete isolated project copy: " + isolated_project_root.string() +
+                      " (" + ec.message() + ")");
+  }
+}
+
+std::shared_ptr<Scene> ResolveTargetSceneAsset(const Options& options,
+                                               std::string& out_scene_mode,
+                                               std::string& out_resolved_scene_asset,
+                                               std::string& error_message) {
+  out_scene_mode.clear();
+  out_resolved_scene_asset.clear();
+
+  if (options.use_empty_scene) {
+    out_scene_mode = "empty_scene";
+    out_resolved_scene_asset = "<temporary>";
+    return AssetManager::CreateTemporaryAsset<Scene>();
+  }
+
+  const auto loaded_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset(options.scene_path));
+  if (!loaded_scene) {
+    error_message = "Failed to load scene asset: " + options.scene_path.string();
+    return nullptr;
+  }
+
+  out_scene_mode = "loaded_scene";
+  out_resolved_scene_asset = options.scene_path.string();
+  return loaded_scene;
+}
+
+bool BuildSceneMainCameraView(const std::shared_ptr<Scene>& scene,
+                              const std::shared_ptr<Camera>& camera,
+                              const Entity camera_entity,
+                              const Options& options,
+                              CameraRigView& out_view,
+                              std::string& error_message) {
+  if (!scene || !camera || !scene->IsEntityValid(camera_entity)) {
+    error_message = "Scene main camera is invalid or missing.";
+    return false;
+  }
+
+  const auto camera_transform = scene->GetDataComponent<GlobalTransform>(camera_entity);
+  const auto rotation = camera_transform.GetRotation();
+
+  auto render_size = options.render_resolution;
+  if (render_size.x <= 1u || render_size.y <= 1u) {
+    render_size = camera->GetSize();
+  }
+  render_size.x = std::max(1u, render_size.x);
+  render_size.y = std::max(1u, render_size.y);
+
+  const float fov = std::clamp(camera->camera_settings.fov, 5.0f, 175.0f);
+  const float tan_half_fov = std::tan(glm::radians(fov * 0.5f));
+  if (!std::isfinite(tan_half_fov) || tan_half_fov <= 1.0e-6f) {
+    error_message = "Scene main camera FOV is invalid for projection.";
+    return false;
+  }
+
+  const float half_h = std::max(1.0f, static_cast<float>(render_size.y) * 0.5f);
+  const float aspect = static_cast<float>(render_size.x) / static_cast<float>(render_size.y);
+  const float fy = half_h / tan_half_fov;
+  const float fx = fy * aspect;
+
+  out_view.label = "scene_main_camera";
+  out_view.position = camera_transform.GetPosition();
+  out_view.forward = SafeNormalize(rotation * glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 0.0f, -1.0f));
+  out_view.up = SafeNormalize(rotation * glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+  out_view.width = render_size.x;
+  out_view.height = render_size.y;
+  out_view.near_distance = std::max(1.0e-4f, camera->camera_settings.near_distance);
+  out_view.far_distance = std::max(out_view.near_distance + 1.0e-4f, camera->camera_settings.far_distance);
+  out_view.fov_deg = fov;
+  out_view.fx = fx;
+  out_view.fy = fy;
+  out_view.cx = static_cast<float>(out_view.width) * 0.5f;
+  out_view.cy = static_cast<float>(out_view.height) * 0.5f;
+  return true;
 }
 
 bool LoadCameraRigFromFile(const std::filesystem::path& path,
@@ -839,7 +1115,7 @@ std::shared_ptr<ScotsPineDescriptor> ResolveDescriptor(const std::filesystem::pa
 
 int main(int argc, char** argv) {
 #ifndef LSYSTEM_PLUGIN
-  EVOENGINE_ERROR("ScotsPineGrowthApp requires LSYSTEM_PLUGIN.");
+  EVOENGINE_ERROR("ScotsPineDataGeneratorApp requires LSYSTEM_PLUGIN.");
   return 1;
 #endif
 
@@ -873,6 +1149,30 @@ int main(int argc, char** argv) {
 
   std::filesystem::create_directories(options.output_root);
 
+  std::filesystem::path isolated_project_path{};
+  std::filesystem::path isolated_project_root{};
+  if (!PrepareIsolatedProjectCopy(options, isolated_project_path, isolated_project_root, error_message)) {
+    EVOENGINE_ERROR(error_message);
+    return 4;
+  }
+  const auto cleanup_isolated_project_copy = [&]() {
+    CleanupIsolatedProjectCopy(isolated_project_root);
+    isolated_project_root.clear();
+  };
+
+  EVOENGINE_LOG("Created isolated Scots pine project copy: " + isolated_project_path.string());
+
+  // Apply visualization-only ScotsPine knobs. Default values are no-ops, so
+  // unconditionally calling these does not change existing-flag behaviour.
+  ScotsPine::SetInternodeVisualRadiusMultiplier(options.trunk_visual_thickness_multiplier);
+  ScotsPine::SetRenderNeedlesEnabled(options.render_needles);
+  if (options.leader_debug_color_set) {
+    ScotsPine::SetLeaderInternodeDebugColor(
+        glm::vec4(options.leader_debug_color, 1.0f));
+  } else {
+    ScotsPine::SetLeaderInternodeDebugColor(glm::vec4(0.0f));
+  }
+
   Application::PushLayer<RenderLayer>("Render Layer");
 #ifdef CUDA_MODULE_PLUGIN
   if (options.use_gpu) {
@@ -882,24 +1182,26 @@ int main(int argc, char** argv) {
   Application::PushLayer<LSystemLayer>("LSystem Layer");
 
   ApplicationInitializationSettings application_info{};
-  application_info.application_name = "ScotsPineGrowthApp";
-  application_info.project_path = options.project_path;
+  application_info.application_name = "ScotsPineDataGeneratorApp";
+  application_info.project_path = isolated_project_path;
   Application::Initialize(application_info);
 
+  const std::string project_mode = "isolated_project_copy";
+
+  std::string scene_mode = "";
+  std::string resolved_scene_asset = "";
+  std::string scene_error = "";
   std::shared_ptr<Scene> target_scene;
-  if (options.use_empty_scene) {
-    target_scene = AssetManager::CreateTemporaryAsset<Scene>();
-  } else {
-    target_scene = std::dynamic_pointer_cast<Scene>(ProjectManager::GetOrCreateAsset(options.scene_path));
-  }
+  target_scene = ResolveTargetSceneAsset(options, scene_mode, resolved_scene_asset, scene_error);
   if (!target_scene) {
-    const std::string scene_error = options.use_empty_scene
-                                        ? "Failed to create temporary empty scene."
-                                        : ("Failed to load scene asset: " + options.scene_path.string());
-    EVOENGINE_ERROR(scene_error);
+    const std::string scene_error_text =
+        scene_error.empty() ? std::string("Failed to resolve render scene asset.") : scene_error;
+    EVOENGINE_ERROR(scene_error_text);
     Application::Terminate();
-    return 4;
+    cleanup_isolated_project_copy();
+    return 5;
   }
+  EVOENGINE_LOG("Resolved render scene: mode=" + scene_mode + ", asset=" + resolved_scene_asset);
   Application::Attach(target_scene);
   Application::Start();
 
@@ -907,7 +1209,8 @@ int main(int argc, char** argv) {
   if (!scene) {
     EVOENGINE_ERROR("No active scene after initialization.");
     Application::Terminate();
-    return 5;
+    cleanup_isolated_project_copy();
+    return 6;
   }
 
   scene->environment.ambient_light_intensity = options.ambient_light;
@@ -943,7 +1246,8 @@ int main(int argc, char** argv) {
   if (!descriptor) {
     EVOENGINE_ERROR("Unable to create Scots pine descriptor.");
     Application::Terminate();
-    return 6;
+    cleanup_isolated_project_copy();
+    return 7;
   }
 
   std::shared_ptr<ScotsPineDescriptor> post_repot_descriptor = nullptr;
@@ -952,7 +1256,8 @@ int main(int argc, char** argv) {
     if (!post_repot_descriptor) {
       EVOENGINE_ERROR("Unable to create post-repot Scots pine descriptor.");
       Application::Terminate();
-      return 6;
+      cleanup_isolated_project_copy();
+      return 7;
     }
   }
 
@@ -971,7 +1276,8 @@ int main(int argc, char** argv) {
     if (!pine) {
       EVOENGINE_ERROR("Unable to create ScotsPine component.");
       Application::Terminate();
-      return 7;
+      cleanup_isolated_project_copy();
+      return 8;
     }
 
     pine->descriptor_ref = descriptor;
@@ -990,32 +1296,55 @@ int main(int argc, char** argv) {
   auto camera = scene->main_camera.Get<Camera>();
   Entity camera_entity{};
   bool created_camera = false;
-  if (!camera) {
+  if (camera) {
+    camera_entity = camera->GetOwner();
+  } else if (!options.use_scene_main_camera) {
     camera_entity = scene->CreateEntity("Main Camera");
     camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
     scene->main_camera = camera;
     created_camera = true;
   } else {
-    camera_entity = camera->GetOwner();
+    EVOENGINE_ERROR("--use-scene-main-camera requested but loaded scene has no main camera.");
+    Application::Terminate();
+    cleanup_isolated_project_copy();
+    return 9;
   }
 
-  if (!camera) {
+  if (!camera || !scene->IsEntityValid(camera_entity)) {
     EVOENGINE_ERROR("Unable to resolve camera for rendering.");
     Application::Terminate();
-    return 8;
+    cleanup_isolated_project_copy();
+    return 9;
   }
 
   std::vector<CameraRigView> camera_views;
+  std::string camera_mode = "default_camera";
   if (!options.camera_rig_file.empty()) {
     std::string load_error;
     if (!LoadCameraRigFromFile(options.camera_rig_file, camera_views, load_error)) {
       EVOENGINE_ERROR(load_error);
       Application::Terminate();
-      return 9;
+      cleanup_isolated_project_copy();
+      return 10;
     }
+    camera_mode = "camera_rig_file";
   }
   if (camera_views.empty()) {
-    camera_views.push_back(MakeDefaultCameraView(options));
+    if (options.use_scene_main_camera) {
+      CameraRigView scene_camera_view;
+      std::string camera_error;
+      if (!BuildSceneMainCameraView(scene, camera, camera_entity, options, scene_camera_view, camera_error)) {
+        EVOENGINE_ERROR(camera_error);
+        Application::Terminate();
+        cleanup_isolated_project_copy();
+        return 10;
+      }
+      camera_views.push_back(scene_camera_view);
+      camera_mode = "scene_main_camera";
+    } else {
+      camera_views.push_back(MakeDefaultCameraView(options));
+      camera_mode = "default_camera";
+    }
   }
 
   camera->camera_render_mode = options.use_gpu ? Camera::CameraRenderMode::RayTracing
@@ -1024,9 +1353,14 @@ int main(int argc, char** argv) {
   const auto camera_json_path = options.output_root / (options.output_name + std::string("_camera_views.json"));
   WriteCameraMetadataJson(camera_json_path, camera_views);
 
-  EVOENGINE_LOG("ScotsPineGrowthApp started: output_root=" + options.output_root.string() +
+  EVOENGINE_LOG("ScotsPineDataGeneratorApp started: output_root=" + options.output_root.string() +
                 ", frame_count=" + std::to_string(options.frame_count) +
-                ", views=" + std::to_string(camera_views.size()));
+                ", views=" + std::to_string(camera_views.size()) +
+                ", project_mode=" + project_mode +
+                ", project_path=" + isolated_project_path.string() +
+                ", scene_mode=" + scene_mode +
+                ", scene_asset=" + resolved_scene_asset +
+                ", camera_mode=" + camera_mode);
 
   for (uint32_t frame_index = 0; frame_index < options.frame_count; frame_index++) {
     const float t = options.frame_count <= 1u
@@ -1119,6 +1453,7 @@ int main(int argc, char** argv) {
   }
 
   Application::Terminate();
-  EVOENGINE_LOG("ScotsPineGrowthApp finished.");
+  cleanup_isolated_project_copy();
+  EVOENGINE_LOG("ScotsPineDataGeneratorApp finished.");
   return 0;
 }

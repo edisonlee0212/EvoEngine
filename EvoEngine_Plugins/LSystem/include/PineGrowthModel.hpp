@@ -37,7 +37,8 @@ class PineGrowthModel
                   const glm::vec3& root_position = glm::vec3(0),
                                     const glm::quat& root_rotation = kDefaultRootRotation,
                                     const ScotsPineDescriptor* post_repot_descriptor = nullptr,
-                                    float repot_switch_gdd = -1.0f);
+                                    float repot_switch_gdd = -1.0f,
+                                    bool enable_needle_topology = true);
 
     /**
      * @brief Grow toward target GDD with optional one-time pre->post profile switch.
@@ -54,6 +55,14 @@ class PineGrowthModel
 
     [[nodiscard]] float GetRepotSwitchGdd() const {
         return repot_switch_gdd_;
+    }
+
+    /// Enable or disable needle-cluster topology emission in Scots pine rules.
+    /// When false, topology emits internodes only (stem-only mode).
+    void SetNeedleTopologyEnabled(bool enabled);
+
+    [[nodiscard]] bool IsNeedleTopologyEnabled() const {
+      return needle_topology_enabled_;
     }
 
   /**
@@ -95,6 +104,7 @@ class PineGrowthModel
     bool has_post_repot_profile_ = false;
     bool post_repot_profile_active_ = false;
     float repot_switch_gdd_ = -1.0f;
+    bool needle_topology_enabled_ = true;
 
   int stem_load_cache_graph_version_ = -1;
   std::vector<float> stem_load_cache_;

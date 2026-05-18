@@ -59,10 +59,20 @@ class RenderLayer final : public ILayer {
   int debug_needle_max_logs_per_frame = 8;
 
   /// Logs per-draw material/instance state for stem-like instanced draws.
-  bool debug_stem_state_audit = false;
+  /// Default-on while diagnosing persistent wrong stem color state.
+  bool debug_stem_state_audit = true;
 
   /// Per-frame log cap for stem draw auditing.
-  int debug_stem_max_logs_per_frame = 2;
+  int debug_stem_max_logs_per_frame = 64;
+
+  /// Logs per-camera routing decisions (raster vs RT vs forced fallback).
+  bool debug_camera_path_audit = true;
+
+  /// Per-frame log cap for camera path auditing.
+  int debug_camera_max_logs_per_frame = 16;
+
+  /// Forces scene camera to use the standard deferred lighting pipeline for A/B diagnosis.
+  bool debug_force_scene_camera_standard_lighting = false;
 
   /// Specifies the rendering settings.
   RenderSettings render_settings{};

@@ -6,6 +6,8 @@
 #include "MeshRenderer.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
+#include <cstddef>
+#include <type_traits>
 
 namespace evo_engine {
 
@@ -96,6 +98,13 @@ class RenderInstanceStorage {
     alignas(4) int spot_light_size = 0;         ///< Number of spot lights.
     alignas(4) int brdflut_texture_index = 0;   ///< Texture index for BRDF LUT.
 
+    // Must stay ABI-identical to RenderInfo.glsl (std140):
+    // int instance_size; int material_size; int padding_1; int padding_2;
+    alignas(4) int instance_size = 0;
+    alignas(4) int material_size = 0;
+    alignas(4) int padding_1 = 0;
+    alignas(4) int padding_2 = 0;
+
     /**
      * @brief Applies the settings from the target RenderSettings.
      * @param target_render_settings Render settings to be applied.
@@ -109,6 +118,21 @@ class RenderInstanceStorage {
      */
     bool operator!=(const RenderInfoBlock& other) const;
   };
+
+  static_assert(std::is_standard_layout_v<RenderInfoBlock>,
+                "RenderInfoBlock must remain standard layout for GPU upload.");
+  static_assert(offsetof(RenderInfoBlock, split_distances) == 0,
+                "RenderInfoBlock::split_distances offset mismatch.");
+  static_assert(offsetof(RenderInfoBlock, pcf_sample_amount) == 16,
+                "RenderInfoBlock::pcf_sample_amount offset mismatch.");
+  static_assert(offsetof(RenderInfoBlock, strands_subdivision_x_factor) == 32,
+                "RenderInfoBlock::strands_subdivision_x_factor offset mismatch.");
+  static_assert(offsetof(RenderInfoBlock, directional_light_size) == 48,
+                "RenderInfoBlock::directional_light_size offset mismatch.");
+  static_assert(offsetof(RenderInfoBlock, instance_size) == 64,
+                "RenderInfoBlock::instance_size offset mismatch.");
+  static_assert(sizeof(RenderInfoBlock) == 80,
+                "RenderInfoBlock must match RenderInfo.glsl std140 layout (80 bytes).");
 
   /**
    * @brief Struct to hold environment-related rendering information.

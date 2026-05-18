@@ -496,6 +496,12 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
   strands_subdivision_y_factor = target_render_settings.strands_subdivision_y_factor;
   strands_subdivision_max_x = target_render_settings.strands_subdivision_max_x;
   strands_subdivision_max_y = target_render_settings.strands_subdivision_max_y;
+
+  // Populated after instance/material block build each frame.
+  instance_size = 0;
+  material_size = 0;
+  padding_1 = 0;
+  padding_2 = 0;
 }
 
 bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& other) const {
@@ -524,6 +530,11 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
   if (spot_light_size != other.spot_light_size)
     return true;
   if (brdflut_texture_index != other.brdflut_texture_index)
+    return true;
+
+  if (instance_size != other.instance_size)
+    return true;
+  if (material_size != other.material_size)
     return true;
 
   if (debug_visualization != other.debug_visualization)
@@ -865,6 +876,12 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   external_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance);
   });
+
+  // Keep RenderInfo ABI payload in sync with shader-side clamps.
+  render_info_block.instance_size = static_cast<int>(instance_info_blocks_.size());
+  render_info_block.material_size = static_cast<int>(material_info_blocks_.size());
+  render_info_block.padding_1 = 0;
+  render_info_block.padding_2 = 0;
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
@@ -1468,6 +1485,19 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
     return false;
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
+  if (material_info_block.vertex_color_only != 0 && particle_info_list) {
+    const auto& particle_infos = particle_info_list->PeekParticleInfoList();
+    if (!particle_infos.empty()) {
+      const glm::vec4 seed_color = glm::clamp(particle_infos.front().instance_color, glm::vec4(0.0f), glm::vec4(1.0f));
+      const bool near_white_albedo =
+          material_info_block.albedo_color_val.r >= 0.999f && material_info_block.albedo_color_val.g >= 0.999f &&
+          material_info_block.albedo_color_val.b >= 0.999f;
+      if (near_white_albedo) {
+        material_info_block.albedo_color_val = glm::vec4(seed_color.r, seed_color.g, seed_color.b,
+                                                         material_info_block.albedo_color_val.w);
+      }
+    }
+  }
   const auto render_instance = std::make_shared<InstancedRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromApi;
   render_instance->owner = Entity();
@@ -1804,6 +1834,19 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
+  if (material_info_block.vertex_color_only != 0) {
+    const auto& particle_infos = particle_info_list->PeekParticleInfoList();
+    if (!particle_infos.empty()) {
+      const glm::vec4 seed_color = glm::clamp(particle_infos.front().instance_color, glm::vec4(0.0f), glm::vec4(1.0f));
+      const bool near_white_albedo =
+          material_info_block.albedo_color_val.r >= 0.999f && material_info_block.albedo_color_val.g >= 0.999f &&
+          material_info_block.albedo_color_val.b >= 0.999f;
+      if (near_white_albedo) {
+        material_info_block.albedo_color_val = glm::vec4(seed_color.r, seed_color.g, seed_color.b,
+                                                         material_info_block.albedo_color_val.w);
+      }
+    }
+  }
 
   const auto render_instance = std::make_shared<InstancedRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
