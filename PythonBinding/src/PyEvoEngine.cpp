@@ -19,26 +19,61 @@ Application& PyEvoEngine::GetApplication() {
   return application;
 }
 
-void capture_current_scene(const int resolution_x, const int resolution_y, const std::string& output_path) {
+namespace {
+DemoSetup ParseDemoSetupName(const std::string& demo_setup_name) {
+  if (demo_setup_name == "Rendering") {
+    return DemoSetup::Rendering;
+  }
+  if (demo_setup_name == "Universe") {
+    return DemoSetup::Universe;
+  }
+  if (demo_setup_name == "Empty") {
+    return DemoSetup::Empty;
+  }
+  EVOENGINE_ERROR("Unsupported demo setup: " + demo_setup_name)
+  return DemoSetup::Empty;
+}
+
+void EnsureRenderLayer() {
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  }
+}
+}  // namespace
+
+bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resolution_y,
+                                      const std::filesystem::path& output_path, const int warmup_frames) {
   if (resolution_x <= 0 || resolution_y <= 0) {
     EVOENGINE_ERROR("Resolution error!");
-    return;
+    return false;
   }
 
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     EVOENGINE_ERROR("No active scene!");
-    return;
+    return false;
   }
   const auto main_camera = scene->main_camera.Get<Camera>();
   if (!main_camera) {
     EVOENGINE_ERROR("No main camera in scene!");
-    return;
+    return false;
   }
   main_camera->Resize({resolution_x, resolution_y});
-  ApplicationContext::Get().Loop();
+  const auto loop_count = std::max(1, warmup_frames);
+  for (int i = 0; i < loop_count; i++) {
+    ApplicationContext::Get().Loop();
+  }
+  if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
+    std::filesystem::create_directories(parent_path);
+  }
   main_camera->GetRenderTexture()->StoreToPng(output_path);
-  EVOENGINE_LOG("Exported image to " + output_path);
+  const bool success = std::filesystem::exists(output_path) && std::filesystem::file_size(output_path) > 0;
+  if (success) {
+    EVOENGINE_LOG("Exported image to " + output_path.string());
+  } else {
+    EVOENGINE_ERROR("Failed to export image to " + output_path.string())
+  }
+  return success;
 }
 
 Handle PyEvoEngine::CreateRuntimeAsset(const std::string& asset_type) {
@@ -159,6 +194,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("PushEditorLayer", &PushEditorLayer);
   m.def("PushRayTracerLayer", &PushRayTracerLayer);
 
+  m.def("RunWindowless", &RunWindowless);
+  m.def("RunDemoWindowless", &RunDemoWindowless, py::arg("demo_setup_name"), py::arg("resource_folder_path"),
+        py::arg("clear_generated_project_files") = true);
+  m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
+        py::arg("output_path"), py::arg("warmup_frames") = 1);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);
@@ -236,18 +276,55 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("IsEntityValid", &IsEntityValid);
 }
 void PyEvoEngine::PushRenderLayer() {
-  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  EnsureRenderLayer();
 }
 void PyEvoEngine::PushWindowLayer() {
-  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  if (!ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  }
 }
 void PyEvoEngine::PushEditorLayer() {
-  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+  if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+  }
 }
 void PyEvoEngine::PushRayTracerLayer() {
 #ifdef CUDA_MODULE_SERVICE
   ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
+}
+
+bool PyEvoEngine::RunWindowless(const std::filesystem::path& project_path) {
+  if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
+    EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");
+    return false;
+  }
+  EnsureRenderLayer();
+  ApplicationInitializationSettings application_info{};
+  application_info.project_path = project_path;
+  ApplicationContext::Get().Initialize(application_info);
+  ApplicationContext::Get().Start();
+  return true;
+}
+
+bool PyEvoEngine::RunDemoWindowless(const std::string& demo_setup_name,
+                                    const std::filesystem::path& resource_folder_path,
+                                    const bool clear_generated_project_files) {
+  const auto demo_setup = ParseDemoSetupName(demo_setup_name);
+  if (demo_setup == DemoSetup::Empty && demo_setup_name != "Empty") {
+    return false;
+  }
+
+  EnsureRenderLayer();
+  ApplicationInitializationSettings application_info{};
+  SetupDemoScene(demo_setup, application_info, resource_folder_path, clear_generated_project_files);
+  if (application_info.project_path.empty()) {
+    EVOENGINE_ERROR("Demo setup did not provide a project path!");
+    return false;
+  }
+  ApplicationContext::Get().Initialize(application_info);
+  ApplicationContext::Get().Start();
+  return true;
 }
 
 void PyEvoEngine::Run(const std::filesystem::path& project_path) {

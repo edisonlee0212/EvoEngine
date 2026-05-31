@@ -14,6 +14,7 @@ if (MSVC)
 endif()
 
 include(GNUInstallDirs)
+include(CTest)
 
 set(EVOENGINE_INSTALL_APP_RUNTIME_DIR ${CMAKE_INSTALL_BINDIR} CACHE STRING
 	"Install directory for EvoEngine executable app runtimes.")
@@ -181,6 +182,14 @@ add_subdirectory(${EVOENGINE_APP_DIR})
 # ------------------------------------------------------------------
 set(EVOENGINE_PYBIND_DIR ${CMAKE_CURRENT_SOURCE_DIR}/PythonBinding)
 add_subdirectory(${EVOENGINE_PYBIND_DIR})
+
+# ------------------------------------------------------------------
+# EvoEngine - Tests
+# ------------------------------------------------------------------
+if (BUILD_TESTING)
+	set(EVOENGINE_TESTS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_Tests)
+	add_subdirectory(${EVOENGINE_TESTS_DIR})
+endif()
 
 if (NOT ${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	set(EVOENGINE_INCLUDES ${EVOENGINE_INCLUDES} PARENT_SCOPE)

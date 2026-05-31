@@ -606,6 +606,8 @@ uint32_t Platform::PhysicalDevice::FindMemoryType(uint32_t type_filter, VkMemory
 }
 
 bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required_extension_names) const {
+  if (!queue_family_indices.graphics_and_compute_family.has_value())
+    return false;
   bool support_check = true;
   for (const auto& i : required_extension_names) {
     if (!CheckExtensionSupport(i)) {
@@ -1207,7 +1209,8 @@ void Platform::CreateLogicalDevice() {
   std::vector<float> priorities = {0.0f};
   VkDeviceQueueCreateInfo queue_create_info{};
   queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queue_create_info.queueFamilyIndex = selected_physical_device->queue_family_indices.present_family.value();
+  queue_create_info.queueFamilyIndex =
+      selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
   queue_create_info.queueCount = 1;
   queue_create_info.pQueuePriorities = priorities.data();
   queue_create_infos.push_back(queue_create_info);
