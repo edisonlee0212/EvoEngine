@@ -164,7 +164,7 @@ def main(args):
         grid_z = index // row_size
         position = utils.make_vec3(grid_x * instance_spacing, 0.0, grid_z * instance_spacing)
         # input to rotation should be in the unit of radians
-        euler_rotation = utils.make_vec3(np.radians(90), 0.0, 0.0)
+        euler_rotation = utils.make_vec3(np.radians(0), 0.0, 0.0)
         scale = utils.make_vec3(1.0, 1.0, 1.0)
         entity = sorghum_framework.CreateEntityFromPrefab(prefab_handle, position, euler_rotation, scale)
 

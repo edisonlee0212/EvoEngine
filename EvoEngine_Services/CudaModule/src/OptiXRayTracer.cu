@@ -8,10 +8,6 @@
 #include <glm/gtc/random.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define GL_TEXTURE_CUBE_MAP 0x8513
-
-#include <cuda_gl_interop.h>
-
 #include <iostream>
 
 #include <RayDataDefinations.hpp>
@@ -1737,20 +1733,3 @@ void RayTracedMaterial::UploadForSbt() {
   }
 }
 
-void RayTracedMaterial::BindTexture(unsigned int id, cudaGraphicsResource_t &graphics_resource,
-                                    cudaTextureObject_t &texture_object) {
-  cudaArray_t texture_array;
-  CUDA_CHECK(GraphicsGLRegisterImage(&graphics_resource, id, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsReadOnly));
-  CUDA_CHECK(GraphicsMapResources(1, &graphics_resource, nullptr));
-  CUDA_CHECK(GraphicsSubResourceGetMappedArray(&texture_array, graphics_resource, 0, 0));
-  cudaResourceDesc cuda_resource_desc = {};
-  cuda_resource_desc.resType = cudaResourceTypeArray;
-  cuda_resource_desc.res.array.array = texture_array;
-  cudaTextureDesc cuda_texture_desc = {};
-  cuda_texture_desc.addressMode[0] = cudaAddressModeWrap;
-  cuda_texture_desc.addressMode[1] = cudaAddressModeWrap;
-  cuda_texture_desc.filterMode = cudaFilterModeLinear;
-  cuda_texture_desc.readMode = cudaReadModeElementType;
-  cuda_texture_desc.normalizedCoords = 1;
-  CUDA_CHECK(CreateTextureObject(&texture_object, &cuda_resource_desc, &cuda_texture_desc, nullptr));
-}

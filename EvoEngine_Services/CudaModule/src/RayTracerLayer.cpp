@@ -4,6 +4,7 @@
 #include "BtfMaterial.hpp"
 #include "BtfMeshRenderer.hpp"
 #include "EditorLayer.hpp"
+#include "IlluminationLightmapEstimator.hpp"
 #include "MeshRenderer.hpp"
 #include "OptiXRayTracer.hpp"
 #include "Particles.hpp"

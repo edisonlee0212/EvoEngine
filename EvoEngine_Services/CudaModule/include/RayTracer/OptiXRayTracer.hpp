@@ -238,8 +238,6 @@ struct RayTracedMaterial {
 
   void UploadForSbt();
 
-  static void BindTexture(unsigned int id, cudaGraphicsResource_t& graphics_resource,
-                          cudaTextureObject_t& texture_object);
 };
 
 enum class CurveMode { Linear, Quadratic, Cubic };

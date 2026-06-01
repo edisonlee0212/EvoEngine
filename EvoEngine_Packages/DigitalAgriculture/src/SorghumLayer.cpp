@@ -1,4 +1,5 @@
 #ifdef CUDA_MODULE_SERVICE
+#  include "LeafIlluminationEstimator.hpp"
 #  include <TriangleIlluminationEstimator.hpp>
 #  include "BtfMeshRenderer.hpp"
 #  include "RayTracerLayer.hpp"
@@ -31,8 +32,11 @@ void SorghumLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<SorghumState>("SorghumState", {".ss"});
   application.RegisterAsset<SorghumGenerator>("SorghumGenerator", {".sg"});
   application.RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
+  application.RegisterPrivateComponent<SorghumFieldGrid>("SorghumFieldGrid");
   application.RegisterAsset<CropDescriptor>("CropDescriptor", {".cropdesc"});
+  
 #ifdef CUDA_MODULE_SERVICE
+  application.RegisterPrivateComponent<LeafIlluminationEstimator>("LeafIlluminationEstimator");
   application.RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"});
   application.RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"});
 

@@ -74,6 +74,7 @@ int main() {
 
   ApplicationInitializationSettings application_configs;
   application_configs.application_name = "DigitalAgriculture";
+  application_configs.full_screen = true;
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
   application_configs.enable_runtime_packages = true;
@@ -83,10 +84,14 @@ int main() {
 #ifdef CUDA_MODULE_SERVICE
 
   auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
+  ray_tracer_layer->enable_inspection = true;
+  ray_tracer_layer->show_scene_window = true;
+  ray_tracer_layer->environment_properties.environmental_lighting_type = EnvironmentalLightingType::Skydome;
 #endif
 
   // adjust default camera speed
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  editor_layer->show_scene_window = true;
   editor_layer->velocity = 2.f;
   editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();

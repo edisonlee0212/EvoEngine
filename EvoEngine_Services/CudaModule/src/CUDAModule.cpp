@@ -6,8 +6,6 @@
 
 #include <OptiXRayTracer.hpp>
 
-#include <cuda_gl_interop.h>
-
 #include <cuda.h>
 
 #include <sstream>
