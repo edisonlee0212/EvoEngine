@@ -137,7 +137,7 @@ register_evoengine_app(EvoEngineEditor ON)
 register_evoengine_app(EvoEngineLauncher ON)
 
 register_evoengine_app(DemoApp ON)
-register_evoengine_app(EcoSysLabApp ON)
+register_evoengine_app(EcoSysLabApp OFF)
 register_evoengine_app(DigitalAgricultureApp ON)
 register_evoengine_app(LSystemApp ON)
 

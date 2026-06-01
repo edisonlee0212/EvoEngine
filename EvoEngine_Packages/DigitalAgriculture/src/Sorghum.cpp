@@ -14,6 +14,76 @@
 #endif
 using namespace digital_agriculture_package;
 
+namespace {
+bool IsValidBound(const Bound& bound) {
+  return bound.min.x <= bound.max.x && bound.min.y <= bound.max.y && bound.min.z <= bound.max.z;
+}
+
+void CombineBound(Bound& combined_bound, bool& has_bound, const Bound& bound) {
+  if (!IsValidBound(bound))
+    return;
+  if (!has_bound) {
+    combined_bound = bound;
+    has_bound = true;
+    return;
+  }
+  combined_bound.min = glm::min(combined_bound.min, bound.min);
+  combined_bound.max = glm::max(combined_bound.max, bound.max);
+}
+
+void TryCombineMeshBound(const std::shared_ptr<Scene>& scene, const Entity& entity, Bound& combined_bound,
+                         bool& has_bound) {
+  const auto global_transform = scene->GetDataComponent<GlobalTransform>(entity).value;
+  if (scene->HasPrivateComponent<MeshRenderer>(entity)) {
+    const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+    if (const auto mesh = mesh_renderer->mesh.Get<Mesh>()) {
+      auto mesh_bound = mesh->GetBound();
+      if (!IsValidBound(mesh_bound))
+        return;
+      mesh_bound.ApplyTransform(global_transform);
+      CombineBound(combined_bound, has_bound, mesh_bound);
+    }
+#ifdef CUDA_MODULE_PLUGIN
+  } else if (scene->HasPrivateComponent<BtfMeshRenderer>(entity)) {
+    const auto mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(entity).lock();
+    if (const auto mesh = mesh_renderer->mesh.Get<Mesh>()) {
+      auto mesh_bound = mesh->GetBound();
+      if (!IsValidBound(mesh_bound))
+        return;
+      mesh_bound.ApplyTransform(global_transform);
+      CombineBound(combined_bound, has_bound, mesh_bound);
+    }
+#endif
+  } else if (scene->HasPrivateComponent<Particles>(entity)) {
+    const auto particles = scene->GetOrSetPrivateComponent<Particles>(entity).lock();
+    auto particle_bound = particles->bounding_box;
+    if (!IsValidBound(particle_bound))
+      return;
+    particle_bound.ApplyTransform(global_transform);
+    CombineBound(combined_bound, has_bound, particle_bound);
+  }
+}
+
+float CalculateGeneratedGeometryHeight(const std::shared_ptr<Scene>& scene, const Entity& owner) {
+  Bound combined_bound{};
+  bool has_bound = false;
+  auto entities = scene->GetDescendants(owner);
+  entities.emplace_back(owner);
+  for (const auto& entity : entities) {
+    TryCombineMeshBound(scene, entity, combined_bound, has_bound);
+  }
+  return has_bound ? combined_bound.max.y - combined_bound.min.y : 0.0f;
+}
+
+uint32_t PeekLeafCount(Sorghum& sorghum) {
+  if (const auto descriptor = sorghum.sorghum_descriptor.Get<SorghumDescriptor>())
+    return descriptor->leaves.size();
+  if (const auto state = sorghum.sorghum_state.Get<SorghumState>())
+    return state->leaves.size();
+  return 0;
+}
+}  // namespace
+
 void Sorghum::ClearGeometryEntities() const {
   const auto scene = GetScene();
   const auto self = GetOwner();
@@ -272,6 +342,10 @@ bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorg
   auto& sorghum_state = sorghum.sorghum_state;
   auto& sorghum_descriptor = sorghum.sorghum_descriptor;
   bool changed = false;
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+  ImGui::Text("Leaf count: %u", PeekLeafCount(*this));
+  ImGui::Text("Plant bounding box height: %.6f", CalculateGeneratedGeometryHeight(scene, owner));
   if (editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_generator, "SorghumGenerator"))
     changed = true;
   if (editor_layer->DragAndDropButton<SorghumGrowthStages>(sorghum_growth_stages, "SorghumGrowthStages"))

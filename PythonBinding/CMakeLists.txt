@@ -104,7 +104,7 @@ set("PythonBinding-PyEcoSysLab" OFF CACHE BOOL "Package-specific Python bindings
 set("PythonBinding-PyDigitalAgriculture" OFF CACHE BOOL
 	"Package-specific Python bindings are disabled during runtime package migration." FORCE)
 register_python_binding(PyEcoSysLab OFF)
-register_python_binding(PyDigitalAgriculture OFF)
+register_python_binding(PyDigitalAgriculture ON)
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")

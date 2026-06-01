@@ -15,7 +15,7 @@ struct SorghumMeshGeneratorSettings {
   bool enable_leaf_sheath = true;  ///< Enables leaf sheath generation.
   int single_leaf_index = -1;      ///< Index for a single leaf (-1 for all).
   bool bottom_face = true;         ///< Enables bottom face generation.
-  bool leaf_separated = false;     ///< Determines if leaves are separate objects.
+  bool leaf_separated = true;      ///< Determines if leaves are separate objects.
   float leaf_thickness = 0.001f;   ///< Thickness of leaves.
 };
 
