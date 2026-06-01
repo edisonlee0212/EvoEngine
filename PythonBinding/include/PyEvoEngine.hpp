@@ -2,6 +2,7 @@
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
+#include "DemoScene.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "PlayerController.hpp"
@@ -109,6 +110,31 @@ class PyEvoEngine {
    * @brief Add EditorLayer to the framework.
    */
   static void PushRayTracerLayer();
+  /**
+   * @brief Start the framework with RenderLayer but no WindowLayer.
+   * @param project_path The path to the target project to load.
+   * @return True when initialization was requested successfully.
+   */
+  static bool RunWindowless(const std::filesystem::path& project_path);
+  /**
+   * @brief Start a built-in DemoApp scene with RenderLayer but no WindowLayer.
+   * @param demo_setup_name Name of the demo setup. Currently supports "Rendering".
+   * @param resource_folder_path Path to the Resources folder to use.
+   * @param clear_generated_project_files Whether generated project metadata should be removed before setup.
+   * @return True when initialization was requested successfully.
+   */
+  static bool RunDemoWindowless(const std::string& demo_setup_name, const std::filesystem::path& resource_folder_path,
+                                bool clear_generated_project_files = true);
+  /**
+   * @brief Render and save the active scene's main camera.
+   * @param resolution_x Capture width.
+   * @param resolution_y Capture height.
+   * @param output_path Output image path.
+   * @param warmup_frames Number of application loops before saving.
+   * @return True when a non-empty image was written.
+   */
+  static bool CaptureCurrentScene(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
+                                  int warmup_frames = 1);
   /**
    * @brief Start application with a project.
    * @param project_path The path to the target project to load.

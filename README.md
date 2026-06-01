@@ -40,9 +40,9 @@ The SDK provides:
 | `EvoEngine_SDK` | Core runtime, ECS, editor, renderer, assets, serialization, jobs, input, and utilities. |
 | `EvoEngine_Services` | Build-time domain modules that extend the SDK and are linked into apps/Python bindings. |
 | `EvoEngine_Packages` | Runtime package shared-library modules loaded from `Packages` folders. |
-| `EvoEngine_App` | Executable apps that choose SDK layers and startup runtime packages. |
+| `EvoEngine_App` | Executable apps, shared demo setup headers, app entry points, and app resources/configuration. |
 | `PythonBinding` | pybind11 modules for scripted workflows. |
-| `Resources` | Demo projects, screenshots, textures, scripts, and build helpers. |
+| `Resources` | Demo projects, screenshots, textures, and sample assets. |
 | `Extern` | Vendored third-party libraries and submodules. |
 | `cmake` | CMake helper modules. |
 
@@ -141,16 +141,21 @@ git submodule update --init --recursive
 
 Windows requirements:
 
-- Visual Studio 2019 or 2022 with Desktop development with C++
-- CMake and Ninja
+- Visual Studio 2026 with Desktop development with C++
+- CMake
 - Vulkan SDK
-- vcpkg path recorded in `%LOCALAPPDATA%\vcpkg\vcpkg.path.txt`
-- a Visual Studio developer command prompt
 
-Windows build:
+Generate the Visual Studio solution:
 
 ```bat
-build.cmd Release
+python Scripts\build_project.py
+```
+
+Build and install runnable app binaries:
+
+```bat
+python Scripts\install_apps.py
+python Scripts\install_apps.py --config Debug
 ```
 
 Linux requirements:
@@ -167,18 +172,23 @@ Linux requirements:
 Linux build:
 
 ```bash
-bash build.sh Release
+cmake -S . -B out/build/linux-RelWithDebInfo -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=out/install/linux-RelWithDebInfo
+cmake --build out/build/linux-RelWithDebInfo
+cmake --install out/build/linux-RelWithDebInfo
 ```
 
-Useful script options:
+Useful scripts:
 
 ```bash
---clean
---verbose
---no-test
-Debug
-Release
+python Scripts/test.py
+python Scripts/test.py --all
+python Scripts/format_cpp.py
+python Scripts/format_cpp.py --check
 ```
+
+`python Scripts/test.py` is the local render test runner. By default it builds and runs the render/GPU test target, writes the latest visual artifact under `out/test-artifacts/latest`, and reports PSNR/SSIM for the golden-image comparison. Use `--all` to run every CTest test in the local build tree.
+
+GitHub Actions are limited to repository-wide format checks and platform compilation checks. Rendering tests are intentionally local-only because they require a Vulkan-capable GPU environment and produce visual artifacts for inspection.
 
 Build outputs are generated under `out/build/<platform>-<config>/`. App binaries are produced under the `EvoEngine_App` build directory and Python modules are produced under the `PythonBinding` build directory. Runtime packages are copied under the app runtime `Packages` folder. Post-build steps still copy engine resources, Service resources, runtime libraries (`.dll` on Windows, `.so` on Linux), PDBs when available, runtime packages, and `imgui.ini` beside build-tree binaries for fast local development.
 
@@ -216,8 +226,8 @@ out/build/vs2026-x64/EvoEngine_App/RelWithDebInfo/Packages/
 From a terminal, use:
 
 ```bat
-cmake --preset vs2026-x64
-cmake --build --preset install-vs2026-x64-RelWithDebInfo
+python Scripts\build_project.py
+python Scripts\install_apps.py
 ```
 
 After install, app executables are under:

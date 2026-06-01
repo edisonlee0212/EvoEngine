@@ -206,7 +206,7 @@ def run_format(clang_format: str, path: Path, repo_root: Path, check: bool, verb
 
 def main() -> int:
     args = parse_args()
-    repo_root = Path(__file__).resolve().parent
+    repo_root = Path(__file__).resolve().parents[1]
     extensions = normalize_extensions(args.extensions)
     files = discover_files(repo_root, args.roots, extensions)
 

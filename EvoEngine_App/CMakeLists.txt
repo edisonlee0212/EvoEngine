@@ -14,14 +14,51 @@ set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR})
 if(CMAKE_CONFIGURATION_TYPES)
 	set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)
 endif()
+set(EVOENGINE_APP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(EVOENGINE_APP_RESOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 add_custom_command(TARGET AppResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy 
-			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${EVOENGINE_APP_BUILD_RUNTIME_DIR} VERBATIM)
+			${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini ${EVOENGINE_APP_BUILD_RUNTIME_DIR} VERBATIM)
 
 set_property(TARGET AppResourceCopy PROPERTY FOLDER PostBuildActions)
+
+add_library(EvoEngine_DemoScene STATIC
+	${CMAKE_CURRENT_SOURCE_DIR}/include/DemoScene.hpp
+	${EVOENGINE_APP_SOURCE_DIR}/DemoScene.cpp
+	)
+target_compile_definitions(EvoEngine_DemoScene
+	PRIVATE
+	${DEFAULT_PROJECT_DEF}
+	${EVOENGINE_DEFS}
+	)
+target_include_directories(EvoEngine_DemoScene
+	PUBLIC
+	${CMAKE_CURRENT_SOURCE_DIR}/include
+	${EVOENGINE_INCLUDES}
+	)
+target_precompile_headers(EvoEngine_DemoScene
+	PRIVATE
+	${EVOENGINE_PCHS}
+	)
+target_link_libraries(EvoEngine_DemoScene
+	PUBLIC
+	EvoEngine_SDK
+	${EvoEngine_Services}
+	)
+if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
+	add_dependencies(EvoEngine_DemoScene ${EvoEngine_RuntimePackages})
+endif()
+if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+	target_compile_options(EvoEngine_DemoScene PRIVATE -Werror)
+elseif (MSVC)
+	target_compile_options(EvoEngine_DemoScene PRIVATE /EHsc /W2 /FS /c)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+	target_compile_options(EvoEngine_DemoScene PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
+endif ()
+set_property(TARGET EvoEngine_DemoScene PROPERTY FOLDER Libraries)
 
 function(register_evoengine_app app_name default_enable)
 	if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
@@ -30,12 +67,12 @@ function(register_evoengine_app app_name default_enable)
 		if(${option_name})
 			if (WIN32)
 				add_executable(${app_name}
-					${app_name}.cpp
-					${app_name}.rc
+					${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
+					${EVOENGINE_APP_RESOURCE_DIR}/${app_name}.rc
 					)
 			else()
 				add_executable(${app_name}
-					${app_name}.cpp
+					${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
 					)
 			endif()
 			target_compile_definitions(${app_name}
@@ -46,6 +83,8 @@ function(register_evoengine_app app_name default_enable)
 			target_include_directories(${app_name}
 				PRIVATE
 				${EVOENGINE_INCLUDES}
+				${CMAKE_CURRENT_SOURCE_DIR}/include
+				${EVOENGINE_APP_RESOURCE_DIR}
 				)
 			target_precompile_headers(${app_name}
 				PRIVATE
@@ -56,6 +95,12 @@ function(register_evoengine_app app_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Services}
 				)
+			if (${app_name} STREQUAL "DemoApp")
+				target_link_libraries(${app_name}
+					PRIVATE
+					EvoEngine_DemoScene
+					)
+			endif()
 			if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
 				add_dependencies(${app_name} ${EvoEngine_RuntimePackages})
 			endif()
@@ -94,9 +139,16 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	set(option_name EvoEngine_App-EmptyApp)
 	option(${option_name} "Build Empty application" ON)
 	if(${option_name})
-		add_executable(EmptyApp
-			EmptyApp.cpp
-			)
+		if (WIN32)
+			add_executable(EmptyApp
+				${EVOENGINE_APP_SOURCE_DIR}/EmptyApp.cpp
+				${EVOENGINE_APP_RESOURCE_DIR}/EmptyApp.rc
+				)
+		else()
+			add_executable(EmptyApp
+				${EVOENGINE_APP_SOURCE_DIR}/EmptyApp.cpp
+				)
+		endif()
 		target_compile_definitions(EmptyApp
 			PRIVATE
 			${DEFAULT_PROJECT_DEF}
@@ -105,6 +157,7 @@ if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 		target_include_directories(EmptyApp
 			PRIVATE
 			${EVOENGINE_INCLUDES}
+			${EVOENGINE_APP_RESOURCE_DIR}
 			)
 		target_precompile_headers(EmptyApp
 			PRIVATE
@@ -136,6 +189,6 @@ endif ()
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
-	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini
+	install(FILES ${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini
 		DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 endif ()
