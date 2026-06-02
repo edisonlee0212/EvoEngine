@@ -1,11 +1,11 @@
 #include "CropShootModel.hpp"
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 
 #include "SorghumLayer.hpp"
 #include "SorghumState.hpp"
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 
 // Deterministic sampling from a PlottedDistribution using our own RNG
 // instead of glm::gaussRand (which uses the non-resettable global std::rand).
@@ -46,7 +46,7 @@ void CropShootModel::Initialize(const std::shared_ptr<CropDescriptor>& descripto
   // Apply genotype constants onto the newly constructed skeleton.
   skeleton_.data = skel_data;
 
-  const eco_sys_lab_plugin::SkeletonNodeHandle root_handle = 0;
+  const eco_sys_lab_package::SkeletonNodeHandle root_handle = 0;
   auto& root = skeleton_.RefNode(root_handle);
   root.info.global_position = glm::vec3(0.0f);
   root.info.global_rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
@@ -176,8 +176,8 @@ void CropShootModel::InitiatePhytomers(const float delta_gdd) {
   skeleton_.SortLists();
 }
 
-eco_sys_lab_plugin::SkeletonNodeHandle CropShootModel::CreatePhytomer(
-    const eco_sys_lab_plugin::SkeletonNodeHandle parent_handle) {
+eco_sys_lab_package::SkeletonNodeHandle CropShootModel::CreatePhytomer(
+    const eco_sys_lab_package::SkeletonNodeHandle parent_handle) {
   auto& skel_data = skeleton_.data;
   const int idx = skel_data.total_phytomers_initiated;
   const float n = static_cast<float>(descriptor_->final_leaf_number - 1);
@@ -502,6 +502,6 @@ void CropShootModel::Load(const std::string& name, const YAML::Node& in) {
   }
 }
 
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package
 
-#endif  // ECOSYSLAB_PLUGIN
+#endif  // ECOSYSLAB_PACKAGE

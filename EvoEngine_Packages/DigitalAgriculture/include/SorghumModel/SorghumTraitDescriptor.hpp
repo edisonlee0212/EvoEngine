@@ -3,7 +3,7 @@
 #include "SorghumDescriptor.hpp"
 
 using namespace evo_engine;
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 
 class SorghumLeafTrait {
 public:
@@ -69,4 +69,4 @@ class SorghumTraitDescriptor : public IAsset {
    */
   void Deserialize(const YAML::Node& in) override;
 };
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package

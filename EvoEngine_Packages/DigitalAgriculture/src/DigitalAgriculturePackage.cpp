@@ -2,17 +2,21 @@
 
 #ifdef CUDA_MODULE_SERVICE
 #  include "CBTFGroup.hpp"
+#  include "LeafIlluminationEstimator.hpp"
 #  include "PARSensorGroup.hpp"
+#  include "SorghumFieldGrid.hpp"
 #endif
 #include "SkyIlluminance.hpp"
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
 #include "SorghumField.hpp"
+#include "SorghumFieldGrid.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumGrowthStages.hpp"
 #include "SorghumLayer.hpp"
 #include "SorghumState.hpp"
+#include "SorghumTraitDescriptor.hpp"
 
 using namespace digital_agriculture_package;
 using namespace evo_engine;
@@ -36,10 +40,13 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
                     registrar->RegisterAsset<SorghumGrowthStages>("SorghumGrowthStages", {".sgs"}) &&
                     registrar->RegisterAsset<SorghumState>("SorghumState", {".ss"}) &&
                     registrar->RegisterAsset<SorghumGenerator>("SorghumGenerator", {".sg"}) &&
-                    registrar->RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
+                    registrar->RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"}) &&
+                    registrar->RegisterAsset<CropDescriptor>("CropDescriptor", {".cropdesc"}) &&
+                    registrar->RegisterPrivateComponent<SorghumFieldGrid>("SorghumFieldGrid");
 #ifdef CUDA_MODULE_SERVICE
   registered = registered && registrar->RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"}) &&
-               registrar->RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"});
+               registrar->RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"}) &&
+               registrar->RegisterPrivateComponent<LeafIlluminationEstimator>("LeafIlluminationEstimator");
 #endif
   return registered && registrar->RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"}) &&
          registrar->RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"}) &&

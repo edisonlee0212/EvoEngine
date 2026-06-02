@@ -342,10 +342,11 @@ std::shared_ptr<T> Application::PushLayer(const std::string& layer_name, const s
       EVOENGINE_ERROR("Not a layer!");
       return nullptr;
     }
+    const auto layer = std::dynamic_pointer_cast<ILayer>(test);
     if (!layers_.empty())
-      layers_.back()->subsequent_layer_ = test;
-    layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
-    layers_.back()->self_ = test;
+      layers_.back()->subsequent_layer_ = layer;
+    layers_.push_back(layer);
+    layers_.back()->self_ = layer;
     layers_.back()->application_ = this;
     layers_.back()->package_owner_ = package_owner;
     if (this->active_scene_) {

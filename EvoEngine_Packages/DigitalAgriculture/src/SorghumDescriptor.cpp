@@ -571,7 +571,7 @@ float SorghumDescriptor::CalculateLeafArea(int leaf_index) const {
 
   
   float total_area = 0.0f;
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
 
   std::vector<Vertex> vertices;
@@ -615,7 +615,7 @@ float SorghumDescriptor::CalculateLeafWidth(int leaf_index) const {
   const auto& spline = leaves[leaf_index].spline;
   if (spline.segments.empty())
     return 0.0f;
-  auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
 
 
   SorghumSpline temp_spline;

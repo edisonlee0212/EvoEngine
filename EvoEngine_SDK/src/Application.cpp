@@ -389,12 +389,12 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   for (const auto& layer : this->layers_) {
     layer->OnCreate();
   }
-  if (window_layer && !application.initialization_settings.full_screen) {
-    window_layer->ResizeWindow(application.initialization_settings.default_window_size.x,
-                               application.initialization_settings.default_window_size.y);
+  if (window_layer && !this->initialization_settings.full_screen) {
+    window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
+                               this->initialization_settings.default_window_size.y);
   }
   if (window_layer) {
-    if (application.initialization_settings.icon_paths.empty()) {
+    if (this->initialization_settings.icon_paths.empty()) {
       GLFWimage images[4];
       images[0].pixels =
           stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine16.png").string().c_str(),

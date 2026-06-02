@@ -1,7 +1,7 @@
 #include "CropDescriptor.hpp"
 #include "SorghumGenerator.hpp"
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 
 void CropDescriptor::OnCreate() {
   // ============================================================================
@@ -299,4 +299,4 @@ void CropDescriptor::InitFromSorghumGenerator(const SorghumGenerator& sg) {
   // -- Phenology GDD values: kept unchanged --
 }
 
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package

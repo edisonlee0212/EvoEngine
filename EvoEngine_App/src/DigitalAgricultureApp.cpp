@@ -1,6 +1,8 @@
 // PlantFactory.cpp : This file contains the 'main' function. Program execution
 // begins and ends there.
 //
+#include "RenderLayer.hpp"
+#include "WindowLayer.hpp"
 #include <Application.hpp>
 
 #ifdef CUDA_MODULE_SERVICE
@@ -13,8 +15,6 @@
 #include "ProjectManager.hpp"
 
 #include "EditorLayer.hpp"
-#include "RenderLayer.hpp"
-#include "WindowLayer.hpp"
 using namespace evo_engine;
 void EngineSetup();
 

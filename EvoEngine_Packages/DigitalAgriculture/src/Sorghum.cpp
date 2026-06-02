@@ -42,7 +42,7 @@ void TryCombineMeshBound(const std::shared_ptr<Scene>& scene, const Entity& enti
       mesh_bound.ApplyTransform(global_transform);
       CombineBound(combined_bound, has_bound, mesh_bound);
     }
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
   } else if (scene->HasPrivateComponent<BtfMeshRenderer>(entity)) {
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(entity).lock();
     if (const auto mesh = mesh_renderer->mesh.Get<Mesh>()) {
@@ -105,7 +105,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     return;
   auto target_sorghum_descriptor = sorghum_descriptor.Get<SorghumDescriptor>();
   if (!target_sorghum_descriptor) {
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
     if (crop_shoot_model.IsInitialized()) {
       sorghum_descriptor = target_sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       crop_shoot_model.ToSorghumDescriptor(target_sorghum_descriptor);
@@ -314,7 +314,7 @@ void Sorghum::OnDestroy() {
   sorghum_state.Clear();
   sorghum_growth_stages.Clear();
   crop_descriptor.Clear();
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
   crop_shoot_model.Clear();
 #endif
 }
@@ -363,7 +363,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     sorghum_descriptor_ptr->ExtractTraits();
   }
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
   if (const auto cd = crop_descriptor.Get<CropDescriptor>()) {
     if (ImGui::TreeNode("Crop Developmental Model")) {
       static float target_gdd = 600.0f;
@@ -504,7 +504,7 @@ uint32_t Sorghum::GetLeafSize() {
   return 0;
 }
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 void Sorghum::GrowCropToGdd(const float target_gdd, const float daily_temperature) {
   const auto cd = crop_descriptor.Get<CropDescriptor>();
   if (!cd)

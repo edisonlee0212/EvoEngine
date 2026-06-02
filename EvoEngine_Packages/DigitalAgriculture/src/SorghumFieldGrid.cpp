@@ -9,10 +9,12 @@
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
 #include "TransformGraph.hpp"
-#include "TriangleIlluminationEstimator.hpp"
 
-#ifdef CUDA_MODULE_PLUGIN
+
+
+#ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
+#  include "TriangleIlluminationEstimator.hpp"
 #endif
 
 #include <cmath>
@@ -21,8 +23,9 @@
 #include <limits>
 #include <sstream>
 
-using namespace digital_agriculture_plugin;
-using namespace eco_sys_lab_plugin;
+using namespace digital_agriculture_package;
+using namespace eco_sys_lab_package;
+
 
 namespace {
 struct FieldIlluminationTestResult {
@@ -123,7 +126,7 @@ float NormalizeFromRange(const float value, const float min_value, const float m
 }  // namespace
 
 void SorghumFieldGrid::RecreateField() {
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   if (!sorghum_layer) {
     EVOENGINE_ERROR("No sorghum layer!");
     return;
@@ -219,8 +222,8 @@ void SorghumFieldGrid::RecreateField() {
 }
 
 void SorghumFieldGrid::CalculateIlluminationForField() {
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
-  const auto scene = Application::GetActiveScene();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!sorghum_layer || !scene) {
     EVOENGINE_ERROR("Failed to calculate field illumination: no sorghum layer or active scene.");
     return;
@@ -246,18 +249,18 @@ void SorghumFieldGrid::CalculateIlluminationForField() {
 }
 
 bool SorghumFieldGrid::CalculateAndExportFieldIlluminationTest() {
-  const auto scene = Application::GetActiveScene();
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
 
-#ifndef CUDA_MODULE_PLUGIN
+#ifndef CUDA_MODULE_SERVICE
   if (!scene || !sorghum_layer) {
     EVOENGINE_ERROR("Failed to export illumination test: missing active scene or SorghumLayer.");
     return false;
   }
-  EVOENGINE_ERROR("Failed to export illumination test: requires CUDA_MODULE_PLUGIN.");
+  EVOENGINE_ERROR("Failed to export illumination test: requires CUDA_MODULE_SERVICE.");
   return false;
 #else
-  const auto ray_tracer_layer = Application::GetLayer<RayTracerLayer>();
+  const auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
   if (!scene || !sorghum_layer || !ray_tracer_layer) {
     EVOENGINE_ERROR("Failed to export illumination test: missing active scene, SorghumLayer, or RayTracerLayer.");
     return false;

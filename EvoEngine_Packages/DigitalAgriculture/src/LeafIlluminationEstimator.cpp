@@ -1,6 +1,6 @@
 #include "LeafIlluminationEstimator.hpp"
 
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
 #  include "BtfMeshRenderer.hpp"
 #  include "EditorLayer.hpp"
 #  include "MeshRenderer.hpp"
@@ -9,7 +9,7 @@
 #  include "Sorghum.hpp"
 #  include "SorghumLayer.hpp"
 #  include "TriangleIlluminationEstimator.hpp"
-using namespace digital_agriculture_plugin;
+using namespace digital_agriculture_package;
 using namespace evo_engine;
 
 namespace {
@@ -39,7 +39,7 @@ void AppendLightProbes(LightProbeGroup& target, const LightProbeGroup& source) {
 void RegenerateSeparatedLeafMeshes(const std::shared_ptr<Scene>& scene, const Entity& owner) {
   if (!scene->HasPrivateComponent<Sorghum>(owner))
     return;
-  const auto sorghum_layer = Application::GetLayer<SorghumLayer>();
+  const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   if (!sorghum_layer)
     return;
   auto settings = sorghum_layer->sorghum_mesh_generator_settings;

@@ -6,6 +6,10 @@
 #include "Sorghum.hpp"
 #include "Tinyply.hpp"
 #include "TreePointCloudScanner.hpp"
+#ifdef CUDA_MODULE_SERVICE
+#  include "CUDAModule.hpp"
+#  include "RayTracerLayer.hpp"
+#endif
 using namespace digital_agriculture_package;
 using namespace dataset_generation_package;
 bool SorghumPointCloudPointSettings::OnInspect() {
@@ -471,7 +475,7 @@ void GantryPointCloudScanner::Scan(const std::vector<Entity>& targets, const std
                                    const std::shared_ptr<PointCloudCaptureSettings>& capture_settings,
                                    std::vector<glm::vec3>& points, std::vector<int>& leaf_indices,
                                    std::vector<int>& instance_indices, std::vector<int>& type_indices) const {
-  const auto render_layer = Application::GetLayer<RenderLayer>();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto scene = GetScene();
   if (!scene) {
     EVOENGINE_ERROR("No active scene!")
@@ -523,10 +527,11 @@ void GantryPointCloudScanner::Scan(const std::vector<Entity>& targets, const std
 
   switch (capture_settings->capture_mode) {
     case PointCloudCaptureSettings::CaptureMode::OptiX: {
-#ifdef CUDA_MODULE_PLUGIN
-      CudaModule::SamplePointCloud(Application::GetLayer<RayTracerLayer>()->environment_properties, pc_samples);
+#ifdef CUDA_MODULE_SERVICE
+      CudaModule::SamplePointCloud(ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties,
+                                   pc_samples);
 #else
-      EVOENGINE_ERROR("Missing CudaModule plugin!")
+      EVOENGINE_ERROR("Missing CudaModule Service!")
 #endif
     } break;
     case PointCloudCaptureSettings::CaptureMode::Cpu: {
@@ -537,14 +542,14 @@ void GantryPointCloudScanner::Scan(const std::vector<Entity>& targets, const std
       if (!render_instances) {
         render_instances = std::make_shared<RenderInstanceStorage>();
         Bound world_bound;
-        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+        render_instances->BuildFromScene({}, ApplicationContext::Get().GetActiveScene(), world_bound);
       }
       CpuRayTracer cpu_ray_tracer;
       cpu_ray_tracer.Initialize(render_instances, [&](uint32_t, const std::shared_ptr<Mesh>&) {},
                                 [&](const uint32_t, const Entity&) {});
       cpu_ray_tracer.SamplePointCloud(pc_samples);
     } break;
-    case PointCloudCaptureSettings::CaptureMode::GpuCompute: {
+    case PointCloudCaptureSettings::CaptureMode::Gpu: {
       std::shared_ptr<RenderInstanceStorage> render_instances{};
       if (render_layer) {
         render_instances = render_layer->GetCurrentRenderInstanceStorage();
@@ -552,7 +557,7 @@ void GantryPointCloudScanner::Scan(const std::vector<Entity>& targets, const std
       if (!render_instances) {
         render_instances = std::make_shared<RenderInstanceStorage>();
         Bound world_bound;
-        render_instances->BuildFromScene({}, Application::GetActiveScene(), world_bound);
+        render_instances->BuildFromScene({}, ApplicationContext::Get().GetActiveScene(), world_bound);
       }
       CpuRayTracer cpu_ray_tracer;
       cpu_ray_tracer.Initialize(render_instances, [&](uint32_t, const std::shared_ptr<Mesh>&) {},
@@ -567,7 +572,7 @@ void GantryPointCloudScanner::Scan(const std::vector<Entity>& targets, const std
   const glm::vec3 right_offset = glm::linearRand(-right_random_offset, right_random_offset);
   for (int sample_index = 0; sample_index < pc_samples.size(); sample_index++) {
     const auto& sample = pc_samples.at(sample_index);
-    if (!sample.hit)
+    if (sample.hit_count == 0)
       continue;
     if (!capture_settings->SampleFilter(sample))
       continue;

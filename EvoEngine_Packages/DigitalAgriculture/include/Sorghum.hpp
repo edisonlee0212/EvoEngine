@@ -1,5 +1,6 @@
 
 #pragma once
+#include "CropShootModel.hpp"
 #include "SorghumDescriptor.hpp"
 namespace digital_agriculture_package {
 using namespace evo_engine;
@@ -28,7 +29,7 @@ class Sorghum final : public IPrivateComponent {
   /** @brief Reference to the crop descriptor asset (developmental model genotype). */
   AssetRef crop_descriptor;
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
   /** @brief Developmental shoot model driven by the crop descriptor. */
   CropShootModel crop_shoot_model;
 #endif
@@ -89,7 +90,7 @@ class Sorghum final : public IPrivateComponent {
    */
   uint32_t GetLeafSize();
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
   /**
    * @brief Grow the crop model to the specified cumulative GDD and regenerate geometry.
    * Reinitializes from zero each call — suitable for the interactive slider.
