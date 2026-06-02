@@ -1,13 +1,13 @@
 #pragma once
 #include "EvoEngine_SDK_PCH.hpp"
 
-#ifdef CUDA_MODULE_PLUGIN
+#ifdef CUDA_MODULE_SERVICE
 #  include "Application.hpp"
 #  include "CUDAModule.hpp"
 #  include "IPrivateComponent.hpp"
 #  include "LightProbeGroup.hpp"
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 class LeafIlluminationEstimator : public evo_engine::IPrivateComponent {
  public:
   struct LeafIlluminationInfo {
@@ -38,5 +38,5 @@ class LeafIlluminationEstimator : public evo_engine::IPrivateComponent {
     return light_probe_group_;
   }
 };
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package
 #endif

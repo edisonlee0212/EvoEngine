@@ -19,9 +19,9 @@
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
+#include "SorghumTraitDescriptor.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "SorghumFieldGrid.hpp"
-#  include "SorghumTraitDescriptor.hpp"
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
 #endif
@@ -79,6 +79,7 @@ void SorghumLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
   application.RegisterPrivateComponent<SorghumFieldGrid>("SorghumFieldGrid");
   application.RegisterAsset<CropDescriptor>("CropDescriptor", {".cropdesc"});
+  application.RegisterAsset<SorghumTraitDescriptor>("SorghumTraitDescriptor", {".st"});
   
 #ifdef CUDA_MODULE_SERVICE
   application.RegisterPrivateComponent<LeafIlluminationEstimator>("LeafIlluminationEstimator");
@@ -91,8 +92,6 @@ void SorghumLayer::RegisterTypes(Application& application) {
   RegisterDigitalAgricultureSerializationHandlers();
   RegisterDigitalAgricultureAssetPreviewHandlers();
 }
-
-AssetRegistration<SorghumTraitDescriptor> st_registry("SorghumTraitDescriptor", {".st"});
 
 void SorghumLayer::OnCreate() {
   if (!leaf_material.Get<Material>()) {
@@ -491,7 +490,7 @@ void SorghumLayer::Update() {
   if (auto_increase_crop_target_gdd_ && crop_target_gdd_increase_speed_ > 0.0f) {
     if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
         sorghum_entities && !sorghum_entities->empty()) {
-      const float delta_gdd = crop_target_gdd_increase_speed_ * static_cast<float>(Times::DeltaTime());
+      const float delta_gdd = crop_target_gdd_increase_speed_ * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
       // Advance the growth model every frame (cheap).
       for (const auto& sorghum_entity : *sorghum_entities) {
         const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
@@ -503,7 +502,7 @@ void SorghumLayer::Update() {
       crop_growth_dirty_ = true;
 
       // Only rebuild geometry at a capped rate to avoid killing the framerate.
-      const float now = Times::Now();
+      const float now = ApplicationContext::Get().GetTimes().Now();
       if (now - last_mesh_regen_time_ >= mesh_regen_interval_) {
         last_mesh_regen_time_ = now;
         crop_growth_dirty_ = false;

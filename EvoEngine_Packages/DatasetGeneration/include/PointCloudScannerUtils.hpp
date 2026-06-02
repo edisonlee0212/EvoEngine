@@ -8,6 +8,7 @@ class PointCloudCaptureSettings {
   bool output_spline_info = false;
   uint32_t spline_subdivision_count = 8;
   enum class CaptureMode {
+    OptiX,
     Cpu,
     Gpu,
   };

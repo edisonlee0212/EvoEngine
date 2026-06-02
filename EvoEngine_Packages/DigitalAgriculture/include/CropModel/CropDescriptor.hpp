@@ -3,7 +3,7 @@
 #include "CropGrowthData.hpp"
 #include "Plot2D.hpp"
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 using namespace evo_engine;
 
 class SorghumGenerator;  // forward declaration
@@ -124,4 +124,4 @@ class CropDescriptor : public IAsset {
   void InitFromSorghumGenerator(const SorghumGenerator& sg);
 };
 
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package

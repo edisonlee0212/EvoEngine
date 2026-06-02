@@ -1,7 +1,6 @@
 #include "SorghumTraitDescriptor.hpp"
 
 #include "Application.hpp"
-#include "dng_exceptions.h"
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
 
@@ -9,7 +8,7 @@
 #include "ProjectManager.hpp"
 #include "SorghumLayer.hpp"
 
-using namespace digital_agriculture_plugin;
+using namespace digital_agriculture_package;
 
 
 bool SorghumLeafTrait::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

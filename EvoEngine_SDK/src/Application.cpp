@@ -1591,9 +1591,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   for (const auto& layer : this->layers_) {
     layer->OnCreate();
   }
-  if (window_layer && !application.initialization_settings.full_screen) {
-    window_layer->ResizeWindow(application.initialization_settings.default_window_size.x,
-                               application.initialization_settings.default_window_size.y);
+  if (window_layer && !this->initialization_settings.full_screen) {
+    window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
+                               this->initialization_settings.default_window_size.y);
   }
   if (window_layer) {
     window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,

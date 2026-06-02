@@ -4,11 +4,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 #  include "Skeleton.hpp"
 #endif
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 
 // ============================================================================
 // Phytomer organ types for grass-like crops (maize, sorghum)
@@ -190,7 +190,7 @@ struct CropFlowData {
 // Skeleton typedef
 // ============================================================================
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 /**
  * @brief The crop skeleton type — parameterized with crop-specific data.
  *
@@ -199,7 +199,7 @@ struct CropFlowData {
  *  - CropFlowData: per-culm/tiller state
  *  - CropPhytomerData: per-phytomer (per-node) state
  */
-using CropSkeleton = eco_sys_lab_plugin::Skeleton<CropSkeletonData, CropFlowData, CropPhytomerData>;
+using CropSkeleton = eco_sys_lab_package::Skeleton<CropSkeletonData, CropFlowData, CropPhytomerData>;
 #endif
 
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package

@@ -10,6 +10,9 @@
 #include "glm/glm.hpp"
 
 #include <optix_device.h>
+#ifdef __CUDACC__
+#include <texture_indirect_functions.h>
+#endif
 
 #include <fstream>
 #include <random>
@@ -70,7 +73,7 @@ static __forceinline__ __device__ T SampleCubeMap(const cudaTextureObject_t cube
     uv = glm::vec2(direction.x < 0.0 ? direction.z : -direction.z, -direction.y);
   }
   uv = uv * ma + glm::vec2(0.5);
-  return tex2D<T>(cubeMap[faceIndex], uv.x, uv.y);
+  return ::tex2D<T>(cubeMap[faceIndex], uv.x, uv.y);
 }
 
 template <typename T>

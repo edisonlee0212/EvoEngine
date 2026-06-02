@@ -3,7 +3,7 @@
 
 using namespace evo_engine;
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 
 struct FieldIlluminationStats {
   float total_area = 0.0f;
@@ -38,4 +38,4 @@ class SorghumFieldGrid final : public IPrivateComponent {
   void CollectAssetRef(std::vector<AssetRef>& list) override;
 };
 
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package

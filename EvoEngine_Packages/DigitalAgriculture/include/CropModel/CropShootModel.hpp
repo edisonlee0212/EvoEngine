@@ -4,10 +4,10 @@
 
 #include <random>
 
-namespace digital_agriculture_plugin {
+namespace digital_agriculture_package {
 using namespace evo_engine;
 
-#ifdef ECOSYSLAB_PLUGIN
+#ifdef ECOSYSLAB_PACKAGE
 
 // Forward declare legacy types for bridge methods.
 class SorghumState;
@@ -143,7 +143,7 @@ class CropShootModel {
   /**
    * @brief Create a single new phytomer at the apex of the given parent node.
    */
-  eco_sys_lab_plugin::SkeletonNodeHandle CreatePhytomer(eco_sys_lab_plugin::SkeletonNodeHandle parent_handle);
+  eco_sys_lab_package::SkeletonNodeHandle CreatePhytomer(eco_sys_lab_package::SkeletonNodeHandle parent_handle);
 
   /**
    * @brief Grow all existing leaves and internodes toward their targets.
@@ -161,6 +161,6 @@ class CropShootModel {
   void RecalculateGeometry();
 };
 
-#endif  // ECOSYSLAB_PLUGIN
+#endif  // ECOSYSLAB_PACKAGE
 
-}  // namespace digital_agriculture_plugin
+}  // namespace digital_agriculture_package

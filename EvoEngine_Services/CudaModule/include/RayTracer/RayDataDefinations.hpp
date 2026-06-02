@@ -9,6 +9,9 @@
 #include "MaterialProperties.hpp"
 #include "PointCloudSample.hpp"
 #include "optix_device.h"
+#ifdef __CUDACC__
+#include <texture_indirect_functions.h>
+#endif
 namespace evo_engine {
 static __forceinline__ __device__ float3 GetHitPoint() {
   const float t = optixGetRayTmax();
@@ -60,7 +63,6 @@ struct Curves {
         hit_info.color = interpolator.color(u);
       } break;
     }
-    hit_info.data = glm::vec4(0.0f);
     hit_info.tangent = glm::cross(hit_info.normal, glm::vec3(hit_info.normal.y, hit_info.normal.z, hit_info.normal.x));
     return hit_info;
   }
@@ -234,26 +236,26 @@ struct SurfaceMaterial {
   __device__ glm::vec4 GetAlbedo(const glm::vec2 &tex_coord) const {
     if (!albedo_texture)
       return glm::vec4(material_properties.albedo_color, 1.0f - material_properties.transmission);
-    float4 textureAlbedo = tex2D<float4>(albedo_texture, tex_coord.x, tex_coord.y);
+    float4 textureAlbedo = ::tex2D<float4>(albedo_texture, tex_coord.x, tex_coord.y);
     return glm::vec4(textureAlbedo.x, textureAlbedo.y, textureAlbedo.z, textureAlbedo.w);
   }
 
   __device__ float GetRoughness(const glm::vec2 &tex_coord) const {
     if (!roughness_texture)
       return material_properties.roughness;
-    return tex2D<float4>(roughness_texture, tex_coord.x, tex_coord.y).x;
+    return ::tex2D<float4>(roughness_texture, tex_coord.x, tex_coord.y).x;
   }
 
   __device__ float GetMetallic(const glm::vec2 &tex_coord) const {
     if (!metallic_texture)
       return material_properties.metallic;
-    return tex2D<float4>(metallic_texture, tex_coord.x, tex_coord.y).x;
+    return ::tex2D<float4>(metallic_texture, tex_coord.x, tex_coord.y).x;
   }
 
   __device__ void ApplyNormalTexture(glm::vec3 &normal, const glm::vec2 &tex_coord, const glm::vec3 &tangent) const {
     if (!normal_texture)
       return;
-    float4 textureNormal = tex2D<float4>(normal_texture, tex_coord.x, tex_coord.y);
+    float4 textureNormal = ::tex2D<float4>(normal_texture, tex_coord.x, tex_coord.y);
     glm::vec3 B = glm::cross(normal, tangent);
     glm::mat3 TBN = glm::mat3(tangent, B, normal);
     normal = glm::vec3(textureNormal.x, textureNormal.y, textureNormal.z) * 2.0f - glm::vec3(1.0f);
