@@ -3,7 +3,6 @@
 #include "device_launch_parameters.h"
 #include "iostream"
 #include "optix.h"
-#include "optix_stubs.h"
 
 #include "sstream"
 #include "string"

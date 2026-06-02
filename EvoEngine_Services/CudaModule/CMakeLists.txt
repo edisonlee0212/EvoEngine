@@ -59,7 +59,7 @@ cuda_compile_and_embed(illumination_estimation_ptx ${RAY_TRACER_DIRECTORY}/src/p
 cuda_compile_and_embed(point_cloud_scanning_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/PointCloudScanning.cu)
 
 add_library(CudaModuleService
-	STATIC
+	SHARED
 	#Default
 	${camera_rendering_ptx}
 	${illumination_estimation_ptx}
@@ -72,6 +72,9 @@ add_library(CudaModuleService
 	)
 
 set_property(TARGET CudaModuleService PROPERTY CUDA_ARCHITECTURES native)
+if (WIN32)
+	set_target_properties(CudaModuleService PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif ()
 
 if (NOT WIN32)
 	message(STATUS CUDALIB=${CUDA_TOOLKIT_ROOT_DIR})
@@ -112,3 +115,4 @@ endif ()
 
 set(EVOENGINE_SERVICES_INCLUDES ${EVOENGINE_SERVICES_INCLUDES} ${CUDA_MODULE_INCLUDES} PARENT_SCOPE)
 set(EVOENGINE_SERVICES_DEFS ${EVOENGINE_SERVICES_DEFS} CUDA_MODULE_SERVICE PARENT_SCOPE)
+set(EVOENGINE_SERVICES_RUNTIME_LIBRARIES ${EVOENGINE_SERVICES_RUNTIME_LIBRARIES} $<TARGET_FILE:CudaModuleService> PARENT_SCOPE)

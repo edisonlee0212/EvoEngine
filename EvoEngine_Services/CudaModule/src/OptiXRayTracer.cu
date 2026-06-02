@@ -1,6 +1,7 @@
 #include <OptiXRayTracer.hpp>
 
 #include <optix_function_table_definition.h>
+#include <optix_stubs.h>
 #include <optix_stack_size.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -1732,4 +1733,3 @@ void RayTracedMaterial::UploadForSbt() {
     } break;
   }
 }
-

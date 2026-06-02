@@ -3,6 +3,7 @@
 #include <CUDAModule.hpp>
 
 #include <Optix7.hpp>
+#include <optix_stubs.h>
 
 #include <OptiXRayTracer.hpp>
 
