@@ -5,6 +5,7 @@
 #include "RayTracerCamera.hpp"
 #include "IHandle.hpp"
 #include "Optix7.hpp"
+#include <optix_stubs.h>
 #include "RayTracerLayer.hpp"
 
 #include "Application.hpp"
