@@ -822,6 +822,59 @@ bool Prefab::LoadInternal(const std::filesystem::path& path) {
   }
   return LoadModelInternal(path);
 }
+
+namespace {
+class PrefabStagedLoadPayload final : public StagedAssetLoadPayload {
+ public:
+  YAML::Node node;
+};
+}  // namespace
+
+bool Prefab::SupportsStagedLoading(const std::filesystem::path& path) const {
+  return path.extension() == ".eveprefab";
+}
+
+std::shared_ptr<StagedAssetLoadPayload> Prefab::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  try {
+    const std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    auto payload = std::make_shared<PrefabStagedLoadPayload>();
+    payload->node = YAML::Load(string_stream.str());
+    return payload;
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to load staged prefab payload: " + std::string(e.what()))
+    return {};
+  }
+}
+
+bool Prefab::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                        const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  const auto prefab_payload = std::dynamic_pointer_cast<PrefabStagedLoadPayload>(payload);
+  if (!prefab_payload) {
+    return false;
+  }
+  try {
+    const auto& in = prefab_payload->node;
+    if (const auto& in_local_assets = in["LocalAssets"]) {
+      std::vector<std::shared_ptr<IAsset>> local_assets;
+      for (const auto& i : in_local_assets) {
+        Handle handle = i["Handle"].as<uint64_t>();
+        local_assets.push_back(AssetManager::CreateTemporaryAssetImpl(i["TypeName"].as<std::string>(), handle));
+      }
+      int index = 0;
+      for (const auto& i : in_local_assets) {
+        local_assets[index++]->Deserialize(i);
+      }
+    }
+    Deserialize(in);
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to apply staged prefab payload: " + std::string(e.what()))
+    return false;
+  }
+  return true;
+}
+
 bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags) {
   flags = flags | aiProcess_Triangulate;
   if (optimize) {

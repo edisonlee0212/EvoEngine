@@ -161,6 +161,10 @@ struct Bone {
  */
 class Animation : public IAsset {
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   std::map<std::string, float> animation_length;  ///< Map of animation names to their lengths.
   std::shared_ptr<Bone> root_bone;                ///< Root bone of the skeleton hierarchy.
   size_t bone_size = 0;                           ///< Total number of bones in the skeleton.

@@ -1253,6 +1253,23 @@ class Scene final : public IAsset {
    * @return True if the scene was loaded successfully, false otherwise.
    */
   bool LoadInternal(const std::filesystem::path& path) override;
+
+  /**
+   * @brief Scene YAML can be parsed off-thread, but scene reconstruction must finalize on the main thread.
+   */
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Parses scene YAML into a staged payload.
+   */
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Reconstructs the scene from a staged YAML payload.
+   */
+  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
 };
 template <typename T>
 std::vector<Entity> Scene::GetPrivateComponentOwnersList() {

@@ -30,6 +30,10 @@ class LightProbe final : public IAsset {
   friend class Camera;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Initializes the light probe with a specified resolution.
    *

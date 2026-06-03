@@ -19,6 +19,26 @@
 
 using namespace evo_engine;
 
+namespace {
+thread_local bool immediate_submit_in_progress = false;
+
+class ImmediateSubmitProgressScope {
+  bool& flag_;
+
+ public:
+  explicit ImmediateSubmitProgressScope(bool& flag) : flag_(flag) {
+    flag_ = true;
+  }
+
+  ~ImmediateSubmitProgressScope() {
+    flag_ = false;
+  }
+
+  ImmediateSubmitProgressScope(const ImmediateSubmitProgressScope&) = delete;
+  ImmediateSubmitProgressScope& operator=(const ImmediateSubmitProgressScope&) = delete;
+};
+}  // namespace
+
 const Platform::Capabilities& Platform::GetCapabilities() const {
   return capabilities_;
 }
@@ -347,8 +367,9 @@ void Platform::RecordCommandsMainQueue(const std::function<void(VkCommandBuffer 
     graphics.command_buffer_pool_[current_frame_index].emplace_back(std::make_shared<CommandBuffer>());
   }
   const auto& vk_command_buffer = graphics.command_buffer_pool_[current_frame_index][vk_command_buffer_index];
-  vk_command_buffer->Record(action);
-  graphics.used_command_buffer_size_++;
+  if (vk_command_buffer->Record(action)) {
+    graphics.used_command_buffer_size_++;
+  }
 }
 
 void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const VkCommandBuffer vk_command_buffer,
@@ -451,8 +472,15 @@ size_t Platform::GetMaxShadowCascadeAmount() {
 }
 
 void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
-  const auto& graphics = GetInstance();
-  graphics.immediate_submit_command_buffer->Record(action);
+  if (immediate_submit_in_progress) {
+    throw std::runtime_error("Nested immediate submit is not supported.");
+  }
+  auto& graphics = GetInstance();
+  std::lock_guard lock(graphics.immediate_submit_mutex_);
+  const ImmediateSubmitProgressScope immediate_submit_progress_scope(immediate_submit_in_progress);
+  if (!graphics.immediate_submit_command_buffer->Record(action)) {
+    throw std::runtime_error("Failed to record immediate submit command buffer.");
+  }
 
   VkSubmitInfo submit_info{};
   submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

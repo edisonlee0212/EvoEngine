@@ -41,6 +41,10 @@ class ParticleInfoList final : public IAsset {
   std::shared_ptr<RangeDescriptor> range_descriptor_; /**< Shared pointer to the range descriptor. */
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Creates the particle information list asset.
    */
@@ -167,6 +171,10 @@ class Mesh final : public IAsset, public IGeometry {
   bool SaveInternal(const std::filesystem::path& path) const override;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Generates a thumbnail texture for the mesh.
    *

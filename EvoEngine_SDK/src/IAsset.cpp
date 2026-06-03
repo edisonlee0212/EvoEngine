@@ -3,6 +3,14 @@
 #include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
 using namespace evo_engine;
+
+namespace {
+class YamlStagedLoadPayload final : public StagedAssetLoadPayload {
+ public:
+  YAML::Node node;
+};
+}  // namespace
+
 bool IAsset::Save() {
   if (IsTemporary())
     return false;
@@ -60,6 +68,47 @@ bool IAsset::LoadInternal(const std::filesystem::path &path) {
     Deserialize(in);
   } catch (const std::exception &e) {
     EVOENGINE_ERROR("Failed to load: " + std::string(e.what()))
+    return false;
+  }
+  return true;
+}
+
+bool IAsset::SupportsStagedLoading() const {
+  return false;
+}
+
+bool IAsset::SupportsStagedLoading(const std::filesystem::path &) const {
+  return SupportsStagedLoading();
+}
+
+std::shared_ptr<StagedAssetLoadPayload> IAsset::LoadStagedPayloadInternal(const std::filesystem::path &path) const {
+  if (!std::filesystem::exists(path)) {
+    EVOENGINE_ERROR("Not exist!")
+    return {};
+  }
+  try {
+    const std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    auto payload = std::make_shared<YamlStagedLoadPayload>();
+    payload->node = YAML::Load(string_stream.str());
+    return payload;
+  } catch (const std::exception &e) {
+    EVOENGINE_ERROR("Failed to load staged payload: " + std::string(e.what()))
+    return {};
+  }
+}
+
+bool IAsset::ApplyStagedPayloadInternal(const std::filesystem::path &,
+                                        const std::shared_ptr<StagedAssetLoadPayload> &payload) {
+  const auto yaml_payload = std::dynamic_pointer_cast<YamlStagedLoadPayload>(payload);
+  if (!yaml_payload) {
+    return false;
+  }
+  try {
+    Deserialize(yaml_payload->node);
+  } catch (const std::exception &e) {
+    EVOENGINE_ERROR("Failed to apply staged payload: " + std::string(e.what()))
     return false;
   }
   return true;

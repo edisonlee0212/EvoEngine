@@ -24,6 +24,10 @@ class EnvironmentalMap final : public IAsset {
   AssetRef inspection_target_texture_;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Reference to the light probe used in the environment.
    */

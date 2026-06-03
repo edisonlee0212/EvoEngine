@@ -194,6 +194,23 @@ class Strands final : public IAsset, public IGeometry {
    */
   bool LoadInternal(const std::filesystem::path& path) override;
 
+  /**
+   * @brief Strands files can parse CPU buffers before main-thread geometry publication.
+   */
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Builds staged CPU-side strand buffers.
+   */
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Applies staged strand buffers and publishes geometry storage.
+   */
+  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+
  private:
   std::shared_ptr<RangeDescriptor> segment_range_;         ///< Descriptor for segment range.
   std::shared_ptr<RangeDescriptor> strand_meshlet_range_;  ///< Descriptor for strand meshlet range.

@@ -25,6 +25,23 @@ class PointCloud : public IAsset {
   bool LoadInternal(const std::filesystem::path& path) override;
 
   /**
+   * @brief Point cloud file parsing can run as staged CPU work.
+   */
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Builds CPU-side point cloud data from YAML/PLY input.
+   */
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Applies staged point cloud data to the asset.
+   */
+  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+
+  /**
    * @brief Internal method to save the point cloud to a file.
    * @param path The path to the file to save the point cloud to.
    * @return True if the save is successful, otherwise false.

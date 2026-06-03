@@ -104,6 +104,10 @@ class SkinnedMesh : public IAsset, public IGeometry {
   bool SaveInternal(const std::filesystem::path& path) const override;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Destructor for SkinnedMesh.
    */

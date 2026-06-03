@@ -19,6 +19,10 @@ class ReflectionProbe : public IAsset {
       mip_map_views_;  ///< A collection of mip map views for the cubemap.
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Initializes the reflection probe with a specified resolution.
    * @param resolution The resolution of the cubemap. Default is 512.

@@ -20,6 +20,10 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
   std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   std::shared_ptr<RenderTexture> source_color_texture;
   std::shared_ptr<RenderTexture> result_texture;
   std::shared_ptr<RenderTexture> swap_texture;

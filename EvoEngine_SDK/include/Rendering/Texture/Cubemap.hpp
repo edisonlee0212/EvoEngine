@@ -39,6 +39,10 @@ class Cubemap final : public IAsset {
   mutable std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap_pipeline_;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @struct EquirectangularToCubemapConstant
    * @brief Represents constants used for converting equirectangular textures to cubemaps.

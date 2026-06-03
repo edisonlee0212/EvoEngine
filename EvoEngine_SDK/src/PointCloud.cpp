@@ -15,12 +15,75 @@
 using namespace evo_engine;
 using namespace tinyply;
 
+namespace {
+class PointCloudStagedLoadPayload final : public StagedAssetLoadPayload {
+ public:
+  bool yaml = false;
+  YAML::Node yaml_node;
+  std::vector<glm::dvec3> positions;
+  std::vector<glm::dvec3> normals;
+  std::vector<glm::vec4> colors;
+};
+}  // namespace
+
 bool PointCloud::LoadInternal(const std::filesystem::path& path) {
   if (path.extension() == ".ply") {
     return LoadPly({}, path);
   }
 
   return IAsset::LoadInternal(path);
+}
+
+bool PointCloud::SupportsStagedLoading(const std::filesystem::path& path) const {
+  return path.extension() == ".evepointcloud" || path.extension() == ".ply";
+}
+
+std::shared_ptr<StagedAssetLoadPayload> PointCloud::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  try {
+    auto payload = std::make_shared<PointCloudStagedLoadPayload>();
+    if (path.extension() == ".ply") {
+      PointCloud loaded_point_cloud;
+      if (!loaded_point_cloud.LoadPly({}, path)) {
+        return {};
+      }
+      payload->positions = std::move(loaded_point_cloud.positions);
+      payload->normals = std::move(loaded_point_cloud.normals);
+      payload->colors = std::move(loaded_point_cloud.colors);
+      return payload;
+    }
+
+    const std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    payload->yaml = true;
+    payload->yaml_node = YAML::Load(string_stream.str());
+    return payload;
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to load staged point cloud payload: " + std::string(e.what()))
+    return {};
+  }
+}
+
+bool PointCloud::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                            const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  const auto point_cloud_payload = std::dynamic_pointer_cast<PointCloudStagedLoadPayload>(payload);
+  if (!point_cloud_payload) {
+    return false;
+  }
+  try {
+    if (point_cloud_payload->yaml) {
+      Deserialize(point_cloud_payload->yaml_node);
+      return true;
+    }
+    positions = std::move(point_cloud_payload->positions);
+    normals = std::move(point_cloud_payload->normals);
+    colors = std::move(point_cloud_payload->colors);
+    RecalculateBoundingBox();
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to apply staged point cloud payload: " + std::string(e.what()))
+    return false;
+  }
+  return true;
 }
 
 bool PointCloud::SaveInternal(const std::filesystem::path& path) const {

@@ -872,8 +872,9 @@ class CommandBuffer final : public IGraphicsResource {
   /**
    * @brief Records commands using the specified callback function.
    * @param commands Callback function to record Vulkan commands.
+   * @return True if recording completed successfully.
    */
-  void Record(const std::function<void(VkCommandBuffer vk_command_buffer)>& commands);
+  [[nodiscard]] bool Record(const std::function<void(VkCommandBuffer vk_command_buffer)>& commands);
 
   /**
    * @brief Resets the command buffer to its initial state.

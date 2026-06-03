@@ -3,6 +3,7 @@
 #include "ApplicationContext.hpp"
 
 #include "AnimationPlayer.hpp"
+#include "AssetManager.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
@@ -151,7 +152,9 @@ void Application::PreUpdateInternal() {
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     Platform::PreUpdate();
   }
+  AssetManager::ExecuteMainThreadAssetTasks(1);
   ProjectManager::PreUpdate();
+  AssetManager::ExecuteMainThreadAssetTasks(1);
   if (this->active_scene_) {
     TransformGraph::CalculateTransformGraphs(this->active_scene_);
     for (const auto& i : this->external_pre_update_functions_)
@@ -368,11 +371,12 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     EVOENGINE_ERROR("Project filepath must present when there's no EditorLayer or WindowLayer!")
     return;
   }
-  const auto default_thread_size = std::thread::hardware_concurrency();
+  const auto hardware_thread_size = std::thread::hardware_concurrency();
+  const size_t default_thread_size = hardware_thread_size > 2 ? hardware_thread_size - 2 : 1;
   for (const auto& layer : this->layers_) {
     layer->RegisterTypes(*this);
   }
-  Jobs::Initialize(default_thread_size - 2);
+  Jobs::Initialize(default_thread_size);
   Entities::Initialize();
   TransformGraph::Initialize();
   AssetManager::Initialize();
@@ -381,7 +385,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   if (render_layer) {
     Platform::Initialize(this->initialization_settings);
   }
-  Resources::Initialize();
+  if (this->initialization_settings.load_default_resources) {
+    Resources::Initialize();
+  }
   if (this->initialization_settings.enable_runtime_packages) {
     PackageManager::Initialize(this->initialization_settings.package_search_paths,
                                this->initialization_settings.startup_runtime_packages);
@@ -465,6 +471,7 @@ void Application::End() {
 }
 
 void Application::ExecuteEndOfLoopActions() {
+  Jobs::ExecuteMainThreadJobs();
   if (this->end_of_loop_actions_.empty()) {
     return;
   }
@@ -475,6 +482,7 @@ void Application::ExecuteEndOfLoopActions() {
       action();
     }
   }
+  Jobs::ExecuteMainThreadJobs();
 }
 
 void Application::Terminate() {
@@ -484,6 +492,7 @@ void Application::Terminate() {
     (*i)->OnDestroy();
   }
   this->layers_.clear();
+  AssetManager::OnDestroy();
   Jobs::OnDestroy();
   ProjectManager::OnDestroy();
   FileManager::OnDestroy();
@@ -492,7 +501,6 @@ void Application::Terminate() {
   TextureStorage::OnDestroy();
   GeometryStorage::OnDestroy();
 
-  AssetManager::OnDestroy();
   if (has_render_layer) {
     Platform::OnDestroy();
   }

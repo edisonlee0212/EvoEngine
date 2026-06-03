@@ -64,6 +64,10 @@ class Material final : public IAsset {
   AssetRef rma_texture_ref_;    ///< Temporary editor reference for RMA texture unpacking.
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   /**
    * @brief Generates a thumbnail texture representing this material.
    * @return A shared pointer to the generated thumbnail texture.

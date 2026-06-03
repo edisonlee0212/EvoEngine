@@ -15,6 +15,15 @@ class Folder;
 class Texture2D;
 
 /**
+ * @class StagedAssetLoadPayload
+ * @brief CPU-side data produced by an async-safe asset load phase and consumed by the finalization phase.
+ */
+class StagedAssetLoadPayload {
+ public:
+  virtual ~StagedAssetLoadPayload() = default;
+};
+
+/**
  * @class IAsset
  * @brief Base class for managing assets in the evo_engine framework. Provides functionality for serialization,
  *        deserialization, and interactions with the asset's file system and the editor.
@@ -55,6 +64,28 @@ class IAsset : public ISerializable {
    * @return Whether the load operation was successful.
    */
   virtual bool LoadInternal(const std::filesystem::path& path);
+
+  /**
+   * @brief Returns whether this asset can split disk/decode work from finalization.
+   */
+  [[nodiscard]] virtual bool SupportsStagedLoading() const;
+
+  /**
+   * @brief Returns whether this asset can split disk/decode work from finalization for a specific path.
+   */
+  [[nodiscard]] virtual bool SupportsStagedLoading(const std::filesystem::path& path) const;
+
+  /**
+   * @brief Builds an immutable CPU-side load payload. This must not touch global registries or GPU resources.
+   */
+  [[nodiscard]] virtual std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const;
+
+  /**
+   * @brief Applies a staged load payload on a safe finalization thread.
+   */
+  virtual bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                          const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
   bool saved_ = false;   /**< Indicates whether the asset is in a saved state. */
   uint32_t version_ = 0; /**< The version number of the asset. */

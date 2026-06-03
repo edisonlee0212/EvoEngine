@@ -27,6 +27,11 @@ class Texture2D : public IAsset {
  protected:
   bool SaveInternal(const std::filesystem::path& path) const override;
   bool LoadInternal(const std::filesystem::path& path) override;
+  [[nodiscard]] bool SupportsStagedLoading() const override;
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const override;
+  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
 
  public:
   void UnsafeUploadDataImmediately() const;

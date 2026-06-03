@@ -56,6 +56,9 @@ class UnknownPrivateComponent : public IPrivateComponent, public UnknownRuntimeP
 
 class UnknownAsset : public IAsset, public UnknownRuntimePayload {
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Serialize(YAML::Emitter& out) const override;
   void Deserialize(const YAML::Node& in) override;

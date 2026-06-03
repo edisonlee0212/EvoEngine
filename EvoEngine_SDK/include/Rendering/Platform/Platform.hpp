@@ -6,6 +6,7 @@
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
 
+#include <mutex>
 #include <set>
 
 #define ENABLE_EXTERNAL_MEMORY true
@@ -205,6 +206,9 @@ class Platform final {
 
   /// Immediate submit queue for rendering commands.
   std::unique_ptr<CommandQueue> immediate_submit_queue_{};
+
+  /// Serializes the shared immediate-submit command buffer and queue.
+  std::mutex immediate_submit_mutex_{};
 
   /// Queue used for primary rendering operations.
   std::unique_ptr<CommandQueue> main_queue_{};
