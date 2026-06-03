@@ -158,8 +158,7 @@ void AssetManager::Clear() {
   {
     std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
     for (const auto& [handle, record] : asset_manager.asset_registry_.loading_assets_) {
-      loading_futures.push_back(
-          {record.owner_thread_id, record.future, record.allow_same_thread_partial_access});
+      loading_futures.push_back({record.owner_thread_id, record.future, record.allow_same_thread_partial_access});
     }
   }
 
@@ -315,8 +314,8 @@ std::shared_ptr<IAsset> AssetManager::LoadAssetImpl(const Handle& asset_handle) 
   return Resources::TryGetResource<IAsset>(asset_handle);
 }
 
-void AssetManager::StartAssetServiceLoadImpl(
-    const Handle& asset_handle, const std::shared_ptr<std::promise<std::shared_ptr<IAsset>>>& promise) {
+void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
+                                             const std::shared_ptr<std::promise<std::shared_ptr<IAsset>>>& promise) {
   struct AssetServiceLoadContext {
     std::shared_ptr<IAsset> asset;
     std::shared_ptr<File> file;
@@ -399,29 +398,30 @@ void AssetManager::StartAssetServiceLoadImpl(
         throw std::runtime_error("Failed to build staged asset payload.");
       }
       UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for asset finalization.");
-      ScheduleMainThreadAssetTaskImpl([asset_handle, context = std::move(context), promise, payload = std::move(payload)]() {
-        try {
-          if (!context.asset->ApplyStagedPayloadInternal(context.absolute_path, payload)) {
-            throw std::runtime_error("Failed to apply staged asset load payload.");
-          }
-          context.asset->saved_ = true;
-          context.file->asset_ = context.asset;
-          {
-            auto& asset_manager = GetInstance();
-            std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
-            asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
-          }
-          promise->set_value(context.asset);
-          UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
-        } catch (const std::exception& e) {
-          promise->set_exception(std::current_exception());
-          UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
-        } catch (...) {
-          promise->set_exception(std::current_exception());
-          UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset finalization failure.");
-        }
-        FinishAssetLoadingImpl(asset_handle);
-      });
+      ScheduleMainThreadAssetTaskImpl(
+          [asset_handle, context = std::move(context), promise, payload = std::move(payload)]() {
+            try {
+              if (!context.asset->ApplyStagedPayloadInternal(context.absolute_path, payload)) {
+                throw std::runtime_error("Failed to apply staged asset load payload.");
+              }
+              context.asset->saved_ = true;
+              context.file->asset_ = context.asset;
+              {
+                auto& asset_manager = GetInstance();
+                std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+                asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
+              }
+              promise->set_value(context.asset);
+              UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
+            } catch (const std::exception& e) {
+              promise->set_exception(std::current_exception());
+              UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
+            } catch (...) {
+              promise->set_exception(std::current_exception());
+              UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset finalization failure.");
+            }
+            FinishAssetLoadingImpl(asset_handle);
+          });
       return;
     }
 

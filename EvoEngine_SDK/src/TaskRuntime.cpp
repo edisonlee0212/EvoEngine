@@ -346,8 +346,7 @@ size_t TaskRuntime::RunReadyMainThreadTasks(const size_t max_task_size) {
 
 bool TaskRuntime::IsHandleValidLocked(const TaskHandle& handle) const {
   return handle.index_ >= 0 && static_cast<size_t>(handle.index_) < tasks_.size() && tasks_[handle.index_] &&
-         tasks_[handle.index_]->generation == handle.generation_ &&
-         tasks_[handle.index_]->state != TaskState::Recycled;
+         tasks_[handle.index_]->generation == handle.generation_ && tasks_[handle.index_]->state != TaskState::Recycled;
 }
 
 bool TaskRuntime::ExecutorHasTasks(const ExecutorState& executor) {

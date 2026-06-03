@@ -64,8 +64,7 @@ void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload&
 
   Jobs::RunParallelFor(payload.pixels.size(), [&](size_t i) {
     for (int channel = 0; channel < target_channel_size; channel++) {
-      payload.pixels[i][channel] =
-          glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
+      payload.pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
     }
     if (target_channel_size < 4) {
       payload.pixels[i][3] = 1.f;

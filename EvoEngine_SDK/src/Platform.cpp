@@ -37,7 +37,7 @@ class ImmediateSubmitProgressScope {
   ImmediateSubmitProgressScope(const ImmediateSubmitProgressScope&) = delete;
   ImmediateSubmitProgressScope& operator=(const ImmediateSubmitProgressScope&) = delete;
 };
-}
+}  // namespace
 
 const Platform::Capabilities& Platform::GetCapabilities() const {
   return capabilities_;

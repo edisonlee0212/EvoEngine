@@ -77,7 +77,7 @@ bool IAsset::SupportsStagedLoading() const {
   return false;
 }
 
-bool IAsset::SupportsStagedLoading(const std::filesystem::path&) const {
+bool IAsset::SupportsStagedLoading(const std::filesystem::path &) const {
   return SupportsStagedLoading();
 }
 

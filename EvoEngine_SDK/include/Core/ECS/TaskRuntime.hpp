@@ -1,8 +1,8 @@
 #pragma once
 
 #include <atomic>
-#include <cstdint>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <exception>
 #include <functional>

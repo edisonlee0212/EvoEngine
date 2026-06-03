@@ -1,8 +1,8 @@
 
 #pragma once
 #include <deque>
-#include <future>
 #include <functional>
+#include <future>
 #include <set>
 #include <stack>
 #include <vector>
@@ -131,10 +131,10 @@ class AssetManager {
     };
 
     std::mutex asset_registry_mutex;  ///< Mutex for synchronizing access to the asset registry.
-    std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;  ///< Map storing assets by their handles.
+    std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;       ///< Map storing assets by their handles.
     std::unordered_map<Handle, AssetLoadingRecord> loading_assets_;  ///< In-flight loads by asset handle.
-    std::deque<std::function<void()>> main_thread_asset_tasks_;       ///< Asset tasks that must run on main.
-    AssetLoadSnapshot load_snapshot_;                                 ///< Current asset-service progress snapshot.
+    std::deque<std::function<void()>> main_thread_asset_tasks_;      ///< Asset tasks that must run on main.
+    AssetLoadSnapshot load_snapshot_;                                ///< Current asset-service progress snapshot.
 
     friend class AssetManager;  ///< AssetManager has access to private members of AssetRegistry.
   };
@@ -274,9 +274,11 @@ template <typename T>
 std::shared_future<std::shared_ptr<T>> AssetManager::GetAssetFuture(const Handle& asset_handle) {
   try {
     auto asset_future = GetAssetFutureImpl(asset_handle);
-    return std::async(std::launch::deferred, [asset_future = std::move(asset_future)]() mutable {
-      return std::dynamic_pointer_cast<T>(WaitForAssetLoadFutureImpl(asset_future));
-    }).share();
+    return std::async(std::launch::deferred,
+                      [asset_future = std::move(asset_future)]() mutable {
+                        return std::dynamic_pointer_cast<T>(WaitForAssetLoadFutureImpl(asset_future));
+                      })
+        .share();
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what());
     return {};
