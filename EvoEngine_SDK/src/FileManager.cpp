@@ -126,13 +126,6 @@ void File::Load(const std::filesystem::path& path) {
 }
 
 std::shared_ptr<Texture2D> File::GetThumbnail() {
-  // TODO: This should be handled by GetAssetFuture, so it doesn't block the master thread.
-  if (!thumbnail_ && asset_type_name_ != "Binary" && asset_type_name_ != "Scene" && asset_type_name_ != "Prefab" &&
-      asset_type_name_ != "Mesh") {
-    if (const auto asset = AssetManager::GetAssetImpl(asset_handle_)) {
-      thumbnail_ = asset->GenerateThumbnailTexture();
-    }
-  }
   if (!thumbnail_) {
     if (const auto icon = EditorLayer::FindIcon(asset_type_name_)) {
       thumbnail_ = icon;

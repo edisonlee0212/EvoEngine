@@ -139,6 +139,23 @@ class Prefab : public IAsset {
   [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
 
   /**
+   * @brief Native prefab YAML can be parsed as staged work; model import remains legacy.
+   */
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Parses a native prefab YAML file into a staged payload.
+   */
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Reconstructs prefab-local assets and prefab data from a staged YAML payload.
+   */
+  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+
+  /**
    * @brief Saves the prefab asset to a specified file path.
    * @param[in] path The path to the file to save to.
    * @return True if saving is successful; otherwise false.

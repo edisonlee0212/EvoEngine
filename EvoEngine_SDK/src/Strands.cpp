@@ -121,6 +121,30 @@ struct HairHeader {
   }
 };
 
+namespace {
+class StrandsStagedLoadPayload final : public StagedAssetLoadPayload {
+ public:
+  StrandPointAttributes strand_point_attributes = {};
+  std::vector<glm::uint> segment_raw_indices;
+  std::vector<StrandPoint> strand_points;
+};
+
+std::vector<glm::uint> BuildSegmentRawIndicesFromStrands(const std::vector<glm::uint>& strands) {
+  std::vector<glm::uint> segment_raw_indices;
+  if (strands.size() < 2) {
+    return segment_raw_indices;
+  }
+  for (auto strand = strands.begin(); strand != strands.end() - 1; ++strand) {
+    const int start = static_cast<int>(*strand);
+    const int end = static_cast<int>(*(strand + 1)) - 3;
+    for (int i = start; i < end; i++) {
+      segment_raw_indices.emplace_back(static_cast<glm::uint>(i));
+    }
+  }
+  return segment_raw_indices;
+}
+}  // namespace
+
 bool Strands::LoadInternal(const std::filesystem::path& path) {
   if (path.extension() == ".evestrands") {
     return IAsset::LoadInternal(path);
@@ -207,6 +231,130 @@ bool Strands::LoadInternal(const std::filesystem::path& path) {
     }
   }
   return false;
+}
+
+bool Strands::SupportsStagedLoading(const std::filesystem::path& path) const {
+  return path.extension() == ".evestrands" || path.extension() == ".hair";
+}
+
+std::shared_ptr<StagedAssetLoadPayload> Strands::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  try {
+    auto payload = std::make_shared<StrandsStagedLoadPayload>();
+    if (path.extension() == ".evestrands") {
+      const std::ifstream stream(path.string());
+      std::stringstream string_stream;
+      string_stream << stream.rdbuf();
+      const YAML::Node in = YAML::Load(string_stream.str());
+      if (in["segment_raw_indices_"] && in["strand_points_"]) {
+        const auto& segment_data = in["segment_raw_indices_"].as<YAML::Binary>();
+        payload->segment_raw_indices.resize(segment_data.size() / sizeof(glm::uint));
+        std::memcpy(payload->segment_raw_indices.data(), segment_data.data(), segment_data.size());
+
+        const auto& point_data = in["strand_points_"].as<YAML::Binary>();
+        payload->strand_points.resize(point_data.size() / sizeof(StrandPoint));
+        std::memcpy(payload->strand_points.data(), point_data.data(), point_data.size());
+
+        payload->strand_point_attributes.tex_coord = true;
+        payload->strand_point_attributes.color = true;
+        payload->strand_point_attributes.normal = true;
+      }
+      return payload;
+    }
+
+    if (path.extension() == ".hair") {
+      std::ifstream input(path.string().c_str(), std::ios::binary);
+      HairHeader header;
+      input.read(reinterpret_cast<char*>(&header), sizeof(HairHeader));
+      if (!input || strncmp(header.magic, "HAIR", 4) != 0) {
+        return {};
+      }
+      header.file_info[87] = 0;
+
+      auto strand_segments = std::vector<unsigned short>(header.num_strands);
+      if (header.HasSegments()) {
+        input.read(reinterpret_cast<char*>(strand_segments.data()), header.num_strands * sizeof(unsigned short));
+        if (!input) {
+          return {};
+        }
+      } else {
+        std::fill(strand_segments.begin(), strand_segments.end(), header.default_num_segments);
+      }
+
+      auto strands = std::vector<glm::uint>(strand_segments.size() + 1);
+      auto strand = strands.begin();
+      *strand++ = 0;
+      for (auto segments : strand_segments) {
+        *strand = *(strand - 1) + 1 + segments;
+        ++strand;
+      }
+
+      if (!header.HasPoints()) {
+        return {};
+      }
+      auto points = std::vector<glm::vec3>(header.num_points);
+      input.read(reinterpret_cast<char*>(points.data()), header.num_points * sizeof(glm::vec3));
+      if (!input) {
+        return {};
+      }
+
+      auto thickness = std::vector<float>(header.num_points);
+      if (header.HasThickness()) {
+        input.read(reinterpret_cast<char*>(thickness.data()), header.num_points * sizeof(float));
+        if (!input) {
+          return {};
+        }
+      } else {
+        std::fill(thickness.begin(), thickness.end(), header.default_thickness);
+      }
+
+      auto color = std::vector<glm::vec3>(header.num_points);
+      if (header.HasColor()) {
+        input.read(reinterpret_cast<char*>(color.data()), header.num_points * sizeof(glm::vec3));
+        if (!input) {
+          return {};
+        }
+      } else {
+        std::fill(color.begin(), color.end(), header.default_color);
+      }
+
+      auto alpha = std::vector<float>(header.num_points);
+      if (header.HasAlpha()) {
+        input.read(reinterpret_cast<char*>(alpha.data()), header.num_points * sizeof(float));
+        if (!input) {
+          return {};
+        }
+      } else {
+        std::fill(alpha.begin(), alpha.end(), header.default_alpha);
+      }
+
+      payload->strand_points.resize(header.num_points);
+      for (int i = 0; i < header.num_points; i++) {
+        payload->strand_points[i].position = points[i];
+        payload->strand_points[i].thickness = thickness[i];
+        payload->strand_points[i].color = glm::vec4(color[i], alpha[i]);
+        payload->strand_points[i].tex_coord = 0.0f;
+      }
+      payload->segment_raw_indices = BuildSegmentRawIndicesFromStrands(strands);
+      payload->strand_point_attributes.tex_coord = true;
+      payload->strand_point_attributes.color = true;
+      return payload;
+    }
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to load staged strands payload: " + std::string(e.what()))
+  }
+  return {};
+}
+
+bool Strands::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                         const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  const auto strands_payload = std::dynamic_pointer_cast<StrandsStagedLoadPayload>(payload);
+  if (!strands_payload || strands_payload->segment_raw_indices.empty() || strands_payload->strand_points.empty()) {
+    return false;
+  }
+  segment_raw_indices_ = std::move(strands_payload->segment_raw_indices);
+  strand_points_ = std::move(strands_payload->strand_points);
+  PrepareStrands(strands_payload->strand_point_attributes);
+  return true;
 }
 
 bool Strands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

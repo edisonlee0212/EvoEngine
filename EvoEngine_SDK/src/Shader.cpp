@@ -9,6 +9,15 @@
 #include "Utilities.hpp"
 
 using namespace evo_engine;
+
+namespace {
+class ShaderStagedLoadPayload final : public StagedAssetLoadPayload {
+ public:
+  std::string shader_code;
+  unsigned shader_type = static_cast<unsigned>(ShaderType::Unknown);
+};
+}  // namespace
+
 int string_resize_callback(ImGuiInputTextCallbackData* data) {
   if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
     const auto my_str = static_cast<std::string*>(data->UserData);
@@ -81,6 +90,50 @@ bool Shader::LoadInternal(const std::filesystem::path& path) {
     EVOENGINE_ERROR("Failed to load!")
     return false;
   }
+  return true;
+}
+
+bool Shader::SupportsStagedLoading() const {
+  return true;
+}
+
+std::shared_ptr<StagedAssetLoadPayload> Shader::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  if (!std::filesystem::exists(path)) {
+    EVOENGINE_ERROR("Not exist!")
+    return {};
+  }
+  try {
+    const std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    auto payload = std::make_shared<ShaderStagedLoadPayload>();
+    if (path.extension() == ".eveshader") {
+      const YAML::Node in = YAML::Load(string_stream.str());
+      if (in["shader_code"]) {
+        payload->shader_code = in["shader_code"].as<std::string>();
+      }
+      if (in["shader_type"]) {
+        payload->shader_type = in["shader_type"].as<unsigned>();
+      }
+    } else {
+      payload->shader_type = static_cast<unsigned>(ShaderType::Unknown);
+      payload->shader_code = string_stream.str();
+    }
+    return payload;
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to load staged shader payload: " + std::string(e.what()))
+    return {};
+  }
+}
+
+bool Shader::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                        const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  const auto shader_payload = std::dynamic_pointer_cast<ShaderStagedLoadPayload>(payload);
+  if (!shader_payload) {
+    return false;
+  }
+  shader_code = std::move(shader_payload->shader_code);
+  shader_type = shader_payload->shader_type;
   return true;
 }
 

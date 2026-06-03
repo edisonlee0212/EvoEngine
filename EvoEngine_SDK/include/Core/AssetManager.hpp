@@ -1,6 +1,11 @@
 
 #pragma once
+#include <deque>
+#include <future>
+#include <functional>
+#include <set>
 #include <stack>
+#include <vector>
 
 #include "IHandle.hpp"
 #include "Serialization.hpp"
@@ -17,6 +22,24 @@ class IAsset;
  */
 class AssetManager {
  public:
+  enum class AssetLoadState { Discovered, Queued, LoadingCpu, WaitingForFinalize, Loaded, Failed, Cancelled };
+
+  struct AssetLoadSnapshot {
+    size_t total = 0;
+    size_t completed = 0;
+    size_t failed = 0;
+    size_t cancelled = 0;
+    size_t queued = 0;
+    size_t loading_cpu = 0;
+    size_t waiting_for_finalize = 0;
+    Handle active_asset_handle = 0;
+    AssetLoadState active_state = AssetLoadState::Discovered;
+    std::string active_asset_name;
+    std::string message;
+
+    [[nodiscard]] bool Active() const;
+  };
+
   static AssetManager& GetInstance();
 
  private:
@@ -60,6 +83,27 @@ class AssetManager {
    */
   [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const Handle& asset_handle);
 
+  /**
+   * @brief Enqueues an asset load request and returns the shared future without blocking the caller.
+   */
+  [[nodiscard]] static std::shared_future<std::shared_ptr<IAsset>> RequestAssetLoad(const Handle& asset_handle);
+
+  /**
+   * @brief Enqueues a batch of asset loads for project/UI progress tracking.
+   */
+  [[nodiscard]] static std::vector<std::shared_future<std::shared_ptr<IAsset>>> RequestAssetLoads(
+      const std::set<Handle>& asset_handles);
+
+  /**
+   * @brief Returns a thread-safe snapshot of the current asset-service loading progress.
+   */
+  [[nodiscard]] static AssetLoadSnapshot GetAssetLoadSnapshot();
+
+  /**
+   * @brief Runs queued main-thread asset construction/finalization tasks.
+   */
+  static size_t ExecuteMainThreadAssetTasks(size_t max_task_size = 1);
+
  private:
   /**
    * @brief Retrieves an asset given its typename and handle.
@@ -74,8 +118,23 @@ class AssetManager {
    * @brief Internal registry for managing assets and their corresponding handles.
    */
   class AssetRegistry {
+    struct AssetLoadingRecord {
+      std::shared_future<std::shared_ptr<IAsset>> future;  ///< Shared result for all waiters on the asset load.
+      std::weak_ptr<IAsset> loading_asset;                 ///< Partially constructed asset for same-thread recursion.
+      std::thread::id owner_thread_id;                     ///< Thread currently performing the load.
+      bool async = false;                                  ///< Whether this record was created by async access.
+      bool allow_same_thread_partial_access =
+          false;  ///< True only while a synchronous Load() call may recursively request itself.
+      AssetLoadState state = AssetLoadState::Discovered;
+      std::string asset_name;
+      std::string message;
+    };
+
     std::mutex asset_registry_mutex;  ///< Mutex for synchronizing access to the asset registry.
     std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;  ///< Map storing assets by their handles.
+    std::unordered_map<Handle, AssetLoadingRecord> loading_assets_;  ///< In-flight loads by asset handle.
+    std::deque<std::function<void()>> main_thread_asset_tasks_;       ///< Asset tasks that must run on main.
+    AssetLoadSnapshot load_snapshot_;                                 ///< Current asset-service progress snapshot.
 
     friend class AssetManager;  ///< AssetManager has access to private members of AssetRegistry.
   };
@@ -141,11 +200,51 @@ class AssetManager {
   static std::shared_ptr<IAsset> GetAssetImpl(const Handle& asset_handle);
 
   /**
+   * @brief Performs the actual uncached asset creation and load work for a handle.
+   */
+  static std::shared_ptr<IAsset> LoadAssetImpl(const Handle& asset_handle);
+
+  /**
+   * @brief Starts service-thread loading for an asset request.
+   */
+  static void StartAssetServiceLoadImpl(const Handle& asset_handle,
+                                        const std::shared_ptr<std::promise<std::shared_ptr<IAsset>>>& promise);
+
+  /**
+   * @brief Waits for a load future while allowing the main thread to run queued finalization tasks.
+   */
+  static std::shared_ptr<IAsset> WaitForAssetLoadFutureImpl(
+      const std::shared_future<std::shared_ptr<IAsset>>& asset_future);
+
+  /**
+   * @brief Gets or creates the shared in-flight load for an asset handle.
+   */
+  static std::shared_future<std::shared_ptr<IAsset>> GetOrCreateAssetLoadFutureImpl(const Handle& asset_handle,
+                                                                                    bool async);
+
+  static void ScheduleMainThreadAssetTaskImpl(const std::function<void()>& action);
+
+  static void ResetAssetLoadSnapshotImpl(size_t total);
+
+  static void UpdateAssetLoadStateImpl(const Handle& asset_handle, AssetLoadState state, const std::string& message);
+
+  /**
+   * @brief Publishes the partially constructed asset for same-thread recursive access during Load().
+   */
+  static void SetLoadingAssetImpl(const Handle& asset_handle, const std::shared_ptr<IAsset>& asset,
+                                  bool allow_same_thread_partial_access);
+
+  /**
+   * @brief Clears the in-flight load record for an asset handle.
+   */
+  static void FinishAssetLoadingImpl(const Handle& asset_handle);
+
+  /**
    * @brief Retrieves a future object for asynchronously accessing an asset given its handle.
    * @param asset_handle The handle associated with the asset.
-   * @return A future containing a shared pointer to the requested asset.
+   * @return A shared future containing a shared pointer to the requested asset.
    */
-  static std::future<std::shared_ptr<IAsset>> GetAssetFutureImpl(const Handle& asset_handle);
+  static std::shared_future<std::shared_ptr<IAsset>> GetAssetFutureImpl(const Handle& asset_handle);
 };
 
 /**
@@ -158,7 +257,7 @@ template <typename T>
 std::shared_ptr<T> AssetManager::GetAsset(const Handle& asset_handle) {
   try {
     const auto type_name = Serialization::GetSerializableTypeName<T>();
-    return GetAsset(type_name, asset_handle);
+    return std::dynamic_pointer_cast<T>(GetAsset(type_name, asset_handle));
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what());
     return {};
@@ -174,7 +273,10 @@ std::shared_ptr<T> AssetManager::GetAsset(const Handle& asset_handle) {
 template <typename T>
 std::shared_future<std::shared_ptr<T>> AssetManager::GetAssetFuture(const Handle& asset_handle) {
   try {
-    return std::dynamic_pointer_cast<T>(GetAssetFutureImpl(asset_handle));
+    auto asset_future = GetAssetFutureImpl(asset_handle);
+    return std::async(std::launch::deferred, [asset_future = std::move(asset_future)]() mutable {
+      return std::dynamic_pointer_cast<T>(WaitForAssetLoadFutureImpl(asset_future));
+    }).share();
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what());
     return {};

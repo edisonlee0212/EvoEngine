@@ -781,6 +781,24 @@ bool Scene::LoadInternal(const std::filesystem::path& path) {
   return true;
 }
 
+bool Scene::SupportsStagedLoading(const std::filesystem::path& path) const {
+  return path.extension() == ".evescene";
+}
+
+std::shared_ptr<StagedAssetLoadPayload> Scene::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  return IAsset::LoadStagedPayloadInternal(path);
+}
+
+bool Scene::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                       const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  const auto previous_scene = ApplicationContext::Get().GetActiveScene();
+  ApplicationContext::Get().Attach(std::shared_ptr<Scene>(this, [](Scene*) {
+  }));
+  const bool loaded = IAsset::ApplyStagedPayloadInternal({}, payload);
+  ApplicationContext::Get().Attach(previous_scene);
+  return loaded;
+}
+
 std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {
   return EditorLayer::FindIcon("Scene");
 }

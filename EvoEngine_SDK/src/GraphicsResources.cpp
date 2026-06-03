@@ -1035,10 +1035,14 @@ void CommandBuffer::End() {
   status_ = CommandBufferStatus::Recorded;
 }
 
-void CommandBuffer::Record(const std::function<void(VkCommandBuffer vk_command_buffer)>& commands) {
+bool CommandBuffer::Record(const std::function<void(VkCommandBuffer vk_command_buffer)>& commands) {
   Begin();
+  if (status_ != CommandBufferStatus::Recording) {
+    return false;
+  }
   commands(vk_command_buffer_);
   End();
+  return status_ == CommandBufferStatus::Recorded;
 }
 
 void CommandBuffer::Reset() {

@@ -29,6 +29,28 @@ class Jobs final {
   static void Initialize(size_t worker_size);
 
   /**
+   * @brief Retrieves runtime diagnostic counters for queued, running, completed, and failed tasks.
+   */
+  static JobRuntimeStats GetRuntimeStats();
+
+  /**
+   * @brief Returns whether the caller is on the application main thread tracked by the runtime.
+   */
+  [[nodiscard]] static bool IsMainThread();
+
+  /**
+   * @brief Returns whether the caller is running on a specific runtime executor.
+   */
+  [[nodiscard]] static bool IsExecutorThread(JobExecutorType executor);
+
+  /**
+   * @brief Executes ready main-thread tasks. Must be called from the application main thread.
+   * @param max_task_size Optional cap. Zero means drain all currently ready tasks.
+   * @return Number of executed tasks.
+   */
+  static size_t ExecuteMainThreadJobs(size_t max_task_size = 0);
+
+  /**
    * @brief Completes a parallel for-loop job on the given function across the specified range.
    * @param size The number of iterations to process.
    * @param func The function to execute for each iteration, taking the index as a parameter.
@@ -116,6 +138,12 @@ class Jobs final {
   static JobHandle Run(const std::vector<JobHandle>& dependencies, const std::function<void()>& func);
 
   /**
+   * @brief Schedules a job with explicit runtime options. Job will be in pending start state.
+   */
+  static JobHandle Run(const std::vector<JobHandle>& dependencies, const JobOptions& options,
+                       const std::function<void()>& func);
+
+  /**
    * @brief Schedules a job executing the given function without dependencies. Job will be in pending start state.
    * @param func The function to execute.
    * @return A JobHandle representing the scheduled job.
@@ -123,11 +151,41 @@ class Jobs final {
   static JobHandle Run(const std::function<void()>& func);
 
   /**
+   * @brief Schedules a job with explicit runtime options and no dependencies. Job will be in pending start state.
+   */
+  static JobHandle Run(const JobOptions& options, const std::function<void()>& func);
+
+  /**
+   * @brief Schedules a job for the application main-thread executor.
+   */
+  static JobHandle RunOnMainThread(const std::function<void()>& func);
+
+  /**
+   * @brief Schedules a job for the asset IO executor.
+   */
+  static JobHandle RunOnAssetIoThread(const std::function<void()>& func);
+
+  /**
+   * @brief Schedules a job for the render executor.
+   */
+  static JobHandle RunOnRenderThread(const std::function<void()>& func);
+
+  /**
+   * @brief Schedules a job for the background executor.
+   */
+  static JobHandle RunOnBackgroundThread(const std::function<void()>& func);
+
+  /**
    * @brief Combines multiple jobs into a single job.
    * @param dependencies A vector of JobHandle representing dependent jobs.
    * @return A JobHandle combining the dependencies.
    */
   static JobHandle Combine(const std::vector<JobHandle>& dependencies);
+
+  /**
+   * @brief Combines a task group into a single dependency handle.
+   */
+  static JobHandle Combine(const JobGroup& job_group);
 
   /**
    * @brief Start execution of the scheduled job.

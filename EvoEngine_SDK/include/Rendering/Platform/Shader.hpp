@@ -56,6 +56,23 @@ class Shader final : public IAsset {
    */
   [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
 
+  /**
+   * @brief Shader source/YAML can be read and parsed before main-thread finalization.
+   */
+  [[nodiscard]] bool SupportsStagedLoading() const override;
+
+  /**
+   * @brief Builds a CPU-side shader source payload.
+   */
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path& path) const override;
+
+  /**
+   * @brief Applies the staged shader source payload.
+   */
+  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+
  public:
   /**
    * @brief Displays an interface for shader inspection in the editor.

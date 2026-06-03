@@ -66,8 +66,9 @@ class ProjectManager {
 
   bool scan_assets_pending = false;  ///< Indicates if an asset scan is pending.
 
-  size_t pending_asset_size = 0;    ///< The count of assets pending to be processed.
-  std::set<Handle> pending_assets;  ///< The list of handles to pending assets.
+  bool project_asset_load_dispatched = false;  ///< True while a project asset batch is owned by AssetManager.
+  size_t pending_asset_size = 0;               ///< The count of assets pending to be processed.
+  std::set<Handle> pending_assets;             ///< The list of handles to pending assets.
 
   /**
    * @brief Scans and updates the asset list based on the current assets folder.
@@ -99,6 +100,11 @@ class ProjectManager {
    * @return A weak pointer to the starting scene.
    */
   [[nodiscard]] static std::weak_ptr<Scene> GetStartScene();
+
+  /**
+   * @brief Returns true when project scanning, project asset loading, and start-scene setup are complete.
+   */
+  [[nodiscard]] static bool IsProjectIdle();
 
   /**
    * @brief Sets the starting scene for the project.
@@ -225,6 +231,3 @@ class ProjectManager {
 };
 
 }  // namespace evo_engine
-
-// All methods already documented.
-// Task is complete.

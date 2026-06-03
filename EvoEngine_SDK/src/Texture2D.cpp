@@ -10,6 +10,76 @@
 #include "TextureStorage.hpp"
 using namespace evo_engine;
 
+namespace {
+struct Texture2DStagedLoadPayload final : StagedAssetLoadPayload {
+  bool red_channel = false;
+  bool green_channel = false;
+  bool blue_channel = false;
+  bool alpha_channel = false;
+  bool hdr = false;
+  glm::uvec2 resolution = glm::uvec2(0);
+  std::vector<glm::vec4> pixels;
+};
+
+void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload& payload) {
+  if (in["red_channel"])
+    payload.red_channel = in["red_channel"].as<bool>();
+  if (in["green_channel"])
+    payload.green_channel = in["green_channel"].as<bool>();
+  if (in["blue_channel"])
+    payload.blue_channel = in["blue_channel"].as<bool>();
+  if (in["alpha_channel"])
+    payload.alpha_channel = in["alpha_channel"].as<bool>();
+  if (in["hdr"])
+    payload.hdr = in["hdr"].as<bool>();
+
+  glm::ivec2 resolution = glm::ivec2(0);
+  if (in["resolution"])
+    resolution = in["resolution"].as<glm::ivec2>();
+  payload.resolution = glm::uvec2(glm::max(resolution.x, 0), glm::max(resolution.y, 0));
+
+  if (payload.resolution.x == 0 || payload.resolution.y == 0) {
+    return;
+  }
+
+  if (payload.hdr) {
+    Serialization::DeserializeVector("pixels", payload.pixels, in);
+    return;
+  }
+
+  size_t target_channel_size = 0;
+  if (payload.red_channel)
+    target_channel_size++;
+  if (payload.green_channel)
+    target_channel_size++;
+  if (payload.blue_channel)
+    target_channel_size++;
+  if (payload.alpha_channel)
+    target_channel_size++;
+
+  std::vector<unsigned char> transferred_pixels;
+  Serialization::DeserializeVector("pixels", transferred_pixels, in);
+  transferred_pixels.resize(payload.resolution.x * payload.resolution.y * target_channel_size);
+  payload.pixels.resize(payload.resolution.x * payload.resolution.y);
+
+  Jobs::RunParallelFor(payload.pixels.size(), [&](size_t i) {
+    for (int channel = 0; channel < target_channel_size; channel++) {
+      payload.pixels[i][channel] =
+          glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
+    }
+    if (target_channel_size < 4) {
+      payload.pixels[i][3] = 1.f;
+    }
+    if (target_channel_size < 3) {
+      payload.pixels[i][2] = 0.f;
+    }
+    if (target_channel_size < 2) {
+      payload.pixels[i][1] = 0.f;
+    }
+  });
+}
+}  // namespace
+
 void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, const bool local_copy) {
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
   texture_storage.SetData(data, resolution);
@@ -112,6 +182,81 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
     return false;
   }
   stbi_image_free(data);
+  return true;
+}
+
+bool Texture2D::SupportsStagedLoading() const {
+  return true;
+}
+
+std::shared_ptr<StagedAssetLoadPayload> Texture2D::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  auto payload = std::make_shared<Texture2DStagedLoadPayload>();
+  if (path.extension() == ".evetexture2d") {
+    std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    const YAML::Node in = YAML::Load(string_stream.str());
+    DecodeSerializedTexture2D(in, *payload);
+    return payload;
+  }
+
+  payload->hdr = path.extension() == ".hdr";
+  stbi_set_flip_vertically_on_load(true);
+  int width = 0;
+  int height = 0;
+  int nr_components = 0;
+
+  const float actual_gamma = payload->hdr ? 2.2f : 1.f;
+  stbi_hdr_to_ldr_gamma(actual_gamma);
+  stbi_ldr_to_hdr_gamma(actual_gamma);
+
+  void* data = stbi_loadf(path.string().c_str(), &width, &height, &nr_components, STBI_rgb_alpha);
+  if (!data) {
+    EVOENGINE_ERROR("Texture failed to load at path: " + path.filename().string());
+    return {};
+  }
+
+  if (nr_components == 1) {
+    payload->red_channel = true;
+  } else if (nr_components == 2) {
+    payload->red_channel = true;
+    payload->green_channel = true;
+  } else if (nr_components == 3) {
+    payload->red_channel = true;
+    payload->green_channel = true;
+    payload->blue_channel = true;
+  } else if (nr_components == 4) {
+    payload->red_channel = true;
+    payload->green_channel = true;
+    payload->blue_channel = true;
+    payload->alpha_channel = true;
+  }
+
+  payload->resolution = glm::uvec2(width, height);
+  payload->pixels.resize(width * height);
+  memcpy(payload->pixels.data(), data, sizeof(glm::vec4) * width * height);
+  stbi_image_free(data);
+  return payload;
+}
+
+bool Texture2D::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                           const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  const auto texture_payload = std::dynamic_pointer_cast<Texture2DStagedLoadPayload>(payload);
+  if (!texture_payload) {
+    return false;
+  }
+
+  hdr = texture_payload->hdr;
+  red_channel = texture_payload->red_channel;
+  green_channel = texture_payload->green_channel;
+  blue_channel = texture_payload->blue_channel;
+  alpha_channel = texture_payload->alpha_channel;
+  local_data_ = texture_payload->pixels;
+
+  if (!local_data_.empty() && texture_payload->resolution.x != 0 && texture_payload->resolution.y != 0) {
+    auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
+    texture_storage.SetDataImmediately(local_data_, texture_payload->resolution);
+  }
   return true;
 }
 

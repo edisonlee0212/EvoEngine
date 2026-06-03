@@ -91,7 +91,9 @@ Services can extend rendering through `RenderLayer` callbacks for shadow maps, d
 
 ### Jobs, Input, and Time
 
-The SDK job system supports scheduled and immediate parallel work. ECS iteration helpers use jobs to process chunks in parallel. Input is routed from GLFW callbacks through the engine input system and layer event hooks. Timing utilities track frame delta time, fixed timestep state, and update counters.
+The SDK job system supports scheduled and immediate parallel work. ECS iteration helpers use jobs to process chunks in parallel. The runtime owns a general worker pool plus named service executors for main-thread callbacks, asset IO, rendering work, and background tasks. `JobSystem` and `Jobs` remain compatibility facades over this engine-owned `TaskRuntime` boundary so backend experiments can happen behind the same API.
+
+Interactive project asset loading now dispatches scanned assets as an `AssetManager` batch instead of resolving one pending asset per frame. The asset-service path owns per-handle in-flight state, progress snapshots, and blocking sync access, so concurrent requests wait for the first loader instead of creating duplicate asset instances. Assets can opt into staged async loading by producing a CPU-only payload on the asset-IO executor and applying it later on the bounded main-thread finalization lane. SDK staged assets now include `Texture2D`, shader/JSON source assets, scene and native prefab YAML, strands, point clouds, and the SDK YAML-backed render assets that deserialize through the default `IAsset` path. Legacy non-staged paths, especially imported model prefab formats that still run through Assimp and create engine objects during import, continue to finalize on the main thread. `ApplicationInitializationSettings::load_project_assets` can disable headless project asset preloading for tests and tools that want to request assets explicitly. Input is routed from GLFW callbacks through the engine input system and layer event hooks. Timing utilities track frame delta time, fixed timestep state, and update counters.
 
 ### Applications
 
@@ -186,7 +188,7 @@ python Scripts/format_cpp.py
 python Scripts/format_cpp.py --check
 ```
 
-`python Scripts/test.py` is the local render test runner. By default it builds and runs the render/GPU test target, writes the latest visual artifact under `out/test-artifacts/latest`, and reports PSNR/SSIM for the golden-image comparison. Use `--all` to run every CTest test in the local build tree.
+`python Scripts/test.py` is the local render test runner. By default it builds the `EvoEngine_RenderTests` aggregate target and runs render/GPU-labeled tests, including the render golden-image comparison and a `DemoApp` executable smoke test that waits for the rendering demo project to finish loading, enters play mode, and renders 100 frames. Visual artifacts are written under `out/test-artifacts/latest`, and PSNR/SSIM are reported for the golden-image comparison. Use `--all` to run every CTest test in the local build tree.
 
 GitHub Actions are limited to repository-wide format checks and platform compilation checks. Rendering tests are intentionally local-only because they require a Vulkan-capable GPU environment and produce visual artifacts for inspection.
 
@@ -278,6 +280,8 @@ When adding new work:
 Runtime packages live under `EvoEngine_Packages`. The package CMake entry scans package folders automatically, reads optional metadata from `PackageInfo.cmake`, creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option, and builds a shared library target named `<Name>Package` by default. Disable individual package targets with `EVOENGINE_ENABLE_<Name>_PACKAGE=OFF` when a build should skip them.
 
 Apps do not load runtime packages by default. Set `ApplicationInitializationSettings::enable_runtime_packages = true` and add names to `ApplicationInitializationSettings::startup_runtime_packages`, or call `PackageManager::Load/LoadAll` from runtime/editor tooling when a workflow needs additional package functionality.
+
+Headless tools and focused tests that only need project scanning or asset metadata can set `ApplicationInitializationSettings::load_default_resources = false` and `ApplicationInitializationSettings::load_project_start_scene = false` to avoid creating render defaults or attaching a scene during initialization.
 
 Package dependencies are declared with `EVOENGINE_PACKAGE_DEPENDS` in `PackageInfo.cmake`. CMake builds dependencies first and emits a sidecar `.evepackage` manifest beside each package binary so the runtime can discover and load dependencies before opening a package DLL/shared library.
 

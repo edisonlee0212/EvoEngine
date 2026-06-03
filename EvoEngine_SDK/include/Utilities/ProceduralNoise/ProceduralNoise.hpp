@@ -100,6 +100,10 @@ class ProceduralNoise2D : public IAsset, public IProceduralNoise {
   std::shared_ptr<Texture2D> test_texture_2d_;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   void Reset() override;
   ProceduralNoise2D();
   float GetValue(const glm::vec2& offset) const;
@@ -113,6 +117,10 @@ class ProceduralNoise3D : public IAsset, public IProceduralNoise {
   std::shared_ptr<Texture2D> test_texture_2d_;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   void Reset() override;
   ProceduralNoise3D();
   float GetValue(const glm::vec3& offset) const;
@@ -127,6 +135,10 @@ class ProceduralNoise4D : public IAsset, public IProceduralNoise {
   std::shared_ptr<Texture2D> test_texture_2d_;
 
  public:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
   void Reset() override;
   ProceduralNoise4D();
   float GetValue(const glm::vec4& offset) const;

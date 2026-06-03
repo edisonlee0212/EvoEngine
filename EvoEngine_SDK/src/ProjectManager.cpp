@@ -9,6 +9,9 @@
 #  include "shellapi.h"
 #endif
 
+#include <algorithm>
+#include <vector>
+
 using namespace evo_engine;
 
 std::weak_ptr<Folder> ProjectManager::GetOrCreateFolder(const std::filesystem::path& assets_relative_path) {
@@ -95,18 +98,37 @@ void ProjectManager::PreUpdate() {
 
   if (project_manager.scan_assets_pending) {
     ScanAssets();
-  } else if (!project_manager.pending_assets.empty()) {
-    const auto handle = *project_manager.pending_assets.begin();
-    project_manager.pending_assets.erase(handle);
-    AssetManager::GetAssetImpl(handle);
-  } else if (!project_manager.new_project_path_.empty()) {
-    SetupDefaultScene();
+    return;
   }
 
-  if (project_manager.pending_assets.empty()) {
-    project_manager.pending_asset_size = 0;
-  } else {
+  if (!project_manager.pending_assets.empty()) {
+    LoadAllPendingAssets();
   }
+
+  if (project_manager.project_asset_load_dispatched) {
+    const auto snapshot = AssetManager::GetAssetLoadSnapshot();
+    if (snapshot.Active()) {
+      return;
+    }
+    project_manager.project_asset_load_dispatched = false;
+    project_manager.pending_asset_size = 0;
+  }
+
+  if (!project_manager.new_project_path_.empty()) {
+    if (ApplicationContext::Get().GetApplicationInfo().load_project_start_scene) {
+      SetupDefaultScene();
+    } else {
+      project_manager.new_project_path_ = "";
+    }
+  }
+}
+
+bool ProjectManager::IsProjectIdle() {
+  const auto& project_manager = GetInstance();
+  const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
+  return project_manager.new_project_path_.empty() && !project_manager.scan_assets_pending &&
+         project_manager.pending_assets.empty() && !project_manager.project_asset_load_dispatched &&
+         project_manager.pending_asset_size == 0 && !asset_load_snapshot.Active() && project_manager.start_scene_;
 }
 
 void ProjectManager::LoadAllPendingAssets() {
@@ -114,10 +136,26 @@ void ProjectManager::LoadAllPendingAssets() {
   if (project_manager.pending_assets.empty()) {
     return;
   }
-  for (const auto& i : project_manager.pending_assets) {
-    AssetManager::GetAssetImpl(i);
+
+  std::vector<Handle> handles;
+  handles.reserve(project_manager.pending_assets.size());
+  for (const auto& handle : project_manager.pending_assets) {
+    handles.emplace_back(handle);
   }
+
+  project_manager.pending_asset_size = handles.size();
+  [[maybe_unused]] const auto load_futures = AssetManager::RequestAssetLoads(project_manager.pending_assets);
+  project_manager.project_asset_load_dispatched = true;
   project_manager.pending_assets.clear();
+
+  if (ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    return;
+  }
+
+  for (const auto& handle : handles) {
+    AssetManager::GetAssetImpl(handle);
+  }
+  project_manager.project_asset_load_dispatched = false;
   project_manager.pending_asset_size = 0;
 }
 
@@ -215,8 +253,14 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     DispatchScanAssetsTask();
   } else {
     ScanAssets();
-    LoadAllPendingAssets();
-    SetupDefaultScene();
+    if (ApplicationContext::Get().GetApplicationInfo().load_project_assets) {
+      LoadAllPendingAssets();
+    }
+    if (ApplicationContext::Get().GetApplicationInfo().load_project_start_scene) {
+      SetupDefaultScene();
+    } else {
+      project_manager.new_project_path_ = "";
+    }
   }
 }
 
@@ -293,6 +337,10 @@ void ProjectManager::Initialize() {
 void ProjectManager::OnDestroy() {
   auto& project_manager = GetInstance();
 
+  project_manager.scan_assets_pending = false;
+  project_manager.project_asset_load_dispatched = false;
+  project_manager.pending_asset_size = 0;
+  project_manager.pending_assets.clear();
   project_manager.assets_folder_.reset();
   project_manager.new_scene_customizer_.reset();
   project_manager.current_focused_folder_.reset();
@@ -701,9 +749,10 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::End();
   }
 
+  const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
   if (project_manager.scan_assets_pending) {
-    ImGui::OpenPopup("Scanning files...");
-  } else if (project_manager.pending_asset_size != 0) {
+    ImGui::OpenPopup("Scanning assets...");
+  } else if (asset_load_snapshot.Active()) {
     ImGui::OpenPopup("Loading assets...");
   } else if (!project_manager.new_project_path_.empty()) {
     ImGui::OpenPopup("Loading Project...");
@@ -724,15 +773,30 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   if (ImGui::BeginPopupModal("Loading assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::Text("Progress: ");
-    const float fraction =
-        1.0f - static_cast<float>(project_manager.pending_assets.size()) / project_manager.pending_asset_size;
-    const std::string text =
-        std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
-        std::to_string(project_manager.pending_asset_size - project_manager.pending_assets.size()) + "/" +
-        std::to_string(project_manager.pending_asset_size);
+    const auto completed_asset_count =
+        asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
+    const auto active_asset_count =
+        asset_load_snapshot.queued + asset_load_snapshot.loading_cpu + asset_load_snapshot.waiting_for_finalize;
+    auto total_asset_count = asset_load_snapshot.total;
+    total_asset_count = std::max(total_asset_count, completed_asset_count + active_asset_count);
+    total_asset_count = std::max(total_asset_count, project_manager.pending_asset_size);
+    const float fraction = total_asset_count == 0
+                               ? 1.0f
+                               : static_cast<float>(completed_asset_count) / static_cast<float>(total_asset_count);
+    const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
+                             std::to_string(completed_asset_count) + "/" + std::to_string(total_asset_count);
     ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
+    if (!asset_load_snapshot.active_asset_name.empty()) {
+      ImGui::Text("Asset: %s", asset_load_snapshot.active_asset_name.c_str());
+    }
+    if (!asset_load_snapshot.message.empty()) {
+      ImGui::Text("%s", asset_load_snapshot.message.c_str());
+    }
+    if (asset_load_snapshot.failed != 0 || asset_load_snapshot.cancelled != 0) {
+      ImGui::Text("Failed: %zu  Cancelled: %zu", asset_load_snapshot.failed, asset_load_snapshot.cancelled);
+    }
     ImGui::SetItemDefaultFocus();
-    if (project_manager.pending_asset_size == 0) {
+    if (!asset_load_snapshot.Active()) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

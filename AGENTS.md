@@ -2,6 +2,16 @@
 
 This file provides repository-wide guidance for coding agents working in EvoEngine.
 
+## Branch Task Tracking
+
+When working on a new branch, create a local `./tasks` directory with these files:
+
+- `todo.md`
+- `in-progress.md`
+- `done.md`
+
+Use these files to keep a brief, current record of planned work, active work, and completed work for the branch. The `./tasks` directory is intentionally git-ignored and should remain local to the working branch/worktree.
+
 ## Commit Workflow
 
 When the user asks you to make a commit:
