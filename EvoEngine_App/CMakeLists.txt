@@ -127,6 +127,7 @@ register_evoengine_app(DemoApp ON)
 register_evoengine_app(EcoSysLabApp ON)
 register_evoengine_app(DigitalAgricultureApp ON)
 register_evoengine_app(LogGradingApp ON)
+register_evoengine_app(LSystemApp ON)
 
 register_evoengine_app(TreeDataGeneratorApp ON)
 register_evoengine_app(SorghumDataGeneratorApp ON)
