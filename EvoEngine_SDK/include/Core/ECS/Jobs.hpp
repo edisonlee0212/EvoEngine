@@ -171,6 +171,11 @@ class Jobs final {
   static JobHandle RunOnRenderThread(const std::function<void()>& func);
 
   /**
+   * @brief Schedules a job for the GPU service executor.
+   */
+  static JobHandle RunOnGpuThread(const std::function<void()>& func);
+
+  /**
    * @brief Schedules a job for the background executor.
    */
   static JobHandle RunOnBackgroundThread(const std::function<void()>& func);
@@ -198,6 +203,11 @@ class Jobs final {
    * @param job_handle The JobHandle representing the job to wait for.
    */
   static void Wait(const JobHandle& job_handle);
+
+  /**
+   * @brief Returns whether a scheduled job has completed.
+   */
+  [[nodiscard]] static bool IsCompleted(const JobHandle& job_handle);
 
   /**
    * @brief Cleans up and destroys the job system resources.

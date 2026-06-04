@@ -532,40 +532,172 @@ VkSampler Sampler::GetVkSampler() const {
   return vk_sampler_;
 }
 
-void Buffer::UploadData(const size_t size, const void* src) {
-  if (size > size_)
-    Resize(size);
-  if (vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
-      vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
+struct Buffer::GpuState {
+  VkBuffer vk_buffer = VK_NULL_HANDLE;
+  VmaAllocation vma_allocation = VK_NULL_HANDLE;
+  VmaAllocationInfo vma_allocation_info = {};
+
+  VkBufferCreateFlags flags = {};
+  VkDeviceSize size = {};
+  VkBufferUsageFlags usage = {};
+  VkSharingMode sharing_mode = {};
+  std::vector<uint32_t> queue_family_indices = {};
+  VmaAllocationCreateInfo vma_allocation_create_info = {};
+  mutable std::mutex pending_gpu_work_mutex;
+  mutable std::vector<GpuWorkHandle> pending_gpu_work;
+};
+
+void Buffer::UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const size_t size, const void* src) {
+  if (size > state->size)
+    ResizeOnGpuThread(state, size);
+  if (state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
+      state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
     void* mapping;
-    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), vma_allocation_, &mapping));
+    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), state->vma_allocation, &mapping));
     memcpy(mapping, src, size);
-    vmaUnmapMemory(Platform::GetVmaAllocator(), vma_allocation_);
+    vmaUnmapMemory(Platform::GetVmaAllocator(), state->vma_allocation);
   } else {
-    Buffer staging_buffer(size);
-    staging_buffer.UploadData(size, src);
-    CopyFromBuffer(staging_buffer, size, 0, 0);
+    auto& gpu_service = Platform::GetGpuService();
+    auto staging_buffer = gpu_service.AcquireStagingBuffer(size, false);
+    try {
+      void* mapping;
+      Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
+      memcpy(mapping, src, size);
+      vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
+      CopyFromBufferOnGpuThread(state, staging_buffer.vk_buffer, size, 0, 0);
+      gpu_service.ReleaseStagingBuffer(staging_buffer);
+    } catch (...) {
+      gpu_service.ReleaseStagingBuffer(staging_buffer);
+      throw;
+    }
+  }
+}
+
+void Buffer::UploadData(const size_t size, const void* src) {
+  const auto handle = UploadDataAsync(size, src);
+  Platform::GetGpuService().Wait(handle);
+}
+
+GpuWorkHandle Buffer::UploadDataAsync(const size_t size, const void* src) {
+  if (size == 0) {
+    return {};
+  }
+  if (src == nullptr) {
+    throw std::invalid_argument("Buffer upload source cannot be null.");
+  }
+  auto owned_data = std::make_shared<std::vector<std::byte>>(size);
+  memcpy(owned_data->data(), src, size);
+
+  GpuWorkOptions options;
+  options.debug_name = "Buffer::UploadDataAsync";
+  const auto state = gpu_state_;
+  auto& gpu_service = Platform::GetGpuService();
+  const auto handle = gpu_service.EnqueueStaging(size, options, [state, size, owned_data]() {
+    UploadDataOnGpuThread(state, size, owned_data->data());
+  });
+  TrackPendingGpuWork(handle);
+  return handle;
+}
+
+void Buffer::DownloadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const size_t size, void* dst) {
+  if (size > state->size)
+    ResizeOnGpuThread(state, size);
+  if (state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
+      state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
+    void* mapping;
+    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), state->vma_allocation, &mapping));
+    memcpy(dst, mapping, size);
+    vmaUnmapMemory(Platform::GetVmaAllocator(), state->vma_allocation);
+  } else {
+    auto& gpu_service = Platform::GetGpuService();
+    auto staging_buffer = gpu_service.AcquireStagingBuffer(size, true);
+    try {
+      gpu_service.SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
+        VkBufferCopy copy_region{};
+        copy_region.size = size;
+        copy_region.srcOffset = 0;
+        copy_region.dstOffset = 0;
+        vkCmdCopyBuffer(vk_command_buffer, state->vk_buffer, staging_buffer.vk_buffer, 1, &copy_region);
+      });
+      void* mapping;
+      Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
+      memcpy(dst, mapping, size);
+      vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
+      gpu_service.ReleaseStagingBuffer(staging_buffer);
+    } catch (...) {
+      gpu_service.ReleaseStagingBuffer(staging_buffer);
+      throw;
+    }
   }
 }
 
 void Buffer::DownloadData(const size_t size, void* dst) {
-  if (size > size_)
-    Resize(size);
-  if (vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
-      vma_allocation_create_info_.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
-    void* mapping;
-    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), vma_allocation_, &mapping));
-    memcpy(dst, mapping, size);
-    vmaUnmapMemory(Platform::GetVmaAllocator(), vma_allocation_);
-  } else {
-    Buffer staging_buffer(size);
-    staging_buffer.CopyFromBuffer(*this, size, 0, 0);
-    staging_buffer.DownloadData(size, dst);
+  if (size == 0) {
+    return;
   }
+  if (dst == nullptr) {
+    throw std::invalid_argument("Buffer download destination cannot be null.");
+  }
+  const auto future = DownloadDataAsync(size);
+  const auto bytes = future.get();
+  memcpy(dst, bytes.data(), bytes.size());
+}
+
+std::shared_future<std::vector<std::byte>> Buffer::DownloadDataAsync(const size_t size) {
+  auto promise = std::make_shared<std::promise<std::vector<std::byte>>>();
+  auto future = promise->get_future().share();
+  if (size == 0) {
+    promise->set_value({});
+    return future;
+  }
+
+  GpuWorkOptions options;
+  options.debug_name = "Buffer::DownloadDataAsync";
+  const auto state = gpu_state_;
+  auto& gpu_service = Platform::GetGpuService();
+  const auto handle = gpu_service.EnqueueStaging(size, options, [state, size, promise]() {
+    try {
+      std::vector<std::byte> bytes(size);
+      DownloadDataOnGpuThread(state, size, bytes.data());
+      promise->set_value(std::move(bytes));
+    } catch (...) {
+      promise->set_exception(std::current_exception());
+      throw;
+    }
+  });
+  TrackPendingGpuWork(handle);
+  return future;
 }
 
 void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
                       const VmaAllocationCreateInfo& vma_allocation_create_info) {
+  std::vector<uint32_t> queue_family_indices;
+  if (buffer_create_info.queueFamilyIndexCount > 0 && buffer_create_info.pQueueFamilyIndices != nullptr) {
+    queue_family_indices.assign(buffer_create_info.pQueueFamilyIndices,
+                                buffer_create_info.pQueueFamilyIndices + buffer_create_info.queueFamilyIndexCount);
+  }
+
+  const auto state = gpu_state_;
+  const auto allocate = [state, buffer_create_info, vma_allocation_create_info, queue_family_indices]() {
+    auto resolved_buffer_create_info = buffer_create_info;
+    resolved_buffer_create_info.pQueueFamilyIndices =
+        queue_family_indices.empty() ? nullptr : queue_family_indices.data();
+    AllocateOnGpuThread(state, resolved_buffer_create_info, vma_allocation_create_info);
+  };
+
+  if (const auto gpu_service = Platform::TryGetGpuService();
+      gpu_service && gpu_service->Initialized() && !gpu_service->IsGpuThread()) {
+    GpuWorkOptions options;
+    options.debug_name = "Buffer::Allocate";
+    const auto handle = gpu_service->Enqueue(options, allocate);
+    gpu_service->Wait(handle);
+  } else {
+    allocate();
+  }
+}
+
+void Buffer::AllocateOnGpuThread(const std::shared_ptr<GpuState>& state, VkBufferCreateInfo buffer_create_info,
+                                 const VmaAllocationCreateInfo& vma_allocation_create_info) {
 #if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryBufferCreateInfo vk_external_mem_buffer_create_info;
   vk_external_mem_buffer_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
@@ -579,19 +711,20 @@ void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
   buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
 #endif
   if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info,
-                                        &vk_buffer_, &vma_allocation_, &vma_allocation_info_))) {
+                                        &state->vk_buffer, &state->vma_allocation, &state->vma_allocation_info))) {
     throw std::runtime_error("Failed to create buffer!");
   }
   assert(buffer_create_info.usage != 0);
-  flags_ = buffer_create_info.flags;
-  size_ = buffer_create_info.size;
-  usage_ = buffer_create_info.usage;
-  sharing_mode_ = buffer_create_info.sharingMode;
-  ApplyVector(queue_family_indices_, buffer_create_info.queueFamilyIndexCount, buffer_create_info.pQueueFamilyIndices);
-  vma_allocation_create_info_ = vma_allocation_create_info;
+  state->flags = buffer_create_info.flags;
+  state->size = buffer_create_info.size;
+  state->usage = buffer_create_info.usage;
+  state->sharing_mode = buffer_create_info.sharingMode;
+  ApplyVector(state->queue_family_indices, buffer_create_info.queueFamilyIndexCount,
+              buffer_create_info.pQueueFamilyIndices);
+  state->vma_allocation_create_info = vma_allocation_create_info;
 }
 
-Buffer::Buffer(const size_t staging_buffer_size, bool random_access) {
+Buffer::Buffer(const size_t staging_buffer_size, bool random_access) : gpu_state_(std::make_shared<GpuState>()) {
   if (!Platform::Initialized())
     return;
   VkBufferCreateInfo staging_buffer_create_info{};
@@ -607,7 +740,7 @@ Buffer::Buffer(const size_t staging_buffer_size, bool random_access) {
   Allocate(staging_buffer_create_info, staging_buffer_vma_allocation_create_info);
 }
 
-Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info) {
+Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info) : gpu_state_(std::make_shared<GpuState>()) {
   if (!Platform::Initialized())
     return;
   VmaAllocationCreateInfo alloc_info = {};
@@ -615,31 +748,31 @@ Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info) {
   Allocate(buffer_create_info, alloc_info);
 }
 
-Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info,
-               const VmaAllocationCreateInfo& vma_allocation_create_info) {
+Buffer::Buffer(const VkBufferCreateInfo& buffer_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info)
+    : gpu_state_(std::make_shared<GpuState>()) {
   if (!Platform::Initialized())
     return;
   Allocate(buffer_create_info, vma_allocation_create_info);
 }
 
-void Buffer::Resize(const VkDeviceSize new_size) {
-  if (new_size == size_)
+void Buffer::ResizeOnGpuThread(const std::shared_ptr<GpuState>& state, const VkDeviceSize new_size) {
+  if (new_size == state->size)
     return;
-  if ((vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
+  if ((state->vk_buffer != VK_NULL_HANDLE || state->vma_allocation != VK_NULL_HANDLE) &&
       Platform::GetVkInstance() != VK_NULL_HANDLE) {
-    vmaDestroyBuffer(Platform::GetVmaAllocator(), vk_buffer_, vma_allocation_);
-    vk_buffer_ = VK_NULL_HANDLE;
-    vma_allocation_ = VK_NULL_HANDLE;
-    vma_allocation_info_ = {};
+    vmaDestroyBuffer(Platform::GetVmaAllocator(), state->vk_buffer, state->vma_allocation);
+    state->vk_buffer = VK_NULL_HANDLE;
+    state->vma_allocation = VK_NULL_HANDLE;
+    state->vma_allocation_info = {};
   }
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_create_info.flags = flags_;
+  buffer_create_info.flags = state->flags;
   buffer_create_info.size = new_size;
-  buffer_create_info.usage = usage_;
-  buffer_create_info.sharingMode = sharing_mode_;
-  buffer_create_info.queueFamilyIndexCount = queue_family_indices_.size();
-  buffer_create_info.pQueueFamilyIndices = queue_family_indices_.data();
+  buffer_create_info.usage = state->usage;
+  buffer_create_info.sharingMode = state->sharing_mode;
+  buffer_create_info.queueFamilyIndexCount = state->queue_family_indices.size();
+  buffer_create_info.pQueueFamilyIndices = state->queue_family_indices.data();
 #if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryBufferCreateInfo vk_external_mem_buffer_create_info = {};
   vk_external_mem_buffer_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
@@ -652,45 +785,121 @@ void Buffer::Resize(const VkDeviceSize new_size) {
 
   buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
 #endif
-  if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info_,
-                                        &vk_buffer_, &vma_allocation_, &vma_allocation_info_))) {
+  if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info,
+                                        &state->vma_allocation_create_info, &state->vk_buffer, &state->vma_allocation,
+                                        &state->vma_allocation_info))) {
     throw std::runtime_error("Failed to create buffer!");
   }
-  size_ = new_size;
+  state->size = new_size;
+}
+
+void Buffer::Resize(const VkDeviceSize new_size) {
+  WaitForPendingGpuWork();
+  const auto state = gpu_state_;
+  if (const auto gpu_service = Platform::TryGetGpuService();
+      gpu_service && gpu_service->Initialized() && !gpu_service->IsGpuThread()) {
+    GpuWorkOptions options;
+    options.debug_name = "Buffer::Resize";
+    const auto handle = gpu_service->Enqueue(options, [state, new_size]() {
+      ResizeOnGpuThread(state, new_size);
+    });
+    gpu_service->Wait(handle);
+  } else {
+    ResizeOnGpuThread(state, new_size);
+  }
+}
+
+void Buffer::DestroyOnGpuThread(const std::shared_ptr<GpuState>& state) {
+  if (!Platform::Initialized())
+    return;
+  if ((state->vk_buffer != VK_NULL_HANDLE || state->vma_allocation != VK_NULL_HANDLE) &&
+      Platform::GetVkInstance() != VK_NULL_HANDLE) {
+    vmaDestroyBuffer(Platform::GetVmaAllocator(), state->vk_buffer, state->vma_allocation);
+    state->vk_buffer = VK_NULL_HANDLE;
+    state->vma_allocation = VK_NULL_HANDLE;
+    state->vma_allocation_info = {};
+  }
 }
 
 Buffer::~Buffer() {
-  if (!Platform::Initialized())
-    return;
-  if ((vk_buffer_ != VK_NULL_HANDLE || vma_allocation_ != VK_NULL_HANDLE) &&
-      Platform::GetVkInstance() != VK_NULL_HANDLE) {
-    vmaDestroyBuffer(Platform::GetVmaAllocator(), vk_buffer_, vma_allocation_);
-    vk_buffer_ = VK_NULL_HANDLE;
-    vma_allocation_ = VK_NULL_HANDLE;
-    vma_allocation_info_ = {};
+  try {
+    WaitForPendingGpuWork();
+    const auto state = gpu_state_;
+    if (const auto gpu_service = Platform::TryGetGpuService();
+        gpu_service && gpu_service->Initialized() && !gpu_service->IsGpuThread()) {
+      GpuWorkOptions options;
+      options.debug_name = "Buffer::~Buffer";
+      const auto handle = gpu_service->Enqueue(options, [state]() {
+        DestroyOnGpuThread(state);
+      });
+      gpu_service->Wait(handle);
+    } else {
+      DestroyOnGpuThread(state);
+    }
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to destroy GPU buffer: " + std::string(e.what()))
+  } catch (...) {
+    EVOENGINE_ERROR("Failed to destroy GPU buffer.")
   }
 }
 
-void Buffer::CopyFromBuffer(const Buffer& src_buffer, const VkDeviceSize size, const VkDeviceSize src_offset,
-                            const VkDeviceSize dst_offset) {
-  Resize(size);
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+void Buffer::CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state,
+                                       const std::shared_ptr<GpuState>& src_state, const VkDeviceSize size,
+                                       const VkDeviceSize src_offset, const VkDeviceSize dst_offset) {
+  CopyFromBufferOnGpuThread(state, src_state->vk_buffer, size, src_offset, dst_offset);
+}
+
+void Buffer::CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state, const VkBuffer src_buffer,
+                                       const VkDeviceSize size, const VkDeviceSize src_offset,
+                                       const VkDeviceSize dst_offset) {
+  ResizeOnGpuThread(state, size);
+  Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
     VkBufferCopy copy_region{};
     copy_region.size = size;
     copy_region.srcOffset = src_offset;
     copy_region.dstOffset = dst_offset;
-    vkCmdCopyBuffer(vk_command_buffer, src_buffer.GetVkBuffer(), vk_buffer_, 1, &copy_region);
+    vkCmdCopyBuffer(vk_command_buffer, src_buffer, state->vk_buffer, 1, &copy_region);
+  });
+}
+
+void Buffer::CopyFromBuffer(const Buffer& src_buffer, const VkDeviceSize size, const VkDeviceSize src_offset,
+                            const VkDeviceSize dst_offset) {
+  WaitForPendingGpuWork();
+  src_buffer.WaitForPendingGpuWork();
+  const auto state = gpu_state_;
+  const auto src_state = src_buffer.gpu_state_;
+  GpuWorkOptions options;
+  options.debug_name = "Buffer::CopyFromBuffer";
+  auto& gpu_service = Platform::GetGpuService();
+  const auto handle = gpu_service.Enqueue(options, [state, src_state, size, src_offset, dst_offset]() {
+    CopyFromBufferOnGpuThread(state, src_state, size, src_offset, dst_offset);
+  });
+  TrackPendingGpuWork(handle);
+  gpu_service.Wait(handle);
+}
+
+void Buffer::CopyFromImageOnGpuThread(const std::shared_ptr<GpuState>& state, Image& src_image,
+                                      const VkBufferImageCopy& image_copy_info) {
+  Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
+    const auto prev_layout = src_image.GetLayout();
+    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkCmdCopyImageToBuffer(vk_command_buffer, src_image.GetVkImage(), src_image.GetLayout(), state->vk_buffer, 1,
+                           &image_copy_info);
+    src_image.TransitImageLayout(vk_command_buffer, prev_layout);
   });
 }
 
 void Buffer::CopyFromImage(Image& src_image, const VkBufferImageCopy& image_copy_info) const {
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    const auto prev_layout = src_image.GetLayout();
-    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    vkCmdCopyImageToBuffer(vk_command_buffer, src_image.GetVkImage(), src_image.GetLayout(), vk_buffer_, 1,
-                           &image_copy_info);
-    src_image.TransitImageLayout(vk_command_buffer, prev_layout);
+  WaitForPendingGpuWork();
+  const auto state = gpu_state_;
+  GpuWorkOptions options;
+  options.debug_name = "Buffer::CopyFromImage";
+  auto& gpu_service = Platform::GetGpuService();
+  const auto handle = gpu_service.Enqueue(options, [state, &src_image, image_copy_info]() {
+    CopyFromImageOnGpuThread(state, src_image, image_copy_info);
   });
+  TrackPendingGpuWork(handle);
+  gpu_service.Wait(handle);
 }
 
 void Buffer::CopyFromImage(Image& src_image, const VkDeviceSize pixel_size) {
@@ -729,40 +938,64 @@ void Buffer::CopyFromDepth(Image& src_image, const VkDeviceSize pixel_size) {
   CopyFromImage(src_image, image_copy_info);
 }
 
+void Buffer::TrackPendingGpuWork(const GpuWorkHandle& handle) const {
+  if (!handle.Valid()) {
+    return;
+  }
+  std::lock_guard lock(gpu_state_->pending_gpu_work_mutex);
+  gpu_state_->pending_gpu_work.emplace_back(handle);
+}
+
+void Buffer::WaitForPendingGpuWork() const {
+  std::vector<GpuWorkHandle> pending_work;
+  {
+    std::lock_guard lock(gpu_state_->pending_gpu_work_mutex);
+    pending_work.swap(gpu_state_->pending_gpu_work);
+  }
+  auto* gpu_service = Platform::TryGetGpuService();
+  for (const auto& handle : pending_work) {
+    if (gpu_service) {
+      gpu_service->Wait(handle);
+    } else {
+      Jobs::Wait(handle);
+    }
+  }
+}
+
 void Buffer::Fill(const VkCommandBuffer vk_command_buffer, const VkDeviceSize offset, const VkDeviceSize size,
                   const uint32_t data) const {
-  vkCmdFillBuffer(vk_command_buffer, vk_buffer_, offset, size, data);
+  vkCmdFillBuffer(vk_command_buffer, gpu_state_->vk_buffer, offset, size, data);
 }
 
 void Buffer::BindVertex(const VkCommandBuffer vk_command_buffer, const uint32_t first_binding,
                         const VkDeviceSize offset) const {
-  vkCmdBindVertexBuffers(vk_command_buffer, first_binding, 1, &vk_buffer_, &offset);
+  vkCmdBindVertexBuffers(vk_command_buffer, first_binding, 1, &gpu_state_->vk_buffer, &offset);
 }
 
 void Buffer::BindIndex(const VkCommandBuffer vk_command_buffer, const VkDeviceSize offset,
                        const VkIndexType index_type) const {
-  vkCmdBindIndexBuffer(vk_command_buffer, vk_buffer_, offset, index_type);
+  vkCmdBindIndexBuffer(vk_command_buffer, gpu_state_->vk_buffer, offset, index_type);
 }
 
 const VkBuffer& Buffer::GetVkBuffer() const {
-  return vk_buffer_;
+  return gpu_state_->vk_buffer;
 }
 
 VmaAllocation Buffer::GetVmaAllocation() const {
-  return vma_allocation_;
+  return gpu_state_->vma_allocation;
 }
 
 VkDeviceAddress Buffer::GetDeviceAddress() const {
   VkBufferDeviceAddressInfo buffer_device_address_info{};
   buffer_device_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-  buffer_device_address_info.buffer = vk_buffer_;
+  buffer_device_address_info.buffer = gpu_state_->vk_buffer;
   const VkDeviceAddress address = vkGetBufferDeviceAddress(Platform::GetVkDevice(), &buffer_device_address_info);
   assert(address != 0);
   return address;
 }
 
 const VmaAllocationInfo& Buffer::GetVmaAllocationInfo() const {
-  return vma_allocation_info_;
+  return gpu_state_->vma_allocation_info;
 }
 
 void Buffer::SetDebugName(const std::string& name) const {
@@ -771,7 +1004,7 @@ void Buffer::SetDebugName(const std::string& name) const {
     VkDebugUtilsObjectNameInfoEXT nameInfo{};
     nameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
     nameInfo.objectType = VK_OBJECT_TYPE_BUFFER;
-    nameInfo.objectHandle = reinterpret_cast<uint64_t>(vk_buffer_);
+    nameInfo.objectHandle = reinterpret_cast<uint64_t>(gpu_state_->vk_buffer);
     nameInfo.pObjectName = name.c_str();
     vkSetDebugUtilsObjectNameEXT(Platform::GetVkDevice(), &nameInfo);
   }

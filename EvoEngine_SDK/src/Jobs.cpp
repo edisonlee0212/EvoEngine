@@ -31,6 +31,7 @@ void Jobs::Initialize(const size_t worker_size) {
   JobRuntimeSettings settings;
   settings.worker_thread_size = std::max<size_t>(1, worker_size);
   settings.asset_io_thread_size = 1;
+  settings.gpu_thread_size = 1;
   settings.render_thread_size = 1;
   settings.background_thread_size = 1;
   jobs.job_system_.Initialize(settings);
@@ -290,6 +291,14 @@ JobHandle Jobs::RunOnRenderThread(const std::function<void()>& func) {
   return Run(options, func);
 }
 
+JobHandle Jobs::RunOnGpuThread(const std::function<void()>& func) {
+  JobOptions options;
+  options.executor = JobExecutorType::Gpu;
+  options.affinity = JobThreadAffinity::Gpu;
+  options.debug_name = "Jobs::RunOnGpuThread";
+  return Run(options, func);
+}
+
 JobHandle Jobs::RunOnBackgroundThread(const std::function<void()>& func) {
   JobOptions options;
   options.executor = JobExecutorType::Background;
@@ -321,6 +330,11 @@ void Jobs::Wait(const JobHandle& job_handle) {
     return;
   jobs.job_system_.ExecuteJob(job_handle);
   jobs.job_system_.Wait(job_handle);
+}
+
+bool Jobs::IsCompleted(const JobHandle& job_handle) {
+  const auto& jobs = GetInstance();
+  return jobs.job_system_.IsCompleted(job_handle);
 }
 
 void Jobs::OnDestroy() {

@@ -15,6 +15,7 @@ TaskRuntimeSettings TestRuntimeSettings() {
   TaskRuntimeSettings settings;
   settings.worker_thread_size = 2;
   settings.asset_io_thread_size = 1;
+  settings.gpu_thread_size = 1;
   settings.render_thread_size = 1;
   settings.background_thread_size = 1;
   return settings;
@@ -65,6 +66,8 @@ TEST(TaskRuntime, RunsNamedServiceExecutors) {
   runtime.Initialize(TestRuntimeSettings());
 
   std::atomic_bool asset_io_executed = false;
+  std::atomic_bool gpu_executed = false;
+  std::atomic_bool gpu_is_not_render = false;
   std::atomic_bool render_executed = false;
   std::atomic_bool background_executed = false;
 
@@ -72,6 +75,13 @@ TEST(TaskRuntime, RunsNamedServiceExecutors) {
   asset_options.executor = TaskExecutorType::AssetIo;
   const auto asset_task = runtime.Schedule({}, asset_options, [&]() {
     asset_io_executed = runtime.IsExecutorThread(TaskExecutorType::AssetIo);
+  });
+
+  TaskOptions gpu_options;
+  gpu_options.executor = TaskExecutorType::Gpu;
+  const auto gpu_task = runtime.Schedule({}, gpu_options, [&]() {
+    gpu_executed = runtime.IsExecutorThread(TaskExecutorType::Gpu);
+    gpu_is_not_render = !runtime.IsExecutorThread(TaskExecutorType::Render);
   });
 
   TaskOptions render_options;
@@ -87,12 +97,19 @@ TEST(TaskRuntime, RunsNamedServiceExecutors) {
   });
 
   runtime.Wait(asset_task);
+  runtime.Wait(gpu_task);
   runtime.Wait(render_task);
   runtime.Wait(background_task);
 
   EXPECT_TRUE(asset_io_executed);
+  EXPECT_TRUE(gpu_executed);
+  EXPECT_TRUE(gpu_is_not_render);
   EXPECT_TRUE(render_executed);
   EXPECT_TRUE(background_executed);
+
+  const auto stats = runtime.GetStats();
+  EXPECT_EQ(stats.gpu_thread_size, 1);
+  EXPECT_EQ(stats.render_thread_size, 1);
 }
 
 TEST(TaskRuntime, PropagatesTaskExceptionsOnWait) {

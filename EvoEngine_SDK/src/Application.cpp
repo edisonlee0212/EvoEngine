@@ -493,7 +493,6 @@ void Application::Terminate() {
   }
   this->layers_.clear();
   AssetManager::OnDestroy();
-  Jobs::OnDestroy();
   ProjectManager::OnDestroy();
   FileManager::OnDestroy();
   Resources::OnDestroy();
@@ -505,6 +504,7 @@ void Application::Terminate() {
     Platform::OnDestroy();
   }
 
+  Jobs::OnDestroy();
   PackageManager::UnloadAll();
   Serialization::OnDestroy();
 

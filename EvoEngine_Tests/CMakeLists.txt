@@ -18,6 +18,7 @@ file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT
 add_executable(EvoEngine_Tests
 	Core/TaskRuntimeTest.cpp
 	Core/AssetManagerTest.cpp
+	Core/GpuServiceTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	)
 target_link_libraries(EvoEngine_Tests
@@ -55,6 +56,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER AssetManager.*
 	PROPERTIES LABELS "core,assets,jobs"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GpuService.*
+	PROPERTIES LABELS "render,gpu,jobs"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

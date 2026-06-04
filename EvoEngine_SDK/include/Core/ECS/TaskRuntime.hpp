@@ -18,7 +18,7 @@ namespace evo_engine {
 /**
  * @brief Logical execution lanes owned by the engine runtime.
  */
-enum class TaskExecutorType { MainThread, Worker, AssetIo, Render, Background };
+enum class TaskExecutorType { MainThread, Worker, AssetIo, Gpu, Render, Background };
 
 /**
  * @brief Queue priority within an executor.
@@ -28,7 +28,7 @@ enum class TaskPriority { Low, Normal, High };
 /**
  * @brief Optional hard affinity for tasks that must run on a specific lane.
  */
-enum class ThreadAffinity { Any, MainThread, Worker, AssetIo, Render, Background };
+enum class ThreadAffinity { Any, MainThread, Worker, AssetIo, Gpu, Render, Background };
 
 /**
  * @brief Read-only cancellation view checked before a task starts execution.
@@ -102,6 +102,7 @@ struct TaskOptions {
 struct TaskRuntimeSettings {
   size_t worker_thread_size = 1;
   size_t asset_io_thread_size = 1;
+  size_t gpu_thread_size = 1;
   size_t render_thread_size = 1;
   size_t background_thread_size = 1;
 };
@@ -112,6 +113,7 @@ struct TaskRuntimeSettings {
 struct TaskRuntimeStats {
   size_t worker_thread_size = 0;
   size_t asset_io_thread_size = 0;
+  size_t gpu_thread_size = 0;
   size_t render_thread_size = 0;
   size_t background_thread_size = 0;
   size_t queued_task_size = 0;
@@ -159,6 +161,7 @@ class TaskRuntime {
   ExecutorState main_executor_;
   ExecutorState worker_executor_;
   ExecutorState asset_io_executor_;
+  ExecutorState gpu_executor_;
   ExecutorState render_executor_;
   ExecutorState background_executor_;
 
