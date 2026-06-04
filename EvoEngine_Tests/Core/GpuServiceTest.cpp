@@ -167,7 +167,7 @@ TEST(GpuService, RejectsSubmitAfterShutdown) {
       },
       std::runtime_error);
   EXPECT_THROW(gpu_service.SubmitImmediate([](VkCommandBuffer) {
-               }),
+  }),
                std::runtime_error);
 }
 
@@ -177,7 +177,7 @@ TEST(GpuService, RejectsNestedImmediateSubmit) {
 
   EXPECT_NO_THROW(gpu_service.SubmitImmediate([&](VkCommandBuffer) {
     EXPECT_THROW(gpu_service.SubmitImmediate([](VkCommandBuffer) {
-                 }),
+    }),
                  std::runtime_error);
   }));
 }

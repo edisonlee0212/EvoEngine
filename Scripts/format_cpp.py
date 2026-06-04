@@ -22,6 +22,7 @@ DEFAULT_ROOTS = (
     "EvoEngine_Services",
     "EvoEngine_Packages",
     "EvoEngine_App",
+    "EvoEngine_Tests",
 )
 
 DEFAULT_EXTENSIONS = (".cpp", ".hpp")
