@@ -2,6 +2,11 @@
 #pragma once
 #include "IHandle.hpp"
 #include "ISerializable.hpp"
+#include "Jobs.hpp"
+
+#include <memory>
+#include <mutex>
+#include <vector>
 
 namespace evo_engine {
 
@@ -29,8 +34,14 @@ class StagedAssetLoadPayload {
  *        deserialization, and interactions with the asset's file system and the editor.
  */
 class IAsset : public ISerializable {
+  struct PendingGpuWorkState {
+    mutable std::mutex mutex;
+    std::vector<JobHandle> handles;
+  };
+
   std::weak_ptr<IAsset>
       self_; /**< Weak reference to the current IAsset instance. Used internally for managing self-references. */
+  std::shared_ptr<PendingGpuWorkState> pending_gpu_work_state_ = std::make_shared<PendingGpuWorkState>();
 
  protected:
   /** @cond DOXYGEN_SHOULD_SKIP_THIS */
@@ -87,10 +98,30 @@ class IAsset : public ISerializable {
   virtual bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
                                           const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
+  /**
+   * @brief Tracks asynchronous GPU work that must complete before this asset is fully ready.
+   */
+  void TrackPendingGpuWork(const JobHandle& handle);
+
   bool saved_ = false;   /**< Indicates whether the asset is in a saved state. */
   uint32_t version_ = 0; /**< The version number of the asset. */
 
  public:
+  /**
+   * @brief Returns whether this asset has valid tracked GPU work that has not been consumed by a readiness wait.
+   */
+  [[nodiscard]] bool HasPendingGpuWork() const;
+
+  /**
+   * @brief Returns tracked GPU work handles for readiness orchestration.
+   */
+  [[nodiscard]] std::vector<JobHandle> GetPendingGpuWorkHandles() const;
+
+  /**
+   * @brief Waits for all tracked GPU work and clears completed readiness handles.
+   */
+  void WaitForPendingGpuWork() const;
+
   /**
    * @brief Generates a thumbnail texture for the asset.
    * @return A shared pointer to the generated thumbnail texture.

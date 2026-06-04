@@ -3,6 +3,7 @@
 #include "AssetManager.hpp"
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
+#include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Jobs.hpp"
 #include "LodGroup.hpp"
@@ -2218,6 +2219,19 @@ void RenderLayer::PreUpdate() {
   const auto current_render_instances = render_instances_list_[current_frame_index];
   current_render_instances->Clear();
   scene->SetBound({});
+}
+
+void RenderLayer::OnDestroy() {
+  if (!Platform::Initialized()) {
+    return;
+  }
+  GeometryStorage::WaitForPendingUploads();
+  TextureStorage::DeviceSync();
+  if (const auto gpu_service = Platform::TryGetGpuService();
+      gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
+    gpu_service->WaitIdle();
+  }
+  Platform::WaitForDeviceIdle();
 }
 
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,

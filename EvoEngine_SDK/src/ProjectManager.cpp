@@ -775,8 +775,8 @@ void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::Text("Progress: ");
     const auto completed_asset_count =
         asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
-    const auto active_asset_count =
-        asset_load_snapshot.queued + asset_load_snapshot.loading_cpu + asset_load_snapshot.waiting_for_finalize;
+    const auto active_asset_count = asset_load_snapshot.queued + asset_load_snapshot.loading_cpu +
+                                    asset_load_snapshot.waiting_for_finalize + asset_load_snapshot.gpu_pending;
     auto total_asset_count = asset_load_snapshot.total;
     total_asset_count = std::max(total_asset_count, completed_asset_count + active_asset_count);
     total_asset_count = std::max(total_asset_count, project_manager.pending_asset_size);

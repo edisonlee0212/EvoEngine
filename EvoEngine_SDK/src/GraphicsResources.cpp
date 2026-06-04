@@ -7,6 +7,8 @@
 #include "RenderInstanceStorage.hpp"
 #include "Utilities.hpp"
 
+#include <algorithm>
+
 using namespace evo_engine;
 
 Fence::Fence(const VkFenceCreateInfo& vk_fence_create_info) {
@@ -953,11 +955,38 @@ void Buffer::WaitForPendingGpuWork() const {
     pending_work.swap(gpu_state_->pending_gpu_work);
   }
   auto* gpu_service = Platform::TryGetGpuService();
+  if (!Platform::Initialized() || !gpu_service) {
+    return;
+  }
+  const auto lifecycle_state = gpu_service->GetLifecycleState();
+  if (lifecycle_state == GpuService::LifecycleState::Uninitialized ||
+      lifecycle_state == GpuService::LifecycleState::Stopped) {
+    return;
+  }
+
+  const bool on_gpu_thread = gpu_service && gpu_service->IsGpuThread();
+  std::vector<GpuWorkHandle> deferred_work;
   for (const auto& handle : pending_work) {
-    if (gpu_service) {
-      gpu_service->Wait(handle);
-    } else {
-      Jobs::Wait(handle);
+    if (!handle.Valid() || Jobs::IsCompleted(handle)) {
+      continue;
+    }
+    if (on_gpu_thread) {
+      deferred_work.emplace_back(handle);
+      continue;
+    }
+    gpu_service->Wait(handle);
+  }
+
+  if (!deferred_work.empty()) {
+    deferred_work.erase(std::remove_if(deferred_work.begin(), deferred_work.end(),
+                                       [](const GpuWorkHandle& handle) {
+                                         return !handle.Valid() || Jobs::IsCompleted(handle);
+                                       }),
+                        deferred_work.end());
+    if (!deferred_work.empty()) {
+      std::lock_guard lock(gpu_state_->pending_gpu_work_mutex);
+      gpu_state_->pending_gpu_work.insert(gpu_state_->pending_gpu_work.end(), deferred_work.begin(),
+                                          deferred_work.end());
     }
   }
 }

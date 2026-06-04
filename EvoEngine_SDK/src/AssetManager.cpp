@@ -27,6 +27,8 @@ std::string AssetLoadStateName(const AssetManager::AssetLoadState state) {
       return "Loading CPU payload";
     case AssetManager::AssetLoadState::WaitingForFinalize:
       return "Waiting for finalization";
+    case AssetManager::AssetLoadState::GpuPending:
+      return "Waiting for GPU finalization";
     case AssetManager::AssetLoadState::Loaded:
       return "Loaded";
     case AssetManager::AssetLoadState::Failed:
@@ -40,7 +42,7 @@ std::string AssetLoadStateName(const AssetManager::AssetLoadState state) {
 }  // namespace
 
 bool AssetManager::AssetLoadSnapshot::Active() const {
-  return queued != 0 || loading_cpu != 0 || waiting_for_finalize != 0;
+  return queued != 0 || loading_cpu != 0 || waiting_for_finalize != 0 || gpu_pending != 0;
 }
 
 void AssetManager::Initialize() {
@@ -234,6 +236,7 @@ AssetManager::AssetLoadSnapshot AssetManager::GetAssetLoadSnapshot() {
   snapshot.queued = 0;
   snapshot.loading_cpu = 0;
   snapshot.waiting_for_finalize = 0;
+  snapshot.gpu_pending = 0;
   for (const auto& [handle, record] : asset_manager.asset_registry_.loading_assets_) {
     switch (record.state) {
       case AssetLoadState::Queued:
@@ -244,6 +247,9 @@ AssetManager::AssetLoadSnapshot AssetManager::GetAssetLoadSnapshot() {
         break;
       case AssetLoadState::WaitingForFinalize:
         ++snapshot.waiting_for_finalize;
+        break;
+      case AssetLoadState::GpuPending:
+        ++snapshot.gpu_pending;
         break;
       default:
         break;
@@ -405,22 +411,65 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
                 throw std::runtime_error("Failed to apply staged asset load payload.");
               }
               context.asset->saved_ = true;
-              context.file->asset_ = context.asset;
-              {
-                auto& asset_manager = GetInstance();
-                std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
-                asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
+              auto publish_loaded_asset = [asset_handle, context, promise]() {
+                context.file->asset_ = context.asset;
+                {
+                  auto& asset_manager = GetInstance();
+                  std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+                  asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
+                }
+                promise->set_value(context.asset);
+                UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
+                FinishAssetLoadingImpl(asset_handle);
+              };
+              if (context.asset->HasPendingGpuWork()) {
+                UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::GpuPending, "Waiting for GPU finalization.");
+                JobOptions gpu_ready_options;
+                gpu_ready_options.executor = JobExecutorType::Background;
+                gpu_ready_options.affinity = JobThreadAffinity::Background;
+                gpu_ready_options.debug_name = "AssetManager::WaitForAssetGpuReady";
+                const auto gpu_ready_handle = Jobs::Run(
+                    context.asset->GetPendingGpuWorkHandles(), gpu_ready_options, [asset_handle, context, promise]() {
+                      try {
+                        context.asset->WaitForPendingGpuWork();
+                        ScheduleMainThreadAssetTaskImpl([asset_handle, context, promise]() {
+                          context.file->asset_ = context.asset;
+                          {
+                            auto& asset_manager = GetInstance();
+                            std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+                            asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
+                          }
+                          promise->set_value(context.asset);
+                          UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
+                          FinishAssetLoadingImpl(asset_handle);
+                        });
+                      } catch (const std::exception& e) {
+                        promise->set_exception(std::current_exception());
+                        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
+                        FinishAssetLoadingImpl(asset_handle);
+                      } catch (...) {
+                        promise->set_exception(std::current_exception());
+                        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed,
+                                                 "Unknown asset GPU finalization failure.");
+                        FinishAssetLoadingImpl(asset_handle);
+                      }
+                    });
+                if (!gpu_ready_handle.Valid()) {
+                  throw std::runtime_error("Failed to schedule asset GPU readiness wait.");
+                }
+                Jobs::Execute(gpu_ready_handle);
+                return;
               }
-              promise->set_value(context.asset);
-              UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
+              publish_loaded_asset();
             } catch (const std::exception& e) {
               promise->set_exception(std::current_exception());
               UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
+              FinishAssetLoadingImpl(asset_handle);
             } catch (...) {
               promise->set_exception(std::current_exception());
               UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset finalization failure.");
+              FinishAssetLoadingImpl(asset_handle);
             }
-            FinishAssetLoadingImpl(asset_handle);
           });
       return;
     }

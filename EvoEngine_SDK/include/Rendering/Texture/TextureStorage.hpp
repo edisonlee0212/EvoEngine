@@ -2,6 +2,8 @@
 #pragma once
 #include "GraphicsResources.hpp"
 
+#include <atomic>
+
 namespace evo_engine {
 
 /**
@@ -47,6 +49,8 @@ class Texture2DStorage {
   std::shared_ptr<Sampler> sampler = {};       ///< GPU sampler resource.
 
   ImTextureID im_texture_id = 0;  ///< ImGui texture ID for rendering.
+  std::shared_ptr<std::atomic_size_t> gpu_upload_in_flight =
+      std::make_shared<std::atomic_size_t>(0);  ///< Async GPU uploads currently mutating image state.
 
   /**
    * @brief Retrieves the Vulkan image layout of the texture.
@@ -79,6 +83,11 @@ class Texture2DStorage {
   [[nodiscard]] std::shared_ptr<Image> GetImage() const;
 
   /**
+   * @brief Returns whether an asynchronous GPU upload is still pending.
+   */
+  [[nodiscard]] bool IsGpuUploadPending() const;
+
+  /**
    * @brief Initializes the GPU resources for the texture with the given resolution.
    * @param resolution The resolution of the texture.
    */
@@ -90,6 +99,14 @@ class Texture2DStorage {
    * @param resolution The resolution of the texture.
    */
   void SetDataImmediately(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+
+  /**
+   * @brief Sets texture data and uploads it asynchronously through the GPU service.
+   * @param data The pixel data to upload.
+   * @param resolution The resolution of the texture.
+   * @return A handle that completes when the GPU upload finishes.
+   */
+  [[nodiscard]] GpuWorkHandle SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
 
   /**
    * @brief Sets texture data and queues it for upload during a batch process.
@@ -201,6 +218,11 @@ class TextureStorage final {
    * @return The version as a 32-bit unsigned integer.
    */
   [[nodiscard]] static uint32_t GetVersion();
+
+  /**
+   * @brief Returns whether any texture storage still has queued or in-flight GPU upload work.
+   */
+  [[nodiscard]] static bool HasPendingUploads();
 
   /**
    * @brief Synchronizes the device to ensure all texture-related operations are complete.

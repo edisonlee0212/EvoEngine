@@ -3,6 +3,7 @@
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
+#include "GpuService.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
@@ -154,6 +155,7 @@ void Resources::Initialize() {
   resources.LoadPrimitives();
 
   GeometryStorage::DeviceSync();
+  GeometryStorage::WaitForPendingUploads();
   TextureStorage::DeviceSync();
   resources.missing_texture_ = CreateResource<Texture2D>();
   resources.missing_texture_->LoadInternal(std::filesystem::path("./DefaultResources") /
@@ -244,6 +246,16 @@ bool Resources::IsResource(const AssetRef& target) {
 
 void Resources::OnDestroy() {
   auto& resources = GetInstance();
+  if (Platform::Initialized()) {
+    GeometryStorage::WaitForPendingUploads();
+    TextureStorage::DeviceSync();
+    if (const auto gpu_service = Platform::TryGetGpuService();
+        gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
+      gpu_service->WaitIdle();
+    }
+    Platform::WaitForDeviceIdle();
+  }
+
   resources.typed_resources_.clear();
   resources.resources_.clear();
 

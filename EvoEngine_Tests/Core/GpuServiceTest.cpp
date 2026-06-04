@@ -7,8 +7,10 @@
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "Jobs.hpp"
+#include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Texture2D.hpp"
 
 #include <array>
 #include <atomic>
@@ -27,6 +29,10 @@ class PlatformLifecycleTestAccess final {
  public:
   static void Initialize(const ApplicationInitializationSettings& settings) {
     Platform::Initialize(settings);
+  }
+
+  static void PreUpdate() {
+    Platform::PreUpdate();
   }
 
   static void OnDestroy() {
@@ -255,6 +261,120 @@ TEST(GpuService, BufferUploadReadbackRoundTrip) {
     memcpy(output.data(), downloaded_bytes.data(), downloaded_bytes.size());
     EXPECT_EQ(output, input);
   }
+}
+
+TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {
+  ScopedGpuPlatform platform;
+  auto& gpu_service = Platform::GetGpuService();
+
+  Texture2D texture;
+  std::vector<glm::vec4> pixels = {
+      glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+      glm::vec4(0.0f, 1.0f, 0.0f, 1.0f),
+      glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+      glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+  };
+  auto& texture_storage = texture.RefTexture2DStorage();
+
+  const auto upload = texture_storage.SetDataAsync(pixels, glm::uvec2(2, 2));
+  ASSERT_TRUE(upload.Valid());
+  EXPECT_TRUE(texture_storage.IsGpuUploadPending());
+  gpu_service.Wait(upload);
+
+  EXPECT_FALSE(texture_storage.IsGpuUploadPending());
+  EXPECT_NE(texture_storage.GetVkImage(), VK_NULL_HANDLE);
+  EXPECT_NE(texture_storage.GetVkImageView(), VK_NULL_HANDLE);
+  EXPECT_NE(texture_storage.GetVkSampler(), VK_NULL_HANDLE);
+  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(GpuService, Texture2DRuntimeUpdateTracksGpuReadiness) {
+  ScopedGpuPlatform platform;
+
+  Texture2D texture;
+  const std::vector<glm::vec4> pixels = {
+      glm::vec4(0.2f, 0.0f, 0.0f, 1.0f),
+      glm::vec4(0.0f, 0.4f, 0.0f, 1.0f),
+      glm::vec4(0.0f, 0.0f, 0.6f, 1.0f),
+      glm::vec4(0.8f, 0.8f, 0.8f, 1.0f),
+  };
+  auto& texture_storage = texture.RefTexture2DStorage();
+
+  texture.SetRgbaChannelData(pixels, glm::uvec2(2, 2));
+  EXPECT_TRUE(texture.HasPendingGpuWork());
+  texture.WaitForPendingGpuWork();
+
+  EXPECT_FALSE(texture.HasPendingGpuWork());
+  EXPECT_FALSE(texture_storage.IsGpuUploadPending());
+  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  std::vector<glm::vec4> readback;
+  texture.GetRgbaChannelData(readback);
+  ASSERT_EQ(readback.size(), pixels.size());
+  for (size_t i = 0; i < pixels.size(); ++i) {
+    EXPECT_NEAR(readback[i].r, pixels[i].r, 0.001f);
+    EXPECT_NEAR(readback[i].g, pixels[i].g, 0.001f);
+    EXPECT_NEAR(readback[i].b, pixels[i].b, 0.001f);
+    EXPECT_NEAR(readback[i].a, pixels[i].a, 0.001f);
+  }
+}
+
+TEST(GpuService, TextureStorageDeviceSyncUsesAsyncUploadPath) {
+  ScopedGpuPlatform platform;
+  auto& gpu_service = Platform::GetGpuService();
+
+  Texture2D texture;
+  const std::vector<glm::vec4> pixels = {
+      glm::vec4(1.0f, 0.25f, 0.0f, 1.0f),
+      glm::vec4(0.0f, 1.0f, 0.25f, 1.0f),
+      glm::vec4(0.25f, 0.0f, 1.0f, 1.0f),
+      glm::vec4(1.0f, 1.0f, 0.25f, 1.0f),
+  };
+  auto& texture_storage = texture.RefTexture2DStorage();
+
+  texture_storage.SetData(pixels, glm::uvec2(2, 2));
+  TextureStorage::DeviceSync();
+  gpu_service.WaitIdle();
+
+  EXPECT_FALSE(texture_storage.IsGpuUploadPending());
+  EXPECT_NE(texture_storage.GetVkImage(), VK_NULL_HANDLE);
+  EXPECT_NE(texture_storage.GetVkImageView(), VK_NULL_HANDLE);
+  EXPECT_NE(texture_storage.GetVkSampler(), VK_NULL_HANDLE);
+  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(GpuService, GeometryStorageCommitsMeshRangesAfterAsyncUpload) {
+  ScopedGpuPlatform platform;
+  auto& gpu_service = Platform::GetGpuService();
+
+  Mesh mesh;
+  mesh.OnCreate();
+  VertexAttributes attributes{};
+  attributes.normal = true;
+  attributes.tangent = true;
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  vertices[0].normal = vertices[1].normal = vertices[2].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+  vertices[0].tangent = vertices[1].tangent = vertices[2].tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+  const std::vector<glm::uvec3> triangles = {glm::uvec3(0, 1, 2)};
+
+  mesh.SetVertices(attributes, vertices, triangles);
+  const auto& triangle_range = mesh.GetTriangleRange();
+  ASSERT_TRUE(triangle_range);
+  EXPECT_EQ(triangle_range->prev_frame_index_count, 0u);
+  EXPECT_EQ(triangle_range->prev_frame_range, 0u);
+
+  const auto version_before_sync = GeometryStorage::GetVersion();
+  PlatformLifecycleTestAccess::PreUpdate();
+  gpu_service.WaitIdle();
+  PlatformLifecycleTestAccess::PreUpdate();
+
+  EXPECT_GT(GeometryStorage::GetVersion(), version_before_sync);
+  EXPECT_EQ(triangle_range->prev_frame_index_count, 1u);
+  EXPECT_EQ(triangle_range->prev_frame_range, triangle_range->range);
+  EXPECT_EQ(triangle_range->prev_frame_offset, triangle_range->offset);
 }
 
 TEST(GpuService, ConcurrentBufferUploadsRoundTrip) {

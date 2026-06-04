@@ -22,7 +22,16 @@ class IAsset;
  */
 class AssetManager {
  public:
-  enum class AssetLoadState { Discovered, Queued, LoadingCpu, WaitingForFinalize, Loaded, Failed, Cancelled };
+  enum class AssetLoadState {
+    Discovered,
+    Queued,
+    LoadingCpu,
+    WaitingForFinalize,
+    GpuPending,
+    Loaded,
+    Failed,
+    Cancelled
+  };
 
   struct AssetLoadSnapshot {
     size_t total = 0;
@@ -32,6 +41,7 @@ class AssetManager {
     size_t queued = 0;
     size_t loading_cpu = 0;
     size_t waiting_for_finalize = 0;
+    size_t gpu_pending = 0;
     Handle active_asset_handle = 0;
     AssetLoadState active_state = AssetLoadState::Discovered;
     std::string active_asset_name;

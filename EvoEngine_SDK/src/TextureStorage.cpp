@@ -3,7 +3,59 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "RenderLayer.hpp"
+
+#include <utility>
+
 using namespace evo_engine;
+
+namespace {
+class PendingGpuUploadCompletion {
+  std::shared_ptr<std::atomic_size_t> counter_;
+
+ public:
+  explicit PendingGpuUploadCompletion(std::shared_ptr<std::atomic_size_t> counter) : counter_(std::move(counter)) {
+  }
+
+  ~PendingGpuUploadCompletion() {
+    if (counter_) {
+      counter_->fetch_sub(1);
+    }
+  }
+
+  PendingGpuUploadCompletion(const PendingGpuUploadCompletion&) = delete;
+  PendingGpuUploadCompletion& operator=(const PendingGpuUploadCompletion&) = delete;
+};
+
+std::shared_ptr<std::vector<std::byte>> BuildTextureUploadBytes(const std::vector<glm::vec4>& data,
+                                                                const glm::uvec2& resolution) {
+  const auto pixel_size = static_cast<size_t>(resolution.x) * static_cast<size_t>(resolution.y);
+  if (pixel_size == 0 || data.size() < pixel_size) {
+    return {};
+  }
+
+  switch (Platform::Constants::texture_2d) {
+    case VK_FORMAT_R32G32B32A32_SFLOAT: {
+      auto bytes = std::make_shared<std::vector<std::byte>>(pixel_size * sizeof(glm::vec4));
+      memcpy(bytes->data(), data.data(), bytes->size());
+      return bytes;
+    }
+    case VK_FORMAT_R16G16B16A16_SFLOAT: {
+      std::vector<glm::detail::hdata> half_size_data(4 * pixel_size);
+      Jobs::RunParallelFor(pixel_size, [&](const auto i) {
+        half_size_data[i * 4] = glm::detail::toFloat16(data[i][0]);
+        half_size_data[i * 4 + 1] = glm::detail::toFloat16(data[i][1]);
+        half_size_data[i * 4 + 2] = glm::detail::toFloat16(data[i][2]);
+        half_size_data[i * 4 + 3] = glm::detail::toFloat16(data[i][3]);
+      });
+      auto bytes = std::make_shared<std::vector<std::byte>>(half_size_data.size() * sizeof(glm::detail::hdata));
+      memcpy(bytes->data(), half_size_data.data(), bytes->size());
+      return bytes;
+    }
+    default:
+      throw std::runtime_error("Unsupported Texture2D upload format.");
+  }
+}
+}  // namespace
 
 void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   if (!Platform::Initialized())
@@ -141,6 +193,10 @@ std::shared_ptr<Image> CubemapStorage::GetImage() const {
   return image;
 }
 
+bool Texture2DStorage::IsGpuUploadPending() const {
+  return gpu_upload_in_flight && gpu_upload_in_flight->load() != 0;
+}
+
 void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   if (!Platform::Initialized())
     return;
@@ -206,6 +262,51 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
 
 void Texture2DStorage::SetDataImmediately(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
   UploadData(data, resolution);
+}
+
+GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
+  if (!Platform::Initialized() || data.empty() || resolution.x == 0 || resolution.y == 0) {
+    return {};
+  }
+  Initialize(resolution);
+  auto upload_bytes = BuildTextureUploadBytes(data, resolution);
+  if (!upload_bytes || upload_bytes->empty()) {
+    return {};
+  }
+
+  const auto target_image = image;
+  const auto pending_counter = gpu_upload_in_flight;
+  pending_counter->fetch_add(1);
+  GpuWorkOptions options;
+  options.debug_name = "Texture2DStorage::SetDataAsync";
+  auto& gpu_service = Platform::GetGpuService();
+  try {
+    return gpu_service.EnqueueStaging(upload_bytes->size(), options, [target_image, pending_counter, upload_bytes]() {
+      const PendingGpuUploadCompletion pending_completion(pending_counter);
+      auto& gpu_service = Platform::GetGpuService();
+      auto staging_buffer = gpu_service.AcquireStagingBuffer(upload_bytes->size(), false);
+      try {
+        void* mapping;
+        Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
+        memcpy(mapping, upload_bytes->data(), upload_bytes->size());
+        vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
+        gpu_service.SubmitImmediate(
+            [target_image, staging_vk_buffer = staging_buffer.vk_buffer](const VkCommandBuffer vk_command_buffer) {
+              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+              target_image->CopyFromBuffer(vk_command_buffer, staging_vk_buffer);
+              target_image->GenerateMipmaps(vk_command_buffer);
+              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            });
+        gpu_service.ReleaseStagingBuffer(staging_buffer);
+      } catch (...) {
+        gpu_service.ReleaseStagingBuffer(staging_buffer);
+        throw;
+      }
+    });
+  } catch (...) {
+    pending_counter->fetch_sub(1);
+    throw;
+  }
 }
 
 void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
@@ -303,11 +404,29 @@ void Texture2DStorage::SetData(const std::vector<glm::vec4>& data, const glm::uv
 }
 
 void Texture2DStorage::UploadDataImmediately() {
-  SetDataImmediately(new_data_, new_resolution_);
+  if (new_data_.empty()) {
+    return;
+  }
+  const auto upload = SetDataAsync(new_data_, new_resolution_);
+  new_data_.clear();
+  new_resolution_ = {};
+  if (upload.Valid()) {
+    Platform::GetGpuService().Wait(upload);
+  }
 }
 
 uint32_t TextureStorage::GetVersion() {
   return GetInstance().version_;
+}
+
+bool TextureStorage::HasPendingUploads() {
+  const auto& storage = GetInstance();
+  for (const auto& texture_storage : storage.texture_2ds_) {
+    if (!texture_storage.new_data_.empty() || texture_storage.IsGpuUploadPending()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void TextureStorage::DeviceSync() {
@@ -326,7 +445,7 @@ void TextureStorage::DeviceSync() {
 
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
     if (auto& texture_storage = storage.texture_2ds_[texture_index]; !texture_storage.new_data_.empty()) {
-      texture_storage.UploadData(texture_storage.new_data_, texture_storage.new_resolution_);
+      (void)texture_storage.SetDataAsync(texture_storage.new_data_, texture_storage.new_resolution_);
       texture_storage.new_data_.clear();
       texture_storage.new_resolution_ = {};
       storage.version_++;
@@ -360,6 +479,8 @@ void TextureStorage::BindTexture2DToDescriptorSet(const std::shared_ptr<Descript
   const auto& storage = GetInstance();
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
     auto& texture_storage = storage.texture_2ds_[texture_index];
+    if (texture_storage.IsGpuUploadPending())
+      continue;
     if (texture_storage.GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED)
       continue;
     VkDescriptorImageInfo image_info;

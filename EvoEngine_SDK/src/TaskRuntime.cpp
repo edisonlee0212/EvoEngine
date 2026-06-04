@@ -324,8 +324,11 @@ void TaskRuntime::Wait(const TaskHandle& handle) {
 }
 
 bool TaskRuntime::IsCompleted(const TaskHandle& handle) const {
+  if (!handle.Valid()) {
+    return true;
+  }
   std::lock_guard lock(task_mutex_);
-  return IsHandleValidLocked(handle) && tasks_[handle.index_]->state == TaskState::Completed;
+  return !IsHandleValidLocked(handle) || tasks_[handle.index_]->state == TaskState::Completed;
 }
 
 std::exception_ptr TaskRuntime::GetException(const TaskHandle& handle) const {

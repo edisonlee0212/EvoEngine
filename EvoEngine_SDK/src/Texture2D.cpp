@@ -81,13 +81,18 @@ void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload&
 
 void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, const bool local_copy) {
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-  texture_storage.SetData(data, resolution);
+  if (Platform::Initialized()) {
+    TrackPendingGpuWork(texture_storage.SetDataAsync(data, resolution));
+  } else {
+    texture_storage.SetData(data, resolution);
+  }
   if (local_copy) {
     local_data_ = data;
   }
 }
 
 void Texture2D::DownloadData() {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
   const auto resolution = GetResolution();
   local_data_.resize(resolution.x * resolution.y);
@@ -99,6 +104,7 @@ void Texture2D::DownloadData() {
 void Texture2D::UnsafeUploadDataImmediately() const {
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
   texture_storage.UploadDataImmediately();
+  WaitForPendingGpuWork();
 }
 bool Texture2D::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".png") {
@@ -254,7 +260,7 @@ bool Texture2D::ApplyStagedPayloadInternal(const std::filesystem::path&,
 
   if (!local_data_.empty() && texture_payload->resolution.x != 0 && texture_payload->resolution.y != 0) {
     auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-    texture_storage.SetDataImmediately(local_data_, texture_payload->resolution);
+    TrackPendingGpuWork(texture_storage.SetDataAsync(local_data_, texture_payload->resolution));
   }
   return true;
 }
@@ -280,7 +286,11 @@ void Texture2D::SetResolution(const glm::uvec2& resolution, bool preserve_data) 
   if (preserve_data && !local_data_.empty()) {
     const auto copy = local_data_;
     Resize(copy, GetResolution(), local_data_, resolution);
-    texture_storage.SetData(local_data_, resolution);
+    if (Platform::Initialized()) {
+      TrackPendingGpuWork(texture_storage.SetDataAsync(local_data_, resolution));
+    } else {
+      texture_storage.SetData(local_data_, resolution);
+    }
   } else {
     texture_storage.Initialize(resolution);
   }
@@ -443,6 +453,7 @@ glm::uvec2 Texture2D::GetResolution() const {
 
 void Texture2D::StoreToPng(const std::filesystem::path& path, const int resize_x, const int resize_y,
                            const unsigned compression_level) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
 
   const auto resolution = GetResolution();
@@ -505,6 +516,7 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const std::vector<
 }
 
 void Texture2D::StoreToTga(const std::filesystem::path& path, const int resize_x, const int resize_y) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
 
   const auto resolution = GetResolution();
@@ -537,6 +549,7 @@ void Texture2D::StoreToTga(const std::filesystem::path& path, const int resize_x
 
 void Texture2D::StoreToJpg(const std::filesystem::path& path, const int resize_x, const int resize_y,
                            const unsigned quality) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
 
   const auto resolution = GetResolution();
@@ -666,6 +679,7 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const std::vector<
 }
 
 void Texture2D::StoreToHdr(const std::filesystem::path& path, const int resize_x, const int resize_y) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
 
   const auto resolution = GetResolution();
@@ -750,6 +764,7 @@ std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
 }
 
 void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize_x, const int resize_y) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
   const auto resolution = GetResolution();
   if ((resize_x == -1 && resize_y == -1) || (resolution.x == resize_x && resolution.y == resize_y)) {
@@ -771,6 +786,7 @@ void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize
 }
 
 void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int resize_y) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
   const auto resolution = GetResolution();
   std::vector<glm::vec4> pixels;
@@ -785,6 +801,7 @@ void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int
 }
 
 void Texture2D::GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x, int resize_y) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
   const auto resolution = GetResolution();
   std::vector<glm::vec4> pixels;
@@ -799,6 +816,7 @@ void Texture2D::GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x, int 
 }
 
 void Texture2D::GetRedChannelData(std::vector<float>& dst, int resize_x, int resize_y) const {
+  WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
   const auto resolution = GetResolution();
   std::vector<glm::vec4> pixels;
