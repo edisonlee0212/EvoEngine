@@ -19,6 +19,8 @@ TaskExecutorType ExecutorFromAffinity(const ThreadAffinity affinity) {
       return TaskExecutorType::Worker;
     case ThreadAffinity::AssetIo:
       return TaskExecutorType::AssetIo;
+    case ThreadAffinity::Gpu:
+      return TaskExecutorType::Gpu;
     case ThreadAffinity::Render:
       return TaskExecutorType::Render;
     case ThreadAffinity::Background:
@@ -37,6 +39,8 @@ const char* ExecutorName(const TaskExecutorType executor) {
       return "Worker";
     case TaskExecutorType::AssetIo:
       return "AssetIo";
+    case TaskExecutorType::Gpu:
+      return "Gpu";
     case TaskExecutorType::Render:
       return "Render";
     case TaskExecutorType::Background:
@@ -106,12 +110,14 @@ TaskRuntime::TaskRuntime() {
   main_executor_.name = "MainThread";
   worker_executor_.type = TaskExecutorType::Worker;
   asset_io_executor_.type = TaskExecutorType::AssetIo;
+  gpu_executor_.type = TaskExecutorType::Gpu;
   render_executor_.type = TaskExecutorType::Render;
   background_executor_.type = TaskExecutorType::Background;
 
   TaskRuntimeSettings settings;
   settings.worker_thread_size = 1;
   settings.asset_io_thread_size = 0;
+  settings.gpu_thread_size = 0;
   settings.render_thread_size = 0;
   settings.background_thread_size = 0;
   Initialize(settings);
@@ -131,6 +137,7 @@ void TaskRuntime::Initialize(const TaskRuntimeSettings& settings) {
   main_thread_id_ = std::this_thread::get_id();
   StartExecutor(worker_executor_, std::max<size_t>(1, settings.worker_thread_size), "Worker");
   StartExecutor(asset_io_executor_, settings.asset_io_thread_size, "AssetIo");
+  StartExecutor(gpu_executor_, settings.gpu_thread_size, "Gpu");
   StartExecutor(render_executor_, settings.render_thread_size, "Render");
   StartExecutor(background_executor_, settings.background_thread_size, "Background");
 }
@@ -139,6 +146,7 @@ void TaskRuntime::Shutdown() {
   shutting_down_ = true;
   StopExecutor(worker_executor_);
   StopExecutor(asset_io_executor_);
+  StopExecutor(gpu_executor_);
   StopExecutor(render_executor_);
   StopExecutor(background_executor_);
   {
@@ -183,6 +191,7 @@ TaskRuntimeStats TaskRuntime::GetStats() const {
   TaskRuntimeStats stats;
   stats.worker_thread_size = GetThreadSize(TaskExecutorType::Worker);
   stats.asset_io_thread_size = GetThreadSize(TaskExecutorType::AssetIo);
+  stats.gpu_thread_size = GetThreadSize(TaskExecutorType::Gpu);
   stats.render_thread_size = GetThreadSize(TaskExecutorType::Render);
   stats.background_thread_size = GetThreadSize(TaskExecutorType::Background);
   stats.running_task_size = running_task_size_.load();
@@ -190,7 +199,7 @@ TaskRuntimeStats TaskRuntime::GetStats() const {
   stats.completed_task_size = completed_task_size_.load();
   stats.failed_task_size = failed_task_size_.load();
   for (const auto executor : {TaskExecutorType::MainThread, TaskExecutorType::Worker, TaskExecutorType::AssetIo,
-                              TaskExecutorType::Render, TaskExecutorType::Background}) {
+                              TaskExecutorType::Gpu, TaskExecutorType::Render, TaskExecutorType::Background}) {
     const auto& executor_state = GetExecutor(executor);
     std::lock_guard lock(executor_state.mutex);
     stats.queued_task_size += executor_state.queued_task_size;
@@ -372,6 +381,8 @@ TaskRuntime::ExecutorState& TaskRuntime::GetExecutor(const TaskExecutorType exec
       return main_executor_;
     case TaskExecutorType::AssetIo:
       return asset_io_executor_;
+    case TaskExecutorType::Gpu:
+      return gpu_executor_;
     case TaskExecutorType::Render:
       return render_executor_;
     case TaskExecutorType::Background:

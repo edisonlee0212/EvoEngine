@@ -1,8 +1,10 @@
 #include "Platform.hpp"
 #include "Application.hpp"
+#include "ApplicationContext.hpp"
 #include "Console.hpp"
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
+#include "GpuService.hpp"
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -19,25 +21,7 @@
 
 using namespace evo_engine;
 
-namespace {
-thread_local bool immediate_submit_in_progress = false;
-
-class ImmediateSubmitProgressScope {
-  bool& flag_;
-
- public:
-  explicit ImmediateSubmitProgressScope(bool& flag) : flag_(flag) {
-    flag_ = true;
-  }
-
-  ~ImmediateSubmitProgressScope() {
-    flag_ = false;
-  }
-
-  ImmediateSubmitProgressScope(const ImmediateSubmitProgressScope&) = delete;
-  ImmediateSubmitProgressScope& operator=(const ImmediateSubmitProgressScope&) = delete;
-};
-}  // namespace
+Platform::~Platform() = default;
 
 const Platform::Capabilities& Platform::GetCapabilities() const {
   return capabilities_;
@@ -111,7 +95,8 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
     graphics.descriptor_pool_ = std::make_unique<DescriptorPool>(render_layer_descriptor_pool_info);
   }
 
-  graphics.immediate_submit_command_buffer = std::make_shared<CommandBuffer>();
+  graphics.gpu_service_ = std::make_unique<GpuService>();
+  graphics.gpu_service_->Initialize();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     throw std::runtime_error("Platform initialization requires a RenderLayer.");
@@ -472,37 +457,23 @@ size_t Platform::GetMaxShadowCascadeAmount() {
 }
 
 void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
-  if (immediate_submit_in_progress) {
-    throw std::runtime_error("Nested immediate submit is not supported.");
+  GetGpuService().SubmitImmediate(action);
+}
+
+GpuService& Platform::GetGpuService() {
+  const auto gpu_service = TryGetGpuService();
+  if (!gpu_service) {
+    throw std::runtime_error("GpuService has not been created.");
   }
-  auto& graphics = GetInstance();
-  std::lock_guard lock(graphics.immediate_submit_mutex_);
-  const ImmediateSubmitProgressScope immediate_submit_progress_scope(immediate_submit_in_progress);
-  if (!graphics.immediate_submit_command_buffer->Record(action)) {
-    throw std::runtime_error("Failed to record immediate submit command buffer.");
+  return *gpu_service;
+}
+
+GpuService* Platform::TryGetGpuService() {
+  const auto application = ApplicationContext::TryGet();
+  if (!application) {
+    return nullptr;
   }
-
-  VkSubmitInfo submit_info{};
-  submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submit_info.commandBufferCount = 1;
-  submit_info.pCommandBuffers = &graphics.immediate_submit_command_buffer->GetVkCommandBuffer();
-
-  VkFenceCreateInfo fence_info{};
-  fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fence_info.flags = 0;
-
-  VkFence fence;
-  CheckVk(vkCreateFence(graphics.vk_device_, &fence_info, nullptr, &fence));
-  const auto ret_val = vkQueueSubmit(graphics.immediate_submit_queue_->vk_queue_, 1, &submit_info, fence);
-
-  if (ret_val != VK_SUCCESS) {
-    throw std::runtime_error("Failed to submit command buffer to graphics queue! Error code: " +
-                             std::to_string(ret_val));
-  }
-  CheckVk(vkWaitForFences(graphics.vk_device_, 1, &fence, VK_TRUE, UINT64_MAX));
-  vkDestroyFence(graphics.vk_device_, fence, nullptr);
-
-  graphics.immediate_submit_command_buffer->Reset();
+  return application->GetPlatform().gpu_service_.get();
 }
 
 int Platform::GetMaxFramesInFlight() {
@@ -528,6 +499,15 @@ const std::shared_ptr<Platform::PhysicalDevice>& Platform::GetSelectedPhysicalDe
 VkDevice Platform::GetVkDevice() {
   const auto& graphics = GetInstance();
   return graphics.vk_device_;
+}
+
+uint32_t Platform::GetGraphicsAndComputeQueueFamilyIndex() {
+  const auto& graphics = GetInstance();
+  if (!graphics.selected_physical_device ||
+      !graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
+    throw std::runtime_error("Graphics/compute queue family is unavailable.");
+  }
+  return graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
 }
 
 uint32_t Platform::GetCurrentFrameIndex() {
@@ -1587,6 +1567,9 @@ void Platform::RecreateSwapChain() {
 
 void Platform::OnDestroy() {
   auto& graphics = GetInstance();
+  if (graphics.gpu_service_) {
+    graphics.gpu_service_->Shutdown();
+  }
   CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
   const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
   CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
@@ -1609,7 +1592,6 @@ void Platform::OnDestroy() {
   graphics.swapchain_version_ = 0;
   graphics.frame_count = 0;
 
-  graphics.immediate_submit_command_buffer.reset();
   graphics.used_command_buffer_size_ = 0;
   graphics.descriptor_pool_.reset();
   graphics.command_buffer_pool_.clear();
@@ -1647,6 +1629,7 @@ void Platform::OnDestroy() {
 
   graphics.vk_instance_ = nullptr;
   graphics.initialized = false;
+  graphics.gpu_service_.reset();
 }
 
 void Platform::ResetCommandBuffers() {

@@ -24,6 +24,8 @@
 #endif
 
 namespace evo_engine {
+class GpuService;
+class PlatformLifecycleTestAccess;
 
 /**
  * @brief Class representing platform-specific Vulkan setup and utilities.
@@ -34,6 +36,7 @@ namespace evo_engine {
 class Platform final {
  public:
   static Platform& GetInstance();
+  ~Platform();
 
  private:
   friend class Application;
@@ -41,6 +44,7 @@ class Platform final {
   friend class Lighting;
   friend class PointLightShadowMap;
   friend class SpotLightShadowMap;
+  friend class PlatformLifecycleTestAccess;
 
 #pragma region Vulkan
   /// Vulkan instance object.
@@ -207,8 +211,8 @@ class Platform final {
   /// Immediate submit queue for rendering commands.
   std::unique_ptr<CommandQueue> immediate_submit_queue_{};
 
-  /// Serializes the shared immediate-submit command buffer and queue.
-  std::mutex immediate_submit_mutex_{};
+  /// GPU service runtime for serialized resource work and immediate submissions.
+  std::unique_ptr<GpuService> gpu_service_{};
 
   /// Queue used for primary rendering operations.
   std::unique_ptr<CommandQueue> main_queue_{};
@@ -306,9 +310,6 @@ class Platform final {
 
   /// Pool of command buffers categorized by usage.
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
-
-  /// Command buffer used for immediate execution of commands.
-  std::shared_ptr<CommandBuffer> immediate_submit_command_buffer{};
 
   /// Map of named buffer synchronization actions.
   std::unordered_map<std::string, std::function<void()>> buffer_sync_actions{};
@@ -588,6 +589,16 @@ class Platform final {
   static void ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 
   /**
+   * @brief Retrieves the platform-owned GPU service.
+   */
+  static GpuService& GetGpuService();
+
+  /**
+   * @brief Returns the platform-owned GPU service when it has been created.
+   */
+  [[nodiscard]] static GpuService* TryGetGpuService();
+
+  /**
    * @brief Gets the maximum number of frames that can be in flight at any time.
    *
    * @return Maximum frames in flight.
@@ -619,6 +630,11 @@ class Platform final {
    * @return The Vulkan logical device.
    */
   static VkDevice GetVkDevice();
+
+  /**
+   * @brief Gets the selected graphics/compute queue family index.
+   */
+  static uint32_t GetGraphicsAndComputeQueueFamilyIndex();
 
   /**
    * @brief Gets the index of the current frame being rendered.

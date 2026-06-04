@@ -1,5 +1,6 @@
 
 #pragma once
+#include "GpuService.hpp"
 #include "Vertex.hpp"
 #include "shaderc/shaderc.h"
 
@@ -480,16 +481,8 @@ class CommandPool final : public IGraphicsResource {
  * @brief Represents a Vulkan buffer resource.
  */
 class Buffer final : public IGraphicsResource {
-  VkBuffer vk_buffer_ = VK_NULL_HANDLE;           /**< Vulkan buffer handle. */
-  VmaAllocation vma_allocation_ = VK_NULL_HANDLE; /**< VMA allocation handle for the buffer. */
-  VmaAllocationInfo vma_allocation_info_ = {};    /**< VMA allocation information. */
-
-  VkBufferCreateFlags flags_ = {};                          /**< Vulkan buffer creation flags. */
-  VkDeviceSize size_ = {};                                  /**< Size of the buffer. */
-  VkBufferUsageFlags usage_ = {};                           /**< Usage flags for the buffer. */
-  VkSharingMode sharing_mode_ = {};                         /**< Sharing mode for the buffer. */
-  std::vector<uint32_t> queue_family_indices_ = {};         /**< List of queue family indices for sharing. */
-  VmaAllocationCreateInfo vma_allocation_create_info_ = {}; /**< VMA allocation creation info. */
+  struct GpuState;
+  std::shared_ptr<GpuState> gpu_state_;
 
   /**
    * @brief Allocates memory for the buffer with the specified creation info and allocation info.
@@ -497,6 +490,21 @@ class Buffer final : public IGraphicsResource {
    * @param vma_allocation_create_info VMA allocation creation information.
    */
   void Allocate(VkBufferCreateInfo buffer_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info);
+  static void AllocateOnGpuThread(const std::shared_ptr<GpuState>& state, VkBufferCreateInfo buffer_create_info,
+                                  const VmaAllocationCreateInfo& vma_allocation_create_info);
+  static void ResizeOnGpuThread(const std::shared_ptr<GpuState>& state, VkDeviceSize new_size);
+  static void DestroyOnGpuThread(const std::shared_ptr<GpuState>& state);
+  static void UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, size_t size, const void* src);
+  static void DownloadDataOnGpuThread(const std::shared_ptr<GpuState>& state, size_t size, void* dst);
+  static void CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state,
+                                        const std::shared_ptr<GpuState>& src_state, VkDeviceSize size,
+                                        VkDeviceSize src_offset, VkDeviceSize dst_offset);
+  static void CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state, VkBuffer src_buffer, VkDeviceSize size,
+                                        VkDeviceSize src_offset, VkDeviceSize dst_offset);
+  static void CopyFromImageOnGpuThread(const std::shared_ptr<GpuState>& state, Image& src_image,
+                                       const VkBufferImageCopy& image_copy_info);
+  void TrackPendingGpuWork(const GpuWorkHandle& handle) const;
+  void WaitForPendingGpuWork() const;
 
  public:
   /**
@@ -530,11 +538,25 @@ class Buffer final : public IGraphicsResource {
   void UploadData(size_t size, const void* src);
 
   /**
+   * @brief Enqueues an asynchronous upload to the buffer.
+   * @param size Size of the data to upload.
+   * @param src Pointer to the data source. The data is copied before this function returns.
+   */
+  [[nodiscard]] GpuWorkHandle UploadDataAsync(size_t size, const void* src);
+
+  /**
    * @brief Downloads data from the buffer.
    * @param size Size of the data to download.
    * @param dst Pointer to the destination buffer.
    */
   void DownloadData(size_t size, void* dst);
+
+  /**
+   * @brief Enqueues an asynchronous readback from the buffer.
+   * @param size Size of the data to download.
+   * @return A future containing the downloaded bytes.
+   */
+  [[nodiscard]] std::shared_future<std::vector<std::byte>> DownloadDataAsync(size_t size);
 
   /**
    * @brief Resizes the buffer to the specified size.
