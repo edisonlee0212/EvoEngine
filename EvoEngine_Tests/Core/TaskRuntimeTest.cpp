@@ -61,6 +61,17 @@ TEST(TaskRuntime, RunsMainThreadTasksOnWaitingMainThread) {
   EXPECT_EQ(executed_thread_id, main_thread_id);
 }
 
+TEST(TaskRuntime, CompletedHandleRemainsCompletedAfterWaitRecyclesIt) {
+  TaskRuntime runtime;
+  runtime.Initialize(TestRuntimeSettings());
+
+  const auto task = runtime.Schedule([]() {
+  });
+
+  runtime.Wait(task);
+  EXPECT_TRUE(runtime.IsCompleted(task));
+}
+
 TEST(TaskRuntime, RunsNamedServiceExecutors) {
   TaskRuntime runtime;
   runtime.Initialize(TestRuntimeSettings());

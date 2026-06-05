@@ -26,6 +26,9 @@ constexpr auto kBlockingAssetExtension = ".evetestasset";
 constexpr uint64_t kStagedAssetHandle = 0xE701'0000'0000'0002ull;
 constexpr auto kStagedAssetTypeName = "StagedLoadAsset";
 constexpr auto kStagedAssetExtension = ".evestagedasset";
+constexpr uint64_t kGpuPendingAssetHandle = 0xE701'0000'0000'0003ull;
+constexpr auto kGpuPendingAssetTypeName = "GpuPendingLoadAsset";
+constexpr auto kGpuPendingAssetExtension = ".evegpupendingasset";
 
 struct BlockingLoadState {
   std::mutex mutex;
@@ -246,6 +249,136 @@ class StagedLoadAsset final : public IAsset {
   }
 };
 
+struct GpuPendingLoadState {
+  std::mutex mutex;
+  std::condition_variable cv;
+  size_t payload_load_count = 0;
+  size_t finalize_count = 0;
+  size_t gpu_work_start_count = 0;
+  size_t gpu_work_complete_count = 0;
+  bool gpu_work_started = false;
+  bool release_gpu_work = false;
+  bool fail_gpu_work = false;
+  bool gpu_work_ran_on_background = false;
+};
+
+GpuPendingLoadState& GetGpuPendingLoadState() {
+  static GpuPendingLoadState state;
+  return state;
+}
+
+void ResetGpuPendingLoadState(const bool fail_gpu_work = false) {
+  auto& state = GetGpuPendingLoadState();
+  std::lock_guard lock(state.mutex);
+  state.payload_load_count = 0;
+  state.finalize_count = 0;
+  state.gpu_work_start_count = 0;
+  state.gpu_work_complete_count = 0;
+  state.gpu_work_started = false;
+  state.release_gpu_work = false;
+  state.fail_gpu_work = fail_gpu_work;
+  state.gpu_work_ran_on_background = false;
+}
+
+bool WaitForGpuPendingWorkStartedWhilePumping(const std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    AssetManager::ExecuteMainThreadAssetTasks(1);
+    Jobs::ExecuteMainThreadJobs(1);
+    auto& state = GetGpuPendingLoadState();
+    std::unique_lock lock(state.mutex);
+    if (state.cv.wait_for(lock, 10ms, [&]() {
+          return state.gpu_work_started;
+        })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void ReleaseGpuPendingWork() {
+  auto& state = GetGpuPendingLoadState();
+  {
+    std::lock_guard lock(state.mutex);
+    state.release_gpu_work = true;
+  }
+  state.cv.notify_all();
+}
+
+bool WaitForAssetFutureReadyWhilePumping(const std::shared_future<std::shared_ptr<IAsset>>& future,
+                                         const std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    AssetManager::ExecuteMainThreadAssetTasks(1);
+    Jobs::ExecuteMainThreadJobs(1);
+    if (future.wait_for(10ms) == std::future_status::ready) {
+      return true;
+    }
+  }
+  return false;
+}
+
+class ScopedGpuPendingWorkRelease {
+ public:
+  ~ScopedGpuPendingWorkRelease() {
+    ReleaseGpuPendingWork();
+  }
+};
+
+class GpuPendingLoadPayload final : public StagedAssetLoadPayload {};
+
+class GpuPendingLoadAsset final : public IAsset {
+ protected:
+  [[nodiscard]] bool SupportsStagedLoading() const override {
+    return true;
+  }
+
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+      const std::filesystem::path&) const override {
+    auto& state = GetGpuPendingLoadState();
+    std::lock_guard lock(state.mutex);
+    ++state.payload_load_count;
+    return std::make_shared<GpuPendingLoadPayload>();
+  }
+
+  bool ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override {
+    if (!std::dynamic_pointer_cast<GpuPendingLoadPayload>(payload)) {
+      return false;
+    }
+    {
+      auto& state = GetGpuPendingLoadState();
+      std::lock_guard lock(state.mutex);
+      ++state.finalize_count;
+    }
+
+    const auto handle = Jobs::RunOnBackgroundThread([]() {
+      {
+        auto& state = GetGpuPendingLoadState();
+        std::lock_guard lock(state.mutex);
+        ++state.gpu_work_start_count;
+        state.gpu_work_started = true;
+        state.gpu_work_ran_on_background = Jobs::IsExecutorThread(JobExecutorType::Background);
+      }
+      GetGpuPendingLoadState().cv.notify_all();
+
+      auto& state = GetGpuPendingLoadState();
+      std::unique_lock lock(state.mutex);
+      state.cv.wait(lock, [&]() {
+        return state.release_gpu_work;
+      });
+      const bool should_fail = state.fail_gpu_work;
+      if (should_fail) {
+        throw std::runtime_error("gpu readiness failure");
+      }
+      ++state.gpu_work_complete_count;
+    });
+    Jobs::Execute(handle);
+    TrackPendingGpuWork(handle);
+    return true;
+  }
+};
+
 class TempProject {
  public:
   TempProject() {
@@ -299,6 +432,21 @@ void WriteStagedAssetFixture(const TempProject& project) {
   metadata_file << "asset_file_name_: Staged\n";
   metadata_file << "asset_type_name_: " << kStagedAssetTypeName << "\n";
   metadata_file << "asset_handle_: " << kStagedAssetHandle << "\n";
+}
+
+void WriteGpuPendingAssetFixture(const TempProject& project) {
+  const auto asset_path = project.AssetsPath() / ("GpuPending" + std::string(kGpuPendingAssetExtension));
+  {
+    std::ofstream asset_file(asset_path);
+    asset_file << "gpu pending asset payload";
+  }
+
+  const auto metadata_path = asset_path.string() + ".evefilemeta";
+  std::ofstream metadata_file(metadata_path);
+  metadata_file << "asset_extension_: " << kGpuPendingAssetExtension << "\n";
+  metadata_file << "asset_file_name_: GpuPending\n";
+  metadata_file << "asset_type_name_: " << kGpuPendingAssetTypeName << "\n";
+  metadata_file << "asset_handle_: " << kGpuPendingAssetHandle << "\n";
 }
 
 ApplicationInitializationSettings TestApplicationSettings(const TempProject& project) {
@@ -423,4 +571,83 @@ TEST(AssetManager, AsyncStagedLoadSeparatesAssetIoFromMainThreadFinalization) {
 
   const auto later_asset = AssetManager::GetAsset<StagedLoadAsset>(Handle(kStagedAssetHandle));
   EXPECT_EQ(later_asset, asset);
+}
+
+TEST(AssetManager, AsyncStagedLoadWaitsForGpuReadinessBeforePublishing) {
+  ResetGpuPendingLoadState();
+  TempProject project;
+  WriteGpuPendingAssetFixture(project);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<GpuPendingLoadAsset>(kGpuPendingAssetTypeName, {kGpuPendingAssetExtension});
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+
+  auto asset_future = AssetManager::RequestAssetLoad(Handle(kGpuPendingAssetHandle));
+  const bool gpu_work_started = WaitForGpuPendingWorkStartedWhilePumping(5s);
+  if (!gpu_work_started) {
+    ReleaseGpuPendingWork();
+    FAIL() << "Timed out waiting for simulated GPU readiness work to start.";
+  }
+  ScopedGpuPendingWorkRelease release_on_exit;
+
+  const auto gpu_pending_snapshot = AssetManager::GetAssetLoadSnapshot();
+  EXPECT_TRUE(gpu_pending_snapshot.Active());
+  EXPECT_EQ(gpu_pending_snapshot.active_state, AssetManager::AssetLoadState::GpuPending);
+  EXPECT_EQ(gpu_pending_snapshot.gpu_pending, 1);
+  EXPECT_EQ(asset_future.wait_for(100ms), std::future_status::timeout);
+
+  auto sync_access = std::async(std::launch::async, [&]() {
+    ApplicationContextScope thread_scope(app);
+    return AssetManager::GetAsset<GpuPendingLoadAsset>(Handle(kGpuPendingAssetHandle));
+  });
+  EXPECT_EQ(sync_access.wait_for(100ms), std::future_status::timeout);
+
+  ReleaseGpuPendingWork();
+  ASSERT_TRUE(WaitForAssetFutureReadyWhilePumping(asset_future, 5s));
+  const auto asset = std::dynamic_pointer_cast<GpuPendingLoadAsset>(asset_future.get());
+  ASSERT_NE(asset, nullptr);
+  EXPECT_EQ(sync_access.get(), asset);
+
+  const auto final_snapshot = AssetManager::GetAssetLoadSnapshot();
+  EXPECT_FALSE(final_snapshot.Active());
+  EXPECT_EQ(final_snapshot.completed, 1);
+
+  auto& state = GetGpuPendingLoadState();
+  std::lock_guard lock(state.mutex);
+  EXPECT_EQ(state.payload_load_count, 1);
+  EXPECT_EQ(state.finalize_count, 1);
+  EXPECT_EQ(state.gpu_work_start_count, 1);
+  EXPECT_EQ(state.gpu_work_complete_count, 1);
+  EXPECT_TRUE(state.gpu_work_ran_on_background);
+}
+
+TEST(AssetManager, AsyncStagedLoadPropagatesGpuReadinessFailure) {
+  ResetGpuPendingLoadState(true);
+  TempProject project;
+  WriteGpuPendingAssetFixture(project);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<GpuPendingLoadAsset>(kGpuPendingAssetTypeName, {kGpuPendingAssetExtension});
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+
+  auto asset_future = AssetManager::RequestAssetLoad(Handle(kGpuPendingAssetHandle));
+  const bool gpu_work_started = WaitForGpuPendingWorkStartedWhilePumping(5s);
+  if (!gpu_work_started) {
+    ReleaseGpuPendingWork();
+    FAIL() << "Timed out waiting for simulated GPU readiness work to start.";
+  }
+
+  ReleaseGpuPendingWork();
+  ASSERT_TRUE(WaitForAssetFutureReadyWhilePumping(asset_future, 5s));
+  EXPECT_THROW((void)asset_future.get(), std::runtime_error);
+
+  const auto final_snapshot = AssetManager::GetAssetLoadSnapshot();
+  EXPECT_FALSE(final_snapshot.Active());
+  EXPECT_EQ(final_snapshot.failed, 1);
 }

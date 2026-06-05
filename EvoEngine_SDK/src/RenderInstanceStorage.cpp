@@ -129,9 +129,9 @@ void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instanc
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = mesh->triangle_range_->offset;
-  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
+  instance_info_block.triangle_offset = mesh->triangle_range_->prev_frame_offset;
+  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->prev_frame_offset;
+  instance_info_block.meshlet_size = mesh->meshlet_range_->prev_frame_range;
   instance_info_block.entity_index = owner.GetIndex();
   instance_info_block.renderer_handle = renderer_handle;
 }
@@ -146,12 +146,12 @@ uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
   if (Platform::MeshShaderEnabled()) {
     graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
     const uint32_t count =
-        (mesh->meshlet_range_->range + task_work_group_invocations - 1) / task_work_group_invocations;
+        (mesh->meshlet_range_->prev_frame_range + task_work_group_invocations - 1) / task_work_group_invocations;
     graphics_pipeline->DrawMeshTasks(vk_command_buffer, count);
   } else {
     mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
   }
-  return mesh->GetTriangleAmount();
+  return mesh->triangle_range_->prev_frame_index_count;
 }
 
 bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedMeshRenderInstance& other) const {
@@ -192,9 +192,9 @@ void RenderInstanceStorage::SkinnedMeshRenderInstance::Apply(InstanceInfoBlock& 
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = skinned_mesh->skinned_triangle_range_->offset;
-  instance_info_block.meshlet_index_offset = skinned_mesh->skinned_meshlet_range_->offset;
-  instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->range;
+  instance_info_block.triangle_offset = skinned_mesh->skinned_triangle_range_->prev_frame_offset;
+  instance_info_block.meshlet_index_offset = skinned_mesh->skinned_meshlet_range_->prev_frame_offset;
+  instance_info_block.meshlet_size = skinned_mesh->skinned_meshlet_range_->prev_frame_range;
   instance_info_block.entity_index = owner.GetIndex();
   instance_info_block.renderer_handle = renderer_handle;
 }
@@ -205,7 +205,7 @@ uint32_t RenderInstanceStorage::SkinnedMeshRenderInstance::Render(
   graphics_pipeline->BindDescriptorSet(vk_command_buffer, 1, bone_matrices->GetDescriptorSet()->GetVkDescriptorSet());
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   skinned_mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
-  return skinned_mesh->GetTriangleAmount();
+  return skinned_mesh->skinned_triangle_range_->prev_frame_index_count;
 }
 
 bool RenderInstanceStorage::InstancedRenderInstance::operator!=(const InstancedRenderInstance& other) const {
@@ -246,9 +246,9 @@ void RenderInstanceStorage::InstancedRenderInstance::Apply(InstanceInfoBlock& in
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = mesh->triangle_range_->offset;
-  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->offset;
-  instance_info_block.meshlet_size = mesh->meshlet_range_->range;
+  instance_info_block.triangle_offset = mesh->triangle_range_->prev_frame_offset;
+  instance_info_block.meshlet_index_offset = mesh->meshlet_range_->prev_frame_offset;
+  instance_info_block.meshlet_size = mesh->meshlet_range_->prev_frame_range;
   instance_info_block.entity_index = owner.GetIndex();
   instance_info_block.renderer_handle = renderer_handle;
 }
@@ -259,7 +259,7 @@ uint32_t RenderInstanceStorage::InstancedRenderInstance::Render(
   graphics_pipeline->BindDescriptorSet(vk_command_buffer, 1, particle_infos->GetDescriptorSet()->GetVkDescriptorSet());
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   mesh->DrawIndexed(vk_command_buffer, graphics_pipeline->states, particle_infos->PeekParticleInfoList().size());
-  return mesh->UnsafeGetTriangles().size() * particle_infos->PeekParticleInfoList().size();
+  return mesh->triangle_range_->prev_frame_index_count * particle_infos->PeekParticleInfoList().size();
 }
 
 bool RenderInstanceStorage::StrandsRenderInstance::operator!=(const StrandsRenderInstance& other) const {
@@ -298,9 +298,9 @@ void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& inst
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = strands->segment_range_->offset;
-  instance_info_block.meshlet_index_offset = strands->strand_meshlet_range_->offset;
-  instance_info_block.meshlet_size = strands->strand_meshlet_range_->range;
+  instance_info_block.triangle_offset = strands->segment_range_->prev_frame_offset;
+  instance_info_block.meshlet_index_offset = strands->strand_meshlet_range_->prev_frame_offset;
+  instance_info_block.meshlet_size = strands->strand_meshlet_range_->prev_frame_range;
   instance_info_block.entity_index = owner.GetIndex();
   instance_info_block.renderer_handle = renderer_handle;
 }
@@ -310,7 +310,7 @@ uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
   strands->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
-  return strands->GetSegmentAmount();
+  return strands->segment_range_->prev_frame_index_count;
 }
 
 bool RenderInstanceStorage::ExternalRenderInstanceCollection::operator!=(
@@ -1340,6 +1340,8 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
     return false;
   if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
     return false;
+  if (mesh->triangle_range_->prev_frame_index_count == 0 || mesh->meshlet_range_->prev_frame_range == 0)
+    return false;
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
   const auto render_instance = std::make_shared<MeshRenderInstance>();
@@ -1366,18 +1368,21 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   }
 
   auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
-  new_mesh_task.groupCountX = 1;
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  new_mesh_task.groupCountX =
+      (mesh->meshlet_range_->prev_frame_range + task_work_group_invocations - 1) / task_work_group_invocations;
   new_mesh_task.groupCountY = 1;
   new_mesh_task.groupCountZ = 1;
 
   auto& new_draw_task = mesh_draw_indexed_indirect_commands.emplace_back();
   new_draw_task.instanceCount = 1;
-  new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
-  new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
+  new_draw_task.firstIndex = mesh->triangle_range_->prev_frame_offset * 3;
+  new_draw_task.indexCount = mesh->triangle_range_->prev_frame_index_count * 3;
   new_draw_task.vertexOffset = 0;
   new_draw_task.firstInstance = 0;
 
-  total_mesh_triangles += mesh->triangles_.size();
+  total_mesh_triangles += mesh->triangle_range_->prev_frame_index_count;
 
   return true;
 }
@@ -1388,6 +1393,8 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   if (!material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
     return false;
   if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
+    return false;
+  if (mesh->triangle_range_->prev_frame_index_count == 0 || mesh->meshlet_range_->prev_frame_range == 0)
     return false;
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
@@ -1416,7 +1423,8 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
     deferred_instanced_render_instances->Register(render_instance);
   }
 
-  total_mesh_triangles += mesh->triangles_.size() * particle_info_list->PeekParticleInfoList().size();
+  total_mesh_triangles +=
+      mesh->triangle_range_->prev_frame_index_count * particle_info_list->PeekParticleInfoList().size();
 
   return true;
 }
@@ -1493,6 +1501,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
       !strands->segment_range_)
     return false;
+  if (strands->segment_range_->prev_frame_index_count == 0 || strands->strand_meshlet_range_->prev_frame_range == 0)
+    return false;
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
   auto mesh_bound = strands->bound_;
@@ -1531,7 +1541,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     deferred_strands_render_instances->Register(render_instance);
   }
 
-  total_strands_segments += strands->segments_.size();
+  total_strands_segments += strands->segment_range_->prev_frame_index_count;
   return true;
 }
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
@@ -1542,6 +1552,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   if (!mesh_renderer->IsEnabled() || !material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
     return false;
   if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
+    return false;
+  if (mesh->triangle_range_->prev_frame_index_count == 0 || mesh->meshlet_range_->prev_frame_range == 0)
     return false;
 
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
@@ -1585,19 +1597,19 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
         Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
     auto& new_mesh_task = mesh_draw_mesh_tasks_indirect_commands.emplace_back();
     const uint32_t count =
-        (mesh->meshlet_range_->range + task_work_group_invocations - 1) / task_work_group_invocations;
+        (mesh->meshlet_range_->prev_frame_range + task_work_group_invocations - 1) / task_work_group_invocations;
     new_mesh_task.groupCountX = count;
     new_mesh_task.groupCountY = 1;
     new_mesh_task.groupCountZ = 1;
 
     auto& new_draw_task = mesh_draw_indexed_indirect_commands.emplace_back();
     new_draw_task.instanceCount = 1;
-    new_draw_task.firstIndex = mesh->triangle_range_->offset * 3;
-    new_draw_task.indexCount = static_cast<uint32_t>(mesh->triangles_.size() * 3);
+    new_draw_task.firstIndex = mesh->triangle_range_->prev_frame_offset * 3;
+    new_draw_task.indexCount = mesh->triangle_range_->prev_frame_index_count * 3;
     new_draw_task.vertexOffset = 0;
     new_draw_task.firstInstance = 0;
   }
-  total_mesh_triangles += mesh->triangles_.size();
+  total_mesh_triangles += mesh->triangle_range_->prev_frame_index_count;
   return true;
 }
 
@@ -1610,6 +1622,9 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
       !skinned_mesh->skinned_triangle_range_)
     return false;
   if (skinned_mesh->skinned_vertices_.empty() || skinned_mesh->skinned_triangles_.empty())
+    return false;
+  if (skinned_mesh->skinned_triangle_range_->prev_frame_index_count == 0 ||
+      skinned_mesh->skinned_meshlet_range_->prev_frame_range == 0)
     return false;
   GlobalTransform gt;
   if (auto animator = skinned_mesh_renderer->animator.Get<Animator>(); !animator) {
@@ -1656,7 +1671,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     deferred_skinned_render_instances->Register(render_instance);
   }
 
-  total_skinned_mesh_triangles += skinned_mesh->skinned_triangles_.size();
+  total_skinned_mesh_triangles += skinned_mesh->skinned_triangle_range_->prev_frame_index_count;
   return true;
 }
 
@@ -1670,6 +1685,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
       !particle_info_list)
     return false;
   if (particle_info_list->PeekParticleInfoList().empty())
+    return false;
+  if (mesh->triangle_range_->prev_frame_index_count == 0 || mesh->meshlet_range_->prev_frame_range == 0)
     return false;
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
@@ -1712,7 +1729,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     deferred_instanced_render_instances->Register(render_instance);
   }
 
-  total_instanced_mesh_triangles += mesh->triangles_.size() * particle_info_list->PeekParticleInfoList().size();
+  total_instanced_mesh_triangles +=
+      mesh->triangle_range_->prev_frame_index_count * particle_info_list->PeekParticleInfoList().size();
   return true;
 }
 

@@ -301,6 +301,12 @@ class RenderLayer final : public ILayer {
    * \brief Applies all animators associated with this render layer.
    */
   void ApplyAnimators() const;
+
+  /**
+   * \brief Drains GPU work before render-layer resources are released.
+   */
+  void OnDestroy() override;
+
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};

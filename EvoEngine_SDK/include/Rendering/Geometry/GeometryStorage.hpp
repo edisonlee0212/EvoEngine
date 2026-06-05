@@ -3,6 +3,8 @@
 #include "Platform.hpp"
 #include "Vertex.hpp"
 
+#include <initializer_list>
+
 namespace evo_engine {
 
 /**
@@ -125,7 +127,7 @@ class RangeDescriptor {
   /**
    * @brief Offset value of the range descriptor.
    */
-  uint32_t offset;
+  uint32_t offset = 0;
 
   /**
    * @brief Range value for the descriptor.
@@ -133,22 +135,27 @@ class RangeDescriptor {
    * - When used for meshlets: Represents the count of meshlets for this geometry.
    * - When used for triangles: Represents the count of triangles, including space for empty fillers.
    */
-  uint32_t range;
+  uint32_t range = 0;
 
   /**
    * @brief Offset for the previous frame's data.
    */
-  uint32_t prev_frame_offset;
+  uint32_t prev_frame_offset = 0;
 
   /**
    * @brief Number of indices in the current frame.
    */
-  uint32_t index_count;
+  uint32_t index_count = 0;
 
   /**
    * @brief Number of indices in the previous frame.
    */
-  uint32_t prev_frame_index_count;
+  uint32_t prev_frame_index_count = 0;
+
+  /**
+   * @brief Committed range count that is safe for rendering.
+   */
+  uint32_t prev_frame_range = 0;
 };
 
 /**
@@ -210,6 +217,39 @@ class GeometryStorage final {
   static GeometryStorage& GetInstance();
 
  private:
+  struct RangeCommit {
+    std::shared_ptr<RangeDescriptor> descriptor;
+    uint32_t offset = 0;
+    uint32_t range = 0;
+    uint32_t index_count = 0;
+  };
+
+  struct PendingGeometryUpload {
+    bool active = false;
+    std::vector<GpuWorkHandle> handles;
+    std::vector<RangeCommit> meshlet_commits;
+    std::vector<RangeCommit> index_commits;
+  };
+
+  struct DirtyRange {
+    bool dirty = false;
+    size_t begin = 0;
+    size_t end = 0;
+
+    void Mark(size_t range_begin, size_t count);
+    void MarkTail(size_t range_begin, size_t range_end);
+    void Clear();
+    [[nodiscard]] bool Empty() const;
+  };
+
+  struct DirtyBufferUpload {
+    const std::shared_ptr<Buffer>* buffer = nullptr;
+    const void* data = nullptr;
+    size_t element_count = 0;
+    size_t element_size = 0;
+    DirtyRange* dirty_range = nullptr;
+  };
+
   std::vector<VertexDataChunk> vertex_data_chunks_ = {};
   std::vector<Meshlet> meshlets_ = {};
   std::vector<std::shared_ptr<RangeDescriptor>> meshlet_range_descriptor_;
@@ -220,6 +260,10 @@ class GeometryStorage final {
   std::shared_ptr<Buffer> meshlet_buffer_ = {};
   std::shared_ptr<Buffer> triangle_buffer_ = {};
   bool require_mesh_data_device_update_ = {};
+  PendingGeometryUpload pending_mesh_upload_;
+  DirtyRange mesh_vertex_dirty_range_;
+  DirtyRange meshlet_dirty_range_;
+  DirtyRange triangle_dirty_range_;
 
   std::vector<SkinnedVertexDataChunk> skinned_vertex_data_chunks_ = {};
   std::vector<SkinnedMeshlet> skinned_meshlets_ = {};
@@ -231,6 +275,10 @@ class GeometryStorage final {
   std::shared_ptr<Buffer> skinned_meshlet_buffer_ = {};
   std::shared_ptr<Buffer> skinned_triangle_buffer_ = {};
   bool require_skinned_mesh_data_device_update_ = {};
+  PendingGeometryUpload pending_skinned_mesh_upload_;
+  DirtyRange skinned_vertex_dirty_range_;
+  DirtyRange skinned_meshlet_dirty_range_;
+  DirtyRange skinned_triangle_dirty_range_;
 
   std::vector<StrandPointDataChunk> strand_point_data_chunks_ = {};
   std::vector<StrandMeshlet> strand_meshlets_ = {};
@@ -242,8 +290,30 @@ class GeometryStorage final {
   std::shared_ptr<Buffer> strand_meshlet_buffer_ = {};
   std::shared_ptr<Buffer> segment_buffer_ = {};
   bool require_strand_mesh_data_device_update_ = {};
+  PendingGeometryUpload pending_strand_upload_;
+  DirtyRange strand_point_dirty_range_;
+  DirtyRange strand_meshlet_dirty_range_;
+  DirtyRange segment_dirty_range_;
 
   void UploadData();
+  void ClearMeshDirtyRanges();
+  void ClearSkinnedMeshDirtyRanges();
+  void ClearStrandDirtyRanges();
+  static GpuWorkHandle ScheduleDirtyBufferUpload(const DirtyBufferUpload& upload);
+  static void CaptureRangeCommits(const std::vector<std::shared_ptr<RangeDescriptor>>& descriptors,
+                                  std::vector<RangeCommit>& commits);
+  static void ApplyRangeCommits(const std::vector<RangeCommit>& commits);
+  static bool HasValidUploadHandle(const PendingGeometryUpload& upload);
+  static bool IsPendingUploadCompleted(const PendingGeometryUpload& upload);
+  static void WaitPendingUpload(PendingGeometryUpload& upload);
+  static void ClearPendingUpload(PendingGeometryUpload& upload);
+  bool CompletePendingUpload(PendingGeometryUpload& upload);
+  void CompletePendingUploads();
+  void ScheduleUploadGroup(bool& dirty, PendingGeometryUpload& pending_upload,
+                           std::initializer_list<DirtyBufferUpload> uploads,
+                           const std::vector<std::shared_ptr<RangeDescriptor>>& meshlet_descriptors,
+                           const std::vector<std::shared_ptr<RangeDescriptor>>& index_descriptors);
+  void SchedulePendingUploads();
   friend class RenderLayer;
   friend class Resources;
   friend class Platform;
@@ -256,6 +326,8 @@ class GeometryStorage final {
 
  public:
   [[nodiscard]] static uint32_t GetVersion();
+  [[nodiscard]] static bool HasPendingUploads();
+  static void WaitForPendingUploads();
   static const std::shared_ptr<Buffer>& GetTriangleBuffer();
   static const std::shared_ptr<Buffer>& GetVertexBuffer();
   static const std::shared_ptr<Buffer>& GetMeshletBuffer();

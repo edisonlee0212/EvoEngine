@@ -23,6 +23,7 @@ DEFAULT_ROOTS = (
     "EvoEngine_Packages",
     "EvoEngine_App",
     "EvoEngine_Tests",
+    "PythonBinding",
 )
 
 DEFAULT_EXTENSIONS = (".cpp", ".hpp")

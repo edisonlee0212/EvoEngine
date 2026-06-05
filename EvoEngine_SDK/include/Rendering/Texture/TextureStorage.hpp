@@ -2,6 +2,8 @@
 #pragma once
 #include "GraphicsResources.hpp"
 
+#include <atomic>
+
 namespace evo_engine {
 
 /**
@@ -18,6 +20,7 @@ struct TextureStorageHandle {
  */
 class Texture2DStorage {
   friend class TextureStorage;
+  friend class Texture2D;
   friend class Cubemap;
 
   /**
@@ -31,11 +34,9 @@ class Texture2DStorage {
   glm::uvec2 new_resolution_{};
 
   /**
-   * @brief Uploads texture data to the GPU.
-   * @param data The pixel data to upload.
-   * @param resolution The resolution of the texture.
+   * @brief Immediately uploads any pending data to the GPU.
    */
-  void UploadData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  void UploadPendingDataImmediately();
 
  public:
   bool pending_delete = false;  ///< Indicates whether the storage is pending deletion.
@@ -47,6 +48,8 @@ class Texture2DStorage {
   std::shared_ptr<Sampler> sampler = {};       ///< GPU sampler resource.
 
   ImTextureID im_texture_id = 0;  ///< ImGui texture ID for rendering.
+  std::shared_ptr<std::atomic_size_t> gpu_upload_in_flight =
+      std::make_shared<std::atomic_size_t>(0);  ///< Async GPU uploads currently mutating image state.
 
   /**
    * @brief Retrieves the Vulkan image layout of the texture.
@@ -79,17 +82,23 @@ class Texture2DStorage {
   [[nodiscard]] std::shared_ptr<Image> GetImage() const;
 
   /**
+   * @brief Returns whether an asynchronous GPU upload is still pending.
+   */
+  [[nodiscard]] bool IsGpuUploadPending() const;
+
+  /**
    * @brief Initializes the GPU resources for the texture with the given resolution.
    * @param resolution The resolution of the texture.
    */
   void Initialize(const glm::uvec2& resolution);
 
   /**
-   * @brief Sets texture data and uploads it immediately to the GPU.
-   * @param data The pixel data to set.
+   * @brief Sets texture data and uploads it asynchronously through the GPU service.
+   * @param data The pixel data to upload.
    * @param resolution The resolution of the texture.
+   * @return A handle that completes when the GPU upload finishes.
    */
-  void SetDataImmediately(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  [[nodiscard]] GpuWorkHandle SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
 
   /**
    * @brief Sets texture data and queues it for upload during a batch process.
@@ -97,11 +106,6 @@ class Texture2DStorage {
    * @param resolution The resolution of the texture.
    */
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
-
-  /**
-   * @brief Immediately uploads any pending data to the GPU.
-   */
-  void UploadDataImmediately();
 
   /**
    * @brief Clears the texture resources and data.
@@ -201,6 +205,11 @@ class TextureStorage final {
    * @return The version as a 32-bit unsigned integer.
    */
   [[nodiscard]] static uint32_t GetVersion();
+
+  /**
+   * @brief Returns whether any texture storage still has queued or in-flight GPU upload work.
+   */
+  [[nodiscard]] static bool HasPendingUploads();
 
   /**
    * @brief Synchronizes the device to ensure all texture-related operations are complete.

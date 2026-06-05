@@ -114,6 +114,40 @@ bool IAsset::ApplyStagedPayloadInternal(const std::filesystem::path &,
   return true;
 }
 
+void IAsset::TrackPendingGpuWork(const JobHandle &handle) {
+  if (!handle.Valid()) {
+    return;
+  }
+  if (!pending_gpu_work_state_) {
+    pending_gpu_work_state_ = std::make_shared<PendingGpuWorkState>();
+  }
+  std::lock_guard lock(pending_gpu_work_state_->mutex);
+  pending_gpu_work_state_->handles.emplace_back(handle);
+}
+
+std::vector<JobHandle> IAsset::ConsumePendingGpuWorkHandles() const {
+  if (!pending_gpu_work_state_) {
+    return {};
+  }
+  std::lock_guard lock(pending_gpu_work_state_->mutex);
+  std::vector<JobHandle> handles;
+  handles.reserve(pending_gpu_work_state_->handles.size());
+  for (const auto &handle : pending_gpu_work_state_->handles) {
+    if (handle.Valid()) {
+      handles.emplace_back(handle);
+    }
+  }
+  pending_gpu_work_state_->handles.clear();
+  return handles;
+}
+
+void IAsset::WaitForPendingGpuWork() const {
+  const auto handles = ConsumePendingGpuWorkHandles();
+  for (const auto &handle : handles) {
+    Jobs::Wait(handle);
+  }
+}
+
 void IAsset::OnCreate() {
 }
 

@@ -1,4 +1,6 @@
 #include "PyEvoEngine.hpp"
+#include "GeometryStorage.hpp"
+#include "TextureStorage.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
 #endif
@@ -48,7 +50,31 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
     return false;
   }
 
-  const auto scene = ApplicationContext::Get().GetActiveScene();
+  constexpr int max_readiness_frames = 300;
+  int readiness_frames = 0;
+  auto& application = ApplicationContext::Get();
+  const auto is_scene_ready = []() {
+    return ProjectManager::IsProjectIdle() && !GeometryStorage::HasPendingUploads() &&
+           !TextureStorage::HasPendingUploads();
+  };
+  while (!is_scene_ready() && readiness_frames < max_readiness_frames) {
+    application.Loop();
+    readiness_frames++;
+  }
+  if (!is_scene_ready()) {
+    const auto snapshot = AssetManager::GetAssetLoadSnapshot();
+    EVOENGINE_ERROR("Scene is not ready for capture! Frames: " + std::to_string(readiness_frames) +
+                    ", project idle: " + std::to_string(ProjectManager::IsProjectIdle()) +
+                    ", geometry version: " + std::to_string(GeometryStorage::GetVersion()) +
+                    ", geometry pending: " + std::to_string(GeometryStorage::HasPendingUploads()) +
+                    ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) + ", asset queued: " +
+                    std::to_string(snapshot.queued) + ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
+                    ", asset waiting finalize: " + std::to_string(snapshot.waiting_for_finalize) +
+                    ", asset GPU pending: " + std::to_string(snapshot.gpu_pending))
+    return false;
+  }
+
+  const auto scene = application.GetActiveScene();
   if (!scene) {
     EVOENGINE_ERROR("No active scene!");
     return false;
@@ -61,7 +87,7 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
   main_camera->Resize({resolution_x, resolution_y});
   const auto loop_count = std::max(1, warmup_frames);
   for (int i = 0; i < loop_count; i++) {
-    ApplicationContext::Get().Loop();
+    application.Loop();
   }
   if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
     std::filesystem::create_directories(parent_path);

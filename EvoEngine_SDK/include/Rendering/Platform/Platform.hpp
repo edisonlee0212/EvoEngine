@@ -454,6 +454,11 @@ class Platform final {
    */
   static void WaitForDeviceIdle();
 
+  /**
+   * @brief Drains pending resource upload work and waits for GPU/device idle.
+   */
+  static void DrainGpuResourceWork();
+
   /// List of primitive counts for debugging purposes.
   std::vector<size_t> prim_count{};
 
