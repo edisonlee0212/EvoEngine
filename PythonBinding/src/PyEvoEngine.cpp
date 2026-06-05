@@ -67,9 +67,8 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
                     ", project idle: " + std::to_string(ProjectManager::IsProjectIdle()) +
                     ", geometry version: " + std::to_string(GeometryStorage::GetVersion()) +
                     ", geometry pending: " + std::to_string(GeometryStorage::HasPendingUploads()) +
-                    ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) +
-                    ", asset queued: " + std::to_string(snapshot.queued) +
-                    ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
+                    ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) + ", asset queued: " +
+                    std::to_string(snapshot.queued) + ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
                     ", asset waiting finalize: " + std::to_string(snapshot.waiting_for_finalize) +
                     ", asset GPU pending: " + std::to_string(snapshot.gpu_pending))
     return false;
