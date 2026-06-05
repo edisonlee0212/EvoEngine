@@ -260,10 +260,6 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
                                image->GetLayout());
 }
 
-void Texture2DStorage::SetDataImmediately(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
-  UploadData(data, resolution);
-}
-
 GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
   if (!Platform::Initialized() || data.empty() || resolution.x == 0 || resolution.y == 0) {
     return {};
@@ -309,69 +305,6 @@ GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data,
   }
 }
 
-void Texture2DStorage::UploadData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
-  if (!Platform::Initialized())
-    return;
-  Initialize(resolution);
-  auto image_size = resolution.x * resolution.y;
-  switch (Platform::Constants::texture_2d) {
-    case VK_FORMAT_R32G32B32A32_SFLOAT: {
-      image_size *= sizeof(glm::vec4);
-      break;
-    }
-    case VK_FORMAT_R16G16B16A16_SFLOAT: {
-      image_size *= 4 * sizeof(glm::detail::hdata);
-      break;
-    }
-  }
-  Buffer staging_buffer(image_size, false);
-  switch (Platform::Constants::texture_2d) {
-    case VK_FORMAT_R32G32B32A32_SFLOAT: {
-      staging_buffer.UploadVector(data);
-      break;
-    }
-    case VK_FORMAT_R16G16B16A16_SFLOAT: {
-      std::vector<glm::detail::hdata> half_size_data(4 * data.size());
-      Jobs::RunParallelFor(resolution.x * resolution.y, [&](const auto i) {
-        half_size_data[i * 4] = glm::detail::toFloat16(data[i][0]);
-        half_size_data[i * 4 + 1] = glm::detail::toFloat16(data[i][1]);
-        half_size_data[i * 4 + 2] = glm::detail::toFloat16(data[i][2]);
-        half_size_data[i * 4 + 3] = glm::detail::toFloat16(data[i][3]);
-      });
-      staging_buffer.UploadVector(half_size_data);
-      break;
-    }
-  }
-  /*
-  staging_buffer_create_info.size = image_size;
-  const Buffer staging_buffer{staging_buffer_create_info, staging_buffer_vma_allocation_create_info};
-  void* device_data = nullptr;
-  vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.GetVmaAllocation(), &device_data);
-  switch (Platform::Constants::texture_2d) {
-    case VK_FORMAT_R32G32B32A32_SFLOAT: {
-      memcpy(device_data, data.data(), image_size);
-      break;
-    }
-    case VK_FORMAT_R16G16B16A16_SFLOAT: {
-      std::vector<glm::detail::hdata> half_size_data(4 * data.size());
-      Jobs::RunParallelFor(resolution.x * resolution.y, [&](const auto i) {
-        half_size_data[i * 4] = glm::detail::toFloat16(data[i][0]);
-        half_size_data[i * 4 + 1] = glm::detail::toFloat16(data[i][1]);
-        half_size_data[i * 4 + 2] = glm::detail::toFloat16(data[i][2]);
-        half_size_data[i * 4 + 3] = glm::detail::toFloat16(data[i][3]);
-      });
-      memcpy(device_data, half_size_data.data(), image_size);
-      break;
-    }
-  }*/
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
-    image->GenerateMipmaps(vk_command_buffer);
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  });
-}
-
 void Texture2DStorage::Clear() {
   if (!Platform::Initialized())
     return;
@@ -403,7 +336,7 @@ void Texture2DStorage::SetData(const std::vector<glm::vec4>& data, const glm::uv
   new_resolution_ = resolution;
 }
 
-void Texture2DStorage::UploadDataImmediately() {
+void Texture2DStorage::UploadPendingDataImmediately() {
   if (new_data_.empty()) {
     return;
   }
@@ -460,17 +393,6 @@ void TextureStorage::DeviceSync() {
       storage.version_++;
       texture_index--;
     }
-  }
-
-  for (int texture_index = 0; texture_index < storage.cubemaps_.size(); texture_index++) {
-    auto& texture_storage = storage.cubemaps_[texture_index];
-    /*
-    if (!texture_storage.new_data_.empty()) {
-      texture_storage.UploadData(texture_storage.new_data_, texture_storage.new_resolution_);
-      texture_storage.new_data_.clear();
-      texture_storage.new_resolution_ = {};
-    }
-    */
   }
 }
 

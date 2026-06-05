@@ -494,7 +494,8 @@ class Buffer final : public IGraphicsResource {
                                   const VmaAllocationCreateInfo& vma_allocation_create_info);
   static void ResizeOnGpuThread(const std::shared_ptr<GpuState>& state, VkDeviceSize new_size);
   static void DestroyOnGpuThread(const std::shared_ptr<GpuState>& state);
-  static void UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, size_t size, const void* src);
+  static void UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, size_t size, const void* src,
+                                    VkDeviceSize dst_offset);
   static void DownloadDataOnGpuThread(const std::shared_ptr<GpuState>& state, size_t size, void* dst);
   static void CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state,
                                         const std::shared_ptr<GpuState>& src_state, VkDeviceSize size,
@@ -538,11 +539,27 @@ class Buffer final : public IGraphicsResource {
   void UploadData(size_t size, const void* src);
 
   /**
+   * @brief Uploads data into an existing buffer subrange.
+   * @param size Size of the data to upload.
+   * @param src Pointer to the data source.
+   * @param dst_offset Destination byte offset.
+   */
+  void UploadSubData(size_t size, const void* src, VkDeviceSize dst_offset);
+
+  /**
    * @brief Enqueues an asynchronous upload to the buffer.
    * @param size Size of the data to upload.
    * @param src Pointer to the data source. The data is copied before this function returns.
    */
   [[nodiscard]] GpuWorkHandle UploadDataAsync(size_t size, const void* src);
+
+  /**
+   * @brief Enqueues an asynchronous upload into an existing buffer subrange.
+   * @param size Size of the data to upload.
+   * @param src Pointer to the data source. The data is copied before this function returns.
+   * @param dst_offset Destination byte offset.
+   */
+  [[nodiscard]] GpuWorkHandle UploadSubDataAsync(size_t size, const void* src, VkDeviceSize dst_offset);
 
   /**
    * @brief Downloads data from the buffer.
@@ -659,6 +676,12 @@ class Buffer final : public IGraphicsResource {
    * @return Vulkan buffer handle.
    */
   [[nodiscard]] const VkBuffer& GetVkBuffer() const;
+
+  /**
+   * @brief Retrieves the current allocated buffer size in bytes.
+   * @return Current buffer size in bytes.
+   */
+  [[nodiscard]] VkDeviceSize GetSize() const;
 
   /**
    * @brief Retrieves the VMA allocation handle for the buffer.

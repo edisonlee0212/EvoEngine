@@ -3,21 +3,59 @@
 #include "Jobs.hpp"
 #include "RenderLayer.hpp"
 #include "meshoptimizer.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <type_traits>
+
 using namespace evo_engine;
 
-namespace {
-template <typename T>
-GpuWorkHandle UploadVectorAsync(const std::shared_ptr<Buffer>& buffer, const std::vector<T>& data) {
-  if (!buffer || data.empty()) {
-    return {};
+void GeometryStorage::DirtyRange::Mark(const size_t range_begin, const size_t count) {
+  if (count == 0) {
+    return;
   }
-  return buffer->UploadDataAsync(data.size() * sizeof(T), data.data());
+  const auto range_end = range_begin + count;
+  if (!dirty) {
+    dirty = true;
+    begin = range_begin;
+    end = range_end;
+    return;
+  }
+  begin = std::min(begin, range_begin);
+  end = std::max(end, range_end);
 }
-}  // namespace
 
-bool GeometryStorage::GeometryUploadSnapshot::Active() const {
-  return mesh_dirty || mesh_upload_active || skinned_mesh_dirty || skinned_mesh_upload_active || strand_dirty ||
-         strand_upload_active;
+void GeometryStorage::DirtyRange::MarkTail(const size_t range_begin, const size_t range_end) {
+  if (range_begin >= range_end) {
+    return;
+  }
+  Mark(range_begin, range_end - range_begin);
+}
+
+void GeometryStorage::DirtyRange::Clear() {
+  *this = {};
+}
+
+bool GeometryStorage::DirtyRange::Empty() const {
+  return !dirty || begin >= end;
+}
+
+void GeometryStorage::ClearMeshDirtyRanges() {
+  mesh_vertex_dirty_range_.Clear();
+  meshlet_dirty_range_.Clear();
+  triangle_dirty_range_.Clear();
+}
+
+void GeometryStorage::ClearSkinnedMeshDirtyRanges() {
+  skinned_vertex_dirty_range_.Clear();
+  skinned_meshlet_dirty_range_.Clear();
+  skinned_triangle_dirty_range_.Clear();
+}
+
+void GeometryStorage::ClearStrandDirtyRanges() {
+  strand_point_dirty_range_.Clear();
+  strand_meshlet_dirty_range_.Clear();
+  segment_dirty_range_.Clear();
 }
 
 void GeometryStorage::CaptureRangeCommits(const std::vector<std::shared_ptr<RangeDescriptor>>& descriptors,
@@ -68,7 +106,7 @@ bool GeometryStorage::IsPendingUploadCompleted(const PendingGeometryUpload& uplo
 void GeometryStorage::WaitPendingUpload(PendingGeometryUpload& upload) {
   auto* gpu_service = Platform::TryGetGpuService();
   for (const auto& handle : upload.handles) {
-    if (!handle.Valid()) {
+    if (!handle.Valid() || Jobs::IsCompleted(handle)) {
       continue;
     }
     if (gpu_service) {
@@ -104,63 +142,84 @@ void GeometryStorage::CompletePendingUploads() {
   CompletePendingUpload(pending_strand_upload_);
 }
 
+GpuWorkHandle GeometryStorage::ScheduleDirtyBufferUpload(const DirtyBufferUpload& upload) {
+  if (!upload.buffer || !*upload.buffer || !upload.dirty_range || upload.dirty_range->Empty() ||
+      upload.data == nullptr || upload.element_count == 0 || upload.element_size == 0) {
+    return {};
+  }
+
+  const auto begin = std::min(upload.dirty_range->begin, upload.element_count);
+  const auto end = std::min(upload.dirty_range->end, upload.element_count);
+  if (begin >= end) {
+    return {};
+  }
+
+  const auto& buffer = *upload.buffer;
+  const auto full_upload_size = upload.element_count * upload.element_size;
+  const auto range_offset = begin * upload.element_size;
+  const auto range_size = (end - begin) * upload.element_size;
+  if (end * upload.element_size > buffer->GetSize()) {
+    return buffer->UploadDataAsync(full_upload_size, upload.data);
+  }
+
+  const auto* bytes = static_cast<const std::byte*>(upload.data);
+  return buffer->UploadSubDataAsync(range_size, bytes + range_offset, range_offset);
+}
+
+void GeometryStorage::ScheduleUploadGroup(bool& dirty, PendingGeometryUpload& pending_upload,
+                                          std::initializer_list<DirtyBufferUpload> uploads,
+                                          const std::vector<std::shared_ptr<RangeDescriptor>>& meshlet_descriptors,
+                                          const std::vector<std::shared_ptr<RangeDescriptor>>& index_descriptors) {
+  if (!dirty || pending_upload.active) {
+    return;
+  }
+
+  pending_upload.handles.clear();
+  pending_upload.handles.reserve(uploads.size());
+  for (const auto& upload : uploads) {
+    pending_upload.handles.emplace_back(ScheduleDirtyBufferUpload(upload));
+    if (upload.dirty_range) {
+      upload.dirty_range->Clear();
+    }
+  }
+  CaptureRangeCommits(meshlet_descriptors, pending_upload.meshlet_commits);
+  CaptureRangeCommits(index_descriptors, pending_upload.index_commits);
+  dirty = false;
+
+  if (HasValidUploadHandle(pending_upload)) {
+    pending_upload.active = true;
+    return;
+  }
+
+  ApplyRangeCommits(pending_upload.meshlet_commits);
+  ApplyRangeCommits(pending_upload.index_commits);
+  ClearPendingUpload(pending_upload);
+  version_++;
+}
+
 void GeometryStorage::SchedulePendingUploads() {
-  if (require_mesh_data_device_update_ && !pending_mesh_upload_.active) {
-    pending_mesh_upload_.handles = {
-        UploadVectorAsync(vertex_buffer_, vertex_data_chunks_),
-        UploadVectorAsync(meshlet_buffer_, meshlets_),
-        UploadVectorAsync(triangle_buffer_, triangles_),
-    };
-    CaptureRangeCommits(meshlet_range_descriptor_, pending_mesh_upload_.meshlet_commits);
-    CaptureRangeCommits(triangle_range_descriptor_, pending_mesh_upload_.index_commits);
-    require_mesh_data_device_update_ = false;
-    if (HasValidUploadHandle(pending_mesh_upload_)) {
-      pending_mesh_upload_.active = true;
-    } else {
-      ApplyRangeCommits(pending_mesh_upload_.meshlet_commits);
-      ApplyRangeCommits(pending_mesh_upload_.index_commits);
-      ClearPendingUpload(pending_mesh_upload_);
-      version_++;
-    }
-  }
+  const auto make_upload = [](const std::shared_ptr<Buffer>& buffer, const auto& data, DirtyRange& dirty_range) {
+    return DirtyBufferUpload{&buffer, data.empty() ? nullptr : static_cast<const void*>(data.data()), data.size(),
+                             sizeof(typename std::decay_t<decltype(data)>::value_type), &dirty_range};
+  };
 
-  if (require_skinned_mesh_data_device_update_ && !pending_skinned_mesh_upload_.active) {
-    pending_skinned_mesh_upload_.handles = {
-        UploadVectorAsync(skinned_vertex_buffer_, skinned_vertex_data_chunks_),
-        UploadVectorAsync(skinned_meshlet_buffer_, skinned_meshlets_),
-        UploadVectorAsync(skinned_triangle_buffer_, skinned_triangles_),
-    };
-    CaptureRangeCommits(skinned_meshlet_range_descriptor_, pending_skinned_mesh_upload_.meshlet_commits);
-    CaptureRangeCommits(skinned_triangle_range_descriptor_, pending_skinned_mesh_upload_.index_commits);
-    require_skinned_mesh_data_device_update_ = false;
-    if (HasValidUploadHandle(pending_skinned_mesh_upload_)) {
-      pending_skinned_mesh_upload_.active = true;
-    } else {
-      ApplyRangeCommits(pending_skinned_mesh_upload_.meshlet_commits);
-      ApplyRangeCommits(pending_skinned_mesh_upload_.index_commits);
-      ClearPendingUpload(pending_skinned_mesh_upload_);
-      version_++;
-    }
-  }
+  ScheduleUploadGroup(require_mesh_data_device_update_, pending_mesh_upload_,
+                      {make_upload(vertex_buffer_, vertex_data_chunks_, mesh_vertex_dirty_range_),
+                       make_upload(meshlet_buffer_, meshlets_, meshlet_dirty_range_),
+                       make_upload(triangle_buffer_, triangles_, triangle_dirty_range_)},
+                      meshlet_range_descriptor_, triangle_range_descriptor_);
 
-  if (require_strand_mesh_data_device_update_ && !pending_strand_upload_.active) {
-    pending_strand_upload_.handles = {
-        UploadVectorAsync(strand_point_buffer_, strand_point_data_chunks_),
-        UploadVectorAsync(strand_meshlet_buffer_, strand_meshlets_),
-        UploadVectorAsync(segment_buffer_, segments_),
-    };
-    CaptureRangeCommits(strand_meshlet_range_descriptor_, pending_strand_upload_.meshlet_commits);
-    CaptureRangeCommits(segment_range_descriptor_, pending_strand_upload_.index_commits);
-    require_strand_mesh_data_device_update_ = false;
-    if (HasValidUploadHandle(pending_strand_upload_)) {
-      pending_strand_upload_.active = true;
-    } else {
-      ApplyRangeCommits(pending_strand_upload_.meshlet_commits);
-      ApplyRangeCommits(pending_strand_upload_.index_commits);
-      ClearPendingUpload(pending_strand_upload_);
-      version_++;
-    }
-  }
+  ScheduleUploadGroup(require_skinned_mesh_data_device_update_, pending_skinned_mesh_upload_,
+                      {make_upload(skinned_vertex_buffer_, skinned_vertex_data_chunks_, skinned_vertex_dirty_range_),
+                       make_upload(skinned_meshlet_buffer_, skinned_meshlets_, skinned_meshlet_dirty_range_),
+                       make_upload(skinned_triangle_buffer_, skinned_triangles_, skinned_triangle_dirty_range_)},
+                      skinned_meshlet_range_descriptor_, skinned_triangle_range_descriptor_);
+
+  ScheduleUploadGroup(require_strand_mesh_data_device_update_, pending_strand_upload_,
+                      {make_upload(strand_point_buffer_, strand_point_data_chunks_, strand_point_dirty_range_),
+                       make_upload(strand_meshlet_buffer_, strand_meshlets_, strand_meshlet_dirty_range_),
+                       make_upload(segment_buffer_, segments_, segment_dirty_range_)},
+                      strand_meshlet_range_descriptor_, segment_range_descriptor_);
 }
 
 void GeometryStorage::UploadData() {
@@ -222,6 +281,7 @@ void GeometryStorage::Initialize() {
   storage.triangle_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_mesh_data_device_update_ = false;
+  storage.ClearMeshDirtyRanges();
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -237,6 +297,7 @@ void GeometryStorage::Initialize() {
       std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_skinned_mesh_data_device_update_ = false;
+  storage.ClearSkinnedMeshDirtyRanges();
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -251,6 +312,7 @@ void GeometryStorage::Initialize() {
   storage.segment_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_strand_mesh_data_device_update_ = false;
+  storage.ClearStrandDirtyRanges();
   storage.initialized_ = true;
 }
 
@@ -258,28 +320,11 @@ uint32_t GeometryStorage::GetVersion() {
   return GetInstance().version_;
 }
 
-GeometryStorage::GeometryUploadSnapshot GeometryStorage::GetUploadSnapshot() {
-  const auto& storage = GetInstance();
-  GeometryUploadSnapshot snapshot;
-  snapshot.mesh_dirty = storage.require_mesh_data_device_update_;
-  snapshot.mesh_upload_active = storage.pending_mesh_upload_.active;
-  snapshot.mesh_upload_completed = IsPendingUploadCompleted(storage.pending_mesh_upload_);
-  snapshot.mesh_upload_handles = storage.pending_mesh_upload_.handles.size();
-
-  snapshot.skinned_mesh_dirty = storage.require_skinned_mesh_data_device_update_;
-  snapshot.skinned_mesh_upload_active = storage.pending_skinned_mesh_upload_.active;
-  snapshot.skinned_mesh_upload_completed = IsPendingUploadCompleted(storage.pending_skinned_mesh_upload_);
-  snapshot.skinned_mesh_upload_handles = storage.pending_skinned_mesh_upload_.handles.size();
-
-  snapshot.strand_dirty = storage.require_strand_mesh_data_device_update_;
-  snapshot.strand_upload_active = storage.pending_strand_upload_.active;
-  snapshot.strand_upload_completed = IsPendingUploadCompleted(storage.pending_strand_upload_);
-  snapshot.strand_upload_handles = storage.pending_strand_upload_.handles.size();
-  return snapshot;
-}
-
 bool GeometryStorage::HasPendingUploads() {
-  return GetUploadSnapshot().Active();
+  const auto& storage = GetInstance();
+  return storage.require_mesh_data_device_update_ || storage.pending_mesh_upload_.active ||
+         storage.require_skinned_mesh_data_device_update_ || storage.pending_skinned_mesh_upload_.active ||
+         storage.require_strand_mesh_data_device_update_ || storage.pending_strand_upload_.active;
 }
 
 void GeometryStorage::WaitForPendingUploads() {
@@ -376,15 +421,17 @@ void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& ve
   auto& storage = GetInstance();
   WaitPendingUpload(storage.pending_mesh_upload_);
   storage.CompletePendingUpload(storage.pending_mesh_upload_);
+  const auto meshlet_begin = storage.meshlets_.size();
+  const auto triangle_begin = storage.triangles_.size();
 
   // const auto meshletRange = std::make_shared<RangeDescriptor>();
   target_meshlet_range->handle_ = handle;
-  target_meshlet_range->offset = storage.meshlets_.size();
+  target_meshlet_range->offset = meshlet_begin;
   target_meshlet_range->range = 0;
 
   // const auto triangleRange = std::make_shared<RangeDescriptor>();
   target_triangle_range->handle_ = handle;
-  target_triangle_range->offset = storage.triangles_.size();
+  target_triangle_range->offset = triangle_begin;
   target_triangle_range->range = 0;
   target_triangle_range->index_count = triangles.size();
 
@@ -449,6 +496,9 @@ void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& ve
 
   storage.meshlet_range_descriptor_.push_back(target_meshlet_range);
   storage.triangle_range_descriptor_.push_back(target_triangle_range);
+  storage.mesh_vertex_dirty_range_.Mark(meshlet_begin, target_meshlet_range->range);
+  storage.meshlet_dirty_range_.Mark(meshlet_begin, target_meshlet_range->range);
+  storage.triangle_dirty_range_.Mark(triangle_begin, target_triangle_range->range);
   storage.require_mesh_data_device_update_ = true;
 }
 
@@ -462,13 +512,15 @@ void GeometryStorage::AllocateSkinnedMesh(const Handle& handle, const std::vecto
   auto& storage = GetInstance();
   WaitPendingUpload(storage.pending_skinned_mesh_upload_);
   storage.CompletePendingUpload(storage.pending_skinned_mesh_upload_);
+  const auto skinned_meshlet_begin = storage.skinned_meshlets_.size();
+  const auto skinned_triangle_begin = storage.skinned_triangles_.size();
 
   target_skinned_meshlet_range->handle_ = handle;
-  target_skinned_meshlet_range->offset = storage.skinned_meshlets_.size();
+  target_skinned_meshlet_range->offset = skinned_meshlet_begin;
   target_skinned_meshlet_range->range = 0;
 
   target_skinned_triangle_range->handle_ = handle;
-  target_skinned_triangle_range->offset = storage.skinned_triangles_.size();
+  target_skinned_triangle_range->offset = skinned_triangle_begin;
   target_skinned_triangle_range->range = 0;
   target_skinned_triangle_range->index_count = skinned_triangles.size();
   std::vector<meshopt_Meshlet> skinned_meshlets_results{};
@@ -522,6 +574,9 @@ void GeometryStorage::AllocateSkinnedMesh(const Handle& handle, const std::vecto
   }
   storage.skinned_meshlet_range_descriptor_.push_back(target_skinned_meshlet_range);
   storage.skinned_triangle_range_descriptor_.push_back(target_skinned_triangle_range);
+  storage.skinned_vertex_dirty_range_.Mark(skinned_meshlet_begin, target_skinned_meshlet_range->range);
+  storage.skinned_meshlet_dirty_range_.Mark(skinned_meshlet_begin, target_skinned_meshlet_range->range);
+  storage.skinned_triangle_dirty_range_.Mark(skinned_triangle_begin, target_skinned_triangle_range->range);
   storage.require_skinned_mesh_data_device_update_ = true;
 }
 
@@ -535,14 +590,16 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
   auto& storage = GetInstance();
   WaitPendingUpload(storage.pending_strand_upload_);
   storage.CompletePendingUpload(storage.pending_strand_upload_);
+  const auto strand_meshlet_begin = storage.strand_meshlets_.size();
+  const auto segment_begin = storage.segments_.size();
 
   uint32_t current_segment_index = 0;
   target_strand_meshlet_range->handle_ = handle;
-  target_strand_meshlet_range->offset = storage.strand_meshlets_.size();
+  target_strand_meshlet_range->offset = strand_meshlet_begin;
   target_strand_meshlet_range->range = 0;
 
   target_segment_range->handle_ = handle;
-  target_segment_range->offset = storage.segments_.size();
+  target_segment_range->offset = segment_begin;
   target_segment_range->range = 0;
   target_segment_range->index_count = segments.size();
 
@@ -653,6 +710,9 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
 
   storage.strand_meshlet_range_descriptor_.push_back(target_strand_meshlet_range);
   storage.segment_range_descriptor_.push_back(target_segment_range);
+  storage.strand_point_dirty_range_.Mark(strand_meshlet_begin, target_strand_meshlet_range->range);
+  storage.strand_meshlet_dirty_range_.Mark(strand_meshlet_begin, target_strand_meshlet_range->range);
+  storage.segment_dirty_range_.Mark(segment_begin, target_segment_range->range);
   storage.require_strand_mesh_data_device_update_ = true;
 }
 
@@ -674,13 +734,14 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
     return;
   }
   const auto& meshlet_range_descriptor = storage.meshlet_range_descriptor_[meshlet_range_descriptor_index];
+  const auto meshlet_remove_offset = meshlet_range_descriptor->offset;
   const uint32_t remove_chunk_size = meshlet_range_descriptor->range;
   storage.meshlets_.erase(storage.meshlets_.begin() + meshlet_range_descriptor->offset,
                           storage.meshlets_.begin() + meshlet_range_descriptor->offset + remove_chunk_size);
   storage.vertex_data_chunks_.erase(
       storage.vertex_data_chunks_.begin() + meshlet_range_descriptor->offset,
       storage.vertex_data_chunks_.begin() + meshlet_range_descriptor->offset + remove_chunk_size);
-  for (uint32_t i = meshlet_range_descriptor_index; i < storage.meshlets_.size(); i++) {
+  for (uint32_t i = meshlet_remove_offset; i < storage.meshlets_.size(); i++) {
     storage.meshlets_[i].vertex_chunk_index = i;
   }
   for (uint32_t i = meshlet_range_descriptor_index + 1; i < storage.meshlet_range_descriptor_.size(); i++) {
@@ -688,6 +749,8 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
     storage.meshlet_range_descriptor_[i]->offset -= meshlet_range_descriptor->range;
   }
   storage.meshlet_range_descriptor_.erase(storage.meshlet_range_descriptor_.begin() + meshlet_range_descriptor_index);
+  storage.mesh_vertex_dirty_range_.MarkTail(meshlet_remove_offset, storage.vertex_data_chunks_.size());
+  storage.meshlet_dirty_range_.MarkTail(meshlet_remove_offset, storage.meshlets_.size());
 
   uint32_t triangle_range_descriptor_index = UINT_MAX;
   for (uint32_t i = 0; i < storage.triangle_range_descriptor_.size(); i++) {
@@ -700,6 +763,7 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
     return;
   }
   const auto& triangle_range_descriptor = storage.triangle_range_descriptor_[triangle_range_descriptor_index];
+  const auto triangle_remove_offset = triangle_range_descriptor->offset;
   storage.triangles_.erase(
       storage.triangles_.begin() + triangle_range_descriptor->offset,
       storage.triangles_.begin() + triangle_range_descriptor->offset + triangle_range_descriptor->range);
@@ -715,6 +779,7 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
   }
   storage.triangle_range_descriptor_.erase(storage.triangle_range_descriptor_.begin() +
                                            triangle_range_descriptor_index);
+  storage.triangle_dirty_range_.MarkTail(triangle_remove_offset, storage.triangles_.size());
   storage.require_mesh_data_device_update_ = true;
 }
 
@@ -737,6 +802,7 @@ void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
   };
   const auto& skinned_meshlet_range_descriptor =
       storage.skinned_meshlet_range_descriptor_[skinned_meshlet_range_descriptor_index];
+  const auto skinned_meshlet_remove_offset = skinned_meshlet_range_descriptor->offset;
   const uint32_t remove_chunk_size = skinned_meshlet_range_descriptor->range;
   storage.skinned_meshlets_.erase(
       storage.skinned_meshlets_.begin() + skinned_meshlet_range_descriptor->offset,
@@ -744,7 +810,7 @@ void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
   storage.skinned_vertex_data_chunks_.erase(
       storage.skinned_vertex_data_chunks_.begin() + skinned_meshlet_range_descriptor->offset,
       storage.skinned_vertex_data_chunks_.begin() + skinned_meshlet_range_descriptor->offset + remove_chunk_size);
-  for (uint32_t i = skinned_meshlet_range_descriptor_index; i < storage.skinned_meshlets_.size(); i++) {
+  for (uint32_t i = skinned_meshlet_remove_offset; i < storage.skinned_meshlets_.size(); i++) {
     storage.skinned_meshlets_[i].skinned_vertex_chunk_index = i;
   }
   for (uint32_t i = skinned_meshlet_range_descriptor_index + 1; i < storage.skinned_meshlet_range_descriptor_.size();
@@ -754,6 +820,9 @@ void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
   }
   storage.skinned_meshlet_range_descriptor_.erase(storage.skinned_meshlet_range_descriptor_.begin() +
                                                   skinned_meshlet_range_descriptor_index);
+  storage.skinned_vertex_dirty_range_.MarkTail(skinned_meshlet_remove_offset,
+                                               storage.skinned_vertex_data_chunks_.size());
+  storage.skinned_meshlet_dirty_range_.MarkTail(skinned_meshlet_remove_offset, storage.skinned_meshlets_.size());
 
   uint32_t skinned_triangle_range_descriptor_index = UINT_MAX;
   for (uint32_t i = 0; i < storage.skinned_triangle_range_descriptor_.size(); i++) {
@@ -767,6 +836,7 @@ void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
   }
   const auto& skinned_triangle_range_descriptor =
       storage.skinned_triangle_range_descriptor_[skinned_triangle_range_descriptor_index];
+  const auto skinned_triangle_remove_offset = skinned_triangle_range_descriptor->offset;
   storage.skinned_triangles_.erase(storage.skinned_triangles_.begin() + skinned_triangle_range_descriptor->offset,
                                    storage.skinned_triangles_.begin() + skinned_triangle_range_descriptor->offset +
                                        skinned_triangle_range_descriptor->range);
@@ -784,6 +854,7 @@ void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {
 
   storage.skinned_triangle_range_descriptor_.erase(storage.skinned_triangle_range_descriptor_.begin() +
                                                    skinned_triangle_range_descriptor_index);
+  storage.skinned_triangle_dirty_range_.MarkTail(skinned_triangle_remove_offset, storage.skinned_triangles_.size());
   storage.require_skinned_mesh_data_device_update_ = true;
 }
 
@@ -806,6 +877,7 @@ void GeometryStorage::FreeStrands(const Handle& handle) {
   }
   const auto& strand_meshlet_range_descriptor =
       storage.strand_meshlet_range_descriptor_[strand_meshlet_range_descriptor_index];
+  const auto strand_meshlet_remove_offset = strand_meshlet_range_descriptor->offset;
   const uint32_t remove_chunk_size = strand_meshlet_range_descriptor->range;
   storage.strand_meshlets_.erase(
       storage.strand_meshlets_.begin() + strand_meshlet_range_descriptor->offset,
@@ -813,7 +885,7 @@ void GeometryStorage::FreeStrands(const Handle& handle) {
   storage.strand_point_data_chunks_.erase(
       storage.strand_point_data_chunks_.begin() + strand_meshlet_range_descriptor->offset,
       storage.strand_point_data_chunks_.begin() + strand_meshlet_range_descriptor->offset + remove_chunk_size);
-  for (uint32_t i = strand_meshlet_range_descriptor_index; i < storage.strand_meshlets_.size(); i++) {
+  for (uint32_t i = strand_meshlet_remove_offset; i < storage.strand_meshlets_.size(); i++) {
     storage.strand_meshlets_[i].strand_point_chunk_index = i;
   }
   for (uint32_t i = strand_meshlet_range_descriptor_index + 1; i < storage.strand_meshlet_range_descriptor_.size();
@@ -823,6 +895,8 @@ void GeometryStorage::FreeStrands(const Handle& handle) {
   }
   storage.strand_meshlet_range_descriptor_.erase(storage.strand_meshlet_range_descriptor_.begin() +
                                                  strand_meshlet_range_descriptor_index);
+  storage.strand_point_dirty_range_.MarkTail(strand_meshlet_remove_offset, storage.strand_point_data_chunks_.size());
+  storage.strand_meshlet_dirty_range_.MarkTail(strand_meshlet_remove_offset, storage.strand_meshlets_.size());
 
   uint32_t segment_range_descriptor_index = UINT_MAX;
   for (uint32_t i = 0; i < storage.segment_range_descriptor_.size(); i++) {
@@ -835,6 +909,7 @@ void GeometryStorage::FreeStrands(const Handle& handle) {
     return;
   }
   const auto& segment_range_descriptor = storage.segment_range_descriptor_[segment_range_descriptor_index];
+  const auto segment_remove_offset = segment_range_descriptor->offset;
   storage.segments_.erase(
       storage.segments_.begin() + segment_range_descriptor->offset,
       storage.segments_.begin() + segment_range_descriptor->offset + segment_range_descriptor->range);
@@ -850,6 +925,7 @@ void GeometryStorage::FreeStrands(const Handle& handle) {
     storage.segments_[i].w -= remove_chunk_size * Platform::Constants::meshlet_max_vertices_size;
   }
   storage.segment_range_descriptor_.erase(storage.segment_range_descriptor_.begin() + segment_range_descriptor_index);
+  storage.segment_dirty_range_.MarkTail(segment_remove_offset, storage.segments_.size());
 
   storage.require_strand_mesh_data_device_update_ = true;
 }
@@ -937,6 +1013,9 @@ void GeometryStorage::OnDestroy() {
   ClearPendingUpload(storage.pending_mesh_upload_);
   ClearPendingUpload(storage.pending_skinned_mesh_upload_);
   ClearPendingUpload(storage.pending_strand_upload_);
+  storage.ClearMeshDirtyRanges();
+  storage.ClearSkinnedMeshDirtyRanges();
+  storage.ClearStrandDirtyRanges();
 
   storage.vertex_data_chunks_.clear();
   storage.meshlets_.clear();

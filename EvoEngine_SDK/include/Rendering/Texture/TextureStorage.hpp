@@ -20,6 +20,7 @@ struct TextureStorageHandle {
  */
 class Texture2DStorage {
   friend class TextureStorage;
+  friend class Texture2D;
   friend class Cubemap;
 
   /**
@@ -33,11 +34,9 @@ class Texture2DStorage {
   glm::uvec2 new_resolution_{};
 
   /**
-   * @brief Uploads texture data to the GPU.
-   * @param data The pixel data to upload.
-   * @param resolution The resolution of the texture.
+   * @brief Immediately uploads any pending data to the GPU.
    */
-  void UploadData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  void UploadPendingDataImmediately();
 
  public:
   bool pending_delete = false;  ///< Indicates whether the storage is pending deletion.
@@ -94,13 +93,6 @@ class Texture2DStorage {
   void Initialize(const glm::uvec2& resolution);
 
   /**
-   * @brief Sets texture data and uploads it immediately to the GPU.
-   * @param data The pixel data to set.
-   * @param resolution The resolution of the texture.
-   */
-  void SetDataImmediately(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
-
-  /**
    * @brief Sets texture data and uploads it asynchronously through the GPU service.
    * @param data The pixel data to upload.
    * @param resolution The resolution of the texture.
@@ -114,11 +106,6 @@ class Texture2DStorage {
    * @param resolution The resolution of the texture.
    */
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
-
-  /**
-   * @brief Immediately uploads any pending data to the GPU.
-   */
-  void UploadDataImmediately();
 
   /**
    * @brief Clears the texture resources and data.

@@ -2222,16 +2222,7 @@ void RenderLayer::PreUpdate() {
 }
 
 void RenderLayer::OnDestroy() {
-  if (!Platform::Initialized()) {
-    return;
-  }
-  GeometryStorage::WaitForPendingUploads();
-  TextureStorage::DeviceSync();
-  if (const auto gpu_service = Platform::TryGetGpuService();
-      gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
-    gpu_service->WaitIdle();
-  }
-  Platform::WaitForDeviceIdle();
+  Platform::DrainGpuResourceWork();
 }
 
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,

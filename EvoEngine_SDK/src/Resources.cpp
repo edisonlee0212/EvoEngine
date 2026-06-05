@@ -246,15 +246,7 @@ bool Resources::IsResource(const AssetRef& target) {
 
 void Resources::OnDestroy() {
   auto& resources = GetInstance();
-  if (Platform::Initialized()) {
-    GeometryStorage::WaitForPendingUploads();
-    TextureStorage::DeviceSync();
-    if (const auto gpu_service = Platform::TryGetGpuService();
-        gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
-      gpu_service->WaitIdle();
-    }
-    Platform::WaitForDeviceIdle();
-  }
+  Platform::DrainGpuResourceWork();
 
   resources.typed_resources_.clear();
   resources.resources_.clear();

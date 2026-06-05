@@ -103,25 +103,20 @@ class IAsset : public ISerializable {
    */
   void TrackPendingGpuWork(const JobHandle& handle);
 
+  /**
+   * @brief Takes tracked GPU work handles for readiness orchestration.
+   */
+  [[nodiscard]] std::vector<JobHandle> ConsumePendingGpuWorkHandles() const;
+
+  /**
+   * @brief Waits for tracked GPU work and clears consumed readiness handles.
+   */
+  void WaitForPendingGpuWork() const;
+
   bool saved_ = false;   /**< Indicates whether the asset is in a saved state. */
   uint32_t version_ = 0; /**< The version number of the asset. */
 
  public:
-  /**
-   * @brief Returns whether this asset has valid tracked GPU work that has not been consumed by a readiness wait.
-   */
-  [[nodiscard]] bool HasPendingGpuWork() const;
-
-  /**
-   * @brief Returns tracked GPU work handles for readiness orchestration.
-   */
-  [[nodiscard]] std::vector<JobHandle> GetPendingGpuWorkHandles() const;
-
-  /**
-   * @brief Waits for all tracked GPU work and clears completed readiness handles.
-   */
-  void WaitForPendingGpuWork() const;
-
   /**
    * @brief Generates a thumbnail texture for the asset.
    * @return A shared pointer to the generated thumbnail texture.

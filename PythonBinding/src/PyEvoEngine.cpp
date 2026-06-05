@@ -63,24 +63,11 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
   }
   if (!is_scene_ready()) {
     const auto snapshot = AssetManager::GetAssetLoadSnapshot();
-    const auto geometry_snapshot = GeometryStorage::GetUploadSnapshot();
     EVOENGINE_ERROR("Scene is not ready for capture! Frames: " + std::to_string(readiness_frames) +
                     ", project idle: " + std::to_string(ProjectManager::IsProjectIdle()) +
                     ", geometry version: " + std::to_string(GeometryStorage::GetVersion()) +
+                    ", geometry pending: " + std::to_string(GeometryStorage::HasPendingUploads()) +
                     ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) +
-                    ", mesh dirty/active/completed/handles: " + std::to_string(geometry_snapshot.mesh_dirty) + "/" +
-                    std::to_string(geometry_snapshot.mesh_upload_active) + "/" +
-                    std::to_string(geometry_snapshot.mesh_upload_completed) + "/" +
-                    std::to_string(geometry_snapshot.mesh_upload_handles) +
-                    ", skinned dirty/active/completed/handles: " +
-                    std::to_string(geometry_snapshot.skinned_mesh_dirty) + "/" +
-                    std::to_string(geometry_snapshot.skinned_mesh_upload_active) + "/" +
-                    std::to_string(geometry_snapshot.skinned_mesh_upload_completed) + "/" +
-                    std::to_string(geometry_snapshot.skinned_mesh_upload_handles) +
-                    ", strand dirty/active/completed/handles: " + std::to_string(geometry_snapshot.strand_dirty) +
-                    "/" + std::to_string(geometry_snapshot.strand_upload_active) + "/" +
-                    std::to_string(geometry_snapshot.strand_upload_completed) + "/" +
-                    std::to_string(geometry_snapshot.strand_upload_handles) +
                     ", asset queued: " + std::to_string(snapshot.queued) +
                     ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
                     ", asset waiting finalize: " + std::to_string(snapshot.waiting_for_finalize) +

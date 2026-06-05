@@ -103,7 +103,7 @@ void Texture2D::DownloadData() {
 
 void Texture2D::UnsafeUploadDataImmediately() const {
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-  texture_storage.UploadDataImmediately();
+  texture_storage.UploadPendingDataImmediately();
   WaitForPendingGpuWork();
 }
 bool Texture2D::SaveInternal(const std::filesystem::path& path) const {
@@ -181,7 +181,10 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
     local_data_.resize(width * height);
     memcpy(local_data_.data(), data, sizeof(glm::vec4) * width * height);
     auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-    texture_storage.SetDataImmediately(local_data_, {width, height});
+    const auto upload = texture_storage.SetDataAsync(local_data_, {width, height});
+    if (upload.Valid()) {
+      Platform::GetGpuService().Wait(upload);
+    }
   } else {
     EVOENGINE_ERROR("Texture failed to load at path: " + path.filename().string());
     return false;

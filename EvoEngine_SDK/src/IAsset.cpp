@@ -125,20 +125,7 @@ void IAsset::TrackPendingGpuWork(const JobHandle &handle) {
   pending_gpu_work_state_->handles.emplace_back(handle);
 }
 
-bool IAsset::HasPendingGpuWork() const {
-  if (!pending_gpu_work_state_) {
-    return false;
-  }
-  std::lock_guard lock(pending_gpu_work_state_->mutex);
-  for (const auto &handle : pending_gpu_work_state_->handles) {
-    if (handle.Valid()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-std::vector<JobHandle> IAsset::GetPendingGpuWorkHandles() const {
+std::vector<JobHandle> IAsset::ConsumePendingGpuWorkHandles() const {
   if (!pending_gpu_work_state_) {
     return {};
   }
@@ -150,19 +137,15 @@ std::vector<JobHandle> IAsset::GetPendingGpuWorkHandles() const {
       handles.emplace_back(handle);
     }
   }
+  pending_gpu_work_state_->handles.clear();
   return handles;
 }
 
 void IAsset::WaitForPendingGpuWork() const {
-  const auto handles = GetPendingGpuWorkHandles();
+  const auto handles = ConsumePendingGpuWorkHandles();
   for (const auto &handle : handles) {
     Jobs::Wait(handle);
   }
-  if (!pending_gpu_work_state_) {
-    return;
-  }
-  std::lock_guard lock(pending_gpu_work_state_->mutex);
-  pending_gpu_work_state_->handles.clear();
 }
 
 void IAsset::OnCreate() {

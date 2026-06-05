@@ -405,6 +405,19 @@ void Platform::WaitForDeviceIdle() {
   CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
 }
 
+void Platform::DrainGpuResourceWork() {
+  if (!Initialized()) {
+    return;
+  }
+  GeometryStorage::WaitForPendingUploads();
+  TextureStorage::DeviceSync();
+  if (const auto gpu_service = TryGetGpuService();
+      gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
+    gpu_service->WaitIdle();
+  }
+  WaitForDeviceIdle();
+}
+
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
                                   const VkFormat image_format, const uint32_t layer_count,
                                   const VkImageLayout old_layout, const VkImageLayout new_layout,

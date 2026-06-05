@@ -3,6 +3,8 @@
 #include "Platform.hpp"
 #include "Vertex.hpp"
 
+#include <initializer_list>
+
 namespace evo_engine {
 
 /**
@@ -213,24 +215,6 @@ struct ParticleInfoListData {
 class GeometryStorage final {
  public:
   static GeometryStorage& GetInstance();
-  struct GeometryUploadSnapshot {
-    bool mesh_dirty = false;
-    bool mesh_upload_active = false;
-    bool mesh_upload_completed = true;
-    size_t mesh_upload_handles = 0;
-
-    bool skinned_mesh_dirty = false;
-    bool skinned_mesh_upload_active = false;
-    bool skinned_mesh_upload_completed = true;
-    size_t skinned_mesh_upload_handles = 0;
-
-    bool strand_dirty = false;
-    bool strand_upload_active = false;
-    bool strand_upload_completed = true;
-    size_t strand_upload_handles = 0;
-
-    [[nodiscard]] bool Active() const;
-  };
 
  private:
   struct RangeCommit {
@@ -247,6 +231,25 @@ class GeometryStorage final {
     std::vector<RangeCommit> index_commits;
   };
 
+  struct DirtyRange {
+    bool dirty = false;
+    size_t begin = 0;
+    size_t end = 0;
+
+    void Mark(size_t range_begin, size_t count);
+    void MarkTail(size_t range_begin, size_t range_end);
+    void Clear();
+    [[nodiscard]] bool Empty() const;
+  };
+
+  struct DirtyBufferUpload {
+    const std::shared_ptr<Buffer>* buffer = nullptr;
+    const void* data = nullptr;
+    size_t element_count = 0;
+    size_t element_size = 0;
+    DirtyRange* dirty_range = nullptr;
+  };
+
   std::vector<VertexDataChunk> vertex_data_chunks_ = {};
   std::vector<Meshlet> meshlets_ = {};
   std::vector<std::shared_ptr<RangeDescriptor>> meshlet_range_descriptor_;
@@ -258,6 +261,9 @@ class GeometryStorage final {
   std::shared_ptr<Buffer> triangle_buffer_ = {};
   bool require_mesh_data_device_update_ = {};
   PendingGeometryUpload pending_mesh_upload_;
+  DirtyRange mesh_vertex_dirty_range_;
+  DirtyRange meshlet_dirty_range_;
+  DirtyRange triangle_dirty_range_;
 
   std::vector<SkinnedVertexDataChunk> skinned_vertex_data_chunks_ = {};
   std::vector<SkinnedMeshlet> skinned_meshlets_ = {};
@@ -270,6 +276,9 @@ class GeometryStorage final {
   std::shared_ptr<Buffer> skinned_triangle_buffer_ = {};
   bool require_skinned_mesh_data_device_update_ = {};
   PendingGeometryUpload pending_skinned_mesh_upload_;
+  DirtyRange skinned_vertex_dirty_range_;
+  DirtyRange skinned_meshlet_dirty_range_;
+  DirtyRange skinned_triangle_dirty_range_;
 
   std::vector<StrandPointDataChunk> strand_point_data_chunks_ = {};
   std::vector<StrandMeshlet> strand_meshlets_ = {};
@@ -282,8 +291,15 @@ class GeometryStorage final {
   std::shared_ptr<Buffer> segment_buffer_ = {};
   bool require_strand_mesh_data_device_update_ = {};
   PendingGeometryUpload pending_strand_upload_;
+  DirtyRange strand_point_dirty_range_;
+  DirtyRange strand_meshlet_dirty_range_;
+  DirtyRange segment_dirty_range_;
 
   void UploadData();
+  void ClearMeshDirtyRanges();
+  void ClearSkinnedMeshDirtyRanges();
+  void ClearStrandDirtyRanges();
+  static GpuWorkHandle ScheduleDirtyBufferUpload(const DirtyBufferUpload& upload);
   static void CaptureRangeCommits(const std::vector<std::shared_ptr<RangeDescriptor>>& descriptors,
                                   std::vector<RangeCommit>& commits);
   static void ApplyRangeCommits(const std::vector<RangeCommit>& commits);
@@ -293,6 +309,10 @@ class GeometryStorage final {
   static void ClearPendingUpload(PendingGeometryUpload& upload);
   bool CompletePendingUpload(PendingGeometryUpload& upload);
   void CompletePendingUploads();
+  void ScheduleUploadGroup(bool& dirty, PendingGeometryUpload& pending_upload,
+                           std::initializer_list<DirtyBufferUpload> uploads,
+                           const std::vector<std::shared_ptr<RangeDescriptor>>& meshlet_descriptors,
+                           const std::vector<std::shared_ptr<RangeDescriptor>>& index_descriptors);
   void SchedulePendingUploads();
   friend class RenderLayer;
   friend class Resources;
@@ -306,7 +326,6 @@ class GeometryStorage final {
 
  public:
   [[nodiscard]] static uint32_t GetVersion();
-  [[nodiscard]] static GeometryUploadSnapshot GetUploadSnapshot();
   [[nodiscard]] static bool HasPendingUploads();
   static void WaitForPendingUploads();
   static const std::shared_ptr<Buffer>& GetTriangleBuffer();

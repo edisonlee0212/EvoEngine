@@ -263,6 +263,39 @@ TEST(GpuService, BufferUploadReadbackRoundTrip) {
   }
 }
 
+TEST(GpuService, BufferUploadSubrangeRoundTrip) {
+  ScopedGpuPlatform platform;
+  auto& gpu_service = Platform::GetGpuService();
+
+  constexpr std::array<uint32_t, 8> input = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u};
+  constexpr std::array<uint32_t, 2> patch = {42u, 43u};
+  constexpr auto byte_size = static_cast<VkDeviceSize>(input.size() * sizeof(input[0]));
+  constexpr auto patch_offset = static_cast<VkDeviceSize>(3 * sizeof(input[0]));
+
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = byte_size;
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+
+  Buffer buffer(buffer_create_info, allocation_create_info);
+  gpu_service.Wait(buffer.UploadDataAsync(static_cast<size_t>(byte_size), input.data()));
+  gpu_service.Wait(buffer.UploadSubDataAsync(patch.size() * sizeof(patch[0]), patch.data(), patch_offset));
+
+  const auto downloaded_bytes = buffer.DownloadDataAsync(static_cast<size_t>(byte_size)).get();
+  std::array<uint32_t, input.size()> output{};
+  memcpy(output.data(), downloaded_bytes.data(), downloaded_bytes.size());
+
+  auto expected = input;
+  expected[3] = patch[0];
+  expected[4] = patch[1];
+  EXPECT_EQ(output, expected);
+}
+
 TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {
   ScopedGpuPlatform platform;
   auto& gpu_service = Platform::GetGpuService();
@@ -301,10 +334,9 @@ TEST(GpuService, Texture2DRuntimeUpdateTracksGpuReadiness) {
   auto& texture_storage = texture.RefTexture2DStorage();
 
   texture.SetRgbaChannelData(pixels, glm::uvec2(2, 2));
-  EXPECT_TRUE(texture.HasPendingGpuWork());
-  texture.WaitForPendingGpuWork();
+  EXPECT_TRUE(texture_storage.IsGpuUploadPending());
+  Platform::GetGpuService().WaitIdle();
 
-  EXPECT_FALSE(texture.HasPendingGpuWork());
   EXPECT_FALSE(texture_storage.IsGpuUploadPending());
   EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -375,6 +407,51 @@ TEST(GpuService, GeometryStorageCommitsMeshRangesAfterAsyncUpload) {
   EXPECT_EQ(triangle_range->prev_frame_index_count, 1u);
   EXPECT_EQ(triangle_range->prev_frame_range, triangle_range->range);
   EXPECT_EQ(triangle_range->prev_frame_offset, triangle_range->offset);
+}
+
+TEST(GpuService, GeometryStorageUploadsCompactedMeshTail) {
+  ScopedGpuPlatform platform;
+  auto& gpu_service = Platform::GetGpuService();
+
+  VertexAttributes attributes{};
+  attributes.normal = true;
+  attributes.tangent = true;
+  const std::vector<glm::uvec3> triangles = {glm::uvec3(0, 1, 2)};
+
+  auto first_mesh = std::make_unique<Mesh>();
+  first_mesh->OnCreate();
+  std::vector<Vertex> first_vertices(3);
+  first_vertices[0].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  first_vertices[1].position = glm::vec3(2.0f, 0.0f, 0.0f);
+  first_vertices[2].position = glm::vec3(1.0f, 1.0f, 0.0f);
+  first_mesh->SetVertices(attributes, first_vertices, triangles);
+
+  auto second_mesh = std::make_unique<Mesh>();
+  second_mesh->OnCreate();
+  std::vector<Vertex> second_vertices(3);
+  second_vertices[0].position = glm::vec3(10.0f, 0.0f, 0.0f);
+  second_vertices[1].position = glm::vec3(11.0f, 0.0f, 0.0f);
+  second_vertices[2].position = glm::vec3(10.0f, 1.0f, 0.0f);
+  second_mesh->SetVertices(attributes, second_vertices, triangles);
+
+  PlatformLifecycleTestAccess::PreUpdate();
+  gpu_service.WaitIdle();
+  PlatformLifecycleTestAccess::PreUpdate();
+  ASSERT_EQ(second_mesh->GetTriangleRange()->prev_frame_offset, 1u);
+
+  first_mesh.reset();
+  PlatformLifecycleTestAccess::PreUpdate();
+  gpu_service.WaitIdle();
+  PlatformLifecycleTestAccess::PreUpdate();
+
+  ASSERT_EQ(second_mesh->GetTriangleRange()->prev_frame_offset, 0u);
+
+  const auto downloaded_bytes = GeometryStorage::GetVertexBuffer()->DownloadDataAsync(sizeof(VertexDataChunk)).get();
+  VertexDataChunk output{};
+  memcpy(&output, downloaded_bytes.data(), downloaded_bytes.size());
+  EXPECT_FLOAT_EQ(output.vertex_data[0].position.x, second_vertices[0].position.x);
+  EXPECT_FLOAT_EQ(output.vertex_data[0].position.y, second_vertices[0].position.y);
+  EXPECT_FLOAT_EQ(output.vertex_data[0].position.z, second_vertices[0].position.z);
 }
 
 TEST(GpuService, ConcurrentBufferUploadsRoundTrip) {
