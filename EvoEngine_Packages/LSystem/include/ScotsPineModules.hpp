@@ -1,0 +1,218 @@
+﻿#pragma once
+
+#include <glm/glm.hpp>
+#include <vector>
+#include "GrowthField.hpp"
+#include "GrowthFunction.hpp"
+#include "LSystemGraph.hpp"
+#include "MaterialProfile.hpp"
+#include "ModuleTypes.hpp"
+#include "SimulationClock.hpp"
+
+namespace l_system_package {
+
+// ---------------------------------------------------------------------------
+// Pinus sylvestris module set (simple monopodial phytomer model).
+//
+// Topology:
+//   - The PineApex (immortal) emits ONE phytomer per plastochron during its
+//     active growth season. A phytomer is exactly:
+//         PineInternode  +  (optionally) one PineNeedleCluster.
+//   - During the proximal `bare_zone_fraction` of each year's seasonal
+//     growth (temporal fraction of the active season), the apex emits an
+//     internode-only phytomer (no needle cluster). After that, every
+//     phytomer carries one needle cluster.
+//   - Once the apex has emitted `max_phytomers_per_seasonal_growth`
+//     phytomers in the current year it stops until the season rolls over
+//     to the next year (LSystemLayer detects the dormant->active edge and
+//     bumps the SimulationClock's year index).
+//   - PineWhorlBud / lateral spawning rules remain in place but are inert
+//     while the descriptor's max_branching_order is 0.
+//
+// Symbols:
+//   0 PineApex          - immortal terminal meristem; emits phytomers.
+//   1 PineInternode     - one phytomer's internode segment + thickness.
+//   2 PineWhorlBud      - overwintering bud; activates -> N lateral apices
+//                          (currently disabled by default).
+//   3 PineNeedleCluster - fascicle anchored at s_along_parent_norm on its
+//                          parent internode; ages and senesces over years.
+// ---------------------------------------------------------------------------
+
+enum class PhenologyState { Dormant, Flush, Elongate };
+
+struct PineApex {
+  int order = 0;                   ///< 0 = leader, 1+ = laterals.
+  float phyllotaxis_phase = 0.0f;  ///< Azimuth carried across phytomers (deg).
+  float node_random = 0.5f;        ///< Per-node random scalar in [0,1].
+  PhenologyState phenology_state = PhenologyState::Dormant;
+
+  /// Year index this apex last advanced into. R0 (year-rollover) compares
+  /// `clock.YearIndex()` against this and resets `phytomers_this_year` when
+  /// they differ, so the apex starts a fresh seasonal-growth budget.
+  int year_index = 0;
+  /// Phytomers emitted so far in the current year. R1 stops emitting once
+  /// this reaches `max_phytomers_per_seasonal_growth`.
+  int phytomers_this_year = 0;
+  /// Physiological time (years) of the last phytomer emission. R1 enforces
+  /// `plastochron_years` spacing using this anchor.
+  float t_last_emission_years = 0.0f;
+
+  /// Per-apex stamped sample of the descriptor's `plastochron_gdd` distribution
+  /// (converted to years). Stamped once at apex creation so the R1 condition
+  /// predicate and the R1 production lambda observe the same value across
+  /// derivation passes (avoids gate/produce drift when deviation > 0). Also
+  /// used by R0 to seed `t_last_emission_years` on year rollover.
+  float sampled_plastochron_years = 1.0f;
+  /// Per-apex stamped sample of `max_phytomers_per_seasonal_growth`. Same
+  /// stability rationale: R1's "stop after this year's cap" check must read
+  /// a value that is stable across condition/produce calls for one apex.
+  int sampled_max_phytomers_per_seasonal_growth = 12;
+  /// Per-apex stamped count of how many phytomers at the start of the
+  /// current year are emitted *without* a needle cluster. Stamped at year
+  /// rollover (R0) by drawing the descriptor's `bare_zone_fraction`
+  /// distribution exactly once and rounding to the nearest integer
+  /// `bare_zone_fraction * sampled_max_phytomers_per_seasonal_growth`.
+  /// Replaces the previous time-based gate (which compared
+  /// `temporal_progress_in_active_season` to `bare_zone_fraction`); a
+  /// count-based gate is robust to year-to-year differences in active-season
+  /// length and to plastochron resampling.
+  int bare_phytomers_this_year = 0;
+  /// Completion ratio from the immediately preceding year
+  /// `phytomers_this_year / sampled_max_phytomers_per_seasonal_growth`.
+  /// Computed in R0 and carried into the next year's emissions.
+  float previous_season_completion_ratio = 1.0f;
+  /// Clamped completion-derived vigor proxy carried over at year rollover.
+  /// Used by initiation-time needle capacity mapping.
+  float previous_season_vigor = 1.0f;
+};
+
+struct PineInternode {
+  float length = 0.0f;            ///< Current shoot length (m).
+  float thickness = 0.0f;         ///< Current shoot thickness/diameter (m).
+  float target_length = 0.0f;     ///< Final mature length (m).
+  float target_thickness = 0.0f;  ///< Final mature thickness (m).
+  float branch_angle = 0.0f;      ///< Deflection from parent axis (deg).
+  float roll_angle = 0.0f;        ///< Roll about parent axis (deg).
+  glm::vec3 bend_axis_local = glm::vec3(1.0f, 0.0f, 0.0f);
+  float curvature = 0.0f;        ///< Local bending from gravitropism (deg).
+  float growth_progress = 0.0f;  ///< 0 = just emerged, 1 = mature.
+  int year_produced = 0;         ///< Year cohort.
+  int age_years = 0;             ///< Module-local age in whole years.
+  int order = 0;                 ///< Branching order of this axis.
+  float node_random = 0.5f;
+  ContinuousGrowthState continuous_growth{};
+};
+
+struct PineWhorlBud {
+  float insertion_angle = 60.0f;     ///< Lateral departure angle (deg).
+  int lateral_count = 5;             ///< Apices spawned at activation.
+  int dormancy_years_remaining = 0;  ///< 0 = activate this step.
+  int initial_dormancy_years = 0;    ///< Creation-time dormancy budget used for chronological countdown.
+  int order = 1;                     ///< Order of laterals to spawn.
+  float phyllotaxis_phase = 0.0f;    ///< First lateral azimuth (deg).
+  float node_random = 0.5f;
+};
+
+struct PineNeedleInstanceProfile {
+  float length_scale = 1.0f;                 ///< Per-needle multiplier on cluster length.
+  float radius_scale = 1.0f;                 ///< Per-needle multiplier on both ellipsoid semi-axes.
+  float branching_relax_years = 0.0f;        ///< Years required for this needle to reach full branching angle.
+  float sinusoidal_amplitude_deg = 0.0f;     ///< Per-needle intrinsic waviness amplitude.
+  float sinusoidal_frequency_cycles = 0.0f;  ///< Number of wave cycles along full needle length.
+  float sinusoidal_phase_rad = 0.0f;         ///< Phase offset for deterministic within-fascicle diversity.
+  BilateralGrowthField1D growth_field{};
+  MaterialProfile1D material_profile{};
+};
+
+struct PineNeedleCluster {
+  int count = 2;                  ///< Pinus sylvestris fascicle = 2.
+  float length = 0.0f;            ///< Current needle length (m).
+  float target_length = 0.025f;   ///< Mature needle length (m).
+  int age_years = 0;              ///< Years since cluster initiation.
+  int lifespan_years = 4;         ///< Years before browning starts.
+  float browning_years = 0.8f;    ///< Years from senescence onset to abscission.
+  bool alive = true;              ///< False = abscised; mesher skips.
+  bool maturity_reached = false;  ///< True once thermal maturation reaches 1.0.
+  float chronological_age_at_maturity_years = 0.0f;
+
+  // Anchor on the parent internode's centerline.
+  float s_along_parent_norm = 0.5f;  ///< Fractional position [0,1] along parent shoot.
+  float roll_offset_deg = 0.0f;      ///< Azimuthal offset around parent axis (deg).
+
+  // Visible browning progress: 0 = fully green, 1 = fully brown.
+  // Driven by PineGrowthModel::UpdateNodeInfoImpl from chronological age
+  // elapsed after thermal maturity.
+  float senescence_phase = 0.0f;
+
+  // Creation-time vigor scaling for geometric needle thickness.
+  float render_radius_scale = 1.0f;
+
+  // Initiation-time capacity diagnostics.
+  int initiation_year_index = 0;
+  int initiation_phytomer_index = 0;
+  float intra_year_capacity_weight = 1.0f;
+  float inter_year_capacity_weight = 1.0f;
+  float bud_storage_vigor_weight = 1.0f;
+
+  // Ellipsoid cross-section maxima (semi-axis radii, metres) before applying
+  // per-position profile multipliers in the mesher.
+  float cross_section_width_radius_m = 0.0009f;
+  float cross_section_thickness_radius_m = 0.00055f;
+
+  // Fascicle opening behavior: starts apical (0 deg) and relaxes toward this
+  // branching angle as chronological age approaches per-needle branching_relax_years.
+  float branching_angle_deg = 72.0f;
+  // Keep the default equivalent to 220 GDD at 1500 GDD/year without
+  // depending on descriptor constants in this low-level module header.
+  float branching_relax_years = 220.0f / 1500.0f;
+
+  float node_random = 0.5f;
+  ContinuousGrowthState continuous_growth{};
+  float sinusoidal_amplitude_deg = 0.0f;
+  float sinusoidal_frequency_cycles = 0.0f;
+  float sinusoidal_phase_rad = 0.0f;
+  BilateralGrowthField1D growth_field{};
+  MaterialProfile1D material_profile{};
+  std::vector<PineNeedleInstanceProfile> per_needle_profiles{};
+};
+
+// ---------------------------------------------------------------------------
+// Type aliases
+// ---------------------------------------------------------------------------
+
+using PineModuleData = ModuleVariant<PineApex, PineInternode, PineWhorlBud, PineNeedleCluster>;
+
+struct PineSymbol {
+  static constexpr int Apex =
+      ModuleIndex<PineApex, PineApex, PineInternode, PineWhorlBud, PineNeedleCluster>::value;  // 0
+  static constexpr int Internode =
+      ModuleIndex<PineInternode, PineApex, PineInternode, PineWhorlBud, PineNeedleCluster>::value;  // 1
+  static constexpr int WhorlBud =
+      ModuleIndex<PineWhorlBud, PineApex, PineInternode, PineWhorlBud, PineNeedleCluster>::value;  // 2
+  static constexpr int NeedleCluster =
+      ModuleIndex<PineNeedleCluster, PineApex, PineInternode, PineWhorlBud, PineNeedleCluster>::value;  // 3
+};
+
+// ---------------------------------------------------------------------------
+// Graph / flow data
+// ---------------------------------------------------------------------------
+
+struct PineGraphData {
+  int current_year = 0;
+  int total_derivation_steps = 0;
+  SimulationClock clock{};
+  /// World-frame gravity magnitude (m/s^2). 0 = no body force on needles.
+  float gravity_m_s2 = 0.0f;
+  /// [deprecated] Legacy cap-ratio field carried through graph data for
+  /// backward compatibility. Needle width/thickness are uncapped and this
+  /// value is ignored by runtime geometry generation.
+  float needle_radius_to_stem_thickness_max_ratio = 0.45f;
+};
+
+struct PineFlowData {};
+
+using PineGraph = LSystemGraph<PineGraphData, PineFlowData, PineModuleData>;
+using PineNode = LGraphNode<PineModuleData>;
+using PineFlow = LGraphFlow<PineFlowData>;
+
+}  // namespace l_system_package
