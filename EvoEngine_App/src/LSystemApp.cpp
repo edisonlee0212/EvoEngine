@@ -14,6 +14,7 @@
 #include "ProjectManager.hpp"
 
 #include "EditorLayer.hpp"
+#include "ImGuiLayer.hpp"
 #include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
 
@@ -62,6 +63,7 @@ int main() {
 
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
   ApplicationInitializationSettings application_configs;

@@ -1,3 +1,4 @@
+#include "ImGuiLayer.hpp"
 #include "PyEcoSysLab.hpp"
 #include "PyEvoEngine.hpp"
 
@@ -18,8 +19,10 @@ void push_layers(const bool enable_window_layer, const bool enable_editor_layer)
   ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   if (enable_window_layer)
     ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
-  if (enable_window_layer && enable_editor_layer)
+  if (enable_window_layer && enable_editor_layer) {
+    ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
     ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+  }
   ApplicationContext::Get().PushLayer<EcoSysLabLayer>("EcoSysLab Layer");
 }
 

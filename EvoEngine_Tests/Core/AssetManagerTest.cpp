@@ -7,6 +7,9 @@
 #include "AssetManager.hpp"
 #include "IAsset.hpp"
 #include "Jobs.hpp"
+#include "PackageManager.hpp"
+#include "ProjectManager.hpp"
+#include "Scene.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -404,6 +407,41 @@ class TempProject {
   std::filesystem::path root_;
 };
 
+class TempPackageDirectory {
+ public:
+  TempPackageDirectory() {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+    root_ = std::filesystem::temp_directory_path() / ("EvoEnginePackageManagerTest_" + std::to_string(now));
+    std::filesystem::create_directories(root_);
+  }
+
+  ~TempPackageDirectory() {
+    std::error_code error;
+    std::filesystem::remove_all(root_, error);
+  }
+
+  [[nodiscard]] std::filesystem::path RootPath() const {
+    return root_;
+  }
+
+  void WritePackageManifest(const std::string& package_name, const std::string& library_name,
+                            const bool create_library) const {
+    std::ofstream manifest_file(root_ / (package_name + ".evepackage"));
+    manifest_file << "name: " << package_name << "\n";
+    manifest_file << "library: " << library_name << "\n";
+    manifest_file << "version: 0.1.0\n";
+    manifest_file << "description: Test package.\n";
+    manifest_file.close();
+    if (create_library) {
+      std::ofstream library_file(root_ / library_name);
+      library_file << "test package library placeholder";
+    }
+  }
+
+ private:
+  std::filesystem::path root_;
+};
+
 void WriteBlockingAssetFixture(const TempProject& project) {
   const auto asset_path = project.AssetsPath() / ("Coalesced" + std::string(kBlockingAssetExtension));
   {
@@ -458,6 +496,220 @@ ApplicationInitializationSettings TestApplicationSettings(const TempProject& pro
   return settings;
 }
 }  // namespace
+
+TEST(ProjectManager, ReportsNoProjectBeforeProjectSelection) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::NoProject);
+  EXPECT_FALSE(ProjectManager::HasProject());
+  EXPECT_FALSE(ProjectManager::IsProjectLoaded());
+  EXPECT_FALSE(ProjectManager::IsProjectIdle());
+}
+
+TEST(ProjectManager, ReportsLoadingAfterProjectSelectionWithoutStartScene) {
+  TempProject project;
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::Loading);
+  EXPECT_TRUE(ProjectManager::HasProject());
+  EXPECT_FALSE(ProjectManager::IsProjectLoaded());
+  EXPECT_FALSE(ProjectManager::IsProjectIdle());
+}
+
+TEST(ProjectManager, ReportsLoadedProjectAndResetsOnTerminate) {
+  TempProject project;
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+  ProjectManager::SetStartScene(std::make_shared<Scene>());
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::Loaded);
+  EXPECT_TRUE(ProjectManager::HasProject());
+  EXPECT_TRUE(ProjectManager::IsProjectLoaded());
+  EXPECT_TRUE(ProjectManager::IsProjectIdle());
+
+  app.Terminate();
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::NoProject);
+  EXPECT_FALSE(ProjectManager::HasProject());
+  EXPECT_FALSE(ProjectManager::IsProjectLoaded());
+  EXPECT_FALSE(ProjectManager::IsProjectIdle());
+}
+
+TEST(ProjectManager, LoadsDefaultLaunchMetadataForLegacyProjectFile) {
+  TempProject project;
+  std::ofstream project_file(project.ProjectPath());
+  project_file << "start_scene_handle: 42\n";
+  project_file.close();
+
+  const auto metadata = ProjectManager::LoadProjectLaunchMetadata(project.ProjectPath());
+
+  EXPECT_EQ(metadata.application_name, "EvoEngine Editor");
+  EXPECT_EQ(metadata.preferred_editor, "EvoEngineEditor");
+  EXPECT_TRUE(metadata.startup_runtime_packages.empty());
+}
+
+TEST(ProjectManager, LoadsLaunchMetadataFromProjectFile) {
+  TempProject project;
+  std::ofstream project_file(project.ProjectPath());
+  project_file << "application_name: Metadata Test\n";
+  project_file << "preferred_editor: EvoEngineEditor\n";
+  project_file << "startup_runtime_packages:\n";
+  project_file << "  - PackageA\n";
+  project_file << "  - PackageB\n";
+  project_file << "start_scene_handle: 42\n";
+  project_file.close();
+
+  const auto metadata = ProjectManager::LoadProjectLaunchMetadata(project.ProjectPath());
+
+  EXPECT_EQ(metadata.application_name, "Metadata Test");
+  EXPECT_EQ(metadata.preferred_editor, "EvoEngineEditor");
+  ASSERT_EQ(metadata.startup_runtime_packages.size(), 2);
+  EXPECT_EQ(metadata.startup_runtime_packages[0], "PackageA");
+  EXPECT_EQ(metadata.startup_runtime_packages[1], "PackageB");
+}
+
+TEST(ProjectManager, SaveLaunchMetadataCreatesProjectManifestWithoutOpeningProject) {
+  TempProject project;
+  ProjectLaunchMetadata metadata;
+  metadata.application_name = "Template Project";
+  metadata.preferred_editor = "EvoEngineEditor";
+  metadata.startup_runtime_packages = {"EcoSysLab", "DigitalAgriculture"};
+
+  ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), metadata);
+
+  const auto loaded_metadata = ProjectManager::LoadProjectLaunchMetadata(project.ProjectPath());
+  EXPECT_EQ(loaded_metadata.application_name, "Template Project");
+  ASSERT_EQ(loaded_metadata.startup_runtime_packages.size(), 2);
+  EXPECT_EQ(loaded_metadata.startup_runtime_packages[0], "EcoSysLab");
+  EXPECT_EQ(loaded_metadata.startup_runtime_packages[1], "DigitalAgriculture");
+  Application app;
+  ApplicationContextScope scope(app);
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::NoProject);
+  EXPECT_FALSE(YAML::LoadFile(project.ProjectPath().string())["start_scene_handle"]);
+}
+
+TEST(ProjectManager, OpensMetadataOnlyProjectByCreatingDefaultStartScene) {
+  TempProject project;
+  ProjectLaunchMetadata metadata;
+  metadata.application_name = "Template Project";
+  metadata.preferred_editor = "EvoEngineEditor";
+
+  ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), metadata);
+  ASSERT_FALSE(YAML::LoadFile(project.ProjectPath().string())["start_scene_handle"]);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_start_scene = true;
+
+  ASSERT_NO_THROW(app.Initialize(settings));
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::Loaded);
+  EXPECT_TRUE(ProjectManager::IsProjectLoaded());
+  EXPECT_TRUE(ProjectManager::GetStartScene().lock());
+
+  const auto project_yaml = YAML::LoadFile(project.ProjectPath().string());
+  ASSERT_TRUE(project_yaml["start_scene_handle"]);
+  EXPECT_NE(project_yaml["start_scene_handle"].as<uint64_t>(), 0);
+}
+
+TEST(ProjectManager, SaveLaunchMetadataPreservesExistingStartSceneHandle) {
+  TempProject project;
+  std::ofstream project_file(project.ProjectPath());
+  project_file << "start_scene_handle: 42\n";
+  project_file.close();
+
+  ProjectLaunchMetadata metadata;
+  metadata.application_name = "Template Project";
+  metadata.preferred_editor = "EvoEngineEditor";
+  metadata.startup_runtime_packages = {"LogGrading"};
+  ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), metadata);
+
+  const auto project_yaml = YAML::LoadFile(project.ProjectPath().string());
+  EXPECT_EQ(project_yaml["start_scene_handle"].as<uint64_t>(), 42);
+  const auto loaded_metadata = ProjectManager::LoadProjectLaunchMetadata(project.ProjectPath());
+  EXPECT_EQ(loaded_metadata.application_name, "Template Project");
+  ASSERT_EQ(loaded_metadata.startup_runtime_packages.size(), 1);
+  EXPECT_EQ(loaded_metadata.startup_runtime_packages[0], "LogGrading");
+}
+
+TEST(ProjectManager, MergesProjectLaunchMetadataIntoApplicationSettings) {
+  TempProject project;
+  std::ofstream project_file(project.ProjectPath());
+  project_file << "application_name: Metadata Test\n";
+  project_file << "preferred_editor: EvoEngineEditor\n";
+  project_file << "startup_runtime_packages:\n";
+  project_file << "  - MissingPackageForMetadataTest\n";
+  project_file << "start_scene_handle: 42\n";
+  project_file.close();
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+
+  const auto& settings = app.GetApplicationInfo();
+  EXPECT_TRUE(settings.enable_runtime_packages);
+  ASSERT_EQ(settings.startup_runtime_packages.size(), 1);
+  EXPECT_EQ(settings.startup_runtime_packages[0], "MissingPackageForMetadataTest");
+
+  const auto metadata = ProjectManager::GetProjectLaunchMetadata();
+  EXPECT_EQ(metadata.application_name, "Metadata Test");
+  ASSERT_EQ(metadata.startup_runtime_packages.size(), 1);
+  EXPECT_EQ(metadata.startup_runtime_packages[0], "MissingPackageForMetadataTest");
+}
+
+TEST(ProjectManager, SaveProjectPersistsLaunchMetadata) {
+  TempProject project;
+  std::ofstream project_file(project.ProjectPath());
+  project_file << "application_name: Metadata Test\n";
+  project_file << "preferred_editor: EvoEngineEditor\n";
+  project_file << "startup_runtime_packages:\n";
+  project_file << "  - MissingPackageForMetadataTest\n";
+  project_file << "start_scene_handle: 42\n";
+  project_file.close();
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+  ProjectManager::SetStartScene(std::make_shared<Scene>());
+  ProjectManager::SaveProject();
+
+  const auto metadata = ProjectManager::LoadProjectLaunchMetadata(project.ProjectPath());
+  EXPECT_EQ(metadata.application_name, "Metadata Test");
+  ASSERT_EQ(metadata.startup_runtime_packages.size(), 1);
+  EXPECT_EQ(metadata.startup_runtime_packages[0], "MissingPackageForMetadataTest");
+}
+
+TEST(PackageManager, ReportsManifestLibraryAvailability) {
+  TempPackageDirectory package_directory;
+  package_directory.WritePackageManifest("AvailablePackage", "AvailablePackage.dll", true);
+  package_directory.WritePackageManifest("MissingLibraryPackage", "MissingLibraryPackage.dll", false);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  PackageManager::Initialize({package_directory.RootPath()}, {});
+
+  const auto packages = PackageManager::GetAvailablePackages();
+  auto find_package = [&](const std::string& package_name) {
+    return std::find_if(packages.begin(), packages.end(), [&](const AvailablePackageInfo& package) {
+      return package.name == package_name;
+    });
+  };
+
+  const auto available_package = find_package("AvailablePackage");
+  ASSERT_NE(available_package, packages.end());
+  EXPECT_TRUE(available_package->library_exists);
+
+  const auto missing_library_package = find_package("MissingLibraryPackage");
+  ASSERT_NE(missing_library_package, packages.end());
+  EXPECT_FALSE(missing_library_package->library_exists);
+}
 
 TEST(AssetManager, BlockingAccessJoinsInFlightSynchronousProjectLoad) {
   ResetBlockingLoadState();

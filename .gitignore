@@ -20,6 +20,8 @@ Resources/Example Projects
 
 # Prerequisites
 *.d
+__pycache__/
+*.py[cod]
 
 # Compiled Object files
 *.slo

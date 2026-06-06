@@ -1,1 +1,6 @@
+application_name: LSystem
+preferred_editor: EvoEngineEditor
+startup_runtime_packages:
+  - LSystem
+  - DigitalAgriculture
 start_scene_handle: 10542394882133086192

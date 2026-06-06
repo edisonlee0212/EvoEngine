@@ -1,6 +1,7 @@
 #include "WindowLayer.hpp"
 #include "Application.hpp"
 #include "EditorLayer.hpp"
+#include "ImGuiLayer.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
@@ -54,7 +55,7 @@ void WindowLayer::OnDestroy() {
 }
 
 void WindowLayer::Render() {
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+  if (const auto imgui_layer = ApplicationContext::Get().GetLayer<ImGuiLayer>()) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       Platform::EverythingBarrier(vk_command_buffer);
       Platform::TransitImageLayout(vk_command_buffer, Platform::GetSwapchain()->GetVkImage(),

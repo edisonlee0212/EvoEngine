@@ -101,13 +101,19 @@ Interactive project asset loading now dispatches scanned assets as an `AssetMana
 
 | Target | Purpose |
 | --- | --- |
+| `EvoEngineLauncher` | Project launcher for opening or creating projects before starting the editor. |
+| `EvoEngineEditor` | Generic project-required editor shell launched with a `.eveproj` path. |
 | `DemoApp` | General renderer/framework demo with multiple Service registrations. |
 | `EcoSysLabApp` | Interactive digital forestry and ecosystem workflow. |
 | `DigitalAgricultureApp` | Interactive sorghum and agriculture workflow. |
 | `LogGradingApp` | Log grading workflow; LogGrading and LogScanning features are supplied by runtime packages. |
 | `TreeDataGeneratorApp` | Batch-oriented tree dataset generation. |
 | `SorghumDataGeneratorApp` | Batch-oriented sorghum dataset generation. |
-| `EmptyApp` | Minimal SDK app with render/window/editor layers for quick experiments. |
+
+`.eveproj` files can carry launch metadata used by `EvoEngineLauncher` and `EvoEngineEditor`: `application_name`,
+`preferred_editor`, and `startup_runtime_packages`. The generic editor reads package names from this metadata before
+project assets load, so package-backed projects can be opened from the launcher without hardcoding an app-specific entry
+point. Launcher-created projects write this metadata from the selected template before the editor starts.
 
 ### Python Bindings
 
@@ -281,7 +287,7 @@ When adding new work:
 
 Runtime packages live under `EvoEngine_Packages`. The package CMake entry scans package folders automatically, reads optional metadata from `PackageInfo.cmake`, creates an `EVOENGINE_ENABLE_<Name>_PACKAGE` option, and builds a shared library target named `<Name>Package` by default. Disable individual package targets with `EVOENGINE_ENABLE_<Name>_PACKAGE=OFF` when a build should skip them.
 
-Apps do not load runtime packages by default. Set `ApplicationInitializationSettings::enable_runtime_packages = true` and add names to `ApplicationInitializationSettings::startup_runtime_packages`, or call `PackageManager::Load/LoadAll` from runtime/editor tooling when a workflow needs additional package functionality.
+Apps do not load runtime packages by default. Set `ApplicationInitializationSettings::enable_runtime_packages = true` and add names to `ApplicationInitializationSettings::startup_runtime_packages`, declare `startup_runtime_packages` in a project `.eveproj`, or call `PackageManager::Load/LoadAll` from runtime/editor tooling when a workflow needs additional package functionality.
 
 Headless tools and focused tests that only need project scanning or asset metadata can set `ApplicationInitializationSettings::load_default_resources = false` and `ApplicationInitializationSettings::load_project_start_scene = false` to avoid creating render defaults or attaching a scene during initialization.
 
