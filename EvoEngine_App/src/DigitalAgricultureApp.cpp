@@ -13,6 +13,7 @@
 #include "ProjectManager.hpp"
 
 #include "EditorLayer.hpp"
+#include "ImGuiLayer.hpp"
 #include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
@@ -70,6 +71,7 @@ int main() {
   ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
   ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 
   ApplicationInitializationSettings application_configs;

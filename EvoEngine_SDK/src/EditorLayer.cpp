@@ -2,6 +2,7 @@
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "Cubemap.hpp"
+#include "EditorTheme.hpp"
 #include "EnvironmentalMap.hpp"
 #include "ILayer.hpp"
 #include "Material.hpp"
@@ -18,57 +19,15 @@
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
+
 using namespace evo_engine;
+
 void EditorLayer::OnCreate() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (!window_layer) {
     throw std::runtime_error("WindowLayer not present!");
   }
-#pragma region Default ImGui Style
-  ImGuiStyle& style = ImGui::GetStyle();
-  style.WindowRounding = 5.3f;
-  style.FrameRounding = 2.3f;
-  style.ScrollbarRounding = 0;
-
-  style.Colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 0.90f);
-  style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.30f, 0.30f, 0.30f, 0.90f);
-  style.Colors[ImGuiCol_WindowBg] = ImVec4(0.09f, 0.09f, 0.15f, 1.00f);
-  style.Colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-  style.Colors[ImGuiCol_PopupBg] = ImVec4(0.05f, 0.05f, 0.10f, 0.85f);
-  style.Colors[ImGuiCol_Border] = ImVec4(0.70f, 0.70f, 0.70f, 0.65f);
-  style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-  style.Colors[ImGuiCol_FrameBg] = ImVec4(0.00f, 0.00f, 0.01f, 1.00f);
-  style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.90f, 0.80f, 0.80f, 0.40f);
-  style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.90f, 0.65f, 0.65f, 0.45f);
-  style.Colors[ImGuiCol_TitleBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.83f);
-  style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.40f, 0.40f, 0.80f, 0.20f);
-  style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.00f, 0.00f, 0.00f, 0.87f);
-  style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.01f, 0.01f, 0.02f, 0.80f);
-  style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.20f, 0.25f, 0.30f, 0.60f);
-  style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.55f, 0.53f, 0.55f, 0.51f);
-  style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.56f, 0.56f, 0.56f, 1.00f);
-  style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.91f);
-  style.Colors[ImGuiCol_CheckMark] = ImVec4(0.90f, 0.90f, 0.90f, 0.83f);
-  style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.70f, 0.70f, 0.70f, 0.62f);
-  style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.30f, 0.30f, 0.84f);
-  style.Colors[ImGuiCol_Button] = ImVec4(0.48f, 0.72f, 0.89f, 0.49f);
-  style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.50f, 0.69f, 0.99f, 0.68f);
-  style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.80f, 0.50f, 0.50f, 1.00f);
-  style.Colors[ImGuiCol_Header] = ImVec4(0.30f, 0.69f, 1.00f, 0.53f);
-  style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.44f, 0.61f, 0.86f, 1.00f);
-  style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.38f, 0.62f, 0.83f, 1.00f);
-  style.Colors[ImGuiCol_TabSelectedOverline] = ImVec4(0.70f, 0.30f, 0.30f, 1.00f);
-  style.Colors[ImGuiCol_TabHovered] = ImVec4(0.70f, 0.00f, 0.30f, 1.00f);
-  style.Colors[ImGuiCol_TabSelected] = ImVec4(0.50f, 0.00f, 0.50f, 1.00f);
-  style.Colors[ImGuiCol_ResizeGrip] = ImVec4(1.00f, 1.00f, 1.00f, 0.85f);
-  style.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(1.00f, 1.00f, 1.00f, 0.60f);
-  style.Colors[ImGuiCol_ResizeGripActive] = ImVec4(1.00f, 1.00f, 1.00f, 0.90f);
-  style.Colors[ImGuiCol_PlotLines] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-  style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.00f, 0.00f, 1.00f, 0.35f);
-#pragma endregion
+  editor_theme::ApplyDefault();
 
   basic_entity_archetype_ = Entities::CreateEntityArchetype("General", GlobalTransform(), Transform());
   RegisterComponentDataInspector<GlobalTransform>([](Entity, IDataComponent* data, bool) {
@@ -190,114 +149,58 @@ void EditorLayer::OnDestroy() {
   gizmo_strands_tasks_.clear();
   vmaUnmapMemory(Platform::GetVmaAllocator(), entity_index_read_buffer_->GetVmaAllocation());
   entity_index_read_buffer_.reset();
-  ImGui_ImplVulkan_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
-  ImNodes::DestroyContext();
-  ImGui::DestroyContext();
 }
 
 void EditorLayer::PreUpdate() {
-  InitializeImGui();
+  DrawDockspace();
+  DrawMainMenuBar();
+
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  if (lock_camera) {
-    auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-    const float elapsed_time = static_cast<float>(ApplicationContext::Get().GetTimes().Now()) - transition_timer_;
-    float a = 1.0f - glm::pow(1.0 - elapsed_time / transition_time_, 4.0f);
-    if (elapsed_time >= transition_time_)
-      a = 1.0f;
-    sceneCameraRotation = glm::mix(previous_rotation_, target_rotation_, a);
-    sceneCameraPosition = glm::mix(previous_position_, target_position_, a);
-    if (a >= 1.0f) {
-      lock_camera = false;
-      sceneCameraRotation = target_rotation_;
-      sceneCameraPosition = target_position_;
-      // Camera::ReverseAngle(target_rotation_, m_sceneCameraPitchAngle, m_sceneCameraYawAngle);
-    }
+  UpdateCameraTransition();
+  PrepareFrameState();
+  CaptureSceneWindowMousePosition();
+  CaptureMainCameraWindowMousePosition();
+  UpdateSceneState(scene);
+
+  const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
+  DrawEntityExplorerWindow(scene);
+  DrawEntityInspectorWindow(scene, editor_layer);
+  DrawConsoleWindow();
+  DrawRuntimePackageManagerWindow();
+  HandleSceneDeleteShortcut(scene);
+  DrawViewportWindows(scene);
+  DrawLayerInspectionWindows(scene, editor_layer);
+  DrawProjectInspectionWindows(editor_layer);
+}
+
+void EditorLayer::UpdateCameraTransition() {
+  if (!lock_camera) {
+    return;
   }
+  auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
+  const float elapsed_time = static_cast<float>(ApplicationContext::Get().GetTimes().Now()) - transition_timer_;
+  float a = 1.0f - glm::pow(1.0 - elapsed_time / transition_time_, 4.0f);
+  if (elapsed_time >= transition_time_)
+    a = 1.0f;
+  sceneCameraRotation = glm::mix(previous_rotation_, target_rotation_, a);
+  sceneCameraPosition = glm::mix(previous_position_, target_position_, a);
+  if (a >= 1.0f) {
+    lock_camera = false;
+    sceneCameraRotation = target_rotation_;
+    sceneCameraPosition = target_position_;
+    // Camera::ReverseAngle(target_rotation_, m_sceneCameraPitchAngle, m_sceneCameraYawAngle);
+  }
+}
+
+void EditorLayer::PrepareFrameState() {
   gizmo_mesh_tasks_.clear();
   gizmo_instanced_mesh_tasks_.clear();
   gizmo_strands_tasks_.clear();
   main_camera_focus_override = false;
   scene_camera_focus_override = false;
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
-  if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("View")) {
-      if (ImGui::BeginMenu("Layer Inspection")) {
-        for (const auto& layer : ApplicationContext::Get().GetLayers()) {
-          ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
-        }
-        ImGui::EndMenu();
-      }
-      ImGui::MenuItem("Runtime Packages", nullptr, &show_package_manager_window);
-      ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Project")) {
-      ImGui::EndMenu();
-    }
-    ImGui::Separator();
+}
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2((float)2, (float)2));
-    switch (ApplicationContext::Get().GetApplicationStatus()) {
-      case Application::ExecutionStatus::NotPlaying: {
-        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
-        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
-
-        if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          ApplicationContext::Get().Play();
-        }
-        if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          ApplicationContext::Get().Step();
-        }
-
-        ImGui::PopID();
-        ImGui::PopID();
-        break;
-      }
-      case Application::ExecutionStatus::Playing: {
-        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PauseButton"]->GetImTextureId());
-        ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
-
-        if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                               {1, 0})) {
-          ApplicationContext::Get().Pause();
-        }
-        if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          ApplicationContext::Get().Stop();
-        }
-        ImGui::PopID();
-        ImGui::PopID();
-        break;
-      }
-      case Application::ExecutionStatus::Pause: {
-        ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["PlayButton"]->GetImTextureId())));
-        ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["StepButton"]->GetImTextureId())));
-        ImGui::PushID((ImTextureID)((intptr_t)(editor_icons_["StopButton"]->GetImTextureId())));
-        if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          ApplicationContext::Get().Play();
-        }
-        if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          ApplicationContext::Get().Step();
-        }
-        if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
-          ApplicationContext::Get().Stop();
-        }
-        ImGui::PopID();
-        ImGui::PopID();
-        ImGui::PopID();
-        break;
-      }
-      case Application::ExecutionStatus::Uninitialized:
-        break;
-      case Application::ExecutionStatus::Step:
-        break;
-      case Application::ExecutionStatus::OnDestroy:
-        break;
-    }
-    ImGui::PopStyleVar();
-    ImGui::EndMainMenuBar();
-  }
-
-  ImGui::PopStyleVar(1);
+void EditorLayer::CaptureSceneWindowMousePosition() {
   mouse_scene_window_position_ = glm::vec2(FLT_MAX, -FLT_MAX);
   if (show_scene_window) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -316,7 +219,9 @@ void EditorLayer::PreUpdate() {
     ImGui::End();
     ImGui::PopStyleVar();
   }
+}
 
+void EditorLayer::CaptureMainCameraWindowMousePosition() {
   mouse_camera_window_position_ = glm::vec2(FLT_MAX, -FLT_MAX);
   if (show_camera_window) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -335,6 +240,9 @@ void EditorLayer::PreUpdate() {
     ImGui::End();
     ImGui::PopStyleVar();
   }
+}
+
+void EditorLayer::UpdateSceneState(const std::shared_ptr<Scene>& scene) {
   if (scene && show_scene_window)
     ResizeCameras();
 
@@ -362,453 +270,472 @@ void EditorLayer::PreUpdate() {
   }
 
   selection_alpha_ = glm::clamp(selection_alpha_, 0, 256);
+}
 
-  const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
-  if (show_entity_explorer_window) {
-    ImGui::Begin("Entity Explorer");
-    if (scene) {
-      if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
-        if (ImGui::Button("Create new entity")) {
-          scene->CreateEntity(basic_entity_archetype_);
-        }
-        ImGui::EndPopup();
+void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) {
+  if (!show_entity_explorer_window) {
+    return;
+  }
+  ImGui::Begin("Entity Explorer");
+  if (scene) {
+    if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
+      if (ImGui::Button("Create new entity")) {
+        scene->CreateEntity(basic_entity_archetype_);
       }
-      const char* hierarchy_display_mode[]{"Archetype", "Hierarchy"};
+      ImGui::EndPopup();
+    }
+    const char* hierarchy_display_mode[]{"Archetype", "Hierarchy"};
 
-      ImGui::Combo("Display mode", &selected_hierarchy_display_mode, hierarchy_display_mode,
-                   IM_ARRAYSIZE(hierarchy_display_mode));
-      std::string title = scene->GetTitle();
-      if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
-        DraggableAsset(scene);
-        RenameAsset(scene);
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-          inspecting_asset = scene;
+    ImGui::Combo("Display mode", &selected_hierarchy_display_mode, hierarchy_display_mode,
+                 IM_ARRAYSIZE(hierarchy_display_mode));
+    std::string title = scene->GetTitle();
+    if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
+      DraggableAsset(scene);
+      RenameAsset(scene);
+      if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+        inspecting_asset = scene;
+      }
+      if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
+          IM_ASSERT(payload->DataSize == sizeof(Handle));
+          const auto payload_n = *static_cast<Handle*>(payload->Data);
+          const auto new_entity = scene->GetEntity(payload_n);
+          if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
+            scene->RemoveChild(new_entity, parent);
         }
-        if (ImGui::BeginDragDropTarget()) {
-          if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
-            IM_ASSERT(payload->DataSize == sizeof(Handle));
-            const auto payload_n = *static_cast<Handle*>(payload->Data);
-            const auto new_entity = scene->GetEntity(payload_n);
-            if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
-              scene->RemoveChild(new_entity, parent);
+        ImGui::EndDragDropTarget();
+      }
+      if (selected_hierarchy_display_mode == 0) {
+        scene->UnsafeForEachEntityStorage([&](size_t i, const std::string& name, const DataComponentStorage& storage) {
+          if (i == 0)
+            return;
+          ImGui::Separator();
+          const std::string title1 = std::to_string(i) + ". " + name;
+          if (ImGui::TreeNode(title1.c_str())) {
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
+            for (size_t j = 0; j < storage.entity_alive_count; j++) {
+              Entity entity = storage.chunk_array.entity_array.at(j);
+              std::string title2 = std::to_string(entity.GetIndex()) + ": ";
+              title2 += scene->GetEntityName(entity);
+              const bool enabled = scene->IsEntityEnabled(entity);
+              if (enabled) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
+              }
+              ImGui::TreeNodeEx(
+                  title2.c_str(),
+                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
+                      (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+              if (enabled) {
+                ImGui::PopStyleColor();
+              }
+              DrawEntityMenu(enabled, entity);
+              if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                SetSelectedEntity(entity, false);
+              }
+            }
+            ImGui::PopStyleColor();
+            ImGui::PopStyleColor();
+            ImGui::PopStyleColor();
+            ImGui::TreePop();
           }
-          ImGui::EndDragDropTarget();
+        });
+      } else if (selected_hierarchy_display_mode == 1) {
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
+        scene->ForAllEntities([&](size_t, const Entity entity) {
+          if (scene->GetParent(entity).GetIndex() == 0)
+            DrawEntityNode(entity, 0);
+        });
+        selected_entity_hierarchy_list_.clear();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+      }
+    }
+  } else {
+    ImGui::Text("No Scene!");
+  }
+  ImGui::End();
+}
+
+void EditorLayer::DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene,
+                                            const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (!show_entity_inspector_window) {
+    return;
+  }
+  ImGui::Begin("Entity Inspector");
+  if (scene) {
+    ImGui::Text("Selection:");
+    ImGui::SameLine();
+    ImGui::Checkbox("Lock", &lock_entity_selection_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Focus", &highlight_selection_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Gizmos", &enable_gizmos);
+    ImGui::SameLine();
+    if (ImGui::Button("Clear")) {
+      SetSelectedEntity({});
+    }
+    ImGui::Separator();
+    if (scene->IsEntityValid(selected_entity_)) {
+      std::string title = std::to_string(selected_entity_.GetIndex()) + ": ";
+      title += scene->GetEntityName(selected_entity_);
+      bool enabled = scene->IsEntityEnabled(selected_entity_);
+      if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
+        if (scene->IsEntityEnabled(selected_entity_) != enabled) {
+          scene->SetEnable(selected_entity_, enabled);
         }
-        if (selected_hierarchy_display_mode == 0) {
-          scene->UnsafeForEachEntityStorage([&](size_t i, const std::string& name,
-                                                const DataComponentStorage& storage) {
-            if (i == 0)
-              return;
+      }
+      ImGui::SameLine();
+      bool is_static = scene->IsEntityStatic(selected_entity_);
+      if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
+        if (scene->IsEntityStatic(selected_entity_) != is_static) {
+          scene->SetEntityStatic(selected_entity_, enabled);
+        }
+      }
+
+      if (const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(selected_entity_), selected_entity_); !deleted) {
+        if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
+          if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
+            ImGui::Text("Add data component: ");
             ImGui::Separator();
-            const std::string title1 = std::to_string(i) + ". " + name;
-            if (ImGui::TreeNode(title1.c_str())) {
-              ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
-              ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-              ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
-              for (size_t j = 0; j < storage.entity_alive_count; j++) {
-                Entity entity = storage.chunk_array.entity_array.at(j);
-                std::string title2 = std::to_string(entity.GetIndex()) + ": ";
-                title2 += scene->GetEntityName(entity);
-                const bool enabled = scene->IsEntityEnabled(entity);
-                if (enabled) {
-                  ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
-                }
-                ImGui::TreeNodeEx(
-                    title2.c_str(),
-                    ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-                        (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
-                if (enabled) {
-                  ImGui::PopStyleColor();
-                }
-                DrawEntityMenu(enabled, entity);
-                if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                  SetSelectedEntity(entity, false);
-                }
+
+            for (const auto& i : Serialization::GetInstance().data_component_ids_) {
+              const auto id = i.second;
+              const auto name = i.first;
+              if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
+                  id == typeid(TransformUpdateFlag).hash_code())
+                continue;
+
+              if (!scene->HasDataComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
+                scene->AddDataComponent(selected_entity_, id);
               }
-              ImGui::PopStyleColor();
-              ImGui::PopStyleColor();
-              ImGui::PopStyleColor();
-              ImGui::TreePop();
             }
+            ImGui::Separator();
+            ImGui::EndPopup();
+          }
+          bool skip = false;
+          int i = 0;
+          scene->UnsafeForEachDataComponent(selected_entity_, [&](const DataComponentType& type, void* data) {
+            if (skip)
+              return;
+            std::string info = type.type_name;
+            if (info == "TransformUpdateFlag" || info == "GlobalTransform")
+              return;
+            info += " Size: " + std::to_string(type.type_size);
+            ImGui::Text(info.c_str());
+            ImGui::PushID(i);
+            if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
+              if (ImGui::Button("Remove")) {
+                skip = true;
+                scene->RemoveDataComponent(selected_entity_, type.type_index);
+              }
+              ImGui::EndPopup();
+            }
+            ImGui::PopID();
+            InspectComponentData(selected_entity_, static_cast<IDataComponent*>(data), type,
+                                 scene->GetParent(selected_entity_).GetIndex() != 0);
+            ImGui::Separator();
+            i++;
           });
-        } else if (selected_hierarchy_display_mode == 1) {
-          ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
-          ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-          ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
-          scene->ForAllEntities([&](size_t, const Entity entity) {
-            if (scene->GetParent(entity).GetIndex() == 0)
-              DrawEntityNode(entity, 0);
+        }
+
+        if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
+          if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
+            ImGui::Text("Add private component: ");
+            ImGui::Separator();
+            for (const auto& i : Serialization::GetInstance().private_component_ids_) {
+              const auto id = i.second;
+              const auto name = i.first;
+              if (!scene->HasPrivateComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
+                scene->AddPrivateComponent(selected_entity_, id);
+              }
+            }
+            ImGui::Separator();
+            ImGui::EndPopup();
+          }
+
+          int i = 0;
+          bool skip = false;
+          scene->ForEachPrivateComponent(selected_entity_, [&](const PrivateComponentElement& data) {
+            if (skip)
+              return;
+            ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(), &data.private_component_data->enabled_);
+            DraggablePrivateComponent(data.private_component_data);
+            const std::string tag = "##" + data.private_component_data->GetTypeName() +
+                                    std::to_string(data.private_component_data->GetHandle());
+            if (ImGui::BeginPopupContextItem(tag.c_str())) {
+              if (ImGui::Button(("Remove" + tag).c_str())) {
+                skip = true;
+                scene->RemovePrivateComponent(selected_entity_, data.type_index);
+              }
+              ImGui::EndPopup();
+            }
+            if (!skip) {
+              if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
+                                    ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (data.private_component_data->OnInspect(editor_layer))
+                  scene->SetUnsaved();
+                ImGui::TreePop();
+              }
+            }
+            ImGui::Separator();
+            i++;
           });
-          selected_entity_hierarchy_list_.clear();
-          ImGui::PopStyleColor();
-          ImGui::PopStyleColor();
-          ImGui::PopStyleColor();
         }
       }
     } else {
-      ImGui::Text("No Scene!");
+      SetSelectedEntity(Entity());
     }
-    ImGui::End();
+  } else {
+    ImGui::Text("No Scene!");
   }
-  if (show_entity_inspector_window) {
-    ImGui::Begin("Entity Inspector");
-    if (scene) {
-      ImGui::Text("Selection:");
-      ImGui::SameLine();
-      ImGui::Checkbox("Lock", &lock_entity_selection_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Focus", &highlight_selection_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Gizmos", &enable_gizmos);
-      ImGui::SameLine();
-      if (ImGui::Button("Clear")) {
-        SetSelectedEntity({});
-      }
-      ImGui::Separator();
-      if (scene->IsEntityValid(selected_entity_)) {
-        std::string title = std::to_string(selected_entity_.GetIndex()) + ": ";
-        title += scene->GetEntityName(selected_entity_);
-        bool enabled = scene->IsEntityEnabled(selected_entity_);
-        if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
-          if (scene->IsEntityEnabled(selected_entity_) != enabled) {
-            scene->SetEnable(selected_entity_, enabled);
-          }
-        }
-        ImGui::SameLine();
-        bool is_static = scene->IsEntityStatic(selected_entity_);
-        if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
-          if (scene->IsEntityStatic(selected_entity_) != is_static) {
-            scene->SetEntityStatic(selected_entity_, enabled);
-          }
-        }
+  ImGui::End();
+}
 
-        if (const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(selected_entity_), selected_entity_); !deleted) {
-          if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
-              ImGui::Text("Add data component: ");
-              ImGui::Separator();
-
-              for (const auto& i : Serialization::GetInstance().data_component_ids_) {
-                const auto id = i.second;
-                const auto name = i.first;
-                if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
-                    id == typeid(TransformUpdateFlag).hash_code())
-                  continue;
-
-                if (!scene->HasDataComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
-                  scene->AddDataComponent(selected_entity_, id);
-                }
-              }
-              ImGui::Separator();
-              ImGui::EndPopup();
-            }
-            bool skip = false;
-            int i = 0;
-            scene->UnsafeForEachDataComponent(selected_entity_, [&](const DataComponentType& type, void* data) {
-              if (skip)
-                return;
-              std::string info = type.type_name;
-              if (info == "TransformUpdateFlag" || info == "GlobalTransform")
-                return;
-              info += " Size: " + std::to_string(type.type_size);
-              ImGui::Text(info.c_str());
-              ImGui::PushID(i);
-              if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
-                if (ImGui::Button("Remove")) {
-                  skip = true;
-                  scene->RemoveDataComponent(selected_entity_, type.type_index);
-                }
-                ImGui::EndPopup();
-              }
-              ImGui::PopID();
-              InspectComponentData(selected_entity_, static_cast<IDataComponent*>(data), type,
-                                   scene->GetParent(selected_entity_).GetIndex() != 0);
-              ImGui::Separator();
-              i++;
-            });
-          }
-
-          if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
-              ImGui::Text("Add private component: ");
-              ImGui::Separator();
-              for (const auto& i : Serialization::GetInstance().private_component_ids_) {
-                const auto id = i.second;
-                const auto name = i.first;
-                if (!scene->HasPrivateComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
-                  scene->AddPrivateComponent(selected_entity_, id);
-                }
-              }
-              ImGui::Separator();
-              ImGui::EndPopup();
-            }
-
-            int i = 0;
-            bool skip = false;
-            scene->ForEachPrivateComponent(selected_entity_, [&](const PrivateComponentElement& data) {
-              if (skip)
-                return;
-              ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(),
-                              &data.private_component_data->enabled_);
-              DraggablePrivateComponent(data.private_component_data);
-              const std::string tag = "##" + data.private_component_data->GetTypeName() +
-                                      std::to_string(data.private_component_data->GetHandle());
-              if (ImGui::BeginPopupContextItem(tag.c_str())) {
-                if (ImGui::Button(("Remove" + tag).c_str())) {
-                  skip = true;
-                  scene->RemovePrivateComponent(selected_entity_, data.type_index);
-                }
-                ImGui::EndPopup();
-              }
-              if (!skip) {
-                if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
-                                      ImGuiTreeNodeFlags_DefaultOpen)) {
-                  if (data.private_component_data->OnInspect(editor_layer))
-                    scene->SetUnsaved();
-                  ImGui::TreePop();
-                }
-              }
-              ImGui::Separator();
-              i++;
-            });
-          }
-        }
-      } else {
-        SetSelectedEntity(Entity());
-      }
-    } else {
-      ImGui::Text("No Scene!");
+void EditorLayer::DrawConsoleWindow() {
+  if (!show_console_window) {
+    return;
+  }
+  if (ImGui::Begin("Console")) {
+    ImGui::Checkbox("Log", &enable_console_logs_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Warning", &enable_console_warnings_);
+    ImGui::SameLine();
+    ImGui::Checkbox("Error", &enable_console_errors_);
+    ImGui::SameLine();
+    if (ImGui::Button("Clear all")) {
+      console_messages_.clear();
     }
-    ImGui::End();
-  }
-  if (show_console_window) {
-    if (ImGui::Begin("Console")) {
-      ImGui::Checkbox("Log", &enable_console_logs_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Warning", &enable_console_warnings_);
-      ImGui::SameLine();
-      ImGui::Checkbox("Error", &enable_console_errors_);
-      ImGui::SameLine();
-      if (ImGui::Button("Clear all")) {
-        console_messages_.clear();
-      }
-      int i = 0;
-      for (auto msg = console_messages_.rbegin(); msg != console_messages_.rend(); ++msg) {
-        if (i > 999)
+    int i = 0;
+    for (auto msg = console_messages_.rbegin(); msg != console_messages_.rend(); ++msg) {
+      if (i > 999)
+        break;
+      i++;
+      switch (msg->m_type) {
+        case ConsoleMessageType::Log:
+          if (enable_console_logs_) {
+            ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1, 1, 1, 1), msg->m_value.c_str());
+            ImGui::Separator();
+          }
           break;
-        i++;
-        switch (msg->m_type) {
-          case ConsoleMessageType::Log:
-            if (enable_console_logs_) {
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
-              ImGui::SameLine();
-              ImGui::TextColored(ImVec4(1, 1, 1, 1), msg->m_value.c_str());
-              ImGui::Separator();
-            }
-            break;
-          case ConsoleMessageType::Warning:
-            if (enable_console_warnings_) {
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
-              ImGui::SameLine();
-              ImGui::TextColored(ImVec4(1, 1, 0, 1), msg->m_value.c_str());
-              ImGui::Separator();
-            }
-            break;
-          case ConsoleMessageType::Error:
-            if (enable_console_errors_) {
-              ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
-              ImGui::SameLine();
-              ImGui::TextColored(ImVec4(1, 0, 0, 1), msg->m_value.c_str());
-              ImGui::Separator();
-            }
-            break;
-        }
+        case ConsoleMessageType::Warning:
+          if (enable_console_warnings_) {
+            ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1, 1, 0, 1), msg->m_value.c_str());
+            ImGui::Separator();
+          }
+          break;
+        case ConsoleMessageType::Error:
+          if (enable_console_errors_) {
+            ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(1, 0, 0, 1), msg->m_value.c_str());
+            ImGui::Separator();
+          }
+          break;
       }
     }
-    ImGui::End();
   }
-  if (show_package_manager_window) {
-    if (!runtime_package_manager_scanned_) {
+  ImGui::End();
+}
+
+void EditorLayer::DrawRuntimePackageManagerWindow() {
+  if (!show_package_manager_window) {
+    return;
+  }
+  if (!runtime_package_manager_scanned_) {
+    PackageManager::ScanAvailablePackages();
+    runtime_package_manager_scanned_ = true;
+  }
+
+  bool package_manager_open = show_package_manager_window;
+  if (ImGui::Begin("Runtime Package Manager", &package_manager_open)) {
+    if (ImGui::Button("Scan")) {
       PackageManager::ScanAvailablePackages();
       runtime_package_manager_scanned_ = true;
     }
-
-    bool package_manager_open = show_package_manager_window;
-    if (ImGui::Begin("Runtime Package Manager", &package_manager_open)) {
-      if (ImGui::Button("Scan")) {
-        PackageManager::ScanAvailablePackages();
-        runtime_package_manager_scanned_ = true;
-      }
-      ImGui::SameLine();
-      ImGui::BeginDisabled(selected_runtime_package_names_.empty());
-      if (ImGui::Button("Load Selected")) {
-        std::vector<std::string> selected_packages(selected_runtime_package_names_.begin(),
-                                                   selected_runtime_package_names_.end());
-        selected_runtime_package_names_.clear();
-        ApplicationContext::Get().QueueEndOfLoopAction([selected_packages]() {
-          for (const auto& package_name : selected_packages) {
-            PackageManager::Load(package_name);
-          }
-        });
-      }
-      ImGui::EndDisabled();
-      ImGui::SameLine();
-      if (ImGui::Button("Load All")) {
-        ApplicationContext::Get().QueueEndOfLoopAction([]() {
-          PackageManager::LoadAll();
-        });
-      }
-
-      const auto search_paths = PackageManager::GetSearchPaths();
-      const auto available_packages = PackageManager::GetAvailablePackages();
-      const auto loaded_packages = PackageManager::GetLoadedPackages();
-
-      ImGui::Text("Available: %zu", available_packages.size());
-      ImGui::SameLine();
-      ImGui::Text("Loaded: %zu", loaded_packages.size());
-
-      if (ImGui::TreeNode("Search paths")) {
-        for (const auto& path : search_paths) {
-          ImGui::BulletText("%s", path.string().c_str());
+    ImGui::SameLine();
+    ImGui::BeginDisabled(selected_runtime_package_names_.empty());
+    if (ImGui::Button("Load Selected")) {
+      std::vector<std::string> selected_packages(selected_runtime_package_names_.begin(),
+                                                 selected_runtime_package_names_.end());
+      selected_runtime_package_names_.clear();
+      ApplicationContext::Get().QueueEndOfLoopAction([selected_packages]() {
+        for (const auto& package_name : selected_packages) {
+          PackageManager::Load(package_name);
         }
-        ImGui::TreePop();
-      }
+      });
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Load All")) {
+      ApplicationContext::Get().QueueEndOfLoopAction([]() {
+        PackageManager::LoadAll();
+      });
+    }
 
-      ImGui::Separator();
-      ImGui::TextUnformatted("Available Packages");
-      if (ImGui::BeginChild("AvailablePackages", ImVec2(0, 260), true)) {
-        if (available_packages.empty()) {
-          ImGui::TextUnformatted("No package manifests found.");
+    const auto search_paths = PackageManager::GetSearchPaths();
+    const auto available_packages = PackageManager::GetAvailablePackages();
+    const auto loaded_packages = PackageManager::GetLoadedPackages();
+
+    ImGui::Text("Available: %zu", available_packages.size());
+    ImGui::SameLine();
+    ImGui::Text("Loaded: %zu", loaded_packages.size());
+
+    if (ImGui::TreeNode("Search paths")) {
+      for (const auto& path : search_paths) {
+        ImGui::BulletText("%s", path.string().c_str());
+      }
+      ImGui::TreePop();
+    }
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Available Packages");
+    if (ImGui::BeginChild("AvailablePackages", ImVec2(0, 260), true)) {
+      if (available_packages.empty()) {
+        ImGui::TextUnformatted("No package manifests found.");
+      }
+      for (const auto& package : available_packages) {
+        const bool can_load = !package.loaded && package.library_exists;
+        if (!can_load) {
+          selected_runtime_package_names_.erase(package.name);
         }
-        for (const auto& package : available_packages) {
-          const bool can_load = !package.loaded && package.library_exists;
-          if (!can_load) {
+
+        bool selected = selected_runtime_package_names_.find(package.name) != selected_runtime_package_names_.end();
+        ImGui::PushID(package.name.c_str());
+        ImGui::BeginDisabled(!can_load);
+        if (ImGui::Checkbox("##Select", &selected)) {
+          if (selected) {
+            selected_runtime_package_names_.insert(package.name);
+          } else {
             selected_runtime_package_names_.erase(package.name);
           }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
 
-          bool selected = selected_runtime_package_names_.find(package.name) != selected_runtime_package_names_.end();
-          ImGui::PushID(package.name.c_str());
-          ImGui::BeginDisabled(!can_load);
-          if (ImGui::Checkbox("##Select", &selected)) {
-            if (selected) {
-              selected_runtime_package_names_.insert(package.name);
-            } else {
-              selected_runtime_package_names_.erase(package.name);
+        auto package_label = package.name;
+        if (package.loaded) {
+          package_label += " (loaded)";
+        } else if (!package.library_exists) {
+          package_label += " (missing library)";
+        }
+
+        if (ImGui::TreeNodeEx("Package", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", package_label.c_str())) {
+          ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+          if (!package.description.empty()) {
+            ImGui::TextWrapped("%s", package.description.c_str());
+          }
+          if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
+            for (const auto& dependency : package.dependencies) {
+              ImGui::BulletText("%s", dependency.c_str());
             }
+            ImGui::TreePop();
+          }
+          ImGui::TextUnformatted("Manifest:");
+          ImGui::SameLine();
+          ImGui::TextWrapped("%s", package.manifest_path.string().c_str());
+          ImGui::TextUnformatted("Library:");
+          ImGui::SameLine();
+          ImGui::TextWrapped("%s", package.library_path.string().c_str());
+          ImGui::BeginDisabled(!can_load);
+          if (ImGui::Button("Load")) {
+            const auto package_name = package.name;
+            selected_runtime_package_names_.erase(package.name);
+            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+              PackageManager::Load(package_name);
+            });
           }
           ImGui::EndDisabled();
-          ImGui::SameLine();
-
-          auto package_label = package.name;
-          if (package.loaded) {
-            package_label += " (loaded)";
-          } else if (!package.library_exists) {
-            package_label += " (missing library)";
-          }
-
-          if (ImGui::TreeNodeEx("Package", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", package_label.c_str())) {
-            ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
-            if (!package.description.empty()) {
-              ImGui::TextWrapped("%s", package.description.c_str());
-            }
-            if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
-              for (const auto& dependency : package.dependencies) {
-                ImGui::BulletText("%s", dependency.c_str());
-              }
-              ImGui::TreePop();
-            }
-            ImGui::TextUnformatted("Manifest:");
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", package.manifest_path.string().c_str());
-            ImGui::TextUnformatted("Library:");
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", package.library_path.string().c_str());
-            ImGui::BeginDisabled(!can_load);
-            if (ImGui::Button("Load")) {
-              const auto package_name = package.name;
-              selected_runtime_package_names_.erase(package.name);
-              ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-                PackageManager::Load(package_name);
-              });
-            }
-            ImGui::EndDisabled();
-            ImGui::TreePop();
-          }
-          ImGui::PopID();
+          ImGui::TreePop();
         }
+        ImGui::PopID();
       }
-      ImGui::EndChild();
-
-      ImGui::Separator();
-      ImGui::TextUnformatted("Loaded Packages");
-      if (ImGui::BeginChild("LoadedPackages", ImVec2(0, 0), true)) {
-        if (loaded_packages.empty()) {
-          ImGui::TextUnformatted("No runtime packages loaded.");
-        }
-        for (const auto& package : loaded_packages) {
-          if (ImGui::TreeNode(package.name.c_str())) {
-            ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
-            ImGui::Text("Live objects: %zu", package.live_object_count);
-            if (!package.description.empty()) {
-              ImGui::TextWrapped("%s", package.description.c_str());
-            }
-            if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
-              for (const auto& dependency : package.dependencies) {
-                ImGui::BulletText("%s", dependency.c_str());
-              }
-              ImGui::TreePop();
-            }
-            ImGui::TextUnformatted("Original path:");
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", package.original_path.string().c_str());
-            ImGui::TextUnformatted("Loaded path:");
-            ImGui::SameLine();
-            ImGui::TextWrapped("%s", package.loaded_path.string().c_str());
-
-            const auto draw_type_list = [](const char* label, const std::vector<std::string>& type_names) {
-              if (type_names.empty()) {
-                return;
-              }
-              if (ImGui::TreeNode(label)) {
-                for (const auto& type_name : type_names) {
-                  ImGui::BulletText("%s", type_name.c_str());
-                }
-                ImGui::TreePop();
-              }
-            };
-            draw_type_list("Private components", package.private_component_types);
-            draw_type_list("Assets", package.asset_types);
-            draw_type_list("Data components", package.data_component_types);
-            draw_type_list("Systems", package.system_types);
-            draw_type_list("Layers", package.layer_types);
-
-            if (ImGui::Button(("Reload##" + package.name).c_str())) {
-              const auto package_name = package.name;
-              ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-                PackageManager::Reload(package_name);
-              });
-            }
-            ImGui::SameLine();
-            if (ImGui::Button(("Unload##" + package.name).c_str())) {
-              const auto package_name = package.name;
-              ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-                PackageManager::Unload(package_name);
-              });
-            }
-            ImGui::TreePop();
-          }
-        }
-      }
-      ImGui::EndChild();
     }
-    show_package_manager_window = package_manager_open;
-    ImGui::End();
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    ImGui::TextUnformatted("Loaded Packages");
+    if (ImGui::BeginChild("LoadedPackages", ImVec2(0, 0), true)) {
+      if (loaded_packages.empty()) {
+        ImGui::TextUnformatted("No runtime packages loaded.");
+      }
+      for (const auto& package : loaded_packages) {
+        if (ImGui::TreeNode(package.name.c_str())) {
+          ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+          ImGui::Text("Live objects: %zu", package.live_object_count);
+          if (!package.description.empty()) {
+            ImGui::TextWrapped("%s", package.description.c_str());
+          }
+          if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
+            for (const auto& dependency : package.dependencies) {
+              ImGui::BulletText("%s", dependency.c_str());
+            }
+            ImGui::TreePop();
+          }
+          ImGui::TextUnformatted("Original path:");
+          ImGui::SameLine();
+          ImGui::TextWrapped("%s", package.original_path.string().c_str());
+          ImGui::TextUnformatted("Loaded path:");
+          ImGui::SameLine();
+          ImGui::TextWrapped("%s", package.loaded_path.string().c_str());
+
+          const auto draw_type_list = [](const char* label, const std::vector<std::string>& type_names) {
+            if (type_names.empty()) {
+              return;
+            }
+            if (ImGui::TreeNode(label)) {
+              for (const auto& type_name : type_names) {
+                ImGui::BulletText("%s", type_name.c_str());
+              }
+              ImGui::TreePop();
+            }
+          };
+          draw_type_list("Private components", package.private_component_types);
+          draw_type_list("Assets", package.asset_types);
+          draw_type_list("Data components", package.data_component_types);
+          draw_type_list("Systems", package.system_types);
+          draw_type_list("Layers", package.layer_types);
+
+          if (ImGui::Button(("Reload##" + package.name).c_str())) {
+            const auto package_name = package.name;
+            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+              PackageManager::Reload(package_name);
+            });
+          }
+          ImGui::SameLine();
+          if (ImGui::Button(("Unload##" + package.name).c_str())) {
+            const auto package_name = package.name;
+            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+              PackageManager::Unload(package_name);
+            });
+          }
+          ImGui::TreePop();
+        }
+      }
+    }
+    ImGui::EndChild();
   }
+  show_package_manager_window = package_manager_open;
+  ImGui::End();
+}
+
+void EditorLayer::HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene) {
   if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {
     if (scene->IsEntityValid(selected_entity_)) {
       scene->DeleteEntity(selected_entity_);
     }
   }
+}
+
+void EditorLayer::DrawViewportWindows(const std::shared_ptr<Scene>& scene) {
   if (show_scene_window)
     SceneCameraWindow();
   if (show_camera_window)
@@ -823,22 +750,29 @@ void EditorLayer::PreUpdate() {
     }
     ImGui::End();
   }
+}
 
-  if (scene) {
-    const auto layers = ApplicationContext::Get().GetLayers();
-    for (const auto& layer : layers) {
-      if (layer->enable_inspection) {
-        ImGui::Begin(layer->layer_name_.c_str());
-        layer->OnInspect(editor_layer);
-        ImGui::End();
-      }
+void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
+                                             const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (!scene) {
+    return;
+  }
+  const auto layers = ApplicationContext::Get().GetLayers();
+  for (const auto& layer : layers) {
+    if (layer->enable_inspection) {
+      ImGui::Begin(layer->layer_name_.c_str());
+      layer->OnInspect(editor_layer);
+      ImGui::End();
     }
   }
+}
 
+void EditorLayer::DrawProjectInspectionWindows(const std::shared_ptr<EditorLayer>& editor_layer) {
   Resources::OnInspect(editor_layer);
   AssetManager::OnInspect(editor_layer);
   ProjectManager::OnInspect(editor_layer);
 }
+
 void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Scene Window", &show_scene_window);
   if (show_scene_window) {
@@ -878,12 +812,94 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 }
 
-void EditorLayer::InitializeImGui() {
-  ImGui_ImplVulkan_NewFrame();
-  ImGui_ImplGlfw_NewFrame();
-  ImGui::NewFrame();
-  ImGuizmo::BeginFrame();
+void EditorLayer::DrawMainMenuBar() {
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
+  if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("View")) {
+      if (ImGui::BeginMenu("Layer Inspection")) {
+        for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+          ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
+        }
+        ImGui::EndMenu();
+      }
+      ImGui::MenuItem("Runtime Packages", nullptr, &show_package_manager_window);
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Application")) {
+      if (ImGui::MenuItem("Exit")) {
+        ApplicationContext::Get().End();
+      }
+      ImGui::EndMenu();
+    }
 
+    if (show_play_buttons) {
+      ImGui::Separator();
+      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+      switch (ApplicationContext::Get().GetApplicationStatus()) {
+        case Application::ExecutionStatus::NotPlaying: {
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
+          if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Play();
+          }
+          if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Step();
+          }
+          ImGui::PopID();
+          ImGui::PopID();
+          break;
+        }
+        case Application::ExecutionStatus::Playing: {
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PauseButton"]->GetImTextureId());
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
+          if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Pause();
+          }
+          if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Stop();
+          }
+          ImGui::PopID();
+          ImGui::PopID();
+          break;
+        }
+        case Application::ExecutionStatus::Pause: {
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
+          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
+          if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Play();
+          }
+          if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Step();
+          }
+          if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1},
+                                 {1, 0})) {
+            ApplicationContext::Get().Stop();
+          }
+          ImGui::PopID();
+          ImGui::PopID();
+          ImGui::PopID();
+          break;
+        }
+        case Application::ExecutionStatus::Uninitialized:
+        case Application::ExecutionStatus::Step:
+        case Application::ExecutionStatus::OnDestroy:
+          break;
+      }
+      ImGui::PopStyleVar();
+    }
+    ImGui::EndMainMenuBar();
+  }
+  ImGui::PopStyleVar();
+}
+
+void EditorLayer::DrawDockspace() {
 #pragma region Dock
   static bool opt_fullscreen_persistent = true;
   const bool opt_fullscreen = opt_fullscreen_persistent;

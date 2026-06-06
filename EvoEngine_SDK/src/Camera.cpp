@@ -294,14 +294,17 @@ void Camera::OnCreate() {
   size_ = glm::uvec2(1, 1);
   frame_count_ = 0;
   camera_settings = {};
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer || !Platform::Initialized()) {
+    return;
+  }
   RenderTextureCreateInfo render_texture_create_info{};
   render_texture_create_info.extent.width = size_.x;
   render_texture_create_info.extent.height = size_.y;
   render_texture_create_info.extent.depth = 1;
   render_texture_ = std::make_unique<RenderTexture>(render_texture_create_info);
 
-  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(
-      ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
+  g_buffer_descriptor_set_ = std::make_shared<DescriptorSet>(render_layer->GetCameraGBufferDescriptorSetLayout());
 
   post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
   UpdateGBuffer();

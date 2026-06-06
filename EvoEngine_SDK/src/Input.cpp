@@ -39,6 +39,9 @@ void Input::Dispatch(const InputEvent& event) {
   }
   if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
     const auto active_scene = ApplicationContext::Get().GetActiveScene();
+    if (!active_scene) {
+      return;
+    }
 
     auto& scene_pressed_keys = active_scene->pressed_keys_;
     if (event.key_action == KeyActionType::Press) {

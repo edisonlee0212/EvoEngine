@@ -10,9 +10,159 @@
 #endif
 
 #include <algorithm>
+#include <cstdlib>
+#include <optional>
+#include <string>
 #include <vector>
 
 using namespace evo_engine;
+
+namespace {
+constexpr const char* kDefaultEditorName = "EvoEngineEditor";
+constexpr const char* kDefaultApplicationName = "EvoEngine Editor";
+
+void AddUnique(std::vector<std::string>& values, const std::string& value) {
+  if (!value.empty() && std::find(values.begin(), values.end(), value) == values.end()) {
+    values.emplace_back(value);
+  }
+}
+
+void ReadStringKey(const YAML::Node& in, const char* key, std::string& value) {
+  const auto node = in[key];
+  if (node && node.IsScalar()) {
+    value = node.as<std::string>();
+  }
+}
+
+void ReadStringSequenceKey(const YAML::Node& in, const char* key, std::vector<std::string>& values) {
+  const auto node = in[key];
+  if (!node || !node.IsSequence()) {
+    return;
+  }
+  values.clear();
+  for (const auto& entry : node) {
+    if (entry.IsScalar()) {
+      AddUnique(values, entry.as<std::string>());
+    }
+  }
+}
+
+uint64_t ReadStartSceneHandle(const YAML::Node& in) {
+  if (const auto start_scene_handle = in["start_scene_handle"]) {
+    return start_scene_handle.as<uint64_t>();
+  }
+  if (const auto start_scene_handle = in["m_startSceneHandle"]) {
+    return start_scene_handle.as<uint64_t>();
+  }
+  return 0;
+}
+
+std::optional<uint64_t> ReadExistingStartSceneHandle(const std::filesystem::path& path) {
+  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
+    return std::nullopt;
+  }
+  try {
+    const auto scene_handle = ReadStartSceneHandle(YAML::LoadFile(path.string()));
+    if (scene_handle != 0) {
+      return scene_handle;
+    }
+  } catch (const std::exception& error) {
+    EVOENGINE_ERROR("Failed to read project start scene handle: " + std::string(error.what()))
+  }
+  return std::nullopt;
+}
+
+void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMetadata& metadata,
+                      const std::optional<uint64_t> start_scene_handle) {
+  if (const auto directory = path.parent_path(); !directory.empty() && !std::filesystem::exists(directory)) {
+    std::filesystem::create_directories(directory);
+  }
+
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  out << YAML::Key << "application_name" << YAML::Value << metadata.application_name;
+  out << YAML::Key << "preferred_editor" << YAML::Value << metadata.preferred_editor;
+  out << YAML::Key << "startup_runtime_packages" << YAML::Value << YAML::BeginSeq;
+  for (const auto& package_name : metadata.startup_runtime_packages) {
+    out << package_name;
+  }
+  out << YAML::EndSeq;
+  if (start_scene_handle) {
+    out << YAML::Key << "start_scene_handle" << YAML::Value << *start_scene_handle;
+  }
+  out << YAML::EndMap;
+
+  std::ofstream file_out(path.string());
+  file_out << out.c_str();
+  file_out.flush();
+}
+
+void MergeApplicationLaunchMetadata(ProjectLaunchMetadata& metadata) {
+  const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
+  if (metadata.application_name == kDefaultApplicationName && !application_info.application_name.empty()) {
+    metadata.application_name = application_info.application_name;
+  }
+  for (const auto& package_name : application_info.startup_runtime_packages) {
+    AddUnique(metadata.startup_runtime_packages, package_name);
+  }
+  if (metadata.preferred_editor.empty()) {
+    metadata.preferred_editor = kDefaultEditorName;
+  }
+}
+
+std::filesystem::path CurrentExecutablePath() {
+#ifdef EVOENGINE_WINDOWS
+  std::wstring path(MAX_PATH, L'\0');
+  const DWORD size = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+  if (size == 0 || size == path.size()) {
+    return std::filesystem::absolute("EvoEngineEditor.exe");
+  }
+  path.resize(size);
+  return path;
+#else
+  return std::filesystem::absolute(kDefaultEditorName);
+#endif
+}
+
+std::filesystem::path LauncherExecutablePath() {
+#ifdef EVOENGINE_WINDOWS
+  return CurrentExecutablePath().parent_path() / "EvoEngineLauncher.exe";
+#else
+  return CurrentExecutablePath().parent_path() / "EvoEngineLauncher";
+#endif
+}
+
+bool LaunchLauncherProcess(std::string& error) {
+  const auto launcher_path = LauncherExecutablePath();
+  if (!std::filesystem::exists(launcher_path)) {
+    error = "Could not find EvoEngineLauncher next to the editor executable.";
+    return false;
+  }
+
+#ifdef EVOENGINE_WINDOWS
+  std::wstring command_line = L"\"" + launcher_path.wstring() + L"\"";
+  STARTUPINFOW startup_info{};
+  startup_info.cb = sizeof(startup_info);
+  PROCESS_INFORMATION process_info{};
+  const auto working_directory = launcher_path.parent_path().wstring();
+  if (!CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, FALSE, 0, nullptr, working_directory.c_str(),
+                      &startup_info, &process_info)) {
+    error = "Failed to launch EvoEngineLauncher.";
+    return false;
+  }
+  CloseHandle(process_info.hProcess);
+  CloseHandle(process_info.hThread);
+  return true;
+#else
+  const auto command = "\"" + launcher_path.string() + "\" &";
+  if (std::system(command.c_str()) != 0) {
+    error = "Failed to launch EvoEngineLauncher.";
+    return false;
+  }
+  return true;
+#endif
+}
+}  // namespace
 
 std::weak_ptr<Folder> ProjectManager::GetOrCreateFolder(const std::filesystem::path& assets_relative_path) {
   const auto& project_manager = GetInstance();
@@ -55,15 +205,15 @@ void ProjectManager::SetupDefaultScene() {
     std::stringstream string_stream;
     string_stream << stream.rdbuf();
     YAML::Node in = YAML::Load(string_stream.str());
-    uint64_t scene_handle = 0;
-    if (in["start_scene_handle"])
-      scene_handle = in["start_scene_handle"].as<uint64_t>();
-    if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
-      scene = std::dynamic_pointer_cast<Scene>(temp);
-      SetStartScene(scene);
-      SaveProject();
-      ApplicationContext::Get().Attach(scene);
-      found_scene = true;
+    const uint64_t scene_handle = ReadStartSceneHandle(in);
+    if (scene_handle != 0) {
+      if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
+        scene = std::dynamic_pointer_cast<Scene>(temp);
+        SetStartScene(scene);
+        SaveProject();
+        ApplicationContext::Get().Attach(scene);
+        found_scene = true;
+      }
     }
     EVOENGINE_LOG("Found and loaded project")
     if (found_scene && project_manager.scene_post_load_function_.has_value()) {
@@ -124,11 +274,64 @@ void ProjectManager::PreUpdate() {
 }
 
 bool ProjectManager::IsProjectIdle() {
+  return IsProjectLoaded();
+}
+
+ProjectState ProjectManager::GetProjectState() {
   const auto& project_manager = GetInstance();
+  if (!HasProject()) {
+    return ProjectState::NoProject;
+  }
+
   const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
-  return project_manager.new_project_path_.empty() && !project_manager.scan_assets_pending &&
-         project_manager.pending_assets.empty() && !project_manager.project_asset_load_dispatched &&
-         project_manager.pending_asset_size == 0 && !asset_load_snapshot.Active() && project_manager.start_scene_;
+  if (project_manager.new_project_path_.empty() && !project_manager.scan_assets_pending &&
+      project_manager.pending_assets.empty() && !project_manager.project_asset_load_dispatched &&
+      project_manager.pending_asset_size == 0 && !asset_load_snapshot.Active() && project_manager.start_scene_) {
+    return ProjectState::Loaded;
+  }
+  return ProjectState::Loading;
+}
+
+bool ProjectManager::HasProject() {
+  const auto& project_manager = GetInstance();
+  return !project_manager.project_path_.empty() || !project_manager.new_project_path_.empty();
+}
+
+bool ProjectManager::IsProjectLoaded() {
+  return GetProjectState() == ProjectState::Loaded;
+}
+
+ProjectLaunchMetadata ProjectManager::LoadProjectLaunchMetadata(const std::filesystem::path& path) {
+  ProjectLaunchMetadata metadata;
+  if (path.empty() || !std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
+    return metadata;
+  }
+
+  try {
+    const auto in = YAML::LoadFile(path.string());
+    ReadStringKey(in, "application_name", metadata.application_name);
+    ReadStringKey(in, "preferred_editor", metadata.preferred_editor);
+    ReadStringSequenceKey(in, "startup_runtime_packages", metadata.startup_runtime_packages);
+  } catch (const std::exception& error) {
+    EVOENGINE_ERROR("Failed to read project launch metadata: " + std::string(error.what()))
+  }
+  if (metadata.application_name.empty()) {
+    metadata.application_name = kDefaultApplicationName;
+  }
+  if (metadata.preferred_editor.empty()) {
+    metadata.preferred_editor = kDefaultEditorName;
+  }
+  return metadata;
+}
+
+void ProjectManager::SaveProjectLaunchMetadata(const std::filesystem::path& path,
+                                               const ProjectLaunchMetadata& metadata) {
+  WriteProjectFile(path, metadata, ReadExistingStartSceneHandle(path));
+}
+
+ProjectLaunchMetadata ProjectManager::GetProjectLaunchMetadata() {
+  const auto& project_manager = GetInstance();
+  return project_manager.project_launch_metadata_;
 }
 
 void ProjectManager::LoadAllPendingAssets() {
@@ -161,17 +364,10 @@ void ProjectManager::LoadAllPendingAssets() {
 
 void ProjectManager::SaveProject() {
   const auto& project_manager = GetInstance();
-  if (const auto directory = project_manager.project_path_.parent_path(); !std::filesystem::exists(directory)) {
-    std::filesystem::create_directories(directory);
-  }
-  YAML::Emitter out;
-  out << YAML::BeginMap;
-  out << YAML::Key << "start_scene_handle" << YAML::Value << project_manager.start_scene_->GetHandle();
-  out << YAML::EndMap;
-  std::ofstream file_out(project_manager.project_path_.string());
-  file_out << out.c_str();
-  file_out.flush();
+  WriteProjectFile(project_manager.project_path_, project_manager.project_launch_metadata_,
+                   static_cast<uint64_t>(project_manager.start_scene_->GetHandle()));
 }
+
 std::filesystem::path ProjectManager::GetProjectPath() {
   auto& project_manager = GetInstance();
   return project_manager.project_path_;
@@ -221,8 +417,7 @@ bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
 
 void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   auto& project_manager = GetInstance();
-  project_manager.new_project_path_ = path;
-  auto project_absolute_path = std::filesystem::absolute(project_manager.new_project_path_);
+  auto project_absolute_path = std::filesystem::absolute(path);
   if (std::filesystem::is_directory(project_absolute_path)) {
     EVOENGINE_ERROR("Path is directory!")
     return;
@@ -235,8 +430,11 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     EVOENGINE_ERROR("Wrong extension!")
     return;
   }
+  project_manager.new_project_path_ = project_absolute_path;
   project_manager.project_path_ = project_absolute_path;
   project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
+  project_manager.project_launch_metadata_ = LoadProjectLaunchMetadata(project_absolute_path);
+  MergeApplicationLaunchMetadata(project_manager.project_launch_metadata_);
   AssetManager::Clear();
   FileManager::Clear();
   ApplicationContext::Get().Reset();
@@ -345,30 +543,36 @@ void ProjectManager::OnDestroy() {
   project_manager.new_scene_customizer_.reset();
   project_manager.current_focused_folder_.reset();
   project_manager.start_scene_.reset();
+  project_manager.project_launch_metadata_ = {};
+  project_manager.new_project_path_ = "";
+  project_manager.project_path_ = "";
+  project_manager.assets_folder_path = "";
 
   project_manager.initialized = false;
 }
 
 void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& project_manager = GetInstance();
-  auto& asset_manager = AssetManager::GetInstance();
+  static std::string close_project_error;
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("Project")) {
       ImGui::Text(("Current Project path: " + project_manager.project_path_.string()).c_str());
 
-      FileUtils::SaveFile(
-          "Create or load New Project", "Project", {".eveproj"},
-          [](const std::filesystem::path& file_path) {
-            try {
-              GetOrCreateProject(file_path);
-            } catch (const std::exception& e) {
-              EVOENGINE_ERROR(std::string(e.what()) + ": Failed to create/load from " + file_path.string())
-            }
-          },
-          false);
-
       if (ImGui::Button("Save")) {
         SaveProject();
+      }
+      if (ImGui::Button("Close Project")) {
+        close_project_error.clear();
+        SaveProject();
+        std::string error;
+        if (LaunchLauncherProcess(error)) {
+          ApplicationContext::Get().End();
+        } else {
+          close_project_error = error;
+        }
+      }
+      if (!close_project_error.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", close_project_error.c_str());
       }
       ImGui::EndMenu();
     }

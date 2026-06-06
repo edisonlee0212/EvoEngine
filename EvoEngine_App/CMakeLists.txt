@@ -75,6 +75,12 @@ function(register_evoengine_app app_name default_enable)
 					${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
 					)
 			endif()
+			if (${app_name} STREQUAL "EvoEngineLauncher")
+				target_sources(${app_name}
+					PRIVATE
+					${EVOENGINE_APP_SOURCE_DIR}/LauncherUtils.cpp
+					)
+			endif()
 			target_compile_definitions(${app_name}
 				PRIVATE
 				${DEFAULT_PROJECT_DEF}
@@ -123,6 +129,9 @@ function(register_evoengine_app app_name default_enable)
 	endif ()
 endfunction()
 
+register_evoengine_app(EvoEngineEditor ON)
+register_evoengine_app(EvoEngineLauncher ON)
+
 register_evoengine_app(DemoApp ON)
 register_evoengine_app(EcoSysLabApp ON)
 register_evoengine_app(DigitalAgricultureApp ON)
@@ -131,62 +140,6 @@ register_evoengine_app(LSystemApp ON)
 
 register_evoengine_app(TreeDataGeneratorApp ON)
 register_evoengine_app(SorghumDataGeneratorApp ON)
-
-
-
-
-# Setup an empty application for quicker compilation for testing SDK
-if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
-	set(option_name EvoEngine_App-EmptyApp)
-	option(${option_name} "Build Empty application" ON)
-	if(${option_name})
-		if (WIN32)
-			add_executable(EmptyApp
-				${EVOENGINE_APP_SOURCE_DIR}/EmptyApp.cpp
-				${EVOENGINE_APP_RESOURCE_DIR}/EmptyApp.rc
-				)
-		else()
-			add_executable(EmptyApp
-				${EVOENGINE_APP_SOURCE_DIR}/EmptyApp.cpp
-				)
-		endif()
-		target_compile_definitions(EmptyApp
-			PRIVATE
-			${DEFAULT_PROJECT_DEF}
-			${EVOENGINE_DEFS}
-			)
-		target_include_directories(EmptyApp
-			PRIVATE
-			${EVOENGINE_INCLUDES}
-			${EVOENGINE_APP_RESOURCE_DIR}
-			)
-		target_precompile_headers(EmptyApp
-			PRIVATE
-			${EVOENGINE_PCHS}
-			)
-		target_link_libraries(EmptyApp
-			PRIVATE
-			EvoEngine_SDK
-		)
-		if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
-			add_dependencies(EmptyApp ${EvoEngine_RuntimePackages})
-		endif()
-
-		if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-			target_compile_options(EmptyApp PRIVATE -Werror)
-		elseif (MSVC)
-			target_compile_options(EmptyApp PRIVATE /EHsc /W2 /c)
-		elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
-			target_compile_options(EmptyApp PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
-		endif ()
-
-		add_dependencies(EmptyApp AppResourceCopy)
-		install(TARGETS EmptyApp
-			RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
-		evoengine_install_target_pdb(EmptyApp "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
-		set_property(TARGET EmptyApp PROPERTY FOLDER Executables)
-	endif ()
-endif ()
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")

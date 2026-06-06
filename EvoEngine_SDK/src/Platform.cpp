@@ -5,6 +5,7 @@
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuService.hpp"
+#include "ImGuiLayer.hpp"
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -132,7 +133,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       graphics.render_texture_present_pipeline->color_attachment_formats = {1, graphics.swapchain_->GetImageFormat()};
       graphics.render_texture_present_pipeline->Initialize();
     }
-    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>(); editor_layer) {
+    if (const auto imgui_layer = ApplicationContext::Get().GetLayer<ImGuiLayer>(); imgui_layer) {
       // Setup Dear ImGui context
 
       IMGUI_CHECKVERSION();

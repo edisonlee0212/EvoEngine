@@ -18,8 +18,10 @@ file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT
 add_executable(EvoEngine_Tests
 	Core/TaskRuntimeTest.cpp
 	Core/AssetManagerTest.cpp
+	Core/LauncherUtilsTest.cpp
 	Core/GpuServiceTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
+	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
 	)
 target_link_libraries(EvoEngine_Tests
 	PRIVATE
@@ -29,6 +31,7 @@ target_link_libraries(EvoEngine_Tests
 target_include_directories(EvoEngine_Tests
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
+	${CMAKE_SOURCE_DIR}/EvoEngine_App/include
 	${3RDPARTY_DIR}/stb/stb
 	)
 target_compile_definitions(EvoEngine_Tests
@@ -56,6 +59,21 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER AssetManager.*
 	PROPERTIES LABELS "core,assets,jobs"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER ProjectManager.*
+	PROPERTIES LABELS "core,project"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER PackageManager.*
+	PROPERTIES LABELS "core,project"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER LauncherUtils.*
+	PROPERTIES LABELS "core,launcher"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
@@ -87,5 +105,30 @@ exit_on_complete: true
 		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DemoApp>"
 		LABELS "render,gpu,app"
 		TIMEOUT 240
+		)
+endif()
+
+if(WIN32 AND TARGET EvoEngineLauncher AND TARGET EvoEngineEditor)
+	add_test(NAME Launcher.ProcessBoundaries
+		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Launcher/launcher_process_smoke.py"
+			--launcher "$<TARGET_FILE:EvoEngineLauncher>"
+			--editor "$<TARGET_FILE:EvoEngineEditor>"
+			--project "${CMAKE_SOURCE_DIR}/Resources/EvoEngine-DemoProjects/Rendering/Rendering.eveproj"
+		)
+	set_tests_properties(Launcher.ProcessBoundaries
+		PROPERTIES
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngineLauncher>"
+		LABELS "launcher,app"
+		TIMEOUT 90
+		)
+	add_test(NAME Launcher.WindowsUiSmoke
+		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Launcher/launcher_ui_smoke.py"
+			--launcher "$<TARGET_FILE:EvoEngineLauncher>"
+		)
+	set_tests_properties(Launcher.WindowsUiSmoke
+		PROPERTIES
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngineLauncher>"
+		LABELS "launcher,ui,app"
+		TIMEOUT 90
 		)
 endif()

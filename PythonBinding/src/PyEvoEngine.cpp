@@ -1,5 +1,6 @@
 #include "PyEvoEngine.hpp"
 #include "GeometryStorage.hpp"
+#include "ImGuiLayer.hpp"
 #include "TextureStorage.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
@@ -310,6 +311,9 @@ void PyEvoEngine::PushWindowLayer() {
   }
 }
 void PyEvoEngine::PushEditorLayer() {
+  if (!ApplicationContext::Get().GetLayer<ImGuiLayer>()) {
+    ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
+  }
   if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
     ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
   }

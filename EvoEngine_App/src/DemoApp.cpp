@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
+#include "ImGuiLayer.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
@@ -175,6 +176,7 @@ int main(const int argc, char** argv) {
 
     ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
     ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+    ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
     ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
 #ifdef PHYSX_PHYSICS_SERVICE
     ApplicationContext::Get().PushLayer<PhysicsLayer>();

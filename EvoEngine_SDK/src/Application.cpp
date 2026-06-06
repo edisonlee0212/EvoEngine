@@ -40,7 +40,33 @@
 #include "WayPoints.hpp"
 #include "WindowLayer.hpp"
 
+#include <algorithm>
+
 using namespace evo_engine;
+
+namespace {
+void AddUniqueStartupPackage(ApplicationInitializationSettings& settings, const std::string& package_name) {
+  if (!package_name.empty() &&
+      std::find(settings.startup_runtime_packages.begin(), settings.startup_runtime_packages.end(), package_name) ==
+          settings.startup_runtime_packages.end()) {
+    settings.startup_runtime_packages.emplace_back(package_name);
+  }
+}
+
+void MergeProjectLaunchMetadata(ApplicationInitializationSettings& settings) {
+  if (settings.project_path.empty()) {
+    return;
+  }
+
+  const auto metadata = ProjectManager::LoadProjectLaunchMetadata(settings.project_path);
+  for (const auto& package_name : metadata.startup_runtime_packages) {
+    AddUniqueStartupPackage(settings, package_name);
+  }
+  if (!settings.startup_runtime_packages.empty()) {
+    settings.enable_runtime_packages = true;
+  }
+}
+}  // namespace
 
 Application::Application()
     : asset_manager_(std::make_unique<AssetManager>()),
@@ -361,16 +387,16 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   this->initialization_settings = application_create_info;
   const auto render_layer = GetLayer<RenderLayer>();
   const auto window_layer = GetLayer<WindowLayer>();
-  const auto editor_layer = GetLayer<EditorLayer>();
   if (!this->initialization_settings.project_path.empty()) {
     if (this->initialization_settings.project_path.extension().string() != ".eveproj") {
       EVOENGINE_ERROR("Project file extension is not eveproj!")
       return;
     }
-  } else if (!window_layer || !editor_layer) {
-    EVOENGINE_ERROR("Project filepath must present when there's no EditorLayer or WindowLayer!")
+  } else if (!this->initialization_settings.allow_empty_project) {
+    EVOENGINE_ERROR("Project filepath must be present unless empty project startup is explicitly allowed!")
     return;
   }
+  MergeProjectLaunchMetadata(this->initialization_settings);
   const auto hardware_thread_size = std::thread::hardware_concurrency();
   const size_t default_thread_size = hardware_thread_size > 2 ? hardware_thread_size - 2 : 1;
   for (const auto& layer : this->layers_) {

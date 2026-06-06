@@ -4,7 +4,18 @@
 #include "FileManager.hpp"
 #include "IAsset.hpp"
 
+#include <string>
+#include <vector>
+
 namespace evo_engine {
+
+enum class ProjectState { NoProject, Loading, Loaded };
+
+struct ProjectLaunchMetadata {
+  std::string application_name = "EvoEngine Editor";
+  std::vector<std::string> startup_runtime_packages;
+  std::string preferred_editor = "EvoEngineEditor";
+};
 
 /**
  * @class ProjectManager
@@ -33,6 +44,8 @@ class ProjectManager {
       new_scene_customizer_;  ///< Callback function for customizing a new scene.
 
   std::weak_ptr<Folder> current_focused_folder_;  ///< A weak pointer to the currently focused folder.
+
+  ProjectLaunchMetadata project_launch_metadata_;  ///< Launcher/editor metadata persisted in the project file.
 
   friend class ClassRegistry;
   std::shared_ptr<Scene> start_scene_;  ///< The starting scene of the project.
@@ -102,9 +115,43 @@ class ProjectManager {
   [[nodiscard]] static std::weak_ptr<Scene> GetStartScene();
 
   /**
+   * @brief Retrieves the current project loading state.
+   */
+  [[nodiscard]] static ProjectState GetProjectState();
+
+  /**
+   * @brief Returns true once a project path has been selected, even if loading is still in progress.
+   */
+  [[nodiscard]] static bool HasProject();
+
+  /**
+   * @brief Returns true when a project path is selected and its start scene is ready.
+   */
+  [[nodiscard]] static bool IsProjectLoaded();
+
+  /**
    * @brief Returns true when project scanning, project asset loading, and start-scene setup are complete.
    */
   [[nodiscard]] static bool IsProjectIdle();
+
+  /**
+   * @brief Loads launcher/editor metadata from a project file without opening the project.
+   * @param path Project file path.
+   * @return Parsed metadata, or default metadata if the file is missing metadata.
+   */
+  [[nodiscard]] static ProjectLaunchMetadata LoadProjectLaunchMetadata(const std::filesystem::path& path);
+
+  /**
+   * @brief Saves launcher/editor metadata to a project file without opening the project.
+   * @param path Project file path.
+   * @param metadata Metadata to persist.
+   */
+  static void SaveProjectLaunchMetadata(const std::filesystem::path& path, const ProjectLaunchMetadata& metadata);
+
+  /**
+   * @brief Returns metadata for the currently selected project.
+   */
+  [[nodiscard]] static ProjectLaunchMetadata GetProjectLaunchMetadata();
 
   /**
    * @brief Sets the starting scene for the project.

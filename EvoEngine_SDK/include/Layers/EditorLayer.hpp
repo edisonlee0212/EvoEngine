@@ -15,7 +15,9 @@
 #include "Strands.hpp"
 #include "Texture2D.hpp"
 
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 namespace evo_engine {
 
@@ -806,9 +808,29 @@ class EditorLayer : public ILayer {
   void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   ImGuiID dock_space_id;
   /**
-   * @brief Initializes the ImGui interface for the editor.
+   * @brief Draws the root ImGui dockspace for the editor.
    */
-  void InitializeImGui();
+  void DrawDockspace();
+
+  /**
+   * @brief Draws the editor menu bar.
+   */
+  void DrawMainMenuBar();
+
+  void UpdateCameraTransition();
+  void PrepareFrameState();
+  void CaptureSceneWindowMousePosition();
+  void CaptureMainCameraWindowMousePosition();
+  void UpdateSceneState(const std::shared_ptr<Scene>& scene);
+  void DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene);
+  void DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene, const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawConsoleWindow();
+  void DrawRuntimePackageManagerWindow();
+  void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
+  void DrawViewportWindows(const std::shared_ptr<Scene>& scene);
+  void DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
+                                  const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawProjectInspectionWindows(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Displays the scene camera window.

@@ -58,6 +58,14 @@ def build_preset_exists(presets: dict[str, Any], name: str) -> bool:
     return any(preset.get("name") == name for preset in presets.get("buildPresets", []))
 
 
+def build_dir_for_preset(root: Path, presets: dict[str, Any], preset_name: str) -> Path:
+    preset = configure_preset(presets, preset_name)
+    binary_dir = preset.get("binaryDir")
+    if not binary_dir:
+        raise SystemExit(f"Configure preset '{preset_name}' does not define binaryDir.")
+    return expand_preset_path(binary_dir, root)
+
+
 def install_dir_for_preset(root: Path, presets: dict[str, Any], preset_name: str) -> Path:
     preset = configure_preset(presets, preset_name)
     install_dir = preset.get("installDir")
@@ -117,6 +125,14 @@ def parse_args() -> argparse.Namespace:
         help="Do not clean the install directory before building the install target.",
     )
     parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help=(
+            "Reuse the existing build and install directories. Skips configure when "
+            "the preset build cache already exists."
+        ),
+    )
+    parser.add_argument(
         "--cmake-arg",
         action="append",
         default=[],
@@ -138,19 +154,23 @@ def main() -> int:
     args = parse_args()
     root = repo_root()
     presets = load_cmake_presets(root)
+    build_dir = build_dir_for_preset(root, presets, args.preset)
     install_dir = install_dir_for_preset(root, presets, args.preset)
     build_preset = f"install-{args.preset}-{args.config}"
 
     if not build_preset_exists(presets, build_preset):
         raise SystemExit(f"Build preset not found: {build_preset}")
 
-    configure_command = ["cmake", "--preset", args.preset, "-DBUILD_TESTING=OFF"]
-    if args.verbose:
-        configure_command.append("--log-level=VERBOSE")
-    configure_command.extend(args.cmake_arg)
-    run_step("Configure Visual Studio project", configure_command)
+    if args.incremental and not args.cmake_arg and (build_dir / "CMakeCache.txt").exists():
+        print(f"Skipping configure; reusing {build_dir / 'CMakeCache.txt'}", flush=True)
+    else:
+        configure_command = ["cmake", "--preset", args.preset, "-DBUILD_TESTING=OFF"]
+        if args.verbose:
+            configure_command.append("--log-level=VERBOSE")
+        configure_command.extend(args.cmake_arg)
+        run_step("Configure Visual Studio project", configure_command)
 
-    if not args.no_clean_install:
+    if not args.incremental and not args.no_clean_install:
         clean_install_dir(root, install_dir)
 
     build_command = ["cmake", "--build", "--preset", build_preset]
