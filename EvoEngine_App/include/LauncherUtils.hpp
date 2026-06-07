@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EvoEngine_SDK_PCH.hpp"
 #include "PackageManager.hpp"
 #include "ProjectManager.hpp"
 

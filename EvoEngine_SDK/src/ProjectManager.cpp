@@ -551,38 +551,38 @@ void ProjectManager::OnDestroy() {
   project_manager.initialized = false;
 }
 
-void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void ProjectManager::DrawViewMenuItems() {
+  ImGui::Checkbox("Project", &GetInstance().show_project_window);
+}
+
+void ProjectManager::DrawProjectMenu() {
   auto& project_manager = GetInstance();
   static std::string close_project_error;
-  if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("Project")) {
-      ImGui::Text(("Current Project path: " + project_manager.project_path_.string()).c_str());
+  if (ImGui::BeginMenu("Project")) {
+    ImGui::Text(("Current Project path: " + project_manager.project_path_.string()).c_str());
 
-      if (ImGui::Button("Save")) {
-        SaveProject();
-      }
-      if (ImGui::Button("Close Project")) {
-        close_project_error.clear();
-        SaveProject();
-        std::string error;
-        if (LaunchLauncherProcess(error)) {
-          ApplicationContext::Get().End();
-        } else {
-          close_project_error = error;
-        }
-      }
-      if (!close_project_error.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", close_project_error.c_str());
-      }
-      ImGui::EndMenu();
+    if (ImGui::Button("Save")) {
+      SaveProject();
     }
-
-    if (ImGui::BeginMenu("View")) {
-      ImGui::Checkbox("Project", &project_manager.show_project_window);
-      ImGui::EndMenu();
+    if (ImGui::Button("Close Project")) {
+      close_project_error.clear();
+      SaveProject();
+      std::string error;
+      if (LaunchLauncherProcess(error)) {
+        ApplicationContext::Get().End();
+      } else {
+        close_project_error = error;
+      }
     }
-    ImGui::EndMainMenuBar();
+    if (!close_project_error.empty()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", close_project_error.c_str());
+    }
+    ImGui::EndMenu();
   }
+}
+
+void ProjectManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  auto& project_manager = GetInstance();
   if (project_manager.show_project_window) {
     if (ImGui::Begin("Project")) {
       if (project_manager.assets_folder_) {

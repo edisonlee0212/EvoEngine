@@ -711,6 +711,60 @@ TEST(PackageManager, ReportsManifestLibraryAvailability) {
   EXPECT_FALSE(missing_library_package->library_exists);
 }
 
+TEST(PackageManager, ModificationIsBlockedWhilePlayingPausedOrStepping) {
+  TempProject project;
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+  const auto scene = std::make_shared<Scene>();
+  ProjectManager::SetStartScene(scene);
+  app.Attach(scene);
+
+  EXPECT_EQ(app.GetApplicationStatus(), Application::ExecutionStatus::NotPlaying);
+  EXPECT_TRUE(PackageManager::CanModifyPackages());
+
+  app.Play();
+  EXPECT_EQ(app.GetApplicationStatus(), Application::ExecutionStatus::Playing);
+  EXPECT_FALSE(PackageManager::CanModifyPackages());
+
+  app.Pause();
+  EXPECT_EQ(app.GetApplicationStatus(), Application::ExecutionStatus::Pause);
+  EXPECT_FALSE(PackageManager::CanModifyPackages());
+
+  app.Step();
+  EXPECT_EQ(app.GetApplicationStatus(), Application::ExecutionStatus::Step);
+  EXPECT_FALSE(PackageManager::CanModifyPackages());
+
+  app.Stop();
+  EXPECT_EQ(app.GetApplicationStatus(), Application::ExecutionStatus::NotPlaying);
+  EXPECT_TRUE(PackageManager::CanModifyPackages());
+}
+
+TEST(PackageManager, LoadAllIsRejectedWhileRuntimeIsBusy) {
+  TempProject project;
+  TempPackageDirectory package_directory;
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+  PackageManager::Initialize({package_directory.RootPath()}, {});
+  const auto scene = std::make_shared<Scene>();
+  ProjectManager::SetStartScene(scene);
+  app.Attach(scene);
+
+  ASSERT_TRUE(PackageManager::LoadAll());
+
+  app.Play();
+  EXPECT_FALSE(PackageManager::LoadAll());
+
+  app.Pause();
+  EXPECT_FALSE(PackageManager::LoadAll());
+
+  app.Step();
+  EXPECT_FALSE(PackageManager::LoadAll());
+}
+
 TEST(AssetManager, BlockingAccessJoinsInFlightSynchronousProjectLoad) {
   ResetBlockingLoadState();
   TempProject project;

@@ -137,6 +137,7 @@ class PackageManager final {
   static bool Unload(const std::string& package_name);
   static bool Reload(const std::string& package_name);
   static void UnloadAll();
+  static bool CanModifyPackages();
   static void ScanAvailablePackages();
   static std::vector<std::filesystem::path> GetSearchPaths();
   static std::vector<AvailablePackageInfo> GetAvailablePackages();

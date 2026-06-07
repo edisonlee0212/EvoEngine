@@ -185,13 +185,6 @@ Handle Resources::GenerateNewHandle() {
 
 void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& resources = GetInstance();
-  if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("View")) {
-      ImGui::Checkbox("Resources", &resources.show_resources_);
-      ImGui::EndMenu();
-    }
-    ImGui::EndMainMenuBar();
-  }
   if (resources.show_resources_) {
     if (ImGui::Begin("Resources")) {
       if (ImGui::CollapsingHeader("Textures")) {

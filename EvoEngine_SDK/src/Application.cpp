@@ -513,6 +513,7 @@ void Application::ExecuteEndOfLoopActions() {
 
 void Application::Terminate() {
   ApplicationContextScope application_scope(*this);
+  this->execution_status_ = ExecutionStatus::OnDestroy;
   const bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
   for (auto i = this->layers_.rbegin(); i != this->layers_.rend(); ++i) {
     (*i)->OnDestroy();

@@ -15,7 +15,11 @@
 #include "Strands.hpp"
 #include "Texture2D.hpp"
 
+#include <filesystem>
+#include <future>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -263,6 +267,7 @@ class EditorLayer : public ILayer {
   bool show_entity_explorer_window = true;  /**< Indicates whether the entity explorer window is visible. */
   bool show_entity_inspector_window = true; /**< Indicates whether the entity inspector window is visible. */
   bool show_package_manager_window = false; /**< Indicates whether the runtime package manager window is visible. */
+  bool show_layer_inspector_window = true;  /**< Indicates whether the layer inspector window is visible. */
   bool main_camera_focus_override = false;  /**< Indicates if the main camera focus has been overridden. */
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
@@ -866,6 +871,27 @@ class EditorLayer : public ILayer {
 
   bool runtime_package_manager_scanned_ = false;                   /**< Whether package manifests were scanned. */
   std::unordered_set<std::string> selected_runtime_package_names_; /**< Selected runtime packages for bulk loading. */
+  enum class RuntimePackageInspectionSource { Available, Loaded };
+  RuntimePackageInspectionSource inspected_runtime_package_source_ = RuntimePackageInspectionSource::Available;
+  std::string inspected_runtime_package_name_;
+
+  struct RuntimePackageBuildResult {
+    bool success = false;
+    int exit_code = -1;
+    std::string command;
+    std::string output;
+    std::string error;
+  };
+
+  struct RuntimePackageBuildJob {
+    std::future<RuntimePackageBuildResult> future;
+    std::optional<RuntimePackageBuildResult> result;
+  };
+
+  void PollRuntimePackageBuildJobs();
+  [[nodiscard]] bool HasActiveRuntimePackageBuild() const;
+
+  std::unordered_map<std::string, RuntimePackageBuildJob> runtime_package_build_jobs_;
 
   bool enable_console_logs_ = true;     /**< Indicates if console logs are enabled. */
   bool enable_console_errors_ = true;   /**< Indicates if console errors are enabled. */
