@@ -29,8 +29,27 @@ PackageRegistrar::PackageRegistrar(std::string package_name,
 
 bool PackageManager::IsRuntimeBusy() {
   const auto status = ApplicationContext::Get().GetApplicationStatus();
-  return status == Application::ExecutionStatus::Playing || status == Application::ExecutionStatus::Step;
+  return status == Application::ExecutionStatus::Playing || status == Application::ExecutionStatus::Step ||
+         status == Application::ExecutionStatus::Pause;
 }
+
+bool PackageManager::CanModifyPackages() {
+  return !IsRuntimeBusy();
+}
+
+namespace {
+bool RejectPackageMutationWhenBusy(const std::string& operation, const std::string& package_name = {}) {
+  if (PackageManager::CanModifyPackages()) {
+    return false;
+  }
+  auto message = "Cannot " + operation + " runtime packages while the application is playing, stepping, or paused";
+  if (!package_name.empty()) {
+    message += ": " + package_name;
+  }
+  EVOENGINE_WARNING(message)
+  return true;
+}
+}  // namespace
 
 bool PackageManager::OpenLibrary(const std::filesystem::path& path, void*& handle) {
 #if defined(_WIN32)
@@ -378,6 +397,9 @@ void PackageManager::Initialize(const std::vector<std::filesystem::path>& packag
 }
 
 bool PackageManager::Load(const std::string& package_name) {
+  if (RejectPackageMutationWhenBusy("load", package_name)) {
+    return false;
+  }
   RefreshManifests();
   std::vector<std::string> loading_stack;
   return LoadManifestWithDependencies(package_name, loading_stack);
@@ -391,6 +413,9 @@ bool PackageManager::Load(const char* package_name) {
 }
 
 bool PackageManager::Load(const std::filesystem::path& package_path) {
+  if (RejectPackageMutationWhenBusy("load", package_path.string())) {
+    return false;
+  }
   std::error_code ec;
   const auto original_path = std::filesystem::absolute(package_path, ec);
   if (ec || !std::filesystem::exists(original_path)) {
@@ -510,6 +535,9 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
 }
 
 bool PackageManager::LoadAll() {
+  if (RejectPackageMutationWhenBusy("load")) {
+    return false;
+  }
   RefreshManifests();
   std::vector<std::string> manifest_package_names;
   {
@@ -577,8 +605,7 @@ bool PackageManager::LoadAll() {
 }
 
 bool PackageManager::Unload(const std::string& package_name) {
-  if (IsRuntimeBusy()) {
-    EVOENGINE_WARNING("Cannot unload runtime package while the application is playing or stepping: " + package_name)
+  if (RejectPackageMutationWhenBusy("unload", package_name)) {
     return false;
   }
 
@@ -650,6 +677,9 @@ bool PackageManager::Unload(const std::string& package_name) {
 }
 
 bool PackageManager::Reload(const std::string& package_name) {
+  if (RejectPackageMutationWhenBusy("reload", package_name)) {
+    return false;
+  }
   std::filesystem::path original_path;
   {
     auto& manager = GetInstance();
@@ -668,6 +698,9 @@ bool PackageManager::Reload(const std::string& package_name) {
 }
 
 void PackageManager::UnloadAll() {
+  if (RejectPackageMutationWhenBusy("unload")) {
+    return;
+  }
   while (true) {
     std::vector<std::string> package_names;
     {

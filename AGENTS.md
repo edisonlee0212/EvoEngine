@@ -45,6 +45,25 @@ Record the current branch at the top of `tasks/todo.md` as `# Branch: <branch-na
 
 - Grep for usages of any removed or renamed symbols to clean up dead references
 - Add unit tests for new logic when a test framework is available
+- Build the relevant executable target before manual testing app/editor behavior, and report the exact executable path used for the manual test.
+
+## GPT-Codex-5.3-Spark Subagent Workflow
+
+Use `GPT-Codex-5.3-Spark` subagents to preserve the main `GPT-5.5` lane for implementation, architecture, debugging decisions, code review conclusions, commits, and PR work.
+
+Spark subagents should run commands, inspect files, collect logs, narrow failures, and return concise findings. They must not modify source code or repository files, stage changes, commit, push, create pull requests, or make architecture/product decisions. If a Spark subagent finds a code issue, it should report the failure and suspected cause; only the current/main agent should make code changes, then ask the Spark subagent to rerun the relevant verification.
+
+Suitable Spark subagent tasks:
+
+- Test runner: run focused/full tests, retry flaky commands once, and report pass/fail with key logs.
+- Build/install runner: run package builds, app builds, install scripts, and verify expected binaries or manifests exist.
+- Failure log triage: parse MSBuild, CTest, runtime, or installer logs and identify the first real error, target, file, and likely cause.
+- Codebase reconnaissance: search APIs, call sites, ownership boundaries, and related tests; return a compact file/function map.
+- Diff review: inspect staged/unstaged changes for regressions, accidental files, missing tests, dead references, and scope creep.
+- UI smoke/screenshot collector: launch apps, click basic paths, capture screenshots, and report crashes, blank windows, or obvious layout issues.
+- Package/dependency inventory: inspect `.evepackage` manifests, package DLLs, dependency chains, and loaded/available package states.
+- Docs consistency check: compare changed behavior against README, scripts, and AGENTS guidance; report stale or missing docs.
+- PR readiness audit: check branch, status, staged files, test evidence, dirty submodules, and PR body accuracy without changing git state.
 
 This file provides repository-wide guidance for coding agents working in EvoEngine.
 

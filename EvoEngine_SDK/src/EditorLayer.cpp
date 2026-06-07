@@ -20,7 +20,354 @@
 #include "Times.hpp"
 #include "WindowLayer.hpp"
 
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdio>
+#include <functional>
+#include <unordered_map>
+
 using namespace evo_engine;
+
+namespace {
+constexpr size_t kMaxRuntimePackageBuildOutputSize = 128 * 1024;
+constexpr ImGuiID kInspectorWindowClassId = 0xEC0E1001;
+const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
+
+struct RuntimePackageCMakeBuildRequest {
+  std::string package_name;
+  std::string target_name;
+  std::filesystem::path build_dir;
+  std::filesystem::path build_package_dir;
+  std::filesystem::path runtime_package_dir;
+  std::optional<std::string> config;
+};
+
+struct RuntimePackageCMakeBuildResult {
+  bool success = false;
+  int exit_code = -1;
+  std::string command;
+  std::string output;
+  std::string error;
+};
+
+void AppendCappedOutput(std::string& output, const char* data, const size_t size) {
+  if (size >= kMaxRuntimePackageBuildOutputSize) {
+    output.assign(data + size - kMaxRuntimePackageBuildOutputSize, kMaxRuntimePackageBuildOutputSize);
+    return;
+  }
+  if (output.size() + size > kMaxRuntimePackageBuildOutputSize) {
+    output.erase(0, output.size() + size - kMaxRuntimePackageBuildOutputSize);
+  }
+  output.append(data, size);
+}
+
+std::string QuoteCommandArgument(const std::string& value) {
+  std::string quoted = "\"";
+  for (const char c : value) {
+    if (c == '"') {
+      quoted += '\\';
+    }
+    quoted += c;
+  }
+  quoted += '"';
+  return quoted;
+}
+
+std::string BuildCMakeCommandText(const RuntimePackageCMakeBuildRequest& request) {
+  auto command = "cmake --build " + QuoteCommandArgument(request.build_dir.string());
+  if (request.config.has_value()) {
+    command += " --config " + QuoteCommandArgument(*request.config);
+  }
+  command += " --target " + QuoteCommandArgument(request.target_name);
+  return command;
+}
+
+#ifdef EVOENGINE_WINDOWS
+std::wstring QuoteWindowsCommandArgument(const std::wstring& value) {
+  std::wstring quoted = L"\"";
+  size_t backslash_count = 0;
+  for (const wchar_t c : value) {
+    if (c == L'\\') {
+      ++backslash_count;
+      continue;
+    }
+    if (c == L'"') {
+      quoted.append(backslash_count * 2 + 1, L'\\');
+      quoted += c;
+      backslash_count = 0;
+      continue;
+    }
+    quoted.append(backslash_count, L'\\');
+    backslash_count = 0;
+    quoted += c;
+  }
+  quoted.append(backslash_count * 2, L'\\');
+  quoted += L"\"";
+  return quoted;
+}
+std::wstring BuildWindowsCMakeCommandLine(const RuntimePackageCMakeBuildRequest& request) {
+  auto command = L"cmake --build " + QuoteWindowsCommandArgument(request.build_dir.wstring());
+  if (request.config.has_value()) {
+    command +=
+        L" --config " + QuoteWindowsCommandArgument(std::wstring(request.config->begin(), request.config->end()));
+  }
+  command +=
+      L" --target " + QuoteWindowsCommandArgument(std::wstring(request.target_name.begin(), request.target_name.end()));
+  return command;
+}
+#else
+std::string QuoteShellCommandArgument(const std::string& value) {
+  std::string quoted = "'";
+  for (const char c : value) {
+    if (c == '\'') {
+      quoted += "'\\''";
+    } else {
+      quoted += c;
+    }
+  }
+  quoted += "'";
+  return quoted;
+}
+
+std::string BuildShellCMakeCommandLine(const RuntimePackageCMakeBuildRequest& request) {
+  auto command = "cmake --build " + QuoteShellCommandArgument(request.build_dir.string());
+  if (request.config.has_value()) {
+    command += " --config " + QuoteShellCommandArgument(*request.config);
+  }
+  command += " --target " + QuoteShellCommandArgument(request.target_name) + " 2>&1";
+  return command;
+}
+#endif
+
+std::optional<RuntimePackageCMakeBuildRequest> CreateRuntimePackageBuildRequest(
+    const std::string& package_name, const std::filesystem::path& package_runtime_path, std::string& error) {
+  if (package_runtime_path.empty()) {
+    error = "Package runtime path is empty.";
+    return {};
+  }
+
+  const auto package_directory = package_runtime_path.parent_path();
+  if (package_directory.filename() != "Packages") {
+    error = "Build is only available for packages in a build-tree Packages directory.";
+    return {};
+  }
+
+  RuntimePackageCMakeBuildRequest request;
+  request.package_name = package_name;
+  request.target_name = package_name + "Package";
+  request.runtime_package_dir = package_directory;
+  const auto app_or_config_dir = package_directory.parent_path();
+  if (app_or_config_dir.filename() == "EvoEngine_App") {
+    request.build_dir = app_or_config_dir.parent_path();
+    request.build_package_dir = package_directory;
+  } else {
+    const auto app_dir = app_or_config_dir.parent_path();
+    if (app_dir.filename() == "EvoEngine_App") {
+      request.config = app_or_config_dir.filename().string();
+      request.build_dir = app_dir.parent_path();
+      request.build_package_dir = package_directory;
+    } else {
+      const auto bin_dir = package_directory.parent_path();
+      const auto install_preset_dir = bin_dir.parent_path();
+      const auto install_dir = install_preset_dir.parent_path();
+      const auto out_dir = install_dir.parent_path();
+      if (bin_dir.filename() != "bin" || install_dir.filename() != "install" || out_dir.filename() != "out") {
+        error =
+            "Build is only available for build-tree packages under EvoEngine_App/Packages or "
+            "EvoEngine_App/<Config>/Packages, or installed packages under out/install/<preset>/bin/Packages.";
+        return {};
+      }
+      request.build_dir = out_dir / "build" / install_preset_dir.filename();
+      std::filesystem::file_time_type newest_time{};
+      bool found_package_output = false;
+      const auto build_tree_packages = request.build_dir / "EvoEngine_App" / "Packages";
+      if (std::filesystem::exists(build_tree_packages / (package_name + ".evepackage"))) {
+        request.build_package_dir = build_tree_packages;
+        found_package_output = true;
+      }
+      for (const auto& config : kCMakeConfigs) {
+        const auto package_dir = request.build_dir / "EvoEngine_App" / config / "Packages";
+        const auto manifest_path = package_dir / (package_name + ".evepackage");
+        if (!std::filesystem::exists(manifest_path)) {
+          continue;
+        }
+        std::error_code time_ec;
+        const auto write_time = std::filesystem::last_write_time(manifest_path, time_ec);
+        if (!found_package_output || (!time_ec && write_time > newest_time)) {
+          newest_time = write_time;
+          request.config = config;
+          request.build_package_dir = package_dir;
+          found_package_output = true;
+        }
+      }
+      if (!found_package_output) {
+        error = "No matching build-tree package output was found under " + request.build_dir.string() + ".";
+        return {};
+      }
+    }
+  }
+  std::error_code ec;
+  if (!std::filesystem::exists(request.build_dir / "CMakeCache.txt", ec)) {
+    error = "CMakeCache.txt was not found in " + request.build_dir.string() + ".";
+    return {};
+  }
+  return request;
+}
+
+std::string ReadPackageLibraryName(const std::filesystem::path& manifest_path) {
+  std::ifstream manifest_file(manifest_path);
+  std::string line;
+  while (std::getline(manifest_file, line)) {
+    constexpr const char* prefix = "library:";
+    constexpr size_t prefix_length = 8;
+    if (line.rfind(prefix, 0) != 0) {
+      continue;
+    }
+    auto library_name = line.substr(prefix_length);
+    const auto first = library_name.find_first_not_of(" \t");
+    if (first == std::string::npos) {
+      return {};
+    }
+    const auto last = library_name.find_last_not_of(" \t");
+    return library_name.substr(first, last - first + 1);
+  }
+  return {};
+}
+
+bool CopyPackageBuildOutputToRuntimeDir(const RuntimePackageCMakeBuildRequest& request, std::string& error) {
+  if (request.build_package_dir == request.runtime_package_dir) {
+    return true;
+  }
+
+  std::error_code ec;
+  std::filesystem::create_directories(request.runtime_package_dir, ec);
+  if (ec) {
+    error = "Failed to create runtime package directory: " + ec.message();
+    return false;
+  }
+
+  const auto source_manifest = request.build_package_dir / (request.package_name + ".evepackage");
+  const auto target_manifest = request.runtime_package_dir / source_manifest.filename();
+  std::filesystem::copy_file(source_manifest, target_manifest, std::filesystem::copy_options::overwrite_existing, ec);
+  if (ec) {
+    error = "Failed to copy package manifest: " + ec.message();
+    return false;
+  }
+
+  const auto library_name = ReadPackageLibraryName(source_manifest);
+  if (library_name.empty()) {
+    error = "Failed to read package library name from " + source_manifest.string() + ".";
+    return false;
+  }
+
+  const auto source_library = request.build_package_dir / library_name;
+  const auto target_library = request.runtime_package_dir / library_name;
+  std::filesystem::copy_file(source_library, target_library, std::filesystem::copy_options::overwrite_existing, ec);
+  if (ec) {
+    error = "Failed to copy package library: " + ec.message();
+    return false;
+  }
+
+  const auto source_debug_symbols = source_library.parent_path() / (source_library.stem().string() + ".pdb");
+  if (std::filesystem::exists(source_debug_symbols, ec)) {
+    const auto target_debug_symbols = target_library.parent_path() / source_debug_symbols.filename();
+    std::filesystem::copy_file(source_debug_symbols, target_debug_symbols,
+                               std::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+      error = "Failed to copy package debug symbols: " + ec.message();
+      return false;
+    }
+  }
+  return true;
+}
+
+void ApplyInspectorWindowClass(const ImGuiID dock_space_id) {
+  ImGuiWindowClass inspector_window_class;
+  inspector_window_class.ClassId = kInspectorWindowClassId;
+  ImGui::SetNextWindowClass(&inspector_window_class);
+  if (dock_space_id != 0) {
+    ImGui::SetNextWindowDockID(dock_space_id, ImGuiCond_FirstUseEver);
+  }
+}
+
+RuntimePackageCMakeBuildResult RunRuntimePackageBuild(const RuntimePackageCMakeBuildRequest& request) {
+  RuntimePackageCMakeBuildResult result;
+  result.command = BuildCMakeCommandText(request);
+
+#ifdef EVOENGINE_WINDOWS
+  SECURITY_ATTRIBUTES security_attributes{};
+  security_attributes.nLength = sizeof(SECURITY_ATTRIBUTES);
+  security_attributes.bInheritHandle = TRUE;
+
+  HANDLE output_read = nullptr;
+  HANDLE output_write = nullptr;
+  if (!CreatePipe(&output_read, &output_write, &security_attributes, 0)) {
+    result.error = "Failed to create package build output pipe.";
+    return result;
+  }
+  SetHandleInformation(output_read, HANDLE_FLAG_INHERIT, 0);
+
+  STARTUPINFOW startup_info{};
+  startup_info.cb = sizeof(startup_info);
+  startup_info.dwFlags = STARTF_USESTDHANDLES;
+  startup_info.hStdOutput = output_write;
+  startup_info.hStdError = output_write;
+  startup_info.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+  PROCESS_INFORMATION process_info{};
+  auto command_line_text = BuildWindowsCMakeCommandLine(request);
+  std::vector<wchar_t> command_line(command_line_text.begin(), command_line_text.end());
+  command_line.emplace_back(L'\0');
+  const auto working_directory = request.build_dir.wstring();
+  if (!CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                      working_directory.c_str(), &startup_info, &process_info)) {
+    CloseHandle(output_read);
+    CloseHandle(output_write);
+    result.error = "Failed to launch cmake.";
+    return result;
+  }
+  CloseHandle(output_write);
+
+  std::array<char, 4096> buffer{};
+  DWORD bytes_read = 0;
+  while (ReadFile(output_read, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, nullptr) &&
+         bytes_read > 0) {
+    AppendCappedOutput(result.output, buffer.data(), bytes_read);
+  }
+  CloseHandle(output_read);
+
+  WaitForSingleObject(process_info.hProcess, INFINITE);
+  DWORD exit_code = 1;
+  GetExitCodeProcess(process_info.hProcess, &exit_code);
+  CloseHandle(process_info.hProcess);
+  CloseHandle(process_info.hThread);
+  result.exit_code = static_cast<int>(exit_code);
+#else
+  const auto command_line = BuildShellCMakeCommandLine(request);
+  auto* pipe = popen(command_line.c_str(), "r");
+  if (!pipe) {
+    result.error = "Failed to launch cmake.";
+    return result;
+  }
+  std::array<char, 4096> buffer{};
+  while (const auto bytes_read = std::fread(buffer.data(), 1, buffer.size(), pipe)) {
+    AppendCappedOutput(result.output, buffer.data(), bytes_read);
+  }
+  result.exit_code = pclose(pipe);
+#endif
+
+  result.success = result.exit_code == 0;
+  if (result.success) {
+    std::string copy_error;
+    result.success = CopyPackageBuildOutputToRuntimeDir(request, copy_error);
+    if (!copy_error.empty()) {
+      result.error = copy_error;
+    }
+  }
+  return result;
+}
+}  // namespace
 
 void EditorLayer::OnCreate() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
@@ -554,6 +901,7 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
     PackageManager::ScanAvailablePackages();
     runtime_package_manager_scanned_ = true;
   }
+  PollRuntimePackageBuildJobs();
 
   bool package_manager_open = show_package_manager_window;
   if (ImGui::Begin("Runtime Package Manager", &package_manager_open)) {
@@ -562,7 +910,9 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
       runtime_package_manager_scanned_ = true;
     }
     ImGui::SameLine();
-    ImGui::BeginDisabled(selected_runtime_package_names_.empty());
+    const bool can_modify_packages = PackageManager::CanModifyPackages();
+    const bool runtime_package_build_active = HasActiveRuntimePackageBuild();
+    ImGui::BeginDisabled(!can_modify_packages || selected_runtime_package_names_.empty());
     if (ImGui::Button("Load Selected")) {
       std::vector<std::string> selected_packages(selected_runtime_package_names_.begin(),
                                                  selected_runtime_package_names_.end());
@@ -575,149 +925,384 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
+    ImGui::BeginDisabled(!can_modify_packages);
     if (ImGui::Button("Load All")) {
       ApplicationContext::Get().QueueEndOfLoopAction([]() {
         PackageManager::LoadAll();
       });
     }
+    ImGui::EndDisabled();
+    if (!can_modify_packages) {
+      ImGui::TextUnformatted("Package changes are disabled while the application is playing, stepping, or paused.");
+    }
 
     const auto search_paths = PackageManager::GetSearchPaths();
     const auto available_packages = PackageManager::GetAvailablePackages();
     const auto loaded_packages = PackageManager::GetLoadedPackages();
+    const auto available_count = static_cast<size_t>(
+        std::count_if(available_packages.begin(), available_packages.end(), [](const AvailablePackageInfo& package) {
+          return !package.loaded;
+        }));
 
-    ImGui::Text("Available: %zu", available_packages.size());
+    ImGui::Text("Available: %zu", available_count);
     ImGui::SameLine();
     ImGui::Text("Loaded: %zu", loaded_packages.size());
 
-    if (ImGui::TreeNode("Search paths")) {
-      for (const auto& path : search_paths) {
-        ImGui::BulletText("%s", path.string().c_str());
+    std::unordered_map<std::string, const AvailablePackageInfo*> available_by_name;
+    std::unordered_map<std::string, const LoadedPackageInfo*> loaded_by_name;
+    available_by_name.reserve(available_packages.size());
+    loaded_by_name.reserve(loaded_packages.size());
+    for (const auto& package : available_packages) {
+      available_by_name[package.name] = &package;
+      if (package.loaded || !package.library_exists) {
+        selected_runtime_package_names_.erase(package.name);
       }
-      ImGui::TreePop();
+    }
+    for (const auto& package : loaded_packages) {
+      loaded_by_name[package.name] = &package;
     }
 
-    ImGui::Separator();
-    ImGui::TextUnformatted("Available Packages");
-    if (ImGui::BeginChild("AvailablePackages", ImVec2(0, 260), true)) {
-      if (available_packages.empty()) {
-        ImGui::TextUnformatted("No package manifests found.");
+    const auto find_available_package = [&](const std::string& package_name) -> const AvailablePackageInfo* {
+      const auto search = available_by_name.find(package_name);
+      if (search == available_by_name.end() || search->second->loaded) {
+        return nullptr;
       }
+      return search->second;
+    };
+    const auto find_loaded_package = [&](const std::string& package_name) -> const LoadedPackageInfo* {
+      const auto search = loaded_by_name.find(package_name);
+      return search == loaded_by_name.end() ? nullptr : search->second;
+    };
+    const auto select_available_package = [&](const std::string& package_name) {
+      inspected_runtime_package_source_ = RuntimePackageInspectionSource::Available;
+      inspected_runtime_package_name_ = package_name;
+    };
+    const auto select_loaded_package = [&](const std::string& package_name) {
+      inspected_runtime_package_source_ = RuntimePackageInspectionSource::Loaded;
+      inspected_runtime_package_name_ = package_name;
+    };
+    const auto select_first_package = [&]() {
       for (const auto& package : available_packages) {
-        const bool can_load = !package.loaded && package.library_exists;
-        if (!can_load) {
-          selected_runtime_package_names_.erase(package.name);
+        if (!package.loaded) {
+          select_available_package(package.name);
+          return;
         }
+      }
+      if (!loaded_packages.empty()) {
+        select_loaded_package(loaded_packages.front().name);
+        return;
+      }
+      inspected_runtime_package_name_.clear();
+    };
 
-        bool selected = selected_runtime_package_names_.find(package.name) != selected_runtime_package_names_.end();
-        ImGui::PushID(package.name.c_str());
-        ImGui::BeginDisabled(!can_load);
-        if (ImGui::Checkbox("##Select", &selected)) {
-          if (selected) {
-            selected_runtime_package_names_.insert(package.name);
-          } else {
-            selected_runtime_package_names_.erase(package.name);
-          }
+    const auto start_runtime_package_build = [&](const RuntimePackageCMakeBuildRequest& request) {
+      RuntimePackageBuildJob job;
+      job.future = std::async(std::launch::async, [request]() {
+        const auto cmake_result = RunRuntimePackageBuild(request);
+        RuntimePackageBuildResult result;
+        result.success = cmake_result.success;
+        result.exit_code = cmake_result.exit_code;
+        result.command = cmake_result.command;
+        result.output = cmake_result.output;
+        result.error = cmake_result.error;
+        return result;
+      });
+      runtime_package_build_jobs_[request.package_name] = std::move(job);
+    };
+
+    const auto draw_runtime_package_build_controls = [&](const std::string& package_name,
+                                                         const std::filesystem::path& package_runtime_path) {
+      std::string build_error;
+      const auto build_request = CreateRuntimePackageBuildRequest(package_name, package_runtime_path, build_error);
+      const auto build_job = runtime_package_build_jobs_.find(package_name);
+      const bool package_building =
+          build_job != runtime_package_build_jobs_.end() && !build_job->second.result.has_value();
+
+      if (package_building) {
+        ImGui::TextUnformatted("Build: running");
+      } else if (build_job != runtime_package_build_jobs_.end() && build_job->second.result.has_value()) {
+        const auto& result = *build_job->second.result;
+        ImGui::Text("Build: %s", result.success ? "succeeded" : "failed");
+        if (!result.command.empty()) {
+          ImGui::TextWrapped("Command: %s", result.command.c_str());
         }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-
-        auto package_label = package.name;
-        if (package.loaded) {
-          package_label += " (loaded)";
-        } else if (!package.library_exists) {
-          package_label += " (missing library)";
+        if (!result.success) {
+          ImGui::Text("Exit code: %d", result.exit_code);
         }
-
-        if (ImGui::TreeNodeEx("Package", ImGuiTreeNodeFlags_SpanAvailWidth, "%s", package_label.c_str())) {
-          ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
-          if (!package.description.empty()) {
-            ImGui::TextWrapped("%s", package.description.c_str());
-          }
-          if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
-            for (const auto& dependency : package.dependencies) {
-              ImGui::BulletText("%s", dependency.c_str());
-            }
-            ImGui::TreePop();
-          }
-          ImGui::TextUnformatted("Manifest:");
-          ImGui::SameLine();
-          ImGui::TextWrapped("%s", package.manifest_path.string().c_str());
-          ImGui::TextUnformatted("Library:");
-          ImGui::SameLine();
-          ImGui::TextWrapped("%s", package.library_path.string().c_str());
-          ImGui::BeginDisabled(!can_load);
-          if (ImGui::Button("Load")) {
-            const auto package_name = package.name;
-            selected_runtime_package_names_.erase(package.name);
-            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-              PackageManager::Load(package_name);
-            });
-          }
-          ImGui::EndDisabled();
+        if (!result.error.empty()) {
+          ImGui::TextWrapped("%s", result.error.c_str());
+        }
+        if (!result.output.empty() && ImGui::TreeNode("Build output")) {
+          ImGui::BeginChild("BuildOutput", ImVec2(0.0f, 140.0f), true);
+          ImGui::TextUnformatted(result.output.c_str());
+          ImGui::EndChild();
           ImGui::TreePop();
         }
-        ImGui::PopID();
       }
+
+      ImGui::BeginDisabled(package_building || runtime_package_build_active || !build_request.has_value());
+      if (ImGui::Button("Build")) {
+        start_runtime_package_build(*build_request);
+      }
+      ImGui::EndDisabled();
+      if (!build_request.has_value()) {
+        ImGui::TextWrapped("Build unavailable: %s", build_error.c_str());
+      } else if (runtime_package_build_active && !package_building) {
+        ImGui::TextUnformatted("Build disabled while another package is building.");
+      }
+    };
+
+    const auto draw_available_package_row = [&](const AvailablePackageInfo& package) {
+      const bool can_load = !package.loaded && package.library_exists;
+      bool selected = selected_runtime_package_names_.find(package.name) != selected_runtime_package_names_.end();
+      ImGui::PushID(package.name.c_str());
+      ImGui::BeginDisabled(!can_modify_packages || !can_load);
+      if (ImGui::Checkbox("##Select", &selected)) {
+        if (selected) {
+          selected_runtime_package_names_.insert(package.name);
+        } else {
+          selected_runtime_package_names_.erase(package.name);
+        }
+      }
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+
+      auto package_label = package.name;
+      if (!package.library_exists) {
+        package_label += " (missing library)";
+      }
+
+      const bool inspected = inspected_runtime_package_source_ == RuntimePackageInspectionSource::Available &&
+                             inspected_runtime_package_name_ == package.name;
+      if (ImGui::Selectable(package_label.c_str(), inspected)) {
+        select_available_package(package.name);
+      }
+      ImGui::PopID();
+    };
+
+    const auto loaded_dependent_name = [&](const std::string& package_name) {
+      for (const auto& loaded_package : loaded_packages) {
+        if (loaded_package.name == package_name) {
+          continue;
+        }
+        if (std::find(loaded_package.dependencies.begin(), loaded_package.dependencies.end(), package_name) !=
+            loaded_package.dependencies.end()) {
+          return loaded_package.name;
+        }
+      }
+      return std::string();
+    };
+
+    const auto draw_loaded_package_row = [&](const LoadedPackageInfo& package) {
+      ImGui::PushID(package.name.c_str());
+      const bool inspected = inspected_runtime_package_source_ == RuntimePackageInspectionSource::Loaded &&
+                             inspected_runtime_package_name_ == package.name;
+      if (ImGui::Selectable(package.name.c_str(), inspected)) {
+        select_loaded_package(package.name);
+      }
+      ImGui::PopID();
+    };
+
+    const auto draw_path = [](const char* label, const std::filesystem::path& path) {
+      const auto path_string = path.string();
+      ImGui::TextUnformatted(label);
+      ImGui::SameLine();
+      ImGui::TextWrapped("%s", path_string.c_str());
+    };
+    const auto draw_available_dependencies = [&](const std::vector<std::string>& dependencies) {
+      ImGui::TextUnformatted("Dependencies:");
+      if (dependencies.empty()) {
+        ImGui::BulletText("%s", "None");
+        return;
+      }
+      for (const auto& dependency : dependencies) {
+        std::string status;
+        if (const auto search = available_by_name.find(dependency); search != available_by_name.end()) {
+          if (search->second->loaded) {
+            status = " (loaded)";
+          } else if (!search->second->library_exists) {
+            status = " (missing library)";
+          }
+        } else {
+          status = " (missing manifest)";
+        }
+        ImGui::BulletText("%s%s", dependency.c_str(), status.c_str());
+      }
+    };
+    const auto draw_loaded_dependencies = [&](const std::vector<std::string>& dependencies) {
+      ImGui::TextUnformatted("Dependencies:");
+      if (dependencies.empty()) {
+        ImGui::BulletText("%s", "None");
+        return;
+      }
+      for (const auto& dependency : dependencies) {
+        const auto loaded_search = loaded_by_name.find(dependency);
+        ImGui::BulletText("%s%s", dependency.c_str(),
+                          loaded_search == loaded_by_name.end() ? " (not loaded)" : " (loaded)");
+      }
+    };
+    const auto draw_type_list = [](const char* label, const std::vector<std::string>& type_names) {
+      if (type_names.empty()) {
+        return;
+      }
+      if (ImGui::TreeNode(label)) {
+        for (const auto& type_name : type_names) {
+          ImGui::BulletText("%s", type_name.c_str());
+        }
+        ImGui::TreePop();
+      }
+    };
+
+    const auto draw_available_package_inspection = [&](const AvailablePackageInfo& package) {
+      const bool can_load = !package.loaded && package.library_exists;
+      ImGui::PushID(package.name.c_str());
+      ImGui::Text("Name: %s", package.name.c_str());
+      ImGui::Text("Status: %s", package.library_exists ? "Available" : "Missing library");
+      ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+      if (!package.description.empty()) {
+        ImGui::TextWrapped("%s", package.description.c_str());
+      }
+      ImGui::Separator();
+      draw_available_dependencies(package.dependencies);
+      ImGui::Separator();
+      draw_path("Manifest:", package.manifest_path);
+      draw_path("Library:", package.library_path);
+      ImGui::Separator();
+      draw_runtime_package_build_controls(package.name, package.manifest_path);
+      ImGui::BeginDisabled(!can_modify_packages || !can_load);
+      if (ImGui::Button("Load")) {
+        const auto package_name = package.name;
+        selected_runtime_package_names_.erase(package.name);
+        ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+          PackageManager::Load(package_name);
+        });
+      }
+      ImGui::EndDisabled();
+      ImGui::PopID();
+    };
+
+    const auto draw_loaded_package_inspection = [&](const LoadedPackageInfo& package) {
+      const auto dependent_package_name = loaded_dependent_name(package.name);
+      ImGui::PushID(package.name.c_str());
+      ImGui::Text("Name: %s", package.name.c_str());
+      ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
+      ImGui::Text("Live objects: %zu", package.live_object_count);
+      if (!dependent_package_name.empty()) {
+        ImGui::TextWrapped("Reload and unload are disabled because %s depends on this package.",
+                           dependent_package_name.c_str());
+      }
+      if (!package.description.empty()) {
+        ImGui::TextWrapped("%s", package.description.c_str());
+      }
+      ImGui::Separator();
+      draw_loaded_dependencies(package.dependencies);
+      ImGui::Separator();
+      draw_path("Original path:", package.original_path);
+      draw_path("Loaded path:", package.loaded_path);
+      ImGui::Separator();
+      draw_type_list("Private components", package.private_component_types);
+      draw_type_list("Assets", package.asset_types);
+      draw_type_list("Data components", package.data_component_types);
+      draw_type_list("Systems", package.system_types);
+      draw_type_list("Layers", package.layer_types);
+      ImGui::Separator();
+      draw_runtime_package_build_controls(package.name, package.original_path);
+      const bool can_reload_or_unload = can_modify_packages && dependent_package_name.empty();
+      ImGui::BeginDisabled(!can_reload_or_unload);
+      if (ImGui::Button("Reload")) {
+        const auto package_name = package.name;
+        ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+          PackageManager::Reload(package_name);
+        });
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Unload")) {
+        const auto package_name = package.name;
+        ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
+          PackageManager::Unload(package_name);
+        });
+      }
+      ImGui::EndDisabled();
+      ImGui::PopID();
+    };
+
+    const AvailablePackageInfo* inspected_available_package = nullptr;
+    const LoadedPackageInfo* inspected_loaded_package = nullptr;
+    const auto resolve_inspected_package = [&]() {
+      inspected_available_package = nullptr;
+      inspected_loaded_package = nullptr;
+      if (inspected_runtime_package_name_.empty()) {
+        return;
+      }
+      if (inspected_runtime_package_source_ == RuntimePackageInspectionSource::Available) {
+        inspected_available_package = find_available_package(inspected_runtime_package_name_);
+      } else {
+        inspected_loaded_package = find_loaded_package(inspected_runtime_package_name_);
+      }
+    };
+    if (inspected_runtime_package_name_.empty()) {
+      select_first_package();
     }
-    ImGui::EndChild();
+    resolve_inspected_package();
+    if (!inspected_available_package && !inspected_loaded_package && !inspected_runtime_package_name_.empty()) {
+      const auto previous_package_name = inspected_runtime_package_name_;
+      if (const auto loaded_package = find_loaded_package(previous_package_name)) {
+        select_loaded_package(loaded_package->name);
+      } else if (const auto available_package = find_available_package(previous_package_name)) {
+        select_available_package(available_package->name);
+      } else {
+        select_first_package();
+      }
+      resolve_inspected_package();
+    }
 
     ImGui::Separator();
-    ImGui::TextUnformatted("Loaded Packages");
-    if (ImGui::BeginChild("LoadedPackages", ImVec2(0, 0), true)) {
+    const auto content_region = ImGui::GetContentRegionAvail();
+    const float package_list_width = std::min(420.0f, std::max(260.0f, content_region.x * 0.36f));
+    if (ImGui::BeginChild("RuntimePackageListPanel", ImVec2(package_list_width, 0.0f), true)) {
+      ImGui::TextUnformatted("Package List");
+      ImGui::Separator();
+      ImGui::Text("Available (%zu)", available_count);
+      if (available_count == 0) {
+        ImGui::TextUnformatted("No unloaded package manifests found.");
+      }
+      ImGui::PushID("AvailablePackages");
+      for (const auto& package : available_packages) {
+        if (package.loaded) {
+          continue;
+        }
+        draw_available_package_row(package);
+      }
+      ImGui::PopID();
+      ImGui::Spacing();
+      ImGui::Separator();
+      ImGui::Text("Loaded (%zu)", loaded_packages.size());
       if (loaded_packages.empty()) {
         ImGui::TextUnformatted("No runtime packages loaded.");
       }
+      ImGui::PushID("LoadedPackages");
       for (const auto& package : loaded_packages) {
-        if (ImGui::TreeNode(package.name.c_str())) {
-          ImGui::Text("Version: %s", package.version.empty() ? "Unknown" : package.version.c_str());
-          ImGui::Text("Live objects: %zu", package.live_object_count);
-          if (!package.description.empty()) {
-            ImGui::TextWrapped("%s", package.description.c_str());
+        draw_loaded_package_row(package);
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    if (ImGui::BeginChild("RuntimePackageInspectionPanel", ImVec2(0.0f, 0.0f), true)) {
+      ImGui::TextUnformatted("Package Inspection");
+      ImGui::Separator();
+      if (inspected_available_package) {
+        draw_available_package_inspection(*inspected_available_package);
+      } else if (inspected_loaded_package) {
+        draw_loaded_package_inspection(*inspected_loaded_package);
+      } else {
+        ImGui::TextUnformatted("Select a package from the list.");
+        if (!search_paths.empty()) {
+          ImGui::Spacing();
+          ImGui::TextUnformatted("Search paths:");
+          for (const auto& path : search_paths) {
+            ImGui::BulletText("%s", path.string().c_str());
           }
-          if (!package.dependencies.empty() && ImGui::TreeNode("Dependencies")) {
-            for (const auto& dependency : package.dependencies) {
-              ImGui::BulletText("%s", dependency.c_str());
-            }
-            ImGui::TreePop();
-          }
-          ImGui::TextUnformatted("Original path:");
-          ImGui::SameLine();
-          ImGui::TextWrapped("%s", package.original_path.string().c_str());
-          ImGui::TextUnformatted("Loaded path:");
-          ImGui::SameLine();
-          ImGui::TextWrapped("%s", package.loaded_path.string().c_str());
-
-          const auto draw_type_list = [](const char* label, const std::vector<std::string>& type_names) {
-            if (type_names.empty()) {
-              return;
-            }
-            if (ImGui::TreeNode(label)) {
-              for (const auto& type_name : type_names) {
-                ImGui::BulletText("%s", type_name.c_str());
-              }
-              ImGui::TreePop();
-            }
-          };
-          draw_type_list("Private components", package.private_component_types);
-          draw_type_list("Assets", package.asset_types);
-          draw_type_list("Data components", package.data_component_types);
-          draw_type_list("Systems", package.system_types);
-          draw_type_list("Layers", package.layer_types);
-
-          if (ImGui::Button(("Reload##" + package.name).c_str())) {
-            const auto package_name = package.name;
-            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-              PackageManager::Reload(package_name);
-            });
-          }
-          ImGui::SameLine();
-          if (ImGui::Button(("Unload##" + package.name).c_str())) {
-            const auto package_name = package.name;
-            ApplicationContext::Get().QueueEndOfLoopAction([package_name]() {
-              PackageManager::Unload(package_name);
-            });
-          }
-          ImGui::TreePop();
         }
       }
     }
@@ -725,6 +1310,45 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
   }
   show_package_manager_window = package_manager_open;
   ImGui::End();
+}
+
+void EditorLayer::PollRuntimePackageBuildJobs() {
+  bool refresh_packages = false;
+  for (auto& [package_name, job] : runtime_package_build_jobs_) {
+    if (job.result.has_value() || !job.future.valid()) {
+      continue;
+    }
+    if (job.future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+      continue;
+    }
+    try {
+      job.result = job.future.get();
+    } catch (const std::exception& e) {
+      RuntimePackageBuildResult result;
+      result.error = e.what();
+      job.result = std::move(result);
+    }
+    if (job.result->success) {
+      refresh_packages = true;
+      EVOENGINE_LOG("Runtime package build succeeded: " + package_name)
+    } else {
+      EVOENGINE_ERROR("Runtime package build failed: " + package_name)
+    }
+  }
+
+  if (refresh_packages) {
+    PackageManager::ScanAvailablePackages();
+    runtime_package_manager_scanned_ = true;
+  }
+}
+
+bool EditorLayer::HasActiveRuntimePackageBuild() const {
+  for (const auto& [_, job] : runtime_package_build_jobs_) {
+    if (!job.result.has_value() && job.future.valid()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void EditorLayer::HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene) {
@@ -754,21 +1378,32 @@ void EditorLayer::DrawViewportWindows(const std::shared_ptr<Scene>& scene) {
 
 void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                              const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (!scene) {
+  if (!show_layer_inspector_window) {
     return;
   }
-  const auto layers = ApplicationContext::Get().GetLayers();
-  for (const auto& layer : layers) {
-    if (layer->enable_inspection) {
-      ImGui::Begin(layer->layer_name_.c_str());
-      layer->OnInspect(editor_layer);
-      ImGui::End();
+  ApplyInspectorWindowClass(dock_space_id);
+  if (ImGui::Begin("Layer Inspector", &show_layer_inspector_window)) {
+    if (!scene) {
+      ImGui::TextUnformatted("No active scene.");
+    } else if (ImGui::BeginTabBar("LayerInspectorTabs")) {
+      const auto layers = ApplicationContext::Get().GetLayers();
+      for (const auto& layer : layers) {
+        if (layer->enable_inspection && ImGui::BeginTabItem(layer->layer_name_.c_str())) {
+          layer->OnInspect(editor_layer);
+          ImGui::EndTabItem();
+        }
+      }
+      ImGui::EndTabBar();
     }
   }
+  ImGui::End();
 }
 
 void EditorLayer::DrawProjectInspectionWindows(const std::shared_ptr<EditorLayer>& editor_layer) {
   Resources::OnInspect(editor_layer);
+  if (AssetManager::GetInstance().show_asset_inspector_) {
+    ApplyInspectorWindowClass(dock_space_id);
+  }
   AssetManager::OnInspect(editor_layer);
   ProjectManager::OnInspect(editor_layer);
 }
@@ -787,6 +1422,7 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Entity Inspector", &show_entity_inspector_window);
   ImGui::Checkbox("Console", &show_console_window);
   ImGui::Checkbox("Runtime Packages", &show_package_manager_window);
+  ImGui::Checkbox("Layer Inspector", &show_layer_inspector_window);
 
   if (ImGui::TreeNode("Scene camera settings")) {
     ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
@@ -815,7 +1451,16 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 void EditorLayer::DrawMainMenuBar() {
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
   if (ImGui::BeginMainMenuBar()) {
+    if (ImGui::BeginMenu("Application")) {
+      if (ImGui::MenuItem("Exit")) {
+        ApplicationContext::Get().End();
+      }
+      ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("View")) {
+      ImGui::Checkbox("Resources", &Resources::GetInstance().show_resources_);
+      ImGui::Checkbox("Asset Inspector", &AssetManager::GetInstance().show_asset_inspector_);
+      ImGui::Checkbox("Layer Inspector", &show_layer_inspector_window);
       if (ImGui::BeginMenu("Layer Inspection")) {
         for (const auto& layer : ApplicationContext::Get().GetLayers()) {
           ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
@@ -823,14 +1468,10 @@ void EditorLayer::DrawMainMenuBar() {
         ImGui::EndMenu();
       }
       ImGui::MenuItem("Runtime Packages", nullptr, &show_package_manager_window);
+      ProjectManager::DrawViewMenuItems();
       ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Application")) {
-      if (ImGui::MenuItem("Exit")) {
-        ApplicationContext::Get().End();
-      }
-      ImGui::EndMenu();
-    }
+    ProjectManager::DrawProjectMenu();
 
     if (show_play_buttons) {
       ImGui::Separator();

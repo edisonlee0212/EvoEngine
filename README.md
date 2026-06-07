@@ -168,6 +168,13 @@ python Scripts\install_apps.py
 python Scripts\install_apps.py --config Debug
 ```
 
+Rebuild one runtime package in the build tree:
+
+```bat
+cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target EcoSysLabPackage
+cmake --build out/build/vs2026-x64 --config Debug --target DigitalAgriculturePackage
+```
+
 Linux requirements:
 
 - `clang-14`
@@ -232,6 +239,8 @@ Runtime package libraries are copied to the matching app `Packages` directory, f
 ```text
 out/build/vs2026-x64/EvoEngine_App/RelWithDebInfo/Packages/
 ```
+
+To rebuild one runtime package without rebuilding every app, build the package target named `<PackageName>Package`. The editor Runtime Package Manager can also run this CMake target directly for packages loaded from the build-tree `Packages` directory. When the editor is running from an installed app runtime, the Build button uses the matching `out/build/<preset>` tree and copies the rebuilt package manifest, library, and PDB back into `bin/Packages`.
 
 From a terminal, use:
 
@@ -312,7 +321,7 @@ registrar.RegisterSystem<MySystem>("MySystem");
 registrar.RegisterLayer<MyLayer>("My Layer");
 ```
 
-Package unloading is guarded. Reload/unload is refused while the app is playing or stepping, and it is also refused while package-owned private component instances or other package-created objects still exist. On Windows, packages are loaded from a shadow copy so the original DLL can usually be rebuilt while the app process remains open.
+Package unloading is guarded. Load/reload/unload is refused while the app is playing, paused, or stepping, and reload/unload is also refused while package-owned private component instances, package-created objects, or dependent runtime packages still exist. On Windows, packages are loaded from a shadow copy, so the original DLL can usually be rebuilt while the app process remains open. For build-tree iteration, click `Build` for the package in the editor Runtime Package Manager, stop play mode, then click `Reload` for the loaded package.
 
 ### License
 

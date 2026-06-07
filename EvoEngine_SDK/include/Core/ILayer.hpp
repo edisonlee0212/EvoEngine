@@ -151,7 +151,7 @@ class ILayer {
   /**
    * @brief Indicates whether the layer enables editor inspection.
    */
-  bool enable_inspection = false;
+  bool enable_inspection = true;
 
   /**
    * @brief Retrieves the Scene associated with this layer.

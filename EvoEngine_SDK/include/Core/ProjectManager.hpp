@@ -105,6 +105,9 @@ class ProjectManager {
    */
   static void LoadAllPendingAssets();
 
+  static void DrawViewMenuItems();
+  static void DrawProjectMenu();
+
  public:
   bool show_project_window = true;  ///< Indicates whether the project window should be shown in the editor.
 

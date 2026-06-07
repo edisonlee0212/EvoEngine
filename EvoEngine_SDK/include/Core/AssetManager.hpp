@@ -165,6 +165,7 @@ class AssetManager {
    * @param editor_layer The editor layer instance used for displaying assets.
    */
   static void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  static void DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer);
   /**
    * @brief Cleans up resources when destroying the AssetManager.
    */
