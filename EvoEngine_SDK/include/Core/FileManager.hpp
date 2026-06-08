@@ -3,7 +3,11 @@
 #include "IAsset.hpp"
 #include "Serialization.hpp"
 
+#include <filesystem>
+#include <future>
+
 namespace evo_engine {
+class ProjectContentBrowserPanel;
 class Folder;
 /**
  * @brief Represents a file in the asset management system.
@@ -89,8 +93,13 @@ class File {
  private:
   friend class Folder;
   friend class ProjectManager;
+  friend class ProjectContentBrowserPanel;
   friend class IAsset;
   friend class AssetManager;
+
+  void InvalidateThumbnail();
+  void SyncThumbnailSourceWriteTime();
+  [[nodiscard]] std::shared_ptr<Texture2D> GetFallbackThumbnail() const;
 
   std::string asset_file_name_ = {};       /**< The name of the asset file. */
   std::string asset_extension_ = {};       /**< The extension of the asset file. */
@@ -99,8 +108,12 @@ class File {
   std::weak_ptr<Folder> folder_;           /**< Weak pointer to the parent folder. */
   std::weak_ptr<File> self_;               /**< Weak pointer to this file instance. */
 
-  std::shared_ptr<IAsset> asset_;        /**< Pointer to the associated asset. */
-  std::shared_ptr<Texture2D> thumbnail_; /**< Pointer to the file thumbnail texture. */
+  std::shared_ptr<IAsset> asset_;                                /**< Pointer to the associated asset. */
+  std::shared_ptr<Texture2D> thumbnail_;                         /**< Pointer to the generated file thumbnail. */
+  std::shared_future<std::shared_ptr<IAsset>> thumbnail_future_; /**< In-flight asset load for thumbnail generation. */
+  std::filesystem::file_time_type thumbnail_source_write_time_;  /**< Last source write time used for thumbnail. */
+  bool thumbnail_source_write_time_initialized_ = false;         /**< Whether source write time has been captured. */
+  bool thumbnail_asset_reload_required_ = false; /**< Whether the loaded asset must reload before thumbnail. */
 };
 
 /**
@@ -110,6 +123,7 @@ class Folder {
   friend class IAsset;
   friend class EditorLayer;
   friend class ProjectManager;
+  friend class ProjectContentBrowserPanel;
   friend class AssetManager;
 
   std::string name_;                                       /**< The name of the folder. */

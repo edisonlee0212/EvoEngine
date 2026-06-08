@@ -672,6 +672,8 @@ struct convert<glm::u16vec4> {
 };
 }  // namespace YAML
 namespace evo_engine {
+class ProjectContentBrowserPanel;
+
 /**
  * @brief Application-owned registry responsible for serialization and reflected type registration.
  */
@@ -686,6 +688,7 @@ class Serialization final {
   friend class ProjectManager;
   friend class ClassRegistry;
   friend class EditorLayer;
+  friend class ProjectContentBrowserPanel;
   friend class Scene;
   friend class PackageManager;
   friend class PackageRegistrar;

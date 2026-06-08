@@ -678,7 +678,8 @@ class RenderInstanceStorage {
    * @param scene The scene from which to build render instances.
    * @param world_bound The world bounds for the scene.
    */
-  void BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound);
+  void BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
+                      bool include_editor_cameras = true);
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.

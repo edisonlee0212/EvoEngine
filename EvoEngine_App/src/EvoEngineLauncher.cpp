@@ -1,4 +1,5 @@
 #include "Application.hpp"
+#include "EditorTheme.hpp"
 #include "ILayer.hpp"
 #include "ImGuiLayer.hpp"
 #include "LauncherUtils.hpp"
@@ -68,31 +69,58 @@ void AppendTestLog(const std::string& line) {
 }
 
 ImVec4 ColorTextMuted() {
-  return {0.62f, 0.66f, 0.72f, 1.0f};
+  return ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+}
+
+float BackgroundLuminance() {
+  const ImVec4 background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+  return background.x * 0.299f + background.y * 0.587f + background.z * 0.114f;
+}
+
+bool UsesLightBackground() {
+  return BackgroundLuminance() > 0.5f;
 }
 
 ImVec4 ColorSuccess() {
-  return {0.35f, 0.78f, 0.48f, 1.0f};
+  return UsesLightBackground() ? ImVec4(0.10f, 0.48f, 0.22f, 1.0f) : ImVec4(0.35f, 0.78f, 0.48f, 1.0f);
 }
 
 ImVec4 ColorWarning() {
-  return {0.95f, 0.67f, 0.24f, 1.0f};
+  return UsesLightBackground() ? ImVec4(0.70f, 0.38f, 0.04f, 1.0f) : ImVec4(0.95f, 0.67f, 0.24f, 1.0f);
 }
 
 ImVec4 ColorError() {
-  return {1.0f, 0.35f, 0.35f, 1.0f};
+  return UsesLightBackground() ? ImVec4(0.74f, 0.13f, 0.13f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
 }
 
 ImVec4 ColorPanel() {
-  return {0.105f, 0.115f, 0.135f, 1.0f};
+  return ImGui::GetStyleColorVec4(ImGuiCol_ChildBg);
 }
 
 ImVec4 ColorPanelAlt() {
-  return {0.13f, 0.145f, 0.17f, 1.0f};
+  return ImGui::GetStyleColorVec4(ImGuiCol_FrameBg);
 }
 
 ImVec4 ColorBorder() {
-  return {0.25f, 0.28f, 0.33f, 1.0f};
+  return ImGui::GetStyleColorVec4(ImGuiCol_Border);
+}
+
+ImVec4 ColorSelectedPanel() {
+  return ImGui::GetStyleColorVec4(ImGuiCol_Header);
+}
+
+ImVec4 ColorSelectedBorder() {
+  return ImGui::GetStyleColorVec4(ImGuiCol_TextLink);
+}
+
+void DrawThemeMenuItems() {
+  const auto current_theme = editor_theme::GetCurrentTheme();
+  if (ImGui::MenuItem("Dark", nullptr, current_theme == editor_theme::Theme::Dark)) {
+    editor_theme::Apply(editor_theme::Theme::Dark);
+  }
+  if (ImGui::MenuItem("Light", nullptr, current_theme == editor_theme::Theme::Light)) {
+    editor_theme::Apply(editor_theme::Theme::Light);
+  }
 }
 
 constexpr const char* kRecentProjectsWindow = "Recent Projects";
@@ -164,6 +192,7 @@ bool RevealProjectInExplorer(const std::filesystem::path& project_path, std::str
 class LauncherLayer final : public ILayer {
  protected:
   void OnCreate() override {
+    editor_theme::ApplyDefault();
     if (const char* parent_folder = std::getenv("EVOENGINE_LAUNCHER_TEST_PARENT_FOLDER")) {
       parent_folder_ = parent_folder;
     }
@@ -207,6 +236,13 @@ class LauncherLayer final : public ILayer {
       if (ImGui::BeginMenu("Project")) {
         if (ImGui::MenuItem("Exit")) {
           ApplicationContext::Get().End();
+        }
+        ImGui::EndMenu();
+      }
+      if (ImGui::BeginMenu("View")) {
+        if (ImGui::BeginMenu("Theme")) {
+          DrawThemeMenuItems();
+          ImGui::EndMenu();
         }
         ImGui::EndMenu();
       }
@@ -477,8 +513,8 @@ class LauncherLayer final : public ILayer {
     const bool selected = selected_project_template_index_ == static_cast<int>(template_index);
     const bool available = IsTemplateAvailable(project_template);
     ImGui::PushID(static_cast<int>(template_index));
-    ImGui::PushStyleColor(ImGuiCol_Border, selected ? ImVec4(0.42f, 0.63f, 0.92f, 1.0f) : ColorBorder());
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, selected ? ImVec4(0.15f, 0.18f, 0.23f, 1.0f) : ColorPanelAlt());
+    ImGui::PushStyleColor(ImGuiCol_Border, selected ? ColorSelectedBorder() : ColorBorder());
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, selected ? ColorSelectedPanel() : ColorPanelAlt());
     ImGui::BeginChild("TemplateCard", ImVec2(width, 124.0f), true);
     ImGui::TextUnformatted(project_template.name.c_str());
     if (project_template.startup_runtime_packages.empty()) {

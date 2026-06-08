@@ -2,6 +2,7 @@
 #pragma once
 #include "Application.hpp"
 #include "Camera.hpp"
+#include "EditorPanelManager.hpp"
 #include "Entity.hpp"
 #include "GraphicsResources.hpp"
 #include "ILayer.hpp"
@@ -789,6 +790,7 @@ class EditorLayer : public ILayer {
    * @brief Loads icons for the editor.
    */
   void LoadIcons();
+  void RegisterEditorPanels();
 
   /**
    * @brief Called during the creation of the EditorLayer.
@@ -821,6 +823,7 @@ class EditorLayer : public ILayer {
    * @brief Draws the editor menu bar.
    */
   void DrawMainMenuBar();
+  void RequestDefaultEditorLayout();
 
   void UpdateCameraTransition();
   void PrepareFrameState();
@@ -832,10 +835,9 @@ class EditorLayer : public ILayer {
   void DrawConsoleWindow();
   void DrawRuntimePackageManagerWindow();
   void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
-  void DrawViewportWindows(const std::shared_ptr<Scene>& scene);
+  void DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene);
   void DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                   const std::shared_ptr<EditorLayer>& editor_layer);
-  void DrawProjectInspectionWindows(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Displays the scene camera window.
@@ -868,6 +870,8 @@ class EditorLayer : public ILayer {
 
   std::vector<ConsoleMessage> console_messages_; /**< List of console messages. */
   std::mutex console_message_mutex_;             /**< Mutex for accessing console messages. */
+  EditorPanelManager editor_panel_manager_;
+  bool dock_layout_reset_pending_ = false;
 
   bool runtime_package_manager_scanned_ = false;                   /**< Whether package manifests were scanned. */
   std::unordered_set<std::string> selected_runtime_package_names_; /**< Selected runtime packages for bulk loading. */

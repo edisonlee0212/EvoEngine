@@ -225,9 +225,16 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   }
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto camera_position = global_transform.GetPosition();
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    auto light_probe = scene->environment.GetLightProbe(camera_position);
-    auto reflection_probe = scene->environment.GetReflectionProbe(camera_position);
+    auto scene = GetScene();
+    if (!scene) {
+      scene = ApplicationContext::Get().GetActiveScene();
+    }
+    std::shared_ptr<LightProbe> light_probe;
+    std::shared_ptr<ReflectionProbe> reflection_probe;
+    if (scene) {
+      light_probe = scene->environment.GetLightProbe(camera_position);
+      reflection_probe = scene->environment.GetReflectionProbe(camera_position);
+    }
     if (!light_probe) {
       light_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->light_probe.Get<LightProbe>();
     }

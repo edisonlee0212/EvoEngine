@@ -17,6 +17,7 @@ class EditorLayer;
 class AssetRef;
 class File;
 class Folder;
+class ProjectContentBrowserPanel;
 class Texture2D;
 
 /**
@@ -49,6 +50,7 @@ class IAsset : public ISerializable {
   friend class EditorLayer;
   friend class AssetRegistry;
   friend class ProjectManager;
+  friend class ProjectContentBrowserPanel;
   friend class File;
   friend class Folder;
   friend class AssetManager;

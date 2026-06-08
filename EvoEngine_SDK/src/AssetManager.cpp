@@ -1,16 +1,44 @@
 #include "AssetManager.hpp"
+#include "AssetThumbnailProvider.hpp"
 #include "EditorLayer.hpp"
 #include "FileManager.hpp"
 #include "Jobs.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
+#include "Texture2D.hpp"
 #include "UnknownPrivateComponent.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 
 using namespace evo_engine;
 
 namespace {
+struct InspectorThumbnailCache {
+  uint64_t asset_handle = 0;
+  uint32_t asset_version = 0;
+  glm::vec2 subject_rotation = glm::vec2(0.0f);
+  float camera_zoom = 1.0f;
+  std::shared_ptr<Texture2D> thumbnail;
+};
+
+struct InspectorPreviewInteraction {
+  uint64_t asset_handle = 0;
+  bool interaction_mode = false;
+  glm::vec2 subject_rotation = glm::vec2(0.0f);
+  float camera_zoom = 1.0f;
+};
+
+InspectorThumbnailCache inspector_thumbnail_cache;
+InspectorPreviewInteraction inspector_preview_interaction;
+
+constexpr float kInspectorPreviewRotationSensitivity = 0.01f;
+constexpr float kInspectorPreviewMinPitch = -1.4f;
+constexpr float kInspectorPreviewMaxPitch = 1.4f;
+constexpr float kInspectorPreviewMinZoom = 0.4f;
+constexpr float kInspectorPreviewMaxZoom = 3.0f;
+
 std::shared_future<std::shared_ptr<IAsset>> MakeReadyAssetFuture(std::shared_ptr<IAsset> asset) {
   std::promise<std::shared_ptr<IAsset>> promise;
   promise.set_value(std::move(asset));
@@ -39,6 +67,162 @@ std::string AssetLoadStateName(const AssetManager::AssetLoadState state) {
       return "Unknown";
   }
 }
+
+bool IsInspectorPreviewInteractive(const std::shared_ptr<IAsset>& asset) {
+  if (!asset) {
+    return false;
+  }
+  const auto& type_name = asset->GetTypeName();
+  return type_name == "Material" || type_name == "Mesh";
+}
+
+InspectorPreviewInteraction& GetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset) {
+  const uint64_t asset_handle = asset ? asset->GetHandle().GetValue() : 0;
+  if (inspector_preview_interaction.asset_handle != asset_handle) {
+    inspector_preview_interaction = {};
+    inspector_preview_interaction.asset_handle = asset_handle;
+  }
+  return inspector_preview_interaction;
+}
+
+OffscreenPreviewSettings CreateInspectorPreviewSettings(const std::shared_ptr<IAsset>& asset) {
+  OffscreenPreviewSettings settings;
+  if (IsInspectorPreviewInteractive(asset)) {
+    const auto& preview_interaction = GetInspectorPreviewInteraction(asset);
+    settings.subject_rotation = preview_interaction.subject_rotation;
+    settings.camera_zoom = preview_interaction.camera_zoom;
+  }
+  return settings;
+}
+
+bool InspectorThumbnailCacheMatches(const uint64_t asset_handle, const uint32_t asset_version,
+                                    const OffscreenPreviewSettings& settings) {
+  return inspector_thumbnail_cache.asset_handle == asset_handle &&
+         inspector_thumbnail_cache.asset_version == asset_version &&
+         inspector_thumbnail_cache.subject_rotation == settings.subject_rotation &&
+         inspector_thumbnail_cache.camera_zoom == settings.camera_zoom;
+}
+
+std::shared_ptr<Texture2D> GetInspectorThumbnail(const std::shared_ptr<IAsset>& asset,
+                                                 const OffscreenPreviewSettings& settings) {
+  if (!asset || !AssetThumbnailProvider::SupportsGeneratedThumbnail(asset->GetTypeName())) {
+    inspector_thumbnail_cache = {};
+    return {};
+  }
+
+  const auto asset_handle = asset->GetHandle().GetValue();
+  const auto asset_version = asset->GetVersion();
+  if (InspectorThumbnailCacheMatches(asset_handle, asset_version, settings)) {
+    return inspector_thumbnail_cache.thumbnail;
+  }
+
+  inspector_thumbnail_cache.asset_handle = asset_handle;
+  inspector_thumbnail_cache.asset_version = asset_version;
+  inspector_thumbnail_cache.subject_rotation = settings.subject_rotation;
+  inspector_thumbnail_cache.camera_zoom = settings.camera_zoom;
+  inspector_thumbnail_cache.thumbnail = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
+  return inspector_thumbnail_cache.thumbnail;
+}
+
+void InvalidateInspectorThumbnailCache(const std::shared_ptr<IAsset>& asset) {
+  if (!asset) {
+    return;
+  }
+
+  if (inspector_thumbnail_cache.asset_handle == asset->GetHandle().GetValue()) {
+    inspector_thumbnail_cache = {};
+  }
+}
+
+void ResetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset,
+                                      InspectorPreviewInteraction& preview_interaction) {
+  const bool changed = preview_interaction.interaction_mode ||
+                       preview_interaction.subject_rotation != glm::vec2(0.0f) ||
+                       preview_interaction.camera_zoom != 1.0f;
+  preview_interaction.interaction_mode = false;
+  preview_interaction.subject_rotation = glm::vec2(0.0f);
+  preview_interaction.camera_zoom = 1.0f;
+  if (changed) {
+    InvalidateInspectorThumbnailCache(asset);
+  }
+}
+
+void DrawInspectorThumbnail(const std::shared_ptr<IAsset>& asset) {
+  auto& preview_interaction = GetInspectorPreviewInteraction(asset);
+  const bool interactive_preview = IsInspectorPreviewInteractive(asset);
+  const auto settings = CreateInspectorPreviewSettings(asset);
+  const auto thumbnail = GetInspectorThumbnail(asset, settings);
+  if (!thumbnail) {
+    return;
+  }
+
+  const float available_width = ImGui::GetContentRegionAvail().x;
+  const float preview_extent = available_width;
+  if (preview_extent <= 0.0f) {
+    return;
+  }
+
+  ImVec2 image_size(preview_extent, preview_extent);
+  const glm::vec2 texture_resolution = thumbnail->GetResolution();
+  if (texture_resolution.x > 0.0f && texture_resolution.y > 0.0f) {
+    if (texture_resolution.x > texture_resolution.y) {
+      image_size.y *= texture_resolution.y / texture_resolution.x;
+    } else {
+      image_size.x *= texture_resolution.x / texture_resolution.y;
+    }
+  }
+
+  ImGui::Separator();
+  ImGui::TextUnformatted("Preview");
+  ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (available_width - image_size.x) * 0.5f));
+  ImGui::InvisibleButton("##InspectorAssetPreview", image_size);
+  const bool hovered = ImGui::IsItemHovered();
+  const bool active = ImGui::IsItemActive();
+  const ImVec2 image_min = ImGui::GetItemRectMin();
+  const ImVec2 image_max = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddImage(thumbnail->GetImTextureId(), image_min, image_max, ImVec2(0, 1), ImVec2(1, 0));
+
+  if (!interactive_preview) {
+    return;
+  }
+
+  if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    preview_interaction.interaction_mode = !preview_interaction.interaction_mode;
+  }
+
+  if (preview_interaction.interaction_mode) {
+    if (!hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+      ResetInspectorPreviewInteraction(asset, preview_interaction);
+      return;
+    }
+    draw_list->AddRect(image_min, image_max, ImGui::GetColorU32(ImGuiCol_NavHighlight), 0.0f, 0, 2.0f);
+    if (hovered || active) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+    }
+
+    bool interaction_changed = false;
+    const auto& io = ImGui::GetIO();
+    if ((hovered || active) && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
+      const ImVec2 mouse_delta = io.MouseDelta;
+      if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f) {
+        preview_interaction.subject_rotation.x += mouse_delta.x * kInspectorPreviewRotationSensitivity;
+        preview_interaction.subject_rotation.y =
+            std::clamp(preview_interaction.subject_rotation.y + mouse_delta.y * kInspectorPreviewRotationSensitivity,
+                       kInspectorPreviewMinPitch, kInspectorPreviewMaxPitch);
+        interaction_changed = true;
+      }
+    }
+    if (hovered && io.MouseWheel != 0.0f) {
+      preview_interaction.camera_zoom = std::clamp(preview_interaction.camera_zoom * std::pow(1.12f, io.MouseWheel),
+                                                   kInspectorPreviewMinZoom, kInspectorPreviewMaxZoom);
+      interaction_changed = true;
+    }
+    if (interaction_changed) {
+      InvalidateInspectorThumbnailCache(asset);
+    }
+  }
+}
 }  // namespace
 
 bool AssetManager::AssetLoadSnapshot::Active() const {
@@ -53,9 +237,12 @@ void AssetManager::Initialize() {
 void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (editor_layer->inspecting_asset) {
     const auto& asset = editor_layer->inspecting_asset;
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0.5f, 0, 1));
+    bool asset_changed = false;
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
     ImGui::Button(asset->GetTitle().c_str());
-    ImGui::PopStyleColor(1);
+    ImGui::PopStyleColor(3);
     editor_layer->DraggableAsset(asset);
     ImGui::SameLine();
     ImGui::Text("Type:");
@@ -67,7 +254,7 @@ void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>&
       }
       ImGui::SameLine();
       if (ImGui::Button("Reload")) {
-        asset->Load();
+        asset_changed = asset->Load();
       }
     }
     ImGui::SameLine();
@@ -81,13 +268,26 @@ void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>&
     FileUtils::OpenFile(
         "Import...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
         [&](const std::filesystem::path& path) {
-          asset->Import(path);
+          asset_changed = asset->Import(path);
         },
         false);
 
+    if (asset_changed) {
+      InvalidateInspectorThumbnailCache(asset);
+      if (const auto file = asset->GetFileRecord().lock()) {
+        file->InvalidateThumbnail();
+      }
+    }
+    DrawInspectorThumbnail(asset);
+
     ImGui::Separator();
-    if (asset->OnInspect(editor_layer))
+    if (asset->OnInspect(editor_layer)) {
       asset->SetUnsaved();
+      InvalidateInspectorThumbnailCache(asset);
+      if (const auto file = asset->GetFileRecord().lock()) {
+        file->InvalidateThumbnail();
+      }
+    }
   } else {
     ImGui::Text("None");
   }

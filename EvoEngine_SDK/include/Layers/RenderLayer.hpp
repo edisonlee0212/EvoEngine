@@ -9,6 +9,7 @@
 #include "RenderInstanceStorage.hpp"
 namespace evo_engine {
 struct ApplicationInitializationSettings;
+class OffscreenPreviewRenderer;
 
 /**
  * \class RenderLayer
@@ -201,6 +202,7 @@ class RenderLayer final : public ILayer {
   friend class Lighting;
   friend class PostProcessingStack;
   friend class Application;
+  friend class OffscreenPreviewRenderer;
   friend class RenderInstanceStorage;
   friend class TextureStorage;
 #pragma region DescriptorSet Layouts
@@ -249,7 +251,8 @@ class RenderLayer final : public ILayer {
    * \param camera_global_transform The global transform of the camera.
    * \param camera The target camera to render to.
    */
-  void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera) const;
+  void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera,
+                      bool immediate = false) const;
 
   /**
    * \brief Renders to the specified camera using ray tracing.
@@ -278,6 +281,11 @@ class RenderLayer final : public ILayer {
    * \brief Prepares the render layer for rendering.
    */
   void PrepareForRendering();
+  void PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, bool include_editor_cameras = true,
+                                bool update_editor_selection = true, bool update_ray_tracing = true);
+  void RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
+                                      const GlobalTransform& camera_global_transform,
+                                      const std::shared_ptr<Camera>& camera);
 
   /**
    * \brief Performs all rendering operations for this render layer.
@@ -295,7 +303,10 @@ class RenderLayer final : public ILayer {
    * \param current_frame_index The index of the current frame.
    * \return True if the render instance storage was updated, otherwise false.
    */
-  bool UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index);
+  bool UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
+                                   bool include_editor_cameras = true, bool update_editor_selection = true);
+  void BindRenderInstanceStorage(uint32_t current_frame_index,
+                                 const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
 
   /**
    * \brief Applies all animators associated with this render layer.

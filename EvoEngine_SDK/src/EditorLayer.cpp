@@ -12,6 +12,7 @@
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "ProjectContentBrowserPanel.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -19,6 +20,8 @@
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
+
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -33,6 +36,20 @@ namespace {
 constexpr size_t kMaxRuntimePackageBuildOutputSize = 128 * 1024;
 constexpr ImGuiID kInspectorWindowClassId = 0xEC0E1001;
 const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
+
+class CallbackEditorPanel final : public EditorPanel {
+ public:
+  explicit CallbackEditorPanel(std::function<void(const std::shared_ptr<EditorLayer>&)> on_inspect)
+      : on_inspect_(std::move(on_inspect)) {
+  }
+
+  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override {
+    on_inspect_(editor_layer);
+  }
+
+ private:
+  std::function<void(const std::shared_ptr<EditorLayer>&)> on_inspect_;
+};
 
 struct RuntimePackageCMakeBuildRequest {
   std::string package_name;
@@ -50,6 +67,29 @@ struct RuntimePackageCMakeBuildResult {
   std::string output;
   std::string error;
 };
+
+void DrawThemeMenuItems() {
+  const auto current_theme = editor_theme::GetCurrentTheme();
+  if (ImGui::MenuItem("Dark", nullptr, current_theme == editor_theme::Theme::Dark)) {
+    editor_theme::Apply(editor_theme::Theme::Dark);
+  }
+  if (ImGui::MenuItem("Light", nullptr, current_theme == editor_theme::Theme::Light)) {
+    editor_theme::Apply(editor_theme::Theme::Light);
+  }
+}
+
+bool UsesLightBackground() {
+  const auto background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+  return background.x * 0.299f + background.y * 0.587f + background.z * 0.114f > 0.5f;
+}
+
+ImVec4 WarningTextColor() {
+  return UsesLightBackground() ? ImVec4(0.70f, 0.38f, 0.04f, 1.0f) : ImVec4(0.95f, 0.67f, 0.24f, 1.0f);
+}
+
+ImVec4 ErrorTextColor() {
+  return UsesLightBackground() ? ImVec4(0.74f, 0.13f, 0.13f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+}
 
 void AppendCappedOutput(std::string& output, const char* data, const size_t size) {
   if (size >= kMaxRuntimePackageBuildOutputSize) {
@@ -291,6 +331,30 @@ void ApplyInspectorWindowClass(const ImGuiID dock_space_id) {
   }
 }
 
+void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock_size) {
+  ImGui::DockBuilderRemoveNode(dock_space_id);
+  ImGui::DockBuilderAddNode(dock_space_id, ImGuiDockNodeFlags_DockSpace);
+  ImGui::DockBuilderSetNodeSize(dock_space_id, dock_size);
+
+  ImGuiID center_node = dock_space_id;
+  const ImGuiID left_node = ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Left, 0.22f, nullptr, &center_node);
+  const ImGuiID right_node = ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Right, 0.28f, nullptr, &center_node);
+  const ImGuiID bottom_node = ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Down, 0.30f, nullptr, &center_node);
+
+  ImGui::DockBuilderDockWindow("Scene", center_node);
+  ImGui::DockBuilderDockWindow("Camera", center_node);
+  ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
+  ImGui::DockBuilderDockWindow("Entity Inspector", right_node);
+  ImGui::DockBuilderDockWindow("Asset Inspector", right_node);
+  ImGui::DockBuilderDockWindow("Layer Inspector", right_node);
+  ImGui::DockBuilderDockWindow("Scene Camera Debug", right_node);
+  ImGui::DockBuilderDockWindow("Project", bottom_node);
+  ImGui::DockBuilderDockWindow("Console", bottom_node);
+  ImGui::DockBuilderDockWindow("Resources", bottom_node);
+  ImGui::DockBuilderDockWindow("Runtime Package Manager", bottom_node);
+  ImGui::DockBuilderFinish(dock_space_id);
+}
+
 RuntimePackageCMakeBuildResult RunRuntimePackageBuild(const RuntimePackageCMakeBuildRequest& request) {
   RuntimePackageCMakeBuildResult result;
   result.command = BuildCMakeCommandText(request);
@@ -454,6 +518,7 @@ void EditorLayer::OnCreate() {
   });
 
   LoadIcons();
+  RegisterEditorPanels();
 
   VkBufferCreateInfo entity_index_read_buffer{};
   entity_index_read_buffer.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -490,6 +555,13 @@ void EditorLayer::OnCreate() {
 }
 
 void EditorLayer::OnDestroy() {
+  if (ImGui::GetCurrentContext() && ImGui::GetFrameCount() > 0) {
+    const auto* ini_filename = ImGui::GetIO().IniFilename;
+    if (ini_filename) {
+      ImGui::SaveIniSettingsToDisk(ini_filename);
+    }
+  }
+  editor_panel_manager_.UnregisterSettingsHandler();
   editor_cameras_.clear();
   gizmo_mesh_tasks_.clear();
   gizmo_instanced_mesh_tasks_.clear();
@@ -510,14 +582,64 @@ void EditorLayer::PreUpdate() {
   UpdateSceneState(scene);
 
   const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
-  DrawEntityExplorerWindow(scene);
-  DrawEntityInspectorWindow(scene, editor_layer);
-  DrawConsoleWindow();
-  DrawRuntimePackageManagerWindow();
   HandleSceneDeleteShortcut(scene);
-  DrawViewportWindows(scene);
-  DrawLayerInspectionWindows(scene, editor_layer);
-  DrawProjectInspectionWindows(editor_layer);
+  editor_panel_manager_.OnInspect(EditorPanelCategory::View, editor_layer);
+}
+
+void EditorLayer::RegisterEditorPanels() {
+  editor_panel_manager_.Clear();
+
+  auto register_panel = [this](const std::string& id, const std::string& title, bool& open,
+                               std::function<void(const std::shared_ptr<EditorLayer>&)> draw) {
+    editor_panel_manager_.RegisterPanel(EditorPanelCategory::View, id, title, open,
+                                        std::make_shared<CallbackEditorPanel>(std::move(draw)));
+  };
+
+  register_panel("scene_window", "Scene Window", show_scene_window, [this](const std::shared_ptr<EditorLayer>&) {
+    SceneCameraWindow();
+  });
+  register_panel("main_camera_window", "Main Camera Window", show_camera_window,
+                 [this](const std::shared_ptr<EditorLayer>&) {
+                   MainCameraWindow();
+                 });
+  register_panel("scene_camera_debug", "Scene Camera Debug", show_scene_camera_debug,
+                 [this](const std::shared_ptr<EditorLayer>&) {
+                   DrawSceneCameraDebugWindow(ApplicationContext::Get().GetActiveScene());
+                 });
+  register_panel("entity_explorer", "Entity Explorer", show_entity_explorer_window,
+                 [this](const std::shared_ptr<EditorLayer>&) {
+                   DrawEntityExplorerWindow(ApplicationContext::Get().GetActiveScene());
+                 });
+  register_panel("entity_inspector", "Entity Inspector", show_entity_inspector_window,
+                 [this](const std::shared_ptr<EditorLayer>& editor_layer) {
+                   DrawEntityInspectorWindow(ApplicationContext::Get().GetActiveScene(), editor_layer);
+                 });
+  register_panel("console", "Console", show_console_window, [this](const std::shared_ptr<EditorLayer>&) {
+    DrawConsoleWindow();
+  });
+  register_panel("runtime_packages", "Runtime Packages", show_package_manager_window,
+                 [this](const std::shared_ptr<EditorLayer>&) {
+                   DrawRuntimePackageManagerWindow();
+                 });
+  register_panel("layer_inspector", "Layer Inspector", show_layer_inspector_window,
+                 [this](const std::shared_ptr<EditorLayer>& editor_layer) {
+                   DrawLayerInspectionWindows(ApplicationContext::Get().GetActiveScene(), editor_layer);
+                 });
+  register_panel("resources", "Resources", Resources::GetInstance().show_resources_,
+                 [](const std::shared_ptr<EditorLayer>& editor_layer) {
+                   Resources::OnInspect(editor_layer);
+                 });
+  register_panel("asset_inspector", "Asset Inspector", AssetManager::GetInstance().show_asset_inspector_,
+                 [this](const std::shared_ptr<EditorLayer>& editor_layer) {
+                   if (AssetManager::GetInstance().show_asset_inspector_) {
+                     ApplyInspectorWindowClass(dock_space_id);
+                   }
+                   AssetManager::OnInspect(editor_layer);
+                 });
+  editor_panel_manager_.RegisterPanel(EditorPanelCategory::View, "project", "Project",
+                                      ProjectManager::GetInstance().show_project_window,
+                                      std::make_shared<ProjectContentBrowserPanel>());
+  editor_panel_manager_.RegisterSettingsHandler();
 }
 
 void EditorLayer::UpdateCameraTransition() {
@@ -659,16 +781,13 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
           ImGui::Separator();
           const std::string title1 = std::to_string(i) + ". " + name;
           if (ImGui::TreeNode(title1.c_str())) {
-            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
             for (size_t j = 0; j < storage.entity_alive_count; j++) {
               Entity entity = storage.chunk_array.entity_array.at(j);
               std::string title2 = std::to_string(entity.GetIndex()) + ": ";
               title2 += scene->GetEntityName(entity);
               const bool enabled = scene->IsEntityEnabled(entity);
               if (enabled) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
               }
               ImGui::TreeNodeEx(
                   title2.c_str(),
@@ -682,24 +801,15 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
                 SetSelectedEntity(entity, false);
               }
             }
-            ImGui::PopStyleColor();
-            ImGui::PopStyleColor();
-            ImGui::PopStyleColor();
             ImGui::TreePop();
           }
         });
       } else if (selected_hierarchy_display_mode == 1) {
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.2f, 0.3f, 0.2f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.3f, 1.0f));
         scene->ForAllEntities([&](size_t, const Entity entity) {
           if (scene->GetParent(entity).GetIndex() == 0)
             DrawEntityNode(entity, 0);
         });
         selected_entity_hierarchy_list_.clear();
-        ImGui::PopStyleColor();
-        ImGui::PopStyleColor();
-        ImGui::PopStyleColor();
       }
     }
   } else {
@@ -865,25 +975,25 @@ void EditorLayer::DrawConsoleWindow() {
       switch (msg->m_type) {
         case ConsoleMessageType::Log:
           if (enable_console_logs_) {
-            ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%.2f: ", msg->m_time);
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1, 1, 1, 1), msg->m_value.c_str());
+            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_Text), msg->m_value.c_str());
             ImGui::Separator();
           }
           break;
         case ConsoleMessageType::Warning:
           if (enable_console_warnings_) {
-            ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%.2f: ", msg->m_time);
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1, 1, 0, 1), msg->m_value.c_str());
+            ImGui::TextColored(WarningTextColor(), msg->m_value.c_str());
             ImGui::Separator();
           }
           break;
         case ConsoleMessageType::Error:
           if (enable_console_errors_) {
-            ImGui::TextColored(ImVec4(0, 0, 1, 1), "%.2f: ", msg->m_time);
+            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%.2f: ", msg->m_time);
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(1, 0, 0, 1), msg->m_value.c_str());
+            ImGui::TextColored(ErrorTextColor(), msg->m_value.c_str());
             ImGui::Separator();
           }
           break;
@@ -1359,11 +1469,7 @@ void EditorLayer::HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene)
   }
 }
 
-void EditorLayer::DrawViewportWindows(const std::shared_ptr<Scene>& scene) {
-  if (show_scene_window)
-    SceneCameraWindow();
-  if (show_camera_window)
-    MainCameraWindow();
+void EditorLayer::DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene) {
   if (scene && show_scene_camera_debug) {
     if (ImGui::Begin("Scene Camera Debug")) {
       static float debug_scale = 0.25f;
@@ -1397,15 +1503,6 @@ void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene
     }
   }
   ImGui::End();
-}
-
-void EditorLayer::DrawProjectInspectionWindows(const std::shared_ptr<EditorLayer>& editor_layer) {
-  Resources::OnInspect(editor_layer);
-  if (AssetManager::GetInstance().show_asset_inspector_) {
-    ApplyInspectorWindowClass(dock_space_id);
-  }
-  AssetManager::OnInspect(editor_layer);
-  ProjectManager::OnInspect(editor_layer);
 }
 
 void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -1458,17 +1555,24 @@ void EditorLayer::DrawMainMenuBar() {
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
-      ImGui::Checkbox("Resources", &Resources::GetInstance().show_resources_);
-      ImGui::Checkbox("Asset Inspector", &AssetManager::GetInstance().show_asset_inspector_);
-      ImGui::Checkbox("Layer Inspector", &show_layer_inspector_window);
+      editor_panel_manager_.DrawMenuItems(EditorPanelCategory::View);
+      ImGui::Separator();
+      if (ImGui::BeginMenu("Theme")) {
+        DrawThemeMenuItems();
+        ImGui::EndMenu();
+      }
+      if (ImGui::BeginMenu("Layouts")) {
+        if (ImGui::MenuItem("Reset Default Layout")) {
+          RequestDefaultEditorLayout();
+        }
+        ImGui::EndMenu();
+      }
       if (ImGui::BeginMenu("Layer Inspection")) {
         for (const auto& layer : ApplicationContext::Get().GetLayers()) {
           ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
         }
         ImGui::EndMenu();
       }
-      ImGui::MenuItem("Runtime Packages", nullptr, &show_package_manager_window);
-      ProjectManager::DrawViewMenuItems();
       ImGui::EndMenu();
     }
     ProjectManager::DrawProjectMenu();
@@ -1540,6 +1644,11 @@ void EditorLayer::DrawMainMenuBar() {
   ImGui::PopStyleVar();
 }
 
+void EditorLayer::RequestDefaultEditorLayout() {
+  editor_panel_manager_.ResetPanelOpenStatesToDefaults();
+  dock_layout_reset_pending_ = true;
+}
+
 void EditorLayer::DrawDockspace() {
 #pragma region Dock
   static bool opt_fullscreen_persistent = true;
@@ -1579,6 +1688,12 @@ void EditorLayer::DrawDockspace() {
   if (opt_fullscreen)
     ImGui::PopStyleVar(2);
   dock_space_id = ImGui::GetID("MyDockSpace");
+  const ImVec2 dock_size = ImGui::GetContentRegionAvail();
+  if (dock_layout_reset_pending_ && dock_size.x > 1.0f && dock_size.y > 1.0f) {
+    BuildDefaultEditorDockLayout(dock_space_id, dock_size);
+    dock_layout_reset_pending_ = false;
+    ImGui::MarkIniSettingsDirty();
+  }
   ImGui::DockSpace(dock_space_id, ImVec2(0.0f, 0.0f), dock_space_flags);
   ImGui::End();
 #pragma endregion
@@ -1621,7 +1736,7 @@ void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy
   title += scene->GetEntityName(entity);
   const bool enabled = scene->IsEntityEnabled(entity);
   if (enabled) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4({1, 1, 1, 1}));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
   }
   if (const int index = selected_entity_hierarchy_list_.size() - hierarchy_level - 1;
       !selected_entity_hierarchy_list_.empty() && index >= 0 && index < selected_entity_hierarchy_list_.size() &&
@@ -1635,7 +1750,7 @@ void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy
   if (ImGui::BeginDragDropSource()) {
     const auto handle = scene->GetEntityHandle(entity);
     ImGui::SetDragDropPayload("Entity", &handle, sizeof(Handle));
-    ImGui::TextColored(ImVec4(0, 0, 1, 1), title.c_str());
+    ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextLink), title.c_str());
     ImGui::EndDragDropSource();
   }
   if (ImGui::BeginDragDropTarget()) {
@@ -2267,7 +2382,7 @@ void EditorLayer::DraggableEntity(const Entity& entity) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto handle = scene->GetEntityHandle(entity);
     ImGui::SetDragDropPayload("Entity", &handle, sizeof(Handle));
-    ImGui::TextColored(ImVec4(0, 0, 1, 1), scene->GetEntityName(entity).c_str());
+    ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextLink), scene->GetEntityName(entity).c_str());
     ImGui::EndDragDropSource();
   }
 }
@@ -2421,7 +2536,9 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
   ImGui::SameLine();
   const auto ptr = target.Get<IAsset>();
   bool status_changed = false;
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0.5f, 0, 1));
+  ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
   if (ptr) {
     const auto title = ptr->GetTitle();
     ImGui::Button(title.c_str());
@@ -2436,7 +2553,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
   } else {
     ImGui::Button("none");
   }
-  ImGui::PopStyleColor(1);
+  ImGui::PopStyleColor(3);
   status_changed = UnsafeDroppableAsset(target, acceptable_type_names) || status_changed;
   return status_changed;
 }
@@ -2446,7 +2563,9 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
   ImGui::SameLine();
   bool status_changed = false;
   const auto ptr = target.Get<IPrivateComponent>();
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.3f, 0, 1));
+  ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
   if (ptr) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     ImGui::Button(scene->GetEntityName(ptr->GetOwner()).c_str());
@@ -2458,7 +2577,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
   } else {
     ImGui::Button("none");
   }
-  ImGui::PopStyleColor(1);
+  ImGui::PopStyleColor(3);
   status_changed = UnsafeDroppablePrivateComponent(target, acceptable_type_names) || status_changed;
   return status_changed;
 }
