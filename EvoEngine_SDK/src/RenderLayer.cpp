@@ -1016,6 +1016,11 @@ void RenderLayer::ClearAllCameras() const {
 
 void RenderLayer::PrepareForRendering() {
   const auto scene = GetScene();
+  PrepareSceneForRendering(scene);
+}
+
+void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, const bool include_editor_cameras,
+                                           const bool update_editor_selection, const bool update_ray_tracing) {
   if (!scene)
     return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -1023,35 +1028,13 @@ void RenderLayer::PrepareForRendering() {
   graphics.prim_count[current_frame_index] = 0;
   graphics.draw_call[current_frame_index] = 0;
   const auto current_render_instances = render_instances_list_[current_frame_index];
-  ApplyAnimators();
-  if (UpdateRenderInstanceStorage(scene, current_frame_index)) {
+  if (update_editor_selection) {
+    ApplyAnimators();
   }
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      0, current_render_instances->render_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      1, current_render_instances->environment_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      2, current_render_instances->camera_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      3, current_render_instances->material_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      4, current_render_instances->instance_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      5, kernel_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      6, current_render_instances->directional_light_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      7, current_render_instances->point_light_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      8, current_render_instances->spot_light_info_descriptor_buffer);
+  UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras, update_editor_selection);
+  BindRenderInstanceStorage(current_frame_index, current_render_instances);
 
-  meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
-  meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
-
-  TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
-  TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
-
-  if (Platform::RayTracingEnabled()) {
+  if (update_ray_tracing && Platform::RayTracingEnabled()) {
     current_render_instances->UpdateTopLevelAccelerationStructure(scene);
 
     if (current_render_instances->mesh_top_level_acceleration_structure) {
@@ -1062,6 +1045,54 @@ void RenderLayer::PrepareForRendering() {
       ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
           2, current_render_instances->mesh_top_level_acceleration_structure);
     }
+  }
+}
+
+void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
+                                            const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      0, render_instances->render_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      1, render_instances->environment_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      2, render_instances->camera_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      3, render_instances->material_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      4, render_instances->instance_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      5, kernel_descriptor_buffers_[current_frame_index]);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      6, render_instances->directional_light_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      7, render_instances->point_light_info_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      8, render_instances->spot_light_info_descriptor_buffer);
+
+  meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
+  meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
+
+  TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
+  TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+}
+
+void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
+                                                 const GlobalTransform& camera_global_transform,
+                                                 const std::shared_ptr<Camera>& camera) {
+  if (!scene || !camera || !Platform::Initialized()) {
+    return;
+  }
+
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto previous_render_instances = render_instances_list_[current_frame_index];
+  const bool previous_need_fade = need_fade_;
+  render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();
+  PrepareSceneForRendering(scene, false, false, false);
+  RenderToCamera(camera_global_transform, camera, true);
+  render_instances_list_[current_frame_index] = previous_render_instances;
+  need_fade_ = previous_need_fade;
+  if (previous_render_instances) {
+    BindRenderInstanceStorage(current_frame_index, previous_render_instances);
   }
 }
 
@@ -1587,7 +1618,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   });
 }
 
-bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index) {
+bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index,
+                                              const bool include_editor_cameras, const bool update_editor_selection) {
   auto lod_center = glm::vec3(0.f);
   float lod_max_distance = FLT_MAX;
   bool lod_set = false;
@@ -1610,7 +1642,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   auto world_bound = scene->GetBound();
   need_fade_ = false;
   const auto current_render_instances = render_instances_list_[current_frame_index];
-  current_render_instances->BuildFromScene(render_settings, scene, world_bound);
+  current_render_instances->BuildFromScene(render_settings, scene, world_bound, include_editor_cameras);
   const bool render_instance_updated =
       *current_render_instances !=
       *render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
@@ -1618,15 +1650,17 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   // if (render_instance_updated) {
   current_render_instances->Upload();
   //}
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
-      for (const auto& i : current_render_instances->instance_info_blocks_) {
-        if (i.info_index) {
-          need_fade_ = true;
+  if (update_editor_selection) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+      if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
+        for (const auto& i : current_render_instances->instance_info_blocks_) {
+          if (i.info_index) {
+            need_fade_ = true;
+          }
         }
       }
+      editor_layer->MouseEntitySelection();
     }
-    editor_layer->MouseEntitySelection();
   }
   if (render_instance_updated) {
     world_bound.min -= glm::vec3(0.1f);
@@ -1765,12 +1799,18 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
                                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 }
-void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
-                                 const std::shared_ptr<Camera>& camera) const {
+void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera,
+                                 const bool immediate) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
-  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto record_commands = [&](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+    if (immediate) {
+      Platform::ImmediateSubmit(action);
+    } else {
+      Platform::RecordCommandsMainQueue(action);
+    }
+  };
   if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
     const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
 
@@ -1780,7 +1820,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     const auto& directional_light_shadow_pipeline =
         use_mesh_shader ? directional_light_shadow_pipeline_mesh_shader : directional_light_shadow_pipeline_normal;
     auto& platform = Platform::GetInstance();
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    record_commands([&](const VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
       VkRect2D render_area;
       render_area.offset = {0, 0};
@@ -1940,7 +1980,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
         need_fade = true;
     }
 
-    Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+    record_commands([&](VkCommandBuffer vk_command_buffer) {
 #pragma region Viewport and scissor
       VkRect2D render_area;
       render_area.offset = {0, 0};
@@ -2170,8 +2210,10 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     });
 
     // Post-processing
-    if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
-      post_processing_stack->Process(camera);
+    if (!immediate) {
+      if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+        post_processing_stack->Process(camera);
+      }
     }
     camera->rendered_ = true;
     camera->require_rendering_ = false;

@@ -1,9 +1,42 @@
 #include "FileManager.hpp"
 
 #include "AssetManager.hpp"
+#include "AssetThumbnailProvider.hpp"
 #include "EditorLayer.hpp"
+#include "Platform.hpp"
 #include "ProjectManager.hpp"
+
+#include <chrono>
+#include <system_error>
+
 using namespace evo_engine;
+
+namespace {
+constexpr uint32_t kMaxThumbnailGenerationsPerFrame = 2;
+
+bool CanGenerateThumbnailThisFrame() {
+  if (!Platform::Initialized()) {
+    return true;
+  }
+
+  static uint32_t frame_index = 0;
+  static uint32_t generated_thumbnail_count = 0;
+  const auto current_frame_index = Platform::GetFrameCount();
+  if (frame_index != current_frame_index) {
+    frame_index = current_frame_index;
+    generated_thumbnail_count = 0;
+  }
+  if (generated_thumbnail_count >= kMaxThumbnailGenerationsPerFrame) {
+    return false;
+  }
+  ++generated_thumbnail_count;
+  return true;
+}
+
+bool SupportsGeneratedThumbnail(const File& file) {
+  return AssetThumbnailProvider::SupportsGeneratedThumbnail(file.GetAssetTypeName());
+}
+}  // namespace
 
 std::string File::GetAssetTypeName() const {
   return asset_type_name_;
@@ -44,6 +77,7 @@ void File::SetAssetFileName(const std::string& new_name) {
   if (std::filesystem::exists(old_path)) {
     std::filesystem::rename(old_path, new_path);
   }
+  InvalidateThumbnail();
   Save();
 }
 void File::SetAssetExtension(const std::string& new_extension) {
@@ -75,6 +109,7 @@ void File::SetAssetExtension(const std::string& new_extension) {
   if (std::filesystem::exists(old_path)) {
     std::filesystem::rename(old_path, new_path);
   }
+  InvalidateThumbnail();
   Save();
 }
 void File::Save() const {
@@ -123,17 +158,103 @@ void File::Load(const std::filesystem::path& path) {
   if (!Serialization::HasSerializableType(asset_type_name_)) {
     asset_type_name_ = "Binary";
   }
+  InvalidateThumbnail();
 }
 
 std::shared_ptr<Texture2D> File::GetThumbnail() {
-  if (!thumbnail_) {
-    if (const auto icon = EditorLayer::FindIcon(asset_type_name_)) {
-      thumbnail_ = icon;
-    } else {
-      thumbnail_ = EditorLayer::FindIcon("Binary");
+  const auto fallback_thumbnail = GetFallbackThumbnail();
+  if (!SupportsGeneratedThumbnail(*this)) {
+    return fallback_thumbnail;
+  }
+
+  SyncThumbnailSourceWriteTime();
+  if (thumbnail_) {
+    return thumbnail_;
+  }
+
+  if (!thumbnail_future_.valid()) {
+    try {
+      thumbnail_future_ = AssetManager::RequestAssetLoad(asset_handle_);
+    } catch (const std::exception& e) {
+      EVOENGINE_ERROR("Failed to request thumbnail asset load: " + std::string(e.what()))
+      thumbnail_ = fallback_thumbnail;
+    } catch (...) {
+      EVOENGINE_ERROR("Failed to request thumbnail asset load.")
+      thumbnail_ = fallback_thumbnail;
     }
+    return fallback_thumbnail;
+  }
+  if (thumbnail_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready ||
+      !CanGenerateThumbnailThisFrame()) {
+    return fallback_thumbnail;
+  }
+
+  try {
+    auto asset = thumbnail_future_.get();
+    thumbnail_future_ = {};
+    if (!asset) {
+      return fallback_thumbnail;
+    }
+
+    if (thumbnail_asset_reload_required_) {
+      thumbnail_asset_reload_required_ = false;
+      if (!asset->Load()) {
+        thumbnail_ = fallback_thumbnail;
+        return fallback_thumbnail;
+      }
+    }
+
+    thumbnail_ = AssetThumbnailProvider::GenerateThumbnail(asset);
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to generate thumbnail: " + std::string(e.what()))
+    thumbnail_future_ = {};
+    thumbnail_ = fallback_thumbnail;
+  } catch (...) {
+    EVOENGINE_ERROR("Failed to generate thumbnail.")
+    thumbnail_future_ = {};
+    thumbnail_ = fallback_thumbnail;
+  }
+
+  if (!thumbnail_) {
+    return fallback_thumbnail;
   }
   return thumbnail_;
+}
+
+void File::InvalidateThumbnail() {
+  thumbnail_.reset();
+  thumbnail_future_ = {};
+  thumbnail_source_write_time_initialized_ = false;
+  thumbnail_asset_reload_required_ = false;
+}
+
+void File::SyncThumbnailSourceWriteTime() {
+  std::error_code error_code;
+  const auto source_write_time = std::filesystem::last_write_time(GetAbsolutePath(), error_code);
+  if (error_code) {
+    return;
+  }
+
+  if (!thumbnail_source_write_time_initialized_) {
+    thumbnail_source_write_time_ = source_write_time;
+    thumbnail_source_write_time_initialized_ = true;
+    return;
+  }
+  if (thumbnail_source_write_time_ == source_write_time) {
+    return;
+  }
+
+  thumbnail_source_write_time_ = source_write_time;
+  thumbnail_.reset();
+  thumbnail_future_ = {};
+  thumbnail_asset_reload_required_ = true;
+}
+
+std::shared_ptr<Texture2D> File::GetFallbackThumbnail() const {
+  if (const auto icon = EditorLayer::FindIcon(asset_type_name_)) {
+    return icon;
+  }
+  return EditorLayer::FindIcon("Binary");
 }
 
 std::weak_ptr<Folder> File::GetFolder() const {

@@ -759,7 +759,7 @@ std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
   std::shared_ptr<Texture2D> ret_val = AssetManager::CreateTemporaryAsset<Texture2D>();
   const glm::vec2 resolution = GetResolution();
   const float max_dim = glm::max(resolution.x, resolution.y);
-  const glm::vec2 new_resolution = resolution * glm::min(1.f, 128.f / max_dim);
+  const glm::vec2 new_resolution = resolution * glm::min(1.f, 512.f / max_dim);
   auto copy_data = GetLocalData();
   Resize(GetLocalData(), resolution, copy_data, new_resolution);
   ret_val->SetRgbaChannelData(copy_data, new_resolution, false);

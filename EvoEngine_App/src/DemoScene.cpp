@@ -85,19 +85,6 @@ Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string
   title_material->material_properties.emission = 4;
   title_material->material_properties.albedo_color = glm::vec3(1, 0.2f, 0.5f);
 
-  const auto dancing_storm_trooper = std::dynamic_pointer_cast<Prefab>(
-      ProjectManager::GetOrCreateAsset("Models/dancing-stormtrooper/silly_dancing.fbx"));
-  const auto dancing_storm_trooper_entity = dancing_storm_trooper->ToEntity(scene);
-  const auto dancing_storm_trooper_animation_player =
-      scene->GetOrSetPrivateComponent<AnimationPlayer>(dancing_storm_trooper_entity).lock();
-  dancing_storm_trooper_animation_player->auto_play = true;
-  dancing_storm_trooper_animation_player->auto_play_speed = 30;
-  scene->SetEntityName(dancing_storm_trooper_entity, "StormTrooper");
-  Transform dancing_storm_trooper_transform;
-  dancing_storm_trooper_transform.SetValue(glm::vec3(1.2f, -1.5f, 0), glm::vec3(0), glm::vec3(0.4f));
-  scene->SetDataComponent(dancing_storm_trooper_entity, dancing_storm_trooper_transform);
-  scene->SetParent(dancing_storm_trooper_entity, base_entity);
-
   const auto capoeira = std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/Capoeira.fbx"));
   const auto capoeira_entity = capoeira->ToEntity(scene);
   const auto capoeira_animation_player = scene->GetOrSetPrivateComponent<AnimationPlayer>(capoeira_entity).lock();

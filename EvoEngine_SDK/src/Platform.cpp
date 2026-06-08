@@ -651,7 +651,6 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
 void Platform::CreateInstance() {
   auto application_info = ApplicationContext::Get().GetApplicationInfo();
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (window_layer) {
 #pragma region Windows
     glfwInit();
@@ -666,8 +665,6 @@ void Platform::CreateInstance() {
 
     const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
     window_layer->window_size_ = application_info.default_window_size;
-    if (editor_layer)
-      window_layer->window_size_ = {250, 50};
     window_layer->window_ = glfwCreateWindow(window_layer->window_size_.x, window_layer->window_size_.y,
                                              application_info.application_name.c_str(), nullptr, nullptr);
 

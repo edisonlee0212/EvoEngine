@@ -15,6 +15,7 @@ class EditorLayer;
 class File;
 class Folder;
 class IAsset;
+class ProjectContentBrowserPanel;
 
 /**
  * @class AssetManager
@@ -187,6 +188,7 @@ class AssetManager {
   friend class File;            ///< Grants File access to private and protected members of AssetManager.
   friend class Folder;          ///< Grants Folder access to private and protected members of AssetManager.
   friend class EditorLayer;     ///< Grants EditorLayer access to private and protected members of AssetManager.
+  friend class ProjectContentBrowserPanel;
 
   /**
    * @brief Creates a temporary asset implementation with the given typename and handle.

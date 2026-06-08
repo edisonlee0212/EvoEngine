@@ -29,6 +29,7 @@ class ProjectManager {
  private:
   friend class Application;
   friend class EditorLayer;
+  friend class ProjectContentBrowserPanel;
   friend class File;
   friend class Folder;
   friend class PhysicsLayer;
@@ -49,7 +50,7 @@ class ProjectManager {
 
   friend class ClassRegistry;
   std::shared_ptr<Scene> start_scene_;  ///< The starting scene of the project.
-  int max_thumbnail_size_ = 256;        ///< The maximum size in pixels for asset thumbnails.
+  int max_thumbnail_size_ = 512;        ///< The maximum size in pixels for asset thumbnails.
 
   friend class AssetRegistry;
   friend class EditorLayer;
@@ -58,14 +59,6 @@ class ProjectManager {
   friend class Prefab;
 
   bool initialized = false;  ///< Indicates whether the project manager has been initialized.
-
-  /**
-   * @brief Recursive helper function to manage the folder hierarchy.
-   * @param editor_layer Editor layer reference.
-   * @param folder The folder to process.
-   */
-  static void FolderHierarchyHelper(const std::shared_ptr<EditorLayer>& editor_layer,
-                                    const std::shared_ptr<Folder>& folder);
 
   /**
    * @brief Initializes the project manager.
@@ -105,7 +98,6 @@ class ProjectManager {
    */
   static void LoadAllPendingAssets();
 
-  static void DrawViewMenuItems();
   static void DrawProjectMenu();
 
  public:
@@ -161,12 +153,6 @@ class ProjectManager {
    * @param scene The new starting scene.
    */
   static void SetStartScene(const std::shared_ptr<Scene>& scene);
-
-  /**
-   * @brief Triggers inspection of an asset within the editor layer.
-   * @param editor_layer The editor layer handling the inspection process.
-   */
-  static void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Saves the current project state to disk.

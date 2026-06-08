@@ -1471,11 +1471,13 @@ int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& mat
 }
 
 void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene,
-                                           Bound& world_bound) {
+                                           Bound& world_bound, const bool include_editor_cameras) {
   this->render_settings = render_settings;
   render_info_block.Apply(this->render_settings);
   CollectEnvironment(scene);
-  CollectEditorCameras(scene, cameras);
+  if (include_editor_cameras) {
+    CollectEditorCameras(scene, cameras);
+  }
   CollectCameras(scene, cameras);
   for (const auto& camera_info : cameras) {
     CameraInfoBlock camera_info_block;
