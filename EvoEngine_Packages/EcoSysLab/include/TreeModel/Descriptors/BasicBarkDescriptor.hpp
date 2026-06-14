@@ -57,7 +57,7 @@ class BasicBarkDescriptor : public IBarkDescriptor {
    * @param editor_layer The current editor layer.
    * @return True if the asset's content remains unmodified during inspection.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Computes a bark pattern value based on input parameters.
@@ -68,21 +68,9 @@ class BasicBarkDescriptor : public IBarkDescriptor {
   float GetValue(float x_factor, float distance_to_root) const override;
 
   /**
-   * @brief Serializes the bark descriptor properties to a YAML emitter.
-   * @param out The YAML emitter to output serialization data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the bark descriptor properties from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Collects asset references used within this descriptor.
    * @param list A list to store the collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 }  // namespace eco_sys_lab_package

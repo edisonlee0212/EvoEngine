@@ -25,10 +25,7 @@ struct LogScanProfile {
 class LogScan : public IAsset {
  public:
   std::vector<LogScanProfile> profiles;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
   void Regularize();
   void Recenter();
 };

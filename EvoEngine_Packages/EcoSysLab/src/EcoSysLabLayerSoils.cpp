@@ -11,7 +11,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
-bool EcoSysLabLayer::SoilVisualizationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool EcoSysLabLayer::SoilVisualizationSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::Checkbox("Enable", &enable);
   static bool force_update;

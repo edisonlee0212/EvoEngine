@@ -1,21 +1,25 @@
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrandGenerators.hpp"
 #include "DynamicTreeStrandOperators.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 using namespace evo_engine;
 using namespace eco_sys_lab_package;
 
-bool NodeData::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const {
-  return node_impl->OnInspect(editor_layer);
+static void SerializeDynamicTreeStrandsGraph(YAML::Emitter& out, const IDynamicTreeStrands& target);
+static void DeserializeDynamicTreeStrandsGraph(const YAML::Node& in, IDynamicTreeStrands& target);
+
+bool NodeData::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const {
+  return node_impl->DrawGui(editor_layer);
 }
 
-bool InputPinData::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const {
+bool InputPinData::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const {
   bool changed = false;
   ImGui::Text(name.c_str());
   return changed;
 }
 
-bool OutputPinData::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const {
+bool OutputPinData::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const {
   bool changed = false;
   ImGui::Text(name.c_str());
   return changed;
@@ -146,15 +150,15 @@ void ModulusGraph::OnCreate() {
   Reset();
 }
 
-void ModulusGraph::Serialize(YAML::Emitter& out) const {
-  SerializeImpl(out);
+void eco_sys_lab_package::SerializeModulusGraph(YAML::Emitter& out, const ModulusGraph& target) {
+  SerializeDynamicTreeStrandsGraph(out, target);
 }
 
-void ModulusGraph::Deserialize(const YAML::Node& in) {
-  DeserializeImpl(in);
+void eco_sys_lab_package::DeserializeModulusGraph(const YAML::Node& in, ModulusGraph& target) {
+  DeserializeDynamicTreeStrandsGraph(in, target);
 }
 
-bool ModulusGraph::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool ModulusGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   // Test output nodes for all their pins
@@ -427,15 +431,15 @@ void StrengthGraph::OnCreate() {
   Reset();
 }
 
-void StrengthGraph::Serialize(YAML::Emitter& out) const {
-  SerializeImpl(out);
+void eco_sys_lab_package::SerializeStrengthGraph(YAML::Emitter& out, const StrengthGraph& target) {
+  SerializeDynamicTreeStrandsGraph(out, target);
 }
 
-void StrengthGraph::Deserialize(const YAML::Node& in) {
-  DeserializeImpl(in);
+void eco_sys_lab_package::DeserializeStrengthGraph(const YAML::Node& in, StrengthGraph& target) {
+  DeserializeDynamicTreeStrandsGraph(in, target);
 }
 
-bool StrengthGraph::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool StrengthGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   // Test output nodes for all their pins
@@ -745,15 +749,17 @@ void BiologicalPropertiesGraph::OnCreate() {
   Reset();
 }
 
-void BiologicalPropertiesGraph::Serialize(YAML::Emitter& out) const {
-  SerializeImpl(out);
+void eco_sys_lab_package::SerializeBiologicalPropertiesGraph(YAML::Emitter& out,
+                                                             const BiologicalPropertiesGraph& target) {
+  SerializeDynamicTreeStrandsGraph(out, target);
 }
 
-void BiologicalPropertiesGraph::Deserialize(const YAML::Node& in) {
-  DeserializeImpl(in);
+void eco_sys_lab_package::DeserializeBiologicalPropertiesGraph(const YAML::Node& in,
+                                                               BiologicalPropertiesGraph& target) {
+  DeserializeDynamicTreeStrandsGraph(in, target);
 }
 
-bool BiologicalPropertiesGraph::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BiologicalPropertiesGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   // Test output node for all three pins
@@ -803,7 +809,7 @@ bool IDynamicTreeStrands::ShowGraph(const std::string& window_title, const std::
     static NodeGraphNodeHandle hovered_node_handle = -1;
     static NodeGraphLinkHandle hovered_link_handle = -1;
 
-    node_graph.OnInspect(
+    node_graph.Draw(
         id, editor_layer,
         [&](const NodeGraphNodeHandle node_handle) {
           const auto& node = node_graph.PeekNode(node_handle);
@@ -904,17 +910,17 @@ bool IDynamicTreeStrands::ShowGraph(const std::string& window_title, const std::
           }
         },
         [&](const NodeGraphNodeHandle node_handle) {
-          if (node_graph.RefNode(node_handle).data.OnInspect(editor_layer)) {
+          if (node_graph.RefNode(node_handle).data.DrawGui(editor_layer)) {
             changed = true;
           }
         },
         [&](const NodeGraphInputPinHandle input_pin_handle) {
-          if (node_graph.RefInputPin(input_pin_handle).data.OnInspect(editor_layer)) {
+          if (node_graph.RefInputPin(input_pin_handle).data.DrawGui(editor_layer)) {
             changed = true;
           }
         },
         [&](const NodeGraphOutputPinHandle output_pin_handle) {
-          if (node_graph.RefOutputPin(output_pin_handle).data.OnInspect(editor_layer)) {
+          if (node_graph.RefOutputPin(output_pin_handle).data.DrawGui(editor_layer)) {
             changed = true;
           }
         },
@@ -1182,8 +1188,8 @@ bool IDynamicTreeStrands::ShowGraph(const std::string& window_title, const std::
   return changed;
 }
 
-void IDynamicTreeStrands::SerializeImpl(YAML::Emitter& out) const {
-  node_graph.Save(
+static void SerializeDynamicTreeStrandsGraph(YAML::Emitter& out, const IDynamicTreeStrands& target) {
+  target.node_graph.Save(
       "node_graph", out,
       [&](YAML::Emitter& input_pin_out, const InputPinData& data) {
         input_pin_out << YAML::Key << "N" << YAML::Value << data.name;
@@ -1194,15 +1200,19 @@ void IDynamicTreeStrands::SerializeImpl(YAML::Emitter& out) const {
       [&](YAML::Emitter& node_out, const NodeData& data) {
         node_out << YAML::Key << "T" << static_cast<unsigned>(data.type);
         node_out << YAML::Key << "C" << YAML::BeginMap;
-        data.node_impl->Serialize(node_out);
+        if (data.type == NodeType::Constant) {
+          if (const auto constant_node = std::dynamic_pointer_cast<ConstantNode>(data.node_impl)) {
+            node_out << YAML::Key << "value" << YAML::Value << constant_node->value;
+          }
+        }
         node_out << YAML::EndMap;
       },
       [&](YAML::Emitter& link_out, const int& data) {
       });
 }
 
-void IDynamicTreeStrands::DeserializeImpl(const YAML::Node& in) {
-  node_graph.Load(
+static void DeserializeDynamicTreeStrandsGraph(const YAML::Node& in, IDynamicTreeStrands& target) {
+  target.node_graph.Load(
       "node_graph", in,
       [&](const YAML::Node& input_pin_in, InputPinData& data) {
         if (input_pin_in["N"]) {
@@ -1311,14 +1321,19 @@ void IDynamicTreeStrands::DeserializeImpl(const YAML::Node& in) {
             break;
         }
         if (node_in["C"]) {
-          data.node_impl->Deserialize(node_in["C"]);
+          if (data.type == NodeType::Constant) {
+            if (const auto constant_node = std::dynamic_pointer_cast<ConstantNode>(data.node_impl);
+                constant_node && node_in["C"]["value"]) {
+              constant_node->value = node_in["C"]["value"].as<float>();
+            }
+          }
         }
       },
       [&](const YAML::Node& link_in, int& data) {
       });
 }
 
-bool INode::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool INode::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   return false;
 }
 
@@ -1337,12 +1352,6 @@ void INode::PrepareInputs(const NodeGraph<InputPinData, OutputPinData, NodeData,
       }
     }
   }
-}
-
-void INode::Serialize(YAML::Emitter& out) const {
-}
-
-void INode::Deserialize(const YAML::Node& in) {
 }
 
 void InputNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,

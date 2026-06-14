@@ -2,7 +2,6 @@
 
 #include "Application.hpp"
 #include "Camera.hpp"
-#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Mesh.hpp"
@@ -12,26 +11,28 @@
 #include "Shader.hpp"
 using namespace evo_engine;
 
-bool ScreenSpaceReflection::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Max march distance", &max_distance, 0.01f, 0.01f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Distance confidence", &distance_confidence, 0.1f, 0.0f, 128.0f))
-    changed = true;
-  if (ImGui::DragInt("Max iteration count", &max_iteration_count, 1, 1, 256))
-    changed = true;
-  if (ImGui::DragInt("Steps", &initial_steps, 1, 1, 64))
-    changed = true;
-  if (ImGui::DragFloat("Thickness", &thickness, 0.01f, 0.0f, 10.0f))
-    changed = true;
-  if (ImGui::Checkbox("Blur", &blur)) {
-    changed = true;
-  }
-  if (ImGui::Button("Rebuild pipelines")) {
-    BuildPipelines();
-  }
+void ScreenSpaceReflection::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "max_distance" << YAML::Value << max_distance;
+  out << YAML::Key << "distance_confidence" << YAML::Value << distance_confidence;
+  out << YAML::Key << "max_iteration_count" << YAML::Value << max_iteration_count;
+  out << YAML::Key << "initial_steps" << YAML::Value << initial_steps;
+  out << YAML::Key << "thickness" << YAML::Value << thickness;
+  out << YAML::Key << "blur" << YAML::Value << blur;
+}
 
-  return changed;
+void ScreenSpaceReflection::Deserialize(const YAML::Node& in) {
+  if (in["max_distance"])
+    max_distance = in["max_distance"].as<float>();
+  if (in["distance_confidence"])
+    distance_confidence = in["distance_confidence"].as<float>();
+  if (in["max_iteration_count"])
+    max_iteration_count = in["max_iteration_count"].as<int>();
+  if (in["initial_steps"])
+    initial_steps = in["initial_steps"].as<int>();
+  if (in["thickness"])
+    thickness = in["thickness"].as<float>();
+  if (in["blur"])
+    blur = in["blur"].as<bool>();
 }
 
 void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_stack,

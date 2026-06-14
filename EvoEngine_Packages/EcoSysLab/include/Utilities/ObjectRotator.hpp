@@ -28,25 +28,11 @@ class ObjectRotator : public IPrivateComponent {
    * @param editor_layer A shared pointer to the editor layer.
    * @return true if the asset's content is not modified during inspection.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Called every fixed update step to handle physics-based updates.
    */
   void FixedUpdate() override;
-
-  /**
-   * @brief Serializes the component data to a YAML emitter.
-   *
-   * @param out The YAML emitter used for output.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes component data from a YAML node.
-   *
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 };
 }  // namespace eco_sys_lab_package

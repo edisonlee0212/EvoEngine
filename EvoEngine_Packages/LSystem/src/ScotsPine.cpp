@@ -1,4 +1,6 @@
 ﻿#include "ScotsPine.hpp"
+#include "LSystemInspectionAdapters.hpp"
+#include "LSystemSerializationAdapters.hpp"
 #include "ScotsPineDescriptor.hpp"
 #include "ScotsPineModules.hpp"
 
@@ -1735,81 +1737,82 @@ void ScotsPine::OnDestroy() {
   render_target_.reset();
 }
 
-bool ScotsPine::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool l_system_package::InspectScotsPine(InspectorContext& context, ScotsPine& pine) {
+  const auto& editor_layer = context.editor_layer;
   bool changed = false;
 
-  if (editor_layer->DragAndDropButton<ScotsPineDescriptor>(descriptor_ref, "Descriptor"))
+  if (editor_layer->DragAndDropButton<ScotsPineDescriptor>(pine.descriptor_ref, "Descriptor"))
     changed = true;
 
-  if (editor_layer->DragAndDropButton<ScotsPineDescriptor>(post_repot_descriptor_ref, "Post-Repot Descriptor")) {
+  if (editor_layer->DragAndDropButton<ScotsPineDescriptor>(pine.post_repot_descriptor_ref, "Post-Repot Descriptor")) {
     changed = true;
   }
 
-  if (ImGui::Checkbox("Enable Repot Profile Switch", &enable_repot_profile_switch)) {
+  if (ImGui::Checkbox("Enable Repot Profile Switch", &pine.enable_repot_profile_switch)) {
     changed = true;
   }
-  if (enable_repot_profile_switch) {
-    if (ImGui::DragFloat("Repot Switch GDD", &repot_switch_gdd, 10.0f, 0.0f, 200000.0f, "%.1f")) {
-      repot_switch_gdd = std::max(0.0f, repot_switch_gdd);
+  if (pine.enable_repot_profile_switch) {
+    if (ImGui::DragFloat("Repot Switch GDD", &pine.repot_switch_gdd, 10.0f, 0.0f, 200000.0f, "%.1f")) {
+      pine.repot_switch_gdd = std::max(0.0f, pine.repot_switch_gdd);
       changed = true;
     }
   }
 
-  int seed_int = static_cast<int>(seed);
+  int seed_int = static_cast<int>(pine.seed);
   if (ImGui::DragInt("Seed", &seed_int, 1, 0, 999999)) {
-    seed = static_cast<unsigned int>(seed_int);
+    pine.seed = static_cast<unsigned int>(seed_int);
     changed = true;
   }
 
-  if (ImGui::DragFloat("Target GDD", &target_gdd, 1.0f, 0.0f, 200000.0f, "%.1f"))
+  if (ImGui::DragFloat("Target GDD", &pine.target_gdd, 1.0f, 0.0f, 200000.0f, "%.1f"))
     changed = true;
 
   if (ImGui::Button("Generate")) {
-    GenerateGeometryEntities();
+    pine.GenerateGeometryEntities();
     changed = true;
   }
   ImGui::SameLine();
   if (ImGui::Button("Clear")) {
-    ClearGeometryEntities();
+    pine.ClearGeometryEntities();
     changed = true;
   }
 
-  if (growth_model.IsInitialized()) {
+  if (pine.growth_model.IsInitialized()) {
     ImGui::Separator();
-    ImGui::Text("GDD: %.1f", growth_model.accumulated_gdd);
-    ImGui::Text("Topology: %s", growth_model.IsTopologyComplete() ? "Complete" : "Pending");
-    const auto& sorted = growth_model.graph.PeekSortedNodeList();
+    ImGui::Text("GDD: %.1f", pine.growth_model.accumulated_gdd);
+    ImGui::Text("Topology: %s", pine.growth_model.IsTopologyComplete() ? "Complete" : "Pending");
+    const auto& sorted = pine.growth_model.graph.PeekSortedNodeList();
     ImGui::Text("Nodes: %d", static_cast<int>(sorted.size()));
-    ImGui::Text("Internodes: %u   Needles: %u", last_internode_count, last_needle_count);
+    ImGui::Text("Internodes: %u   Needles: %u", pine.last_internode_count, pine.last_needle_count);
   }
 
   return changed;
 }
 
-void ScotsPine::Serialize(YAML::Emitter& out) const {
-  descriptor_ref.Save("descriptor_ref", out);
-  post_repot_descriptor_ref.Save("post_repot_descriptor_ref", out);
-  out << YAML::Key << "seed" << YAML::Value << seed;
-  out << YAML::Key << "target_gdd" << YAML::Value << target_gdd;
-  out << YAML::Key << "enable_repot_profile_switch" << YAML::Value << enable_repot_profile_switch;
-  out << YAML::Key << "repot_switch_gdd" << YAML::Value << repot_switch_gdd;
+void l_system_package::SerializeScotsPine(YAML::Emitter& out, const ScotsPine& target) {
+  target.descriptor_ref.Save("descriptor_ref", out);
+  target.post_repot_descriptor_ref.Save("post_repot_descriptor_ref", out);
+  out << YAML::Key << "seed" << YAML::Value << target.seed;
+  out << YAML::Key << "target_gdd" << YAML::Value << target.target_gdd;
+  out << YAML::Key << "enable_repot_profile_switch" << YAML::Value << target.enable_repot_profile_switch;
+  out << YAML::Key << "repot_switch_gdd" << YAML::Value << target.repot_switch_gdd;
 }
 
-void ScotsPine::Deserialize(const YAML::Node& in) {
-  descriptor_ref.Load("descriptor_ref", in);
-  post_repot_descriptor_ref.Load("post_repot_descriptor_ref", in);
+void l_system_package::DeserializeScotsPine(const YAML::Node& in, ScotsPine& target) {
+  target.descriptor_ref.Load("descriptor_ref", in);
+  target.post_repot_descriptor_ref.Load("post_repot_descriptor_ref", in);
   if (in["seed"])
-    seed = in["seed"].as<unsigned int>();
+    target.seed = in["seed"].as<unsigned int>();
   if (in["target_gdd"]) {
-    target_gdd = in["target_gdd"].as<float>();
+    target.target_gdd = in["target_gdd"].as<float>();
   } else if (in["target_year"]) {
-    target_gdd = static_cast<float>(in["target_year"].as<int>()) * kPineGddPerYear;
+    target.target_gdd = static_cast<float>(in["target_year"].as<int>()) * kPineGddPerYear;
   }
   if (in["enable_repot_profile_switch"]) {
-    enable_repot_profile_switch = in["enable_repot_profile_switch"].as<bool>();
+    target.enable_repot_profile_switch = in["enable_repot_profile_switch"].as<bool>();
   }
   if (in["repot_switch_gdd"]) {
-    repot_switch_gdd = std::max(0.0f, in["repot_switch_gdd"].as<float>());
+    target.repot_switch_gdd = std::max(0.0f, in["repot_switch_gdd"].as<float>());
   }
 }
 

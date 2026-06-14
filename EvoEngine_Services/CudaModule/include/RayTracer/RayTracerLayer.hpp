@@ -61,7 +61,7 @@ class RayTracerLayer : public ILayer {
   void PreUpdate() override;
   void LateUpdate() override;
 
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   void OnDestroy() override;
 };

@@ -193,34 +193,15 @@ class Camera final : public IPrivateComponent {
   Ray ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) const;
 
   /**
-   * @brief Serializes the camera settings to a YAML emitter.
-   * @param out The YAML emitter object.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the camera settings from a YAML node.
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Called when the camera is destroyed.
    */
   void OnDestroy() override;
 
   /**
-   * @brief Called to inspect the camera properties in the editor.
-   * @param editor_layer The editor layer reference.
-   * @return True if the inspection occurred, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Collects asset references used by the camera.
    * @param list The list to store collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Gets the Vulkan GBuffer descriptor set.
@@ -228,19 +209,18 @@ class Camera final : public IPrivateComponent {
    */
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
+  [[nodiscard]] const std::shared_ptr<Image>& GetGBufferNormalImage() const;
+  [[nodiscard]] ImTextureID GetGBufferNormalImTextureId() const;
+  [[nodiscard]] ImTextureID GetGBufferMaterialTexCoordImTextureId() const;
+  [[nodiscard]] ImTextureID GetGBufferMaterialIndicesImTextureId() const;
+
   void SetRendered();
+  void ResetRenderState();
   void ResetFrameCount();
 
  private:
-  /**
-   * @brief Displays debug views for camera operations, scaled for debugging.
-   * @param debug_scale The scaling factor for the debug views.
-   */
-  void DebugViews(float debug_scale) const;
-
   friend class Platform;          ///< Grants access to the Platform class.
   friend class RenderLayer;       ///< Grants access to the RenderLayer class.
-  friend class EditorLayer;       ///< Grants access to the EditorLayer class.
   friend struct CameraInfoBlock;  ///< Grants access to the CameraInfoBlock struct.
 
   std::shared_ptr<RenderTexture> render_texture_;  ///< The render texture used by the camera.

@@ -71,9 +71,9 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   physics_parameters.segment_angular_velocity_damping = 1.f;
 }
 
-bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicStrandsDemo::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Physics Parameters")) {
-    physics_parameters.OnInspect(editor_layer);
+    physics_parameters.DrawGui(editor_layer);
     ImGui::TreePop();
   }
 
@@ -92,18 +92,18 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   const auto scene = GetScene();
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
   if (ImGui::TreeNode("Initialize Parameters")) {
-    dts->initialize_parameters.OnInspect(editor_layer);
+    dts->initialize_parameters.DrawGui(editor_layer);
     ImGui::TreePop();
   }
   ImGui::DragFloat("Target simulation time", &target_simulation_time, 0.1f, 0.1f, 100.f);
   ImGui::DragFloat("Target factor 0", &target_factor0, 0.01f, 0.0f, 1.f);
   ImGui::DragFloat("Target factor 1", &target_factor1, 0.01f, 0.0f, 1.f);
   if (ImGui::TreeNode("Rod settings")) {
-    log_experiment_setup_settings.OnInspect(editor_layer);
+    log_experiment_setup_settings.DrawGui(editor_layer);
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Board settings")) {
-    board_experiment_setup_settings.OnInspect(editor_layer);
+    board_experiment_setup_settings.DrawGui(editor_layer);
     ImGui::TreePop();
   }
 

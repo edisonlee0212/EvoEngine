@@ -1089,7 +1089,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateBindings() const {
       9, device_segment_meshlet_triangles_buffer, 0);
 }
 
-bool eco_sys_lab_package::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool eco_sys_lab_package::DsKineticVoronoiMeshing::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   FileUtils::SaveFile(
       "Download and export PLY", "PLY", {".ply"},
       [&](const std::filesystem::path& path) {
@@ -1140,7 +1140,7 @@ void DsKineticVoronoiMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_l
   ImGui::Text((std::string("Segment Meshlets Triangles: ") + std::to_string(segment_meshlet_triangles.size())).c_str());
 }
 
-void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
+void DsKineticVoronoiMeshing::DrawRenderSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Render Segment Meshlets", &render_settings.segment_meshlet_render_parameters.enabled);
   if (render_settings.segment_meshlet_render_parameters.enabled) {
     if (ImGui::Button("Rebuild segment meshlet pipelines")) {

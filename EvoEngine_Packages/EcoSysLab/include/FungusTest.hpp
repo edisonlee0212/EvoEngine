@@ -58,7 +58,7 @@ class FungusTest : public IPrivateComponent {
   void Initialize();      // Initialize the fungus model
   void ExplicitUpdate();  // Update using explicit scheme
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   void FixedUpdate() override;
 

@@ -10,7 +10,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
-bool SmallSegmentsRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SmallSegmentsRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Cast Shadow", &cast_shadow)) {
     changed = true;
@@ -28,7 +28,7 @@ bool SmallSegmentsRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>
   return changed;
 }
 
-bool SmallSegmentsVisualizationRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SmallSegmentsVisualizationRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Thickness multiplier", &thickness_multiplier, 0.1f, 0.1f, 10.f)) {
     changed = true;

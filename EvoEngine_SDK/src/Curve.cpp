@@ -58,7 +58,7 @@ glm::vec3 BezierSpline::EvaluatePointFromCurves(float point) const {
   }
   return curves.at(curve_index).GetPoint(curve_u);
 }
-void BezierSpline::OnInspect() {
+void BezierSpline::Draw() {
   int size = curves.size();
   if (ImGui::DragInt("Size of curves", &size, 0, 10)) {
     size = glm::clamp(size, 0, 10);

@@ -1,16 +1,16 @@
-#include "BasicFineRootDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 using namespace eco_sys_lab_package;
 
-void BasicFineRootDescriptor::Serialize(YAML::Emitter& out) const {
-  fine_root_material_ref.Save("fine_root_material_ref", out);
+void eco_sys_lab_package::SerializeBasicFineRootDescriptor(YAML::Emitter& out, const BasicFineRootDescriptor& target) {
+  target.fine_root_material_ref.Save("fine_root_material_ref", out);
 }
 
-void BasicFineRootDescriptor::Deserialize(const YAML::Node& in) {
-  fine_root_material_ref.Load("fine_root_material_ref", in);
+void eco_sys_lab_package::DeserializeBasicFineRootDescriptor(const YAML::Node& in, BasicFineRootDescriptor& target) {
+  target.fine_root_material_ref.Load("fine_root_material_ref", in);
 }
 
-bool BasicFineRootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicFineRootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<Material>(fine_root_material_ref, "Fine Root Material"))
     changed = true;

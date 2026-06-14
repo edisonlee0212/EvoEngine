@@ -8,6 +8,7 @@
 #include "DsOperators.hpp"
 #include "DsPhysics.hpp"
 #include "DynamicStrands.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "Tree.hpp"
 #include "VoronoiMeshGenerator.hpp"
 using namespace eco_sys_lab_package;
@@ -69,52 +70,52 @@ void DynamicTreeStrands::CreateStaticRoot() {
   dynamic_strands->constraints.emplace_back(transform_operator.ds_pivot_transform);
 }
 
-void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "seed" << YAML::Value << seed;
-  out << YAML::Key << "enable_physics" << YAML::Value << enable_physics;
-  out << YAML::Key << "limit_strand_length" << YAML::Value << limit_strand_length;
-  out << YAML::Key << "max_strand_length" << YAML::Value << max_strand_length;
+void eco_sys_lab_package::SerializeDynamicTreeStrands(YAML::Emitter& out, const DynamicTreeStrands& target) {
+  out << YAML::Key << "seed" << YAML::Value << target.seed;
+  out << YAML::Key << "enable_physics" << YAML::Value << target.enable_physics;
+  out << YAML::Key << "limit_strand_length" << YAML::Value << target.limit_strand_length;
+  out << YAML::Key << "max_strand_length" << YAML::Value << target.max_strand_length;
 
-  materials.bark_material_ref.Save("bark_material_ref", out);
-  materials.inner_wood_material_ref.Save("inner_wood_material_ref", out);
-  materials.splinter_material_ref.Save("splinter_material_ref", out);
-  materials.leaf_material_ref.Save("leaf_material_ref", out);
-  materials.snow_material_ref.Save("snow_material_ref", out);
-  materials.segment_pair_material_ref.Save("segment_pair_material_ref", out);
-  materials.wireframe_material_ref.Save("wireframe_material_ref", out);
+  target.materials.bark_material_ref.Save("bark_material_ref", out);
+  target.materials.inner_wood_material_ref.Save("inner_wood_material_ref", out);
+  target.materials.splinter_material_ref.Save("splinter_material_ref", out);
+  target.materials.leaf_material_ref.Save("leaf_material_ref", out);
+  target.materials.snow_material_ref.Save("snow_material_ref", out);
+  target.materials.segment_pair_material_ref.Save("segment_pair_material_ref", out);
+  target.materials.wireframe_material_ref.Save("wireframe_material_ref", out);
 
-  strand_model.Save("shoot_strand_model", out);
-  initialize_parameters.Save("initialize_parameters", out);
+  target.strand_model.Save("shoot_strand_model", out);
+  target.initialize_parameters.Save("initialize_parameters", out);
 
-  out << YAML::Key << "initialized_from_tree" << YAML::Value << initialized_from_tree;
+  out << YAML::Key << "initialized_from_tree" << YAML::Value << target.initialized_from_tree;
 }
 
-void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeDynamicTreeStrands(const YAML::Node& in, DynamicTreeStrands& target) {
   if (in["seed"])
-    seed = in["seed"].as<int>();
+    target.seed = in["seed"].as<int>();
   if (in["initialized_from_tree"])
-    initialized_from_tree = in["initialized_from_tree"].as<bool>();
+    target.initialized_from_tree = in["initialized_from_tree"].as<bool>();
 
   if (in["enable_physics"])
-    enable_physics = in["enable_physics"].as<bool>();
+    target.enable_physics = in["enable_physics"].as<bool>();
   if (in["limit_strand_length"])
-    limit_strand_length = in["limit_strand_length"].as<bool>();
+    target.limit_strand_length = in["limit_strand_length"].as<bool>();
   if (in["max_strand_length"])
-    max_strand_length = in["max_strand_length"].as<float>();
+    target.max_strand_length = in["max_strand_length"].as<float>();
 
-  materials.bark_material_ref.Load("bark_material_ref", in);
-  materials.inner_wood_material_ref.Load("inner_wood_material_ref", in);
-  materials.splinter_material_ref.Load("splinter_material_ref", in);
-  materials.leaf_material_ref.Load("leaf_material_ref", in);
-  materials.snow_material_ref.Load("snow_material_ref", in);
-  materials.segment_pair_material_ref.Load("segment_pair_material_ref", in);
-  materials.wireframe_material_ref.Load("wireframe_material_ref", in);
+  target.materials.bark_material_ref.Load("bark_material_ref", in);
+  target.materials.inner_wood_material_ref.Load("inner_wood_material_ref", in);
+  target.materials.splinter_material_ref.Load("splinter_material_ref", in);
+  target.materials.leaf_material_ref.Load("leaf_material_ref", in);
+  target.materials.snow_material_ref.Load("snow_material_ref", in);
+  target.materials.segment_pair_material_ref.Load("segment_pair_material_ref", in);
+  target.materials.wireframe_material_ref.Load("wireframe_material_ref", in);
 
-  strand_model.Load("shoot_strand_model", in);
-  initialize_parameters.Load("initialize_parameters", in);
+  target.strand_model.Load("shoot_strand_model", in);
+  target.initialize_parameters.Load("initialize_parameters", in);
 }
 
-bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicTreeStrands::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Preset settings")) {
     if (ImGui::Button("Oak Trunk")) {
       initialize_parameters.min_segment_length = 0.005f;
@@ -155,7 +156,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   editor_layer->DragAndDropButton<Material>(materials.snow_material_ref, "Snow Material");
   editor_layer->DragAndDropButton<Material>(materials.wireframe_material_ref, "Wireframe Material");
   if (ImGui::TreeNode("Initialization settings")) {
-    initialize_parameters.OnInspect(editor_layer);
+    initialize_parameters.DrawGui(editor_layer);
     if (ImGui::Button("Re-initialize mesh")) {
       dynamic_strands->InitializeMesh(initialize_parameters);
     }
@@ -233,7 +234,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::TreeNode("Board Experiment")) {
       static BoardExperimentSetupSettings multiple_rod_experiment_setup_settings{};
-      multiple_rod_experiment_setup_settings.OnInspect(editor_layer);
+      multiple_rod_experiment_setup_settings.DrawGui(editor_layer);
       if (ImGui::Button("Initialize")) {
         BoardExperimentSetup(multiple_rod_experiment_setup_settings);
       }
@@ -241,7 +242,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     if (ImGui::TreeNode("Log Experiment")) {
       static LogExperimentSetupSettings log_experiment_setup_settings{};
-      log_experiment_setup_settings.OnInspect(editor_layer);
+      log_experiment_setup_settings.DrawGui(editor_layer);
       if (ImGui::Button("Initialize")) {
         LogExperimentSetup(log_experiment_setup_settings);
       }
@@ -267,31 +268,31 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   ImGui::Checkbox("Physics", &enable_physics);
   if (ImGui::TreeNode("Physics settings")) {
     if (ImGui::TreeNodeEx("Prediction", ImGuiTreeNodeFlags_DefaultOpen)) {
-      dynamic_strands->prediction->OnInspect(editor_layer);
+      dynamic_strands->prediction->DrawGui(editor_layer);
       ImGui::TreePop();
     }
     if (ImGui::TreeNodeEx("Operators", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (ImGui::TreeNode("Transform operators")) {
         for (auto& i : transform_pivots) {
-          i.ds_pivot_transform->OnInspect(editor_layer);
+          i.ds_pivot_transform->DrawGui(editor_layer);
         }
         ImGui::TreePop();
       }
       if (leaf_drop) {
         if (ImGui::TreeNodeEx("Leaf Drop", ImGuiTreeNodeFlags_DefaultOpen)) {
-          leaf_drop->OnInspect(editor_layer);
+          leaf_drop->DrawGui(editor_layer);
           ImGui::TreePop();
         }
       }
       if (snow) {
         if (ImGui::TreeNodeEx("Snow", ImGuiTreeNodeFlags_DefaultOpen)) {
-          snow->OnInspect(editor_layer);
+          snow->DrawGui(editor_layer);
           ImGui::TreePop();
         }
       }
       if (wind) {
         if (ImGui::TreeNodeEx("Wind", ImGuiTreeNodeFlags_DefaultOpen)) {
-          wind->OnInspect(editor_layer);
+          wind->DrawGui(editor_layer);
           ImGui::TreePop();
         }
       }
@@ -299,11 +300,11 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     if (ImGui::TreeNode("Constraint")) {
       for (auto& i : dynamic_strands->constraints)
-        i->OnInspect(editor_layer);
+        i->DrawGui(editor_layer);
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("Dynamic Hashed Grid")) {
-      dynamic_strands->dynamic_hashed_grid->OnInspect(editor_layer);
+      dynamic_strands->dynamic_hashed_grid->DrawGui(editor_layer);
       ImGui::TreePop();
     }
     ImGui::TreePop();
@@ -319,7 +320,7 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     EVOENGINE_LOG("Uploaded data from GPU")
   }
 
-  dynamic_strands->meshing->OnInspect(editor_layer);
+  dynamic_strands->meshing->DrawGui(editor_layer);
 
   return false;
 }
@@ -409,7 +410,7 @@ void DynamicTreeStrands::OnDestroy() {
 void DynamicTreeStrands::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
-bool DynamicTreeStrands::BoardExperimentSetupSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicTreeStrands::BoardExperimentSetupSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::DragFloat("Rod length", &segment_length, 0.01f, 0.01f, 10.0f);
   ImGui::DragFloat("Rod radius", &radius, 0.001f, 0.001f, 1.0f);
   ImGui::DragInt3("Rod dimension (3D)", &rod_dimension.x, 1, 1, 1000);
@@ -426,7 +427,7 @@ bool DynamicTreeStrands::BoardExperimentSetupSettings::OnInspect(const std::shar
   return false;
 }
 
-bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicTreeStrands::LogExperimentSetupSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::DragFloat("Rod length", &segment_length, 0.01f, 0.01f, 10.0f);
   ImGui::DragFloat("Rod radius", &radius, 0.001f, 0.001f, 1.0f);
   ImGui::DragInt("Rod size", &rod_size, 1, 1, 1000);

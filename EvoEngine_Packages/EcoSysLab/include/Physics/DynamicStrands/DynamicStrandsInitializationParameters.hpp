@@ -58,7 +58,7 @@ struct DynamicStrandsInitializeParameters {
    * \param editor_layer The editor layer to be modified.
    * \return True if contents are unchanged during inspection.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Saves to a YAML emitter.

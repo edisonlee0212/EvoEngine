@@ -812,12 +812,12 @@ bool Prefab::LoadInternal(const std::filesystem::path& path) {
       }
       int index = 0;
       for (const auto& i : in_local_assets) {
-        local_assets[index++]->Deserialize(i);
+        Serialization::DeserializeObject(i, *local_assets[index++]);
       }
     }
 
 #pragma endregion
-    Deserialize(in);
+    Serialization::DeserializeObject(in, *this);
     return true;
   }
   return LoadModelInternal(path);
@@ -864,15 +864,43 @@ bool Prefab::ApplyStagedPayloadInternal(const std::filesystem::path&,
       }
       int index = 0;
       for (const auto& i : in_local_assets) {
-        local_assets[index++]->Deserialize(i);
+        Serialization::DeserializeObject(i, *local_assets[index++]);
       }
     }
-    Deserialize(in);
+    Serialization::DeserializeObject(in, *this);
   } catch (const std::exception& e) {
     EVOENGINE_ERROR("Failed to apply staged prefab payload: " + std::string(e.what()))
     return false;
   }
   return true;
+}
+
+bool Prefab::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<Prefab>(
+      [](const Prefab& asset, const std::filesystem::path& path) {
+        return asset.SaveInternal(path);
+      },
+      [](Prefab& asset, const std::filesystem::path& path) {
+        return asset.LoadInternal(path);
+      },
+      [](const Prefab& asset, const std::filesystem::path& path) {
+        return asset.SupportsStagedLoading(path);
+      },
+      [](const Prefab& asset, const std::filesystem::path& path) {
+        return asset.LoadStagedPayloadInternal(path);
+      },
+      [](Prefab& asset, const std::filesystem::path& path, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return asset.ApplyStagedPayloadInternal(path, payload);
+      },
+      owner_name, type_name);
+}
+
+bool Prefab::IsPrefabEnabled() const {
+  return enabled_;
+}
+
+void Prefab::SetPrefabEnabled(const bool value) {
+  enabled_ = value;
 }
 
 bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags) {
@@ -1363,94 +1391,10 @@ bool DataComponentHolder::Deserialize(const YAML::Node& in) {
   }
   return true;
 }
-void Prefab::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "in" << YAML::Value << instance_name;
-  out << YAML::Key << "e" << YAML::Value << enabled_;
-  out << YAML::Key << "eh" << YAML::Value << entity_handle.GetValue();
-
-  if (!data_components.empty()) {
-    out << YAML::Key << "dc" << YAML::BeginSeq;
-    for (auto& i : data_components) {
-      out << YAML::BeginMap;
-      i.Serialize(out);
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-  }
-
-  if (!private_components.empty()) {
-    out << YAML::Key << "pc" << YAML::BeginSeq;
-    for (auto& i : private_components) {
-      out << YAML::BeginMap;
-      i.Serialize(out);
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-  }
-
-  if (!child_prefabs.empty()) {
-    out << YAML::Key << "c" << YAML::BeginSeq;
-    for (auto& i : child_prefabs) {
-      out << YAML::BeginMap;
-      out << YAML::Key << "h" << i->GetHandle().GetValue();
-      i->Serialize(out);
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-  }
-}
-void Prefab::Deserialize(const YAML::Node& in) {
-  instance_name = in["in"].as<std::string>();
-  enabled_ = in["e"].as<bool>();
-  entity_handle = Handle(in["eh"].as<uint64_t>());
-  if (in["dc"]) {
-    for (const auto& i : in["dc"]) {
-      DataComponentHolder holder;
-      if (holder.Deserialize(i)) {
-        data_components.push_back(holder);
-      }
-    }
-  }
-  std::vector<std::pair<int, std::shared_ptr<IAsset>>> local_assets;
-  if (const auto in_local_assets = in["LocalAssets"]) {
-    int index = 0;
-    for (const auto& i : in_local_assets) {
-      // First, find the asset in asset registry
-      if (const auto type_name = i["TypeName"].as<std::string>(); Serialization::HasSerializableType(type_name)) {
-        auto asset = AssetManager::CreateTemporaryAssetImpl(type_name, i["Handle"].as<uint64_t>());
-        local_assets.emplace_back(index, asset);
-      }
-      index++;
-    }
-
-    for (const auto& i : local_assets) {
-      i.second->Deserialize(in_local_assets[i.first]);
-    }
-  }
-#ifdef _DEBUG
-  EVOENGINE_LOG(std::string("Prefab Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
-#endif
-  if (in["pc"]) {
-    for (const auto& i : in["pc"]) {
-      PrivateComponentHolder holder;
-      holder.Deserialize(i);
-      private_components.push_back(holder);
-    }
-  }
-
-  if (in["c"]) {
-    for (const auto& i : in["c"]) {
-      auto child = AssetManager::CreateTemporaryAsset<Prefab>();
-      child->handle_ = i["h"].as<uint64_t>();
-      child->Deserialize(i);
-      child_prefabs.push_back(child);
-    }
-  }
-}
 void Prefab::CollectAssets(std::unordered_map<Handle, std::shared_ptr<IAsset>>& map) const {
   std::vector<AssetRef> list;
   for (auto& i : private_components) {
-    i.private_component->CollectAssetRef(list);
+    Serialization::CollectAssetRefs(*i.private_component, list);
   }
   for (auto& i : list) {
     auto asset = i.Get<IAsset>();
@@ -1463,7 +1407,7 @@ void Prefab::CollectAssets(std::unordered_map<Handle, std::shared_ptr<IAsset>>& 
     const size_t current_size = map.size();
     list.clear();
     for (auto& i : map) {
-      i.second->CollectAssetRef(list);
+      Serialization::CollectAssetRefs(*i.second, list);
     }
     for (auto& i : list) {
       auto asset = i.Get<IAsset>();
@@ -1484,7 +1428,7 @@ bool Prefab::SaveInternal(const std::filesystem::path& path) const {
     std::filesystem::create_directories(directory);
     YAML::Emitter out;
     out << YAML::BeginMap;
-    Serialize(out);
+    Serialization::SerializeObject(out, *this);
     std::unordered_map<Handle, std::shared_ptr<IAsset>> asset_map;
     CollectAssets(asset_map);
     std::vector<AssetRef> list;
@@ -1493,7 +1437,7 @@ bool Prefab::SaveInternal(const std::filesystem::path& path) const {
       const size_t current_size = asset_map.size();
       list.clear();
       for (const auto& i : asset_map) {
-        i.second->CollectAssetRef(list);
+        Serialization::CollectAssetRefs(*i.second, list);
       }
       for (auto& i : list) {
         if (const auto asset = i.Get<IAsset>(); asset && !Resources::IsResource(asset->GetHandle())) {
@@ -1514,7 +1458,7 @@ bool Prefab::SaveInternal(const std::filesystem::path& path) const {
         out << YAML::BeginMap;
         out << YAML::Key << "TypeName" << YAML::Value << i.second->GetTypeName();
         out << YAML::Key << "Handle" << YAML::Value << i.first.GetValue();
-        i.second->Serialize(out);
+        Serialization::SerializeObject(out, *i.second);
         out << YAML::EndMap;
       }
       out << YAML::EndSeq;
@@ -1532,7 +1476,7 @@ bool Prefab::SaveInternal(const std::filesystem::path& path) const {
 void Prefab::RelinkChildren(const std::shared_ptr<Scene>& scene, const Entity& parent_entity,
                             const std::unordered_map<Handle, Handle>& map) {
   scene->ForEachPrivateComponent(parent_entity, [&](PrivateComponentElement& data) {
-    data.private_component_data->Relink(map, scene);
+    Serialization::RelinkObject(*data.private_component_data, map, scene);
   });
   scene->ForEachChild(parent_entity, [&](Entity child) {
     RelinkChildren(scene, child, map);
@@ -1547,7 +1491,7 @@ void Prefab::GatherAssets() {
   collected_assets.clear();
   for (const auto& components : private_components) {
     std::vector<AssetRef> asset_refs;
-    components.private_component->CollectAssetRef(asset_refs);
+    Serialization::CollectAssetRefs(*components.private_component, asset_refs);
     for (const auto& asset_ref : asset_refs)
       collected_assets[asset_ref.GetAssetHandle()] = asset_ref;
   }
@@ -1556,93 +1500,16 @@ void Prefab::GatherAssets() {
     GatherAssetsWalker(child, collected_assets);
 }
 
-bool Prefab::OnInspectWalker(const std::shared_ptr<Prefab>& walker) {
-  bool changed = false;
-  ImGui::Text(("Name: " + walker->instance_name).c_str());
-
-  if (OnInspectComponents(walker))
-    changed = true;
-
-  if (!walker->child_prefabs.empty()) {
-    if (ImGui::TreeNode("Children")) {
-      for (const auto& child : walker->child_prefabs) {
-        if (OnInspectWalker(child))
-          changed = true;
-      }
-      ImGui::TreePop();
-    }
-  }
-  return changed;
-}
-
 void Prefab::GatherAssetsWalker(const std::shared_ptr<Prefab>& walker, std::unordered_map<Handle, AssetRef>& assets) {
   for (const auto& i : walker->private_components) {
     std::vector<AssetRef> asset_refs;
-    i.private_component->CollectAssetRef(asset_refs);
+    Serialization::CollectAssetRefs(*i.private_component, asset_refs);
     for (const auto& asset_ref : asset_refs)
       assets[asset_ref.GetAssetHandle()] = asset_ref;
   }
 
   for (const auto& child : walker->child_prefabs)
     GatherAssetsWalker(child, assets);
-}
-
-bool Prefab::OnInspectComponents(const std::shared_ptr<Prefab>& walker) {
-  bool changed = false;
-  if (ImGui::TreeNode("Data Components")) {
-    for (auto& i : walker->data_components) {
-      ImGui::Text(("Type: " + i.data_component_type.type_name).c_str());
-    }
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Private Components")) {
-    for (auto& i : walker->private_components) {
-      ImGui::Text(("Type: " + i.private_component->GetTypeName()).c_str());
-    }
-    ImGui::TreePop();
-  }
-  return changed;
-}
-bool Prefab::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Button("Instantiate")) {
-    ToEntity(ApplicationContext::Get().GetActiveScene());
-  }
-  if (collected_assets.empty() && ImGui::Button("Collect assets"))
-    GatherAssets();
-  if (!collected_assets.empty()) {
-    if (ImGui::TreeNode("Assets")) {
-      for (auto& i : collected_assets) {
-        const auto ptr = i.second.Get<IAsset>();
-        const std::string tag = "##" + ptr->GetTypeName() + std::to_string(ptr->GetHandle());
-        ImGui::Button((ptr->GetTitle() + tag).c_str());
-        EditorLayer::DraggableAsset(ptr);
-        EditorLayer::Rename(i.second);
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-          editor_layer->inspecting_asset = ptr;
-        }
-      }
-      ImGui::TreePop();
-    }
-  }
-
-  if (ImGui::TreeNode("Prefab Hierarchy")) {
-    ImGui::Text((instance_name + " (root)").c_str());
-    if (OnInspectComponents(std::dynamic_pointer_cast<Prefab>(GetSelf())))
-      changed = true;
-
-    if (!child_prefabs.empty()) {
-      if (ImGui::TreeNode("Children")) {
-        for (const auto& child : child_prefabs) {
-          if (OnInspectWalker(child))
-            changed = true;
-        }
-        ImGui::TreePop();
-      }
-    }
-    ImGui::TreePop();
-  }
-  return changed;
 }
 
 void PrivateComponentHolder::Serialize(YAML::Emitter& out) const {
@@ -1654,7 +1521,7 @@ void PrivateComponentHolder::Serialize(YAML::Emitter& out) const {
   }
   out << YAML::Key << "h" << private_component->GetHandle().GetValue();
   out << YAML::Key << "pc" << YAML::BeginMap;
-  private_component->Serialize(out);
+  Serialization::SerializeObject(out, *private_component);
   out << YAML::EndMap;
 }
 void PrivateComponentHolder::Deserialize(const YAML::Node& in) {
@@ -1676,5 +1543,5 @@ void PrivateComponentHolder::Deserialize(const YAML::Node& in) {
     }
   }
   private_component->OnCreate();
-  private_component->Deserialize(in_data);
+  Serialization::DeserializeObject(in_data, *private_component);
 }

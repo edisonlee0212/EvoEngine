@@ -55,7 +55,7 @@ void SimulationSettings::Deserialize(const YAML::Node& in) {
     blur_iteration = in["blur_iteration"].as<int>();
 }
 
-bool SimulationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SimulationSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragInt("Max node count", &max_node_count, 500, 0, INT_MAX)) {
     changed = true;
@@ -98,7 +98,7 @@ bool SimulationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   return changed;
 }
 
-bool SimulationStats::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SimulationStats::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNodeEx("Stats")) {
     ImGui::Text("Growth time: %.4f", last_used_time);
     ImGui::Text("Total time: %.4f", total_time);

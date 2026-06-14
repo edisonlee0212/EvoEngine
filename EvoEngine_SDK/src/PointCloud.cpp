@@ -11,6 +11,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "Serialization.hpp"
 #include "Tinyply.hpp"
 using namespace evo_engine;
 using namespace tinyply;
@@ -31,7 +32,7 @@ bool PointCloud::LoadInternal(const std::filesystem::path& path) {
     return LoadPly({}, path);
   }
 
-  return IAsset::LoadInternal(path);
+  return Serialization::LoadAssetFromYaml(*this, path);
 }
 
 bool PointCloud::SupportsStagedLoading(const std::filesystem::path& path) const {
@@ -72,7 +73,7 @@ bool PointCloud::ApplyStagedPayloadInternal(const std::filesystem::path&,
   }
   try {
     if (point_cloud_payload->yaml) {
-      Deserialize(point_cloud_payload->yaml_node);
+      Serialization::DeserializeObject(point_cloud_payload->yaml_node, static_cast<IAsset&>(*this));
       return true;
     }
     positions = std::move(point_cloud_payload->positions);
@@ -90,7 +91,27 @@ bool PointCloud::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".ply") {
     return SavePly({}, path);
   }
-  return IAsset::SaveInternal(path);
+  return Serialization::SaveAssetAsYaml(*this, path);
+}
+
+bool PointCloud::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<PointCloud>(
+      [](const PointCloud& asset, const std::filesystem::path& path) {
+        return asset.SaveInternal(path);
+      },
+      [](PointCloud& asset, const std::filesystem::path& path) {
+        return asset.LoadInternal(path);
+      },
+      [](const PointCloud& asset, const std::filesystem::path& path) {
+        return asset.SupportsStagedLoading(path);
+      },
+      [](const PointCloud& asset, const std::filesystem::path& path) {
+        return asset.LoadStagedPayloadInternal(path);
+      },
+      [](PointCloud& asset, const std::filesystem::path& path, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return asset.ApplyStagedPayloadInternal(path, payload);
+      },
+      owner_name, type_name);
 }
 
 bool PointCloud::LoadPly(const PointCloudLoadSettings& settings, const std::filesystem::path& path) {
@@ -278,56 +299,6 @@ bool PointCloud::LoadPly(const PointCloudLoadSettings& settings, const std::file
 void PointCloud::OnCreate() {
 }
 
-bool PointCloud::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text("Has Colors: %s", (!colors.empty() ? "True" : "False"));
-  ImGui::Text("Has Positions: %s", (!positions.empty() ? "True" : "False"));
-  ImGui::Text("Has Normals: %s", (!normals.empty() ? "True" : "False"));
-  if (ImGui::DragScalarN("Offset", ImGuiDataType_Double, &offset.x, 3))
-    changed = true;
-  ImGui::Text(("Original amount: " + std::to_string(positions.size())).c_str());
-  if (ImGui::DragFloat("Point size", &point_size, 0.01f, 0.01f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Compress factor", &compress_factor, 0.001f, 0.0001f, 10.0f))
-    changed = true;
-
-  if (ImGui::Button("Apply compressed")) {
-    ApplyCompressed();
-  }
-
-  if (ImGui::Button("Apply original")) {
-    ApplyOriginal();
-  }
-
-  FileUtils::OpenFile(
-      "Load PLY file##Particles", "PointCloud", {".ply"},
-      [&](const std::filesystem::path& file_path) {
-        try {
-          LoadPly({}, file_path);
-          EVOENGINE_LOG("Loaded from " + file_path.string());
-        } catch (std::exception& e) {
-          EVOENGINE_ERROR("Failed to load from " + file_path.string());
-        }
-      },
-      false);
-  FileUtils::SaveFile(
-      "Save to PLY##Particles", "PointCloud", {".ply"},
-      [&](const std::filesystem::path& file_path) {
-        try {
-          SavePly({}, file_path);
-          EVOENGINE_LOG("Saved to " + file_path.string());
-        } catch (std::exception& e) {
-          EVOENGINE_ERROR("Failed to save to " + file_path.string());
-        }
-      },
-      false);
-  if (ImGui::Button("Clear all positions")) {
-    positions.clear();
-    changed = true;
-  }
-
-  return changed;
-}
 void PointCloud::ApplyCompressed() {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto owner = scene->CreateEntity("Compressed Point Cloud");
@@ -429,53 +400,18 @@ void PointCloud::RecalculateBoundingBox() {
   }
   offset = -min_;
 }
-void PointCloud::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "offset" << offset;
-  out << YAML::Key << "point_size" << point_size;
-  out << YAML::Key << "compress_factor" << compress_factor;
-  out << YAML::Key << "min_" << min_;
-  out << YAML::Key << "max_" << max_;
-  if (!positions.empty()) {
-    out << YAML::Key << "positions" << YAML::Value
-        << YAML::Binary((const unsigned char*)positions.data(), positions.size() * sizeof(glm::dvec3));
-  }
-  if (!normals.empty()) {
-    out << YAML::Key << "normals" << YAML::Value
-        << YAML::Binary((const unsigned char*)normals.data(), normals.size() * sizeof(glm::dvec3));
-  }
-  if (!colors.empty()) {
-    out << YAML::Key << "colors" << YAML::Value
-        << YAML::Binary((const unsigned char*)colors.data(), colors.size() * sizeof(glm::vec3));
-  }
+
+glm::dvec3 PointCloud::GetMinBound() const {
+  return min_;
 }
-void PointCloud::Deserialize(const YAML::Node& in) {
-  if (in["offset"])
-    offset = in["offset"].as<glm::dvec3>();
-  if (in["point_size"])
-    point_size = in["point_size"].as<float>();
-  if (in["compress_factor"])
-    compress_factor = in["compress_factor"].as<float>();
-  if (in["min_"])
-    min_ = in["min_"].as<glm::dvec3>();
-  if (in["max_"])
-    max_ = in["max_"].as<glm::dvec3>();
-  if (in["positions"]) {
-    const auto& vertex_data = in["positions"].as<YAML::Binary>();
-    positions.resize(vertex_data.size() / sizeof(glm::dvec3));
-    std::memcpy(positions.data(), vertex_data.data(), vertex_data.size());
-  }
 
-  if (in["colors"]) {
-    const auto& vertex_data = in["colors"].as<YAML::Binary>();
-    colors.resize(vertex_data.size() / sizeof(glm::vec3));
-    std::memcpy(colors.data(), vertex_data.data(), vertex_data.size());
-  }
+glm::dvec3 PointCloud::GetMaxBound() const {
+  return max_;
+}
 
-  if (in["normals"]) {
-    const auto& vertex_data = in["normals"].as<YAML::Binary>();
-    normals.resize(vertex_data.size() / sizeof(glm::vec3));
-    std::memcpy(normals.data(), vertex_data.data(), vertex_data.size());
-  }
+void PointCloud::SetBounds(const glm::dvec3& min_bound, const glm::dvec3& max_bound) {
+  min_ = min_bound;
+  max_ = max_bound;
 }
 
 void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {

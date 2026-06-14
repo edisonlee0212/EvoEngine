@@ -230,12 +230,7 @@ class RenderLayer final : public ILayer {
    */
   void OnCreate() override;
 
-  /**
-   * \brief Provides a user interface in the editor to inspect and modify this render layer.
-   * \param editor_layer The current editor layer.
-   */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
+ private:
   /**
    * \brief Prepares shadow maps for point and spot lights.
    */

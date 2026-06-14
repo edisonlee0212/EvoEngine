@@ -47,26 +47,26 @@ class TreeGraph : public IAsset {
    * @brief Collects asset references associated with this asset.
    * @param list Output list of asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Serializes the tree graph data into a YAML output stream.
    * @param out The YAML emitter that stores the serialized data.
    */
-  void Serialize(YAML::Emitter& out) const override;
+  void Serialize(YAML::Emitter& out) const;
 
   /**
    * @brief Deserializes tree graph data from a YAML input node.
    * @param in The YAML node containing the deserialized data.
    */
-  void Deserialize(const YAML::Node& in) override;
+  void Deserialize(const YAML::Node& in);
 
   /**
    * @brief Handles the inspection of the asset in the editor.
    * @param editor_layer The editor layer that requests inspection.
    * @return True if the asset content remains unchanged; otherwise, false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**
@@ -94,25 +94,25 @@ class TreeGraphV2 : public IAsset {
    * @brief Collects asset references associated with this asset.
    * @param list Output list of asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Serializes the tree graph data into a YAML output stream.
    * @param out The YAML emitter that stores the serialized data.
    */
-  void Serialize(YAML::Emitter& out) const override;
+  void Serialize(YAML::Emitter& out) const;
 
   /**
    * @brief Deserializes tree graph data from a YAML input node.
    * @param in The YAML node containing the deserialized data.
    */
-  void Deserialize(const YAML::Node& in) override;
+  void Deserialize(const YAML::Node& in);
 
   /**
    * @brief Handles the inspection of the asset in the editor.
    * @param editor_layer The editor layer that requests inspection.
    * @return True if the asset content remains unchanged; otherwise, false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

@@ -14,7 +14,11 @@ EVOENGINE_PACKAGE_EXPORT const PackageDescriptor* EvoEnginePackageGetDescriptor(
 }
 
 EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* registrar) {
-  return registrar && registrar->RegisterAsset<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"});
+  if (!registrar || !registrar->RegisterAsset<Gpr>("Gpr", {".evegpr", ".gpr", ".GPR"})) {
+    return false;
+  }
+  RegisterGprHandlers(descriptor.name);
+  return true;
 }
 
 EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageLoad(PackageRegistrar*) {

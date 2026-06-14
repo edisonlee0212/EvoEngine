@@ -39,7 +39,7 @@ struct BranchesRenderParameters {
 
   bool persistent_damage = false;
   bool use_polar_coordinates_for_uv = true;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 struct SmallSegmentsRenderParameters {
@@ -48,7 +48,7 @@ struct SmallSegmentsRenderParameters {
   bool wireframe = false;
   float thickness_multiplier = 0.5f;
   glm::vec3 position_scale = glm::vec3(1.f);
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 struct SmallSegmentsVisualizationRenderParameters {
@@ -61,7 +61,7 @@ struct SmallSegmentsVisualizationRenderParameters {
   uint32_t segment_render_mode = 6;
   float segment_boundary_distance_modular = 0.03f;
   glm::vec3 position_scale = glm::vec3(1.f);
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 struct SegmentPairsRenderParameters {
@@ -75,12 +75,12 @@ struct SegmentPairsRenderParameters {
   glm::vec4 segment_pair_color_main = glm::vec4(0, 1, 1, 0.2);
   float segment_pair_radius_multiplier = 0.9f;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 struct FoliageRenderParameters {
   bool enabled = true;
   bool wireframe = false;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 };  // namespace eco_sys_lab_package

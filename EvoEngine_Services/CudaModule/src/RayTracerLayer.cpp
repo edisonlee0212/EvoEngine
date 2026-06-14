@@ -3,12 +3,15 @@
 #include "BasicPointCloudScanner.hpp"
 #include "BtfMaterial.hpp"
 #include "BtfMeshRenderer.hpp"
+#include "CudaSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
+#include "InspectorRegistry.hpp"
 #include "MeshRenderer.hpp"
 #include "OptiXRayTracer.hpp"
 #include "Particles.hpp"
 #include "RayTracerCamera.hpp"
 #include "Resources.hpp"
+#include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
@@ -389,6 +392,48 @@ void RayTracerLayer::RegisterTypes(Application& application) {
   application.RegisterPrivateComponent<RayTracerCamera>("RayTracerCamera");
   application.RegisterPrivateComponent<BasicPointCloudScanner>("BasicPointCloudScanner");
   application.RegisterAsset<BtfMaterial>("BtfMaterial", {".btf"});
+  Serialization::RegisterSerializationHandler<BtfMeshRenderer>(SerializeBtfMeshRenderer, DeserializeBtfMeshRenderer, {},
+                                                               "BtfMeshRenderer");
+  Serialization::RegisterSerializationHandler<TriangleIlluminationEstimator>(SerializeTriangleIlluminationEstimator,
+                                                                             DeserializeTriangleIlluminationEstimator,
+                                                                             {}, "TriangleIlluminationEstimator");
+  Serialization::RegisterSerializationHandler<RayTracerCamera>(SerializeRayTracerCamera, DeserializeRayTracerCamera, {},
+                                                               "RayTracerCamera");
+  Serialization::RegisterSerializationHandler<BasicPointCloudScanner>(
+      SerializeBasicPointCloudScanner, DeserializeBasicPointCloudScanner, {}, "BasicPointCloudScanner");
+  Serialization::RegisterSerializationHandler<BtfMaterial>(SerializeBtfMaterial, DeserializeBtfMaterial, {},
+                                                           "BtfMaterial");
+  InspectorRegistry::GetInstance().RegisterInspector<BtfMeshRenderer>(
+      [](InspectorContext& context, BtfMeshRenderer& renderer) {
+        return renderer.DrawGui(context.editor_layer);
+      },
+      {}, "BtfMeshRenderer");
+  InspectorRegistry::GetInstance().RegisterInspector<TriangleIlluminationEstimator>(
+      [](InspectorContext& context, TriangleIlluminationEstimator& estimator) {
+        return estimator.DrawGui(context.editor_layer);
+      },
+      {}, "TriangleIlluminationEstimator");
+  InspectorRegistry::GetInstance().RegisterInspector<RayTracerCamera>(
+      [](InspectorContext& context, RayTracerCamera& camera) {
+        return camera.DrawGui(context.editor_layer);
+      },
+      {}, "RayTracerCamera");
+  InspectorRegistry::GetInstance().RegisterInspector<BasicPointCloudScanner>(
+      [](InspectorContext& context, BasicPointCloudScanner& scanner) {
+        return scanner.DrawGui(context.editor_layer);
+      },
+      {}, "BasicPointCloudScanner");
+  InspectorRegistry::GetInstance().RegisterInspector<BtfMaterial>(
+      [](InspectorContext& context, BtfMaterial& material) {
+        return material.DrawGui(context.editor_layer);
+      },
+      {}, "BtfMaterial");
+  InspectorRegistry::GetInstance().RegisterInspector<RayTracerLayer>(
+      [](InspectorContext& context, RayTracerLayer& layer) {
+        layer.DrawGui(context.editor_layer);
+        return false;
+      },
+      {}, "RayTracerLayer");
 }
 
 void RayTracerLayer::OnCreate() {
@@ -447,7 +492,7 @@ void RayTracerLayer::LateUpdate() {
   }
 }
 
-void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void RayTracerLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Editor")) {
     if (ImGui::TreeNode("Scene")) {
       ImGui::TreePop();
@@ -471,11 +516,11 @@ void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   ImGui::Checkbox("BTF Mesh Renderer", &render_btf_mesh_renderer);
 
   if (ImGui::TreeNode("Scene Camera Settings")) {
-    scene_camera->OnInspect(editor_layer);
+    scene_camera->DrawGui(editor_layer);
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Environment Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-    environment_properties.OnInspect();
+    environment_properties.DrawGui();
     ImGui::TreePop();
   }
 
@@ -531,8 +576,8 @@ void RayTracerLayer::SceneCameraWindow() {
           std::string draw_call_info = {};
           ImGui::PushItemWidth(100);
           ImGui::DragFloat("Resolution multiplier", &resolution_multiplier, 0.01f, 0.1f, 1.0f);
-          scene_camera->camera_properties_.OnInspect();
-          scene_camera->ray_properties.OnInspect();
+          scene_camera->camera_properties_.DrawGui();
+          scene_camera->ray_properties.DrawGui();
           ImGui::PopItemWidth();
         }
         ImGui::EndChild();

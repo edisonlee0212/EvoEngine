@@ -1,10 +1,12 @@
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
 #include "HeightField.hpp"
 #include "Material.hpp"
+#include "SDKInspectionAdapters.hpp"
 using namespace eco_sys_lab_package;
 
-bool OnInspectSoilParameters(SoilParameters& soil_parameters) {
+bool DrawSoilParametersGui(SoilParameters& soil_parameters) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Soil Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::InputInt3("VoxelGrid Resolution", (int*)&soil_parameters.m_voxelResolution)) {
@@ -56,7 +58,7 @@ void SetSoilPhysicalMaterial(procedural_noise::ProceduralNoise3D& c, procedural_
                                   clay_ratio * clay_material_properties.y + air_ratio * air_material_properties.y;*/
 }
 
-bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SoilLayerDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Generate from preset soil ratio")) {
     static float sand_ratio = 0.1f;
@@ -116,33 +118,34 @@ bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
   static bool show_capacity = false;
   ImGui::Checkbox("Show capacity", &show_capacity);
   if (show_capacity) {
-    changed = capacity_graph.ShowGraph("Capacity graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(capacity_graph, "Capacity graph", editor_layer) | changed;
   }
 
   static bool show_permeability = false;
   ImGui::Checkbox("Show permeability", &show_permeability);
   if (show_permeability) {
-    changed = permeability_graph.ShowGraph("Permeability graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(permeability_graph, "Permeability graph", editor_layer) | changed;
   }
   static bool show_density = false;
   ImGui::Checkbox("Show density", &show_density);
   if (show_density) {
-    changed = density_graph.ShowGraph("Density graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(density_graph, "Density graph", editor_layer) | changed;
   }
   static bool show_initial_nutrients = false;
   ImGui::Checkbox("Show initial nutrients", &show_initial_nutrients);
   if (show_initial_nutrients) {
-    changed = initial_nutrients_graph.ShowGraph("Initial nutrients graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(initial_nutrients_graph, "Initial nutrients graph", editor_layer) |
+              changed;
   }
   static bool show_initial_water = false;
   ImGui::Checkbox("Show initial water", &show_initial_water);
   if (show_initial_water) {
-    changed = initial_water_graph.ShowGraph("Initial water graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(initial_water_graph, "Initial water graph", editor_layer) | changed;
   }
   static bool show_thickness = false;
   ImGui::Checkbox("Show thickness", &show_thickness);
   if (show_thickness) {
-    changed = thickness_graph.ShowGraph("Thickness graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(thickness_graph, "Thickness graph", editor_layer) | changed;
   }
 
   if (ImGui::TreeNode("Textures")) {
@@ -161,35 +164,35 @@ bool SoilLayerDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
   return changed;
 }
 
-void SoilLayerDescriptor::Serialize(YAML::Emitter& out) const {
-  capacity_graph.Save("capacity_graph", out);
-  permeability_graph.Save("permeability_graph", out);
-  density_graph.Save("density_graph", out);
-  initial_nutrients_graph.Save("initial_nutrients_graph", out);
-  initial_water_graph.Save("initial_water_graph", out);
+void eco_sys_lab_package::SerializeSoilLayerDescriptor(YAML::Emitter& out, const SoilLayerDescriptor& target) {
+  target.capacity_graph.Save("capacity_graph", out);
+  target.permeability_graph.Save("permeability_graph", out);
+  target.density_graph.Save("density_graph", out);
+  target.initial_nutrients_graph.Save("initial_nutrients_graph", out);
+  target.initial_water_graph.Save("initial_water_graph", out);
 
-  thickness_graph.Save("thickness_graph", out);
+  target.thickness_graph.Save("thickness_graph", out);
 
-  albedo_texture.Save("albedo_texture", out);
-  roughness_texture.Save("roughness_texture", out);
-  metallic_texture.Save("metallic_texture", out);
-  normal_texture.Save("normal_texture", out);
-  height_texture.Save("height_texture", out);
+  target.albedo_texture.Save("albedo_texture", out);
+  target.roughness_texture.Save("roughness_texture", out);
+  target.metallic_texture.Save("metallic_texture", out);
+  target.normal_texture.Save("normal_texture", out);
+  target.height_texture.Save("height_texture", out);
 }
 
-void SoilLayerDescriptor::Deserialize(const YAML::Node& in) {
-  capacity_graph.Load("capacity_graph", in);
-  permeability_graph.Load("permeability_graph", in);
-  density_graph.Load("density_graph", in);
-  initial_nutrients_graph.Load("initial_nutrients_graph", in);
-  initial_water_graph.Load("initial_water_graph", in);
-  thickness_graph.Load("thickness_graph", in);
+void eco_sys_lab_package::DeserializeSoilLayerDescriptor(const YAML::Node& in, SoilLayerDescriptor& target) {
+  target.capacity_graph.Load("capacity_graph", in);
+  target.permeability_graph.Load("permeability_graph", in);
+  target.density_graph.Load("density_graph", in);
+  target.initial_nutrients_graph.Load("initial_nutrients_graph", in);
+  target.initial_water_graph.Load("initial_water_graph", in);
+  target.thickness_graph.Load("thickness_graph", in);
 
-  albedo_texture.Load("albedo_texture", in);
-  roughness_texture.Load("roughness_texture", in);
-  metallic_texture.Load("metallic_texture", in);
-  normal_texture.Load("normal_texture", in);
-  height_texture.Load("height_texture", in);
+  target.albedo_texture.Load("albedo_texture", in);
+  target.roughness_texture.Load("roughness_texture", in);
+  target.metallic_texture.Load("metallic_texture", in);
+  target.normal_texture.Load("normal_texture", in);
+  target.height_texture.Load("height_texture", in);
 }
 
 void SoilLayerDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -210,7 +213,7 @@ std::shared_ptr<Texture2D> SoilDescriptor::GenerateThumbnailTexture() {
   return thumbnail;
 }
 
-bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SoilDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<HeightField>(height_field, "Height Field", true)) {
     changed = true;
@@ -237,7 +240,7 @@ bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     soil->InitializeSoilModel();
   }
 
-  if (OnInspectSoilParameters(soil_parameters)) {
+  if (DrawSoilParametersGui(soil_parameters)) {
     changed = true;
   }
   if (AssetRef temp_soil_layer_descriptor_holder; editor_layer->DragAndDropButton<SoilLayerDescriptor>(
@@ -284,7 +287,7 @@ bool SoilDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           }
         }
         if (ImGui::TreeNode("Settings")) {
-          soil_layer_descriptor->OnInspect(editor_layer);
+          soil_layer_descriptor->DrawGui(editor_layer);
           ImGui::TreePop();
         }
         ImGui::TreePop();
@@ -351,27 +354,27 @@ void DeserializeSoilParameters(const std::string& name, SoilParameters& soil_par
   }
 }
 
-void SoilDescriptor::Serialize(YAML::Emitter& out) const {
-  height_field.Save("height_field", out);
-  SerializeSoilParameters("soil_parameters", soil_parameters, out);
+void eco_sys_lab_package::SerializeSoilDescriptor(YAML::Emitter& out, const SoilDescriptor& target) {
+  target.height_field.Save("height_field", out);
+  SerializeSoilParameters("soil_parameters", target.soil_parameters, out);
 
   out << YAML::Key << "soil_layer_descriptors" << YAML::Value << YAML::BeginSeq;
-  for (int i = 0; i < soil_layer_descriptors.size(); i++) {
+  for (int i = 0; i < target.soil_layer_descriptors.size(); i++) {
     out << YAML::BeginMap;
-    soil_layer_descriptors[i].Serialize(out);
+    target.soil_layer_descriptors[i].Serialize(out);
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
 }
 
-void SoilDescriptor::Deserialize(const YAML::Node& in) {
-  height_field.Load("height_field", in);
-  DeserializeSoilParameters("soil_parameters", soil_parameters, in);
-  soil_layer_descriptors.clear();
+void eco_sys_lab_package::DeserializeSoilDescriptor(const YAML::Node& in, SoilDescriptor& target) {
+  target.height_field.Load("height_field", in);
+  DeserializeSoilParameters("soil_parameters", target.soil_parameters, in);
+  target.soil_layer_descriptors.clear();
   if (in["soil_layer_descriptors"]) {
     for (const auto& i : in["soil_layer_descriptors"]) {
-      soil_layer_descriptors.emplace_back();
-      soil_layer_descriptors.back().Deserialize(i);
+      target.soil_layer_descriptors.emplace_back();
+      target.soil_layer_descriptors.back().Deserialize(i);
     }
   }
 }

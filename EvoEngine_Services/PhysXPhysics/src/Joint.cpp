@@ -1,5 +1,5 @@
-#include "Joint.hpp"
 #include "EditorLayer.hpp"
+#include "PhysXSerializationAdapters.hpp"
 #include "RigidBody.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
@@ -133,7 +133,7 @@ bool Joint::Linked() {
 void Joint::OnCreate() {
 }
 
-bool Joint::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool Joint::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   static int type = 0;
   type = (int)joint_type_;
@@ -234,17 +234,17 @@ void Joint::Relink(const std::unordered_map<Handle, Handle>& map, const std::sha
   rigid_body2.Relink(map, scene);
 }
 
-void Joint::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "m_jointType" << YAML::Value << (unsigned)joint_type_;
-  out << YAML::Key << "local_position1_" << YAML::Value << local_position1_;
-  out << YAML::Key << "local_position2_" << YAML::Value << local_position2_;
-  out << YAML::Key << "local_rotation1_" << YAML::Value << local_rotation1_;
-  out << YAML::Key << "local_rotation2_" << YAML::Value << local_rotation2_;
+void evo_engine::SerializeJoint(YAML::Emitter& out, const Joint& target) {
+  out << YAML::Key << "m_jointType" << YAML::Value << (unsigned)target.joint_type_;
+  out << YAML::Key << "local_position1_" << YAML::Value << target.local_position1_;
+  out << YAML::Key << "local_position2_" << YAML::Value << target.local_position2_;
+  out << YAML::Key << "local_rotation1_" << YAML::Value << target.local_rotation1_;
+  out << YAML::Key << "local_rotation2_" << YAML::Value << target.local_rotation2_;
 
-  rigid_body1.Save("rigid_body1", out);
-  rigid_body2.Save("rigid_body2", out);
+  target.rigid_body1.Save("rigid_body1", out);
+  target.rigid_body2.Save("rigid_body2", out);
 
-  switch (joint_type_) {
+  switch (target.joint_type_) {
     case JointType::Fixed:
 
       break;
@@ -267,7 +267,7 @@ case JointType::Prismatic:
       for (int i = 0; i < 6; i++) {
         out << YAML::BeginMap;
         out << YAML::Key << "Index" << YAML::Value << i;
-        out << YAML::Key << "MotionType" << YAML::Value << (unsigned)motion_types_[i];
+        out << YAML::Key << "MotionType" << YAML::Value << (unsigned)target.motion_types_[i];
         out << YAML::EndMap;
       }
       out << YAML::EndSeq;
@@ -275,26 +275,26 @@ case JointType::Prismatic:
       for (int i = 0; i < 6; i++) {
         out << YAML::BeginMap;
         out << YAML::Key << "Index" << YAML::Value << i;
-        out << YAML::Key << "Stiffness" << YAML::Value << (float)drives_[i].stiffness;
-        out << YAML::Key << "Damping" << YAML::Value << (float)drives_[i].damping;
-        out << YAML::Key << "Flags" << YAML::Value << (unsigned)drives_[i].flags;
+        out << YAML::Key << "Stiffness" << YAML::Value << (float)target.drives_[i].stiffness;
+        out << YAML::Key << "Damping" << YAML::Value << (float)target.drives_[i].damping;
+        out << YAML::Key << "Flags" << YAML::Value << (unsigned)target.drives_[i].flags;
         out << YAML::EndMap;
       }
       out << YAML::EndSeq;
       break;
   }
 }
-void Joint::Deserialize(const YAML::Node& in) {
-  joint_type_ = (JointType)in["m_jointType"].as<unsigned>();
-  local_position1_ = in["local_position1_"].as<glm::vec3>();
-  local_position2_ = in["local_position2_"].as<glm::vec3>();
-  local_rotation1_ = in["local_rotation1_"].as<glm::quat>();
-  local_rotation2_ = in["local_rotation2_"].as<glm::quat>();
+void evo_engine::DeserializeJoint(const YAML::Node& in, Joint& target) {
+  target.joint_type_ = (JointType)in["m_jointType"].as<unsigned>();
+  target.local_position1_ = in["local_position1_"].as<glm::vec3>();
+  target.local_position2_ = in["local_position2_"].as<glm::vec3>();
+  target.local_rotation1_ = in["local_rotation1_"].as<glm::quat>();
+  target.local_rotation2_ = in["local_rotation2_"].as<glm::quat>();
 
-  rigid_body1.Load("rigid_body1", in, GetScene());
-  rigid_body2.Load("rigid_body2", in, GetScene());
+  target.rigid_body1.Load("rigid_body1", in, target.GetScene());
+  target.rigid_body2.Load("rigid_body2", in, target.GetScene());
 
-  switch (joint_type_) {
+  switch (target.joint_type_) {
     case JointType::Fixed:
       break;
       /*
@@ -315,20 +315,20 @@ case JointType::Prismatic:
       auto in_motion_types = in["motion_types_"];
       for (const auto& in_motion_type : in_motion_types) {
         int index = in_motion_type["Index"].as<int>();
-        motion_types_[index] = (PxD6Motion::Enum)in_motion_type["MotionType"].as<unsigned>();
+        target.motion_types_[index] = (PxD6Motion::Enum)in_motion_type["MotionType"].as<unsigned>();
       }
       auto in_drives = in["drives_"];
       for (const auto& in_drive : in_drives) {
         int index = in_drive["Index"].as<int>();
-        drives_[index].stiffness = in_drive["Stiffness"].as<float>();
-        drives_[index].damping = in_drive["Damping"].as<float>();
-        drives_[index].flags = (PxD6JointDriveFlag::Enum)in_drive["Flags"].as<unsigned>();
+        target.drives_[index].stiffness = in_drive["Stiffness"].as<float>();
+        target.drives_[index].damping = in_drive["Damping"].as<float>();
+        target.drives_[index].flags = (PxD6JointDriveFlag::Enum)in_drive["Flags"].as<unsigned>();
       }
       break;
   }
 
-  linked_ = false;
-  joint_ = nullptr;
+  target.linked_ = false;
+  target.joint_ = nullptr;
 }
 void Joint::Link(const Entity& entity, bool reverse) {
   auto scene = GetScene();

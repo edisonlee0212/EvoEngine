@@ -2,7 +2,7 @@
 
 using namespace eco_sys_lab_package;
 
-bool DynamicStrandsVisualizationParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicStrandsVisualizationParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Segments", &render_segments))
     changed = true;

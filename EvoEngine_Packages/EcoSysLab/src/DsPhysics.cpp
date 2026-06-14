@@ -41,7 +41,7 @@ DsFungus::DsFungus() {
   }
 }
 
-bool DsFungus::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsFungus::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   return changed;
 }
@@ -246,7 +246,7 @@ DsPrediction::DsPrediction() {
   }
 }
 
-bool DsPrediction::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsPrediction::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   /*
   if (ImGui::DragFloat("Snow factor", &snow_factor, 1.f, 1.f, 100.f)) {
@@ -546,7 +546,7 @@ DsDynamicHashedGrid::DsDynamicHashedGrid() {
   }
 }
 
-bool DsDynamicHashedGrid::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsDynamicHashedGrid::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Collision Range", &grid_cell_size, 0.001f, 0.001f, 1.0f))
     changed = true;

@@ -93,6 +93,7 @@ class IPrivateComponent;
  */
 struct Entity final {
  private:
+  friend Entity MakeSceneEntity(uint32_t index, uint32_t version);
   friend class Entities;
   friend class Scene;
   friend struct EntityMetadata;
@@ -135,6 +136,8 @@ struct Entity final {
    */
   uint32_t operator()(Entity const &key) const;
 };
+
+Entity MakeSceneEntity(uint32_t index, uint32_t version);
 
 /**
  * @brief Represents a reference to an entity.

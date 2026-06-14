@@ -1,61 +1,61 @@
-#include "BasicFoliageDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "ShootModel.hpp"
 using namespace eco_sys_lab_package;
 
-void BasicFoliageDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "leaf_size" << YAML::Value << leaf_size;
-  out << YAML::Key << "leaf_count" << YAML::Value << leaf_count;
-  stem_length.Save("stem_length", out);
-  branching_angle.Save("branching_angle", out);
-  out << YAML::Key << "rotation_variance" << YAML::Value << rotation_variance;
-  out << YAML::Key << "max_node_thickness" << YAML::Value << max_node_thickness;
-  out << YAML::Key << "min_root_distance" << YAML::Value << min_root_distance;
-  out << YAML::Key << "max_end_distance" << YAML::Value << max_end_distance;
-  out << YAML::Key << "horizontal_tropism" << YAML::Value << horizontal_tropism;
-  out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
-  leaf_material_ref.Save("leaf_material_ref", out);
+void eco_sys_lab_package::SerializeBasicFoliageDescriptor(YAML::Emitter& out, const BasicFoliageDescriptor& target) {
+  out << YAML::Key << "leaf_size" << YAML::Value << target.leaf_size;
+  out << YAML::Key << "leaf_count" << YAML::Value << target.leaf_count;
+  target.stem_length.Save("stem_length", out);
+  target.branching_angle.Save("branching_angle", out);
+  out << YAML::Key << "rotation_variance" << YAML::Value << target.rotation_variance;
+  out << YAML::Key << "max_node_thickness" << YAML::Value << target.max_node_thickness;
+  out << YAML::Key << "min_root_distance" << YAML::Value << target.min_root_distance;
+  out << YAML::Key << "max_end_distance" << YAML::Value << target.max_end_distance;
+  out << YAML::Key << "horizontal_tropism" << YAML::Value << target.horizontal_tropism;
+  out << YAML::Key << "gravitropism" << YAML::Value << target.gravitropism;
+  target.leaf_material_ref.Save("leaf_material_ref", out);
 }
 
-void BasicFoliageDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeBasicFoliageDescriptor(const YAML::Node& in, BasicFoliageDescriptor& target) {
   if (in["leaf_size"])
-    leaf_size = in["leaf_size"].as<glm::vec2>();
+    target.leaf_size = in["leaf_size"].as<glm::vec2>();
   if (in["leaf_count"])
-    leaf_count = in["leaf_count"].as<int>();
-  stem_length.Load("stem_length", in);
+    target.leaf_count = in["leaf_count"].as<int>();
+  target.stem_length.Load("stem_length", in);
   if (in["rotation_variance"])
-    rotation_variance = in["rotation_variance"].as<float>();
-  branching_angle.Load("branching_angle", in);
+    target.rotation_variance = in["rotation_variance"].as<float>();
+  target.branching_angle.Load("branching_angle", in);
   if (in["max_node_thickness"])
-    max_node_thickness = in["max_node_thickness"].as<float>();
+    target.max_node_thickness = in["max_node_thickness"].as<float>();
   if (in["min_root_distance"])
-    min_root_distance = in["min_root_distance"].as<float>();
+    target.min_root_distance = in["min_root_distance"].as<float>();
   if (in["max_end_distance"])
-    max_end_distance = in["max_end_distance"].as<float>();
+    target.max_end_distance = in["max_end_distance"].as<float>();
   if (in["horizontal_tropism"])
-    horizontal_tropism = in["horizontal_tropism"].as<float>();
+    target.horizontal_tropism = in["horizontal_tropism"].as<float>();
   if (in["gravitropism"])
-    gravitropism = in["gravitropism"].as<float>();
-  leaf_material_ref.Load("leaf_material_ref", in);
+    target.gravitropism = in["gravitropism"].as<float>();
+  target.leaf_material_ref.Load("leaf_material_ref", in);
 }
 
-bool BasicFoliageDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicFoliageDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
-  changed = activation_temperature.OnInspect("Activation temperature") | changed;
-  changed = activation_light_intensity.OnInspect("Activation light intensity") | changed;
-  changed = growth_rate.OnInspect("Growth rate") | changed;
-  changed = damage_temperature.OnInspect("Damage temperature") | changed;
-  changed = damage_rate.OnInspect("Damage rate") | changed;
-  changed = hang_time.OnInspect("Hang time") | changed;
+  changed = activation_temperature.Draw("Activation temperature") | changed;
+  changed = activation_light_intensity.Draw("Activation light intensity") | changed;
+  changed = growth_rate.Draw("Growth rate") | changed;
+  changed = damage_temperature.Draw("Damage temperature") | changed;
+  changed = damage_rate.Draw("Damage rate") | changed;
+  changed = hang_time.Draw("Hang time") | changed;
 
   if (ImGui::DragFloat2("Leaf size", &leaf_size.x, 0.001f, 0.0f, 1.0f))
     changed = true;
   if (ImGui::DragInt("Leaf per node", &leaf_count, 1, 0, 50))
     changed = true;
-  changed = stem_length.OnInspect("Stem length") | changed;
+  changed = stem_length.Draw("Stem length") | changed;
   if (ImGui::DragFloat("Rotation variance", &rotation_variance, 0.01f, 0.0f, 1.0f))
     changed = true;
-  changed = branching_angle.OnInspect("Branching angle") | changed;
+  changed = branching_angle.Draw("Branching angle") | changed;
   if (ImGui::DragFloat("Max node thickness", &max_node_thickness, 0.001f, 0.0f, 5.0f))
     changed = true;
   if (ImGui::DragFloat("Min root distance", &min_root_distance, 0.01f, 0.0f, 10.0f))

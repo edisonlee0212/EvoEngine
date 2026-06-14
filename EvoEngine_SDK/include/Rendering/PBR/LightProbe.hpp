@@ -30,7 +30,7 @@ class LightProbe final : public IAsset {
   friend class Camera;
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -54,15 +54,5 @@ class LightProbe final : public IAsset {
    * @return A shared pointer to the cubemap.
    */
   [[nodiscard]] std::shared_ptr<Cubemap> GetCubemap() const;
-
-  /**
-   * @brief Inspects the light probe in the editor layer.
-   *
-   * This function allows for interaction with the light probe in the editor.
-   *
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 }  // namespace evo_engine

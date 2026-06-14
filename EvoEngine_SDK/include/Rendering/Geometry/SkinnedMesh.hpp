@@ -101,10 +101,13 @@ class SkinnedMesh : public IAsset, public IGeometry {
    * @param path The filesystem path to save the mesh to.
    * @return True if saving was successful, otherwise false.
    */
-  bool SaveInternal(const std::filesystem::path& path) const override;
+  bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "SkinnedMesh");
+
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -134,13 +137,6 @@ class SkinnedMesh : public IAsset, public IGeometry {
   void FetchIndices(const std::vector<std::shared_ptr<Bone>>& bones);
 
   std::vector<unsigned> bone_animator_indices; /**< Stores indices of the bone animator. */
-
-  /**
-   * @brief Inspects and modifies the skinned mesh in the editor.
-   * @param editor_layer The shared pointer to the editor layer.
-   * @return True if inspection was successful, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /**
    * @brief Gets the center of the skinned mesh.
@@ -184,6 +180,12 @@ class SkinnedMesh : public IAsset, public IGeometry {
    */
   [[nodiscard]] size_t GetTriangleAmount() const;
 
+  [[nodiscard]] const SkinnedVertexAttributes& GetSkinnedVertexAttributes() const;
+
+  [[nodiscard]] const std::vector<SkinnedVertex>& PeekSkinnedVertices() const;
+
+  [[nodiscard]] const std::vector<glm::uvec3>& PeekTriangles() const;
+
   /**
    * @brief Recalculates the normals of the skinned mesh.
    */
@@ -205,18 +207,6 @@ class SkinnedMesh : public IAsset, public IGeometry {
    * @return A reference to the vector of triangles.
    */
   [[nodiscard]] std::vector<glm::uvec3>& UnsafeGetTriangles();
-
-  /**
-   * @brief Serializes the skinned mesh to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the skinned mesh from a YAML node.
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
 };
 
 }  // namespace evo_engine

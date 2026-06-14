@@ -41,6 +41,8 @@ class Strands final : public IAsset, public IGeometry {
    */
   [[nodiscard]] std::vector<glm::uint>& UnsafeGetSegments();
 
+  [[nodiscard]] const std::vector<glm::uint>& PeekSegments() const;
+
   /**
    * @brief Provides unsafe access to the strand points vector.
    * @return Reference to the vector of strand points.
@@ -48,24 +50,7 @@ class Strands final : public IAsset, public IGeometry {
    */
   [[nodiscard]] std::vector<StrandPoint>& UnsafeGetStrandPoints();
 
-  /**
-   * @brief Inspects the object in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the Strands object to the given YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the Strands object from the given YAML node.
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  [[nodiscard]] const std::vector<StrandPoint>& PeekStrandPoints() const;
 
   /**
    * @brief Sets the segments with the given attributes, segment indices, and strand points.
@@ -185,6 +170,8 @@ class Strands final : public IAsset, public IGeometry {
   template <class T>
   static float FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float target_length,
                              float tolerance = 0.001f);
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "Strands");
 
  protected:
   /**
@@ -192,24 +179,24 @@ class Strands final : public IAsset, public IGeometry {
    * @param path File path to load from.
    * @return True if loading was successful, false otherwise.
    */
-  bool LoadInternal(const std::filesystem::path& path) override;
+  bool LoadInternal(const std::filesystem::path& path);
 
   /**
    * @brief Strands files can parse CPU buffers before main-thread geometry publication.
    */
-  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const;
 
   /**
    * @brief Builds staged CPU-side strand buffers.
    */
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
 
   /**
    * @brief Applies staged strand buffers and publishes geometry storage.
    */
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  private:
   std::shared_ptr<RangeDescriptor> segment_range_;         ///< Descriptor for segment range.

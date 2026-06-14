@@ -1,4 +1,6 @@
-#include "SorghumPointCloudScanner.hpp"
+#include "DatasetGenerationSerializationAdapters.hpp"
+
+#include "DatasetGenerationInspectionAdapters.hpp"
 
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
@@ -8,7 +10,7 @@
 #include "TreePointCloudScanner.hpp"
 using namespace digital_agriculture_package;
 using namespace dataset_generation_package;
-bool SorghumPointCloudPointSettings::OnInspect() {
+bool SorghumPointCloudPointSettings::DrawGui() {
   return false;
 }
 
@@ -18,7 +20,7 @@ void SorghumPointCloudPointSettings::Save(const std::string& name, YAML::Emitter
 void SorghumPointCloudPointSettings::Load(const std::string& name, const YAML::Node& in) {
 }
 
-bool SorghumPointCloudGridCaptureSettings::OnInspect() {
+bool SorghumPointCloudGridCaptureSettings::DrawGui() {
   bool changed = false;
   if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
     changed = true;
@@ -72,7 +74,7 @@ bool SorghumPointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& 
          glm::abs(sample.hit_info.position.z) < bounding_box_size;
 }
 
-bool SorghumGantryCaptureSettings::OnInspect() {
+bool SorghumGantryCaptureSettings::DrawGui() {
   bool changed = false;
   if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
     changed = true;
@@ -419,22 +421,24 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
   }
 }
 
-bool SorghumPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool dataset_generation_package::InspectSorghumPointCloudScanner(InspectorContext& context,
+                                                                 SorghumPointCloudScanner& scanner) {
+  (void)context;
   bool changed = false;
   if (ImGui::TreeNodeEx("Grid Capture")) {
     static std::shared_ptr<TreePointCloudGridCaptureSettings> capture_settings =
         std::make_shared<TreePointCloudGridCaptureSettings>();
-    capture_settings->OnInspect();
+    capture_settings->DrawGui();
     FileUtils::SaveFile(
         "Capture", "Point Cloud", {".ply"},
         [&](const std::filesystem::path& path) {
-          Capture(path, capture_settings);
+          scanner.Capture(path, capture_settings);
         },
         false);
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Point settings")) {
-    if (sorghum_point_cloud_point_settings.OnInspect())
+    if (scanner.sorghum_point_cloud_point_settings.DrawGui())
       changed = true;
     ImGui::TreePop();
   }
@@ -445,10 +449,12 @@ void SorghumPointCloudScanner::OnDestroy() {
   sorghum_point_cloud_point_settings = {};
 }
 
-void SorghumPointCloudScanner::Serialize(YAML::Emitter& out) const {
-  sorghum_point_cloud_point_settings.Save("sorghum_point_cloud_point_settings", out);
+void dataset_generation_package::SerializeSorghumPointCloudScanner(YAML::Emitter& out,
+                                                                   const SorghumPointCloudScanner& target) {
+  target.sorghum_point_cloud_point_settings.Save("sorghum_point_cloud_point_settings", out);
 }
 
-void SorghumPointCloudScanner::Deserialize(const YAML::Node& in) {
-  sorghum_point_cloud_point_settings.Load("sorghum_point_cloud_point_settings", in);
+void dataset_generation_package::DeserializeSorghumPointCloudScanner(const YAML::Node& in,
+                                                                     SorghumPointCloudScanner& target) {
+  target.sorghum_point_cloud_point_settings.Load("sorghum_point_cloud_point_settings", in);
 }

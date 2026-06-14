@@ -1,5 +1,7 @@
 #include "Json.hpp"
 #include "Console.hpp"
+#include "InspectorRegistry.hpp"
+#include "Serialization.hpp"
 
 using namespace evo_engine;
 
@@ -8,25 +10,24 @@ class JsonStagedLoadPayload final : public StagedAssetLoadPayload {
  public:
   nlohmann::json json;
 };
-}  // namespace
 
-bool Json::SaveInternal(const std::filesystem::path& path) const {
+bool SaveJson(const Json& json, const std::filesystem::path& path) {
   std::ofstream o(path);
-  o << std::setw(4) << m_json << '\n';
+  o << std::setw(4) << json.m_json << '\n';
   return true;
 }
 
-bool Json::LoadInternal(const std::filesystem::path& path) {
+bool LoadJson(Json& json, const std::filesystem::path& path) {
   std::ifstream ifs(path);
-  m_json = nlohmann::json::parse(ifs);
+  json.m_json = nlohmann::json::parse(ifs);
   return true;
 }
 
-bool Json::SupportsStagedLoading() const {
+bool SupportsJsonStagedLoading(const Json&, const std::filesystem::path&) {
   return true;
 }
 
-std::shared_ptr<StagedAssetLoadPayload> Json::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+std::shared_ptr<StagedAssetLoadPayload> LoadJsonStagedPayload(const Json&, const std::filesystem::path& path) {
   try {
     std::ifstream ifs(path);
     auto payload = std::make_shared<JsonStagedLoadPayload>();
@@ -38,18 +39,44 @@ std::shared_ptr<StagedAssetLoadPayload> Json::LoadStagedPayloadInternal(const st
   }
 }
 
-bool Json::ApplyStagedPayloadInternal(const std::filesystem::path&,
-                                      const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+bool ApplyJsonStagedPayload(Json& json, const std::filesystem::path&,
+                            const std::shared_ptr<StagedAssetLoadPayload>& payload) {
   const auto json_payload = std::dynamic_pointer_cast<JsonStagedLoadPayload>(payload);
   if (!json_payload) {
     return false;
   }
-  m_json = std::move(json_payload->json);
+  json.m_json = std::move(json_payload->json);
   return true;
 }
 
-bool Json::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
+bool InspectJson(InspectorContext&, Json&) {
+  return false;
+}
+}  // namespace
 
-  return changed;
+bool Json::SaveInternal(const std::filesystem::path& path) const {
+  return SaveJson(*this, path);
+}
+
+bool Json::LoadInternal(const std::filesystem::path& path) {
+  return LoadJson(*this, path);
+}
+
+bool Json::SupportsStagedLoading() const {
+  return true;
+}
+
+std::shared_ptr<StagedAssetLoadPayload> Json::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  return LoadJsonStagedPayload(*this, path);
+}
+
+bool Json::ApplyStagedPayloadInternal(const std::filesystem::path&,
+                                      const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+  return ApplyJsonStagedPayload(*this, {}, payload);
+}
+
+void evo_engine::RegisterJsonHandlers() {
+  Serialization::RegisterAssetIoHandler<Json>(SaveJson, LoadJson, SupportsJsonStagedLoading, LoadJsonStagedPayload,
+                                              ApplyJsonStagedPayload, {}, "Json");
+  InspectorRegistry::GetInstance().RegisterInspector<Json>(InspectJson, {}, "Json");
 }

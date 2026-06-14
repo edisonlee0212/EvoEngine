@@ -2,14 +2,17 @@
 
 #include <PointCloud.hpp>
 
+#include "BillboardCloudsInspectionAdapters.hpp"
 #include "Prefab.hpp"
 using namespace billboard_clouds_package;
 
-bool BillboardCloudsConverter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool billboard_clouds_package::InspectBillboardCloudsConverter(InspectorContext& context,
+                                                               BillboardCloudsConverter& billboard_clouds_converter) {
+  const auto& editor_layer = context.editor_layer;
   bool changed = false;
-  const auto scene = GetScene();
+  const auto scene = billboard_clouds_converter.GetScene();
   static BillboardCloud::GenerateSettings billboard_cloud_generate_settings{};
-  billboard_cloud_generate_settings.OnInspect("Billboard clouds generation settings");
+  billboard_cloud_generate_settings.DrawGui("Billboard clouds generation settings");
 
   if (ImGui::TreeNodeEx("Mesh -> Billboard Clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
     static AssetRef mesh_ref;

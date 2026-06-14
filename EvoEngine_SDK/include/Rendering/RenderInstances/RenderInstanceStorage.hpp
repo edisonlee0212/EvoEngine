@@ -25,12 +25,6 @@ struct RenderSettings {
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
   int strands_subdivision_max_x = 15;          ///< Maximum subdivision in X-axis for strands.
   int strands_subdivision_max_y = 8;           ///< Maximum subdivision in Y-axis for strands.
-
-  /**
-   * @brief Inspect render settings in the editor layer.
-   * @param editor_layer Shared pointer to the editor layer.
-   */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**

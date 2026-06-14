@@ -1,5 +1,7 @@
 #include "BasicShootDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
+#include "SDKInspectionAdapters.hpp"
 #include "ShootModel.hpp"
 
 using namespace eco_sys_lab_package;
@@ -163,103 +165,103 @@ void BasicShootDescriptor::PrepareController(ShootGrowthController& shoot_growth
       };
 }
 
-void BasicShootDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "base_internode_count" << YAML::Value << base_internode_count;
-  out << YAML::Key << "straight_trunk" << YAML::Value << straight_trunk;
+void eco_sys_lab_package::SerializeBasicShootDescriptor(YAML::Emitter& out, const BasicShootDescriptor& target) {
+  out << YAML::Key << "base_internode_count" << YAML::Value << target.base_internode_count;
+  out << YAML::Key << "straight_trunk" << YAML::Value << target.straight_trunk;
 
-  out << YAML::Key << "growth_rate" << YAML::Value << growth_rate;
+  out << YAML::Key << "growth_rate" << YAML::Value << target.growth_rate;
 
-  branching_angle_graph.Save("branching_angle_graph", out);
-  roll_angle_graph.Save("roll_angle_graph", out);
-  apical_angle_graph.Save("apical_angle_graph", out);
+  target.branching_angle_graph.Save("branching_angle_graph", out);
+  target.roll_angle_graph.Save("roll_angle_graph", out);
+  target.apical_angle_graph.Save("apical_angle_graph", out);
 
-  out << YAML::Key << "gravitropism" << YAML::Value << gravitropism;
-  out << YAML::Key << "phototropism" << YAML::Value << phototropism;
-  out << YAML::Key << "horizontal_tropism" << YAML::Value << horizontal_tropism;
-  out << YAML::Key << "gravity_bending_strength" << YAML::Value << gravity_bending_strength;
-  out << YAML::Key << "gravity_bending_thickness_factor" << YAML::Value << gravity_bending_thickness_factor;
-  out << YAML::Key << "gravity_bending_max" << YAML::Value << gravity_bending_max;
+  out << YAML::Key << "gravitropism" << YAML::Value << target.gravitropism;
+  out << YAML::Key << "phototropism" << YAML::Value << target.phototropism;
+  out << YAML::Key << "horizontal_tropism" << YAML::Value << target.horizontal_tropism;
+  out << YAML::Key << "gravity_bending_strength" << YAML::Value << target.gravity_bending_strength;
+  out << YAML::Key << "gravity_bending_thickness_factor" << YAML::Value << target.gravity_bending_thickness_factor;
+  out << YAML::Key << "gravity_bending_max" << YAML::Value << target.gravity_bending_max;
 
-  out << YAML::Key << "internode_length" << YAML::Value << internode_length;
-  out << YAML::Key << "internode_length_thickness_factor" << YAML::Value << internode_length_thickness_factor;
-  out << YAML::Key << "end_node_thickness" << YAML::Value << end_node_thickness;
-  out << YAML::Key << "thickness_accumulation_factor" << YAML::Value << thickness_accumulation_factor;
-  out << YAML::Key << "thickness_age_factor" << YAML::Value << thickness_age_factor;
-  out << YAML::Key << "internode_shadow_factor" << YAML::Value << internode_shadow_factor;
+  out << YAML::Key << "internode_length" << YAML::Value << target.internode_length;
+  out << YAML::Key << "internode_length_thickness_factor" << YAML::Value << target.internode_length_thickness_factor;
+  out << YAML::Key << "end_node_thickness" << YAML::Value << target.end_node_thickness;
+  out << YAML::Key << "thickness_accumulation_factor" << YAML::Value << target.thickness_accumulation_factor;
+  out << YAML::Key << "thickness_age_factor" << YAML::Value << target.thickness_age_factor;
+  out << YAML::Key << "internode_shadow_factor" << YAML::Value << target.internode_shadow_factor;
 
-  out << YAML::Key << "lateral_bud_count" << YAML::Value << lateral_bud_count;
-  out << YAML::Key << "max_order" << YAML::Value << max_order;
-  out << YAML::Key << "apical_bud_extinction_rate" << YAML::Value << apical_bud_extinction_rate;
-  out << YAML::Key << "lateral_bud_flushing_rate" << YAML::Value << lateral_bud_flushing_rate;
-  out << YAML::Key << "apical_control" << YAML::Value << apical_control;
-  out << YAML::Key << "height_control" << YAML::Value << height_control;
-  out << YAML::Key << "root_distance_control" << YAML::Value << root_distance_control;
+  out << YAML::Key << "lateral_bud_count" << YAML::Value << target.lateral_bud_count;
+  out << YAML::Key << "max_order" << YAML::Value << target.max_order;
+  out << YAML::Key << "apical_bud_extinction_rate" << YAML::Value << target.apical_bud_extinction_rate;
+  out << YAML::Key << "lateral_bud_flushing_rate" << YAML::Value << target.lateral_bud_flushing_rate;
+  out << YAML::Key << "apical_control" << YAML::Value << target.apical_control;
+  out << YAML::Key << "height_control" << YAML::Value << target.height_control;
+  out << YAML::Key << "root_distance_control" << YAML::Value << target.root_distance_control;
 
-  out << YAML::Key << "apical_dominance" << YAML::Value << apical_dominance;
-  out << YAML::Key << "apical_dominance_loss" << YAML::Value << apical_dominance_loss;
+  out << YAML::Key << "apical_dominance" << YAML::Value << target.apical_dominance;
+  out << YAML::Key << "apical_dominance_loss" << YAML::Value << target.apical_dominance_loss;
 }
 
-void BasicShootDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeBasicShootDescriptor(const YAML::Node& in, BasicShootDescriptor& target) {
   if (in["base_internode_count"])
-    base_internode_count = in["base_internode_count"].as<int>();
+    target.base_internode_count = in["base_internode_count"].as<int>();
   if (in["straight_trunk"])
-    straight_trunk = in["straight_trunk"].as<float>();
+    target.straight_trunk = in["straight_trunk"].as<float>();
 
   if (in["growth_rate"])
-    growth_rate = in["growth_rate"].as<float>();
+    target.growth_rate = in["growth_rate"].as<float>();
 
-  branching_angle_graph.Load("branching_angle_graph", in);
-  roll_angle_graph.Load("roll_angle_graph", in);
-  apical_angle_graph.Load("apical_angle_graph", in);
+  target.branching_angle_graph.Load("branching_angle_graph", in);
+  target.roll_angle_graph.Load("roll_angle_graph", in);
+  target.apical_angle_graph.Load("apical_angle_graph", in);
 
   if (in["gravitropism"])
-    gravitropism = in["gravitropism"].as<float>();
+    target.gravitropism = in["gravitropism"].as<float>();
   if (in["phototropism"])
-    phototropism = in["phototropism"].as<float>();
+    target.phototropism = in["phototropism"].as<float>();
   if (in["horizontal_tropism"])
-    horizontal_tropism = in["horizontal_tropism"].as<float>();
+    target.horizontal_tropism = in["horizontal_tropism"].as<float>();
   if (in["gravity_bending_strength"])
-    gravity_bending_strength = in["gravity_bending_strength"].as<float>();
+    target.gravity_bending_strength = in["gravity_bending_strength"].as<float>();
   if (in["gravity_bending_thickness_factor"])
-    gravity_bending_thickness_factor = in["gravity_bending_thickness_factor"].as<float>();
+    target.gravity_bending_thickness_factor = in["gravity_bending_thickness_factor"].as<float>();
   if (in["gravity_bending_max"])
-    gravity_bending_max = in["gravity_bending_max"].as<float>();
+    target.gravity_bending_max = in["gravity_bending_max"].as<float>();
 
   if (in["internode_length"])
-    internode_length = in["internode_length"].as<float>();
+    target.internode_length = in["internode_length"].as<float>();
   if (in["internode_length_thickness_factor"])
-    internode_length_thickness_factor = in["internode_length_thickness_factor"].as<float>();
+    target.internode_length_thickness_factor = in["internode_length_thickness_factor"].as<float>();
   if (in["end_node_thickness"])
-    end_node_thickness = in["end_node_thickness"].as<float>();
+    target.end_node_thickness = in["end_node_thickness"].as<float>();
   if (in["thickness_accumulation_factor"])
-    thickness_accumulation_factor = in["thickness_accumulation_factor"].as<float>();
+    target.thickness_accumulation_factor = in["thickness_accumulation_factor"].as<float>();
   if (in["thickness_age_factor"])
-    thickness_age_factor = in["thickness_age_factor"].as<float>();
+    target.thickness_age_factor = in["thickness_age_factor"].as<float>();
   if (in["internode_shadow_factor"])
-    internode_shadow_factor = in["internode_shadow_factor"].as<float>();
+    target.internode_shadow_factor = in["internode_shadow_factor"].as<float>();
 
   if (in["lateral_bud_count"])
-    lateral_bud_count = in["lateral_bud_count"].as<int>();
+    target.lateral_bud_count = in["lateral_bud_count"].as<int>();
   if (in["max_order"])
-    max_order = in["max_order"].as<int>();
+    target.max_order = in["max_order"].as<int>();
   if (in["apical_bud_extinction_rate"])
-    apical_bud_extinction_rate = in["apical_bud_extinction_rate"].as<float>();
+    target.apical_bud_extinction_rate = in["apical_bud_extinction_rate"].as<float>();
   if (in["lateral_bud_flushing_rate"])
-    lateral_bud_flushing_rate = in["lateral_bud_flushing_rate"].as<float>();
+    target.lateral_bud_flushing_rate = in["lateral_bud_flushing_rate"].as<float>();
   if (in["apical_control"])
-    apical_control = in["apical_control"].as<float>();
+    target.apical_control = in["apical_control"].as<float>();
   if (in["root_distance_control"])
-    root_distance_control = in["root_distance_control"].as<float>();
+    target.root_distance_control = in["root_distance_control"].as<float>();
   if (in["height_control"])
-    height_control = in["height_control"].as<float>();
+    target.height_control = in["height_control"].as<float>();
 
   if (in["apical_dominance"])
-    apical_dominance = in["apical_dominance"].as<float>();
+    target.apical_dominance = in["apical_dominance"].as<float>();
   if (in["apical_dominance_loss"])
-    apical_dominance_loss = in["apical_dominance_loss"].as<float>();
+    target.apical_dominance_loss = in["apical_dominance_loss"].as<float>();
 }
 
-bool BasicShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicShootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   changed = ImGui::DragFloat("Growth rate", &growth_rate, 0.01f, 0.0f, 10.0f) || changed;
   changed = ImGui::DragFloat("Straight Trunk", &straight_trunk, 0.1f, 0.0f, 100.f) || changed;
@@ -275,13 +277,14 @@ bool BasicShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_
     ImGui::Checkbox("Show roll angle graph", &show_roll_angle_graph);
     ImGui::Checkbox("Show apical angle graph", &show_apical_angle_graph);
     if (show_branching_angle_graph) {
-      changed = branching_angle_graph.ShowGraph("Branching Angle Graph", editor_layer) || changed;
+      changed =
+          evo_engine::DrawProceduralNoiseGraph(branching_angle_graph, "Branching Angle Graph", editor_layer) || changed;
     }
     if (show_roll_angle_graph) {
-      changed = roll_angle_graph.ShowGraph("Roll Angle Graph", editor_layer) || changed;
+      changed = evo_engine::DrawProceduralNoiseGraph(roll_angle_graph, "Roll Angle Graph", editor_layer) || changed;
     }
     if (show_apical_angle_graph) {
-      changed = apical_angle_graph.ShowGraph("Apical Angle Graph", editor_layer) || changed;
+      changed = evo_engine::DrawProceduralNoiseGraph(apical_angle_graph, "Apical Angle Graph", editor_layer) || changed;
     }
 
     changed = ImGui::DragFloat("Internode length", &internode_length, 0.001f) || changed;

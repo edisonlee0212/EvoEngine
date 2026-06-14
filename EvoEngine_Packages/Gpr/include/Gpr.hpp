@@ -14,12 +14,16 @@ class Gpr : public IAsset {
   AssetRef preview_image_;
 
  protected:
-  bool SaveInternal(const std::filesystem::path& path) const override;
-  bool LoadInternal(const std::filesystem::path& path) override;
+  bool SaveInternal(const std::filesystem::path& path) const;
+  bool LoadInternal(const std::filesystem::path& path);
 
  public:
   ~Gpr() override;
   Gpr();
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool SaveGpr(const std::filesystem::path& path) const;
+  bool LoadGpr(const std::filesystem::path& path);
+  AssetRef& RefPreviewImage();
 };
+
+void RegisterGprHandlers(const std::string& owner_name);
 }  // namespace gpr_package

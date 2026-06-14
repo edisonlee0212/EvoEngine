@@ -735,7 +735,7 @@ void EcoSysLabLayer::ClearSkeletalGraphs() const {
   }
 }
 
-bool EcoSysLabLayer::TreeVisualizationSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool EcoSysLabLayer::TreeVisualizationSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   ImGui::Checkbox("Display shoot stem", &display_shoot_stem);

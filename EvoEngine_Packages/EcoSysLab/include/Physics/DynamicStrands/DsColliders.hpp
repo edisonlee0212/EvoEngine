@@ -83,14 +83,12 @@ class DsBoxCollider : public IDsCollider {
   inline static std::shared_ptr<ComputePipeline> leaf_velocity_pipeline;
 
   DsBoxCollider();
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 
   void ProjectVelocityConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 class DsCylinderCollider : public IDsCollider {
@@ -125,11 +123,9 @@ class DsCylinderCollider : public IDsCollider {
   inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   DsCylinderCollider();
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 class DsSphereCollider : public IDsCollider {
@@ -158,10 +154,8 @@ class DsSphereCollider : public IDsCollider {
   inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   DsSphereCollider();
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 }  // namespace eco_sys_lab_package

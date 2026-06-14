@@ -17,10 +17,8 @@ class TriangleIlluminationEstimator : public IPrivateComponent {
   float total_area = 0.0f;
   glm::vec3 total_flux = glm::vec3(0.0f);
   glm::vec3 average_flux = glm::vec3(0.0f);
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   const LightProbeGroup& PeekProbes() const;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 }  // namespace evo_engine

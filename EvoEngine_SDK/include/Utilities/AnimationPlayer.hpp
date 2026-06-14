@@ -29,26 +29,6 @@ class AnimationPlayer : public IPrivateComponent {
    * @brief Updates the animation playback logic.
    */
   void Update() override;
-
-  /**
-   * @brief Renders the inspector properties of the animation player in the editor.
-   *
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  // /**
-  // * @brief Serializes the animation player's data into a YAML emitter.
-  // * @param out The YAML emitter to save data into.
-  // */
-  // void Save(YAML::Emitter& out) override;
-
-  // /**
-  // * @brief Deserializes the animation player's data from a YAML node.
-  // * @param in The YAML node containing the serialized data.
-  // */
-  // void Deserialize(const YAML::Node& in) override;
 };
 
 }  // namespace evo_engine

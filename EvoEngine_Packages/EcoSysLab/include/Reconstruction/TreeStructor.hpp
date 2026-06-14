@@ -115,7 +115,7 @@ struct ConnectivityGraphSettings {
   float connection_range_limit = 1.0f;
 
   float max_scatter_point_connection_height = 1.5f;
-  void OnInspect();
+  void DrawGui();
 };
 
 struct PointData {
@@ -168,7 +168,7 @@ struct ReconstructionSettings {
 
   bool use_foliage = true;
 
-  void OnInspect();
+  void DrawGui();
 };
 
 struct ReconstructionSkeletonData {
@@ -289,7 +289,7 @@ class TreeStructor : public IPrivateComponent {
   std::vector<OperatorBranch> operating_branches;
   std::vector<TreePart> tree_parts;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   std::vector<ReconstructionSkeleton> skeletons;
 
@@ -322,9 +322,7 @@ class TreeStructor : public IPrivateComponent {
       const TreeMeshGeneratorSettings& mesh_generator_settings) const;
   std::vector<std::shared_ptr<Mesh>> GenerateFoliageMeshes();
 
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
-  void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
+  void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene);
 };
 }  // namespace eco_sys_lab_package

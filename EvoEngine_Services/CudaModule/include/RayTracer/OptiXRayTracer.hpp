@@ -96,7 +96,7 @@ struct CameraProperties {
   void SetDenoiserStrength(float value);
   void Set(const glm::vec3& position, const glm::quat& rotation);
   void SetSkybox(const std::shared_ptr<CudaImage>& cubemap);
-  void OnInspect();
+  void DrawGui();
 };
 
 #pragma region MyRegion
@@ -136,7 +136,7 @@ struct EnvironmentProperties {
            properties.atmosphere.num_samples_light != atmosphere.num_samples_light;
   }
 
-  void OnInspect();
+  void DrawGui();
 };
 
 struct RayProperties {
@@ -147,7 +147,7 @@ struct RayProperties {
     return properties.bounces != bounces || properties.samples != samples;
   }
 
-  void OnInspect();
+  void DrawGui();
 };
 
 struct RayTracerProperties {
@@ -158,7 +158,7 @@ struct RayTracerProperties {
     return environment.Changed(properties.environment) || ray_properties.Changed(properties.ray_properties);
   }
 
-  void OnInspect();
+  void DrawGui();
 };
 
 enum class RayType { Radiance, SpacialSampling, RayTypeCount };

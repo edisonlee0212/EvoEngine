@@ -7,12 +7,15 @@
 namespace log_scanning_package {
 using namespace nlohmann;
 using namespace evo_engine;
+bool InspectJoeScanScanner(evo_engine::InspectorContext& context, class JoeScanScanner& scanner);
 
 struct JoeScanScannerSettings {
   int step = 1;
 };
 
 class JoeScanScanner : public IPrivateComponent {
+  friend bool InspectJoeScanScanner(evo_engine::InspectorContext& context, JoeScanScanner& scanner);
+
   std::shared_ptr<std::mutex> scanner_mutex_;
   bool scan_enabled_ = false;
   JobHandle scanner_job_{};
@@ -33,12 +36,9 @@ class JoeScanScanner : public IPrivateComponent {
   static void FreeScanSystem(jsScanSystem& scan_system, std::vector<jsScanHead>& scan_heads);
   jsScanSystem scan_system = 0;
   std::vector<jsScanHead> scan_heads;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void FixedUpdate() override;
   void OnCreate() override;
   void OnDestroy() override;
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 }  // namespace log_scanning_package

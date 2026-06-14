@@ -64,27 +64,5 @@ class ISerializable : public IHandle {
    * @brief Virtual destructor for the ISerializable class.
    */
   virtual ~ISerializable() = default;
-
-  /**
-   * @brief Serializes the object to the specified YAML emitter.
-   *
-   * This is a virtual method that can be overridden in derived classes
-   * to define specific serialization logic.
-   *
-   * @param out The YAML emitter to output the serialized data.
-   */
-  virtual void Serialize(YAML::Emitter &out) const {
-  }
-
-  /**
-   * @brief Deserializes the object from the specified YAML node.
-   *
-   * This is a virtual method that can be overridden in derived classes
-   * to define specific deserialization logic.
-   *
-   * @param in The YAML node containing the serialized data.
-   */
-  virtual void Deserialize(const YAML::Node &in) {
-  }
 };
 }  // namespace evo_engine

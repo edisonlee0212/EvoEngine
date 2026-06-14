@@ -4,7 +4,7 @@
 
 using namespace eco_sys_lab_package;
 
-void SpatialPlantDistributionSimulator::OnInspectSpatialPlantDistributionFunction(
+void SpatialPlantDistributionSimulator::DrawSpatialPlantDistributionFunctionGui(
     const SpatialPlantDistribution& spatialPlantDistribution, const std::function<void(glm::vec2 position)>& func,
     const std::function<void(ImVec2 origin, float zoomFactor, ImDrawList*)>& drawFunc) {
   static auto scrolling = glm::vec2(0.0f);
@@ -95,7 +95,7 @@ void SpatialPlantDistributionSimulator::OnInspectSpatialPlantDistributionFunctio
   drawList->PopClipRect();
 }
 
-bool SpatialPlantDistributionSimulator::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool SpatialPlantDistributionSimulator::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;
   if (ImGui::TreeNode("Global Parameters")) {
     ImGui::DragFloat("Weighting Factor", &m_distribution.m_spatialPlantGlobalParameters.m_p, 0.01f, 0.0f, 1.0f);
@@ -194,7 +194,7 @@ bool SpatialPlantDistributionSimulator::OnInspect(const std::shared_ptr<EditorLa
   const std::string tag = "Spatial Plant Scene";
   ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_Appearing);
   if (ImGui::Begin(tag.c_str())) {
-    OnInspectSpatialPlantDistributionFunction(
+    DrawSpatialPlantDistributionFunctionGui(
         m_distribution,
         [&](glm::vec2 position) {
         },

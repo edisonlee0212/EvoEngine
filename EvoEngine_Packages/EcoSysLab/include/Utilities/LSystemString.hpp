@@ -69,14 +69,14 @@ class LSystemString : public IAsset {
    * @param path File path where the L-system string should be saved.
    * @return True if the save operation was successful, otherwise false.
    */
-  bool SaveInternal(const std::filesystem::path& path) const override;
+  bool SaveInternal(const std::filesystem::path& path) const;
 
   /**
    * @brief Loads the L-system string from a file.
    * @param path File path from which to load the L-system string.
    * @return True if the load operation was successful, otherwise false.
    */
-  bool LoadInternal(const std::filesystem::path& path) override;
+  bool LoadInternal(const std::filesystem::path& path);
 
  public:
   float m_internodeLength = 1.0f;    ///< Length of each internode in the L-system.
@@ -94,7 +94,7 @@ class LSystemString : public IAsset {
    * @param editor_layer Shared pointer to the editor layer.
    * @return True if the asset's content remains unmodified during inspection, otherwise false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   std::vector<LSystemCommand> m_commands;  ///< A sequence of parsed L-system commands.
 };

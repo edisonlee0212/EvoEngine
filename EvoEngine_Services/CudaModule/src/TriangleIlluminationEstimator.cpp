@@ -1,5 +1,5 @@
 
-#include <TriangleIlluminationEstimator.hpp>
+#include "CudaSerializationAdapters.hpp"
 
 #include "BtfMeshRenderer.hpp"
 #include "EditorLayer.hpp"
@@ -54,11 +54,11 @@ void ColorDescendentsVertices(const std::shared_ptr<Scene>& scene, const Entity&
   }
 }
 
-bool TriangleIlluminationEstimator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool TriangleIlluminationEstimator::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto scene = GetScene();
   const auto owner = GetOwner();
-  light_probe_group_.OnInspect();
+  light_probe_group_.DrawGui();
   static int seed = 0;
   static float push_normal_distance = 0.001f;
   static RayProperties ray_properties;
@@ -223,14 +223,15 @@ void TriangleIlluminationEstimator::PrepareLightProbeGroup() {
   }
 }
 
-void TriangleIlluminationEstimator::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "total_area" << YAML::Value << total_area;
-  out << YAML::Key << "total_flux" << YAML::Value << total_flux;
-  out << YAML::Key << "average_flux" << YAML::Value << average_flux;
+void evo_engine::SerializeTriangleIlluminationEstimator(YAML::Emitter& out,
+                                                        const TriangleIlluminationEstimator& target) {
+  out << YAML::Key << "total_area" << YAML::Value << target.total_area;
+  out << YAML::Key << "total_flux" << YAML::Value << target.total_flux;
+  out << YAML::Key << "average_flux" << YAML::Value << target.average_flux;
 }
 
-void TriangleIlluminationEstimator::Deserialize(const YAML::Node& in) {
-  total_area = in["total_area"].as<float>();
-  total_flux = in["total_flux"].as<glm::vec3>();
-  average_flux = in["average_flux"].as<glm::vec3>();
+void evo_engine::DeserializeTriangleIlluminationEstimator(const YAML::Node& in, TriangleIlluminationEstimator& target) {
+  target.total_area = in["total_area"].as<float>();
+  target.total_flux = in["total_flux"].as<glm::vec3>();
+  target.average_flux = in["average_flux"].as<glm::vec3>();
 }

@@ -1,5 +1,7 @@
 #include "BasicRootDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
+#include "SDKInspectionAdapters.hpp"
 #include "ShootModel.hpp"
 
 using namespace eco_sys_lab_package;
@@ -139,82 +141,83 @@ void BasicRootDescriptor::PrepareController(RootGrowthController& root_growth_co
   };
 }
 
-void BasicRootDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "base_root_node_count" << YAML::Value << base_root_node_count;
-  out << YAML::Key << "straight_tap_root" << YAML::Value << straight_tap_root;
+void eco_sys_lab_package::SerializeBasicRootDescriptor(YAML::Emitter& out, const BasicRootDescriptor& target) {
+  out << YAML::Key << "base_root_node_count" << YAML::Value << target.base_root_node_count;
+  out << YAML::Key << "straight_tap_root" << YAML::Value << target.straight_tap_root;
 
-  out << YAML::Key << "growth_rate" << YAML::Value << growth_rate;
-  out << YAML::Key << "lateral_node_flushing_probability" << YAML::Value << lateral_node_flushing_probability;
+  out << YAML::Key << "growth_rate" << YAML::Value << target.growth_rate;
+  out << YAML::Key << "lateral_node_flushing_probability" << YAML::Value << target.lateral_node_flushing_probability;
 
-  branching_angle_graph.Save("branching_angle_graph", out);
-  roll_angle_graph.Save("roll_angle_graph", out);
-  apical_angle_graph.Save("apical_angle_graph", out);
+  target.branching_angle_graph.Save("branching_angle_graph", out);
+  target.roll_angle_graph.Save("roll_angle_graph", out);
+  target.apical_angle_graph.Save("apical_angle_graph", out);
 
-  out << YAML::Key << "root_node_length" << YAML::Value << root_node_length;
-  out << YAML::Key << "root_node_length_thickness_factor" << YAML::Value << root_node_length_thickness_factor;
-  out << YAML::Key << "end_node_thickness" << YAML::Value << end_node_thickness;
-  out << YAML::Key << "thickness_accumulation_factor" << YAML::Value << thickness_accumulation_factor;
-  out << YAML::Key << "thickness_age_factor" << YAML::Value << thickness_age_factor;
+  out << YAML::Key << "root_node_length" << YAML::Value << target.root_node_length;
+  out << YAML::Key << "root_node_length_thickness_factor" << YAML::Value << target.root_node_length_thickness_factor;
+  out << YAML::Key << "end_node_thickness" << YAML::Value << target.end_node_thickness;
+  out << YAML::Key << "thickness_accumulation_factor" << YAML::Value << target.thickness_accumulation_factor;
+  out << YAML::Key << "thickness_age_factor" << YAML::Value << target.thickness_age_factor;
 
-  out << YAML::Key << "apical_control" << YAML::Value << apical_control;
-  out << YAML::Key << "soil_density_friction" << YAML::Value << soil_density_friction;
-  out << YAML::Key << "root_distance_control" << YAML::Value << root_distance_control;
+  out << YAML::Key << "apical_control" << YAML::Value << target.apical_control;
+  out << YAML::Key << "soil_density_friction" << YAML::Value << target.soil_density_friction;
+  out << YAML::Key << "root_distance_control" << YAML::Value << target.root_distance_control;
 
-  out << YAML::Key << "apical_dominance" << YAML::Value << apical_dominance;
-  out << YAML::Key << "apical_dominance_loss" << YAML::Value << apical_dominance_loss;
-  out << YAML::Key << "tropism_intensity" << YAML::Value << tropism_intensity;
-  out << YAML::Key << "tropism_switch_probability" << YAML::Value << tropism_switch_probability;
-  out << YAML::Key << "tropism_switch_base_distance_factor" << YAML::Value << tropism_switch_base_distance_factor;
+  out << YAML::Key << "apical_dominance" << YAML::Value << target.apical_dominance;
+  out << YAML::Key << "apical_dominance_loss" << YAML::Value << target.apical_dominance_loss;
+  out << YAML::Key << "tropism_intensity" << YAML::Value << target.tropism_intensity;
+  out << YAML::Key << "tropism_switch_probability" << YAML::Value << target.tropism_switch_probability;
+  out << YAML::Key << "tropism_switch_base_distance_factor" << YAML::Value
+      << target.tropism_switch_base_distance_factor;
 }
 
-void BasicRootDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeBasicRootDescriptor(const YAML::Node& in, BasicRootDescriptor& target) {
   if (in["base_root_node_count"])
-    base_root_node_count = in["base_root_node_count"].as<int>();
+    target.base_root_node_count = in["base_root_node_count"].as<int>();
   if (in["straight_tap_root"])
-    straight_tap_root = in["straight_tap_root"].as<float>();
+    target.straight_tap_root = in["straight_tap_root"].as<float>();
 
   if (in["growth_rate"])
-    growth_rate = in["growth_rate"].as<float>();
+    target.growth_rate = in["growth_rate"].as<float>();
 
-  branching_angle_graph.Load("branching_angle_graph", in);
-  roll_angle_graph.Load("roll_angle_graph", in);
-  apical_angle_graph.Load("apical_angle_graph", in);
+  target.branching_angle_graph.Load("branching_angle_graph", in);
+  target.roll_angle_graph.Load("roll_angle_graph", in);
+  target.apical_angle_graph.Load("apical_angle_graph", in);
 
   if (in["lateral_node_flushing_probability"])
-    lateral_node_flushing_probability = in["lateral_node_flushing_probability"].as<float>();
+    target.lateral_node_flushing_probability = in["lateral_node_flushing_probability"].as<float>();
 
   if (in["root_node_length"])
-    root_node_length = in["root_node_length"].as<float>();
+    target.root_node_length = in["root_node_length"].as<float>();
   if (in["root_node_length_thickness_factor"])
-    root_node_length_thickness_factor = in["root_node_length_thickness_factor"].as<float>();
+    target.root_node_length_thickness_factor = in["root_node_length_thickness_factor"].as<float>();
   if (in["end_node_thickness"])
-    end_node_thickness = in["end_node_thickness"].as<float>();
+    target.end_node_thickness = in["end_node_thickness"].as<float>();
   if (in["thickness_accumulation_factor"])
-    thickness_accumulation_factor = in["thickness_accumulation_factor"].as<float>();
+    target.thickness_accumulation_factor = in["thickness_accumulation_factor"].as<float>();
   if (in["thickness_age_factor"])
-    thickness_age_factor = in["thickness_age_factor"].as<float>();
+    target.thickness_age_factor = in["thickness_age_factor"].as<float>();
 
   if (in["apical_control"])
-    apical_control = in["apical_control"].as<float>();
+    target.apical_control = in["apical_control"].as<float>();
   if (in["root_distance_control"])
-    root_distance_control = in["root_distance_control"].as<float>();
+    target.root_distance_control = in["root_distance_control"].as<float>();
   if (in["soil_density_friction"])
-    soil_density_friction = in["soil_density_friction"].as<glm::vec2>();
+    target.soil_density_friction = in["soil_density_friction"].as<glm::vec2>();
 
   if (in["apical_dominance"])
-    apical_dominance = in["apical_dominance"].as<float>();
+    target.apical_dominance = in["apical_dominance"].as<float>();
   if (in["apical_dominance_loss"])
-    apical_dominance_loss = in["apical_dominance_loss"].as<float>();
+    target.apical_dominance_loss = in["apical_dominance_loss"].as<float>();
 
   if (in["tropism_intensity"])
-    tropism_intensity = in["tropism_intensity"].as<float>();
+    target.tropism_intensity = in["tropism_intensity"].as<float>();
   if (in["tropism_switch_probability"])
-    tropism_switch_probability = in["tropism_switch_probability"].as<float>();
+    target.tropism_switch_probability = in["tropism_switch_probability"].as<float>();
   if (in["tropism_switch_base_distance_factor"])
-    tropism_switch_base_distance_factor = in["tropism_switch_base_distance_factor"].as<float>();
+    target.tropism_switch_base_distance_factor = in["tropism_switch_base_distance_factor"].as<float>();
 }
 
-bool BasicRootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicRootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   changed = ImGui::DragFloat("Growth rate", &growth_rate, 0.01f, 0.0f, 10.0f) || changed;
   changed = ImGui::DragFloat("Straight Tap Root", &straight_tap_root, 0.1f, 0.0f, 100.f) || changed;
@@ -229,13 +232,14 @@ bool BasicRootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     ImGui::Checkbox("Show roll angle graph", &show_roll_angle_graph);
     ImGui::Checkbox("Show apical angle graph", &show_apical_angle_graph);
     if (show_branching_angle_graph) {
-      changed = branching_angle_graph.ShowGraph("Branching Angle Graph", editor_layer) || changed;
+      changed =
+          evo_engine::DrawProceduralNoiseGraph(branching_angle_graph, "Branching Angle Graph", editor_layer) || changed;
     }
     if (show_roll_angle_graph) {
-      changed = roll_angle_graph.ShowGraph("Roll Angle Graph", editor_layer) || changed;
+      changed = evo_engine::DrawProceduralNoiseGraph(roll_angle_graph, "Roll Angle Graph", editor_layer) || changed;
     }
     if (show_apical_angle_graph) {
-      changed = apical_angle_graph.ShowGraph("Apical Angle Graph", editor_layer) || changed;
+      changed = evo_engine::DrawProceduralNoiseGraph(apical_angle_graph, "Apical Angle Graph", editor_layer) || changed;
     }
 
     changed = ImGui::DragFloat("Root node length", &root_node_length, 0.001f) || changed;

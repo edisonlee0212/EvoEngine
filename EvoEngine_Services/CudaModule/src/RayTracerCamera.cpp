@@ -2,7 +2,7 @@
 // Created by lllll on 11/15/2021.
 //
 
-#include "RayTracerCamera.hpp"
+#include "CudaSerializationAdapters.hpp"
 #include "IHandle.hpp"
 #include "Optix7.hpp"
 #include "RayTracerLayer.hpp"
@@ -27,12 +27,12 @@ void RayTracerCamera::Ready(const glm::vec3 &position, const glm::quat &rotation
   camera_properties_.Set(position, rotation);
 }
 
-bool RayTracerCamera::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
+bool RayTracerCamera::DrawGui(const std::shared_ptr<EditorLayer> &editor_layer) {
   if (GetScene()->IsEntityValid(GetOwner()))
     ImGui::Checkbox("Main Camera", &main_camera_);
 
-  camera_properties_.OnInspect();
-  ray_properties.OnInspect();
+  camera_properties_.DrawGui();
+  ray_properties.DrawGui();
   if (ImGui::TreeNode("Debug")) {
     static float debug_scale = 0.25f;
     ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
@@ -81,52 +81,53 @@ void RayTracerCamera::OnDestroy() {
 #endif
 }
 
-void RayTracerCamera::Deserialize(const YAML::Node &in) {
+void evo_engine::DeserializeRayTracerCamera(const YAML::Node &in, RayTracerCamera &target) {
   if (in["main_camera_"])
-    main_camera_ = in["main_camera_"].as<bool>();
+    target.main_camera_ = in["main_camera_"].as<bool>();
 
   if (in["allow_auto_resize"])
-    allow_auto_resize = in["allow_auto_resize"].as<bool>();
+    target.allow_auto_resize = in["allow_auto_resize"].as<bool>();
   if (in["frame_size.x"])
-    frame_size.x = in["frame_size.x"].as<int>();
+    target.frame_size.x = in["frame_size.x"].as<int>();
   if (in["frame_size.y"])
-    frame_size.y = in["frame_size.y"].as<int>();
+    target.frame_size.y = in["frame_size.y"].as<int>();
 
   if (in["ray_properties.samples"])
-    ray_properties.samples = in["ray_properties.samples"].as<int>();
+    target.ray_properties.samples = in["ray_properties.samples"].as<int>();
   if (in["ray_properties.bounces"])
-    ray_properties.bounces = in["ray_properties.bounces"].as<int>();
+    target.ray_properties.bounces = in["ray_properties.bounces"].as<int>();
 
   if (in["camera_properties_.fov"])
-    camera_properties_.fov = in["camera_properties_.fov"].as<float>();
+    target.camera_properties_.fov = in["camera_properties_.fov"].as<float>();
   if (in["camera_properties_.gamma"])
-    camera_properties_.gamma = in["camera_properties_.gamma"].as<float>();
+    target.camera_properties_.gamma = in["camera_properties_.gamma"].as<float>();
   if (in["camera_properties_.accumulate"])
-    camera_properties_.accumulate = in["camera_properties_.accumulate"].as<bool>();
+    target.camera_properties_.accumulate = in["camera_properties_.accumulate"].as<bool>();
   if (in["camera_properties_.denoiser_strength"])
-    camera_properties_.denoiser_strength = in["camera_properties_.denoiser_strength"].as<float>();
+    target.camera_properties_.denoiser_strength = in["camera_properties_.denoiser_strength"].as<float>();
   if (in["camera_properties_.focal_length"])
-    camera_properties_.focal_length = in["camera_properties_.focal_length"].as<float>();
+    target.camera_properties_.focal_length = in["camera_properties_.focal_length"].as<float>();
   if (in["camera_properties_.aperture"])
-    camera_properties_.aperture = in["camera_properties_.aperture"].as<float>();
+    target.camera_properties_.aperture = in["camera_properties_.aperture"].as<float>();
 }
 
-void RayTracerCamera::Serialize(YAML::Emitter &out) const {
-  out << YAML::Key << "main_camera_" << YAML::Value << main_camera_;
+void evo_engine::SerializeRayTracerCamera(YAML::Emitter &out, const RayTracerCamera &target) {
+  out << YAML::Key << "main_camera_" << YAML::Value << target.main_camera_;
 
-  out << YAML::Key << "allow_auto_resize" << YAML::Value << allow_auto_resize;
-  out << YAML::Key << "frame_size.x" << YAML::Value << frame_size.x;
-  out << YAML::Key << "frame_size.y" << YAML::Value << frame_size.y;
+  out << YAML::Key << "allow_auto_resize" << YAML::Value << target.allow_auto_resize;
+  out << YAML::Key << "frame_size.x" << YAML::Value << target.frame_size.x;
+  out << YAML::Key << "frame_size.y" << YAML::Value << target.frame_size.y;
 
-  out << YAML::Key << "ray_properties.bounces" << YAML::Value << ray_properties.bounces;
-  out << YAML::Key << "ray_properties.samples" << YAML::Value << ray_properties.samples;
+  out << YAML::Key << "ray_properties.bounces" << YAML::Value << target.ray_properties.bounces;
+  out << YAML::Key << "ray_properties.samples" << YAML::Value << target.ray_properties.samples;
 
-  out << YAML::Key << "camera_properties_.fov" << YAML::Value << camera_properties_.fov;
-  out << YAML::Key << "camera_properties_.gamma" << YAML::Value << camera_properties_.gamma;
-  out << YAML::Key << "camera_properties_.accumulate" << YAML::Value << camera_properties_.accumulate;
-  out << YAML::Key << "camera_properties_.denoiser_strength" << YAML::Value << camera_properties_.denoiser_strength;
-  out << YAML::Key << "camera_properties_.focal_length" << YAML::Value << camera_properties_.focal_length;
-  out << YAML::Key << "camera_properties_.aperture" << YAML::Value << camera_properties_.aperture;
+  out << YAML::Key << "camera_properties_.fov" << YAML::Value << target.camera_properties_.fov;
+  out << YAML::Key << "camera_properties_.gamma" << YAML::Value << target.camera_properties_.gamma;
+  out << YAML::Key << "camera_properties_.accumulate" << YAML::Value << target.camera_properties_.accumulate;
+  out << YAML::Key << "camera_properties_.denoiser_strength" << YAML::Value
+      << target.camera_properties_.denoiser_strength;
+  out << YAML::Key << "camera_properties_.focal_length" << YAML::Value << target.camera_properties_.focal_length;
+  out << YAML::Key << "camera_properties_.aperture" << YAML::Value << target.camera_properties_.aperture;
 }
 
 RayTracerCamera &RayTracerCamera::operator=(const RayTracerCamera &source) {

@@ -25,10 +25,12 @@
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "ForestDescriptor.hpp"
 #include "HeightField.hpp"
 #include "Prefab.hpp"
 #include "RadialBoundingVolume.hpp"
+#include "Serialization.hpp"
 #include "Shader.hpp"
 #include "Soil.hpp"
 #include "SoilDescriptor.hpp"
@@ -37,6 +39,98 @@
 #include "TreeDescriptor.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_package;
+
+namespace {
+template <typename T>
+void RegisterAssetPreviewHandler(const std::string& type_name) {
+  evo_engine::Serialization::RegisterAssetPreviewHandler<T>(
+      [](const std::shared_ptr<T>& asset, const evo_engine::OffscreenPreviewSettings&) {
+        return asset ? asset->GenerateThumbnailTexture() : nullptr;
+      },
+      {}, type_name);
+}
+
+void RegisterEcoSysLabAssetPreviewHandlers() {
+  RegisterAssetPreviewHandler<ClimateDescriptor>("ClimateDescriptor");
+  RegisterAssetPreviewHandler<ForestPatch>("ForestPatch");
+  RegisterAssetPreviewHandler<BasicBarkDescriptor>("BasicBarkDescriptor");
+  RegisterAssetPreviewHandler<ForestDescriptor>("ForestDescriptor");
+  RegisterAssetPreviewHandler<TreeDescriptor>("TreeDescriptor");
+  RegisterAssetPreviewHandler<BasicPruningDescriptor>("BasicPruningDescriptor");
+  RegisterAssetPreviewHandler<BasicShootDescriptor>("BasicShootDescriptor");
+  RegisterAssetPreviewHandler<BasicRootDescriptor>("BasicRootDescriptor");
+  RegisterAssetPreviewHandler<BasicFineRootDescriptor>("BasicFineRootDescriptor");
+  RegisterAssetPreviewHandler<BasicReproductionModuleDescriptor>("BasicReproductionModuleDescriptor");
+  RegisterAssetPreviewHandler<BasicFoliageDescriptor>("BasicFoliageDescriptor");
+  RegisterAssetPreviewHandler<AdvancedShootDescriptor>("AdvancedShootDescriptor");
+  RegisterAssetPreviewHandler<HeightField>("HeightField");
+  RegisterAssetPreviewHandler<SoilDescriptor>("SoilDescriptor");
+}
+
+void RegisterEcoSysLabSerializationHandlers() {
+  evo_engine::Serialization::RegisterSerializationHandler<TreeStructor>(SerializeTreeStructor, DeserializeTreeStructor,
+                                                                        {}, "TreeStructor");
+  evo_engine::Serialization::RegisterSerializationHandler<Climate>(SerializeClimate, DeserializeClimate, {}, "Climate");
+  evo_engine::Serialization::RegisterSerializationHandler<SpatialPlantDistributionSimulator>(
+      SerializeSpatialPlantDistributionSimulator, DeserializeSpatialPlantDistributionSimulator, {},
+      "SpatialPlantDistributionSimulator");
+  evo_engine::Serialization::RegisterSerializationHandler<DynamicTreeSkeleton>(
+      SerializeDynamicTreeSkeleton, DeserializeDynamicTreeSkeleton, {}, "DynamicTreeSkeleton");
+  evo_engine::Serialization::RegisterSerializationHandler<DynamicStrandsDemo>(
+      SerializeDynamicStrandsDemo, DeserializeDynamicStrandsDemo, {}, "DynamicStrandsDemo");
+  evo_engine::Serialization::RegisterSerializationHandler<Tree>(SerializeTree, DeserializeTree, {}, "Tree");
+  evo_engine::Serialization::RegisterSerializationHandler<Soil>(SerializeSoil, DeserializeSoil, {}, "Soil");
+  evo_engine::Serialization::RegisterSerializationHandler<DsBoxCollider>(SerializeDsBoxCollider,
+                                                                         DeserializeDsBoxCollider, {}, "DsBoxCollider");
+  evo_engine::Serialization::RegisterSerializationHandler<DsSphereCollider>(
+      SerializeDsSphereCollider, DeserializeDsSphereCollider, {}, "DsSphereCollider");
+  evo_engine::Serialization::RegisterSerializationHandler<DsCylinderCollider>(
+      SerializeDsCylinderCollider, DeserializeDsCylinderCollider, {}, "DsCylinderCollider");
+  evo_engine::Serialization::RegisterSerializationHandler<DynamicTreeStrands>(
+      SerializeDynamicTreeStrands, DeserializeDynamicTreeStrands, {}, "DynamicTreeStrands");
+  evo_engine::Serialization::RegisterSerializationHandler<ClimateDescriptor>(
+      SerializeClimateDescriptor, DeserializeClimateDescriptor, {}, "ClimateDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<RadialBoundingVolume>(
+      SerializeRadialBoundingVolume, DeserializeRadialBoundingVolume, {}, "RadialBoundingVolume");
+  evo_engine::Serialization::RegisterSerializationHandler<CubeVolume>(SerializeCubeVolume, DeserializeCubeVolume, {},
+                                                                      "CubeVolume");
+  evo_engine::Serialization::RegisterSerializationHandler<ForestPatch>(SerializeForestPatch, DeserializeForestPatch, {},
+                                                                       "ForestPatch");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicBarkDescriptor>(
+      SerializeBasicBarkDescriptor, DeserializeBasicBarkDescriptor, {}, "BasicBarkDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<ForestDescriptor>(
+      SerializeForestDescriptor, DeserializeForestDescriptor, {}, "ForestDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<TreeDescriptor>(
+      SerializeTreeDescriptor, DeserializeTreeDescriptor, {}, "TreeDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicPruningDescriptor>(
+      SerializeBasicPruningDescriptor, DeserializeBasicPruningDescriptor, {}, "BasicPruningDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicShootDescriptor>(
+      SerializeBasicShootDescriptor, DeserializeBasicShootDescriptor, {}, "BasicShootDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicRootDescriptor>(
+      SerializeBasicRootDescriptor, DeserializeBasicRootDescriptor, {}, "BasicRootDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicFineRootDescriptor>(
+      SerializeBasicFineRootDescriptor, DeserializeBasicFineRootDescriptor, {}, "BasicFineRootDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicReproductionModuleDescriptor>(
+      SerializeBasicReproductionModuleDescriptor, DeserializeBasicReproductionModuleDescriptor, {},
+      "BasicReproductionModuleDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<BasicFoliageDescriptor>(
+      SerializeBasicFoliageDescriptor, DeserializeBasicFoliageDescriptor, {}, "BasicFoliageDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<AdvancedShootDescriptor>(
+      SerializeAdvancedShootDescriptor, DeserializeAdvancedShootDescriptor, {}, "AdvancedShootDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<ModulusGraph>(SerializeModulusGraph, DeserializeModulusGraph,
+                                                                        {}, "ModulusGraph");
+  evo_engine::Serialization::RegisterSerializationHandler<StrengthGraph>(SerializeStrengthGraph,
+                                                                         DeserializeStrengthGraph, {}, "StrengthGraph");
+  evo_engine::Serialization::RegisterSerializationHandler<BiologicalPropertiesGraph>(
+      SerializeBiologicalPropertiesGraph, DeserializeBiologicalPropertiesGraph, {}, "TrunkGraph");
+  evo_engine::Serialization::RegisterSerializationHandler<HeightField>(SerializeHeightField, DeserializeHeightField, {},
+                                                                       "HeightField");
+  evo_engine::Serialization::RegisterSerializationHandler<SoilLayerDescriptor>(
+      SerializeSoilLayerDescriptor, DeserializeSoilLayerDescriptor, {}, "SoilLayerDescriptor");
+  evo_engine::Serialization::RegisterSerializationHandler<SoilDescriptor>(
+      SerializeSoilDescriptor, DeserializeSoilDescriptor, {}, "SoilDescriptor");
+}
+}  // namespace
 
 void EcoSysLabLayer::RegisterTypes(Application& application) {
   application.RegisterPrivateComponent<TreeStructor>("TreeStructor");
@@ -74,6 +168,8 @@ void EcoSysLabLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<HeightField>("HeightField", {".heightfield"});
   application.RegisterAsset<SoilLayerDescriptor>("SoilLayerDescriptor", {".soillayer"});
   application.RegisterAsset<SoilDescriptor>("SoilDescriptor", {".soil"});
+  RegisterEcoSysLabSerializationHandlers();
+  RegisterEcoSysLabAssetPreviewHandlers();
 }
 
 void EcoSysLabLayer::OnCreate() {
@@ -124,209 +220,218 @@ const std::vector<glm::vec3>& EcoSysLabLayer::RandomColors() {
   return random_colors_;
 }
 
-void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void EcoSysLabLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto scene = GetScene();
+  if (!scene || !visualization_camera_) {
+    return;
+  }
   bool simulate = false;
   static bool auto_time_grow = false;
   static float target_time = 0.0f;
   static float extra_time = 4.f;
   visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
 
-  ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
-  if (tree_visualization_settings_.enable) {
-    const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-    if (ImGui::TreeNodeEx("Tree settings")) {
-      if (tree_entities && !tree_entities->empty()) {
-        if (scene->IsEntityValid(selected_tree)) {
-          const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
-          auto& shoot_visualizer = tree->shoot_visualizer;
-          if (shoot_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
-            if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
-              if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
-                               tree_operator_mode)) {
-                shoot_visualizer.selected_node_handle = -1;
-                shoot_visualizer.selected_node_hierarchy_list.clear();
-              }
-              switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
-                case TreeOperatorMode::Select:
-                  ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
-                  break;
-                case TreeOperatorMode::Rotate:
-                  ImGui::Text("Press T to cut off entire node.");
-                  break;
-                default:
-                  break;
-              }
-              if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
-                ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
-              }
+  const auto window_title = GetLayerName();
+  bool open = enable_inspection;
+  if (ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
+    if (tree_visualization_settings_.enable) {
+      const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      if (ImGui::TreeNodeEx("Tree settings")) {
+        if (tree_entities && !tree_entities->empty()) {
+          if (scene->IsEntityValid(selected_tree)) {
+            const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
+            auto& shoot_visualizer = tree->shoot_visualizer;
+            if (shoot_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
+              if (ImGui::TreeNodeEx("Tree Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
+                                 tree_operator_mode)) {
+                  shoot_visualizer.selected_node_handle = -1;
+                  shoot_visualizer.selected_node_hierarchy_list.clear();
+                }
+                switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
+                  case TreeOperatorMode::Select:
+                    ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
+                    break;
+                  case TreeOperatorMode::Rotate:
+                    ImGui::Text("Press T to cut off entire node.");
+                    break;
+                  default:
+                    break;
+                }
+                if (tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Reduce)) {
+                  ImGui::DragFloat("Reduce speed", &tree_reduce_rate, 0.001f, 0.001f, 1.0f);
+                }
 
+                ImGui::TreePop();
+              }
+            } else {
+              ImGui::Text("Go to current skeleton to enable operator!");
+            }
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Tree Visualizer")) {
+              shoot_visualizer.DrawGui(tree->shoot_model);
               ImGui::TreePop();
             }
           } else {
-            ImGui::Text("Go to current skeleton to enable operator!");
+            ImGui::Text("Select a tree entity to enable editing & visualization!");
           }
-          ImGui::Separator();
-          if (ImGui::TreeNodeEx("Tree Visualizer")) {
-            shoot_visualizer.OnInspect(tree->shoot_model);
+          if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
+            ClearGroundFruitAndLeaf();
+          }
+          if (ImGui::TreeNode("Tree Geometries")) {
+            if (ImGui::TreeNode("Skeletal graph")) {
+              skeletal_graph_settings.DrawGui(editor_layer);
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Generate Skeletal graphs")) {
+              GenerateSkeletalGraphs(skeletal_graph_settings);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Skeletal graphs")) {
+              ClearSkeletalGraphs();
+            }
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Mesh generation")) {
+              mesh_generator_settings.DrawGui(editor_layer);
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Generate Meshes")) {
+              GenerateMeshes(mesh_generator_settings);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Meshes")) {
+              ClearMeshes();
+            }
+            ImGui::Separator();
+            if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
+              strand_mesh_generator_settings.DrawGui(editor_layer);
+              ImGui::TreePop();
+            }
+            if (ImGui::Button("Build Strand Renderer")) {
+              GenerateStrandRenderers();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Strand Renderer")) {
+              ClearStrandRenderers();
+            }
+            if (ImGui::Button("Generate Strand Model Meshes")) {
+              GenerateStrandModelMeshes(strand_mesh_generator_settings);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear Strand Model Meshes")) {
+              ClearStrandModelMeshes();
+            }
+            ImGui::Separator();
+
+            if (ImGui::TreeNode("Auto geometry generation")) {
+              ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
+              ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
+              ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
+              ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
+
+              ImGui::TreePop();
+            }
+            FileUtils::SaveFile(
+                "Export all trees as OBJ", "OBJ", {".obj"},
+                [&](const std::filesystem::path& path) {
+                  ExportAllTrees(path);
+                },
+                false);
+            ImGui::TreePop();
+          }
+          simulation_stats.DrawGui(editor_layer);
+
+          if (ImGui::TreeNodeEx("Tree Visualization settings")) {
+            if (ImGui::Button("Update")) {
+              need_full_flow_update = true;
+            }
+            tree_visualization_settings_.DrawGui(editor_layer);
             ImGui::TreePop();
           }
         } else {
-          ImGui::Text("Select a tree entity to enable editing & visualization!");
-        }
-        if (!simulation_settings.auto_clear_fruit_and_leaves && ImGui::Button("Clear ground leaves and fruits")) {
-          ClearGroundFruitAndLeaf();
-        }
-        if (ImGui::TreeNode("Tree Geometries")) {
-          if (ImGui::TreeNode("Skeletal graph")) {
-            skeletal_graph_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Generate Skeletal graphs")) {
-            GenerateSkeletalGraphs(skeletal_graph_settings);
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Skeletal graphs")) {
-            ClearSkeletalGraphs();
-          }
-          ImGui::Separator();
-          if (ImGui::TreeNodeEx("Mesh generation")) {
-            mesh_generator_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Generate Meshes")) {
-            GenerateMeshes(mesh_generator_settings);
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Meshes")) {
-            ClearMeshes();
-          }
-          ImGui::Separator();
-          if (ImGui::TreeNodeEx("Strand Model Mesh generation")) {
-            strand_mesh_generator_settings.OnInspect(editor_layer);
-            ImGui::TreePop();
-          }
-          if (ImGui::Button("Build Strand Renderer")) {
-            GenerateStrandRenderers();
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Strand Renderer")) {
-            ClearStrandRenderers();
-          }
-          if (ImGui::Button("Generate Strand Model Meshes")) {
-            GenerateStrandModelMeshes(strand_mesh_generator_settings);
-          }
-          ImGui::SameLine();
-          if (ImGui::Button("Clear Strand Model Meshes")) {
-            ClearStrandModelMeshes();
-          }
-          ImGui::Separator();
-
-          if (ImGui::TreeNode("Auto geometry generation")) {
-            ImGui::Checkbox("Auto generate mesh", &auto_generate_mesh_after_editing_);
-            ImGui::Checkbox("Auto generate Skeletal Graph Per Frame", &auto_generate_skeletal_graph_every_frame_);
-            ImGui::Checkbox("Auto generate strands", &auto_generate_strands_after_editing_);
-            ImGui::Checkbox("Auto generate strands mesh", &auto_generate_strand_mesh_after_editing_);
-
-            ImGui::TreePop();
-          }
-          FileUtils::SaveFile(
-              "Export all trees as OBJ", "OBJ", {".obj"},
-              [&](const std::filesystem::path& path) {
-                ExportAllTrees(path);
-              },
-              false);
-          ImGui::TreePop();
-        }
-        simulation_stats.OnInspect(editor_layer);
-
-        if (ImGui::TreeNodeEx("Tree Visualization settings")) {
-          if (ImGui::Button("Update")) {
-            need_full_flow_update = true;
-          }
-          tree_visualization_settings_.OnInspect(editor_layer);
-          ImGui::TreePop();
-        }
-      } else {
-        ImGui::Text("No trees in the scene!");
-        ResetAllTrees(nullptr);
-        target_time = 0.0f;
-      }
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (tree_entities && !tree_entities->empty()) {
-        if (ImGui::TreeNode("Simulation Settings")) {
-          simulation_settings.OnInspect(editor_layer);
-          ImGui::TreePop();
-        }
-        if (ImGui::Button("Reset all trees")) {
-          ResetAllTrees(tree_entities);
-          ClearMeshes();
-          ClearGroundFruitAndLeaf();
+          ImGui::Text("No trees in the scene!");
+          ResetAllTrees(nullptr);
           target_time = 0.0f;
         }
-        ImGui::Text(("Simulated time: " + std::to_string(simulated_time_ / 365.f) + " years").c_str());
-        ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_ / 365.f, 999);
-        if (auto_time_grow) {
-          if (ImGui::Button("Force stop")) {
-            auto_time_grow = false;
-            target_time = simulated_time_;
+        ImGui::TreePop();
+      }
+      if (ImGui::TreeNodeEx("Tree Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (tree_entities && !tree_entities->empty()) {
+          if (ImGui::TreeNode("Simulation Settings")) {
+            simulation_settings.DrawGui(editor_layer);
+            ImGui::TreePop();
+          }
+          if (ImGui::Button("Reset all trees")) {
+            ResetAllTrees(tree_entities);
+            ClearMeshes();
+            ClearGroundFruitAndLeaf();
+            target_time = 0.0f;
+          }
+          ImGui::Text(("Simulated time: " + std::to_string(simulated_time_ / 365.f) + " years").c_str());
+          ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_ / 365.f, 999);
+          if (auto_time_grow) {
+            if (ImGui::Button("Force stop")) {
+              auto_time_grow = false;
+              target_time = simulated_time_;
+            }
+          } else {
+            if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
+              auto_time_grow = true;
+              target_time += extra_time * 365.f;
+            }
+          }
+          if (ImGui::Button("Grow 1 iteration")) {
+            simulate = true;
           }
         } else {
-          if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
-            auto_time_grow = true;
-            target_time += extra_time * 365.f;
-          }
+          ImGui::Text("No trees in the scene!");
+          ResetAllTrees(nullptr);
+          target_time = 0.0f;
         }
-        if (ImGui::Button("Grow 1 iteration")) {
-          simulate = true;
+        ImGui::TreePop();
+      }
+
+      if (ImGui::TreeNodeEx("Fungus Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::DragFloat("Fungus growth rate", &dynamic_strands_settings_.physics_parameters.fungus_growth_rate,
+                             0.01f, 0.0f, 1.0f)) {
+          // need_full_flow_update = true;
+          // TODO: do we need to set a variable here?
         }
+        ImGui::TreePop();
+      }
+
+      if (ImGui::TreeNodeEx("Soil visualization settings")) {
+        soil_visualization_settings_.DrawGui(editor_layer);
+        ImGui::TreePop();
+      }
+    }
+    if (ImGui::TreeNodeEx("Dynamic Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (ImGui::Button("Initialize all")) {
+        GenerateDynamicStrandsForAllTrees();
+      }
+      if (ImGui::Button("Refresh meshes")) {
+        RefreshMeshForAllDynamicStrands();
+      }
+      if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+          dts_entities && !dts_entities->empty()) {
+        DrawDynamicStrandsSettingsGui(editor_layer);
       } else {
-        ImGui::Text("No trees in the scene!");
-        ResetAllTrees(nullptr);
-        target_time = 0.0f;
+        ImGui::Text("No dynamic strands in the scene!");
       }
       ImGui::TreePop();
     }
 
-    if (ImGui::TreeNodeEx("Fungus Simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::DragFloat("Fungus growth rate", &dynamic_strands_settings_.physics_parameters.fungus_growth_rate,
-                           0.01f, 0.0f, 1.0f)) {
-        // need_full_flow_update = true;
-        // TODO: do we need to set a variable here?
+    if (ImGui::TreeNodeEx("Dynamic Skeleton settings")) {
+      if (ImGui::Button("Initialize dynamic skeleton for all trees")) {
+        GenerateDynamicSkeletonForAllTrees();
       }
-      ImGui::TreePop();
-    }
-
-    if (ImGui::TreeNodeEx("Soil visualization settings")) {
-      soil_visualization_settings_.OnInspect(editor_layer);
+      dynamic_skeleton_settings_.DrawGui(editor_layer);
       ImGui::TreePop();
     }
   }
-  if (ImGui::TreeNodeEx("Dynamic Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::Button("Initialize all")) {
-      GenerateDynamicStrandsForAllTrees();
-    }
-    if (ImGui::Button("Refresh meshes")) {
-      RefreshMeshForAllDynamicStrands();
-    }
-    if (const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
-        dts_entities && !dts_entities->empty()) {
-      OnInspectDynamicStrandsSettings(editor_layer);
-    } else {
-      ImGui::Text("No dynamic strands in the scene!");
-    }
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Dynamic Skeleton settings")) {
-    if (ImGui::Button("Initialize dynamic skeleton for all trees")) {
-      GenerateDynamicSkeletonForAllTrees();
-    }
-    dynamic_skeleton_settings_.OnInspect(editor_layer);
-    ImGui::TreePop();
-  }
+  ImGui::End();
+  enable_inspection = open;
 
   if (simulate || auto_time_grow) {
     Simulate();
@@ -506,7 +611,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
 #pragma endregion
 }
 
-void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
+void EcoSysLabLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Operators")) {
     ImGui::Combo("Transform Mode", {"None", "Translate", "Rotate"}, dynamic_strands_settings_.transform_mode);
     ImGui::Combo("Operator Mode", {"Drag", "Saw", "Line Cut", "Point Cut", "Fungus Injection"},
@@ -545,18 +650,18 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
     dynamic_strands_settings_.remaining_step++;
   }
   if (ImGui::TreeNode("Physics settings")) {
-    dynamic_strands_settings_.physics_parameters.OnInspect(editor_layer);
+    dynamic_strands_settings_.physics_parameters.DrawGui(editor_layer);
     ImGui::TreePop();
   }
 
   ImGui::Checkbox("Rendering", &dynamic_strands_settings_.enable_rendering);
   if (ImGui::TreeNode("Rendering settings")) {
     if (ImGui::TreeNode("Alpha Shape Meshing Settings")) {
-      DsAlphaShapeMeshing::OnInspectRenderSettings(editor_layer);
+      DsAlphaShapeMeshing::DrawRenderSettingsGui(editor_layer);
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("Kinetic Voronoi Meshing Settings")) {
-      DsKineticVoronoiMeshing::OnInspectRenderSettings(editor_layer);
+      DsKineticVoronoiMeshing::DrawRenderSettingsGui(editor_layer);
       ImGui::TreePop();
     }
 
@@ -566,7 +671,7 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
         if (ImGui::Button("Rebuild foliage pipelines")) {
           DynamicStrands::BuildFoliageRenderingPipelines();
         }
-        dynamic_strands_settings_.foliage_render_parameters.OnInspect(editor_layer);
+        dynamic_strands_settings_.foliage_render_parameters.DrawGui(editor_layer);
         ImGui::TreePop();
       }
     }
@@ -577,7 +682,7 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
         if (ImGui::Button("Rebuild segment pairs pipelines")) {
           DynamicStrands::BuildSegmentPairsRenderingPipeline();
         }
-        dynamic_strands_settings_.segment_pairs_render_parameters.OnInspect(editor_layer);
+        dynamic_strands_settings_.segment_pairs_render_parameters.DrawGui(editor_layer);
         ImGui::TreePop();
       }
     }
@@ -587,7 +692,7 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
 
   ImGui::Checkbox("Visualization", &dynamic_strands_settings_.enable_visualization);
   if (ImGui::TreeNode("Visualization settings")) {
-    dynamic_strands_settings_.visualization_parameters.OnInspect(editor_layer);
+    dynamic_strands_settings_.visualization_parameters.DrawGui(editor_layer);
     ImGui::TreePop();
   }
 }

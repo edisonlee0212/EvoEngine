@@ -1,7 +1,9 @@
-﻿#include "LSystemLayer.hpp"
+#include "LSystemLayer.hpp"
 
 #include "Application.hpp"
 #include "EditorLayer.hpp"
+#include "LSystemInspectionAdapters.hpp"
+#include "LSystemSerializationAdapters.hpp"
 #include "Scene.hpp"
 #include "ScotsPine.hpp"
 #include "ScotsPineDescriptor.hpp"
@@ -318,9 +320,28 @@ void LSystemLayer::Update() {
   }
 }
 
-void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  auto reset_all_lsystems = [this]() {
-    const auto scene = GetScene();
+bool l_system_package::InspectLSystemLayer(InspectorContext& context, LSystemLayer& layer) {
+  (void)context;
+  auto& auto_grow = layer.auto_grow;
+  auto& reseed_on_reset = layer.reseed_on_reset;
+  auto& seasonality_enabled = layer.seasonality_enabled;
+  auto& season_start_day = layer.season_start_day;
+  auto& season_end_day = layer.season_end_day;
+  auto& chronological_days_per_second = layer.chronological_days_per_second;
+  auto& simulation_day_of_year = layer.simulation_day_of_year;
+  auto& tassel_color_mode = layer.tassel_color_mode;
+  auto& scene_plant_view_tint_enabled = layer.scene_plant_view_tint_enabled;
+  auto& pine_stem_only_mode = layer.pine_stem_only_mode;
+  auto& profiling_enabled = layer.profiling_enabled;
+  auto& profiling_history_size = layer.profiling_history_size;
+  auto& profiling_export_path = layer.profiling_export_path;
+  auto& last_profile_frame = layer.last_profile_frame;
+  auto& profiling_history = layer.profiling_history;
+  auto& fps_failsafe_tripped_ = layer.fps_failsafe_tripped_;
+  auto& last_failsafe_fps_ = layer.last_failsafe_fps_;
+
+  auto reset_all_lsystems = [&]() {
+    const auto scene = layer.GetScene();
     if (!scene) {
       return;
     }
@@ -371,7 +392,7 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       }
     }
     if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Press) {
-      auto& app = GetApplication();
+      auto& app = layer.GetApplication();
       if (app.IsPlaying()) {
         app.Stop();
       }
@@ -380,6 +401,13 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
   }
 
+  const auto window_title = layer.GetLayerName();
+  bool open = layer.enable_inspection;
+  if (!ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::End();
+    layer.enable_inspection = open;
+    return false;
+  }
   if (ImGui::Checkbox("Auto-Grow (Ctrl+F)", &auto_grow) && auto_grow) {
     fps_failsafe_tripped_ = false;
     last_failsafe_fps_ = 0.0f;
@@ -408,12 +436,12 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   if (ImGui::Checkbox("Scots Pine Stem-Only Mode", &pine_stem_only_mode)) {
-    ApplyPineStemOnlyMode(GetScene(), pine_stem_only_mode, true);
+    ApplyPineStemOnlyMode(layer.GetScene(), pine_stem_only_mode, true);
   }
 
   if (ImGui::Checkbox("Enable Scene/Plant View Tint", &scene_plant_view_tint_enabled)) {
     ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
-    RebuildAllPlantGeometry(GetScene());
+    RebuildAllPlantGeometry(layer.GetScene());
   }
   if (!scene_plant_view_tint_enabled) {
     ImGui::TextDisabled("Tint disabled: effective mode forced to Shaded.");
@@ -425,7 +453,7 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (ImGui::Combo("Plant Color Mode", &tassel_color_mode, color_mode_items, IM_ARRAYSIZE(color_mode_items))) {
       tassel_color_mode = ClampColorModeIndex(tassel_color_mode);
       ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
-      RebuildAllPlantGeometry(GetScene());
+      RebuildAllPlantGeometry(layer.GetScene());
     }
   }
 
@@ -433,7 +461,7 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     tassel_color_mode = 0;
     scene_plant_view_tint_enabled = false;
     ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
-    RebuildAllPlantGeometry(GetScene());
+    RebuildAllPlantGeometry(layer.GetScene());
   }
 
   if (ImGui::Button("Reset All LSystems (Ctrl+W)")) {
@@ -456,30 +484,30 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   if (ImGui::Button("Export Profile CSV")) {
-    ExportProfileCsv(profiling_export_path);
+    layer.ExportProfileCsv(profiling_export_path);
   }
   if (ImGui::Button("Clear Profile History")) {
     profiling_history.clear();
   }
 
   if (profiling_enabled) {
-    const double avg_update_ms = AverageProfileMetric(profiling_history, [](const ProfileFrame& f) {
+    const double avg_update_ms = AverageProfileMetric(profiling_history, [](const LSystemLayer::ProfileFrame& f) {
       return f.update_ms;
     });
-    const double avg_grow_ms = AverageProfileMetric(profiling_history, [](const ProfileFrame& f) {
+    const double avg_grow_ms = AverageProfileMetric(profiling_history, [](const LSystemLayer::ProfileFrame& f) {
       return f.grow_ms;
     });
-    const double avg_rebuild_ms = AverageProfileMetric(profiling_history, [](const ProfileFrame& f) {
+    const double avg_rebuild_ms = AverageProfileMetric(profiling_history, [](const LSystemLayer::ProfileFrame& f) {
       return f.rebuild_ms;
     });
 
-    const double max_update_ms = MaxProfileMetric(profiling_history, [](const ProfileFrame& f) {
+    const double max_update_ms = MaxProfileMetric(profiling_history, [](const LSystemLayer::ProfileFrame& f) {
       return f.update_ms;
     });
-    const double max_grow_ms = MaxProfileMetric(profiling_history, [](const ProfileFrame& f) {
+    const double max_grow_ms = MaxProfileMetric(profiling_history, [](const LSystemLayer::ProfileFrame& f) {
       return f.grow_ms;
     });
-    const double max_rebuild_ms = MaxProfileMetric(profiling_history, [](const ProfileFrame& f) {
+    const double max_rebuild_ms = MaxProfileMetric(profiling_history, [](const LSystemLayer::ProfileFrame& f) {
       return f.rebuild_ms;
     });
 
@@ -499,67 +527,66 @@ void LSystemLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::Text("Grow ms avg/max: %.3f / %.3f", avg_grow_ms, max_grow_ms);
     ImGui::Text("Rebuild ms avg/max: %.3f / %.3f", avg_rebuild_ms, max_rebuild_ms);
   }
+  ImGui::End();
+  layer.enable_inspection = open;
+  return false;
 }
 
-void LSystemLayer::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "auto_grow" << YAML::Value << auto_grow;
-  out << YAML::Key << "seasonality_enabled" << YAML::Value << seasonality_enabled;
-  out << YAML::Key << "season_start_day" << YAML::Value << season_start_day;
-  out << YAML::Key << "season_end_day" << YAML::Value << season_end_day;
-  out << YAML::Key << "chronological_days_per_second" << YAML::Value << chronological_days_per_second;
-  out << YAML::Key << "simulation_day_of_year" << YAML::Value << NormalizeDayOfYear(simulation_day_of_year);
-  out << YAML::Key << "reseed_on_reset" << YAML::Value << reseed_on_reset;
-  out << YAML::Key << "tassel_color_mode" << YAML::Value << tassel_color_mode;
-  out << YAML::Key << "scene_plant_view_tint_enabled" << YAML::Value << scene_plant_view_tint_enabled;
-  out << YAML::Key << "pine_stem_only_mode" << YAML::Value << pine_stem_only_mode;
-  out << YAML::Key << "profiling_enabled" << YAML::Value << profiling_enabled;
-  out << YAML::Key << "profiling_history_size" << YAML::Value << profiling_history_size;
-  out << YAML::Key << "profiling_export_path" << YAML::Value << profiling_export_path;
+void l_system_package::SerializeLSystemLayer(YAML::Emitter& out, const LSystemLayer& target) {
+  out << YAML::Key << "auto_grow" << YAML::Value << target.auto_grow;
+  out << YAML::Key << "seasonality_enabled" << YAML::Value << target.seasonality_enabled;
+  out << YAML::Key << "season_start_day" << YAML::Value << target.season_start_day;
+  out << YAML::Key << "season_end_day" << YAML::Value << target.season_end_day;
+  out << YAML::Key << "chronological_days_per_second" << YAML::Value << target.chronological_days_per_second;
+  out << YAML::Key << "simulation_day_of_year" << YAML::Value << NormalizeDayOfYear(target.simulation_day_of_year);
+  out << YAML::Key << "reseed_on_reset" << YAML::Value << target.reseed_on_reset;
+  out << YAML::Key << "tassel_color_mode" << YAML::Value << target.tassel_color_mode;
+  out << YAML::Key << "scene_plant_view_tint_enabled" << YAML::Value << target.scene_plant_view_tint_enabled;
+  out << YAML::Key << "pine_stem_only_mode" << YAML::Value << target.pine_stem_only_mode;
+  out << YAML::Key << "profiling_enabled" << YAML::Value << target.profiling_enabled;
+  out << YAML::Key << "profiling_history_size" << YAML::Value << target.profiling_history_size;
+  out << YAML::Key << "profiling_export_path" << YAML::Value << target.profiling_export_path;
 }
 
-void LSystemLayer::Deserialize(const YAML::Node& in) {
+void l_system_package::DeserializeLSystemLayer(const YAML::Node& in, LSystemLayer& target) {
   if (in["auto_grow"]) {
-    auto_grow = in["auto_grow"].as<bool>();
+    target.auto_grow = in["auto_grow"].as<bool>();
   }
   if (in["seasonality_enabled"]) {
-    seasonality_enabled = in["seasonality_enabled"].as<bool>();
+    target.seasonality_enabled = in["seasonality_enabled"].as<bool>();
   }
   if (in["season_start_day"]) {
-    season_start_day = std::clamp(in["season_start_day"].as<int>(), 0, 364);
+    target.season_start_day = std::clamp(in["season_start_day"].as<int>(), 0, 364);
   }
   if (in["season_end_day"]) {
-    season_end_day = std::clamp(in["season_end_day"].as<int>(), 0, 364);
+    target.season_end_day = std::clamp(in["season_end_day"].as<int>(), 0, 364);
   }
   if (in["chronological_days_per_second"]) {
-    chronological_days_per_second = std::max(0.0f, in["chronological_days_per_second"].as<float>());
+    target.chronological_days_per_second = std::max(0.0f, in["chronological_days_per_second"].as<float>());
   }
-  simulation_day_of_year = NormalizeDayOfYear(static_cast<float>(season_start_day));
+  target.simulation_day_of_year = NormalizeDayOfYear(static_cast<float>(target.season_start_day));
   if (in["simulation_day_of_year"]) {
-    simulation_day_of_year = NormalizeDayOfYear(in["simulation_day_of_year"].as<float>());
+    target.simulation_day_of_year = NormalizeDayOfYear(in["simulation_day_of_year"].as<float>());
   }
   if (in["reseed_on_reset"]) {
-    reseed_on_reset = in["reseed_on_reset"].as<bool>();
+    target.reseed_on_reset = in["reseed_on_reset"].as<bool>();
   }
   if (in["tassel_color_mode"]) {
-    tassel_color_mode = ClampColorModeIndex(in["tassel_color_mode"].as<int>());
+    target.tassel_color_mode = ClampColorModeIndex(in["tassel_color_mode"].as<int>());
   }
   if (in["scene_plant_view_tint_enabled"]) {
-    scene_plant_view_tint_enabled = in["scene_plant_view_tint_enabled"].as<bool>();
+    target.scene_plant_view_tint_enabled = in["scene_plant_view_tint_enabled"].as<bool>();
   }
   if (in["pine_stem_only_mode"]) {
-    pine_stem_only_mode = in["pine_stem_only_mode"].as<bool>();
+    target.pine_stem_only_mode = in["pine_stem_only_mode"].as<bool>();
   }
   if (in["profiling_enabled"]) {
-    profiling_enabled = in["profiling_enabled"].as<bool>();
+    target.profiling_enabled = in["profiling_enabled"].as<bool>();
   }
   if (in["profiling_history_size"]) {
-    profiling_history_size = std::max(30, in["profiling_history_size"].as<int>());
+    target.profiling_history_size = std::max(30, in["profiling_history_size"].as<int>());
   }
   if (in["profiling_export_path"]) {
-    profiling_export_path = in["profiling_export_path"].as<std::string>();
+    target.profiling_export_path = in["profiling_export_path"].as<std::string>();
   }
-
-  ApplyGlobalPlantColorMode(tassel_color_mode, scene_plant_view_tint_enabled);
-  ApplyPineStemOnlyMode(GetScene(), pine_stem_only_mode, true);
-  RebuildAllPlantGeometry(GetScene());
 }

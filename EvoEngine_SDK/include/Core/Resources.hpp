@@ -9,6 +9,7 @@ class Texture2D;
 class Mesh;
 class Cubemap;
 class EnvironmentalMap;
+class Scene;
 
 /**
  * @class Resources
@@ -98,14 +99,15 @@ class Resources {
   friend class RenderLayer;
   friend class WindowLayer;
   friend class Prefab;
+  friend void SerializeScene(YAML::Emitter& out, const Scene& scene);
   /** @endcond */
   bool show_resources_ = false;
 
   /**
-   * @brief Displays the resource assets in the editor interface.
+   * @brief Draws the resource assets in the editor interface.
    * @param editor_layer The editor layer instance used for displaying assets.
    */
-  static void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  static void Draw(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Checks if a resource exists that matches the specified handle.

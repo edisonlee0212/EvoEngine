@@ -18,7 +18,7 @@ struct TreePointCloudPointSettings {
 
   float bounding_box_limit = 1.f;
 
-  void OnInspect();
+  void DrawGui();
 
   void Save(const std::string& name, YAML::Emitter& out) const;
 
@@ -40,7 +40,7 @@ class TreePointCloudCircularCaptureSettings : public PointCloudCaptureSettings {
   int scan_resolution = 128;
   float max_capture_depth = 10;
 
-  bool OnInspect() override;
+  bool DrawGui() override;
 
   void Save(const std::string& name, YAML::Emitter& out) const override;
 
@@ -61,7 +61,7 @@ class TreePointCloudGridCaptureSettings : public PointCloudCaptureSettings {
   float ground_sample_height = 1.0f;
   int drone_sample_size = 128;
   float drone_sample_height = 5.0f;
-  bool OnInspect() override;
+  bool DrawGui() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };
@@ -71,11 +71,7 @@ class TreePointCloudScanner : public IPrivateComponent {
   TreePointCloudPointSettings point_settings;
   void Capture(const TreeMeshGeneratorSettings& mesh_generator_settings, const std::filesystem::path& save_path,
                const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   void OnDestroy() override;
-
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 }  // namespace dataset_generation_package

@@ -74,7 +74,7 @@ class DsFungus {
    * @param editor_layer The editor layer used to inspect the object.
    * @return True if the asset content remains unmodified.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Executes the fungal diffusion simulation on the strands.
@@ -183,7 +183,7 @@ class DsPrediction {
    * @param editor_layer The editor layer used to inspect the object.
    * @return True if the asset content remains unmodified.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Executes the prediction step on the strands.
@@ -295,7 +295,7 @@ class DsDynamicHashedGrid {
   std::unique_ptr<ComputePipeline> local_disperse_pipeline;
   std::unique_ptr<ComputePipeline> global_disperse_pipeline;
   DsDynamicHashedGrid();
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void BuildGrid(const DynamicStrands::PhysicsParameters& physics_parameters,
                  const DynamicStrands& target_dynamic_strands);
 };

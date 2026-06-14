@@ -1,4 +1,5 @@
 #include "BasicPruningDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 using namespace eco_sys_lab_package;
 
@@ -87,44 +88,44 @@ void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulat
       };
 }
 
-void BasicPruningDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "low_branch_pruning" << YAML::Value << low_branch_pruning;
-  out << YAML::Key << "trunk_protection" << YAML::Value << trunk_protection;
-  out << YAML::Key << "max_flow_length" << YAML::Value << max_flow_length;
-  out << YAML::Key << "light_pruning_factor" << YAML::Value << light_pruning_factor;
-  out << YAML::Key << "branch_strength" << YAML::Value << branch_strength;
-  out << YAML::Key << "branch_strength_thickness_factor" << YAML::Value << branch_strength_thickness_factor;
-  out << YAML::Key << "branch_strength_lighting_threshold" << YAML::Value << branch_strength_lighting_threshold;
-  out << YAML::Key << "branch_strength_lighting_loss" << YAML::Value << branch_strength_lighting_loss;
-  out << YAML::Key << "branch_breaking_factor" << YAML::Value << branch_breaking_factor;
-  out << YAML::Key << "branch_breaking_multiplier" << YAML::Value << branch_breaking_multiplier;
+void eco_sys_lab_package::SerializeBasicPruningDescriptor(YAML::Emitter& out, const BasicPruningDescriptor& target) {
+  out << YAML::Key << "low_branch_pruning" << YAML::Value << target.low_branch_pruning;
+  out << YAML::Key << "trunk_protection" << YAML::Value << target.trunk_protection;
+  out << YAML::Key << "max_flow_length" << YAML::Value << target.max_flow_length;
+  out << YAML::Key << "light_pruning_factor" << YAML::Value << target.light_pruning_factor;
+  out << YAML::Key << "branch_strength" << YAML::Value << target.branch_strength;
+  out << YAML::Key << "branch_strength_thickness_factor" << YAML::Value << target.branch_strength_thickness_factor;
+  out << YAML::Key << "branch_strength_lighting_threshold" << YAML::Value << target.branch_strength_lighting_threshold;
+  out << YAML::Key << "branch_strength_lighting_loss" << YAML::Value << target.branch_strength_lighting_loss;
+  out << YAML::Key << "branch_breaking_factor" << YAML::Value << target.branch_breaking_factor;
+  out << YAML::Key << "branch_breaking_multiplier" << YAML::Value << target.branch_breaking_multiplier;
 }
 
-void BasicPruningDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeBasicPruningDescriptor(const YAML::Node& in, BasicPruningDescriptor& target) {
   if (in["low_branch_pruning"]) {
-    low_branch_pruning = in["low_branch_pruning"].as<float>();
+    target.low_branch_pruning = in["low_branch_pruning"].as<float>();
   }
   if (in["trunk_protection"])
-    trunk_protection = in["trunk_protection"].as<bool>();
+    target.trunk_protection = in["trunk_protection"].as<bool>();
   if (in["max_flow_length"])
-    max_flow_length = in["max_flow_length"].as<int>();
+    target.max_flow_length = in["max_flow_length"].as<int>();
   if (in["light_pruning_factor"])
-    light_pruning_factor = in["light_pruning_factor"].as<float>();
+    target.light_pruning_factor = in["light_pruning_factor"].as<float>();
   if (in["branch_strength"])
-    branch_strength = in["branch_strength"].as<float>();
+    target.branch_strength = in["branch_strength"].as<float>();
   if (in["branch_strength_thickness_factor"])
-    branch_strength_thickness_factor = in["branch_strength_thickness_factor"].as<float>();
+    target.branch_strength_thickness_factor = in["branch_strength_thickness_factor"].as<float>();
   if (in["branch_strength_lighting_threshold"])
-    branch_strength_lighting_threshold = in["branch_strength_lighting_threshold"].as<float>();
+    target.branch_strength_lighting_threshold = in["branch_strength_lighting_threshold"].as<float>();
   if (in["branch_strength_lighting_loss"])
-    branch_strength_lighting_loss = in["branch_strength_lighting_loss"].as<float>();
+    target.branch_strength_lighting_loss = in["branch_strength_lighting_loss"].as<float>();
   if (in["branch_breaking_factor"])
-    branch_breaking_factor = in["branch_breaking_factor"].as<float>();
+    target.branch_breaking_factor = in["branch_breaking_factor"].as<float>();
   if (in["branch_breaking_multiplier"])
-    branch_breaking_multiplier = in["branch_breaking_multiplier"].as<float>();
+    target.branch_breaking_multiplier = in["branch_breaking_multiplier"].as<float>();
 }
 
-bool BasicPruningDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicPruningDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Pruning", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::DragFloat("Low Branch Pruning", &low_branch_pruning, 0.01f, 0.0f, 1.f))

@@ -7,6 +7,9 @@
 #include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
 #include "ISystem.hpp"
+
+#include <type_traits>
+#include <utility>
 namespace YAML {
 
 /**
@@ -671,7 +674,27 @@ struct convert<glm::u16vec4> {
   }
 };
 }  // namespace YAML
+namespace evo_engine::serialization_detail {
+template <typename T, typename = void>
+struct HasCollectAssetRef : std::false_type {};
+
+template <typename T>
+struct HasCollectAssetRef<
+    T, std::void_t<decltype(std::declval<T&>().CollectAssetRef(std::declval<std::vector<AssetRef>&>()))>>
+    : std::true_type {};
+
+template <typename T, typename = void>
+struct HasRelink : std::false_type {};
+
+template <typename T>
+struct HasRelink<
+    T, std::void_t<decltype(std::declval<T&>().Relink(std::declval<const std::unordered_map<Handle, Handle>&>(),
+                                                      std::declval<const std::shared_ptr<Scene>&>()))>>
+    : std::true_type {};
+}  // namespace evo_engine::serialization_detail
+
 namespace evo_engine {
+struct OffscreenPreviewSettings;
 class ProjectContentBrowserPanel;
 
 /**
@@ -680,7 +703,53 @@ class ProjectContentBrowserPanel;
 class Serialization final {
  public:
   Serialization() = default;
+  using SerializeHandler = std::function<void(YAML::Emitter&, const void*)>;
+  using DeserializeHandler = std::function<void(const YAML::Node&, void*)>;
+  using CollectAssetRefHandler = std::function<void(void*, std::vector<AssetRef>&)>;
+  using RelinkHandler =
+      std::function<void(void*, const std::unordered_map<Handle, Handle>&, const std::shared_ptr<Scene>&)>;
+  using CloneHandler =
+      std::function<void(const std::shared_ptr<ISerializable>&, const std::shared_ptr<ISerializable>&)>;
+  using AssetSaveHandler = std::function<bool(const void*, const std::filesystem::path&)>;
+  using AssetLoadHandler = std::function<bool(void*, const std::filesystem::path&)>;
+  using AssetSupportsStagedLoadingHandler = std::function<bool(const void*, const std::filesystem::path&)>;
+  using AssetLoadStagedPayloadHandler =
+      std::function<std::shared_ptr<StagedAssetLoadPayload>(const void*, const std::filesystem::path&)>;
+  using AssetApplyStagedPayloadHandler =
+      std::function<bool(void*, const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>&)>;
+  using AssetPreviewHandler =
+      std::function<std::shared_ptr<Texture2D>(const std::shared_ptr<IAsset>&, const OffscreenPreviewSettings&)>;
+
+  struct SerializationHandlerInfo {
+    size_t type_id = 0;
+    std::string type_name;
+    std::string owner_name;
+    uint32_t version = 0;
+  };
+
+  struct SerializationSupportHandlerInfo {
+    size_t type_id = 0;
+    std::string type_name;
+    std::string owner_name;
+    uint32_t version = 0;
+  };
+
+  struct AssetIoHandlerInfo {
+    size_t type_id = 0;
+    std::string type_name;
+    std::string owner_name;
+    uint32_t version = 0;
+  };
+
+  struct AssetPreviewHandlerInfo {
+    size_t type_id = 0;
+    std::string type_name;
+    std::string owner_name;
+    uint32_t version = 0;
+  };
+
   static EVOENGINE_API Serialization& GetInstance();
+  [[nodiscard]] static const std::map<std::string, size_t>& GetRegisteredSystemTypes();
 
  private:
   friend class Application;
@@ -703,19 +772,6 @@ class Serialization final {
    * @brief Map to store generators for serializable components.
    */
   std::unordered_map<std::string, std::function<std::shared_ptr<ISerializable>(size_t&)>> serializable_generators_{};
-
-  /**
-   * @brief Map to store clone functions for private components.
-   */
-  std::unordered_map<std::string,
-                     std::function<void(std::shared_ptr<IPrivateComponent>, const std::shared_ptr<IPrivateComponent>&)>>
-      private_component_cloners_{};
-
-  /**
-   * @brief Map to store clone functions for systems.
-   */
-  std::unordered_map<std::string, std::function<void(std::shared_ptr<ISystem>, const std::shared_ptr<ISystem>&)>>
-      system_cloners_{};
 
   /**
    * @brief Map to store IDs for data components.
@@ -786,6 +842,56 @@ class Serialization final {
   std::unordered_map<std::string, std::string> serializable_type_owners_{};
   std::unordered_map<size_t, std::string> serializable_type_id_owners_{};
 
+  struct SerializationHandlerRecord {
+    SerializeHandler serialize_handler;
+    DeserializeHandler deserialize_handler;
+    SerializationHandlerInfo info;
+  };
+
+  std::unordered_map<size_t, SerializationHandlerRecord> serialization_handlers_{};
+
+  [[nodiscard]] static const SerializationHandlerRecord* FindSerializationRecord(const Serialization& serialization,
+                                                                                 const size_t& type_id);
+
+  struct SerializationSupportHandlerRecord {
+    CollectAssetRefHandler collect_asset_ref_handler;
+    RelinkHandler relink_handler;
+    CloneHandler clone_handler;
+    SerializationSupportHandlerInfo info;
+  };
+
+  std::unordered_map<size_t, SerializationSupportHandlerRecord> serialization_support_handlers_{};
+
+  [[nodiscard]] static const SerializationSupportHandlerRecord* FindSerializationSupportRecord(
+      const Serialization& serialization, const size_t& type_id);
+  static void CollectAssetRefs(ISerializable& serializable, std::vector<AssetRef>& list);
+  static void RelinkObject(ISerializable& serializable, const std::unordered_map<Handle, Handle>& map,
+                           const std::shared_ptr<Scene>& scene);
+
+  struct AssetIoHandlerRecord {
+    AssetSaveHandler save_handler;
+    AssetLoadHandler load_handler;
+    AssetSupportsStagedLoadingHandler supports_staged_loading_handler;
+    AssetLoadStagedPayloadHandler load_staged_payload_handler;
+    AssetApplyStagedPayloadHandler apply_staged_payload_handler;
+    AssetIoHandlerInfo info;
+  };
+
+  std::unordered_map<size_t, AssetIoHandlerRecord> asset_io_handlers_{};
+
+  [[nodiscard]] static const AssetIoHandlerRecord* FindAssetIoRecord(const Serialization& serialization,
+                                                                     const size_t& type_id);
+
+  struct AssetPreviewHandlerRecord {
+    AssetPreviewHandler generate_thumbnail_handler;
+    AssetPreviewHandlerInfo info;
+  };
+
+  std::unordered_map<size_t, AssetPreviewHandlerRecord> asset_preview_handlers_{};
+
+  [[nodiscard]] static const AssetPreviewHandlerRecord* FindAssetPreviewRecord(const Serialization& serialization,
+                                                                               const size_t& type_id);
+
   /**
    * @brief Map to store extensions for asset types.
    */
@@ -841,6 +947,22 @@ class Serialization final {
    */
   template <typename T = IAsset>
   static bool RegisterAssetType(const std::string& name, const std::vector<std::string>& extensions);
+
+  template <typename T = ISerializable>
+  static bool RegisterDefaultSerializationHandler(const std::string& owner_name = {}, const std::string& type_name = {},
+                                                  uint32_t version = 0);
+
+  template <typename T = ISerializable>
+  static bool RegisterDefaultSerializationSupportHandler(const std::string& owner_name = {},
+                                                         const std::string& type_name = {}, uint32_t version = 0);
+
+  template <typename T = IAsset>
+  static bool RegisterDefaultAssetIoHandler(const std::string& owner_name = {}, const std::string& type_name = {},
+                                            uint32_t version = 0);
+
+  template <typename T = IAsset>
+  static bool RegisterDefaultAssetPreviewHandler(const std::string& owner_name = {}, const std::string& type_name = {},
+                                                 uint32_t version = 0);
 
   /**
    * @brief Register a type of data component with custom attributes.
@@ -903,6 +1025,7 @@ class Serialization final {
   static bool UnregisterAssetType(const std::string& type_name);
   static bool UnregisterDataComponentType(const std::string& type_name);
   static bool UnregisterSystemType(const std::string& type_name);
+
   static void SetSerializableTypeOwner(const std::string& type_name, const std::string& owner_name);
   static void SetPrivateComponentTypeOwner(const std::string& type_name, const std::string& owner_name);
   static void SetDataComponentTypeOwner(const std::string& type_name, const std::string& owner_name);
@@ -913,6 +1036,136 @@ class Serialization final {
   static void UnregisterPackageOwnedTypes(const std::string& owner_name);
 
  public:
+  template <typename T>
+  static bool RegisterSerializationHandler(std::function<void(YAML::Emitter&, const T&)> serialize_handler,
+                                           std::function<void(const YAML::Node&, T&)> deserialize_handler,
+                                           const std::string& owner_name = {}, const std::string& type_name = {},
+                                           uint32_t version = 0);
+
+  template <typename T>
+  static bool UnregisterSerializationHandler();
+
+  template <typename T>
+  [[nodiscard]] static bool HasSerializationHandler();
+
+  static bool RegisterSerializationHandler(const size_t& type_id, SerializeHandler serialize_handler,
+                                           DeserializeHandler deserialize_handler, const std::string& owner_name = {},
+                                           const std::string& type_name = {}, uint32_t version = 0);
+  static bool UnregisterSerializationHandler(const size_t& type_id);
+  static size_t UnregisterSerializationHandlersByOwner(const std::string& owner_name);
+
+  [[nodiscard]] static bool HasSerializationHandler(const size_t& type_id);
+  [[nodiscard]] static const SerializationHandlerInfo* FindSerializationHandler(const size_t& type_id);
+
+  template <typename T>
+  static bool RegisterSerializationSupportHandler(
+      std::function<void(T&, std::vector<AssetRef>&)> collect_asset_ref_handler = {},
+      std::function<void(T&, const std::unordered_map<Handle, Handle>&, const std::shared_ptr<Scene>&)> relink_handler =
+          {},
+      std::function<void(const std::shared_ptr<T>&, const std::shared_ptr<T>&)> clone_handler = {},
+      const std::string& owner_name = {}, const std::string& type_name = {}, uint32_t version = 0);
+
+  template <typename T>
+  static bool UnregisterSerializationSupportHandler();
+
+  template <typename T>
+  [[nodiscard]] static bool HasSerializationSupportHandler();
+
+  static bool RegisterSerializationSupportHandler(const size_t& type_id,
+                                                  CollectAssetRefHandler collect_asset_ref_handler = {},
+                                                  RelinkHandler relink_handler = {}, CloneHandler clone_handler = {},
+                                                  const std::string& owner_name = {}, const std::string& type_name = {},
+                                                  uint32_t version = 0);
+  static bool UnregisterSerializationSupportHandler(const size_t& type_id);
+  static size_t UnregisterSerializationSupportHandlersByOwner(const std::string& owner_name);
+
+  [[nodiscard]] static bool HasSerializationSupportHandler(const size_t& type_id);
+  [[nodiscard]] static const SerializationSupportHandlerInfo* FindSerializationSupportHandler(const size_t& type_id);
+
+  static void SerializeObject(YAML::Emitter& out, const ISerializable& serializable);
+  static void SerializeObject(YAML::Emitter& out, const IAsset& asset);
+  static void SerializeObject(YAML::Emitter& out, const IPrivateComponent& component);
+  static void SerializeObject(YAML::Emitter& out, const ISystem& system);
+  static void DeserializeObject(const YAML::Node& in, ISerializable& serializable);
+  static void DeserializeObject(const YAML::Node& in, IAsset& asset);
+  static void DeserializeObject(const YAML::Node& in, IPrivateComponent& component);
+  static void DeserializeObject(const YAML::Node& in, ISystem& system);
+  static void CollectAssetRefs(IAsset& asset, std::vector<AssetRef>& list);
+  static void CollectAssetRefs(IPrivateComponent& component, std::vector<AssetRef>& list);
+  static void CollectAssetRefs(ISystem& system, std::vector<AssetRef>& list);
+  static void RelinkObject(IPrivateComponent& component, const std::unordered_map<Handle, Handle>& map,
+                           const std::shared_ptr<Scene>& scene);
+
+  template <typename T>
+  static bool RegisterAssetIoHandler(
+      std::function<bool(const T&, const std::filesystem::path&)> save_handler = {},
+      std::function<bool(T&, const std::filesystem::path&)> load_handler = {},
+      std::function<bool(const T&, const std::filesystem::path&)> supports_staged_loading_handler = {},
+      std::function<std::shared_ptr<StagedAssetLoadPayload>(const T&, const std::filesystem::path&)>
+          load_staged_payload_handler = {},
+      std::function<bool(T&, const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>&)>
+          apply_staged_payload_handler = {},
+      const std::string& owner_name = {}, const std::string& type_name = {}, uint32_t version = 0);
+
+  template <typename T>
+  static bool UnregisterAssetIoHandler();
+
+  template <typename T>
+  [[nodiscard]] static bool HasAssetIoHandler();
+
+  static bool RegisterAssetIoHandler(const size_t& type_id, AssetSaveHandler save_handler = {},
+                                     AssetLoadHandler load_handler = {},
+                                     AssetSupportsStagedLoadingHandler supports_staged_loading_handler = {},
+                                     AssetLoadStagedPayloadHandler load_staged_payload_handler = {},
+                                     AssetApplyStagedPayloadHandler apply_staged_payload_handler = {},
+                                     const std::string& owner_name = {}, const std::string& type_name = {},
+                                     uint32_t version = 0);
+  static bool UnregisterAssetIoHandler(const size_t& type_id);
+  static size_t UnregisterAssetIoHandlersByOwner(const std::string& owner_name);
+
+  [[nodiscard]] static bool HasAssetIoHandler(const size_t& type_id);
+  [[nodiscard]] static const AssetIoHandlerInfo* FindAssetIoHandler(const size_t& type_id);
+
+  static bool SaveAsset(const IAsset& asset, const std::filesystem::path& path);
+  static bool LoadAsset(IAsset& asset, const std::filesystem::path& path);
+  static bool SaveAssetAsYaml(const ISerializable& serializable, const std::filesystem::path& path);
+  static bool LoadAssetFromYaml(ISerializable& serializable, const std::filesystem::path& path);
+  [[nodiscard]] static std::shared_ptr<StagedAssetLoadPayload> LoadAssetYamlPayload(const std::filesystem::path& path);
+  static bool ApplyAssetYamlPayload(ISerializable& serializable,
+                                    const std::shared_ptr<StagedAssetLoadPayload>& payload);
+  [[nodiscard]] static bool SupportsStagedAssetLoading(const IAsset& asset, const std::filesystem::path& path);
+  [[nodiscard]] static std::shared_ptr<StagedAssetLoadPayload> LoadStagedAssetPayload(
+      const IAsset& asset, const std::filesystem::path& path);
+  static bool ApplyStagedAssetPayload(IAsset& asset, const std::filesystem::path& path,
+                                      const std::shared_ptr<StagedAssetLoadPayload>& payload);
+
+  template <typename T>
+  static bool RegisterAssetPreviewHandler(
+      std::function<std::shared_ptr<Texture2D>(const std::shared_ptr<T>&, const OffscreenPreviewSettings&)>
+          generate_thumbnail_handler,
+      const std::string& owner_name = {}, const std::string& type_name = {}, uint32_t version = 0);
+
+  template <typename T>
+  static bool UnregisterAssetPreviewHandler();
+
+  template <typename T>
+  [[nodiscard]] static bool HasAssetPreviewHandler();
+
+  static bool RegisterAssetPreviewHandler(const size_t& type_id, AssetPreviewHandler generate_thumbnail_handler,
+                                          const std::string& owner_name = {}, const std::string& type_name = {},
+                                          uint32_t version = 0);
+  static bool UnregisterAssetPreviewHandler(const size_t& type_id);
+  static size_t UnregisterAssetPreviewHandlersByOwner(const std::string& owner_name);
+
+  [[nodiscard]] static bool HasAssetPreviewHandler(const size_t& type_id);
+  [[nodiscard]] static bool HasAssetPreviewHandler(const std::string& type_name);
+  [[nodiscard]] static const AssetPreviewHandlerInfo* FindAssetPreviewHandler(const size_t& type_id);
+
+  [[nodiscard]] static std::shared_ptr<Texture2D> GenerateAssetThumbnail(const std::shared_ptr<IAsset>& asset,
+                                                                         const OffscreenPreviewSettings& settings);
+  [[nodiscard]] static std::shared_ptr<Texture2D> GenerateDefaultAssetThumbnail(
+      const OffscreenPreviewSettings& settings);
+
   /**
    * @brief Creates an instance of a data component by type name.
    * @param type_name Name of the data component type.
@@ -1116,6 +1369,211 @@ class Serialization final {
 };
 
 template <typename T>
+bool Serialization::RegisterSerializationHandler(std::function<void(YAML::Emitter&, const T&)> serialize_handler,
+                                                 std::function<void(const YAML::Node&, T&)> deserialize_handler,
+                                                 const std::string& owner_name, const std::string& type_name,
+                                                 const uint32_t version) {
+  SerializeHandler erased_serialize_handler;
+  if (serialize_handler) {
+    erased_serialize_handler = [handler = std::move(serialize_handler)](YAML::Emitter& out, const void* target) {
+      handler(out, *static_cast<const T*>(target));
+    };
+  }
+
+  DeserializeHandler erased_deserialize_handler;
+  if (deserialize_handler) {
+    erased_deserialize_handler = [handler = std::move(deserialize_handler)](const YAML::Node& in, void* target) {
+      handler(in, *static_cast<T*>(target));
+    };
+  }
+
+  return RegisterSerializationHandler(typeid(T).hash_code(), std::move(erased_serialize_handler),
+                                      std::move(erased_deserialize_handler), owner_name,
+                                      type_name.empty() ? typeid(T).name() : type_name, version);
+}
+
+template <typename T>
+bool Serialization::UnregisterSerializationHandler() {
+  return UnregisterSerializationHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::HasSerializationHandler() {
+  return HasSerializationHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::RegisterSerializationSupportHandler(
+    std::function<void(T&, std::vector<AssetRef>&)> collect_asset_ref_handler,
+    std::function<void(T&, const std::unordered_map<Handle, Handle>&, const std::shared_ptr<Scene>&)> relink_handler,
+    std::function<void(const std::shared_ptr<T>&, const std::shared_ptr<T>&)> clone_handler,
+    const std::string& owner_name, const std::string& type_name, const uint32_t version) {
+  CollectAssetRefHandler erased_collect_asset_ref_handler;
+  if (collect_asset_ref_handler) {
+    erased_collect_asset_ref_handler = [handler = std::move(collect_asset_ref_handler)](void* target,
+                                                                                        std::vector<AssetRef>& list) {
+      handler(*static_cast<T*>(target), list);
+    };
+  }
+
+  RelinkHandler erased_relink_handler;
+  if (relink_handler) {
+    erased_relink_handler = [handler = std::move(relink_handler)](void* target,
+                                                                  const std::unordered_map<Handle, Handle>& map,
+                                                                  const std::shared_ptr<Scene>& scene) {
+      handler(*static_cast<T*>(target), map, scene);
+    };
+  }
+
+  CloneHandler erased_clone_handler;
+  if (clone_handler) {
+    erased_clone_handler = [handler = std::move(clone_handler)](const std::shared_ptr<ISerializable>& target,
+                                                                const std::shared_ptr<ISerializable>& source) {
+      handler(std::dynamic_pointer_cast<T>(target), std::dynamic_pointer_cast<T>(source));
+    };
+  }
+
+  return RegisterSerializationSupportHandler(typeid(T).hash_code(), std::move(erased_collect_asset_ref_handler),
+                                             std::move(erased_relink_handler), std::move(erased_clone_handler),
+                                             owner_name, type_name, version);
+}
+
+template <typename T>
+bool Serialization::UnregisterSerializationSupportHandler() {
+  return UnregisterSerializationSupportHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::HasSerializationSupportHandler() {
+  return HasSerializationSupportHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::RegisterDefaultSerializationHandler(const std::string& owner_name, const std::string& type_name,
+                                                        const uint32_t version) {
+  (void)owner_name;
+  (void)type_name;
+  (void)version;
+  return false;
+}
+
+template <typename T>
+bool Serialization::RegisterDefaultSerializationSupportHandler(const std::string& owner_name,
+                                                               const std::string& type_name, const uint32_t version) {
+  std::function<void(T&, std::vector<AssetRef>&)> collect_asset_ref_handler;
+  if constexpr (serialization_detail::HasCollectAssetRef<T>::value) {
+    collect_asset_ref_handler = [](T& target, std::vector<AssetRef>& list) {
+      target.CollectAssetRef(list);
+    };
+  }
+
+  std::function<void(T&, const std::unordered_map<Handle, Handle>&, const std::shared_ptr<Scene>&)> relink_handler;
+  if constexpr (serialization_detail::HasRelink<T>::value) {
+    relink_handler = [](T& target, const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) {
+      target.Relink(map, scene);
+    };
+  }
+
+  return RegisterSerializationSupportHandler<T>(std::move(collect_asset_ref_handler), std::move(relink_handler), {},
+                                                owner_name, type_name, version);
+}
+
+template <typename T>
+bool Serialization::RegisterAssetIoHandler(
+    std::function<bool(const T&, const std::filesystem::path&)> save_handler,
+    std::function<bool(T&, const std::filesystem::path&)> load_handler,
+    std::function<bool(const T&, const std::filesystem::path&)> supports_staged_loading_handler,
+    std::function<std::shared_ptr<StagedAssetLoadPayload>(const T&, const std::filesystem::path&)>
+        load_staged_payload_handler,
+    std::function<bool(T&, const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>&)>
+        apply_staged_payload_handler,
+    const std::string& owner_name, const std::string& type_name, const uint32_t version) {
+  AssetSaveHandler erased_save_handler;
+  if (save_handler) {
+    erased_save_handler = [handler = std::move(save_handler)](const void* target, const std::filesystem::path& path) {
+      return handler(*static_cast<const T*>(target), path);
+    };
+  }
+
+  AssetLoadHandler erased_load_handler;
+  if (load_handler) {
+    erased_load_handler = [handler = std::move(load_handler)](void* target, const std::filesystem::path& path) {
+      return handler(*static_cast<T*>(target), path);
+    };
+  }
+
+  AssetSupportsStagedLoadingHandler erased_supports_staged_loading_handler;
+  if (supports_staged_loading_handler) {
+    erased_supports_staged_loading_handler = [handler = std::move(supports_staged_loading_handler)](
+                                                 const void* target, const std::filesystem::path& path) {
+      return handler(*static_cast<const T*>(target), path);
+    };
+  }
+
+  AssetLoadStagedPayloadHandler erased_load_staged_payload_handler;
+  if (load_staged_payload_handler) {
+    erased_load_staged_payload_handler = [handler = std::move(load_staged_payload_handler)](
+                                             const void* target, const std::filesystem::path& path) {
+      return handler(*static_cast<const T*>(target), path);
+    };
+  }
+
+  AssetApplyStagedPayloadHandler erased_apply_staged_payload_handler;
+  if (apply_staged_payload_handler) {
+    erased_apply_staged_payload_handler = [handler = std::move(apply_staged_payload_handler)](
+                                              void* target, const std::filesystem::path& path,
+                                              const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+      return handler(*static_cast<T*>(target), path, payload);
+    };
+  }
+
+  return RegisterAssetIoHandler(typeid(T).hash_code(), std::move(erased_save_handler), std::move(erased_load_handler),
+                                std::move(erased_supports_staged_loading_handler),
+                                std::move(erased_load_staged_payload_handler),
+                                std::move(erased_apply_staged_payload_handler), owner_name,
+                                type_name.empty() ? typeid(T).name() : type_name, version);
+}
+
+template <typename T>
+bool Serialization::UnregisterAssetIoHandler() {
+  return UnregisterAssetIoHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::HasAssetIoHandler() {
+  return HasAssetIoHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::RegisterAssetPreviewHandler(
+    std::function<std::shared_ptr<Texture2D>(const std::shared_ptr<T>&, const OffscreenPreviewSettings&)>
+        generate_thumbnail_handler,
+    const std::string& owner_name, const std::string& type_name, const uint32_t version) {
+  AssetPreviewHandler erased_generate_thumbnail_handler;
+  if (generate_thumbnail_handler) {
+    erased_generate_thumbnail_handler = [handler = std::move(generate_thumbnail_handler)](
+                                            const std::shared_ptr<IAsset>& asset,
+                                            const OffscreenPreviewSettings& settings) {
+      const auto typed_asset = std::dynamic_pointer_cast<T>(asset);
+      return typed_asset ? handler(typed_asset, settings) : nullptr;
+    };
+  }
+
+  return RegisterAssetPreviewHandler(typeid(T).hash_code(), std::move(erased_generate_thumbnail_handler), owner_name,
+                                     type_name.empty() ? typeid(T).name() : type_name, version);
+}
+
+template <typename T>
+bool Serialization::UnregisterAssetPreviewHandler() {
+  return UnregisterAssetPreviewHandler(typeid(T).hash_code());
+}
+
+template <typename T>
+bool Serialization::HasAssetPreviewHandler() {
+  return HasAssetPreviewHandler(typeid(T).hash_code());
+}
+
+template <typename T>
 std::string Serialization::GetDataComponentTypeName() {
   return GetDataComponentTypeName(typeid(T).hash_code());
 }
@@ -1191,6 +1649,38 @@ bool Serialization::RegisterAssetType(const std::string& name, const std::vector
     auto ptr = std::static_pointer_cast<ISerializable>(std::make_shared<T>());
     return ptr;
   });
+}
+
+template <typename T>
+bool Serialization::RegisterDefaultAssetIoHandler(const std::string& owner_name, const std::string& type_name,
+                                                  const uint32_t version) {
+  return RegisterAssetIoHandler<T>(
+      [](const T& asset, const std::filesystem::path& path) {
+        return SaveAssetAsYaml(asset, path);
+      },
+      [](T& asset, const std::filesystem::path& path) {
+        return LoadAssetFromYaml(asset, path);
+      },
+      [](const T&, const std::filesystem::path&) {
+        return false;
+      },
+      [](const T&, const std::filesystem::path& path) {
+        return LoadAssetYamlPayload(path);
+      },
+      [](T& asset, const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return ApplyAssetYamlPayload(asset, payload);
+      },
+      owner_name, type_name, version);
+}
+
+template <typename T>
+bool Serialization::RegisterDefaultAssetPreviewHandler(const std::string& owner_name, const std::string& type_name,
+                                                       const uint32_t version) {
+  return RegisterAssetPreviewHandler<T>(
+      [](const std::shared_ptr<T>&, const OffscreenPreviewSettings& settings) {
+        return GenerateDefaultAssetThumbnail(settings);
+      },
+      owner_name, type_name, version);
 }
 
 YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec2& v);

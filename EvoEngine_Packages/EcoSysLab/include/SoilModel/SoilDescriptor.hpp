@@ -35,25 +35,13 @@ class SoilLayerDescriptor : public IAsset {
    * \param editor_layer A shared pointer to the editor layer.
    * \return True if content is not modified; otherwise, false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * \brief Serializes the soil layer descriptor to a YAML emitter.
-   * \param out The YAML emitter to write the serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * \brief Deserializes the soil layer descriptor from a YAML node.
-   * \param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * \brief Collects asset references from the descriptor.
    * \param list A vector to store the collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 
 /**
@@ -71,14 +59,14 @@ class SoilDescriptor : public IAsset {
    * \brief Generates a thumbnail texture for visualization.
    * \return A shared pointer to the generated Texture2D object.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * \brief Handles inspection logic for the soil descriptor.
    * \param editor_layer A shared pointer to the editor layer.
    * \return True if content is not modified; otherwise, false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * \brief Applies a random offset to the soil descriptor.
@@ -88,21 +76,9 @@ class SoilDescriptor : public IAsset {
   void RandomOffset(float min, float max);
 
   /**
-   * \brief Serializes the soil descriptor to a YAML emitter.
-   * \param out The YAML emitter to write the serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * \brief Deserializes the soil descriptor from a YAML node.
-   * \param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * \brief Collects asset references from the descriptor.
    * \param list A vector to store the collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 }  // namespace eco_sys_lab_package

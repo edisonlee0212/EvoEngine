@@ -135,12 +135,6 @@ struct Bone {
                const glm::mat4 &root_transform, std::vector<glm::mat4> &results);
 
   /**
-   * @brief GUI inspection utility for the bone object.
-   * @return True if inspection was successful; otherwise false.
-   */
-  bool OnInspect();
-
-  /**
    * @brief Serializes the Bone data to a YAML emitter.
    * @param out The YAML emitter to serialize the data into.
    */
@@ -161,7 +155,7 @@ struct Bone {
  */
 class Animation : public IAsset {
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -180,13 +174,6 @@ class Animation : public IAsset {
    * @return A reference to the map of animation lengths.
    */
   [[nodiscard]] std::map<std::string, float> &UnsafeGetAnimationLengths();
-
-  /**
-   * @brief GUI inspection utility for the animation object.
-   * @param editor_layer The editor layer to use for inspection.
-   * @return True if inspection was successful; otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
 
   /**
    * @brief Performs the animation by interpolating transformations.
@@ -223,18 +210,6 @@ class Animation : public IAsset {
    * @return True if there are no animations; otherwise false.
    */
   [[nodiscard]] bool IsEmpty() const;
-
-  /**
-   * @brief Serializes the Animation data to a YAML emitter.
-   * @param out The YAML emitter to serialize the data into.
-   */
-  void Serialize(YAML::Emitter &out) const override;
-
-  /**
-   * @brief Deserializes the Animation data from a YAML node.
-   * @param in The YAML node to deserialize the data from.
-   */
-  void Deserialize(const YAML::Node &in) override;
 };
 
 }  // namespace evo_engine

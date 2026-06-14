@@ -6,7 +6,7 @@
 #include "TreeVisualizer.hpp"
 using namespace eco_sys_lab_package;
 
-bool ParticlePhysics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool ParticlePhysics2DDemo::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   static bool enable_render = true;
   static float delta_time = 0.002f;
@@ -57,7 +57,7 @@ bool ParticlePhysics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor
       ImGui::DragFloat("Edge length limit", &edge_length_limit);
       static float elapsed_time = 0.0f;
       elapsed_time += ApplicationContext::Get().GetTimes().DeltaTime();
-      particle_physics_2d_.OnInspect(
+      particle_physics_2d_.DrawGui(
           [&](const glm::vec2 position) {
             if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Press ||
                 editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {

@@ -5,6 +5,7 @@
 #include "ProjectManager.hpp"
 #include "ResourceLimits.h"
 #include "SPIRV/GlslangToSpv.h"
+#include "Serialization.hpp"
 #include "ShaderLang.h"
 #include "Utilities.hpp"
 
@@ -18,42 +19,13 @@ class ShaderStagedLoadPayload final : public StagedAssetLoadPayload {
 };
 }  // namespace
 
-int string_resize_callback(ImGuiInputTextCallbackData* data) {
-  if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
-    const auto my_str = static_cast<std::string*>(data->UserData);
-    IM_ASSERT(my_str->data() == data->Buf);
-    my_str->resize(data->BufSize);  // NB: On resizing calls, generally data->BufSize == data->BufTextLen + 1
-    data->Buf = my_str->data();
-  }
-  return 0;
-};
-bool Shader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text(
-      (std::string("Current Status: ") + std::string(shader_module != nullptr ? "Compiled" : "Not compiled")).c_str());
-  if (ImGui::Button("TryCompile")) {
-    TryCompile();
-  }
-  if (ImGui::Combo(
-          "Type",
-          {"Vertex", "Tessellation Control", "Tessellation Evaluation", "Geometry", "Task", "Mesh", "Fragment",
-           "Compute", "Ray Generation", "Closest Hit", "Miss", "Any Hit", "Intersection", "Callable", "Unknown"},
-          shader_type)) {
-    changed = true;
-  }
-  if (ImGui::InputTextMultiline("Code", shader_code.data(), shader_code.size(), ImGui::GetContentRegionAvail(),
-                                ImGuiInputTextFlags_CallbackResize, string_resize_callback, &shader_code)) {
-    changed = true;
-  }
-  return changed;
-}
-
 bool Shader::SaveInternal(const std::filesystem::path& path) const {
   try {
     if (path.extension() == ".eveshader") {
       YAML::Emitter out;
       out << YAML::BeginMap;
-      Serialize(out);
+      out << YAML::Key << "shader_type" << YAML::Value << shader_type;
+      out << YAML::Key << "shader_code" << YAML::Value << shader_code;
       out << YAML::EndMap;
       std::ofstream file_output(path.string());
       file_output << out.c_str();
@@ -81,7 +53,10 @@ bool Shader::LoadInternal(const std::filesystem::path& path) {
     string_stream << stream.rdbuf();
     if (path.extension() == ".eveshader") {
       const YAML::Node in = YAML::Load(string_stream.str());
-      Deserialize(in);
+      if (in["shader_code"])
+        shader_code = in["shader_code"].as<std::string>();
+      if (in["shader_type"])
+        shader_type = in["shader_type"].as<unsigned>();
     } else {
       shader_type = static_cast<unsigned>(ShaderType::Unknown);
       shader_code = string_stream.str();
@@ -137,16 +112,24 @@ bool Shader::ApplyStagedPayloadInternal(const std::filesystem::path&,
   return true;
 }
 
-void Shader::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "shader_type" << YAML::Value << shader_type;
-  out << YAML::Key << "shader_code" << YAML::Value << shader_code;
-}
-
-void Shader::Deserialize(const YAML::Node& in) {
-  if (in["shader_code"])
-    shader_code = in["shader_code"].as<std::string>();
-  if (in["shader_type"])
-    shader_type = in["shader_type"].as<unsigned>();
+bool Shader::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<Shader>(
+      [](const Shader& asset, const std::filesystem::path& path) {
+        return asset.SaveInternal(path);
+      },
+      [](Shader& asset, const std::filesystem::path& path) {
+        return asset.LoadInternal(path);
+      },
+      [](const Shader& asset, const std::filesystem::path&) {
+        return asset.SupportsStagedLoading();
+      },
+      [](const Shader& asset, const std::filesystem::path& path) {
+        return asset.LoadStagedPayloadInternal(path);
+      },
+      [](Shader& asset, const std::filesystem::path& path, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return asset.ApplyStagedPayloadInternal(path, payload);
+      },
+      owner_name, type_name);
 }
 
 void Shader::RegisterShaderIncludePath(const std::filesystem::path& path) {
@@ -406,6 +389,18 @@ const std::unique_ptr<ShaderModule>& Shader::GetShaderModule() const {
 
 ShaderType Shader::GetShaderType() const {
   return static_cast<ShaderType>(shader_type);
+}
+
+const std::string& Shader::PeekShaderCode() const {
+  return shader_code;
+}
+
+std::string& Shader::RefShaderCode() {
+  return shader_code;
+}
+
+unsigned& Shader::RefShaderType() {
+  return shader_type;
 }
 
 std::shared_ptr<Shader> Shader::CreateTemporary(const ShaderType target_shader_type,

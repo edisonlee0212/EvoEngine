@@ -1,7 +1,9 @@
 #include "AssetManager.hpp"
+#include "ApplicationContext.hpp"
 #include "AssetThumbnailProvider.hpp"
 #include "EditorLayer.hpp"
 #include "FileManager.hpp"
+#include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
@@ -11,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <unordered_map>
 
 using namespace evo_engine;
 
@@ -30,8 +33,8 @@ struct InspectorPreviewInteraction {
   float camera_zoom = 1.0f;
 };
 
-InspectorThumbnailCache inspector_thumbnail_cache;
-InspectorPreviewInteraction inspector_preview_interaction;
+std::unordered_map<uint64_t, InspectorThumbnailCache> inspector_thumbnail_cache;
+std::unordered_map<uint64_t, InspectorPreviewInteraction> inspector_preview_interaction;
 
 constexpr float kInspectorPreviewRotationSensitivity = 0.01f;
 constexpr float kInspectorPreviewMinPitch = -1.4f;
@@ -78,11 +81,9 @@ bool IsInspectorPreviewInteractive(const std::shared_ptr<IAsset>& asset) {
 
 InspectorPreviewInteraction& GetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset) {
   const uint64_t asset_handle = asset ? asset->GetHandle().GetValue() : 0;
-  if (inspector_preview_interaction.asset_handle != asset_handle) {
-    inspector_preview_interaction = {};
-    inspector_preview_interaction.asset_handle = asset_handle;
-  }
-  return inspector_preview_interaction;
+  auto& preview_interaction = inspector_preview_interaction[asset_handle];
+  preview_interaction.asset_handle = asset_handle;
+  return preview_interaction;
 }
 
 OffscreenPreviewSettings CreateInspectorPreviewSettings(const std::shared_ptr<IAsset>& asset) {
@@ -97,31 +98,31 @@ OffscreenPreviewSettings CreateInspectorPreviewSettings(const std::shared_ptr<IA
 
 bool InspectorThumbnailCacheMatches(const uint64_t asset_handle, const uint32_t asset_version,
                                     const OffscreenPreviewSettings& settings) {
-  return inspector_thumbnail_cache.asset_handle == asset_handle &&
-         inspector_thumbnail_cache.asset_version == asset_version &&
-         inspector_thumbnail_cache.subject_rotation == settings.subject_rotation &&
-         inspector_thumbnail_cache.camera_zoom == settings.camera_zoom;
+  const auto search = inspector_thumbnail_cache.find(asset_handle);
+  return search != inspector_thumbnail_cache.end() && search->second.asset_version == asset_version &&
+         search->second.subject_rotation == settings.subject_rotation &&
+         search->second.camera_zoom == settings.camera_zoom;
 }
 
 std::shared_ptr<Texture2D> GetInspectorThumbnail(const std::shared_ptr<IAsset>& asset,
                                                  const OffscreenPreviewSettings& settings) {
   if (!asset || !AssetThumbnailProvider::SupportsGeneratedThumbnail(asset->GetTypeName())) {
-    inspector_thumbnail_cache = {};
     return {};
   }
 
   const auto asset_handle = asset->GetHandle().GetValue();
   const auto asset_version = asset->GetVersion();
   if (InspectorThumbnailCacheMatches(asset_handle, asset_version, settings)) {
-    return inspector_thumbnail_cache.thumbnail;
+    return inspector_thumbnail_cache[asset_handle].thumbnail;
   }
 
-  inspector_thumbnail_cache.asset_handle = asset_handle;
-  inspector_thumbnail_cache.asset_version = asset_version;
-  inspector_thumbnail_cache.subject_rotation = settings.subject_rotation;
-  inspector_thumbnail_cache.camera_zoom = settings.camera_zoom;
-  inspector_thumbnail_cache.thumbnail = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
-  return inspector_thumbnail_cache.thumbnail;
+  auto& cache = inspector_thumbnail_cache[asset_handle];
+  cache.asset_handle = asset_handle;
+  cache.asset_version = asset_version;
+  cache.subject_rotation = settings.subject_rotation;
+  cache.camera_zoom = settings.camera_zoom;
+  cache.thumbnail = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
+  return cache.thumbnail;
 }
 
 void InvalidateInspectorThumbnailCache(const std::shared_ptr<IAsset>& asset) {
@@ -129,9 +130,12 @@ void InvalidateInspectorThumbnailCache(const std::shared_ptr<IAsset>& asset) {
     return;
   }
 
-  if (inspector_thumbnail_cache.asset_handle == asset->GetHandle().GetValue()) {
-    inspector_thumbnail_cache = {};
-  }
+  inspector_thumbnail_cache.erase(asset->GetHandle().GetValue());
+}
+
+void ClearInspectorPreviewState() {
+  inspector_thumbnail_cache.clear();
+  inspector_preview_interaction.clear();
 }
 
 void ResetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset,
@@ -148,8 +152,11 @@ void ResetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset,
 }
 
 void DrawInspectorThumbnail(const std::shared_ptr<IAsset>& asset) {
+  if (!IsInspectorPreviewInteractive(asset)) {
+    return;
+  }
+
   auto& preview_interaction = GetInspectorPreviewInteraction(asset);
-  const bool interactive_preview = IsInspectorPreviewInteractive(asset);
   const auto settings = CreateInspectorPreviewSettings(asset);
   const auto thumbnail = GetInspectorThumbnail(asset, settings);
   if (!thumbnail) {
@@ -182,10 +189,6 @@ void DrawInspectorThumbnail(const std::shared_ptr<IAsset>& asset) {
   const ImVec2 image_max = ImGui::GetItemRectMax();
   auto* draw_list = ImGui::GetWindowDrawList();
   draw_list->AddImage(thumbnail->GetImTextureId(), image_min, image_max, ImVec2(0, 1), ImVec2(1, 0));
-
-  if (!interactive_preview) {
-    return;
-  }
 
   if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
     preview_interaction.interaction_mode = !preview_interaction.interaction_mode;
@@ -234,9 +237,9 @@ void AssetManager::Initialize() {
   asset_manager.initialized = true;
 }
 
-void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (editor_layer->inspecting_asset) {
-    const auto& asset = editor_layer->inspecting_asset;
+void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer,
+                                             const std::shared_ptr<IAsset>& asset) {
+  if (asset) {
     bool asset_changed = false;
     ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
@@ -281,7 +284,9 @@ void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>&
     DrawInspectorThumbnail(asset);
 
     ImGui::Separator();
-    if (asset->OnInspect(editor_layer)) {
+    InspectorContext context;
+    context.editor_layer = editor_layer;
+    if (InspectorRegistry::GetInstance().Inspect(context, *asset)) {
       asset->SetUnsaved();
       InvalidateInspectorThumbnailCache(asset);
       if (const auto file = asset->GetFileRecord().lock()) {
@@ -290,16 +295,6 @@ void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>&
     }
   } else {
     ImGui::Text("None");
-  }
-}
-
-void AssetManager::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  auto& asset_manager = GetInstance();
-  if (asset_manager.show_asset_inspector_) {
-    if (ImGui::Begin("Asset Inspector")) {
-      DrawAssetInspectorContent(editor_layer);
-    }
-    ImGui::End();
   }
 }
 
@@ -337,7 +332,7 @@ size_t AssetManager::RestoreUnknownAssets() {
     }
     restored_asset->self_ = restored_asset;
     restored_asset->OnCreate();
-    restored_asset->Deserialize(unknown_asset->GetSerializedNode());
+    Serialization::DeserializeObject(unknown_asset->GetSerializedNode(), *restored_asset);
     {
       std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
       asset_manager.asset_registry_.assets_[handle] = restored_asset;
@@ -349,6 +344,12 @@ size_t AssetManager::RestoreUnknownAssets() {
 
 void AssetManager::Clear() {
   auto& asset_manager = GetInstance();
+  if (const auto application = ApplicationContext::TryGet()) {
+    if (const auto editor_layer = application->GetLayer<EditorLayer>()) {
+      editor_layer->ClearAssetInspectors();
+    }
+  }
+  ClearInspectorPreviewState();
   struct LoadingFutureSnapshot {
     std::thread::id owner_thread_id;
     std::shared_future<std::shared_ptr<IAsset>> future;
@@ -403,6 +404,21 @@ void AssetManager::RemoveAssetImpl(const Handle& asset_handle) {
   if (asset_manager.initialized &&
       asset_manager.asset_registry_.assets_.find(asset_handle) != asset_manager.asset_registry_.assets_.end())
     asset_manager.asset_registry_.assets_.erase(asset_handle);
+}
+
+std::shared_ptr<IAsset> AssetManager::PeekAssetImpl(const Handle& asset_handle) {
+  if (asset_handle == 0) {
+    return {};
+  }
+  auto& asset_manager = GetInstance();
+  {
+    std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+    if (const auto search = asset_manager.asset_registry_.assets_.find(asset_handle);
+        search != asset_manager.asset_registry_.assets_.end() && !search->second.expired()) {
+      return search->second.lock();
+    }
+  }
+  return Resources::TryGetResource<IAsset>(asset_handle);
 }
 
 std::shared_ptr<IAsset> AssetManager::GetAssetImpl(const Handle& asset_handle) {
@@ -571,7 +587,8 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
           context.asset->OnCreate();
           context.absolute_path = context.file->GetAbsolutePath();
           context.path_exists = std::filesystem::exists(context.absolute_path);
-          context.staged = context.path_exists && context.asset->SupportsStagedLoading(context.absolute_path);
+          context.staged =
+              context.path_exists && Serialization::SupportsStagedAssetLoading(*context.asset, context.absolute_path);
           SetLoadingAssetImpl(asset_handle, context.asset, !context.staged);
         }
         context_promise->set_value(std::move(context));
@@ -597,7 +614,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
 
     if (context.staged) {
       UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::LoadingCpu, "Loading CPU payload.");
-      auto payload = context.asset->LoadStagedPayloadInternal(context.absolute_path);
+      auto payload = Serialization::LoadStagedAssetPayload(*context.asset, context.absolute_path);
       if (!payload) {
         throw std::runtime_error("Failed to build staged asset payload.");
       }
@@ -605,7 +622,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
       ScheduleMainThreadAssetTaskImpl([asset_handle, context = std::move(context), promise,
                                        payload = std::move(payload)]() {
         try {
-          if (!context.asset->ApplyStagedPayloadInternal(context.absolute_path, payload)) {
+          if (!Serialization::ApplyStagedAssetPayload(*context.asset, context.absolute_path, payload)) {
             throw std::runtime_error("Failed to apply staged asset load payload.");
           }
           context.asset->saved_ = true;
@@ -856,6 +873,10 @@ std::shared_future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(con
 
 std::shared_ptr<IAsset> AssetManager::CreateTemporaryAsset(const std::string& type_name) {
   return CreateTemporaryAssetImpl(type_name, Handle());
+}
+
+std::shared_ptr<IAsset> AssetManager::CreateTemporaryAsset(const std::string& type_name, const Handle& asset_handle) {
+  return CreateTemporaryAssetImpl(type_name, asset_handle);
 }
 
 std::shared_ptr<IAsset> AssetManager::GetAsset(const Handle& asset_handle) {

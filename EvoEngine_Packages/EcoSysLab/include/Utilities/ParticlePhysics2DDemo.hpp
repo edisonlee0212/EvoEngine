@@ -36,7 +36,7 @@ class ParticlePhysics2DDemo : public IPrivateComponent {
    * @param editor_layer The editor layer handling the inspection.
    * @return True if the asset's content remains unchanged, otherwise false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates the particle physics in fixed time steps.

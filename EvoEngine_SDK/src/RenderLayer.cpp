@@ -1273,15 +1273,6 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceSto
   return render_instances_list_[index];
 }
 
-void RenderLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Checkbox("Count shadows drawcalls", &count_shadow_rendering_draw_calls);
-  ImGui::Checkbox("Wireframe", &wire_frame);
-  if (Platform::MeshShaderEnabled())
-    ImGui::Checkbox("Meshlet", &enable_meshlet);
-  ImGui::Checkbox("Indirect Rendering", &enable_indirect_rendering);
-  render_settings.OnInspect(editor_layer);
-}
-
 void RenderLayer::ApplyAnimators() const {
   const auto scene = GetScene();
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Animator>()) {

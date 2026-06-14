@@ -1,5 +1,6 @@
 #include "DsColliders.hpp"
 
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "Shader.hpp"
 
 using namespace eco_sys_lab_package;
@@ -103,7 +104,7 @@ DsBoxCollider::DsBoxCollider() {
   }
 }
 
-bool DsBoxCollider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsBoxCollider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   static PrivateComponentRef mesh_renderer_ref;
   if (editor_layer->DragAndDropButton<MeshRenderer>(mesh_renderer_ref, "Apply bound from Mesh Renderer")) {
@@ -250,19 +251,19 @@ void DsBoxCollider::ProjectVelocityConstraint(const DynamicStrands::PhysicsParam
   });
 }
 
-void DsBoxCollider::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "bound_color" << YAML::Value << bound_color;
-  out << YAML::Key << "scale" << YAML::Value << scale;
-  out << YAML::Key << "softness" << YAML::Value << softness;
+void eco_sys_lab_package::SerializeDsBoxCollider(YAML::Emitter& out, const DsBoxCollider& target) {
+  out << YAML::Key << "bound_color" << YAML::Value << target.bound_color;
+  out << YAML::Key << "scale" << YAML::Value << target.scale;
+  out << YAML::Key << "softness" << YAML::Value << target.softness;
 }
 
-void DsBoxCollider::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeDsBoxCollider(const YAML::Node& in, DsBoxCollider& target) {
   if (in["bound_color"])
-    bound_color = in["bound_color"].as<glm::vec4>();
+    target.bound_color = in["bound_color"].as<glm::vec4>();
   if (in["scale"])
-    scale = in["scale"].as<glm::vec3>();
+    target.scale = in["scale"].as<glm::vec3>();
   if (in["softness"])
-    softness = in["softness"].as<float>();
+    target.softness = in["softness"].as<float>();
 }
 
 void DsCylinderCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
@@ -328,7 +329,7 @@ DsCylinderCollider::DsCylinderCollider() {
   }
 }
 
-bool DsCylinderCollider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsCylinderCollider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 10.0f)) {
@@ -401,22 +402,22 @@ void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::Physics
   });
 }
 
-void DsCylinderCollider::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "bound_color" << YAML::Value << bound_color;
-  out << YAML::Key << "radius" << YAML::Value << radius;
-  out << YAML::Key << "height" << YAML::Value << height;
-  out << YAML::Key << "softness" << YAML::Value << softness;
+void eco_sys_lab_package::SerializeDsCylinderCollider(YAML::Emitter& out, const DsCylinderCollider& target) {
+  out << YAML::Key << "bound_color" << YAML::Value << target.bound_color;
+  out << YAML::Key << "radius" << YAML::Value << target.radius;
+  out << YAML::Key << "height" << YAML::Value << target.height;
+  out << YAML::Key << "softness" << YAML::Value << target.softness;
 }
 
-void DsCylinderCollider::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeDsCylinderCollider(const YAML::Node& in, DsCylinderCollider& target) {
   if (in["bound_color"])
-    bound_color = in["bound_color"].as<glm::vec4>();
+    target.bound_color = in["bound_color"].as<glm::vec4>();
   if (in["radius"])
-    radius = in["radius"].as<float>();
+    target.radius = in["radius"].as<float>();
   if (in["height"])
-    height = in["height"].as<float>();
+    target.height = in["height"].as<float>();
   if (in["softness"])
-    softness = in["softness"].as<float>();
+    target.softness = in["softness"].as<float>();
 }
 
 void DsSphereCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
@@ -477,7 +478,7 @@ DsSphereCollider::DsSphereCollider() {
   }
 }
 
-bool DsSphereCollider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsSphereCollider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 10.0f)) {
     changed = true;
@@ -544,17 +545,17 @@ void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsPa
   });
 }
 
-void DsSphereCollider::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "bound_color" << YAML::Value << bound_color;
-  out << YAML::Key << "softness" << YAML::Value << softness;
-  out << YAML::Key << "radius" << YAML::Value << radius;
+void eco_sys_lab_package::SerializeDsSphereCollider(YAML::Emitter& out, const DsSphereCollider& target) {
+  out << YAML::Key << "bound_color" << YAML::Value << target.bound_color;
+  out << YAML::Key << "softness" << YAML::Value << target.softness;
+  out << YAML::Key << "radius" << YAML::Value << target.radius;
 }
 
-void DsSphereCollider::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeDsSphereCollider(const YAML::Node& in, DsSphereCollider& target) {
   if (in["bound_color"])
-    bound_color = in["bound_color"].as<glm::vec4>();
+    target.bound_color = in["bound_color"].as<glm::vec4>();
   if (in["radius"])
-    radius = in["radius"].as<float>();
+    target.radius = in["radius"].as<float>();
   if (in["softness"])
-    softness = in["softness"].as<float>();
+    target.softness = in["softness"].as<float>();
 }

@@ -41,7 +41,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
    *
    * This function allows the user to inspect and modify various dynamic skeleton parameters.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Called during the late update phase of the application loop.

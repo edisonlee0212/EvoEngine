@@ -64,7 +64,7 @@ struct StrandModelMeshGeneratorSettings {
    * @brief Inspects and modifies settings within the editor.
    * @param editor_layer The shared pointer to the editor layer interface.
    */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**

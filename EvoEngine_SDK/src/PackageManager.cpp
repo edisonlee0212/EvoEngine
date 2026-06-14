@@ -2,6 +2,7 @@
 
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "InspectorRegistry.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 
@@ -487,6 +488,7 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   if (register_types && !register_types(&registrar)) {
     EVOENGINE_ERROR("Runtime package type registration failed: " + package_name)
     Serialization::UnregisterPackageOwnedTypes(package_name);
+    InspectorRegistry::GetInstance().UnregisterOwner(package_name);
     {
       auto& manager = GetInstance();
       std::lock_guard lock(manager.mutex_);
@@ -499,6 +501,7 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   if (!load(&registrar)) {
     EVOENGINE_ERROR("Runtime package load callback failed: " + package_name)
     Serialization::UnregisterPackageOwnedTypes(package_name);
+    InspectorRegistry::GetInstance().UnregisterOwner(package_name);
     {
       auto& manager = GetInstance();
       std::lock_guard lock(manager.mutex_);
@@ -656,6 +659,7 @@ bool PackageManager::Unload(const std::string& package_name) {
                              registered_data_component_names, registered_system_names, registered_layer_names);
   package.unload(&registrar);
   Serialization::UnregisterPackageOwnedTypes(package_name);
+  InspectorRegistry::GetInstance().UnregisterOwner(package_name);
   CloseLibrary(package.library_handle);
 
 #if defined(_WIN32)

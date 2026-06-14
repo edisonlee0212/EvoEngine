@@ -17,13 +17,6 @@ struct SorghumMeshGeneratorSettings {
   bool bottom_face = true;         ///< Enables bottom face generation.
   bool leaf_separated = false;     ///< Determines if leaves are separate objects.
   float leaf_thickness = 0.001f;   ///< Thickness of leaves.
-
-  /**
-   * @brief Inspects the settings in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if content is not modified, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**
@@ -34,13 +27,6 @@ class SorghumPanicleDescriptor {
   glm::vec3 panicle_size = glm::vec3(0, 0, 0);  ///< Size of the panicle.
   int seed_amount = 0;                          ///< Number of seeds.
   float seed_radius = 0.002f;                   ///< Radius of seeds.
-
-  /**
-   * @brief Inspects the panicle descriptor in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if content is not modified, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Serializes the panicle descriptor to YAML.
@@ -82,13 +68,6 @@ class SorghumStemDescriptor {
   SorghumSpline spline;  ///< Spline describing the stem shape.
 
   /**
-   * @brief Inspects the stem descriptor in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if content is not modified, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Serializes the stem descriptor to YAML.
    * @param out YAML emitter.
    */
@@ -115,13 +94,6 @@ class SorghumLeafDescriptor {
  public:
   int index = 0;         ///< Index of the leaf.
   SorghumSpline spline;  ///< Spline describing the leaf shape.
-
-  /**
-   * @brief Inspects the leaf descriptor in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if content is not modified, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Serializes the leaf descriptor to YAML.
@@ -157,25 +129,6 @@ class SorghumDescriptor : public IAsset {
   std::vector<SorghumLeafDescriptor> leaves;  ///< List of leaf descriptors.
 
   /**
-   * @brief Inspects the Sorghum descriptor in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if content is not modified, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the Sorghum descriptor to YAML.
-   * @param out YAML emitter.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the Sorghum descriptor from YAML.
-   * @param in YAML node.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Creates an entity representing the Sorghum model.
    * @param name Name of the entity.
    * @return The created entity.
@@ -186,7 +139,7 @@ class SorghumDescriptor : public IAsset {
    * @brief Generates a thumbnail texture representing the Sorghum model.
    * @return Shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Imports a prediction file containing structural data of the Sorghum model.

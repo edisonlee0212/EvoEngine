@@ -482,13 +482,13 @@ void EcoSysLabLayer::DynamicStrandsVisualization(const std::shared_ptr<EditorLay
   }
 }
 
-void EcoSysLabLayer::DynamicSkeletonSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void EcoSysLabLayer::DynamicSkeletonSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Physics", &enable_physics);
   ImGui::Checkbox("Visualization", &enable_visualization);
   if (enable_physics) {
-    physics_parameters.OnInspect(editor_layer);
+    physics_parameters.DrawGui(editor_layer);
   }
   if (enable_visualization) {
-    visualization_parameters.OnInspect(editor_layer);
+    visualization_parameters.DrawGui(editor_layer);
   }
 }

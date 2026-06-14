@@ -1,4 +1,4 @@
-#include "BasicReproductionModuleDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "ShootModel.hpp"
 using namespace eco_sys_lab_package;
 
@@ -140,13 +140,19 @@ void BasicReproductionModuleDescriptor::PrepareController(ShootReproductionContr
   };
 }
 
-void BasicReproductionModuleDescriptor::Serialize(YAML::Emitter& out) const {
+void eco_sys_lab_package::SerializeBasicReproductionModuleDescriptor(YAML::Emitter& out,
+                                                                     const BasicReproductionModuleDescriptor& target) {
+  (void)out;
+  (void)target;
 }
 
-void BasicReproductionModuleDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeBasicReproductionModuleDescriptor(const YAML::Node& in,
+                                                                       BasicReproductionModuleDescriptor& target) {
+  (void)in;
+  (void)target;
 }
 
-bool BasicReproductionModuleDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicReproductionModuleDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   return changed;

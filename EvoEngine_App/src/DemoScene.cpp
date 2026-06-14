@@ -162,9 +162,8 @@ void evo_engine::ClearGeneratedDemoProjectFiles(const std::filesystem::path& res
     return;
   }
 
-  RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects",
-                       {".evescene", ".evefilemeta", ".eveproj", ".evefoldermeta"});
-  RemoveGeneratedFiles(resource_root, {".uescene", ".umeta", ".ueproj", ".ufmeta"});
+  RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects", {".evescene", ".eveproj"});
+  RemoveGeneratedFiles(resource_root, {".uescene", ".ueproj"});
 }
 
 void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializationSettings& application_info,

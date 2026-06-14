@@ -24,9 +24,9 @@ class Times {
 
  public:
   /**
-   * @brief Displays the inspection interface for the time settings.
+   * @brief Draws the editor interface for the time settings.
    */
-  void OnInspect();
+  void Draw();
 
   /**
    * @brief Sets the custom time step value.

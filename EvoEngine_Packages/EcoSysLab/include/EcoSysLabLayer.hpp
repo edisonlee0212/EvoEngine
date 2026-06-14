@@ -221,7 +221,7 @@ class EcoSysLabLayer : public ILayer {
      * @param editor_layer The editor layer instance.
      * @return True if the asset content has not been modified.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
@@ -283,7 +283,7 @@ class EcoSysLabLayer : public ILayer {
      * @brief Handles the inspection of dynamic skeleton settings in the editor.
      * @param editor_layer The editor layer instance.
      */
-    void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   DynamicSkeletonSettings dynamic_skeleton_settings_;  ///< Settings for dynamic skeletons.
@@ -359,7 +359,7 @@ class EcoSysLabLayer : public ILayer {
      * @param editor_layer The editor layer instance.
      * @return True if the asset content has not been modified.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   SoilVisualizationSettings soil_visualization_settings_{};  ///< Settings for soil visualization.
@@ -415,17 +415,19 @@ class EcoSysLabLayer : public ILayer {
    */
   void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
 
+ public:
   /**
    * @brief Handles the inspection of the EcoSysLab layer in the editor.
    * @param editor_layer The editor layer instance.
    */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
+ private:
   /**
    * @brief Handles the inspection of dynamic strand settings in the editor.
    * @param editor_layer The editor layer instance.
    */
-  void OnInspectDynamicStrandsSettings(const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawDynamicStrandsSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates fluid flow simulations for the given tree entities.

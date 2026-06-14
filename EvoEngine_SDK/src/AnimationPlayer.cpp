@@ -22,13 +22,3 @@ void AnimationPlayer::Update() {
     }
   }
 }
-
-bool AnimationPlayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Checkbox("AutoPlay", &auto_play);
-  if (auto_play) {
-    ImGui::DragFloat("AutoPlay Speed", &auto_play_speed, 1.0f);
-  }
-
-  return changed;
-}

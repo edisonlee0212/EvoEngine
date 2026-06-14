@@ -14,7 +14,7 @@ class PointCloudCaptureSettings {
 
   CaptureMode capture_mode = CaptureMode::Gpu;
 
-  virtual bool OnInspect() = 0;
+  virtual bool DrawGui() = 0;
   virtual void Save(const std::string& name, YAML::Emitter& out) const {
   }
   virtual void Load(const std::string& name, const YAML::Node& in) {

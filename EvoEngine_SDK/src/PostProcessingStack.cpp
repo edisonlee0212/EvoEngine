@@ -2,7 +2,6 @@
 
 #include "Application.hpp"
 #include "Camera.hpp"
-#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Mesh.hpp"
@@ -12,18 +11,16 @@
 #include "Shader.hpp"
 using namespace evo_engine;
 
-bool Bloom::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Filter radius", &filter_radius, 0.0001f, 0.0001f, .1f)) {
-    changed = true;
-  }
-  if (ImGui::DragInt("Chain length", &bloom_chain_length, 1, 0, 10)) {
-    changed = true;
-  }
-  if (ImGui::Button("Rebuild pipelines")) {
-    BuildPipelines();
-  }
-  return changed;
+void Bloom::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "filter_radius" << YAML::Value << filter_radius;
+  out << YAML::Key << "bloom_chain_length" << YAML::Value << bloom_chain_length;
+}
+
+void Bloom::Deserialize(const YAML::Node& in) {
+  if (in["filter_radius"])
+    filter_radius = in["filter_radius"].as<float>();
+  if (in["bloom_chain_length"])
+    bloom_chain_length = in["bloom_chain_length"].as<int>();
 }
 
 void Bloom::Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) {
@@ -455,78 +452,6 @@ void PostProcessingStack::OnCreate() {
   enable_bloom = true;
   enable_screen_space_reflection = true;
   enable_tone_mapping = true;
-}
-
-bool PostProcessingStack::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  if (ImGui::Checkbox("SSAO", &enable_screen_space_ambient_occlusion))
-    changed = true;
-
-  if (enable_screen_space_ambient_occlusion && ImGui::TreeNodeEx("SSAO", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (screen_space_ambient_occlusion->OnInspect(editor_layer))
-      changed = true;
-    ImGui::TreePop();
-  }
-  if (ImGui::Checkbox("Bloom", &enable_bloom))
-    changed = true;
-
-  if (enable_bloom && ImGui::TreeNodeEx("Bloom", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (bloom->OnInspect(editor_layer))
-      changed = true;
-    ImGui::TreePop();
-  }
-  if (ImGui::Checkbox("SSR", &enable_screen_space_reflection))
-    changed = true;
-
-  if (enable_screen_space_reflection && ImGui::TreeNodeEx("SSR", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (screen_space_reflection->OnInspect(editor_layer))
-      changed = true;
-    ImGui::TreePop();
-  }
-  if (ImGui::Checkbox("Tone Mapping", &enable_tone_mapping))
-    changed = true;
-  if (enable_tone_mapping && ImGui::TreeNodeEx("Tong Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (tone_mapping->OnInspect(editor_layer))
-      changed = true;
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNode("Debug")) {
-    static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-    auto initial_size = ImVec2(source_color_texture->GetExtent().width * debug_scale,
-                               source_color_texture->GetExtent().height * debug_scale);
-    if (ImGui::TreeNode("Source")) {
-      ImGui::Image(source_color_texture->GetColorImTextureId(), initial_size, ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Result")) {
-      ImGui::Image(
-          result_texture->GetColorImTextureId(),
-          ImVec2(result_texture->GetExtent().width * debug_scale, result_texture->GetExtent().height * debug_scale),
-          ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Mipmaps")) {
-      const auto mip_levels = result_texture->GetMipLevels();
-      for (uint32_t mip_level = 1; mip_level < mip_levels; mip_level++) {
-        initial_size /= 2.f;
-        ImGui::Image(result_texture->GetColorImTextureId(mip_level), initial_size, ImVec2(0, 1), ImVec2(1, 0));
-      }
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Swap")) {
-      ImGui::Image(
-          swap_texture->GetColorImTextureId(),
-          ImVec2(swap_texture->GetExtent().width * debug_scale, swap_texture->GetExtent().height * debug_scale),
-          ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    ImGui::TreePop();
-  }
-  return changed;
 }
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) {

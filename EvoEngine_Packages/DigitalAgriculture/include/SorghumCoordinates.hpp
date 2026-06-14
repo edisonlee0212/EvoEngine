@@ -46,6 +46,8 @@ class SorghumCoordinates : public IAsset {
    */
   void Apply(const std::shared_ptr<SorghumField>& sorghum_field);
 
+  void Apply(SorghumField& sorghum_field);
+
   /**
    * @brief Applies coordinate transformations and placements to a SorghumField.
    * @param sorghum_field The sorghum field to modify.
@@ -57,6 +59,9 @@ class SorghumCoordinates : public IAsset {
   void Apply(const std::shared_ptr<SorghumField>& sorghum_field, glm::dvec2& offset, unsigned i = 0,
              float radius = 2.5f, float position_variance = 0.0f);
 
+  void Apply(SorghumField& sorghum_field, glm::dvec2& offset, unsigned i = 0, float radius = 2.5f,
+             float position_variance = 0.0f);
+
   /**
    * @brief Imports coordinate data from a file.
    * @param path The file path to import from.
@@ -64,29 +69,10 @@ class SorghumCoordinates : public IAsset {
   void ImportFromFile(const std::filesystem::path& path);
 
   /**
-   * @brief Handles inspector functionality for editing SorghumCoordinates in the editor.
-   * @param editor_layer The editor layer for interaction.
-   * @return True if the asset's content was not modified during inspection.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the sorghum coordinate data.
-   * @param out The YAML emitter to store serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes sorghum coordinate data from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Collects references to other assets used by this instance.
    * @param list The list where asset references should be added.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 
 /**

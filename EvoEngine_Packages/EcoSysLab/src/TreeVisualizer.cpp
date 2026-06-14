@@ -81,7 +81,7 @@ void TreeVisualizer::ClearSelections() {
   selected_node_handle = -1;
 }
 
-bool ShootVisualizer::OnInspect(ShootModel& model) {
+bool ShootVisualizer::DrawGui(ShootModel& model) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Max descendant light intensity", "Light intensity", "Light direction",
@@ -255,7 +255,7 @@ void ShootVisualizer::Visualize(StrandModel& strand_model) {
               }
             }
           }
-          node.data.profile.OnInspect(
+          node.data.profile.DrawGui(
               [&](const glm::vec2 position) {
                 mouse_down = true;
                 mouse_position = position;
@@ -798,7 +798,7 @@ bool RootVisualizer::InspectRootNode(RootSkeleton& skeleton, SkeletonNodeHandle 
   return changed;
 }
 
-bool RootVisualizer::OnInspect(RootModel& model) {
+bool RootVisualizer::DrawGui(RootModel& model) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Desired growth rate", "Growth potential", "Growth rate",

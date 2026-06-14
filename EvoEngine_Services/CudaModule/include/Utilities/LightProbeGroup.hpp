@@ -8,6 +8,6 @@ namespace evo_engine {
 struct LightProbeGroup {
   std::vector<IlluminationSampler<glm::vec3>> light_probes;
   void CalculateIllumination(const RayProperties& ray_properties, int seed, float push_normal_distance);
-  bool OnInspect();
+  bool DrawGui();
 };
 }  // namespace evo_engine

@@ -1,5 +1,6 @@
 #include "ISerializable.hpp"
 #include "Application.hpp"
+#include "Serialization.hpp"
 using namespace evo_engine;
 
 Application &ISerializable::GetApplication() const {
@@ -8,12 +9,12 @@ Application &ISerializable::GetApplication() const {
 
 void ISerializable::Save(const std::string &name, YAML::Emitter &out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-  Serialize(out);
+  Serialization::SerializeObject(out, *this);
   out << YAML::EndMap;
 }
 void ISerializable::Load(const std::string &name, const YAML::Node &in) {
   if (in[name]) {
     const auto &cd = in[name];
-    Deserialize(cd);
+    Serialization::DeserializeObject(cd, *this);
   }
 }

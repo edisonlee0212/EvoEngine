@@ -98,7 +98,7 @@ bool DistributionDefaults::InspectPlottedDistributionCategory(
         continue;
       }
       const std::string tip = entry.tip ? entry.tip : "";
-      changed |= entry.distribution->OnInspect(entry.label, MakePlottedGuiSettings(tip));
+      changed |= entry.distribution->Draw(entry.label, MakePlottedGuiSettings(tip));
     }
     ImGui::TreePop();
   }

@@ -2,7 +2,9 @@
 #include <unordered_set>
 #include "BasicFoliageDescriptor.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "Platform.hpp"
+#include "SDKInspectionAdapters.hpp"
 #include "rapidcsv.h"
 using namespace eco_sys_lab_package;
 
@@ -614,7 +616,7 @@ void TreeStructor::ExportForestObj(const TreeMeshGeneratorSettings& mesh_generat
   }
 }
 
-bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool TreeStructor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   static Handle previous_handle = 0;
   bool changed = false;
 
@@ -696,14 +698,14 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   if (!tree_parts.empty()) {
     if (ImGui::TreeNodeEx("Graph Settings")) {
-      connectivity_graph_settings.OnInspect();
+      connectivity_graph_settings.DrawGui();
       if (ImGui::Button("Rebuild Voxel Grid")) {
         BuildVoxelGrid();
       }
       ImGui::TreePop();
     }
     if (ImGui::TreeNodeEx("Reconstruction Settings")) {
-      reconstruction_settings.OnInspect();
+      reconstruction_settings.DrawGui();
       ImGui::TreePop();
     }
     if (ImGui::Button("Build Skeletons")) {
@@ -807,7 +809,7 @@ bool TreeStructor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::Checkbox("Selected branches", &debug_selected_branches))
         refresh_data = true;
 
-      gizmo_settings.draw_settings.OnInspect();
+      evo_engine::DrawSettingsGui(gizmo_settings.draw_settings);
 
       ImGui::TreePop();
     }
@@ -2315,12 +2317,12 @@ std::vector<std::shared_ptr<Mesh>> TreeStructor::GenerateFoliageMeshes() {
   return meshes;
 }
 
-void TreeStructor::Serialize(YAML::Emitter& out) const {
-  tree_descriptor_ref.Save("tree_descriptor_ref", out);
+void eco_sys_lab_package::SerializeTreeStructor(YAML::Emitter& out, const TreeStructor& target) {
+  target.tree_descriptor_ref.Save("tree_descriptor_ref", out);
 }
 
-void TreeStructor::Deserialize(const YAML::Node& in) {
-  tree_descriptor_ref.Load("tree_descriptor_ref", in);
+void eco_sys_lab_package::DeserializeTreeStructor(const YAML::Node& in, TreeStructor& target) {
+  target.tree_descriptor_ref.Load("tree_descriptor_ref", in);
 }
 
 void TreeStructor::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -2332,7 +2334,7 @@ void TreeStructor::Relink(const std::unordered_map<Handle, Handle>& map, const s
   forest_ref.Relink(map);
 }
 
-void ConnectivityGraphSettings::OnInspect() {
+void ConnectivityGraphSettings::DrawGui() {
   // ImGui::Checkbox("Allow Reverse connections", &reverse_connection);
   if (ImGui::Button("Load reduced connection settings")) {
     point_point_connection_detection_radius = 0.05f;
@@ -2404,7 +2406,7 @@ void TreeStructor::CloneOperatingBranch(const ReconstructionSettings& reconstruc
   operator_branch.chain_node_handles.clear();
 }
 
-void ReconstructionSettings::OnInspect() {
+void ReconstructionSettings::DrawGui() {
   ImGui::DragFloat("Internode length", &internode_length, 0.01f, 0.01f, 1.0f);
   ImGui::DragFloat("Root node max height", &min_height, 0.01f, 0.01f, 1.0f);
   ImGui::DragFloat("Tree distance limit", &minimum_tree_distance, 0.01f, 0.01f, 1.0f);

@@ -1,5 +1,6 @@
-#include "JoeScanScanner.hpp"
 #include "Json.hpp"
+#include "LogScanningInspectionAdapters.hpp"
+#include "LogScanningSerializationAdapters.hpp"
 #include "Prefab.hpp"
 #include "Scene.hpp"
 using namespace log_scanning_package;
@@ -163,36 +164,44 @@ void JoeScanScanner::FreeScanSystem(jsScanSystem& scan_system, std::vector<jsSca
   EVOENGINE_LOG("JoeScan: ScanSysten Freed!");
 }
 
-void JoeScanScanner::Serialize(YAML::Emitter& out) const {
-  config.Save("config", out);
-  log_scan.Save("log_scan", out);
+void log_scanning_package::SerializeJoeScanScanner(YAML::Emitter& out, const JoeScanScanner& target) {
+  target.config.Save("config", out);
+  target.log_scan.Save("log_scan", out);
 }
 
-void JoeScanScanner::Deserialize(const YAML::Node& in) {
-  config.Load("config", in);
-  log_scan.Load("log_scan", in);
+void log_scanning_package::DeserializeJoeScanScanner(const YAML::Node& in, JoeScanScanner& target) {
+  target.config.Load("config", in);
+  target.log_scan.Load("log_scan", in);
 }
 
-bool JoeScanScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool log_scanning_package::InspectJoeScanScanner(InspectorContext& context, JoeScanScanner& scanner) {
+  const auto& editor_layer = context.editor_layer;
+  auto& config = scanner.config;
+  auto& log_scan = scanner.log_scan;
+  auto& scan_system = scanner.scan_system;
+  auto& scan_heads = scanner.scan_heads;
+  auto& scan_enabled_ = scanner.scan_enabled_;
+  auto& scanner_mutex_ = scanner.scanner_mutex_;
+  auto& points_ = scanner.points_;
   bool changed = false;
   if (editor_layer->DragAndDropButton<Json>(config, "Json Config"))
     changed = true;
   if (editor_layer->DragAndDropButton<LogScan>(log_scan, "LogScan"))
     changed = true;
 
-  if (const auto json_config = this->config.Get<Json>(); json_config && ImGui::Button("Initialize ScanSystem")) {
-    InitializeScanSystem(json_config, scan_system, scan_heads);
+  if (const auto json_config = config.Get<Json>(); json_config && ImGui::Button("Initialize ScanSystem")) {
+    JoeScanScanner::InitializeScanSystem(json_config, scan_system, scan_heads);
   }
 
   ImGui::Separator();
   if (scan_system != 0 && !scan_enabled_ && ImGui::Button("Start Scanning")) {
     std::vector<glm::vec2> results;
-    StartScanProcess({});
+    scanner.StartScanProcess({});
   }
 
   if (scan_enabled_ && ImGui::Button("Stop Scanning")) {
-    StopScanningProcess();
-    FreeScanSystem(scan_system, scan_heads);
+    scanner.StopScanningProcess();
+    JoeScanScanner::FreeScanSystem(scan_system, scan_heads);
   }
   static std::shared_ptr<ParticleInfoList> latest_point_list;
   if (!latest_point_list)

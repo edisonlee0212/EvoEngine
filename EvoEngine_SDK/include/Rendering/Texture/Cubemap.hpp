@@ -39,7 +39,7 @@ class Cubemap final : public IAsset {
   mutable std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap_pipeline_;
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -106,13 +106,6 @@ class Cubemap final : public IAsset {
    * @param resolution The resolution for the sky illumination texture (default is 1024).
    */
   void BuildSkyIllumination(const SkyIllumination& sky_illumination, uint32_t resolution = 1024) const;
-
-  /**
-   * @brief Inspects the cubemap's properties using the editor layer.
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the inspection was successful, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /**
    * @brief Gets the associated image of the cubemap.

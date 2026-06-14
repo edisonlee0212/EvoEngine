@@ -26,6 +26,7 @@ class EditorLayer;
  */
 class ISystem : public ISerializable {
   friend class Scene;
+  friend void DeserializeScene(const YAML::Node& in, Scene& scene);
   friend class Entities;
   friend class Serialization;
   friend class PackageManager;
@@ -134,22 +135,6 @@ class ISystem : public ISerializable {
   }
 
   /**
-   * @brief Allows inspection and modification of the system in the editor.
-   * @param editor_layer Editor layer instance.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
-
-  /**
-   * @brief Collects asset references used by the system.
-   * @param list Vector to store the collected asset references.
-   */
-  virtual void CollectAssetRef(std::vector<AssetRef>& list) {
-  }
-
-  /**
    * @brief Performs actions after the system is cloned.
    * @param target Shared pointer to the cloned ISystem instance.
    */
@@ -189,7 +174,7 @@ class SystemRef : public ISerializable {
    * @brief Serializes the SystemRef to a YAML emitter.
    * @param out YAML emitter instance.
    */
-  void Serialize(YAML::Emitter& out) const override {
+  void Serialize(YAML::Emitter& out) const {
     out << YAML::Key << "system_handle_" << YAML::Value << system_handle_;
     out << YAML::Key << "system_type_name_" << YAML::Value << system_type_name_;
   }
@@ -198,7 +183,7 @@ class SystemRef : public ISerializable {
    * @brief Deserializes the SystemRef from a YAML node.
    * @param in YAML node containing serialized data.
    */
-  void Deserialize(const YAML::Node& in) override {
+  void Deserialize(const YAML::Node& in) {
     system_handle_ = Handle(in["system_handle_"].as<uint64_t>());
     system_type_name_ = in["system_type_name_"].as<std::string>();
     Update();

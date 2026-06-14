@@ -87,6 +87,9 @@ class AssetManager {
    */
   [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name);
 
+  [[nodiscard]] static std::shared_ptr<IAsset> CreateTemporaryAsset(const std::string& type_name,
+                                                                    const Handle& asset_handle);
+
   /**
    * @brief Retrieves an asset given its typename and handle.
    * @param asset_handle The handle associated with the asset.
@@ -154,19 +157,16 @@ class AssetManager {
   bool initialized = false;       ///< Flag indicating if the AssetManager is initialized.
 
   /**
-   * @brief Indicates whether assets should be displayed in the interface.
-   */
-  bool show_asset_inspector_ = true;
-  /**
    * @brief Initializes the AssetManager.
    */
   static void Initialize();
   /**
-   * @brief Displays the resource assets in the editor interface.
+   * @brief Draws inspector controls for a supplied asset.
    * @param editor_layer The editor layer instance used for displaying assets.
+   * @param asset The asset to inspect.
    */
-  static void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
-  static void DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer);
+  static void DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer,
+                                        const std::shared_ptr<IAsset>& asset);
   /**
    * @brief Cleans up resources when destroying the AssetManager.
    */
@@ -204,6 +204,11 @@ class AssetManager {
    * @param asset_handle The handle associated with the asset to remove.
    */
   static void RemoveAssetImpl(const Handle& asset_handle);
+
+  /**
+   * @brief Retrieves a loaded asset without starting a load request.
+   */
+  static std::shared_ptr<IAsset> PeekAssetImpl(const Handle& asset_handle);
 
   /**
    * @brief Retrieves an asset implementation given its handle.

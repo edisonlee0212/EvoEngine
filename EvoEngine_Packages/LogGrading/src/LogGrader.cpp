@@ -1,8 +1,20 @@
 #include "LogGrader.hpp"
 
+#include "LogGradingInspectionAdapters.hpp"
+
 using namespace log_grading_package;
 
-bool ProceduralLogParameters::OnInspect() {
+bool log_grading_package::DrawProceduralLogParametersGui(ProceduralLogParameters& parameters) {
+  auto& m_bottom = parameters.m_bottom;
+  auto& m_sound_defect = parameters.m_sound_defect;
+  auto& m_length_without_trim_in_feet = parameters.m_length_without_trim_in_feet;
+  auto& m_length_step_in_inches = parameters.m_length_step_in_inches;
+  auto& m_large_end_diameter_in_inches = parameters.m_large_end_diameter_in_inches;
+  auto& m_small_end_diameter_in_inches = parameters.m_small_end_diameter_in_inches;
+  auto& m_mode = parameters.m_mode;
+  auto& m_span_in_inches = parameters.m_span_in_inches;
+  auto& m_angle = parameters.m_angle;
+  auto& m_crook_ratio = parameters.m_crook_ratio;
   bool changed = false;
   if (ImGui::TreeNodeEx("Log Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Checkbox("Butt only", &m_bottom))
@@ -69,9 +81,21 @@ void LogGrader::RefreshMesh(const LogGrading& log_grading) const {
   // logGrading.m_angleOffset);
 }
 
-bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool log_grading_package::InspectLogGrader(InspectorContext& context, LogGrader& log_grader) {
+  const auto& editor_layer = context.editor_layer;
+  auto& m_best_grading_index = log_grader.m_best_grading_index;
+  auto& m_available_best_grading = log_grader.m_available_best_grading;
+  auto& m_procedural_log_parameters = log_grader.m_procedural_log_parameters;
+  auto& m_branch_shape = log_grader.m_branch_shape;
+  auto& m_log_wood_mesh_generation_settings = log_grader.m_log_wood_mesh_generation_settings;
+  auto& m_log_wood = log_grader.m_log_wood;
+  auto& m_tempCylinderMesh = log_grader.m_tempCylinderMesh;
+  auto& m_surface1 = log_grader.m_surface1;
+  auto& m_surface2 = log_grader.m_surface2;
+  auto& m_surface3 = log_grader.m_surface3;
+  auto& m_surface4 = log_grader.m_surface4;
   bool changed = false;
-  m_procedural_log_parameters.OnInspect();
+  DrawProceduralLogParametersGui(m_procedural_log_parameters);
 
   if (ImGui::Button("Initialize Log")) {
     auto branch_shape = m_branch_shape.Get<BasicBarkDescriptor>();
@@ -80,11 +104,11 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       m_branch_shape = branch_shape;
       branch_shape->bark_depth = branch_shape->base_depth = 0.1f;
     }
-    InitializeLogRandomly(m_procedural_log_parameters, branch_shape);
+    log_grader.InitializeLogRandomly(m_procedural_log_parameters, branch_shape);
     m_best_grading_index = 0;
     m_log_wood.CalculateGradingData(m_available_best_grading);
     m_log_wood.ColorBasedOnGrading(m_available_best_grading[m_best_grading_index]);
-    RefreshMesh(m_available_best_grading[m_best_grading_index]);
+    log_grader.RefreshMesh(m_available_best_grading[m_best_grading_index]);
   }
   if (ImGui::TreeNode("Log Mesh Generation")) {
     // editorLayer->DragAndDropButton<BasicBarkDescriptor>(m_branchShape, "Branch Shape", true);
@@ -96,11 +120,11 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       m_best_grading_index = 0;
       m_log_wood.CalculateGradingData(m_available_best_grading);
       m_log_wood.ColorBasedOnGrading(m_available_best_grading[m_best_grading_index]);
-      RefreshMesh(m_available_best_grading[m_best_grading_index]);
+      log_grader.RefreshMesh(m_available_best_grading[m_best_grading_index]);
     }
 
     if (ImGui::Button("Initialize Mesh Renderer"))
-      InitializeMeshRenderer(m_log_wood_mesh_generation_settings);
+      log_grader.InitializeMeshRenderer(m_log_wood_mesh_generation_settings);
     ImGui::TreePop();
   }
 
@@ -109,7 +133,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     m_log_wood.ClearDefects();
     m_log_wood.CalculateGradingData(m_available_best_grading);
     m_log_wood.ColorBasedOnGrading(m_available_best_grading[m_best_grading_index]);
-    RefreshMesh(m_available_best_grading[m_best_grading_index]);
+    log_grader.RefreshMesh(m_available_best_grading[m_best_grading_index]);
   }
 
   static bool debug_visualization = true;
@@ -148,7 +172,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::SliderInt("Grading index", &m_best_grading_index, 0, m_available_best_grading.size())) {
         m_best_grading_index = glm::clamp(m_best_grading_index, 0, static_cast<int>(m_available_best_grading.size()));
         m_log_wood.ColorBasedOnGrading(m_available_best_grading[m_best_grading_index]);
-        RefreshMesh(m_available_best_grading[m_best_grading_index]);
+        log_grader.RefreshMesh(m_available_best_grading[m_best_grading_index]);
       }
       ImGui::Text(
           ("Grade determine face index: " + std::to_string(current_best_grading.m_grade_determine_face_index)).c_str());
@@ -206,13 +230,13 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (enable_defect_selection) {
       static std::vector<glm::vec2> mouse_positions{};
       if (editor_layer->SceneCameraWindowFocused() && editor_layer->GetLockEntitySelection() &&
-          editor_layer->GetSelectedEntity() == GetOwner()) {
+          editor_layer->GetSelectedEntity() == log_grader.GetOwner()) {
         if (editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press) {
           mouse_positions.clear();
         } else if (editor_layer->GetKey(GLFW_KEY_F) == Input::KeyActionType::Hold) {
           mouse_positions.emplace_back(editor_layer->GetMouseSceneCameraPosition());
         } else if (editor_layer->GetKey(GLFW_KEY_F) == Input::KeyActionType::Release && !mouse_positions.empty()) {
-          const auto scene = GetScene();
+          const auto scene = log_grader.GetScene();
           GlobalTransform camera_ltw;
           camera_ltw.value = glm::translate(editor_layer->GetSceneCameraPosition()) *
                              glm::mat4_cast(editor_layer->GetSceneCameraRotation());
@@ -230,7 +254,7 @@ bool LogGrader::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           m_best_grading_index = 0;
           m_log_wood.CalculateGradingData(m_available_best_grading);
           m_log_wood.ColorBasedOnGrading(m_available_best_grading[m_best_grading_index]);
-          RefreshMesh(m_available_best_grading[m_best_grading_index]);
+          log_grader.RefreshMesh(m_available_best_grading[m_best_grading_index]);
         }
       } else {
         mouse_positions.clear();

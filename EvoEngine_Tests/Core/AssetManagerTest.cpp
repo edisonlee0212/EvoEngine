@@ -10,6 +10,7 @@
 #include "PackageManager.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
+#include "Serialization.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -93,8 +94,18 @@ class ScopedBlockingLoadRelease {
 };
 
 class BlockingLoadAsset final : public IAsset {
+ public:
+  static bool RegisterAssetIoHandlers() {
+    return Serialization::RegisterAssetIoHandler<BlockingLoadAsset>(
+        {},
+        [](BlockingLoadAsset& asset, const std::filesystem::path& path) {
+          return asset.LoadBlockingFixture(path);
+        },
+        {}, {}, {}, {}, kBlockingAssetTypeName);
+  }
+
  protected:
-  bool LoadInternal(const std::filesystem::path&) override {
+  bool LoadBlockingFixture(const std::filesystem::path&) {
     {
       auto& state = GetBlockingLoadState();
       std::lock_guard lock(state.mutex);
@@ -210,20 +221,39 @@ class StagedLoadPayload final : public StagedAssetLoadPayload {
 };
 
 class StagedLoadAsset final : public IAsset {
+ public:
+  static bool RegisterAssetIoHandlers() {
+    return Serialization::RegisterAssetIoHandler<StagedLoadAsset>(
+        {},
+        [](StagedLoadAsset& asset, const std::filesystem::path& path) {
+          return asset.LoadSynchronously(path);
+        },
+        [](const StagedLoadAsset& asset, const std::filesystem::path&) {
+          return asset.SupportsFixtureStagedLoading();
+        },
+        [](const StagedLoadAsset& asset, const std::filesystem::path& path) {
+          return asset.LoadFixtureStagedPayload(path);
+        },
+        [](StagedLoadAsset& asset, const std::filesystem::path& path,
+           const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+          return asset.ApplyFixtureStagedPayload(path, payload);
+        },
+        {}, kStagedAssetTypeName);
+  }
+
  protected:
-  bool LoadInternal(const std::filesystem::path&) override {
+  bool LoadSynchronously(const std::filesystem::path&) {
     auto& state = GetStagedLoadState();
     std::lock_guard lock(state.mutex);
     ++state.sync_load_count;
     return true;
   }
 
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsFixtureStagedLoading() const {
     return true;
   }
 
-  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path&) const override {
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadFixtureStagedPayload(const std::filesystem::path&) const {
     {
       auto& state = GetStagedLoadState();
       std::lock_guard lock(state.mutex);
@@ -241,8 +271,7 @@ class StagedLoadAsset final : public IAsset {
     return std::make_shared<StagedLoadPayload>();
   }
 
-  bool ApplyStagedPayloadInternal(const std::filesystem::path&,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override {
+  bool ApplyFixtureStagedPayload(const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
     const auto staged_payload = std::dynamic_pointer_cast<StagedLoadPayload>(payload);
     auto& state = GetStagedLoadState();
     std::lock_guard lock(state.mutex);
@@ -331,21 +360,36 @@ class ScopedGpuPendingWorkRelease {
 class GpuPendingLoadPayload final : public StagedAssetLoadPayload {};
 
 class GpuPendingLoadAsset final : public IAsset {
+ public:
+  static bool RegisterAssetIoHandlers() {
+    return Serialization::RegisterAssetIoHandler<GpuPendingLoadAsset>(
+        {}, {},
+        [](const GpuPendingLoadAsset& asset, const std::filesystem::path&) {
+          return asset.SupportsFixtureStagedLoading();
+        },
+        [](const GpuPendingLoadAsset& asset, const std::filesystem::path& path) {
+          return asset.LoadFixtureStagedPayload(path);
+        },
+        [](GpuPendingLoadAsset& asset, const std::filesystem::path& path,
+           const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+          return asset.ApplyFixtureStagedPayload(path, payload);
+        },
+        {}, kGpuPendingAssetTypeName);
+  }
+
  protected:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsFixtureStagedLoading() const {
     return true;
   }
 
-  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path&) const override {
+  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadFixtureStagedPayload(const std::filesystem::path&) const {
     auto& state = GetGpuPendingLoadState();
     std::lock_guard lock(state.mutex);
     ++state.payload_load_count;
     return std::make_shared<GpuPendingLoadPayload>();
   }
 
-  bool ApplyStagedPayloadInternal(const std::filesystem::path&,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override {
+  bool ApplyFixtureStagedPayload(const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
     if (!std::dynamic_pointer_cast<GpuPendingLoadPayload>(payload)) {
       return false;
     }
@@ -539,6 +583,26 @@ TEST(ProjectManager, ReportsLoadedProjectAndResetsOnTerminate) {
   EXPECT_FALSE(ProjectManager::HasProject());
   EXPECT_FALSE(ProjectManager::IsProjectLoaded());
   EXPECT_FALSE(ProjectManager::IsProjectIdle());
+}
+
+TEST(ProjectManager, AssetsFolderContainmentUsesPathBoundary) {
+  TempProject project;
+  const auto assets_file = project.AssetsPath() / "Texture.bin";
+  const auto sibling_folder = project.ProjectPath().parent_path() / "AssetsBackup";
+  const auto sibling_file = sibling_folder / "Texture.bin";
+  std::ofstream(assets_file).close();
+  std::filesystem::create_directories(sibling_folder);
+  std::ofstream(sibling_file).close();
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(TestApplicationSettings(project));
+
+  EXPECT_TRUE(ProjectManager::IsInAssetsFolder(std::filesystem::absolute(assets_file)));
+  EXPECT_FALSE(ProjectManager::IsInAssetsFolder(std::filesystem::absolute(sibling_file)));
+  EXPECT_EQ(ProjectManager::GetAssetsRelativePath(std::filesystem::absolute(assets_file)),
+            std::filesystem::path("Texture.bin"));
+  EXPECT_TRUE(ProjectManager::GetAssetsRelativePath(std::filesystem::absolute(sibling_file)).empty());
 }
 
 TEST(ProjectManager, LoadsDefaultLaunchMetadataForLegacyProjectFile) {
@@ -772,6 +836,7 @@ TEST(AssetManager, BlockingAccessJoinsInFlightSynchronousProjectLoad) {
 
   Application app;
   app.RegisterAsset<BlockingLoadAsset>(kBlockingAssetTypeName, {kBlockingAssetExtension});
+  ASSERT_TRUE(BlockingLoadAsset::RegisterAssetIoHandlers());
 
   std::exception_ptr project_load_exception;
   std::thread project_load_thread([&]() {
@@ -793,7 +858,7 @@ TEST(AssetManager, BlockingAccessJoinsInFlightSynchronousProjectLoad) {
     if (project_load_exception) {
       std::rethrow_exception(project_load_exception);
     }
-    FAIL() << "Timed out waiting for the fixture asset to enter LoadInternal().";
+    FAIL() << "Timed out waiting for the fixture asset to enter its registered load handler.";
   }
   ScopedBlockingLoadRelease release_on_exit;
 
@@ -839,6 +904,7 @@ TEST(AssetManager, AsyncStagedLoadSeparatesAssetIoFromMainThreadFinalization) {
   Application app;
   ApplicationContextScope scope(app);
   app.RegisterAsset<StagedLoadAsset>(kStagedAssetTypeName, {kStagedAssetExtension});
+  ASSERT_TRUE(StagedLoadAsset::RegisterAssetIoHandlers());
   auto settings = TestApplicationSettings(project);
   settings.load_project_assets = false;
   app.Initialize(settings);
@@ -887,6 +953,7 @@ TEST(AssetManager, AsyncStagedLoadWaitsForGpuReadinessBeforePublishing) {
   Application app;
   ApplicationContextScope scope(app);
   app.RegisterAsset<GpuPendingLoadAsset>(kGpuPendingAssetTypeName, {kGpuPendingAssetExtension});
+  ASSERT_TRUE(GpuPendingLoadAsset::RegisterAssetIoHandlers());
   auto settings = TestApplicationSettings(project);
   settings.load_project_assets = false;
   app.Initialize(settings);
@@ -938,6 +1005,7 @@ TEST(AssetManager, AsyncStagedLoadPropagatesGpuReadinessFailure) {
   Application app;
   ApplicationContextScope scope(app);
   app.RegisterAsset<GpuPendingLoadAsset>(kGpuPendingAssetTypeName, {kGpuPendingAssetExtension});
+  ASSERT_TRUE(GpuPendingLoadAsset::RegisterAssetIoHandlers());
   auto settings = TestApplicationSettings(project);
   settings.load_project_assets = false;
   app.Initialize(settings);

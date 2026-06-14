@@ -22,6 +22,8 @@ struct RadialBoundingVolumeSlice {
  * @brief A class representing a radial bounding volume used for spatial calculations.
  */
 class RadialBoundingVolume : public IVolume {
+  friend void DeserializeRadialBoundingVolume(const YAML::Node& in, RadialBoundingVolume& target);
+
   std::vector<std::shared_ptr<Mesh>> m_boundMeshes;  ///< Mesh representations of the bounding volume.
   bool m_meshGenerated = false;                      ///< Flag indicating if the bounding mesh has been generated.
 
@@ -105,7 +107,7 @@ class RadialBoundingVolume : public IVolume {
    * @param editorLayer Shared pointer to the editor layer.
    * @return True if the asset content is unmodified during inspection, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) override;
 
   /**
    * @brief Resizes the bounding volumes based on new parameters.
@@ -126,18 +128,6 @@ class RadialBoundingVolume : public IVolume {
    * @return True if the position is within the volume, false otherwise.
    */
   bool InVolume(const glm::vec3& position) override;
-
-  /**
-   * @brief Serializes the bounding volume to a YAML emitter.
-   * @param out The YAML emitter where the volume data is stored.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the bounding volume from a YAML node.
-   * @param in The YAML node containing volume data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Applies augmentation based on a given value.

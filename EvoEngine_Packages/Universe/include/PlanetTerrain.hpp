@@ -33,14 +33,11 @@ class PlanetTerrain : public IPrivateComponent {
 
  public:
   void SetPlanetInfo(const PlanetInfo &planet_info);
-  void Deserialize(const YAML::Node &in) override;
-
-  void Serialize(YAML::Emitter &out) const override;
-  void CollectAssetRef(std::vector<AssetRef> &list) override;
+  const PlanetInfo &GetPlanetInfo() const;
+  void CollectAssetRef(std::vector<AssetRef> &list);
   AssetRef surface_material;
   std::vector<std::shared_ptr<TerrainConstructionStageBase>> terrain_construction_stages;
   void Init();
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
 
   void Start() override;
   void PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) override;

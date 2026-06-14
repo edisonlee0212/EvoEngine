@@ -391,9 +391,9 @@ class NodeGraph {
   NodeGraphLink<Ld>& RefLink(NodeGraphLinkHandle link_handle);
 
   /**
-   * @brief Handles the inspection and GUI rendering for the node graph in the editor.
+   * @brief Draws the node graph in the editor.
    * @param id ImGui ID for current window.
-   * @param editor_layer Shared pointer to the editor layer handling the inspection.
+   * @param editor_layer Shared pointer to the editor layer drawing the graph.
    * @param canvas_popup_gui Callback for handling canvas right-click popups in the graph editor.
    * @param node_title_bar_gui Callback for rendering the title bar of nodes.
    * @param node_content_gui Callback for rendering the content of nodes.
@@ -403,23 +403,22 @@ class NodeGraph {
    * @param link_destroy_handler Callback for handling link deletion.
    * @param hover_handler Callback for handling hover events over nodes, links, or pins.
    * @param selection_handler Callback for handling node/link selection.
-   * @return True if the asset's content is not modified during inspection; otherwise, false.
+   * @return True if the graph content was modified; otherwise, false.
    */
-  bool OnInspect(
-      ImGuiID id, const std::shared_ptr<EditorLayer>& editor_layer,
-      const std::function<void(NodeGraphNodeHandle node_handle)>& node_title_bar_gui,
-      const std::function<void(NodeGraphNodeHandle node_handle)>& node_content_gui,
-      const std::function<void(NodeGraphInputPinHandle input_pin_handle)>& node_input_pin_gui,
-      const std::function<void(NodeGraphOutputPinHandle output_pin_handle)>& node_output_pin_gui,
-      const std::function<void(NodeGraphNodeHandle node_handle, NodeGraphLinkHandle link_handle,
-                               NodeGraphInputPinHandle input_pin_handle, NodeGraphOutputPinHandle output_pin_handle)>&
-          hover_handler,
-      const std::function<void(const std::vector<NodeGraphNodeHandle>& selected_node_handles,
-                               const std::vector<NodeGraphLinkHandle>& selected_link_handles)>& selection_handler,
-      const std::function<void(ImVec2 click_pos)>& canvas_popup_gui,
-      const std::function<void(NodeGraphOutputPinHandle start_handle, NodeGraphInputPinHandle end_handle)>&
-          link_create_handler,
-      const std::function<void(NodeGraphLinkHandle link_handle)>& link_destroy_handler);
+  bool Draw(ImGuiID id, const std::shared_ptr<EditorLayer>& editor_layer,
+            const std::function<void(NodeGraphNodeHandle node_handle)>& node_title_bar_gui,
+            const std::function<void(NodeGraphNodeHandle node_handle)>& node_content_gui,
+            const std::function<void(NodeGraphInputPinHandle input_pin_handle)>& node_input_pin_gui,
+            const std::function<void(NodeGraphOutputPinHandle output_pin_handle)>& node_output_pin_gui,
+            const std::function<void(NodeGraphNodeHandle node_handle, NodeGraphLinkHandle link_handle,
+                                     NodeGraphInputPinHandle input_pin_handle,
+                                     NodeGraphOutputPinHandle output_pin_handle)>& hover_handler,
+            const std::function<void(const std::vector<NodeGraphNodeHandle>& selected_node_handles,
+                                     const std::vector<NodeGraphLinkHandle>& selected_link_handles)>& selection_handler,
+            const std::function<void(ImVec2 click_pos)>& canvas_popup_gui,
+            const std::function<void(NodeGraphOutputPinHandle start_handle, NodeGraphInputPinHandle end_handle)>&
+                link_create_handler,
+            const std::function<void(NodeGraphLinkHandle link_handle)>& link_destroy_handler);
 
   void Serialize(YAML::Emitter& out, const std::function<void(YAML::Emitter&, const Id&)>& input_pin_func,
                  const std::function<void(YAML::Emitter&, const Od&)>& output_pin_func,
@@ -763,7 +762,7 @@ NodeGraphLink<Ld>& NodeGraph<Id, Od, Nd, Ld>::RefLink(NodeGraphLinkHandle link_h
 }
 
 template <typename Id, typename Od, typename Nd, typename Ld>
-bool NodeGraph<Id, Od, Nd, Ld>::OnInspect(
+bool NodeGraph<Id, Od, Nd, Ld>::Draw(
     const ImGuiID id, const std::shared_ptr<EditorLayer>& editor_layer,
     const std::function<void(NodeGraphNodeHandle node_handle)>& node_title_bar_gui,
     const std::function<void(NodeGraphNodeHandle node_handle)>& node_content_gui,

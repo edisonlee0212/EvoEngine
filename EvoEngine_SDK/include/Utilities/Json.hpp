@@ -4,6 +4,7 @@
 #include "nlohmann/json.hpp"
 
 namespace evo_engine {
+void RegisterJsonHandlers();
 
 /**
  * @class Json
@@ -16,42 +17,35 @@ class Json : public IAsset {
    * @param path The file system path where the asset should be saved.
    * @return True if the save operation was successful, false otherwise.
    */
-  bool SaveInternal(const std::filesystem::path& path) const override;
+  bool SaveInternal(const std::filesystem::path& path) const;
 
   /**
    * @brief Loads the asset from the specified path.
    * @param path The file system path from where the asset should be loaded.
    * @return True if the load operation was successful, false otherwise.
    */
-  bool LoadInternal(const std::filesystem::path& path) override;
+  bool LoadInternal(const std::filesystem::path& path);
 
   /**
    * @brief JSON files can be parsed on the asset-IO executor and applied later.
    */
-  [[nodiscard]] bool SupportsStagedLoading() const override;
+  [[nodiscard]] bool SupportsStagedLoading() const;
 
   /**
    * @brief Parses the JSON file into a staged payload.
    */
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
 
   /**
    * @brief Applies a parsed JSON staged payload.
    */
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
   /// @brief JSON object representing the data of the asset.
   nlohmann::json m_json;
-
-  /**
-   * @brief Inspects the asset within the specified editor layer.
-   * @param editor_layer A shared pointer to the editor layer used for inspection.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 }  // namespace evo_engine

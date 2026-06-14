@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <cstdint>
 #include <filesystem>
@@ -186,10 +186,7 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
   mutable std::unique_ptr<PlantRenderTarget> render_target_ = nullptr;
 
   void OnDestroy() override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 
 }  // namespace l_system_package

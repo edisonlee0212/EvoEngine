@@ -3,7 +3,6 @@
 #include "Atmosphere.hpp"
 
 namespace evo_engine {
-class EditorLayer;
 /**
  * @class SkyIllumination
  * @brief Represents the atmospheric and lighting properties of the sky.
@@ -33,14 +32,6 @@ struct SkyIllumination {
    * @brief The transmittance of the ground layer, representing its transparency. Default is 0.5.
    */
   float ground_transmittance = 0.5f;
-
-  /**
-   * @brief A function to inspect and modify the SkyIllumination properties.
-   *
-   * @param editor_layer A shared pointer to the EditorLayer responsible for managing editing operations.
-   * @return true if the properties were successfully updated, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 }  // namespace evo_engine

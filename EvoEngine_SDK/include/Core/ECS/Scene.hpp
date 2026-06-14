@@ -56,16 +56,25 @@ struct SceneDataStorage {
              const std::shared_ptr<Scene>& new_scene);
 };
 
+void SerializeScene(YAML::Emitter& out, const Scene& scene);
+void DeserializeScene(const YAML::Node& in, Scene& scene);
+void WriteSceneDataComponentStorage(const Scene& scene, const DataComponentStorage& storage, YAML::Emitter& out);
+void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataComponentStorage& data_component_storage,
+                                   const YAML::Node& in);
+
 /**
  * @brief Represents a scene in the engine, including entities, systems, and environmental properties.
  */
 class Scene final : public IAsset {
  public:
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "Scene");
+
   /**
    * @brief Generates a thumbnail texture for the scene.
    * @return A shared pointer to the generated 2D texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Retrieves a list of entities with a specific private component.
@@ -340,24 +349,13 @@ class Scene final : public IAsset {
    */
   void LateUpdate() const;
 
-  /**
-   * @brief Allows inspection of the scene in the editor.
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if successfully inspected, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  [[nodiscard]] const std::multimap<float, std::shared_ptr<ISystem>>& PeekSystems() const;
 
-  /**
-   * @brief Serializes the scene into a YAML emitter.
-   * @param out The YAML emitter to serialize into.
-   */
-  void Serialize(YAML::Emitter& out) const override;
+  [[nodiscard]] bool HasSystemType(const size_t& type_id) const;
 
-  /**
-   * @brief Deserializes the scene from a YAML node.
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  std::shared_ptr<ISystem> CreateSystemByTypeId(const size_t& type_id, float order);
+
+  [[nodiscard]] std::shared_ptr<Scene> GetSelfScene();
 
   /**
    * @brief Removes a private component from an entity.
@@ -861,6 +859,12 @@ class Scene final : public IAsset {
                     bool check_enable = true);
 
  private:
+  friend void SerializeScene(YAML::Emitter& out, const Scene& scene);
+  friend void DeserializeScene(const YAML::Node& in, Scene& scene);
+  friend void WriteSceneDataComponentStorage(const Scene& scene, const DataComponentStorage& storage,
+                                             YAML::Emitter& out);
+  friend void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index,
+                                            DataComponentStorage& data_component_storage, const YAML::Node& in);
   friend class Application;
   friend class Entities;
   friend class EditorLayer;
@@ -891,29 +895,6 @@ class Scene final : public IAsset {
 
   /// The boundary of the world contained within the scene.
   Bound world_bound_;
-
-  /**
-   * @brief Serializes a data component storage into a YAML structure.
-   * @param storage The data component storage to serialize.
-   * @param out The YAML emitter to serialize to.
-   */
-  void SerializeDataComponentStorage(const DataComponentStorage& storage, YAML::Emitter& out) const;
-
-  /**
-   * @brief Deserializes a data component storage from a YAML structure.
-   * @param storage_index The index of the data component storage.
-   * @param data_component_storage The storage to deserialize into.
-   * @param in The YAML node to deserialize from.
-   */
-  void DeserializeDataComponentStorage(size_t storage_index, DataComponentStorage& data_component_storage,
-                                       const YAML::Node& in);
-
-  /**
-   * @brief Serializes a system into a YAML structure.
-   * @param system The system to serialize.
-   * @param out The YAML emitter to serialize to.
-   */
-  static void SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
 
   /**
    * @brief Deletes an entity from the scene internally.
@@ -1252,24 +1233,24 @@ class Scene final : public IAsset {
    * @param path The file path to load the scene from.
    * @return True if the scene was loaded successfully, false otherwise.
    */
-  bool LoadInternal(const std::filesystem::path& path) override;
+  bool LoadInternal(const std::filesystem::path& path);
 
   /**
    * @brief Scene YAML can be parsed off-thread, but scene reconstruction must finalize on the main thread.
    */
-  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const;
 
   /**
    * @brief Parses scene YAML into a staged payload.
    */
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
 
   /**
    * @brief Reconstructs the scene from a staged YAML payload.
    */
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 };
 template <typename T>
 std::vector<Entity> Scene::GetPrivateComponentOwnersList() {

@@ -30,24 +30,13 @@ class PlayerController : public IPrivateComponent {
    */
   void LateUpdate() override;
 
-  /**
-   * @brief Renders the custom inspector for the player controller in the editor.
-   * @param editor_layer The editor layer providing context for rendering.
-   * @return True if the inspector interaction was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  [[nodiscard]] float& RefSceneCameraYawAngle();
 
-  /**
-   * @brief Serializes the component's state into a YAML emitter.
-   * @param out The YAML emitter where the component's state will be serialized.
-   */
-  void Serialize(YAML::Emitter& out) const override;
+  [[nodiscard]] float& RefSceneCameraPitchAngle();
 
-  /**
-   * @brief Deserializes the component's state from a YAML node.
-   * @param in The YAML node containing the component's serialized state.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  [[nodiscard]] float GetSceneCameraYawAngle() const;
+
+  [[nodiscard]] float GetSceneCameraPitchAngle() const;
 
   /**
    * @brief Executes actions after this component is cloned.

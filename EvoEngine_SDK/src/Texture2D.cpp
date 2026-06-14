@@ -2,11 +2,12 @@
 
 #include <stb_image_write.h>
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "ClassRegistry.hpp"
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 #include "Jobs.hpp"
 #include "Platform.hpp"
+#include "Serialization.hpp"
 #include "TextureStorage.hpp"
 using namespace evo_engine;
 
@@ -121,7 +122,7 @@ bool Texture2D::SaveInternal(const std::filesystem::path& path) const {
     std::filesystem::create_directories(directory);
     YAML::Emitter out;
     out << YAML::BeginMap;
-    Serialize(out);
+    Serialization::SerializeObject(out, static_cast<const IAsset&>(*this));
     std::ofstream out_stream(path.string());
     out_stream << out.c_str();
     out_stream.flush();
@@ -139,7 +140,7 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
     std::stringstream string_stream;
     string_stream << stream.rdbuf();
     YAML::Node in = YAML::Load(string_stream.str());
-    Deserialize(in);
+    Serialization::DeserializeObject(in, static_cast<IAsset&>(*this));
     return true;
   }
   hdr = false;
@@ -268,6 +269,26 @@ bool Texture2D::ApplyStagedPayloadInternal(const std::filesystem::path&,
   return true;
 }
 
+bool Texture2D::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<Texture2D>(
+      [](const Texture2D& asset, const std::filesystem::path& path) {
+        return asset.SaveInternal(path);
+      },
+      [](Texture2D& asset, const std::filesystem::path& path) {
+        return asset.LoadInternal(path);
+      },
+      [](const Texture2D& asset, const std::filesystem::path&) {
+        return asset.SupportsStagedLoading();
+      },
+      [](const Texture2D& asset, const std::filesystem::path& path) {
+        return asset.LoadStagedPayloadInternal(path);
+      },
+      [](Texture2D& asset, const std::filesystem::path& path, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return asset.ApplyStagedPayloadInternal(path, payload);
+      },
+      owner_name, type_name);
+}
+
 void Texture2D::ApplyOpacityMap(const std::shared_ptr<Texture2D>& target) {
   std::vector<glm::vec4> color_data;
   if (!target)
@@ -299,108 +320,6 @@ void Texture2D::SetResolution(const glm::uvec2& resolution, bool preserve_data) 
   }
 }
 
-void Texture2D::Serialize(YAML::Emitter& out) const {
-  std::vector<glm::vec4> pixels;
-  if (local_data_.empty())
-    GetRgbaChannelData(pixels);
-  else
-    pixels = local_data_;
-
-  out << YAML::Key << "hdr" << YAML::Value << hdr;
-
-  out << YAML::Key << "red_channel" << YAML::Value << red_channel;
-  out << YAML::Key << "green_channel" << YAML::Value << green_channel;
-  out << YAML::Key << "blue_channel" << YAML::Value << blue_channel;
-  out << YAML::Key << "alpha_channel" << YAML::Value << alpha_channel;
-  auto resolution = GetResolution();
-  out << YAML::Key << "resolution" << YAML::Value << resolution;
-  if (resolution.x != 0 && resolution.y != 0) {
-    if (hdr) {
-      Serialization::SerializeVector("pixels", pixels, out);
-    } else {
-      std::vector<unsigned char> transferred_pixels;
-      size_t target_channel_size = 0;
-      if (red_channel)
-        target_channel_size++;
-      if (green_channel)
-        target_channel_size++;
-      if (blue_channel)
-        target_channel_size++;
-      if (alpha_channel)
-        target_channel_size++;
-
-      transferred_pixels.resize(resolution.x * resolution.y * target_channel_size);
-      Jobs::RunParallelFor(resolution.x * resolution.y, [&](size_t i) {
-        for (int channel = 0; channel < target_channel_size; channel++) {
-          transferred_pixels[i * target_channel_size + channel] =
-              static_cast<unsigned char>(glm::clamp(pixels[i][channel] * 255.9f, 0.f, 255.f));
-        }
-      });
-      Serialization::SerializeVector("pixels", transferred_pixels, out);
-    }
-  }
-}
-
-void Texture2D::Deserialize(const YAML::Node& in) {
-  std::vector<glm::vec4> pixels;
-  glm::ivec2 resolution = glm::ivec2(0);
-
-  if (in["red_channel"])
-    red_channel = in["red_channel"].as<bool>();
-  if (in["green_channel"])
-    green_channel = in["green_channel"].as<bool>();
-  if (in["blue_channel"])
-    blue_channel = in["blue_channel"].as<bool>();
-  if (in["alpha_channel"])
-    alpha_channel = in["alpha_channel"].as<bool>();
-
-  if (in["hdr"])
-    hdr = in["hdr"].as<bool>();
-
-  if (in["resolution"])
-    resolution = in["resolution"].as<glm::ivec2>();
-
-  if (resolution.x != 0 && resolution.y != 0) {
-    if (hdr) {
-      Serialization::DeserializeVector("pixels", pixels, in);
-      SetRgbaChannelData(pixels, resolution);
-    } else {
-      size_t target_channel_size = 0;
-      if (red_channel)
-        target_channel_size++;
-      if (green_channel)
-        target_channel_size++;
-      if (blue_channel)
-        target_channel_size++;
-      if (alpha_channel)
-        target_channel_size++;
-
-      std::vector<unsigned char> transferred_pixels;
-
-      Serialization::DeserializeVector("pixels", transferred_pixels, in);
-      transferred_pixels.resize(resolution.x * resolution.y * target_channel_size);
-      pixels.resize(resolution.x * resolution.y);
-
-      Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
-        for (int channel = 0; channel < target_channel_size; channel++) {
-          pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
-        }
-        if (target_channel_size < 4) {
-          pixels[i][3] = 1.f;
-        }
-        if (target_channel_size < 3) {
-          pixels[i][2] = 0.f;
-        }
-        if (target_channel_size < 2) {
-          pixels[i][1] = 0.f;
-        }
-      });
-
-      SetRgbaChannelData(pixels, resolution);
-    }
-  }
-}
-
 Texture2D::Texture2D() {
   texture_storage_handle_ = TextureStorage::RegisterTexture2D();
 }
@@ -421,36 +340,11 @@ Texture2D::~Texture2D() {
   TextureStorage::UnRegisterTexture2D(texture_storage_handle_);
 }
 
-bool Texture2D::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text((std::string("Red Channel: ") + (red_channel ? "True" : "False")).c_str());
-  ImGui::Text((std::string("Green Channel: ") + (green_channel ? "True" : "False")).c_str());
-  ImGui::Text((std::string("Blue Channel: ") + (blue_channel ? "True" : "False")).c_str());
-  ImGui::Text((std::string("Alpha Channel: ") + (alpha_channel ? "True" : "False")).c_str());
-
-  const auto texture_storage = PeekTexture2DStorage();
-  if (editor_layer->DragAndDropButton<Texture2D>(opacity_texture_drop_ref_, "Apply Opacity...")) {
-    changed = true;
-    if (const auto tex = opacity_texture_drop_ref_.Get<Texture2D>()) {
-      ApplyOpacityMap(tex);
-      opacity_texture_drop_ref_.Clear();
-    }
-  }
-  if (texture_storage.im_texture_id) {
-    static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 10.0f);
-    ImGui::Image(texture_storage.im_texture_id,
-                 ImVec2(texture_storage.image->GetExtent().width * debug_scale,
-                        texture_storage.image->GetExtent().height * debug_scale),
-                 ImVec2(0, 1), ImVec2(1, 0));
-  }
-
-  return changed;
-}
-
 glm::uvec2 Texture2D::GetResolution() const {
   const auto texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image) {
+    return texture_storage.new_resolution_;
+  }
   return {texture_storage.image->GetExtent().width, texture_storage.image->GetExtent().height};
 }
 
@@ -752,6 +646,10 @@ std::shared_ptr<Image> Texture2D::GetImage() const {
 const std::vector<glm::vec4>& Texture2D::GetLocalData() {
   if (local_data_.empty())
     DownloadData();
+  return local_data_;
+}
+
+const std::vector<glm::vec4>& Texture2D::PeekLocalData() const {
   return local_data_;
 }
 

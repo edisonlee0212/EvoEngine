@@ -22,12 +22,6 @@ struct DrawSettings {
   VkBlendFactor blending_dst_factor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;  ///< Destination factor for blending.
 
   /**
-   * @brief Displays inspection UI controls for modifying the draw settings.
-   * @return True if any settings were modified, otherwise false.
-   */
-  bool OnInspect();
-
-  /**
    * @brief Applies the current draw settings to the global pipeline state.
    * @param global_pipeline_state The global pipeline state to apply the settings to.
    */
@@ -61,10 +55,9 @@ class Material final : public IAsset {
   AssetRef metallic_texture_;   ///< Reference to the metallic texture.
   AssetRef roughness_texture_;  ///< Reference to the roughness texture.
   AssetRef ao_texture_;         ///< Reference to the ambient occlusion texture.
-  AssetRef rma_texture_ref_;    ///< Temporary editor reference for RMA texture unpacking.
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -72,7 +65,7 @@ class Material final : public IAsset {
    * @brief Generates a thumbnail texture representing this material.
    * @return A shared pointer to the generated thumbnail texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Destructor for the Material class.
@@ -139,35 +132,32 @@ class Material final : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<Texture2D> GetAoTexture();
 
+  [[nodiscard]] const AssetRef& PeekAlbedoTextureRef() const;
+  [[nodiscard]] const AssetRef& PeekNormalTextureRef() const;
+  [[nodiscard]] const AssetRef& PeekMetallicTextureRef() const;
+  [[nodiscard]] const AssetRef& PeekRoughnessTextureRef() const;
+  [[nodiscard]] const AssetRef& PeekAoTextureRef() const;
+  [[nodiscard]] AssetRef& RefAlbedoTextureRef();
+  [[nodiscard]] AssetRef& RefNormalTextureRef();
+  [[nodiscard]] AssetRef& RefMetallicTextureRef();
+  [[nodiscard]] AssetRef& RefRoughnessTextureRef();
+  [[nodiscard]] AssetRef& RefAoTextureRef();
+
+  /**
+   * @brief Marks the material as requiring a render data update.
+   */
+  void MarkDirty();
+
   bool vertex_color_only = false;  ///< When true, only vertex colors are used for rendering this material.
 
   MaterialProperties material_properties;  ///< Material-specific properties.
   DrawSettings draw_settings;              ///< Rendering draw settings for the material.
 
   /**
-   * @brief Displays an inspection UI to modify this material's settings.
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the material was modified, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Collects references to all assets used by this material.
    * @param list A vector to which the asset references are added.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
-
-  /**
-   * @brief Serializes this material's data to a YAML emitter.
-   * @param out The YAML emitter to store the serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes this material's data from a YAML node.
-   * @param in The YAML node containing the data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 
 }  // namespace evo_engine

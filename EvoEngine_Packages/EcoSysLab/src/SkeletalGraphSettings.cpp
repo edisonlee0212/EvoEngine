@@ -2,7 +2,7 @@
 
 using namespace eco_sys_lab_package;
 
-bool SkeletalGraphSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SkeletalGraphSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::DragFloat("Line thickness", &line_thickness, 0.001f, 0.0f, 1.0f);
   ImGui::DragFloat("Fixed line thickness", &fixed_line_thickness, 0.001f, 0.0f, 1.0f);

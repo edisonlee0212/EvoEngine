@@ -7,6 +7,8 @@
 namespace log_grading_package {
 using namespace evo_engine;
 using namespace eco_sys_lab_package;
+bool InspectLogGrader(evo_engine::InspectorContext& context, class LogGrader& log_grader);
+bool DrawProceduralLogParametersGui(class ProceduralLogParameters& parameters);
 
 struct LogWoodMeshGenerationSettings {
   float m_y_subdivision = 0.02f;
@@ -25,11 +27,11 @@ class ProceduralLogParameters {
   float m_span_in_inches = 0.0f;
   float m_angle = 180.0f;
   float m_crook_ratio = 0.7f;
-
-  bool OnInspect();
 };
 
 class LogGrader : public IPrivateComponent {
+  friend bool InspectLogGrader(evo_engine::InspectorContext& context, LogGrader& log_grader);
+
   std::shared_ptr<Mesh> m_tempCylinderMesh{};
 
   std::shared_ptr<ParticleInfoList> m_surface1;
@@ -48,7 +50,6 @@ class LogGrader : public IPrivateComponent {
   std::vector<LogGrading> m_available_best_grading{};
   ProceduralLogParameters m_procedural_log_parameters;
   AssetRef m_branch_shape{};
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void InitializeLogRandomly(const ProceduralLogParameters& procedural_log_parameters,
                              const std::shared_ptr<BasicBarkDescriptor>& branch_shape);
   LogWoodMeshGenerationSettings m_log_wood_mesh_generation_settings{};

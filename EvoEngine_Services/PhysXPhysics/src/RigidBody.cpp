@@ -1,6 +1,6 @@
-#include "RigidBody.hpp"
 #include "Application.hpp"
 #include "EditorLayer.hpp"
+#include "PhysXSerializationAdapters.hpp"
 #include "PhysicsLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
@@ -74,7 +74,7 @@ void RigidBody::OnCreate() {
   RecreateBody();
 }
 
-bool RigidBody::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool RigidBody::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Colliders")) {
     int index = 0;
@@ -284,52 +284,52 @@ void RigidBody::DetachCollider(size_t index) {
   colliders_[index].Get<Collider>()->attach_count_--;
   colliders_.erase(colliders_.begin() + index);
 }
-void RigidBody::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "shape_transform_" << YAML::Value << shape_transform_;
-  out << YAML::Key << "draw_bounds_" << YAML::Value << draw_bounds_;
-  out << YAML::Key << "static_" << YAML::Value << static_;
-  out << YAML::Key << "density_" << YAML::Value << density_;
-  out << YAML::Key << "mass_center_" << YAML::Value << mass_center_;
-  out << YAML::Key << "linear_velocity_" << YAML::Value << linear_velocity_;
-  out << YAML::Key << "angular_velocity_" << YAML::Value << angular_velocity_;
-  out << YAML::Key << "kinematic_" << YAML::Value << kinematic_;
-  out << YAML::Key << "linear_damping_" << YAML::Value << linear_damping_;
-  out << YAML::Key << "angular_damping_" << YAML::Value << angular_damping_;
-  out << YAML::Key << "min_position_iterations_" << YAML::Value << min_position_iterations_;
-  out << YAML::Key << "min_velocity_iterations_" << YAML::Value << min_velocity_iterations_;
-  out << YAML::Key << "gravity_" << YAML::Value << gravity_;
+void evo_engine::SerializeRigidBody(YAML::Emitter& out, const RigidBody& target) {
+  out << YAML::Key << "shape_transform_" << YAML::Value << target.shape_transform_;
+  out << YAML::Key << "draw_bounds_" << YAML::Value << target.draw_bounds_;
+  out << YAML::Key << "static_" << YAML::Value << target.static_;
+  out << YAML::Key << "density_" << YAML::Value << target.density_;
+  out << YAML::Key << "mass_center_" << YAML::Value << target.mass_center_;
+  out << YAML::Key << "linear_velocity_" << YAML::Value << target.linear_velocity_;
+  out << YAML::Key << "angular_velocity_" << YAML::Value << target.angular_velocity_;
+  out << YAML::Key << "kinematic_" << YAML::Value << target.kinematic_;
+  out << YAML::Key << "linear_damping_" << YAML::Value << target.linear_damping_;
+  out << YAML::Key << "angular_damping_" << YAML::Value << target.angular_damping_;
+  out << YAML::Key << "min_position_iterations_" << YAML::Value << target.min_position_iterations_;
+  out << YAML::Key << "min_velocity_iterations_" << YAML::Value << target.min_velocity_iterations_;
+  out << YAML::Key << "gravity_" << YAML::Value << target.gravity_;
 
-  if (!colliders_.empty()) {
+  if (!target.colliders_.empty()) {
     out << YAML::Key << "colliders_" << YAML::Value << YAML::BeginSeq;
-    for (int i = 0; i < colliders_.size(); i++) {
+    for (int i = 0; i < target.colliders_.size(); i++) {
       out << YAML::BeginMap;
-      colliders_[i].Serialize(out);
+      target.colliders_[i].Serialize(out);
       out << YAML::EndMap;
     }
     out << YAML::EndSeq;
   }
 }
-void RigidBody::Deserialize(const YAML::Node& in) {
-  shape_transform_ = in["shape_transform_"].as<glm::mat4>();
-  draw_bounds_ = in["draw_bounds_"].as<bool>();
-  static_ = in["static_"].as<bool>();
-  density_ = in["density_"].as<float>();
-  mass_center_ = in["mass_center_"].as<PxVec3>();
-  linear_velocity_ = in["linear_velocity_"].as<PxVec3>();
-  angular_velocity_ = in["angular_velocity_"].as<PxVec3>();
-  kinematic_ = in["kinematic_"].as<bool>();
-  linear_damping_ = in["linear_damping_"].as<float>();
-  angular_damping_ = in["angular_damping_"].as<float>();
-  min_position_iterations_ = in["min_position_iterations_"].as<unsigned>();
-  min_velocity_iterations_ = in["min_velocity_iterations_"].as<unsigned>();
-  gravity_ = in["gravity_"].as<bool>();
-  RecreateBody();
+void evo_engine::DeserializeRigidBody(const YAML::Node& in, RigidBody& target) {
+  target.shape_transform_ = in["shape_transform_"].as<glm::mat4>();
+  target.draw_bounds_ = in["draw_bounds_"].as<bool>();
+  target.static_ = in["static_"].as<bool>();
+  target.density_ = in["density_"].as<float>();
+  target.mass_center_ = in["mass_center_"].as<PxVec3>();
+  target.linear_velocity_ = in["linear_velocity_"].as<PxVec3>();
+  target.angular_velocity_ = in["angular_velocity_"].as<PxVec3>();
+  target.kinematic_ = in["kinematic_"].as<bool>();
+  target.linear_damping_ = in["linear_damping_"].as<float>();
+  target.angular_damping_ = in["angular_damping_"].as<float>();
+  target.min_position_iterations_ = in["min_position_iterations_"].as<unsigned>();
+  target.min_velocity_iterations_ = in["min_velocity_iterations_"].as<unsigned>();
+  target.gravity_ = in["gravity_"].as<bool>();
+  target.RecreateBody();
   if (auto in_colliders = in["colliders_"]) {
     for (const auto& i : in_colliders) {
       AssetRef ref;
       ref.Deserialize(i);
       auto collider = ref.Get<Collider>();
-      AttachCollider(collider);
+      target.AttachCollider(collider);
     }
   }
 }

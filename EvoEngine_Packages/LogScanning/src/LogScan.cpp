@@ -1,16 +1,17 @@
-#include "LogScan.hpp"
 #include "JoeScanScanner.hpp"
 #include "Json.hpp"
 #include "LogScanReconstruction.hpp"
+#include "LogScanningInspectionAdapters.hpp"
+#include "LogScanningSerializationAdapters.hpp"
 #include "Prefab.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
 using namespace log_scanning_package;
 using namespace nlohmann;
 
-void LogScan::Serialize(YAML::Emitter& out) const {
+void log_scanning_package::SerializeLogScan(YAML::Emitter& out, const LogScan& target) {
   out << YAML::Key << "profiles" << YAML::Value << YAML::BeginSeq;
-  for (const auto& profile : profiles) {
+  for (const auto& profile : target.profiles) {
     out << YAML::BeginMap;
     {
       out << YAML::Key << "encoder_value" << YAML::Value << profile.encoder_value;
@@ -25,12 +26,12 @@ void LogScan::Serialize(YAML::Emitter& out) const {
   }
 }
 
-void LogScan::Deserialize(const YAML::Node& in) {
+void log_scanning_package::DeserializeLogScan(const YAML::Node& in, LogScan& target) {
   if (in["profiles"]) {
-    profiles.clear();
+    target.profiles.clear();
     for (const auto& in_profile : in["profiles"]) {
-      profiles.emplace_back();
-      auto& profile = profiles.back();
+      target.profiles.emplace_back();
+      auto& profile = target.profiles.back();
       if (in_profile["encoder_value"])
         profile.encoder_value = in_profile["encoder_value"].as<float>();
       if (in_profile["points"]) {
@@ -50,7 +51,8 @@ void LogScan::Deserialize(const YAML::Node& in) {
 void LogScan::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
-bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool log_scanning_package::InspectLogScan(InspectorContext& context, LogScan& log_scan) {
+  const auto& editor_layer = context.editor_layer;
   bool changed = false;
   static AssetRef config;
   static AssetRef scanner_prefab;
@@ -76,10 +78,10 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (!profile_points_list)
     profile_points_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   if (ImGui::Button("Regularize")) {
-    Regularize();
+    log_scan.Regularize();
   }
   if (ImGui::Button("Recenter")) {
-    Recenter();
+    log_scan.Recenter();
   }
 
   static bool enable_joe_scan_rendering = true;
@@ -97,13 +99,14 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (enable_joe_scan_rendering) {
     if (ImGui::Button("Refresh LogScan")) {
       std::vector<ParticleInfo> data;
-      for (const auto& profile : profiles) {
+      for (const auto& profile : log_scan.profiles) {
         const auto start_index = data.size();
         data.resize(profile.points.size() + start_index);
         Jobs::RunParallelFor(profile.points.size(), [&](size_t i) {
           data[i + start_index].instance_matrix.SetPosition(
               glm::vec3(profile.points[i].x, profile.points[i].y, profile.encoder_value));
-          data[i + start_index].instance_matrix.SetScale(glm::vec3(0.0005f, 0.0005f, 2.4384f / profiles.size()));
+          data[i + start_index].instance_matrix.SetScale(
+              glm::vec3(0.0005f, 0.0005f, 2.4384f / log_scan.profiles.size()));
           data[i + start_index].instance_color = scan_color;
           if (brightness)
             data[i + start_index].instance_color.w =
@@ -114,16 +117,17 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
   }
   static int profile_index = 0;
-  const auto& profile = profiles[profile_index];
-  if (enable_profile_rendering && !profiles.empty()) {
+  if (enable_profile_rendering && !log_scan.profiles.empty()) {
+    profile_index = glm::clamp(profile_index, 0, static_cast<int>(log_scan.profiles.size() - 1));
+    const auto& profile = log_scan.profiles[profile_index];
     static LogScanReconstruction reconstruction{};
     static LogScanReconstruction::ReconstructionParameter reconstruction_parameter{};
     if (ImGui::TreeNode("Reconstruction settings")) {
-      changed = reconstruction_parameter.OnInspect(editor_layer) || changed;
+      changed = DrawLogScanReconstructionParameterGui(reconstruction_parameter) || changed;
       ImGui::TreePop();
     }
-    if (ImGui::DragInt("Profile Index", &profile_index, 1, 0, profiles.size()) || changed) {
-      profile_index = glm::clamp(profile_index, 0, static_cast<int>(profiles.size()));
+    if (ImGui::DragInt("Profile Index", &profile_index, 1, 0, log_scan.profiles.size()) || changed) {
+      profile_index = glm::clamp(profile_index, 0, static_cast<int>(log_scan.profiles.size() - 1));
       std::vector<ParticleInfo> profile_data;
       reconstruction.Initialize(reconstruction_parameter, profile);
       profile_data.resize(reconstruction.processed_points.size());
@@ -167,18 +171,18 @@ bool LogScan::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       });
       profile_points_list->SetParticleInfos(points_data);
     }
-  }
-  GizmoSettings settings{};
-  settings.draw_settings.blending = true;
-  if (enable_joe_scan_rendering) {
-    editor_layer->DrawGizmoCubes(joe_scan_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f, settings);
-  }
-  if (enable_profile_rendering) {
     GizmoSettings settings{};
     settings.draw_settings.blending = true;
-    editor_layer->DrawGizmoCubes(profile_points_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f,
-                                 settings);
-    editor_layer->DrawGizmoCubes(profile_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f, settings);
+    if (enable_joe_scan_rendering) {
+      editor_layer->DrawGizmoCubes(joe_scan_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f,
+                                   settings);
+    }
+    if (enable_profile_rendering) {
+      editor_layer->DrawGizmoCubes(profile_points_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f,
+                                   settings);
+      editor_layer->DrawGizmoCubes(profile_list, glm::translate(glm::vec3(0, 0, -profile.encoder_value)), 1.f,
+                                   settings);
+    }
   }
 
   return changed;

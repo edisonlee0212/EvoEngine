@@ -46,7 +46,7 @@ class Shader final : public IAsset {
    * @param path The file path where the shader will be saved.
    * @return True if the save operation was successful, false otherwise.
    */
-  [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const;
 
   /**
    * @brief Loads the shader from the specified path.
@@ -54,47 +54,34 @@ class Shader final : public IAsset {
    * @param path The file path from where the shader will be loaded.
    * @return True if the load operation was successful, false otherwise.
    */
-  [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
+  [[nodiscard]] bool LoadInternal(const std::filesystem::path& path);
 
   /**
    * @brief Shader source/YAML can be read and parsed before main-thread finalization.
    */
-  [[nodiscard]] bool SupportsStagedLoading() const override;
+  [[nodiscard]] bool SupportsStagedLoading() const;
 
   /**
    * @brief Builds a CPU-side shader source payload.
    */
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
 
   /**
    * @brief Applies the staged shader source payload.
    */
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
-  /**
-   * @brief Displays an interface for shader inspection in the editor.
-   *
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "Shader");
 
-  /**
-   * @brief Serializes the shader data into a YAML emitter.
-   *
-   * @param out The YAML emitter to serialize into.
-   */
-  void Serialize(YAML::Emitter& out) const override;
+  [[nodiscard]] const std::string& PeekShaderCode() const;
 
-  /**
-   * @brief Deserializes the shader from a YAML node.
-   *
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  [[nodiscard]] std::string& RefShaderCode();
+
+  [[nodiscard]] unsigned& RefShaderType();
 
   /**
    * @brief Registers a new include path for shaders.

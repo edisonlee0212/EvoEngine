@@ -201,7 +201,7 @@ float DynamicStrands::GetSimulatedTime() const {
   return simulated_time;
 }
 
-bool DynamicStrands::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicStrands::PhysicsParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Preset Settings")) {
     if (ImGui::Button("Log Crack")) {

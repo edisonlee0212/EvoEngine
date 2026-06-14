@@ -121,7 +121,7 @@ void TreeGraph::Deserialize(const YAML::Node& in) {
   }
 }
 
-bool TreeGraph::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool TreeGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::Checkbox("Length limit", &enable_instantiate_length_limit);
   if (enable_instantiate_length_limit)
@@ -198,7 +198,7 @@ void TreeGraphV2::Deserialize(const YAML::Node& in) {
   }
 }
 
-bool TreeGraphV2::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool TreeGraphV2::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::Checkbox("Length limit", &enable_instantiate_length_limit);
   ImGui::DragFloat("Length limit", &instantiate_length_limit, 0.1f);

@@ -43,25 +43,13 @@ class HeightField : public IAsset {
    * @param editor_layer A shared pointer to the editor layer.
    * @return True if the asset's content remains unmodified during inspection, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the height field data into a YAML emitter.
-   * @param out The YAML emitter used to store the serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the height field data from a YAML node.
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Generates a thumbnail texture representing the height field.
    * @return A shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Generates a mesh representation of the height field.

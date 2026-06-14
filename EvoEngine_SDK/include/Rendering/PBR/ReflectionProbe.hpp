@@ -19,7 +19,7 @@ class ReflectionProbe : public IAsset {
       mip_map_views_;  ///< A collection of mip map views for the cubemap.
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -40,13 +40,6 @@ class ReflectionProbe : public IAsset {
    * @param target_cubemap A shared pointer to the target cubemap.
    */
   void ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap);
-
-  /**
-   * @brief Handles the inspection of the reflection probe in an editor layer.
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the inspection succeeds, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 }  // namespace evo_engine

@@ -126,7 +126,7 @@ void LSystemString::ParseLString(const std::string& string) {
   }
 }
 
-bool LSystemString::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool LSystemString::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   ImGui::Text(("Command Size: " + std::to_string(m_commands.size())).c_str());
   if (ImGui::DragFloat("Internode Length", &m_internodeLength))

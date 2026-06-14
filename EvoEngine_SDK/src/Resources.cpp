@@ -6,6 +6,7 @@
 #include "GpuService.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Serialization.hpp"
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
@@ -51,38 +52,20 @@ void Resources::ClearPrimitives() {
 }
 
 void Resources::LoadPrimitives() {
-  {
-    primitives_.quad = CreateResource<Mesh>();
-    primitives_.quad->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/quad.evemesh");
-  }
-  {
-    primitives_.sphere = CreateResource<Mesh>();
-    primitives_.sphere->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/sphere.evemesh");
-  }
-  {
-    primitives_.cube = CreateResource<Mesh>();
-    primitives_.cube->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cube.evemesh");
-  }
-  {
-    primitives_.cone = CreateResource<Mesh>();
-    primitives_.cone->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cone.evemesh");
-  }
-  {
-    primitives_.cylinder = CreateResource<Mesh>();
-    primitives_.cylinder->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/cylinder.evemesh");
-  }
-  {
-    primitives_.torus = CreateResource<Mesh>();
-    primitives_.torus->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/torus.evemesh");
-  }
-  {
-    primitives_.monkey = CreateResource<Mesh>();
-    primitives_.monkey->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/monkey.evemesh");
-  }
-  {
-    primitives_.capsule = CreateResource<Mesh>();
-    primitives_.capsule->LoadInternal(std::filesystem::path("./DefaultResources") / "Primitives/capsule.evemesh");
-  }
+  const auto default_resources = std::filesystem::path("./DefaultResources");
+  auto load_primitive = [&](std::shared_ptr<Mesh>& primitive, const std::filesystem::path& path) {
+    primitive = CreateResource<Mesh>();
+    Serialization::LoadAsset(*primitive, path);
+  };
+
+  load_primitive(primitives_.quad, default_resources / "Primitives/quad.evemesh");
+  load_primitive(primitives_.sphere, default_resources / "Primitives/sphere.evemesh");
+  load_primitive(primitives_.cube, default_resources / "Primitives/cube.evemesh");
+  load_primitive(primitives_.cone, default_resources / "Primitives/cone.evemesh");
+  load_primitive(primitives_.cylinder, default_resources / "Primitives/cylinder.evemesh");
+  load_primitive(primitives_.torus, default_resources / "Primitives/torus.evemesh");
+  load_primitive(primitives_.monkey, default_resources / "Primitives/monkey.evemesh");
+  load_primitive(primitives_.capsule, default_resources / "Primitives/capsule.evemesh");
   {
     VertexAttributes attributes{};
     attributes.tex_coord = true;
@@ -158,16 +141,18 @@ void Resources::Initialize() {
   GeometryStorage::WaitForPendingUploads();
   TextureStorage::DeviceSync();
   resources.missing_texture_ = CreateResource<Texture2D>();
-  resources.missing_texture_->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                           "Textures/texture-missing.png");
+  Serialization::LoadAsset(*resources.missing_texture_,
+                           std::filesystem::path("./DefaultResources") / "Textures/texture-missing.png");
 
   resources.default_environmental_map_texture_ = CreateResource<Texture2D>();
-  resources.default_environmental_map_texture_->LoadInternal(
+  Serialization::LoadAsset(
+      *resources.default_environmental_map_texture_,
       std::filesystem::path("./DefaultResources") / "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_3k.hdr");
 
   resources.default_skybox_texture_ = CreateResource<Texture2D>();
-  resources.default_skybox_texture_->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                                  "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_Env.hdr");
+  Serialization::LoadAsset(
+      *resources.default_skybox_texture_,
+      std::filesystem::path("./DefaultResources") / "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_Env.hdr");
 
   TextureStorage::DeviceSync();
 
@@ -183,7 +168,7 @@ Handle Resources::GenerateNewHandle() {
   return current_max_handle_.value_++;
 }
 
-void Resources::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void Resources::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& resources = GetInstance();
   if (resources.show_resources_) {
     if (ImGui::Begin("Resources")) {

@@ -40,7 +40,7 @@ class Physics2DDemo : public IPrivateComponent {
    * @param editor_layer The editor layer handling the inspection.
    * @return True if the asset's content is unmodified during inspection; otherwise, false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates the physics simulation at a fixed time step.

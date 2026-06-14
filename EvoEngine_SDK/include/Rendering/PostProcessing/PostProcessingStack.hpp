@@ -20,7 +20,7 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
   std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -29,7 +29,6 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<RenderTexture> swap_texture;
 
   void OnCreate() override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const std::shared_ptr<Camera>& target_camera);
   std::shared_ptr<ScreenSpaceAmbientOcclusion> screen_space_ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
@@ -48,10 +47,6 @@ class IPostProcessing {
  public:
   virtual void Process(const PostProcessingStack& post_processing_stack,
                        const std::shared_ptr<Camera>& target_camera) = 0;
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
-
   virtual void BuildPipelines(bool force_rebuild = false) = 0;
 };
 
@@ -92,9 +87,10 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
     float intensity;
   };
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
 };
 
 class ScreenSpaceReflection : public IPostProcessing {
@@ -120,9 +116,10 @@ class ScreenSpaceReflection : public IPostProcessing {
   std::shared_ptr<GraphicsPipeline> combine_pipeline;
   std::shared_ptr<DescriptorSet> combine_descriptor_set;  // SSR_COMBINE: 0, 1
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
 };
 
 class Bloom : public IPostProcessing {
@@ -150,9 +147,10 @@ class Bloom : public IPostProcessing {
   std::vector<std::shared_ptr<DescriptorSet>> upsampling_descriptor_set;
   std::shared_ptr<GraphicsPipeline> copy_pipeline;
   std::shared_ptr<GraphicsPipeline> mix_pipeline;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
 };
 
 class ToneMapping : public IPostProcessing {
@@ -165,9 +163,10 @@ class ToneMapping : public IPostProcessing {
 
   float exposure = 2.f;
   float gamma = 1.f;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
   std::shared_ptr<ComputePipeline> pipeline;
 };
 

@@ -6,6 +6,7 @@
 #include "Application.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
 #include "Platform.hpp"
 #include "Tree.hpp"
@@ -166,40 +167,40 @@ void ForestPatch::CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(tree_descriptor);
 }
 
-void ForestPatch::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "grid_distance" << YAML::Value << grid_distance;
-  out << YAML::Key << "position_offset_mean" << YAML::Value << position_offset_mean;
-  out << YAML::Key << "position_offset_variance" << YAML::Value << position_offset_variance;
-  out << YAML::Key << "rotation_offset_variance" << YAML::Value << rotation_offset_variance;
+void eco_sys_lab_package::SerializeForestPatch(YAML::Emitter& out, const ForestPatch& target) {
+  out << YAML::Key << "grid_distance" << YAML::Value << target.grid_distance;
+  out << YAML::Key << "position_offset_mean" << YAML::Value << target.position_offset_mean;
+  out << YAML::Key << "position_offset_variance" << YAML::Value << target.position_offset_variance;
+  out << YAML::Key << "rotation_offset_variance" << YAML::Value << target.rotation_offset_variance;
 
-  out << YAML::Key << "simulation_time" << YAML::Value << simulation_time;
-  out << YAML::Key << "start_time_max" << YAML::Value << start_time_max;
+  out << YAML::Key << "simulation_time" << YAML::Value << target.simulation_time;
+  out << YAML::Key << "start_time_max" << YAML::Value << target.start_time_max;
 
-  tree_descriptor.Save("tree_descriptor", out);
+  target.tree_descriptor.Save("tree_descriptor", out);
 
-  simulation_settings.Save("simulation_settings", out);
+  target.simulation_settings.Save("simulation_settings", out);
 }
 
-void ForestPatch::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeForestPatch(const YAML::Node& in, ForestPatch& target) {
   if (in["grid_distance"])
-    grid_distance = in["grid_distance"].as<glm::vec2>();
+    target.grid_distance = in["grid_distance"].as<glm::vec2>();
   if (in["position_offset_mean"])
-    position_offset_mean = in["position_offset_mean"].as<glm::vec2>();
+    target.position_offset_mean = in["position_offset_mean"].as<glm::vec2>();
   if (in["position_offset_variance"])
-    position_offset_variance = in["position_offset_variance"].as<glm::vec2>();
+    target.position_offset_variance = in["position_offset_variance"].as<glm::vec2>();
   if (in["rotation_offset_variance"])
-    rotation_offset_variance = in["rotation_offset_variance"].as<glm::vec3>();
+    target.rotation_offset_variance = in["rotation_offset_variance"].as<glm::vec3>();
 
   if (in["simulation_time"])
-    simulation_time = in["simulation_time"].as<float>();
+    target.simulation_time = in["simulation_time"].as<float>();
   if (in["start_time_max"])
-    start_time_max = in["start_time_max"].as<float>();
-  tree_descriptor.Load("tree_descriptor", in);
+    target.start_time_max = in["start_time_max"].as<float>();
+  target.tree_descriptor.Load("tree_descriptor", in);
 
-  simulation_settings.Load("simulation_settings", in);
+  target.simulation_settings.Load("simulation_settings", in);
 }
 
-bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool ForestPatch::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;
   editorLayer->DragAndDropButton<TreeDescriptor>(tree_descriptor, "TreeDescriptor");
   static glm::ivec2 gridSize = {8, 8};
@@ -218,7 +219,7 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   static bool setSimulationSettings = true;
   ImGui::Checkbox("Set Simulation settings", &setSimulationSettings);
   if (ImGui::TreeNodeEx("Simulation Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (simulation_settings.OnInspect(editorLayer))
+    if (simulation_settings.DrawGui(editorLayer))
       changed = true;
     ImGui::TreePop();
   }
@@ -264,15 +265,15 @@ bool ForestPatch::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
   return changed;
 }
 
-void TreeInfo::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "global_transform" << YAML::Value << global_transform.value;
-  tree_descriptor.Save("tree_descriptor", out);
+void eco_sys_lab_package::SerializeTreeInfo(YAML::Emitter& out, const TreeInfo& target) {
+  out << YAML::Key << "global_transform" << YAML::Value << target.global_transform.value;
+  target.tree_descriptor.Save("tree_descriptor", out);
 }
 
-void TreeInfo::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeTreeInfo(const YAML::Node& in, TreeInfo& target) {
   if (in["global_transform"])
-    global_transform.value = in["global_transform"].as<glm::mat4>();
-  tree_descriptor.Load("tree_descriptor", in);
+    target.global_transform.value = in["global_transform"].as<glm::mat4>();
+  target.tree_descriptor.Load("tree_descriptor", in);
 }
 
 void TreeInfo::CollectAssetRef(std::vector<AssetRef>& list) const {
@@ -356,7 +357,7 @@ void ForestDescriptor::ApplyTreeDescriptors(const std::filesystem::path& folderP
   ApplyTreeDescriptors(collectedTreeDescriptors, ratios);
 }
 
-bool ForestDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool ForestDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;
   static glm::ivec2 gridSize = {4, 4};
   static float gridDistance = 1.5f;
@@ -453,25 +454,25 @@ void ForestDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   }
 }
 
-void ForestDescriptor::Serialize(YAML::Emitter& out) const {
+void eco_sys_lab_package::SerializeForestDescriptor(YAML::Emitter& out, const ForestDescriptor& target) {
   out << YAML::Key << "tree_infos" << YAML::BeginSeq;
-  for (const auto& i : tree_infos) {
-    i.Serialize(out);
+  for (const auto& i : target.tree_infos) {
+    SerializeTreeInfo(out, i);
   }
   out << YAML::EndSeq;
-  tree_growth_settings.Save("tree_growth_settings", out);
+  target.tree_growth_settings.Save("tree_growth_settings", out);
 }
 
-void ForestDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeForestDescriptor(const YAML::Node& in, ForestDescriptor& target) {
   if (in["tree_infos"]) {
-    tree_infos.clear();
+    target.tree_infos.clear();
     for (const auto& i : in["tree_infos"]) {
-      tree_infos.emplace_back();
-      auto& back = tree_infos.back();
-      back.Deserialize(i);
+      target.tree_infos.emplace_back();
+      auto& back = target.tree_infos.back();
+      DeserializeTreeInfo(i, back);
     }
   }
-  tree_growth_settings.Load("tree_growth_settings", in);
+  target.tree_growth_settings.Load("tree_growth_settings", in);
 }
 
 auto ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, const float grid_distance, float random_shift) -> void {

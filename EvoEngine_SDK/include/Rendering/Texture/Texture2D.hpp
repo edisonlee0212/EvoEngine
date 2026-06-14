@@ -11,27 +11,25 @@ struct TextureStorageHandle;
 enum class TextureColorType { Red = 1, Rg = 2, Rgb = 3, Rgba = 4 };
 
 class Texture2D : public IAsset {
-  friend class EditorLayer;
   friend class Resources;
   friend class Cubemap;
   friend class TextureStorage;
   friend class RenderLayer;
 
   std::shared_ptr<TextureStorageHandle> texture_storage_handle_;
-  AssetRef opacity_texture_drop_ref_;
 
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, bool local_copy);
   void DownloadData();
   std::vector<glm::vec4> local_data_;
 
  protected:
-  bool SaveInternal(const std::filesystem::path& path) const override;
-  bool LoadInternal(const std::filesystem::path& path) override;
-  [[nodiscard]] bool SupportsStagedLoading() const override;
+  bool SaveInternal(const std::filesystem::path& path) const;
+  bool LoadInternal(const std::filesystem::path& path);
+  [[nodiscard]] bool SupportsStagedLoading() const;
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
   void UnsafeUploadDataImmediately() const;
@@ -54,10 +52,10 @@ class Texture2D : public IAsset {
 
   void ApplyOpacityMap(const std::shared_ptr<Texture2D>& target);
   void SetResolution(const glm::uvec2& resolution, bool preserve_data = true);
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
   bool hdr = false;
   Texture2D();
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "Texture2D");
   const Texture2DStorage& PeekTexture2DStorage() const;
   Texture2DStorage& RefTexture2DStorage() const;
   [[nodiscard]] VkImageLayout GetLayout() const;
@@ -68,7 +66,6 @@ class Texture2D : public IAsset {
   ImTextureID GetImTextureId() const;
   [[nodiscard]] uint32_t GetTextureStorageIndex() const;
   ~Texture2D() override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
   [[nodiscard]] glm::uvec2 GetResolution() const;
   void StoreToPng(const std::filesystem::path& path, int resize_x = -1, int resize_y = -1,
                   unsigned compression_level = 8) const;
@@ -80,8 +77,9 @@ class Texture2D : public IAsset {
   template <typename T>
   void GetData(std::vector<T>& dst);
 
+  [[nodiscard]] const std::vector<glm::vec4>& PeekLocalData() const;
   const std::vector<glm::vec4>& GetLocalData();
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
   void GetRgbaChannelData(std::vector<glm::vec4>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x = -1, int resize_y = -1) const;

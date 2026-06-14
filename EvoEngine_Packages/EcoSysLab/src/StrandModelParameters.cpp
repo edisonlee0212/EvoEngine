@@ -2,7 +2,7 @@
 
 using namespace eco_sys_lab_package;
 
-bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool StrandModelParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx("Profile settings", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Button("Oak Trunk")) {
@@ -45,16 +45,16 @@ bool StrandModelParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor
 
   static PlottedDistributionSettings plotted_distribution_settings = {
       0.001f, {0.001f, true, true, ""}, {0.001f, true, true, ""}, ""};
-  if (branch_twist_distribution.OnInspect("Branch Twist", plotted_distribution_settings))
+  if (branch_twist_distribution.Draw("Branch Twist", plotted_distribution_settings))
     changed = true;
-  if (junction_twist_distribution.OnInspect("Junction Twist", plotted_distribution_settings))
+  if (junction_twist_distribution.Draw("Junction Twist", plotted_distribution_settings))
     changed = true;
-  if (strand_radius_distribution.OnInspect("Strand Thickness", plotted_distribution_settings))
+  if (strand_radius_distribution.Draw("Strand Thickness", plotted_distribution_settings))
     changed = true;
 
   if (ImGui::DragFloat("Cladoptosis Range", &cladoptosis_range, 0.01f, 0.0f, 50.f))
     changed = true;
-  if (cladoptosis_distribution.OnInspect("Cladoptosis", plotted_distribution_settings))
+  if (cladoptosis_distribution.Draw("Cladoptosis", plotted_distribution_settings))
     changed = true;
 
   if (ImGui::TreeNodeEx("Graph Adjustment settings", ImGuiTreeNodeFlags_DefaultOpen)) {

@@ -288,7 +288,7 @@ uint64_t ParamSpaceExplorer::ComputeSchemaSignature() const {
   // Hash the registered axis labels and count, then combine with the
   // descriptor's structural fingerprint (e.g. dynamic-array sizes). The
   // descriptor fingerprint catches schema drift that hasn't been reflected
-  // in axes_ yet (so OnInspect can auto-rebuild); the axis hash catches the
+  // in axes_ yet (so DrawGui can auto-rebuild); the axis hash catches the
   // post-rebuild state.
   uint64_t h = 1469598103934665603ULL;
   h = HashCombine(h, static_cast<uint64_t>(axes_.size()));
@@ -544,10 +544,10 @@ void ParamSpaceExplorer::DrawParallelCoords(float width, float height, const std
 }
 
 // ---------------------------------------------------------------------------
-// OnInspect - full explorer UI
+// DrawGui - full explorer UI
 // ---------------------------------------------------------------------------
 
-bool ParamSpaceExplorer::OnInspect() {
+bool ParamSpaceExplorer::DrawGui() {
   if (!bound_desc_)
     return false;
 

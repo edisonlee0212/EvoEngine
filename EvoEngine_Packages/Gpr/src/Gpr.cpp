@@ -1,5 +1,8 @@
 #include "Gpr.hpp"
 
+#include "InspectorRegistry.hpp"
+#include "Serialization.hpp"
+
 #include "dng_sdk/dng_exceptions.h"
 #include "source/app/gpr_tools/gpr_print_utils.h"
 #include "vc5_common/config.h"
@@ -8,7 +11,31 @@
 
 using namespace evo_engine;
 using namespace gpr_package;
+
+namespace {
+bool InspectGpr(InspectorContext& context, Gpr& asset) {
+  (void)context;
+  auto& preview_image = asset.RefPreviewImage();
+  EditorLayer::Draggable<Texture2D>(preview_image);
+  if (const auto texture_storage = preview_image.Get<Texture2D>()->PeekTexture2DStorage();
+      texture_storage.im_texture_id) {
+    static float debug_scale = 0.25f;
+    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
+    debug_scale = glm::clamp(debug_scale, 0.1f, 10.0f);
+    ImGui::Image(texture_storage.im_texture_id,
+                 ImVec2(texture_storage.image->GetExtent().width * debug_scale,
+                        texture_storage.image->GetExtent().height * debug_scale),
+                 ImVec2(0, 1), ImVec2(1, 0));
+  }
+  return false;
+}
+}  // namespace
+
 bool Gpr::SaveInternal(const std::filesystem::path& path) const {
+  return SaveGpr(path);
+}
+
+bool Gpr::SaveGpr(const std::filesystem::path& path) const {
   const auto path_string = path.string();
   write_to_file(&input_buffer_, path_string.c_str());
   return true;
@@ -16,6 +43,10 @@ bool Gpr::SaveInternal(const std::filesystem::path& path) const {
 uint32_t spaces = 0;
 
 bool Gpr::LoadInternal(const std::filesystem::path& path) {
+  return LoadGpr(path);
+}
+
+bool Gpr::LoadGpr(const std::filesystem::path& path) {
   if (path.extension().string() == ".GPR" || path.extension().string() == ".gpr") {
     if (input_buffer_.buffer) {
       allocator_.Free(input_buffer_.buffer);
@@ -67,17 +98,18 @@ Gpr::Gpr() {
   gpr_parameters_set_defaults(&params_);
 }
 
-bool Gpr::OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) {
-  EditorLayer::Draggable<Texture2D>(preview_image_);
-  if (const auto texture_storage = preview_image_.Get<Texture2D>()->PeekTexture2DStorage();
-      texture_storage.im_texture_id) {
-    static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 10.0f);
-    ImGui::Image(texture_storage.im_texture_id,
-                 ImVec2(texture_storage.image->GetExtent().width * debug_scale,
-                        texture_storage.image->GetExtent().height * debug_scale),
-                 ImVec2(0, 1), ImVec2(1, 0));
-  }
-  return false;
+AssetRef& Gpr::RefPreviewImage() {
+  return preview_image_;
+}
+
+void gpr_package::RegisterGprHandlers(const std::string& owner_name) {
+  Serialization::RegisterAssetIoHandler<Gpr>(
+      [](const Gpr& asset, const std::filesystem::path& path) {
+        return asset.SaveGpr(path);
+      },
+      [](Gpr& asset, const std::filesystem::path& path) {
+        return asset.LoadGpr(path);
+      },
+      {}, {}, {}, owner_name, "Gpr");
+  InspectorRegistry::GetInstance().RegisterInspector<Gpr>(InspectGpr, owner_name, "Gpr");
 }

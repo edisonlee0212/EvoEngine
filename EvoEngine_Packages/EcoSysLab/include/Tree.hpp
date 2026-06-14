@@ -243,7 +243,7 @@ class Tree : public IPrivateComponent {
    * @param editor_layer The editor layer managing the inspection.
    * @return True if the asset's content is not modified during inspection, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Handles destruction logic when the tree instance is removed.
@@ -377,19 +377,7 @@ class Tree : public IPrivateComponent {
    * @brief Collects asset references used by the tree.
    * @param list The list to store asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
-
-  /**
-   * @brief Serializes the tree state into a YAML emitter.
-   * @param out The YAML emitter to store serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes tree data from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
 #ifdef BILLBOARD_CLOUDS_PACKAGE
   /**

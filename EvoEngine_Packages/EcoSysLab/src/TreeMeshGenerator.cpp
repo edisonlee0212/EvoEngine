@@ -170,7 +170,7 @@ void TreeMeshGeneratorSettings::Load(const std::string& name, const YAML::Node& 
   }
 }
 
-void TreeMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void TreeMeshGeneratorSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNodeEx("Mesh Generator settings")) {
     ImGui::Checkbox("Shoot Branch", &enable_shoot_branch);
     ImGui::Checkbox("Root Branch", &enable_root_branch);

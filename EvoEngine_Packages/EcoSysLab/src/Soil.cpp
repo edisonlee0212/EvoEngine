@@ -4,12 +4,13 @@
 #include "Mesh.hpp"
 
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
 #include "HeightField.hpp"
 
 using namespace eco_sys_lab_package;
 
-bool Soil::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool Soil::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<SoilDescriptor>(soil_descriptor_ref, "SoilDescriptor", true)) {
     InitializeSoilModel();
@@ -429,13 +430,13 @@ Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool gro
   return combined_entity;
 }
 
-void Soil::Serialize(YAML::Emitter& out) const {
-  soil_descriptor_ref.Save("soil_descriptor_ref", out);
+void eco_sys_lab_package::SerializeSoil(YAML::Emitter& out, const Soil& target) {
+  target.soil_descriptor_ref.Save("soil_descriptor_ref", out);
 }
 
-void Soil::Deserialize(const YAML::Node& in) {
-  soil_descriptor_ref.Load("soil_descriptor_ref", in);
-  InitializeSoilModel();
+void eco_sys_lab_package::DeserializeSoil(const YAML::Node& in, Soil& target) {
+  target.soil_descriptor_ref.Load("soil_descriptor_ref", in);
+  target.InitializeSoilModel();
 }
 
 void Soil::CollectAssetRef(std::vector<AssetRef>& list) {

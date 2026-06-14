@@ -5,6 +5,7 @@
 
 namespace universe_package {
 using namespace evo_engine;
+bool InspectUniverseLayer(evo_engine::InspectorContext &context, class UniverseLayer &layer);
 /// <summary>
 /// The calculated precise position of the star.
 /// </summary>
@@ -117,7 +118,6 @@ class StarClusterPattern {
  public:
   std::string name = "Cluster Pattern";
   StarClusterIndex star_cluster_index;
-  void OnInspect();
   double y_spread = 0.05;
   double xz_spread = 0.015;
 
@@ -240,9 +240,10 @@ class StarClusterPattern {
 };
 
 class UniverseLayer : public ILayer {
+  friend bool InspectUniverseLayer(evo_engine::InspectorContext &context, UniverseLayer &layer);
+
  public:
   void RegisterTypes(Application &application) override;
-  void OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
 
  private:
   EntityQuery star_query_;

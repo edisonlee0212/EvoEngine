@@ -1,5 +1,6 @@
 
 #pragma once
+#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
@@ -138,6 +139,9 @@ template <typename T>
 void ClassRegistry::RegisterPrivateComponent(const std::string &name) {
   Serialization::RegisterSerializableType<T>(name);
   Serialization::RegisterPrivateComponentType<T>(name);
+  Serialization::RegisterDefaultSerializationHandler<T>({}, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**
@@ -161,6 +165,11 @@ void ClassRegistry::RegisterDataComponent(const std::string &name) {
 template <typename T>
 void ClassRegistry::RegisterAsset(const std::string &name, const std::vector<std::string> &external_extensions) {
   Serialization::RegisterAssetType<T>(name, external_extensions);
+  Serialization::RegisterDefaultSerializationHandler<T>({}, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
+  Serialization::RegisterDefaultAssetIoHandler<T>({}, name);
+  Serialization::RegisterDefaultAssetPreviewHandler<T>({}, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**
@@ -173,6 +182,9 @@ template <typename T>
 void ClassRegistry::RegisterSystem(const std::string &name) {
   Serialization::RegisterSerializableType<T>(name);
   Serialization::RegisterSystemType<T>(name);
+  Serialization::RegisterDefaultSerializationHandler<T>({}, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**

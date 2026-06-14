@@ -1,5 +1,6 @@
 #pragma once
 #include "Application.hpp"
+#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
@@ -191,6 +192,9 @@ bool PackageRegistrar::RegisterPrivateComponent(const std::string& name) {
 
   Serialization::SetSerializableTypeOwner(name, package_name);
   Serialization::SetPrivateComponentTypeOwner(name, package_name);
+  Serialization::RegisterDefaultSerializationHandler<T>(package_name, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>(package_name, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_name, name);
   registered_private_component_names_->push_back(name);
   return true;
 }
@@ -222,6 +226,11 @@ bool PackageRegistrar::RegisterAsset(const std::string& name, const std::vector<
   }
 
   Serialization::SetSerializableTypeOwner(name, package_name);
+  Serialization::RegisterDefaultSerializationHandler<T>(package_name, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>(package_name, name);
+  Serialization::RegisterDefaultAssetIoHandler<T>(package_name, name);
+  Serialization::RegisterDefaultAssetPreviewHandler<T>(package_name, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_name, name);
   registered_asset_names_->push_back(name);
   return true;
 }
@@ -287,6 +296,9 @@ bool PackageRegistrar::RegisterSystem(const std::string& name) {
 
   Serialization::SetSerializableTypeOwner(name, package_name);
   Serialization::SetSystemTypeOwner(name, package_name);
+  Serialization::RegisterDefaultSerializationHandler<T>(package_name, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>(package_name, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_name, name);
   registered_system_names_->push_back(name);
   return true;
 }
