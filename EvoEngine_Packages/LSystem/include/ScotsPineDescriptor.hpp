@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <IAsset.hpp>
 #include <Plot2D.hpp>
@@ -257,7 +257,7 @@ class ScotsPineDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   // where delta_days = chronological_days_per_second * dt.
   // Consumed by LSystemLayer::SamplePineTemporalParameters() and applied
   // in the per-pine update path. Mean of season-day fields is clamped to
-  // [0, 365]; deviation is treated as integer days inside OnInspect.
+  // [0, 365]; deviation is treated as integer days inside the editor controls.
   evo_engine::SingleDistribution<float> gdd_per_day{2.0f};                ///< Per-pine thermal rate (GDD/day).
   evo_engine::SingleDistribution<float> growing_season_start_day{60.0f};  ///< Per-pine active season start (DOY 0-365).
   evo_engine::SingleDistribution<float> growing_season_end_day{334.0f};   ///< Per-pine active season end (DOY 0-365).
@@ -416,13 +416,11 @@ class ScotsPineDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   [[nodiscard]] evo_engine::Entity Instantiate() const;
 
   // ===== IAsset =====
-  bool OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) override;
+  bool DrawEditorControls(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer);
   [[nodiscard]] bool SupportsDefaultsOverwrite() const {
     return true;
   }
   [[nodiscard]] std::filesystem::path ResolveWritableDefaultsPath() const;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 
   // ===== ILSystemExplorableDescriptor =====
   void RegisterExplorableAxes(ParamSpaceExplorer& explorer) override;

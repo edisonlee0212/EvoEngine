@@ -88,8 +88,8 @@ class Physics2D {
    * @param func Function to call on user interaction with the editor UI.
    * @param draw_func Function to handle drawing operations in the editor.
    */
-  void OnInspect(const std::function<void(glm::vec2 position)>& func,
-                 const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func);
+  void DrawGui(const std::function<void(glm::vec2 position)>& func,
+               const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func);
 };
 
 template <typename T>
@@ -169,8 +169,8 @@ void Physics2D<T>::Simulate(const float time,
 }
 
 template <typename T>
-void Physics2D<T>::OnInspect(const std::function<void(glm::vec2 position)>& func,
-                             const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func) {
+void Physics2D<T>::DrawGui(const std::function<void(glm::vec2 position)>& func,
+                           const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func) {
   static auto scrolling = glm::vec2(0.0f);
   static float zoom_factor = 1.f;
   if (ImGui::Button("Recenter")) {

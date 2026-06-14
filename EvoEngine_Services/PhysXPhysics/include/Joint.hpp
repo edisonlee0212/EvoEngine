@@ -19,6 +19,8 @@ enum class MotionAxis { X = 0, Y = 1, Z = 2, TwistX = 3, SwingY = 4, SwingZ = 5 
 enum class MotionType { Locked = 0, Limited = 1, Free = 2 };
 enum class DriveType { X = 0, Y = 1, Z = 2, Swing = 3, Twist = 4, Slerp = 5 };
 class Joint : public IPrivateComponent {
+  friend void SerializeJoint(YAML::Emitter &out, const Joint &target);
+  friend void DeserializeJoint(const YAML::Node &in, Joint &target);
   JointType joint_type_ = JointType::Fixed;
   friend class PhysicsLayer;
   PxJoint *joint_;
@@ -87,13 +89,10 @@ class Joint : public IPrivateComponent {
   void OnCreate() override;
 
   void Link(const Entity &entity, bool reverse = false);
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
   void OnDestroy() override;
 
   void Relink(const std::unordered_map<Handle, Handle> &map, const std::shared_ptr<Scene> &scene) override;
   void PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) override;
-
-  void Serialize(YAML::Emitter &out) const override;
-  void Deserialize(const YAML::Node &in) override;
 };
 }  // namespace evo_engine

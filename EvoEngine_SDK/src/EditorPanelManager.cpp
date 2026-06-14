@@ -79,12 +79,11 @@ void EditorPanelManager::ResetPanelOpenStatesToDefaults() {
   }
 }
 
-void EditorPanelManager::OnInspect(const EditorPanelCategory category,
-                                   const std::shared_ptr<EditorLayer>& editor_layer) {
+void EditorPanelManager::Draw(const EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer) {
   for (auto& panel : panels_) {
     SyncPanelOpenState(panel);
     if (panel.category == category && panel.open && *panel.open && panel.panel) {
-      panel.panel->OnInspect(editor_layer);
+      panel.panel->Draw(editor_layer);
       SyncPanelOpenState(panel);
     }
   }

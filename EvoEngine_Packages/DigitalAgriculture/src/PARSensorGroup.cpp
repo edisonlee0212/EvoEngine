@@ -3,7 +3,8 @@
 //
 #include <Jobs.hpp>
 #ifdef CUDA_MODULE_SERVICE
-#  include "PARSensorGroup.hpp"
+#  include "DigitalAgricultureInspectionAdapters.hpp"
+#  include "DigitalAgricultureSerializationAdapters.hpp"
 #  include "Platform.hpp"
 #  include "RayTracerLayer.hpp"
 
@@ -16,7 +17,9 @@ void digital_agriculture_package::PARSensorGroup::CalculateIllumination(const Ra
       ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, ray_properties, samplers, seed,
       push_normal_distance);
 }
-bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectPARSensorGroup(InspectorContext& context, PARSensorGroup& group) {
+  const auto& editor_layer = context.editor_layer;
+  auto& samplers = group.samplers;
   bool changed = false;
   ImGui::Text("Sampler size: %llu", samplers.size());
   if (ImGui::TreeNode("Grid settings")) {
@@ -53,9 +56,9 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   if (ImGui::TreeNode("Estimation")) {
     static RayProperties ray_properties = {8, 1000};
-    ray_properties.OnInspect();
+    ray_properties.DrawGui();
     if (ImGui::Button("Run!"))
-      CalculateIllumination(ray_properties, 0, 0.0f);
+      group.CalculateIllumination(ray_properties, 0, 0.0f);
     ImGui::TreePop();
   }
   static bool draw = true;
@@ -100,18 +103,18 @@ bool PARSensorGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
   return changed;
 }
-void PARSensorGroup::Serialize(YAML::Emitter& out) const {
-  if (!samplers.empty()) {
+void digital_agriculture_package::SerializePARSensorGroup(YAML::Emitter& out, const PARSensorGroup& target) {
+  if (!target.samplers.empty()) {
     out << YAML::Key << "samplers" << YAML::Value
-        << YAML::Binary((const unsigned char*)samplers.data(),
-                        samplers.size() * sizeof(IlluminationSampler<glm::vec3>));
+        << YAML::Binary((const unsigned char*)target.samplers.data(),
+                        target.samplers.size() * sizeof(IlluminationSampler<glm::vec3>));
   }
 }
-void PARSensorGroup::Deserialize(const YAML::Node& in) {
+void digital_agriculture_package::DeserializePARSensorGroup(const YAML::Node& in, PARSensorGroup& target) {
   if (in["samplers"]) {
     const auto binary_list = in["samplers"].as<YAML::Binary>();
-    samplers.resize(binary_list.size() / sizeof(IlluminationSampler<glm::vec3>));
-    std::memcpy(samplers.data(), binary_list.data(), binary_list.size());
+    target.samplers.resize(binary_list.size() / sizeof(IlluminationSampler<glm::vec3>));
+    std::memcpy(target.samplers.data(), binary_list.data(), binary_list.size());
   }
 }
 #endif

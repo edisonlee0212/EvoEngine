@@ -2,7 +2,6 @@
 
 #include "Application.hpp"
 #include "Camera.hpp"
-#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Mesh.hpp"
@@ -12,31 +11,28 @@
 #include "Shader.hpp"
 using namespace evo_engine;
 
-bool ScreenSpaceAmbientOcclusion::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
+void ScreenSpaceAmbientOcclusion::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "avoid_distance" << YAML::Value << avoid_distance;
+  out << YAML::Key << "kernel_size" << YAML::Value << kernel_size;
+  out << YAML::Key << "radius" << YAML::Value << radius;
+  out << YAML::Key << "bias" << YAML::Value << bias;
+  out << YAML::Key << "factor" << YAML::Value << factor;
+  out << YAML::Key << "intensity" << YAML::Value << intensity;
+}
 
-  if (ImGui::DragInt("Kernel size", &kernel_size, 1, 1, 64)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Disk radius", &radius, 0.001f, 0.0f, 10.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Bias", &bias, 0.001f, 0.0f, 1.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Factor", &factor, 0.01f, 0.0f, 5.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Intensity", &intensity, 0.01f, 0.0f, 5.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Avoid distance", &avoid_distance, 0.1f, 0.0f, 100.f)) {
-    changed = true;
-  }
-  if (ImGui::Button("Rebuild pipelines")) {
-    BuildPipelines();
-  }
-  return changed;
+void ScreenSpaceAmbientOcclusion::Deserialize(const YAML::Node& in) {
+  if (in["avoid_distance"])
+    avoid_distance = in["avoid_distance"].as<float>();
+  if (in["kernel_size"])
+    kernel_size = in["kernel_size"].as<int>();
+  if (in["radius"])
+    radius = in["radius"].as<float>();
+  if (in["bias"])
+    bias = in["bias"].as<float>();
+  if (in["factor"])
+    factor = in["factor"].as<float>();
+  if (in["intensity"])
+    intensity = in["intensity"].as<float>();
 }
 
 void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,

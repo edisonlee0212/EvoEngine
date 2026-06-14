@@ -89,7 +89,7 @@ class DynamicSkeleton {
      * @param editor_layer The editor layer reference.
      * @return True if the asset's content is not modified.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
@@ -111,7 +111,7 @@ class DynamicSkeleton {
      * @param editor_layer The editor layer reference.
      * @return True if the asset's content is not modified.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
@@ -123,7 +123,7 @@ class DynamicSkeleton {
      * @param editor_layer The editor layer reference.
      * @return True if the asset's content is not modified.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**

@@ -3,10 +3,11 @@
 //
 #include "SorghumGrowthStages.hpp"
 #include "Application.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
 #include "Sorghum.hpp"
-#include "SorghumGrowthStages.hpp"
 #include "SorghumLayer.hpp"
 #include "Times.hpp"
 #include "Utilities.hpp"
@@ -313,9 +314,13 @@ void SorghumGrowthStagePair::ApplyStem(const std::shared_ptr<SorghumDescriptor>&
   }
 }
 
-bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectSorghumGrowthStages(InspectorContext& context,
+                                                             SorghumGrowthStages& growth_stages) {
+  (void)context;
+  auto& sorghum_growth_stages = growth_stages.sorghum_growth_stages;
+  auto& state_mode = growth_stages.state_mode;
   if (ImGui::Button("Instantiate")) {
-    auto entity = CreateEntity();
+    auto entity = growth_stages.CreateEntity();
   }
   static bool auto_save = false;
   ImGui::Checkbox("Auto save", &auto_save);
@@ -336,13 +341,13 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
     } else if (last_auto_save_time + auto_save_interval < ApplicationContext::Get().GetTimes().Now()) {
       last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
-      if (!saved_) {
-        Save();
-        EVOENGINE_LOG(GetTypeName() + " autosaved!");
+      if (!growth_stages.Saved()) {
+        growth_stages.Save();
+        EVOENGINE_LOG(growth_stages.GetTypeName() + " autosaved!");
       }
     }
   }
-  if (!saved_) {
+  if (!growth_stages.Saved()) {
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
     ImGui::Text("[Changed unsaved!]");
     ImGui::PopStyleColor();
@@ -350,8 +355,8 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
   bool changed = false;
   FileUtils::OpenFile(
       "Import CSV", "CSV", {".csv", ".CSV"},
-      [&](const std::filesystem::path& path) {
-        changed = ImportCsv(path);
+      [&growth_stages, &changed](const std::filesystem::path& path) {
+        changed = growth_stages.ImportCsv(path);
       },
       false);
   static const char* state_modes[]{"Default", "Cubic-Bezier"};
@@ -364,9 +369,9 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       if (ImGui::Button("New start state")) {
         changed = true;
         if (sorghum_growth_stages.empty()) {
-          Add(0.0f, SorghumState());
+          growth_stages.Add(0.0f, SorghumState());
         } else {
-          Add(0.0f, sorghum_growth_stages.begin()->second);
+          growth_stages.Add(0.0f, sorghum_growth_stages.begin()->second);
         }
       }
     }
@@ -425,7 +430,7 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
           }
         }
 
-        if (it->second.OnInspectImpl(state_mode)) {
+        if (DrawSorghumStateGui(it->second, state_mode)) {
           changed = true;
         }
 
@@ -439,7 +444,7 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
       if (ImGui::Button("New end state")) {
         changed = true;
         const float end_time = (--sorghum_growth_stages.end())->first;
-        Add(end_time + 0.01f, (--sorghum_growth_stages.end())->second);
+        growth_stages.Add(end_time + 0.01f, (--sorghum_growth_stages.end())->second);
       }
       ImGui::SameLine();
       if (ImGui::Button("Remove end state")) {
@@ -472,27 +477,27 @@ bool SorghumGrowthStages::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
   return changed;
 }
 
-void SorghumGrowthStages::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "state_mode" << YAML::Value << state_mode;
+void digital_agriculture_package::SerializeSorghumGrowthStages(YAML::Emitter& out, const SorghumGrowthStages& target) {
+  out << YAML::Key << "state_mode" << YAML::Value << target.state_mode;
   out << YAML::Key << "sorghum_growth_stages" << YAML::Value << YAML::BeginSeq;
-  for (auto& state : sorghum_growth_stages) {
+  for (auto& state : target.sorghum_growth_stages) {
     out << YAML::BeginMap;
     out << YAML::Key << "Time" << YAML::Value << state.first;
-    state.second.Serialize(out);
+    SerializeSorghumState(out, state.second);
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
 }
 
-void SorghumGrowthStages::Deserialize(const YAML::Node& in) {
+void digital_agriculture_package::DeserializeSorghumGrowthStages(const YAML::Node& in, SorghumGrowthStages& target) {
   if (in["state_mode"])
-    state_mode = in["state_mode"].as<int>();
+    target.state_mode = in["state_mode"].as<int>();
   if (in["sorghum_growth_stages"]) {
-    sorghum_growth_stages.clear();
+    target.sorghum_growth_stages.clear();
     for (const auto& in_state : in["sorghum_growth_stages"]) {
       SorghumState state;
-      state.Deserialize(in_state);
-      sorghum_growth_stages.emplace_back(in_state["Time"].as<float>(), state);
+      DeserializeSorghumState(in_state, state);
+      target.sorghum_growth_stages.emplace_back(in_state["Time"].as<float>(), state);
     }
   }
 }

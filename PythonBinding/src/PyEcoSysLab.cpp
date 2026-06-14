@@ -1,9 +1,28 @@
 #include "PyEcoSysLab.hpp"
 #include "PyEvoEngine.hpp"
+#include "Serialization.hpp"
+
+#if DATASET_GENERATION_PACKAGE
+#  include "DatasetGenerationSerializationAdapters.hpp"
+#endif
 
 #ifdef ECOSYSLAB_PACKAGE
 namespace py = pybind11;
 using namespace py_eco_sys_lab_package;
+
+namespace {
+template <typename T>
+void RegisterSerializationHandler(const std::string& type_name) {
+  Serialization::RegisterSerializationHandler<T>(
+      [](YAML::Emitter& out, const T& target) {
+        target.Serialize(out);
+      },
+      [](const YAML::Node& in, T& target) {
+        target.Deserialize(in);
+      },
+      {}, type_name);
+}
+}  // namespace
 
 #endif
 void PyEcoSysLab::PushEcoSysLabLayer() {
@@ -16,6 +35,9 @@ void PyEcoSysLab::RegisterClasses() {
   application.RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo");
   application.RegisterPrivateComponent<ParticlePhysics2DDemo>("ParticlePhysics2DDemo");
   application.RegisterPrivateComponent<TreePointCloudScanner>("TreePointCloudScanner");
+  RegisterSerializationHandler<ObjectRotator>("ObjectRotator");
+  Serialization::RegisterSerializationHandler<TreePointCloudScanner>(
+      SerializeTreePointCloudScanner, DeserializeTreePointCloudScanner, {}, "TreePointCloudScanner");
 #endif
 }
 void PyEcoSysLab::Initialize(pybind11::module& m) {

@@ -19,10 +19,6 @@ class BasicPointCloudScanner : public IPrivateComponent {
 
   void Scan();
 
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
-
-  void Serialize(YAML::Emitter &out) const override;
-
-  void Deserialize(const YAML::Node &in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
 };
 }  // namespace evo_engine

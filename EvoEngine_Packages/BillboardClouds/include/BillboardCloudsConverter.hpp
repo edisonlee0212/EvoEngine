@@ -4,8 +4,5 @@
 
 namespace billboard_clouds_package {
 using namespace evo_engine;
-class BillboardCloudsConverter : public IPrivateComponent {
- public:
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-};
+class BillboardCloudsConverter : public IPrivateComponent {};
 }  // namespace billboard_clouds_package

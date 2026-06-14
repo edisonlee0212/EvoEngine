@@ -1,8 +1,9 @@
 #include "BasicBarkDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 using namespace eco_sys_lab_package;
 
-bool BasicBarkDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BasicBarkDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Bark X Frequency", &bark_x_frequency, 0.1f, 0.0f, 100.0f))
     changed = true;
@@ -39,33 +40,33 @@ float BasicBarkDescriptor::GetValue(const float x_factor, const float distance_t
   return bark + base;
 }
 
-void BasicBarkDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "bark_x_frequency" << YAML::Value << bark_x_frequency;
-  out << YAML::Key << "bark_y_frequency" << YAML::Value << bark_y_frequency;
-  out << YAML::Key << "bark_depth" << YAML::Value << bark_depth;
-  out << YAML::Key << "base_frequency" << YAML::Value << base_frequency;
-  out << YAML::Key << "base_max_distance" << YAML::Value << base_max_distance;
-  out << YAML::Key << "base_distance_decrease_factor" << YAML::Value << base_distance_decrease_factor;
-  out << YAML::Key << "base_depth" << YAML::Value << base_depth;
-  bark_material_ref.Save("bark_material_ref", out);
+void eco_sys_lab_package::SerializeBasicBarkDescriptor(YAML::Emitter& out, const BasicBarkDescriptor& target) {
+  out << YAML::Key << "bark_x_frequency" << YAML::Value << target.bark_x_frequency;
+  out << YAML::Key << "bark_y_frequency" << YAML::Value << target.bark_y_frequency;
+  out << YAML::Key << "bark_depth" << YAML::Value << target.bark_depth;
+  out << YAML::Key << "base_frequency" << YAML::Value << target.base_frequency;
+  out << YAML::Key << "base_max_distance" << YAML::Value << target.base_max_distance;
+  out << YAML::Key << "base_distance_decrease_factor" << YAML::Value << target.base_distance_decrease_factor;
+  out << YAML::Key << "base_depth" << YAML::Value << target.base_depth;
+  target.bark_material_ref.Save("bark_material_ref", out);
 }
 
-void BasicBarkDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeBasicBarkDescriptor(const YAML::Node& in, BasicBarkDescriptor& target) {
   if (in["bark_x_frequency"])
-    bark_x_frequency = in["bark_x_frequency"].as<float>();
+    target.bark_x_frequency = in["bark_x_frequency"].as<float>();
   if (in["bark_y_frequency"])
-    bark_y_frequency = in["bark_y_frequency"].as<float>();
+    target.bark_y_frequency = in["bark_y_frequency"].as<float>();
   if (in["bark_depth"])
-    bark_depth = in["bark_depth"].as<float>();
+    target.bark_depth = in["bark_depth"].as<float>();
   if (in["base_frequency"])
-    base_frequency = in["base_frequency"].as<float>();
+    target.base_frequency = in["base_frequency"].as<float>();
   if (in["base_max_distance"])
-    base_max_distance = in["base_max_distance"].as<float>();
+    target.base_max_distance = in["base_max_distance"].as<float>();
   if (in["base_distance_decrease_factor"])
-    base_distance_decrease_factor = in["base_distance_decrease_factor"].as<float>();
+    target.base_distance_decrease_factor = in["base_distance_decrease_factor"].as<float>();
   if (in["base_depth"])
-    base_depth = in["base_depth"].as<float>();
-  bark_material_ref.Load("bark_material_ref", in);
+    target.base_depth = in["base_depth"].as<float>();
+  target.bark_material_ref.Load("bark_material_ref", in);
 }
 
 void BasicBarkDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {

@@ -114,13 +114,6 @@ class SorghumLayer : public ILayer {
   void GenerateMeshForAllSorghums(const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) const;
 
   /**
-   * @brief Renders the inspection UI for this layer in the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if the asset's content is not modified during inspection.
-   */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Called every frame to update the layer.
    */
   void Update() override;

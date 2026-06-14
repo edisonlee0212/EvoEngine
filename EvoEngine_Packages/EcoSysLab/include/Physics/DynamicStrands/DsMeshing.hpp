@@ -35,7 +35,7 @@ class DsMeshing {
 
   virtual void UpdateBindings() const = 0;
 
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) = 0;
+  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) = 0;
 
   virtual void Stats(const std::shared_ptr<EditorLayer>& editor_layer);
 

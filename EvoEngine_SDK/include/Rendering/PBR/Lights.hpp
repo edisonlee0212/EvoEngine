@@ -45,25 +45,6 @@ class DirectionalLight : public IPrivateComponent {
   void OnCreate() override;
 
   /**
-   * @brief Renders the light object in the editor's inspector.
-   * @param editor_layer The editor layer pointer.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the directional light to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the directional light from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Performs actions necessary after cloning the component.
    * @param target The cloned component to operate on.
    */
@@ -108,28 +89,9 @@ class PointLight : public IPrivateComponent {
   float shadow_distance = 100.f;       /**< Maximum shadow draw distance. */
 
   /**
-   * @brief Renders the light object in the editor's inspector.
-   * @param editor_layer The editor layer pointer.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Called when the component is created.
    */
   void OnCreate() override;
-
-  /**
-   * @brief Serializes the point light to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the point light from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Gets the far plane distance for shadow mapping.
@@ -185,28 +147,9 @@ class SpotLight : public IPrivateComponent {
   float shadow_distance = 100.f;       /**< Maximum shadow draw distance. */
 
   /**
-   * @brief Renders the light object in the editor's inspector.
-   * @param editor_layer The editor layer pointer.
-   * @return True if the inspection was successful, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Called when the component is created.
    */
   void OnCreate() override;
-
-  /**
-   * @brief Serializes the spotlight to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the spotlight from a YAML node.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Gets the far plane distance for shadow mapping.

@@ -36,7 +36,7 @@ class SpatialPlantDistributionSimulator : public IPrivateComponent {
    * @param func The function to execute when a plant position is selected.
    * @param drawFunc The function to handle rendering overlays.
    */
-  static void OnInspectSpatialPlantDistributionFunction(
+  static void DrawSpatialPlantDistributionFunctionGui(
       const SpatialPlantDistribution& spatialPlantDistribution, const std::function<void(glm::vec2 position)>& func,
       const std::function<void(ImVec2 origin, float zoomFactor, ImDrawList*)>& drawFunc);
 
@@ -49,7 +49,7 @@ class SpatialPlantDistributionSimulator : public IPrivateComponent {
    * @param editorLayer The editor environment calling this inspection.
    * @return true if no modifications were made, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer);
 
   /**
    * @brief Performs a fixed time-step update for the simulation.

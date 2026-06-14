@@ -5,7 +5,7 @@ using namespace evo_engine;
 // TAKEN FROM (with much cleaning + tweaking):
 // https://github.com/nem0/LumixEngine/blob/39e46c18a58111cc3c8c10a4d5ebbb614f19b1b8/external/imgui/imgui_user.inl#L505-L930
 
-bool Curve2D::OnInspect(const std::string& label, const ImVec2& editor_size, unsigned flags) {
+bool Curve2D::Draw(const std::string& label, const ImVec2& editor_size, unsigned flags) {
   enum class StorageValues : ImGuiID { FromX = 100, FromY, Width, Height, IsPanning, PointStartX, PointStartY };
   int changed_idx = -1;
   bool changed = false;

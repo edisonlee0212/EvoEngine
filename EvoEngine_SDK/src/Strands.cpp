@@ -9,6 +9,7 @@
 #include "Jobs.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Serialization.hpp"
 using namespace evo_engine;
 
 void StrandPointAttributes::Serialize(YAML::Emitter& out) const {
@@ -30,7 +31,15 @@ std::vector<StrandPoint>& Strands::UnsafeGetStrandPoints() {
   return strand_points_;
 }
 
+const std::vector<StrandPoint>& Strands::PeekStrandPoints() const {
+  return strand_points_;
+}
+
 std::vector<glm::uint>& Strands::UnsafeGetSegments() {
+  return segment_raw_indices_;
+}
+
+const std::vector<glm::uint>& Strands::PeekSegments() const {
   return segment_raw_indices_;
 }
 
@@ -147,7 +156,7 @@ std::vector<glm::uint> BuildSegmentRawIndicesFromStrands(const std::vector<glm::
 
 bool Strands::LoadInternal(const std::filesystem::path& path) {
   if (path.extension() == ".evestrands") {
-    return IAsset::LoadInternal(path);
+    return Serialization::LoadAssetFromYaml(*this, path);
   }
   if (path.extension() == ".hair") {
     try {
@@ -357,39 +366,22 @@ bool Strands::ApplyStagedPayloadInternal(const std::filesystem::path&,
   return true;
 }
 
-bool Strands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text(("Point size: " + std::to_string(strand_points_.size())).c_str());
-  return changed;
-}
-
-void Strands::Serialize(YAML::Emitter& out) const {
-  if (!segment_raw_indices_.empty() && !strand_points_.empty()) {
-    out << YAML::Key << "segment_raw_indices_" << YAML::Value
-        << YAML::Binary((const unsigned char*)segment_raw_indices_.data(),
-                        segment_raw_indices_.size() * sizeof(glm::uint));
-
-    out << YAML::Key << "strand_points_" << YAML::Value
-        << YAML::Binary((const unsigned char*)strand_points_.data(), strand_points_.size() * sizeof(StrandPoint));
-  }
-}
-
-void Strands::Deserialize(const YAML::Node& in) {
-  if (in["segment_raw_indices_"] && in["strand_points_"]) {
-    const auto& segment_data = in["segment_raw_indices_"].as<YAML::Binary>();
-    segment_raw_indices_.resize(segment_data.size() / sizeof(glm::uint));
-    std::memcpy(segment_raw_indices_.data(), segment_data.data(), segment_data.size());
-
-    const auto& point_data = in["strand_points_"].as<YAML::Binary>();
-    strand_points_.resize(point_data.size() / sizeof(StrandPoint));
-    std::memcpy(strand_points_.data(), point_data.data(), point_data.size());
-
-    StrandPointAttributes strand_point_attributes{};
-    strand_point_attributes.tex_coord = true;
-    strand_point_attributes.color = true;
-    strand_point_attributes.normal = true;
-    PrepareStrands(strand_point_attributes);
-  }
+bool Strands::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<Strands>(
+      {},
+      [](Strands& asset, const std::filesystem::path& path) {
+        return asset.LoadInternal(path);
+      },
+      [](const Strands& asset, const std::filesystem::path& path) {
+        return asset.SupportsStagedLoading(path);
+      },
+      [](const Strands& asset, const std::filesystem::path& path) {
+        return asset.LoadStagedPayloadInternal(path);
+      },
+      [](Strands& asset, const std::filesystem::path& path, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return asset.ApplyStagedPayloadInternal(path, payload);
+      },
+      owner_name, type_name);
 }
 
 void Strands::OnCreate() {

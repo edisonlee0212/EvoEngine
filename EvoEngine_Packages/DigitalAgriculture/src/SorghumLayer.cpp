@@ -5,7 +5,10 @@
 #endif
 #include <SorghumLayer.hpp>
 #include "Application.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 #include "Platform.hpp"
+#include "Serialization.hpp"
 #include "SkyIlluminance.hpp"
 #include "SorghumGenerator.hpp"
 #include "Times.hpp"
@@ -21,6 +24,48 @@
 using namespace digital_agriculture_package;
 using namespace evo_engine;
 
+namespace {
+template <typename T>
+void RegisterAssetPreviewHandler(const std::string& type_name) {
+  Serialization::RegisterAssetPreviewHandler<T>(
+      [](const std::shared_ptr<T>& asset, const OffscreenPreviewSettings&) {
+        return asset ? asset->GenerateThumbnailTexture() : nullptr;
+      },
+      {}, type_name);
+}
+
+void RegisterDigitalAgricultureAssetPreviewHandlers() {
+  RegisterAssetPreviewHandler<SorghumDescriptor>("SorghumDescriptor");
+  RegisterAssetPreviewHandler<SorghumGrowthStages>("SorghumGrowthStages");
+  RegisterAssetPreviewHandler<SorghumState>("SorghumState");
+  RegisterAssetPreviewHandler<SorghumGenerator>("SorghumGenerator");
+  RegisterAssetPreviewHandler<SorghumField>("SorghumField");
+}
+
+void RegisterDigitalAgricultureSerializationHandlers() {
+  Serialization::RegisterSerializationHandler<SorghumDescriptor>(SerializeSorghumDescriptor,
+                                                                 DeserializeSorghumDescriptor, {}, "SorghumDescriptor");
+  Serialization::RegisterSerializationHandler<Sorghum>(SerializeSorghum, DeserializeSorghum, {}, "Sorghum");
+  Serialization::RegisterSerializationHandler<SorghumGrowthStages>(
+      SerializeSorghumGrowthStages, DeserializeSorghumGrowthStages, {}, "SorghumGrowthStages");
+  Serialization::RegisterSerializationHandler<SorghumState>(SerializeSorghumState, DeserializeSorghumState, {},
+                                                            "SorghumState");
+  Serialization::RegisterSerializationHandler<SorghumGenerator>(SerializeSorghumGenerator, DeserializeSorghumGenerator,
+                                                                {}, "SorghumGenerator");
+  Serialization::RegisterSerializationHandler<SorghumField>(SerializeSorghumField, DeserializeSorghumField, {},
+                                                            "SorghumField");
+#ifdef CUDA_MODULE_SERVICE
+  Serialization::RegisterSerializationHandler<PARSensorGroup>(SerializePARSensorGroup, DeserializePARSensorGroup, {},
+                                                              "PARSensorGroup");
+  Serialization::RegisterSerializationHandler<CBTFGroup>(SerializeCBTFGroup, DeserializeCBTFGroup, {}, "CBTFGroup");
+#endif
+  Serialization::RegisterSerializationHandler<SkyIlluminance>(SerializeSkyIlluminance, DeserializeSkyIlluminance, {},
+                                                              "SkyIlluminance");
+  Serialization::RegisterSerializationHandler<SorghumCoordinates>(
+      SerializeSorghumCoordinates, DeserializeSorghumCoordinates, {}, "SorghumCoordinates");
+}
+}  // namespace
+
 void SorghumLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<SorghumDescriptor>("SorghumDescriptor", {".sorghum"});
   application.RegisterPrivateComponent<Sorghum>("Sorghum");
@@ -34,6 +79,8 @@ void SorghumLayer::RegisterTypes(Application& application) {
 #endif
   application.RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"});
   application.RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"});
+  RegisterDigitalAgricultureSerializationHandlers();
+  RegisterDigitalAgricultureAssetPreviewHandlers();
 }
 
 void SorghumLayer::OnCreate() {
@@ -86,19 +133,46 @@ void SorghumLayer::GenerateMeshForAllSorghums(
   }
 }
 
-void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  const auto scene = GetScene();
+bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context, SorghumLayer& layer) {
+  const auto& editor_layer = context.editor_layer;
+  auto& enable_compressed_btf = layer.enable_compressed_btf;
+  auto& sorghum_mesh_generator_settings = layer.sorghum_mesh_generator_settings;
+  auto& leaf_albedo_texture = layer.leaf_albedo_texture;
+  auto& leaf_normal_texture = layer.leaf_normal_texture;
+  auto& leaf_material = layer.leaf_material;
+  auto& vertical_subdivision_length = layer.vertical_subdivision_length;
+  auto& horizontal_subdivision_step = layer.horizontal_subdivision_step;
+  auto& skeleton_width = layer.skeleton_width;
+  auto& skeleton_color = layer.skeleton_color;
+#ifdef CUDA_MODULE_SERVICE
+  auto& m_seed = layer.m_seed;
+  auto& push_distance = layer.push_distance;
+  auto& ray_properties = layer.ray_properties;
+  auto& leaf_cbtf_group = layer.leaf_cbtf_group;
+  auto& processing = layer.processing;
+  auto& processing_index = layer.processing_index;
+  auto& processing_entities = layer.processing_entities;
+  auto& per_plant_calculation_time = layer.per_plant_calculation_time;
+#endif
+  const auto window_title = layer.GetLayerName();
+  bool open = layer.enable_inspection;
+  if (!ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::End();
+    layer.enable_inspection = open;
+    return false;
+  }
+  const auto scene = layer.GetScene();
 #ifdef CUDA_MODULE_SERVICE
   if (ImGui::TreeNodeEx("Illumination Estimation")) {
     ImGui::DragInt("Seed", &m_seed);
     ImGui::DragFloat("Push distance along normal", &push_distance, 0.0001f, -1.0f, 1.0f, "%.5f");
-    ray_properties.OnInspect();
+    ray_properties.DrawGui();
 
     if (ImGui::Button("Calculate illumination")) {
-      CalculateIlluminationFrameByFrame();
+      layer.CalculateIlluminationFrameByFrame();
     }
     if (ImGui::Button("Calculate illumination instantly")) {
-      CalculateIllumination();
+      layer.CalculateIllumination();
     }
 
     static bool show_probes = false;
@@ -152,9 +226,9 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 #endif
   ImGui::Separator();
-  sorghum_mesh_generator_settings.OnInspect(editor_layer);
+  DrawSorghumMeshGeneratorSettingsGui(sorghum_mesh_generator_settings);
   if (ImGui::Button("Generate mesh for all sorghums")) {
-    GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
+    layer.GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);
   }
   if (ImGui::DragFloat("Vertical subdivision max unit length", &vertical_subdivision_length, 0.001f, 0.001f, 1.0f,
                        "%.4f")) {
@@ -208,8 +282,8 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   FileUtils::SaveFile(
       "Export OBJ for all sorghums", "3D Model", {".obj"},
-      [this](const std::filesystem::path& path) {
-        ExportAllSorghumsModel(path.string());
+      [&layer](const std::filesystem::path& path) {
+        layer.ExportAllSorghumsModel(path.string());
       },
       false);
 
@@ -236,6 +310,9 @@ void SorghumLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::EndPopup();
   }
 #endif
+  ImGui::End();
+  layer.enable_inspection = open;
+  return false;
 }
 
 void SorghumLayer::ExportSorghum(const Entity& sorghum, std::ofstream& of, unsigned& start_index) {

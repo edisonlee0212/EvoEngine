@@ -2,6 +2,7 @@
 
 #include "Application.hpp"
 #include "Times.hpp"
+#include "UniverseInspectionAdapters.hpp"
 
 using namespace universe_package;
 
@@ -18,27 +19,39 @@ void UniverseLayer::RegisterTypes(Application &application) {
   application.RegisterDataComponent<StarClusterIndex>("StarClusterIndex");
 }
 
-void UniverseLayer::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
-  ImGui::Checkbox("Cast shadow", &cast_shadow);
+namespace {
+void DrawStarClusterPatternGui(StarClusterPattern &pattern);
+}
 
-  editor_layer->DragAndDropButton<Material>(star_material_ref, "Star material");
+bool universe_package::InspectUniverseLayer(InspectorContext &context, UniverseLayer &layer) {
+  const auto &editor_layer = context.editor_layer;
+  const auto window_title = layer.GetLayerName();
+  bool open = layer.enable_inspection;
+  if (!ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::End();
+    layer.enable_inspection = open;
+    return false;
+  }
+  ImGui::Checkbox("Cast shadow", &layer.cast_shadow);
 
-  ImGui::InputFloat("Time", &galaxy_time_);
+  editor_layer->DragAndDropButton<Material>(layer.star_material_ref, "Star material");
+
+  ImGui::InputFloat("Time", &layer.galaxy_time_);
   static int amount = 10000;
   ImGui::DragInt("Amount", &amount, 1, 1, 100000);
   if (amount < 1)
     amount = 1;
   if (ImGui::CollapsingHeader("Star clusters", ImGuiTreeNodeFlags_DefaultOpen)) {
     int i = 0;
-    for (auto &pattern : star_cluster_patterns_) {
+    for (auto &pattern : layer.star_cluster_patterns_) {
       i++;
       if (ImGui::TreeNodeEx((std::to_string(i) + ": " + pattern.name).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::TreeNodeEx("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-          pattern.OnInspect();
+          DrawStarClusterPatternGui(pattern);
           ImGui::TreePop();
         }
         if (ImGui::Button(("Add " + std::to_string(amount) + " stars").c_str())) {
-          PushStars(pattern, amount);
+          layer.PushStars(pattern, amount);
         }
         ImGui::TreePop();
       }
@@ -46,18 +59,21 @@ void UniverseLayer::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) 
   }
   if (ImGui::CollapsingHeader("Star removal", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Button(("Remove " + std::to_string(amount) + " stars").c_str()))
-      RandomlyRemoveStars(amount);
+      layer.RandomlyRemoveStars(amount);
     if (ImGui::Button("Remove all stars"))
-      ClearAllStars();
+      layer.ClearAllStars();
   }
   if (ImGui::CollapsingHeader("Start time control", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragFloat("Speed", &speed_, 1.0f, 0.0f, 40000.0f);
-    ImGui::DragFloat("Star Size", &size_, 0.01f, 0.01f, 10.0f);
+    ImGui::DragFloat("Speed", &layer.speed_, 1.0f, 0.0f, 40000.0f);
+    ImGui::DragFloat("Star Size", &layer.size_, 0.01f, 0.01f, 10.0f);
   }
   ImGui::Text("Status:");
-  ImGui::InputFloat("Apply time", &apply_position_timer_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
-  ImGui::InputFloat("Copy time", &copy_position_timer_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
-  ImGui::InputFloat("Calculation time", &calc_position_result_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
+  ImGui::InputFloat("Apply time", &layer.apply_position_timer_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
+  ImGui::InputFloat("Copy time", &layer.copy_position_timer_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
+  ImGui::InputFloat("Calculation time", &layer.calc_position_result_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
+  ImGui::End();
+  layer.enable_inspection = open;
+  return false;
 }
 
 void UniverseLayer::OnCreate() {
@@ -268,64 +284,65 @@ void UniverseLayer::ApplyPosition() {
   apply_position_timer_ = ApplicationContext::Get().GetTimes().Now() - apply_position_timer_;
 }
 
-void StarClusterPattern::OnInspect() {
+namespace {
+void DrawStarClusterPatternGui(StarClusterPattern &pattern) {
   static bool auto_apply = true;
   ImGui::Checkbox("Auto apply", &auto_apply);
   if (!auto_apply && ImGui::Button("Apply"))
-    Apply();
+    pattern.Apply();
   bool need_update = false;
-  float y_spread = this->y_spread;
-  float xz_spread = this->xz_spread;
-  float disk_diameter = this->disk_diameter;
-  float disk_eccentricity = this->disk_eccentricity;
-  float core_proportion = this->core_proportion;
-  float core_eccentricity = this->core_eccentricity;
-  float center_diameter = this->center_diameter;
-  float center_eccentricity = this->center_eccentricity;
-  float disk_speed = this->disk_speed;
-  float core_speed = this->core_speed;
-  float center_speed = this->center_speed;
-  float disk_tilt_x = this->disk_tilt_x;
-  float disk_tilt_z = this->disk_tilt_z;
-  float core_tilt_x = this->core_tilt_x;
-  float core_tilt_z = this->core_tilt_z;
-  float center_tilt_x = this->center_tilt_x;
-  float center_tilt_z = this->center_tilt_z;
-  float twist = this->twist;
-  glm::vec3 center_offset = this->center_offset;
-  glm::vec3 center_position = this->center_position;
+  float y_spread = pattern.y_spread;
+  float xz_spread = pattern.xz_spread;
+  float disk_diameter = pattern.disk_diameter;
+  float disk_eccentricity = pattern.disk_eccentricity;
+  float core_proportion = pattern.core_proportion;
+  float core_eccentricity = pattern.core_eccentricity;
+  float center_diameter = pattern.center_diameter;
+  float center_eccentricity = pattern.center_eccentricity;
+  float disk_speed = pattern.disk_speed;
+  float core_speed = pattern.core_speed;
+  float center_speed = pattern.center_speed;
+  float disk_tilt_x = pattern.disk_tilt_x;
+  float disk_tilt_z = pattern.disk_tilt_z;
+  float core_tilt_x = pattern.core_tilt_x;
+  float core_tilt_z = pattern.core_tilt_z;
+  float center_tilt_x = pattern.center_tilt_x;
+  float center_tilt_z = pattern.center_tilt_z;
+  float twist = pattern.twist;
+  glm::vec3 center_offset = pattern.center_offset;
+  glm::vec3 center_position = pattern.center_position;
   if (ImGui::TreeNode("Shape")) {
     if (ImGui::DragFloat("Y Spread", &y_spread, 0.001f, 0.0f, 1.0f, "%.3f")) {
-      this->y_spread = y_spread;
+      pattern.y_spread = y_spread;
       need_update = true;
     }
     if (ImGui::DragFloat("XZ Spread", &xz_spread, 0.001f, 0.0f, 1.0f, "%.3f")) {
-      this->xz_spread = xz_spread;
+      pattern.xz_spread = xz_spread;
       need_update = true;
     }
 
     if (ImGui::DragFloat("Disk size", &disk_diameter, 1.0f, 1.0f, 10000.0f)) {
-      this->disk_diameter = disk_diameter;
+      pattern.disk_diameter = disk_diameter;
       need_update = true;
     }
     if (ImGui::DragFloat("Disk eccentricity", &disk_eccentricity, 0.01f, 0.0f, 1.0f)) {
-      this->disk_eccentricity = disk_eccentricity;
+      pattern.disk_eccentricity = disk_eccentricity;
       need_update = true;
     }
     if (ImGui::DragFloat("Core proportion", &core_proportion, 0.01f, 0.0f, 1.0f)) {
-      this->core_proportion = core_proportion;
+      pattern.core_proportion = core_proportion;
       need_update = true;
     }
     if (ImGui::DragFloat("Core eccentricity", &core_eccentricity, 0.01f, 0, 1)) {
-      this->core_eccentricity = core_eccentricity;
+      pattern.core_eccentricity = core_eccentricity;
       need_update = true;
     }
     if (ImGui::DragFloat("Center size", &center_diameter, 1.0f, 0, 9999)) {
-      this->center_diameter = center_diameter;
+      pattern.center_diameter = center_diameter;
       need_update = true;
     }
     if (ImGui::DragFloat("Center eccentricity", &center_eccentricity, 0.01f, 0, 1)) {
-      this->center_eccentricity = center_eccentricity;
+      pattern.center_eccentricity = center_eccentricity;
       need_update = true;
     }
     ImGui::TreePop();
@@ -340,70 +357,71 @@ void StarClusterPattern::OnInspect() {
   }
   if (ImGui::TreeNode("Movement")) {
     if (ImGui::DragFloat("Disk speed", &disk_speed, 0.1f, -100, 100)) {
-      this->disk_speed = disk_speed;
+      pattern.disk_speed = disk_speed;
       need_update = true;
     }
     if (ImGui::DragFloat("Core speed", &core_speed, 0.1f, -100, 100)) {
-      this->core_speed = core_speed;
+      pattern.core_speed = core_speed;
       need_update = true;
     }
     if (ImGui::DragFloat("Center speed", &center_speed, 0.1f, -100, 100)) {
-      this->center_speed = center_speed;
+      pattern.center_speed = center_speed;
       need_update = true;
     }
     if (ImGui::DragFloat("Disk X tilt", &disk_tilt_x, 1.0f, -180.0f, 180.0f)) {
-      this->disk_tilt_x = disk_tilt_x;
+      pattern.disk_tilt_x = disk_tilt_x;
       need_update = true;
     }
     if (ImGui::DragFloat("Disk Z tilt", &disk_tilt_z, 1.0f, -180.0f, 180.0f)) {
-      this->disk_tilt_z = disk_tilt_z;
+      pattern.disk_tilt_z = disk_tilt_z;
       need_update = true;
     }
     if (ImGui::DragFloat("Core X tilt", &core_tilt_x, 1.0f, -180.0f, 180.0f)) {
-      this->core_tilt_x = core_tilt_x;
+      pattern.core_tilt_x = core_tilt_x;
       need_update = true;
     }
     if (ImGui::DragFloat("Core Z tilt", &core_tilt_z, 1.0f, -180.0f, 180.0f)) {
-      this->core_tilt_z = core_tilt_z;
+      pattern.core_tilt_z = core_tilt_z;
       need_update = true;
     }
     if (ImGui::DragFloat("Center X tilt", &center_tilt_x, 1.0f, -180.0f, 180.0f)) {
-      this->center_tilt_x = center_tilt_x;
+      pattern.center_tilt_x = center_tilt_x;
       need_update = true;
     }
     if (ImGui::DragFloat("Center Z tilt", &center_tilt_z, 1.0f, -180.0f, 180.0f)) {
-      this->center_tilt_z = center_tilt_z;
+      pattern.center_tilt_z = center_tilt_z;
       need_update = true;
     }
     if (ImGui::DragFloat("Twist", &twist, 1.0f, -720.0f, 720.0f)) {
-      this->twist = twist;
+      pattern.twist = twist;
       need_update = true;
     }
     ImGui::TreePop();
   }
   bool color_update = false;
   if (ImGui::TreeNode("Rendering")) {
-    if (ImGui::ColorEdit3("Disk Color", &this->disk_color.x, 0.1))
+    if (ImGui::ColorEdit3("Disk Color", &pattern.disk_color.x, 0.1))
       color_update = true;
-    if (ImGui::DragFloat("Disk Color Intensity", &this->disk_emission_intensity, 0.01f, 1.0f, 10.0f))
+    if (ImGui::DragFloat("Disk Color Intensity", &pattern.disk_emission_intensity, 0.01f, 1.0f, 10.0f))
       color_update = true;
-    if (ImGui::ColorEdit3("Core Color", &this->core_color.x, 0.1))
+    if (ImGui::ColorEdit3("Core Color", &pattern.core_color.x, 0.1))
       color_update = true;
-    if (ImGui::DragFloat("Core Color Intensity", &this->core_emission_intensity, 0.01f, 1.0f, 10.0f))
+    if (ImGui::DragFloat("Core Color Intensity", &pattern.core_emission_intensity, 0.01f, 1.0f, 10.0f))
       color_update = true;
-    if (ImGui::ColorEdit3("Center Color", &this->center_color.x, 0.1))
+    if (ImGui::ColorEdit3("Center Color", &pattern.center_color.x, 0.1))
       color_update = true;
-    if (ImGui::DragFloat("Center Color Intensity", &this->center_emission_intensity, 0.01f, 1.0f, 10.0f))
+    if (ImGui::DragFloat("Center Color Intensity", &pattern.center_emission_intensity, 0.01f, 1.0f, 10.0f))
       color_update = true;
     ImGui::TreePop();
   }
 
   if (need_update) {
-    Apply(true);
+    pattern.Apply(true);
   } else if (color_update) {
-    Apply(true, true);
+    pattern.Apply(true, true);
   }
 }
+}  // namespace
 
 void StarClusterPattern::Apply(const bool &force_update_all_stars, const bool &only_update_colors) {
   SetAb();

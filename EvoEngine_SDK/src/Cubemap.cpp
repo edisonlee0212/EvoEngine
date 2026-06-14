@@ -7,7 +7,6 @@
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
 using namespace evo_engine;
-#include "EditorLayer.hpp"
 
 Cubemap::Cubemap() {
   texture_storage_handle_ = TextureStorage::RegisterCubemap();
@@ -355,35 +354,6 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     }
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
-}
-
-bool Cubemap::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::TreeNode("Sky illumination")) {
-    static bool auto_rebuild = true;
-    ImGui::Checkbox("Auto refresh", &auto_rebuild);
-    static SkyIllumination sky_illumination{};
-    const bool rebuild = sky_illumination.OnInspect(editor_layer);
-    if (ImGui::Button("Build") || (auto_rebuild && rebuild)) {
-      BuildSkyIllumination(sky_illumination);
-      changed = true;
-    }
-    ImGui::TreePop();
-  }
-
-  if (const auto& storage = RefStorage(); !storage.im_texture_ids.empty()) {
-    static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-    for (int i = 0; i < 6; i++) {
-      ImGui::Image(
-          storage.im_texture_ids[i],
-          ImVec2(storage.image->GetExtent().width * debug_scale, storage.image->GetExtent().height * debug_scale),
-          ImVec2(0, 1), ImVec2(1, 0));
-    }
-  }
-
-  return changed;
 }
 
 const std::shared_ptr<Image>& Cubemap::GetImage() const {

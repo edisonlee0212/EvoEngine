@@ -2,7 +2,7 @@
 // Created by lllll on 9/3/2021.
 //
 
-#include "BtfMeshRenderer.hpp"
+#include "CudaSerializationAdapters.hpp"
 
 using namespace evo_engine;
 
@@ -10,7 +10,7 @@ using namespace evo_engine;
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
 
-bool BtfMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
+bool BtfMeshRenderer::DrawGui(const std::shared_ptr<EditorLayer> &editor_layer) {
   bool changed = false;
 
   if (editor_layer->DragAndDropButton<Mesh>(mesh, "Mesh"))
@@ -21,14 +21,14 @@ bool BtfMeshRenderer::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer
   return changed;
 }
 
-void BtfMeshRenderer::Serialize(YAML::Emitter &out) const {
-  mesh.Save("mesh", out);
-  btf.Save("btf", out);
+void evo_engine::SerializeBtfMeshRenderer(YAML::Emitter &out, const BtfMeshRenderer &target) {
+  target.mesh.Save("mesh", out);
+  target.btf.Save("btf", out);
 }
 
-void BtfMeshRenderer::Deserialize(const YAML::Node &in) {
-  mesh.Load("mesh", in);
-  btf.Load("btf", in);
+void evo_engine::DeserializeBtfMeshRenderer(const YAML::Node &in, BtfMeshRenderer &target) {
+  target.mesh.Load("mesh", in);
+  target.btf.Load("btf", in);
 }
 
 void BtfMeshRenderer::CollectAssetRef(std::vector<AssetRef> &list) {

@@ -137,7 +137,9 @@ class EditorLayer : public ILayer {
    * @return A shared pointer to the found Texture2D.
    */
   static std::shared_ptr<Texture2D> FindIcon(const std::string& name);
-  std::shared_ptr<IAsset> inspecting_asset;  ///< The asset currently being inspected in the editor.
+
+  void OpenAssetInspector(const std::shared_ptr<IAsset>& asset);
+  void ClearAssetInspectors();
 
   bool show_console_window = true; /**< Indicates whether the console window is visible. */
 
@@ -268,7 +270,6 @@ class EditorLayer : public ILayer {
   bool show_entity_explorer_window = true;  /**< Indicates whether the entity explorer window is visible. */
   bool show_entity_inspector_window = true; /**< Indicates whether the entity inspector window is visible. */
   bool show_package_manager_window = false; /**< Indicates whether the runtime package manager window is visible. */
-  bool show_layer_inspector_window = true;  /**< Indicates whether the layer inspector window is visible. */
   bool main_camera_focus_override = false;  /**< Indicates if the main camera focus has been overridden. */
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
@@ -786,6 +787,14 @@ class EditorLayer : public ILayer {
   [[nodiscard]] bool IsGizmosUsing() const;
 
  private:
+  struct AssetInspectorWindow {
+    std::shared_ptr<IAsset> asset;
+    bool open = true;
+    bool focus_requested = true;
+  };
+
+  std::vector<AssetInspectorWindow> inspecting_assets_;
+
   /**
    * @brief Loads icons for the editor.
    */
@@ -807,12 +816,15 @@ class EditorLayer : public ILayer {
    */
   void PreUpdate() override;
 
+ public:
   /**
-   * @brief Inspects the editor layer along with its associated components.
+   * @brief Draws the editor layer settings window.
    *
-   * @param editor_layer Shared pointer to the EditorLayer being inspected.
+   * @param editor_layer Shared pointer to the active EditorLayer.
    */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& editor_layer);
+
+ private:
   ImGuiID dock_space_id;
   /**
    * @brief Draws the root ImGui dockspace for the editor.
@@ -833,6 +845,7 @@ class EditorLayer : public ILayer {
   void DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene);
   void DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene, const std::shared_ptr<EditorLayer>& editor_layer);
   void DrawConsoleWindow();
+  void DrawAssetInspectorWindows();
   void DrawRuntimePackageManagerWindow();
   void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
   void DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene);
@@ -1011,7 +1024,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, c
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      inspecting_asset = ptr;
+      OpenAssetInspector(ptr);
     }
   } else {
     ImGui::Button("none");

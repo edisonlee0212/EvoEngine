@@ -14,7 +14,7 @@ struct SorghumPointCloudPointSettings {
 
   float bounding_box_limit = 2.f;
 
-  bool OnInspect();
+  bool DrawGui();
   void Save(const std::string& name, YAML::Emitter& out) const;
   void Load(const std::string& name, const YAML::Node& in);
 };
@@ -28,7 +28,7 @@ class SorghumPointCloudGridCaptureSettings : public PointCloudCaptureSettings {
   float step = 0.01f;
   int drone_sample = 512;
   float drone_height = 2.5f;
-  bool OnInspect() override;
+  bool DrawGui() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };
@@ -44,7 +44,7 @@ class SorghumGantryCaptureSettings : public PointCloudCaptureSettings {
 
   std::vector<float> scanner_angles = {30.f};
 
-  bool OnInspect() override;
+  bool DrawGui() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };
@@ -66,11 +66,7 @@ class SorghumPointCloudScanner : public IPrivateComponent {
                               const std::shared_ptr<PointCloudCaptureSettings>& capture_settings);
   void Capture(const std::filesystem::path& save_path,
                const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   void OnDestroy() override;
-
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 }  // namespace dataset_generation_package

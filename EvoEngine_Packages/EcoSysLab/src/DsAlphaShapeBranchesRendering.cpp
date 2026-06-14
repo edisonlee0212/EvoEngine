@@ -10,7 +10,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
-bool BranchesRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool BranchesRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Tetrahedron complex", &render_complex))
     changed = true;

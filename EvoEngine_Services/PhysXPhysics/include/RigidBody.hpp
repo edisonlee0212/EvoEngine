@@ -5,6 +5,8 @@
 namespace evo_engine {
 using namespace physx;
 class RigidBody : public IPrivateComponent {
+  friend void SerializeRigidBody(YAML::Emitter &out, const RigidBody &target);
+  friend void DeserializeRigidBody(const YAML::Node &in, RigidBody &target);
   glm::mat4 shape_transform_ =
       glm::translate(glm::vec3(0.0f)) * glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(1.0f));
   bool draw_bounds_ = false;
@@ -49,13 +51,11 @@ class RigidBody : public IPrivateComponent {
   void OnDestroy() override;
   void RecreateBody();
   void OnCreate() override;
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
 
   void AddForce(const glm::vec3 &force) const;
   void AddTorque(const glm::vec3 &torque) const;
 
-  void Serialize(YAML::Emitter &out) const override;
-  void Deserialize(const YAML::Node &in) override;
   void CollectAssetRef(std::vector<AssetRef> &list) override;
   void PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) override;
 };

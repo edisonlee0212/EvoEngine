@@ -8,6 +8,8 @@
 #include "BtfBase.cuh"
 namespace evo_engine {
 class BtfMaterial : public IAsset {
+  friend void SerializeBtfMaterial(YAML::Emitter& out, const BtfMaterial& target);
+  friend void DeserializeBtfMaterial(const YAML::Node& in, BtfMaterial& target);
   void UploadDeviceData();
 
  public:
@@ -35,10 +37,7 @@ class BtfMaterial : public IAsset {
   std::vector<float> vector_color;
 
   BtfBase btf_base;
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
-  bool ImportFromFolder(const std::filesystem::path &path);
-  void Serialize(YAML::Emitter &out) const override;
-
-  void Deserialize(const YAML::Node &in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool ImportFromFolder(const std::filesystem::path& path);
 };
 }  // namespace evo_engine

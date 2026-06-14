@@ -7,6 +7,7 @@
 #include "ApplicationInitializationSettings.hpp"
 #include "Console.hpp"
 #include "ILayer.hpp"
+#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 namespace evo_engine {
 class AssetManager;
@@ -306,17 +307,28 @@ template <typename T>
 void Application::RegisterPrivateComponent(const std::string& name) {
   Serialization::RegisterSerializableType<T>(name);
   Serialization::RegisterPrivateComponentType<T>(name);
+  Serialization::RegisterDefaultSerializationHandler<T>({}, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 template <typename T>
 void Application::RegisterAsset(const std::string& name, const std::vector<std::string>& external_extensions) {
   Serialization::RegisterAssetType<T>(name, external_extensions);
+  Serialization::RegisterDefaultSerializationHandler<T>({}, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
+  Serialization::RegisterDefaultAssetIoHandler<T>({}, name);
+  Serialization::RegisterDefaultAssetPreviewHandler<T>({}, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 template <typename T>
 void Application::RegisterSystem(const std::string& name) {
   Serialization::RegisterSerializableType<T>(name);
   Serialization::RegisterSystemType<T>(name);
+  Serialization::RegisterDefaultSerializationHandler<T>({}, name);
+  Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
+  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**
@@ -348,6 +360,7 @@ std::shared_ptr<T> Application::PushLayer(const std::string& layer_name, const s
     layers_.back()->self_ = test;
     layers_.back()->application_ = this;
     layers_.back()->package_owner_ = package_owner;
+    InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_owner, layer_name);
     if (this->active_scene_) {
       layers_.back()->scene_ = this->active_scene_;
     }

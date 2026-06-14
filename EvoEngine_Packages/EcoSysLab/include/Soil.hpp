@@ -46,7 +46,7 @@ class Soil : public IPrivateComponent {
    * \param editor_layer A shared pointer to the editor layer.
    * \return True if content is not modified; otherwise, false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * \brief Applies a random offset to the soil component.
@@ -56,22 +56,10 @@ class Soil : public IPrivateComponent {
   void RandomOffset(float min, float max);
 
   /**
-   * \brief Serializes the soil component to a YAML emitter.
-   * \param out The YAML emitter to write the serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * \brief Deserializes the soil component from a YAML node.
-   * \param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * \brief Collects asset references from the soil component.
    * \param list A vector to store the collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * \brief Generates a mesh representation of the soil.

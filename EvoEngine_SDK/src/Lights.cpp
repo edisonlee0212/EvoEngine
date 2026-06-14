@@ -6,67 +6,8 @@
 #include "Serialization.hpp"
 using namespace evo_engine;
 
-bool SpotLight::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Cast Shadow", &cast_shadow))
-    changed = false;
-  if (cast_shadow && ImGui::DragFloat("Shadow distance", &shadow_distance, 0.001f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::ColorEdit3("Color", &diffuse[0]))
-    changed = false;
-  if (ImGui::DragFloat("Intensity", &diffuse_brightness, 0.01f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Bias", &bias, 0.001f, 0.0f, 999.0f))
-    changed = false;
-
-  if (ImGui::DragFloat("Constant", &constant, 0.01f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Linear", &linear, 0.001f, 0, 1, "%.3f"))
-    changed = false;
-  if (ImGui::DragFloat("Quadratic", &quadratic, 0.001f, 0, 10, "%.4f"))
-    changed = false;
-
-  if (ImGui::DragFloat("Inner Degrees", &inner_degrees, 0.1f, 0.0f, outer_degrees))
-    changed = false;
-  if (ImGui::DragFloat("Outer Degrees", &outer_degrees, 0.1f, inner_degrees, 180.0f))
-    changed = false;
-  if (ImGui::DragFloat("Light Size", &light_size, 0.001f, 0.0f, 999.0f))
-    changed = false;
-
-  return changed;
-}
-
 void SpotLight::OnCreate() {
   SetEnabled(true);
-}
-
-void SpotLight::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "cast_shadow" << YAML::Value << cast_shadow;
-  out << YAML::Key << "shadow_distance" << YAML::Value << shadow_distance;
-  out << YAML::Key << "inner_degrees" << YAML::Value << inner_degrees;
-  out << YAML::Key << "outer_degrees" << YAML::Value << outer_degrees;
-  out << YAML::Key << "constant" << YAML::Value << constant;
-  out << YAML::Key << "linear" << YAML::Value << linear;
-  out << YAML::Key << "quadratic" << YAML::Value << quadratic;
-  out << YAML::Key << "bias" << YAML::Value << bias;
-  out << YAML::Key << "diffuse" << YAML::Value << diffuse;
-  out << YAML::Key << "diffuse_brightness" << YAML::Value << diffuse_brightness;
-  out << YAML::Key << "light_size" << YAML::Value << light_size;
-}
-
-void SpotLight::Deserialize(const YAML::Node& in) {
-  cast_shadow = in["cast_shadow"].as<bool>();
-  if (in["shadow_distance"])
-    shadow_distance = in["shadow_distance"].as<float>();
-  inner_degrees = in["inner_degrees"].as<float>();
-  outer_degrees = in["outer_degrees"].as<float>();
-  constant = in["constant"].as<float>();
-  linear = in["linear"].as<float>();
-  quadratic = in["quadratic"].as<float>();
-  bias = in["bias"].as<float>();
-  diffuse = in["diffuse"].as<glm::vec3>();
-  diffuse_brightness = in["diffuse_brightness"].as<float>();
-  light_size = in["light_size"].as<float>();
 }
 
 float PointLight::GetFarPlane() const {
@@ -81,59 +22,8 @@ float SpotLight::GetFarPlane() const {
          (2 * quadratic);
 }
 
-bool PointLight::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Cast Shadow", &cast_shadow))
-    changed = false;
-  if (cast_shadow && ImGui::DragFloat("Shadow distance", &shadow_distance, 0.001f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::ColorEdit3("Color", &diffuse[0]))
-    changed = false;
-  if (ImGui::DragFloat("Intensity", &diffuse_brightness, 0.01f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Bias", &bias, 0.001f, 0.0f, 999.0f))
-    changed = false;
-
-  if (ImGui::DragFloat("Constant", &constant, 0.01f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Linear", &linear, 0.0001f, 0, 1, "%.4f"))
-    changed = false;
-  if (ImGui::DragFloat("Quadratic", &quadratic, 0.00001f, 0, 10, "%.5f"))
-    changed = false;
-
-  if (ImGui::DragFloat("Light Size", &light_size, 0.001f, 0.0f, 999.0f))
-    changed = false;
-
-  return changed;
-}
-
 void PointLight::OnCreate() {
   SetEnabled(true);
-}
-
-void PointLight::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "cast_shadow" << YAML::Value << cast_shadow;
-  out << YAML::Key << "shadow_distance" << YAML::Value << shadow_distance;
-  out << YAML::Key << "constant" << YAML::Value << constant;
-  out << YAML::Key << "linear" << YAML::Value << linear;
-  out << YAML::Key << "quadratic" << YAML::Value << quadratic;
-  out << YAML::Key << "bias" << YAML::Value << bias;
-  out << YAML::Key << "diffuse" << YAML::Value << diffuse;
-  out << YAML::Key << "diffuse_brightness" << YAML::Value << diffuse_brightness;
-  out << YAML::Key << "light_size" << YAML::Value << light_size;
-}
-
-void PointLight::Deserialize(const YAML::Node& in) {
-  cast_shadow = in["cast_shadow"].as<bool>();
-  if (in["shadow_distance"])
-    shadow_distance = in["shadow_distance"].as<float>();
-  constant = in["constant"].as<float>();
-  linear = in["linear"].as<float>();
-  quadratic = in["quadratic"].as<float>();
-  bias = in["bias"].as<float>();
-  diffuse = in["diffuse"].as<glm::vec3>();
-  diffuse_brightness = in["diffuse_brightness"].as<float>();
-  light_size = in["light_size"].as<float>();
 }
 
 bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& other) const {
@@ -167,40 +57,6 @@ void DirectionalLight::OnCreate() {
   SetEnabled(true);
 }
 
-bool DirectionalLight::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Cast Shadow", &cast_shadow))
-    changed = false;
-  if (ImGui::ColorEdit3("Color", &diffuse[0]))
-    changed = false;
-  if (ImGui::DragFloat("Intensity", &diffuse_brightness, 0.01f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Bias", &bias, 0.001f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Normal Offset", &normal_offset, 0.001f, 0.0f, 999.0f))
-    changed = false;
-  if (ImGui::DragFloat("Light Size", &light_size, 0.001f, 0.0f, 999.0f))
-    changed = false;
-  return changed;
-}
-
-void DirectionalLight::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "cast_shadow" << YAML::Value << cast_shadow;
-  out << YAML::Key << "bias" << YAML::Value << bias;
-  out << YAML::Key << "diffuse" << YAML::Value << diffuse;
-  out << YAML::Key << "diffuse_brightness" << YAML::Value << diffuse_brightness;
-  out << YAML::Key << "light_size" << YAML::Value << light_size;
-  out << YAML::Key << "normal_offset" << YAML::Value << normal_offset;
-}
-
-void DirectionalLight::Deserialize(const YAML::Node& in) {
-  cast_shadow = in["cast_shadow"].as<bool>();
-  bias = in["bias"].as<float>();
-  diffuse = in["diffuse"].as<glm::vec3>();
-  diffuse_brightness = in["diffuse_brightness"].as<float>();
-  light_size = in["light_size"].as<float>();
-  normal_offset = in["normal_offset"].as<float>();
-}
 void DirectionalLight::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
 }
 

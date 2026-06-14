@@ -41,7 +41,7 @@ class ParticleInfoList final : public IAsset {
   std::shared_ptr<RangeDescriptor> range_descriptor_; /**< Shared pointer to the range descriptor. */
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -54,20 +54,6 @@ class ParticleInfoList final : public IAsset {
    * @brief Destructor for the ParticleInfoList class.
    */
   ~ParticleInfoList() override;
-
-  /**
-   * @brief Serializes the particle information list to a YAML emitter.
-   *
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the particle information list from a YAML node.
-   *
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Applies rays to the particle information list.
@@ -168,10 +154,13 @@ class Mesh final : public IAsset, public IGeometry {
    * @param path The file path to save the mesh to.
    * @return Returns true if the mesh was successfully saved.
    */
-  bool SaveInternal(const std::filesystem::path& path) const override;
+  bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "Mesh");
+
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -180,15 +169,7 @@ class Mesh final : public IAsset, public IGeometry {
    *
    * @return A shared pointer to the generated thumbnail texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-
-  /**
-   * @brief Inspects the mesh via an editor layer UI.
-   *
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the mesh was successfully inspected.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Initializes the mesh asset.
@@ -282,6 +263,12 @@ class Mesh final : public IAsset, public IGeometry {
    */
   [[nodiscard]] glm::vec3 CalculateCentroid(const glm::uvec3& triangle) const;
 
+  [[nodiscard]] const VertexAttributes& GetVertexAttributes() const;
+
+  [[nodiscard]] const std::vector<Vertex>& PeekVertices() const;
+
+  [[nodiscard]] const std::vector<glm::uvec3>& PeekTriangles() const;
+
   /**
    * @brief Provides unsafe access to the vertices of the mesh.
    *
@@ -309,20 +296,6 @@ class Mesh final : public IAsset, public IGeometry {
    * @return A shared pointer to the BLAS.
    */
   [[nodiscard]] std::shared_ptr<BottomLevelAccelerationStructure> GetBlas() const;
-
-  /**
-   * @brief Serializes the mesh data to a YAML emitter.
-   *
-   * @param out The YAML emitter to serialize the mesh to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the mesh data from a YAML node.
-   *
-   * @param in The YAML node to deserialize the mesh from.
-   */
-  void Deserialize(const YAML::Node& in) override;
 };
 
 }  // namespace evo_engine

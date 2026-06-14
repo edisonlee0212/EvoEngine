@@ -9,9 +9,19 @@
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "Resources.hpp"
+#include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "UnknownPrivateComponent.hpp"
 using namespace evo_engine;
+
+void WriteSceneSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
+
+Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version) {
+  Entity entity;
+  entity.index_ = index;
+  entity.version_ = version;
+  return entity;
+}
 
 void Scene::Purge() {
   pressed_keys_.clear();
@@ -147,71 +157,20 @@ void Scene::FixedUpdate() const {
     }
   }
 }
-const char* environment_types[]{"Environmental Map", "Color"};
-bool Scene::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool modified = false;
-  if (this == ApplicationContext::Get().GetActiveScene().get())
-    if (editor_layer->DragAndDropButton<Camera>(main_camera, "Main Camera", true))
-      modified = true;
-  if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    static int type = static_cast<int>(environment.environment_type);
-    if (ImGui::Combo("Environment type", &type, environment_types, IM_ARRAYSIZE(environment_types))) {
-      environment.environment_type = static_cast<EnvironmentType>(type);
-      modified = true;
-    }
-    switch (environment.environment_type) {
-      case EnvironmentType::EnvironmentalMap: {
-        if (editor_layer->DragAndDropButton<EnvironmentalMap>(environment.environmental_map, "Environmental Map"))
-          modified = true;
-      } break;
-      case EnvironmentType::Color: {
-        if (ImGui::ColorEdit3("Background Color", &environment.background_color.x))
-          modified = true;
-      } break;
-    }
-    if (ImGui::DragFloat("Environmental light intensity", &environment.ambient_light_intensity, 0.01f, 0.0f, 10.0f))
-      modified = true;
-    if (ImGui::DragFloat("Environmental light gamma", &environment.environment_gamma, 0.01f, 0.0f, 10.0f)) {
-      modified = true;
-    }
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNodeEx("Systems")) {
-    if (ImGui::BeginPopupContextWindow("SystemInspectorPopup")) {
-      ImGui::Text("Add system: ");
-      ImGui::Separator();
-      static float rank = 0.0f;
-      ImGui::DragFloat("Rank", &rank, 1.0f, 0.0f, 999.0f);
-      for (const auto& i : Serialization::GetInstance().system_ids_) {
-        const auto id = i.second;
-        const auto name = i.first;
-        if (!HasSystem(id) && ImGui::Button(name.c_str())) {
-          CreateSystem(id, rank);
-        }
-      }
-      ImGui::Separator();
-      ImGui::EndPopup();
-    }
-    for (const auto& i : ApplicationContext::Get().GetActiveScene()->systems_) {
-      if (ImGui::CollapsingHeader(i.second->GetTypeName().c_str())) {
-        bool enabled = i.second->Enabled();
-        if (ImGui::Checkbox("Enabled", &enabled)) {
-          if (i.second->Enabled() != enabled) {
-            if (enabled) {
-              i.second->Enable();
-              modified = true;
-            } else {
-              i.second->Disable();
-              modified = true;
-            }
-          }
-        }
-        i.second->OnInspect(editor_layer);
-      }
-    }
-    ImGui::TreePop();
-  }
-  return modified;
+const std::multimap<float, std::shared_ptr<ISystem>>& Scene::PeekSystems() const {
+  return systems_;
+}
+
+bool Scene::HasSystemType(const size_t& type_id) const {
+  return indexed_systems_.find(type_id) != indexed_systems_.end();
+}
+
+std::shared_ptr<ISystem> Scene::CreateSystemByTypeId(const size_t& type_id, const float order) {
+  return CreateSystem(type_id, order);
+}
+
+std::shared_ptr<Scene> Scene::GetSelfScene() {
+  return std::dynamic_pointer_cast<Scene>(GetSelf());
 }
 
 std::shared_ptr<ISystem> Scene::GetOrCreateSystem(const std::string& system_name, float order) {
@@ -230,7 +189,12 @@ std::shared_ptr<ISystem> Scene::GetOrCreateSystem(const std::string& system_name
   return std::dynamic_pointer_cast<ISystem>(ptr);
 }
 
-void Scene::Serialize(YAML::Emitter& out) const {
+void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
+  const auto self = const_cast<Scene&>(scene).GetSelfScene();
+  const auto& environment = scene.environment;
+  const auto& main_camera = scene.main_camera;
+  const auto& scene_data_storage_ = scene.scene_data_storage_;
+  const auto& systems_ = scene.systems_;
   out << YAML::Key << "environment" << YAML::Value << YAML::BeginMap;
   environment.Serialize(out);
   out << YAML::EndMap;
@@ -246,9 +210,9 @@ void Scene::Serialize(YAML::Emitter& out) const {
     if (entity_metadata.entity_handle == 0)
       continue;
     for (const auto& element : entity_metadata.private_component_elements) {
-      element.private_component_data->CollectAssetRef(list);
+      Serialization::CollectAssetRefs(*element.private_component_data, list);
     }
-    entity_metadata.Serialize(out, std::dynamic_pointer_cast<Scene>(GetSelf()));
+    entity_metadata.Serialize(out, self);
   }
   out << YAML::EndSeq;
 #pragma endregion
@@ -256,8 +220,8 @@ void Scene::Serialize(YAML::Emitter& out) const {
 #pragma region Systems
   out << YAML::Key << "systems_" << YAML::Value << YAML::BeginSeq;
   for (const auto& i : systems_) {
-    SerializeSystem(i.second, out);
-    i.second->CollectAssetRef(list);
+    WriteSceneSystem(i.second, out);
+    Serialization::CollectAssetRefs(*i.second, list);
   }
   out << YAML::EndSeq;
 #pragma endregion
@@ -279,7 +243,7 @@ void Scene::Serialize(YAML::Emitter& out) const {
     const size_t current_size = asset_map.size();
     list.clear();
     for (const auto& i : asset_map) {
-      i.second->CollectAssetRef(list);
+      Serialization::CollectAssetRefs(*i.second, list);
     }
     for (auto& i : list) {
       if (const auto asset = i.Get<IAsset>(); asset && !Resources::IsResource(asset->GetHandle())) {
@@ -303,7 +267,7 @@ void Scene::Serialize(YAML::Emitter& out) const {
         out << YAML::Key << "type_name" << YAML::Value << i.second->GetTypeName();
       }
       out << YAML::Key << "handle" << YAML::Value << i.second->GetHandle();
-      i.second->Serialize(out);
+      Serialization::SerializeObject(out, *i.second);
       out << YAML::EndMap;
     }
     out << YAML::EndSeq;
@@ -313,15 +277,21 @@ void Scene::Serialize(YAML::Emitter& out) const {
 #pragma region DataComponentStorage
   out << YAML::Key << "data_component_storage_list" << YAML::Value << YAML::BeginSeq;
   for (size_t i = 1; i < scene_data_storage.data_component_storage_list.size(); i++) {
-    SerializeDataComponentStorage(scene_data_storage.data_component_storage_list[i], out);
+    WriteSceneDataComponentStorage(scene, scene_data_storage.data_component_storage_list[i], out);
   }
   out << YAML::EndSeq;
 #pragma endregion
   out << YAML::EndMap;
 }
-void Scene::Deserialize(const YAML::Node& in) {
-  Purge();
-  auto scene = std::dynamic_pointer_cast<Scene>(GetSelf());
+void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
+  auto& environment = scene.environment;
+  auto& main_camera = scene.main_camera;
+  auto& scene_data_storage_ = scene.scene_data_storage_;
+  auto& systems_ = scene.systems_;
+  auto& indexed_systems_ = scene.indexed_systems_;
+  auto& mapped_systems_ = scene.mapped_systems_;
+  scene.Purge();
+  auto self = scene.GetSelfScene();
   scene_data_storage_.entities.clear();
   scene_data_storage_.entity_metadata_list.clear();
   scene_data_storage_.data_component_storage_list.clear();
@@ -335,10 +305,8 @@ void Scene::Deserialize(const YAML::Node& in) {
   for (const auto& in_entity_metadata : in_entity_metadata_list) {
     scene_data_storage_.entity_metadata_list.emplace_back();
     auto& new_info = scene_data_storage_.entity_metadata_list.back();
-    new_info.Deserialize(in_entity_metadata, scene);
-    Entity entity;
-    entity.version_ = 1;
-    entity.index_ = current_index;
+    new_info.Deserialize(in_entity_metadata, self);
+    Entity entity = MakeSceneEntity(current_index, 1);
     scene_data_storage_.entity_map[new_info.entity_handle] = entity;
     scene_data_storage_.entities.push_back(entity);
     current_index++;
@@ -348,10 +316,8 @@ void Scene::Deserialize(const YAML::Node& in) {
     auto& metadata = scene_data_storage_.entity_metadata_list[current_index];
     if (in_entity_metadata["p"]) {
       metadata.parent = scene_data_storage_.entity_map[Handle(in_entity_metadata["p"].as<uint64_t>())];
-      auto& parent_metadata = scene_data_storage_.entity_metadata_list[metadata.parent.index_];
-      Entity entity;
-      entity.version_ = 1;
-      entity.index_ = current_index;
+      auto& parent_metadata = scene_data_storage_.entity_metadata_list[metadata.parent.GetIndex()];
+      Entity entity = MakeSceneEntity(current_index, 1);
       parent_metadata.children.push_back(entity);
     }
     if (in_entity_metadata["r"])
@@ -366,10 +332,9 @@ void Scene::Deserialize(const YAML::Node& in) {
   for (const auto& in_data_component_storage : in_data_component_storage_list) {
     scene_data_storage_.data_component_storage_list.emplace_back();
     auto& data_component_storage = scene_data_storage_.data_component_storage_list.back();
-    DeserializeDataComponentStorage(storage_index, data_component_storage, in_data_component_storage);
+    ReadSceneDataComponentStorage(scene, storage_index, data_component_storage, in_data_component_storage);
     storage_index++;
   }
-  auto self = std::dynamic_pointer_cast<Scene>(GetSelf());
 #pragma endregion
   main_camera.Load("main_camera", in, self);
 #pragma region Assets
@@ -381,11 +346,11 @@ void Scene::Deserialize(const YAML::Node& in) {
       const auto type_name = i["type_name"].as<std::string>();
       const auto handle = Handle(i["handle"].as<uint64_t>());
       if (Serialization::HasSerializableType(type_name)) {
-        auto asset = AssetManager::CreateTemporaryAssetImpl(type_name, handle);
+        auto asset = AssetManager::CreateTemporaryAsset(type_name, handle);
         if (asset) {
           local_assets.emplace_back(index, asset);
         }
-      } else if (auto asset = AssetManager::CreateTemporaryAssetImpl("UnknownAsset", handle)) {
+      } else if (auto asset = AssetManager::CreateTemporaryAsset("UnknownAsset", handle)) {
         if (auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(asset)) {
           unknown_asset->SetOriginalTypeName(type_name);
           unknown_asset->SetSerializedNode(i);
@@ -395,7 +360,7 @@ void Scene::Deserialize(const YAML::Node& in) {
       index++;
     }
     for (const auto& i : local_assets) {
-      i.second->Deserialize(in_local_assets[i.first]);
+      Serialization::DeserializeObject(in_local_assets[i.first], *i.second);
     }
   }
 #ifdef _DEBUG
@@ -444,25 +409,23 @@ void Scene::Deserialize(const YAML::Node& in) {
       const auto type_name = in_system["type_name"].as<std::string>();
       if (Serialization::HasSerializableType(type_name)) {
         size_t hash_code;
-        if (const auto ptr =
-                std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable(type_name, hash_code))) {
-          ptr->handle_ = Handle(in_system["handle_"].as<uint64_t>());
+        if (const auto ptr = std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable(
+                type_name, hash_code, Handle(in_system["handle_"].as<uint64_t>())))) {
           ptr->enabled_ = in_system["enabled_"].as<bool>();
           ptr->rank_ = in_system["rank_"].as<float>();
           ptr->started_ = false;
           systems_.insert({ptr->rank_, ptr});
           indexed_systems_.insert({hash_code, ptr});
-          mapped_systems_[ptr->handle_] = ptr;
+          mapped_systems_[ptr->GetHandle()] = ptr;
           systems.emplace_back(index, ptr);
           ptr->scene_ = self;
           ptr->OnCreate();
         }
       } else {
         size_t hash_code;
-        if (const auto ptr =
-                std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable("UnknownSystem", hash_code))) {
+        if (const auto ptr = std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable(
+                "UnknownSystem", hash_code, Handle(in_system["handle_"].as<uint64_t>())))) {
           hash_code = std::hash<std::string>{}(type_name);
-          ptr->handle_ = Handle(in_system["handle_"].as<uint64_t>());
           ptr->enabled_ = in_system["enabled_"].as<bool>();
           ptr->rank_ = in_system["rank_"].as<float>();
           ptr->started_ = false;
@@ -472,7 +435,7 @@ void Scene::Deserialize(const YAML::Node& in) {
           }
           systems_.insert({ptr->rank_, ptr});
           indexed_systems_.insert({hash_code, ptr});
-          mapped_systems_[ptr->handle_] = ptr;
+          mapped_systems_[ptr->GetHandle()] = ptr;
           systems.emplace_back(index, ptr);
           ptr->scene_ = self;
           ptr->OnCreate();
@@ -490,7 +453,7 @@ void Scene::Deserialize(const YAML::Node& in) {
         for (const auto& in_private_component : in_private_components) {
           auto name = in_private_component["tn"].as<std::string>();
           auto ptr = entity_info.private_component_elements[component_index].private_component_data;
-          ptr->Deserialize(in_private_component);
+          Serialization::DeserializeObject(in_private_component, *ptr);
           ptr->enabled_ = in_private_component["e"].as<bool>();
           component_index++;
         }
@@ -499,11 +462,13 @@ void Scene::Deserialize(const YAML::Node& in) {
     }
 
     for (const auto& i : systems) {
-      i.second->Deserialize(in_systems[i.first]);
+      Serialization::DeserializeObject(in_systems[i.first], *i.second);
     }
   }
 }
-void Scene::SerializeDataComponentStorage(const DataComponentStorage& storage, YAML::Emitter& out) const {
+void evo_engine::WriteSceneDataComponentStorage(const Scene& scene, const DataComponentStorage& storage,
+                                                YAML::Emitter& out) {
+  const auto& scene_data_storage_ = scene.scene_data_storage_;
   out << YAML::BeginMap;
   {
     out << YAML::Key << "entity_size" << YAML::Value << storage.entity_size;
@@ -522,11 +487,11 @@ void Scene::SerializeDataComponentStorage(const DataComponentStorage& storage, Y
     out << YAML::Key << "chunk_array" << YAML::Value << YAML::BeginSeq;
     for (size_t i = 0; i < storage.entity_alive_count; i++) {
       const auto entity = storage.chunk_array.entity_array[i];
-      if (entity.version_ == 0)
+      if (entity.GetVersion() == 0)
         continue;
 
       out << YAML::BeginMap;
-      auto& entity_info = scene_data_storage_.entity_metadata_list.at(entity.index_);
+      auto& entity_info = scene_data_storage_.entity_metadata_list.at(entity.GetIndex());
       out << YAML::Key << "h" << YAML::Value << entity_info.entity_handle;
 
       auto& data_component_storage =
@@ -554,8 +519,9 @@ void Scene::SerializeDataComponentStorage(const DataComponentStorage& storage, Y
   out << YAML::EndMap;
 }
 
-void Scene::DeserializeDataComponentStorage(const size_t storage_index, DataComponentStorage& data_component_storage,
-                                            const YAML::Node& in) {
+void evo_engine::ReadSceneDataComponentStorage(Scene& scene, const size_t storage_index,
+                                               DataComponentStorage& data_component_storage, const YAML::Node& in) {
+  auto& scene_data_storage_ = scene.scene_data_storage_;
   if (in["entity_size"])
     data_component_storage.entity_size = in["entity_size"].as<size_t>();
   if (in["chunk_capacity"])
@@ -591,7 +557,7 @@ void Scene::DeserializeDataComponentStorage(const size_t storage_index, DataComp
     Handle handle = entity_data_component["h"].as<uint64_t>();
     const Entity entity = scene_data_storage_.entity_map[handle];
     data_component_storage.chunk_array.entity_array[chunk_array_index] = entity;
-    auto& metadata = scene_data_storage_.entity_metadata_list[entity.index_];
+    auto& metadata = scene_data_storage_.entity_metadata_list[entity.GetIndex()];
     metadata.data_component_storage_index = storage_index;
     metadata.chunk_array_index = chunk_array_index;
     const auto chunk_index = metadata.chunk_array_index / data_component_storage.chunk_capacity;
@@ -611,7 +577,7 @@ void Scene::DeserializeDataComponentStorage(const size_t storage_index, DataComp
   }
 }
 
-void Scene::SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out) {
+void WriteSceneSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out) {
   out << YAML::BeginMap;
   {
     if (const auto unknown_system = std::dynamic_pointer_cast<UnknownSystem>(system)) {
@@ -619,10 +585,10 @@ void Scene::SerializeSystem(const std::shared_ptr<ISystem>& system, YAML::Emitte
     } else {
       out << YAML::Key << "type_name" << YAML::Value << system->GetTypeName();
     }
-    out << YAML::Key << "enabled_" << YAML::Value << system->enabled_;
-    out << YAML::Key << "rank_" << YAML::Value << system->rank_;
-    out << YAML::Key << "handle_" << YAML::Value << system->handle_;
-    system->Serialize(out);
+    out << YAML::Key << "enabled_" << YAML::Value << system->Enabled();
+    out << YAML::Key << "rank_" << YAML::Value << system->GetRank();
+    out << YAML::Key << "handle_" << YAML::Value << system->GetHandle();
+    Serialization::SerializeObject(out, *system);
   }
   out << YAML::EndMap;
 }
@@ -656,7 +622,7 @@ size_t Scene::RestoreUnknownRuntimeTypes() {
       restored_component->owner_ = owner;
       restored_component->scene_ = self;
       restored_component->OnCreate();
-      restored_component->Deserialize(unknown_component->GetSerializedNode());
+      Serialization::DeserializeObject(unknown_component->GetSerializedNode(), *restored_component);
 
       scene_data_storage_.entity_private_component_storage.RemovePrivateComponent(owner, old_type_id,
                                                                                   element.private_component_data);
@@ -694,7 +660,7 @@ size_t Scene::RestoreUnknownRuntimeTypes() {
     restored_system->started_ = false;
     restored_system->scene_ = self;
     restored_system->OnCreate();
-    restored_system->Deserialize(unknown_system->GetSerializedNode());
+    Serialization::DeserializeObject(unknown_system->GetSerializedNode(), *restored_system);
 
     indexed_systems_.erase(old_type_id);
     indexed_systems_[restored_type_id] = restored_system;
@@ -776,7 +742,7 @@ bool Scene::LoadInternal(const std::filesystem::path& path) {
   std::stringstream string_stream;
   string_stream << stream.rdbuf();
   YAML::Node in = YAML::Load(string_stream.str());
-  Deserialize(in);
+  DeserializeScene(in, *this);
   ApplicationContext::Get().Attach(previous_scene);
   return true;
 }
@@ -786,7 +752,7 @@ bool Scene::SupportsStagedLoading(const std::filesystem::path& path) const {
 }
 
 std::shared_ptr<StagedAssetLoadPayload> Scene::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
-  return IAsset::LoadStagedPayloadInternal(path);
+  return Serialization::LoadAssetYamlPayload(path);
 }
 
 bool Scene::ApplyStagedPayloadInternal(const std::filesystem::path&,
@@ -794,9 +760,27 @@ bool Scene::ApplyStagedPayloadInternal(const std::filesystem::path&,
   const auto previous_scene = ApplicationContext::Get().GetActiveScene();
   ApplicationContext::Get().Attach(std::shared_ptr<Scene>(this, [](Scene*) {
   }));
-  const bool loaded = IAsset::ApplyStagedPayloadInternal({}, payload);
+  const bool loaded = Serialization::ApplyAssetYamlPayload(*this, payload);
   ApplicationContext::Get().Attach(previous_scene);
   return loaded;
+}
+
+bool Scene::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<Scene>(
+      {},
+      [](Scene& asset, const std::filesystem::path& path) {
+        return asset.LoadInternal(path);
+      },
+      [](const Scene& asset, const std::filesystem::path& path) {
+        return asset.SupportsStagedLoading(path);
+      },
+      [](const Scene& asset, const std::filesystem::path& path) {
+        return asset.LoadStagedPayloadInternal(path);
+      },
+      [](Scene& asset, const std::filesystem::path& path, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
+        return asset.ApplyStagedPayloadInternal(path, payload);
+      },
+      owner_name, type_name);
 }
 
 std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {

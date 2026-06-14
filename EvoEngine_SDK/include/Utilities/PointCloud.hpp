@@ -22,33 +22,36 @@ class PointCloud : public IAsset {
    * @param path The path to the file to load the point cloud from.
    * @return True if the load is successful, otherwise false.
    */
-  bool LoadInternal(const std::filesystem::path& path) override;
+  bool LoadInternal(const std::filesystem::path& path);
 
   /**
    * @brief Point cloud file parsing can run as staged CPU work.
    */
-  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const;
 
   /**
    * @brief Builds CPU-side point cloud data from YAML/PLY input.
    */
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
 
   /**
    * @brief Applies staged point cloud data to the asset.
    */
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
   /**
    * @brief Internal method to save the point cloud to a file.
    * @param path The path to the file to save the point cloud to.
    * @return True if the save is successful, otherwise false.
    */
-  bool SaveInternal(const std::filesystem::path& path) const override;
+  bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "PointCloud");
+
   /**
    * @struct PointCloudSaveSettings
    * @brief Settings for saving a point cloud.
@@ -95,13 +98,6 @@ class PointCloud : public IAsset {
   bool SavePly(const PointCloudSaveSettings& settings, const std::filesystem::path& path) const;
 
   /**
-   * @brief Inspects the point cloud's properties using an editor layer.
-   * @param editor_layer The editor layer to use for inspection.
-   * @return True if inspection is successful, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Compresses the given collection of points to reduce data size.
    * @param points The points to compress.
    */
@@ -122,6 +118,10 @@ class PointCloud : public IAsset {
    */
   void RecalculateBoundingBox();
 
+  [[nodiscard]] glm::dvec3 GetMinBound() const;
+  [[nodiscard]] glm::dvec3 GetMaxBound() const;
+  void SetBounds(const glm::dvec3& min_bound, const glm::dvec3& max_bound);
+
   /**
    * @brief Crops the given collection of points to fit within a bounding box.
    * @param points The points to crop.
@@ -129,18 +129,6 @@ class PointCloud : public IAsset {
    * @param max The maximum bounds of the bounding box.
    */
   static void Crop(std::vector<glm::dvec3>& points, const glm::dvec3& min, const glm::dvec3& max);
-
-  /**
-   * @brief Serializes the point cloud's state to a YAML emitter.
-   * @param out The YAML emitter to write the serialized data to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the point cloud's state from a YAML node.
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Samples the current scene to generate point cloud samples.

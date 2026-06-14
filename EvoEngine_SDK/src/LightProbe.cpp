@@ -181,20 +181,3 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 }
-
-bool LightProbe::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (!cubemap_->RefStorage().im_texture_ids.empty()) {
-    static float debug_sacle = 0.25f;
-    ImGui::DragFloat("Scale", &debug_sacle, 0.01f, 0.1f, 1.0f);
-    debug_sacle = glm::clamp(debug_sacle, 0.1f, 1.0f);
-    for (int i = 0; i < 6; i++) {
-      ImGui::Image(cubemap_->RefStorage().im_texture_ids[i],
-                   ImVec2(cubemap_->RefStorage().image->GetExtent().width * debug_sacle,
-                          cubemap_->RefStorage().image->GetExtent().height * debug_sacle),
-                   ImVec2(0, 1), ImVec2(1, 0));
-    }
-  }
-
-  return changed;
-}

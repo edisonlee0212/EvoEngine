@@ -4,69 +4,10 @@
 
 #include "PointCloudScanner.hpp"
 
-#include "EditorLayer.hpp"
 #include "Jobs.hpp"
 #include "Resources.hpp"
+#include "Scene.hpp"
 using namespace evo_engine;
-
-bool PointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
-  bool changed = false;
-
-  if (ImGui::DragFloat("Angle", &rotate_angle, 0.1f, -90.0f, 90.0f))
-    changed = true;
-  if (ImGui::DragFloat2("Size", &size.x, 0.1f))
-    changed = true;
-  if (ImGui::DragFloat2("Distance", &distance.x, 0.001f, 1.0f, 0.001f))
-    changed = true;
-  const auto scene = GetScene();
-  static glm::vec4 color = glm::vec4(0, 1, 0, 0.5);
-  if (ImGui::ColorEdit4("Color", &color.x))
-    changed = true;
-  static bool render_plane = true;
-  ImGui::Checkbox("Render plane", &render_plane);
-  const auto gt = scene->GetDataComponent<GlobalTransform>(GetOwner());
-  const auto front = glm::normalize(gt.GetRotation() * glm::vec3(0, 0, -1));
-  const auto up = glm::normalize(gt.GetRotation() * glm::vec3(0, 1, 0));
-  const glm::vec3 actual_vector = glm::rotate(front, glm::radians(rotate_angle), up);
-  if (render_plane) {
-    editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().quad, glm::vec4(1, 0, 0, 0.5),
-                                glm::translate(gt.GetPosition() + front * 0.5f) *
-                                    glm::mat4_cast(glm::quatLookAt(up, glm::normalize(actual_vector))) *
-                                    glm::scale(glm::vec3(0.1, 0.5, 0.1f)),
-                                1.0f);
-    editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().quad, color,
-                                glm::translate(gt.GetPosition()) * glm::mat4_cast(glm::quatLookAt(up, front)) *
-                                    glm::scale(glm::vec3(size.x / 2.0f, 1.0, size.y / 2.0f)),
-                                1.0f);
-  }
-  if (ImGui::Button("Scan")) {
-    Scan();
-    changed = true;
-  }
-
-  ImGui::Text("Sample amount: %d", points.size());
-  if (!points.empty()) {
-    if (ImGui::Button("Clear")) {
-      points.clear();
-      point_colors.clear();
-    }
-    ImGui::Text("Construct PointCloud");
-    ImGui::SameLine();
-    if (editor_layer->DragAndDropButton<PointCloud>(point_cloud_drop_ref, "Here", false)) {
-      if (const auto ptr = point_cloud_drop_ref.Get<PointCloud>()) {
-        ConstructPointCloud(ptr);
-      }
-      point_cloud_drop_ref.Clear();
-    }
-  }
-  return changed;
-}
-
-void PointCloudScanner::Serialize(YAML::Emitter &out) const {
-}
-
-void PointCloudScanner::Deserialize(const YAML::Node &in) {
-}
 
 void PointCloudScanner::Scan() {
   const auto column = static_cast<unsigned>(size.x / distance.x);

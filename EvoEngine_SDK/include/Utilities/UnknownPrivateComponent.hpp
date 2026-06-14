@@ -43,32 +43,17 @@ class UnknownPrivateComponent : public IPrivateComponent, public UnknownRuntimeP
   friend struct PrivateComponentHolder;
 
  public:
-  /**
-   * @brief Performs inspection of the component in the editor.
-   *
-   * @param editor_layer A shared pointer to the EditorLayer instance.
-   * @return True if the inspection was successful, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 class UnknownAsset : public IAsset, public UnknownRuntimePayload {
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 class UnknownSystem : public ISystem, public UnknownRuntimePayload {
  public:
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 class UnknownLayer : public ILayer {
@@ -77,7 +62,6 @@ class UnknownLayer : public ILayer {
  public:
   void SetOriginalTypeName(const std::string& type_name);
   [[nodiscard]] const std::string& GetOriginalTypeName() const;
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 struct UnknownDataComponent : IDataComponent {

@@ -39,16 +39,23 @@ class AssetRef final : public ISerializable {
    * @brief Serializes the `AssetRef` object to a YAML emitter.
    * @param out The YAML emitter to serialize to.
    */
-  void Serialize(YAML::Emitter &out) const override {
-    out << YAML::Key << "asset_handle_" << YAML::Value << asset_handle_;
-    out << YAML::Key << "type_name_" << YAML::Value << asset_type_name_;
+  void Serialize(YAML::Emitter &out) const {
+    auto asset_handle = asset_handle_;
+    auto asset_type_name = asset_type_name_;
+    if (value_) {
+      asset_handle = value_->GetHandle();
+      asset_type_name = value_->GetTypeName();
+    }
+    out << YAML::Key << "asset_handle_" << YAML::Value << asset_handle;
+    out << YAML::Key << "type_name_" << YAML::Value << asset_type_name;
   }
 
   /**
    * @brief Deserializes the `AssetRef` object from a YAML node.
    * @param in The YAML node to deserialize from.
    */
-  void Deserialize(const YAML::Node &in) override {
+  void Deserialize(const YAML::Node &in) {
+    value_.reset();
     if (in["asset_handle_"])
       asset_handle_ = Handle(in["asset_handle_"].as<uint64_t>());
     if (in["type_name_"])
@@ -114,7 +121,7 @@ class AssetRef final : public ISerializable {
    * @return `true` if the objects are equal, `false` otherwise.
    */
   bool operator==(const AssetRef &rhs) const {
-    return asset_handle_ == rhs.asset_handle_;
+    return GetAssetHandle() == rhs.GetAssetHandle();
   }
 
   /**
@@ -123,7 +130,7 @@ class AssetRef final : public ISerializable {
    * @return `true` if the objects are not equal, `false` otherwise.
    */
   bool operator!=(const AssetRef &rhs) const {
-    return asset_handle_ != rhs.asset_handle_;
+    return GetAssetHandle() != rhs.GetAssetHandle();
   }
 
   /**
@@ -153,6 +160,7 @@ class AssetRef final : public ISerializable {
       value_ = asset;
     } else {
       asset_handle_ = Handle(0);
+      asset_type_name_.clear();
       value_.reset();
     }
   }
@@ -173,6 +181,8 @@ class AssetRef final : public ISerializable {
    * @return A `Handle` object representing the asset's handle.
    */
   [[nodiscard]] Handle GetAssetHandle() const {
+    if (value_)
+      return value_->GetHandle();
     return asset_handle_;
   }
 };

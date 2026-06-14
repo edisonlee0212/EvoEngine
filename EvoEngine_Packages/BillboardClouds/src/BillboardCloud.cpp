@@ -1,6 +1,7 @@
 #include "BillboardCloud.hpp"
 #include "EvoEngine_XAtlas.hpp"
 #include "Prefab.hpp"
+#include "Serialization.hpp"
 
 using namespace billboard_clouds_package;
 
@@ -1165,7 +1166,7 @@ void BillboardCloud::ProcessPrefab(const std::shared_ptr<Prefab>& current_prefab
   for (const auto& private_component : current_prefab->private_components) {
     if (private_component.private_component->GetTypeName() == "MeshRenderer") {
       std::vector<AssetRef> asset_refs;
-      private_component.private_component->CollectAssetRef(asset_refs);
+      Serialization::CollectAssetRefs(*private_component.private_component, asset_refs);
       std::shared_ptr<Mesh> mesh{};
       std::shared_ptr<Material> material{};
       for (auto& asset_ref : asset_refs) {
@@ -1256,7 +1257,7 @@ void BillboardCloud::Clusterize(const ClusterizationSettings& clusterize_setting
 
 #pragma endregion
 
-bool BillboardCloud::OriginalClusterizationSettings::OnInspect() {
+bool BillboardCloud::OriginalClusterizationSettings::DrawGui() {
   bool changed = false;
   if (ImGui::TreeNode("Original clusterization settings")) {
     if (ImGui::DragFloat("Epsilon percentage", &epsilon_percentage, 0.01f, 0.01f, 1.f))
@@ -1272,7 +1273,7 @@ bool BillboardCloud::OriginalClusterizationSettings::OnInspect() {
   return changed;
 }
 
-bool BillboardCloud::FoliageClusterizationSettings::OnInspect() {
+bool BillboardCloud::FoliageClusterizationSettings::DrawGui() {
   bool changed = false;
   if (ImGui::TreeNode("Foliage clusterization settings")) {
     if (ImGui::DragFloat("Complexity", &density, 0.01f, 0.0f, 0.95f))
@@ -1291,7 +1292,7 @@ bool BillboardCloud::FoliageClusterizationSettings::OnInspect() {
   return changed;
 }
 
-bool BillboardCloud::ClusterizationSettings::OnInspect() {
+bool BillboardCloud::ClusterizationSettings::DrawGui() {
   bool changed = false;
 
   if (ImGui::TreeNode("Clusterization settings")) {
@@ -1302,11 +1303,11 @@ bool BillboardCloud::ClusterizationSettings::OnInspect() {
       case static_cast<unsigned>(ClusterizationMode::FlipBook):
         break;
       case static_cast<unsigned>(ClusterizationMode::Foliage): {
-        if (foliage_clusterization_settings.OnInspect())
+        if (foliage_clusterization_settings.DrawGui())
           changed = true;
       } break;
       case static_cast<unsigned>(ClusterizationMode::Original): {
-        if (original_clusterization_settings.OnInspect())
+        if (original_clusterization_settings.DrawGui())
           changed = true;
       } break;
     }
@@ -1315,7 +1316,7 @@ bool BillboardCloud::ClusterizationSettings::OnInspect() {
   return changed;
 }
 
-bool BillboardCloud::ProjectSettings::OnInspect() {
+bool BillboardCloud::ProjectSettings::DrawGui() {
   bool changed = false;
   if (ImGui::TreeNode("Project settings")) {
     ImGui::TreePop();
@@ -1323,7 +1324,7 @@ bool BillboardCloud::ProjectSettings::OnInspect() {
   return changed;
 }
 
-bool BillboardCloud::JoinSettings::OnInspect() {
+bool BillboardCloud::JoinSettings::DrawGui() {
   bool changed = false;
   if (ImGui::TreeNode("Join settings")) {
     ImGui::TreePop();
@@ -1331,7 +1332,7 @@ bool BillboardCloud::JoinSettings::OnInspect() {
   return changed;
 }
 
-bool BillboardCloud::RasterizeSettings::OnInspect() {
+bool BillboardCloud::RasterizeSettings::DrawGui() {
   bool changed = false;
   if (ImGui::TreeNode("Rasterize settings")) {
     if (ImGui::Checkbox("(Debug) Opaque", &debug_opaque))
@@ -1359,16 +1360,16 @@ bool BillboardCloud::RasterizeSettings::OnInspect() {
   return changed;
 }
 
-bool BillboardCloud::GenerateSettings::OnInspect(const std::string& title) {
+bool BillboardCloud::GenerateSettings::DrawGui(const std::string& title) {
   bool changed = false;
   if (ImGui::TreeNodeEx(title.c_str())) {
-    if (clusterization_settings.OnInspect())
+    if (clusterization_settings.DrawGui())
       changed = true;
-    if (project_settings.OnInspect())
+    if (project_settings.DrawGui())
       changed = true;
-    if (join_settings.OnInspect())
+    if (join_settings.DrawGui())
       changed = true;
-    if (rasterize_settings.OnInspect())
+    if (rasterize_settings.DrawGui())
       changed = true;
     ImGui::TreePop();
   }

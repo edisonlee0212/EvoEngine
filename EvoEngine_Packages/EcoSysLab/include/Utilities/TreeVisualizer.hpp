@@ -359,7 +359,7 @@ class ShootVisualizer : public TreeVisualizer {
    * @param model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool OnInspect(ShootModel& model);
+  bool DrawGui(ShootModel& model);
 
   /**
    * @brief Visualizes the given tree model.
@@ -432,7 +432,7 @@ class RootVisualizer : public TreeVisualizer {
    * @param model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool OnInspect(RootModel& model);
+  bool DrawGui(RootModel& model);
 
   /**
    * @brief Visualizes the given tree model.

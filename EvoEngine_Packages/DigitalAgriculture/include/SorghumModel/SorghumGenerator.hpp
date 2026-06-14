@@ -64,33 +64,11 @@ class SorghumGenerator : public IAsset {
   void OnCreate() override;
 
   /**
-   * @brief Handles the inspection of this asset in the editor.
-   *
-   * @param editor_layer A shared pointer to the editor layer interacting with this asset.
-   * @return `true` if the asset content remains unmodified, `false` otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the sorghum generator's parameters to a YAML emitter.
-   *
-   * @param out YAML emitter where the serialized data is stored.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the sorghum generator's parameters from a YAML node.
-   *
-   * @param in YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Generates a thumbnail texture representing the sorghum model.
    *
    * @return A shared pointer to the generated thumbnail texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Creates a new sorghum entity using the generator's parameters.

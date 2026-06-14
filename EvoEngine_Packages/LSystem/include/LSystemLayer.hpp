@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "ILayer.hpp"
 #include "Input.hpp"
@@ -8,8 +8,15 @@
 #include <vector>
 
 namespace l_system_package {
+bool InspectLSystemLayer(evo_engine::InspectorContext& context, class LSystemLayer& layer);
+void SerializeLSystemLayer(YAML::Emitter& out, const class LSystemLayer& target);
+void DeserializeLSystemLayer(const YAML::Node& in, class LSystemLayer& target);
 
 class LSystemLayer : public evo_engine::ILayer {
+  friend bool InspectLSystemLayer(evo_engine::InspectorContext& context, LSystemLayer& layer);
+  friend void SerializeLSystemLayer(YAML::Emitter& out, const LSystemLayer& target);
+  friend void DeserializeLSystemLayer(const YAML::Node& in, LSystemLayer& target);
+
  public:
   struct ProfileFrame {
     double update_ms = 0.0;
@@ -46,9 +53,6 @@ class LSystemLayer : public evo_engine::ILayer {
   void OnCreate() override;
   void OnDestroy() override;
   void Update() override;
-  void OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const;
-  void Deserialize(const YAML::Node& in);
 
  private:
   static constexpr float kAutoGrowFailsafeMinFps = 1.0f;

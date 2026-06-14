@@ -8,48 +8,6 @@
 
 using namespace evo_engine;
 
-void RenderSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Checkbox("Show entities", &enable_debug_visualization);
-  if (ImGui::CollapsingHeader("Shadow", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::TreeNode("Distance")) {
-      if (ImGui::DragFloat("Max shadow distance", &max_shadow_distance, 1.0f, 10.f, 1000.f)) {
-        max_shadow_distance = glm::clamp(max_shadow_distance, 10.f, 1000.f);
-      }
-      if (ImGui::DragFloat("Split 1", &shadow_cascade_split[0], 0.01f, 0.0f, shadow_cascade_split[1])) {
-        shadow_cascade_split[0] = glm::clamp(shadow_cascade_split[0], 0.f, shadow_cascade_split[1]);
-      }
-      if (ImGui::DragFloat("Split 2", &shadow_cascade_split[1], 0.01f, shadow_cascade_split[0],
-                           shadow_cascade_split[2])) {
-        shadow_cascade_split[1] = glm::clamp(shadow_cascade_split[1], shadow_cascade_split[0], shadow_cascade_split[2]);
-      }
-      if (ImGui::DragFloat("Split 3", &shadow_cascade_split[2], 0.01f, shadow_cascade_split[1],
-                           shadow_cascade_split[3])) {
-        shadow_cascade_split[2] = glm::clamp(shadow_cascade_split[2], shadow_cascade_split[1], shadow_cascade_split[3]);
-      }
-      if (ImGui::DragFloat("Split 4", &shadow_cascade_split[3], 0.01f, shadow_cascade_split[2], 1.0f)) {
-        shadow_cascade_split[3] = glm::clamp(shadow_cascade_split[3], shadow_cascade_split[2], 1.f);
-      }
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("PCSS")) {
-      ImGui::DragInt("PCF Sample Size", &pcf_sample_amount, 1, 1, 64);
-      ImGui::TreePop();
-    }
-    ImGui::DragFloat("Seam fix ratio", &seam_fix_ratio, 0.001f, 0.0f, 0.1f);
-    ImGui::Checkbox("Stable fit", &stable_fit);
-  }
-#ifdef EVOENGINE_WINDOWS
-  if (ImGui::TreeNodeEx("Strands settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragFloat("Curve subdivision factor", &strands_subdivision_x_factor, 1.0f, 1.0f, 1000.0f);
-    ImGui::DragFloat("Ring subdivision factor", &strands_subdivision_y_factor, 1.0f, 1.0f, 1000.0f);
-    ImGui::DragInt("Max curve subdivision", &strands_subdivision_max_x, 1, 1, 15);
-    ImGui::DragInt("Max ring subdivision", &strands_subdivision_max_y, 1, 1, 15);
-
-    ImGui::TreePop();
-  }
-#endif
-}
-
 bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;

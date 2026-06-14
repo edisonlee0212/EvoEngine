@@ -93,7 +93,7 @@ void CameraProperties::SetFov(const float value) {
   fov = value;
 }
 
-void CameraProperties::OnInspect() {
+void CameraProperties::DrawGui() {
   if (ImGui::TreeNode("Camera Properties")) {
     if (ImGui::Checkbox("Accumulate", &accumulate)) {
       modified = true;
@@ -178,7 +178,7 @@ void CameraProperties::SetMaxDistance(const float value) {
   modified = true;
 }
 
-void EnvironmentProperties::OnInspect() {
+void EnvironmentProperties::DrawGui() {
   static int type = 0;
   const char *environmental_lighting_types[]{"Scene", "Skydome", "SingleLightSource"};
   if (ImGui::Combo("Environment Lighting", &type, environmental_lighting_types,
@@ -244,7 +244,7 @@ void CameraProperties::SetSkybox(const std::shared_ptr<CudaImage> &cubemap) {
   skybox = cubemap->texture_object;
 }
 
-void RayProperties::OnInspect() {
+void RayProperties::DrawGui() {
   if (ImGui::TreeNode("Ray Properties")) {
     ImGui::DragInt("bounce limit", &bounces, 1, 1, 8);
     ImGui::DragInt("pixel samples", &samples, 1, 1, 64);
@@ -252,9 +252,9 @@ void RayProperties::OnInspect() {
   }
 }
 
-void RayTracerProperties::OnInspect() {
-  environment.OnInspect();
-  ray_properties.OnInspect();
+void RayTracerProperties::DrawGui() {
+  environment.DrawGui();
+  ray_properties.DrawGui();
 }
 
 bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_properties,

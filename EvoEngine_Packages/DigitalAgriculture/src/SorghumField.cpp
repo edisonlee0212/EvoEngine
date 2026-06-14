@@ -2,8 +2,9 @@
 // Created by lllll on 9/16/2021.
 //
 
-#include "SorghumField.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 
+#include "DigitalAgricultureInspectionAdapters.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
@@ -49,14 +50,15 @@ void SorghumGrid::GenerateField(std::vector<glm::mat4>& matrices_list) const {
   }
 }
 
-bool SorghumField::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectSorghumField(InspectorContext& context, SorghumField& field) {
+  const auto& editor_layer = context.editor_layer;
   bool changed = false;
-  if (ImGui::DragInt("Size limit", &size_limit, 1, 0, 10000))
+  if (ImGui::DragInt("Size limit", &field.size_limit, 1, 0, 10000))
     changed = false;
-  if (ImGui::DragFloat("Sorghum size", &sorghum_size, 0.01f, 0, 10))
+  if (ImGui::DragFloat("Sorghum size", &field.sorghum_size, 0.01f, 0, 10))
     changed = false;
   if (ImGui::Button("Instantiate")) {
-    InstantiateField();
+    field.InstantiateField();
   }
 
   static int index = 200;
@@ -65,21 +67,21 @@ bool SorghumField::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::DragFloat("Radius", &radius);
   static AssetRef temp_coordinates;
   if (editor_layer->DragAndDropButton<SorghumCoordinates>(temp_coordinates, "Apply from sorghum coordinates")) {
-    if (const auto field = temp_coordinates.Get<SorghumCoordinates>()) {
+    if (const auto coordinates = temp_coordinates.Get<SorghumCoordinates>()) {
       glm::dvec2 offset;
-      field->Apply(std::dynamic_pointer_cast<SorghumField>(GetSelf()), offset, index, radius);
+      coordinates->Apply(field, offset, index, radius);
       temp_coordinates.Clear();
     }
   }
-  ImGui::Text("Matrices count: %d", (int)matrices.size());
+  ImGui::Text("Matrices count: %d", (int)field.matrices.size());
 
   return changed;
 }
-void SorghumField::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "size_limit" << YAML::Value << size_limit;
-  out << YAML::Key << "sorghum_size" << YAML::Value << sorghum_size;
+void digital_agriculture_package::SerializeSorghumField(YAML::Emitter& out, const SorghumField& target) {
+  out << YAML::Key << "size_limit" << YAML::Value << target.size_limit;
+  out << YAML::Key << "sorghum_size" << YAML::Value << target.sorghum_size;
   out << YAML::Key << "matrices" << YAML::Value << YAML::BeginSeq;
-  for (auto& i : matrices) {
+  for (auto& i : target.matrices) {
     out << YAML::BeginMap;
     i.first.Save("SPD", out);
     out << YAML::Key << "Transform" << YAML::Value << i.second;
@@ -87,18 +89,18 @@ void SorghumField::Serialize(YAML::Emitter& out) const {
   }
   out << YAML::EndSeq;
 }
-void SorghumField::Deserialize(const YAML::Node& in) {
+void digital_agriculture_package::DeserializeSorghumField(const YAML::Node& in, SorghumField& target) {
   if (in["size_limit"])
-    size_limit = in["size_limit"].as<int>();
+    target.size_limit = in["size_limit"].as<int>();
   if (in["sorghum_size"])
-    sorghum_size = in["sorghum_size"].as<float>();
+    target.sorghum_size = in["sorghum_size"].as<float>();
 
-  matrices.clear();
+  target.matrices.clear();
   if (in["matrices"]) {
     for (const auto& i : in["matrices"]) {
       AssetRef spd;
       spd.Load("SPD", i);
-      matrices.emplace_back(spd, i["Transform"].as<glm::mat4>());
+      target.matrices.emplace_back(spd, i["Transform"].as<glm::mat4>());
     }
   }
 }

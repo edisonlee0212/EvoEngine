@@ -13,7 +13,7 @@ void LightProbeGroup::CalculateIllumination(const RayProperties& ray_properties,
       push_normal_distance);
 }
 
-bool LightProbeGroup::OnInspect() {
+bool LightProbeGroup::DrawGui() {
   ImGui::Text("Light probes size: %llu", light_probes.size());
   return false;
 }

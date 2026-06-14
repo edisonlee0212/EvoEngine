@@ -8,7 +8,7 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
-bool FoliageRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool FoliageRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (ImGui::Checkbox("Wireframe", &wireframe)) {

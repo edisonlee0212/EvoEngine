@@ -40,63 +40,10 @@ const YAML::Node& UnknownRuntimePayload::GetSerializedNode() const {
   return serialized_node_;
 }
 
-bool UnknownPrivateComponent::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text("Missing private component type: %s", original_type_name_.c_str());
-
-  return false;
-}
-
-void UnknownPrivateComponent::Serialize(YAML::Emitter& out) const {
-  SerializePayload(out, {"tn", "e"});
-}
-
-void UnknownPrivateComponent::Deserialize(const YAML::Node& in) {
-  if (in["tn"]) {
-    original_type_name_ = in["tn"].as<std::string>();
-  }
-  serialized_node_ = in;
-}
-
-bool UnknownAsset::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text("Missing asset type: %s", original_type_name_.c_str());
-  return false;
-}
-
-void UnknownAsset::Serialize(YAML::Emitter& out) const {
-  SerializePayload(out, {"type_name", "handle"});
-}
-
-void UnknownAsset::Deserialize(const YAML::Node& in) {
-  if (in["type_name"]) {
-    original_type_name_ = in["type_name"].as<std::string>();
-  }
-  serialized_node_ = in;
-}
-
-bool UnknownSystem::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text("Missing system type: %s", original_type_name_.c_str());
-  return false;
-}
-
-void UnknownSystem::Serialize(YAML::Emitter& out) const {
-  SerializePayload(out, {"type_name", "enabled_", "rank_", "handle_"});
-}
-
-void UnknownSystem::Deserialize(const YAML::Node& in) {
-  if (in["type_name"]) {
-    original_type_name_ = in["type_name"].as<std::string>();
-  }
-  serialized_node_ = in;
-}
-
 void UnknownLayer::SetOriginalTypeName(const std::string& type_name) {
   original_type_name_ = type_name;
 }
 
 const std::string& UnknownLayer::GetOriginalTypeName() const {
   return original_type_name_;
-}
-
-void UnknownLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text("Missing layer type: %s", original_type_name_.c_str());
 }

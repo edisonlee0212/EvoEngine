@@ -1,4 +1,5 @@
-#include "HeightField.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
+#include "SDKInspectionAdapters.hpp"
 using namespace eco_sys_lab_package;
 
 float HeightField::GetValue(const glm::vec2& position) const {
@@ -9,13 +10,13 @@ void HeightField::RandomOffset(const float min, const float max) {
   position_offset = glm::vec2(glm::linearRand(min, max), glm::linearRand(min, max));
 }
 
-bool HeightField::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool HeightField::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   changed = ImGui::DragInt("Precision level", &precision_level) || changed;
   static bool show_noise_graph = false;
   ImGui::Checkbox("Show noise graph", &show_noise_graph);
   if (show_noise_graph) {
-    changed = noises_graph.ShowGraph("Height field noise graph", editor_layer) | changed;
+    changed = evo_engine::DrawProceduralNoiseGraph(noises_graph, "Height field noise graph", editor_layer) | changed;
   }
   if (ImGui::DragFloat2("Position offset", &position_offset.x, 0.1f)) {
     changed = true;
@@ -68,18 +69,18 @@ bool HeightField::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   return changed;
 }
 
-void HeightField::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "precision_level" << YAML::Value << precision_level;
-  out << YAML::Key << "position_offset" << YAML::Value << position_offset;
-  noises_graph.Save("noises_graph", out);
+void eco_sys_lab_package::SerializeHeightField(YAML::Emitter& out, const HeightField& target) {
+  out << YAML::Key << "precision_level" << YAML::Value << target.precision_level;
+  out << YAML::Key << "position_offset" << YAML::Value << target.position_offset;
+  target.noises_graph.Save("noises_graph", out);
 }
 
-void HeightField::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeHeightField(const YAML::Node& in, HeightField& target) {
   if (in["precision_level"])
-    precision_level = in["precision_level"].as<int>();
+    target.precision_level = in["precision_level"].as<int>();
   if (in["position_offset"])
-    position_offset = in["position_offset"].as<glm::vec2>();
-  noises_graph.Load("noises_graph", in);
+    target.position_offset = in["position_offset"].as<glm::vec2>();
+  target.noises_graph.Load("noises_graph", in);
 }
 
 std::shared_ptr<Texture2D> HeightField::GenerateThumbnailTexture() {

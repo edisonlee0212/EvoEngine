@@ -1,5 +1,7 @@
 #include "CubeVolume.hpp"
 
+#include "EcoSysLabSerializationAdapters.hpp"
+
 using namespace eco_sys_lab_package;
 
 void CubeVolume::ApplyMeshBounds(const std::shared_ptr<Mesh>& mesh) {
@@ -8,9 +10,9 @@ void CubeVolume::ApplyMeshBounds(const std::shared_ptr<Mesh>& mesh) {
   min_max_bound = mesh->GetBound();
 }
 
-bool CubeVolume::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool CubeVolume::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;
-  if (IVolume::OnInspect(editorLayer))
+  if (IVolume::DrawGui(editorLayer))
     changed = true;
   if (ImGui::DragFloat3("Min", &min_max_bound.min.x, 0.1f))
     changed = true;
@@ -41,14 +43,12 @@ bool CubeVolume::InVolume(const GlobalTransform& globalTransform, const glm::vec
   return min_max_bound.InBound(finalPos);
 }
 
-void CubeVolume::Serialize(YAML::Emitter& out) const {
-  IVolume::Serialize(out);
-  out << YAML::Key << "min_max_bound.min" << YAML::Value << min_max_bound.min;
-  out << YAML::Key << "min_max_bound.max" << YAML::Value << min_max_bound.max;
+void eco_sys_lab_package::SerializeCubeVolume(YAML::Emitter& out, const CubeVolume& target) {
+  out << YAML::Key << "min_max_bound.min" << YAML::Value << target.min_max_bound.min;
+  out << YAML::Key << "min_max_bound.max" << YAML::Value << target.min_max_bound.max;
 }
 
-void CubeVolume::Deserialize(const YAML::Node& in) {
-  IVolume::Deserialize(in);
-  min_max_bound.min = in["min_max_bound.min"].as<glm::vec3>();
-  min_max_bound.max = in["min_max_bound.max"].as<glm::vec3>();
+void eco_sys_lab_package::DeserializeCubeVolume(const YAML::Node& in, CubeVolume& target) {
+  target.min_max_bound.min = in["min_max_bound.min"].as<glm::vec3>();
+  target.min_max_bound.max = in["min_max_bound.max"].as<glm::vec3>();
 }

@@ -5,9 +5,11 @@
 #include "WindowLayer.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace evo_engine;
@@ -90,6 +92,44 @@ void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMeta
   std::ofstream file_out(path.string());
   file_out << out.c_str();
   file_out.flush();
+}
+
+std::filesystem::path NormalizePathForContainment(const std::filesystem::path& path) {
+  std::error_code error;
+  auto normalized = std::filesystem::weakly_canonical(path, error);
+  if (error) {
+    normalized = std::filesystem::absolute(path, error);
+  }
+  if (error) {
+    normalized = path;
+  }
+  return normalized.lexically_normal();
+}
+
+bool PathElementEquals(const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  auto lhs_string = lhs.string();
+  auto rhs_string = rhs.string();
+  std::transform(lhs_string.begin(), lhs_string.end(), lhs_string.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  std::transform(rhs_string.begin(), rhs_string.end(), rhs_string.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return lhs_string == rhs_string;
+#else
+  return lhs == rhs;
+#endif
+}
+
+bool IsSamePathOrChildPath(const std::filesystem::path& path, const std::filesystem::path& parent) {
+  auto path_iterator = path.begin();
+  for (auto parent_iterator = parent.begin(); parent_iterator != parent.end(); ++parent_iterator, ++path_iterator) {
+    if (path_iterator == path.end() || !PathElementEquals(*path_iterator, *parent_iterator)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void MergeApplicationLaunchMetadata(ProjectLaunchMetadata& metadata) {
@@ -393,11 +433,12 @@ bool ProjectManager::IsInAssetsFolder(const std::filesystem::path& absolute_path
     return false;
   }
   const auto& project_manager = GetInstance();
-  const auto project_folder_path = project_manager.assets_folder_path;
-  const auto absolute_path_string = absolute_path.string();
-  const auto project_folder_path_string = project_folder_path.string();
-  return std::search(absolute_path_string.begin(), absolute_path_string.end(), project_folder_path_string.begin(),
-                     project_folder_path_string.end()) != absolute_path_string.end();
+  if (project_manager.assets_folder_path.empty()) {
+    return false;
+  }
+  const auto path = NormalizePathForContainment(absolute_path);
+  const auto assets_folder_path = NormalizePathForContainment(project_manager.assets_folder_path);
+  return IsSamePathOrChildPath(path, assets_folder_path);
 }
 bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
   auto stem = path.stem().string();
@@ -589,5 +630,12 @@ std::filesystem::path ProjectManager::GetAssetsRelativePath(const std::filesyste
     return {};
   if (!IsInAssetsFolder(absolute_path))
     return {};
-  return std::filesystem::relative(absolute_path, project_manager.assets_folder_path);
+  std::error_code error;
+  auto relative_path =
+      std::filesystem::relative(NormalizePathForContainment(absolute_path),
+                                NormalizePathForContainment(project_manager.assets_folder_path), error);
+  if (error) {
+    relative_path = std::filesystem::relative(absolute_path, project_manager.assets_folder_path, error);
+  }
+  return error ? std::filesystem::path() : relative_path;
 }

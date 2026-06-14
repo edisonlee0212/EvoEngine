@@ -50,25 +50,19 @@ class INode;
 struct NodeData {
   NodeType type{};
   std::shared_ptr<INode> node_impl;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
 struct InputPinData {
   std::string name = "Input";
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
 struct OutputPinData {
   std::string name = "Output";
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
 
 class INode {
  public:
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   static void PrepareInputs(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                             NodeGraphNodeHandle node_handle,
                             std::unordered_map<NodeGraphOutputPinHandle, float>& results);
-  virtual void Serialize(YAML::Emitter& out) const;
-  virtual void Deserialize(const YAML::Node& in);
   virtual void Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                        NodeGraphNodeHandle node_handle,
                        std::unordered_map<NodeGraphOutputPinHandle, float>& results) const = 0;
@@ -86,21 +80,17 @@ class OutputNode : public INode {
 };
 
 class IProceduralNoise {
- protected:
-  void SerializeImpl(YAML::Emitter& out) const;
-  void DeserializeImpl(const YAML::Node& in);
-
  public:
   virtual void Reset() = 0;
-  bool ShowGraph(const std::string& window_title, const std::shared_ptr<EditorLayer>& editor_layer);
   NodeGraph<InputPinData, OutputPinData, NodeData, int> node_graph{};
 };
 
-class ProceduralNoise2D : public IAsset, public IProceduralNoise {
-  std::shared_ptr<Texture2D> test_texture_2d_;
+void SaveProceduralNoiseGraph(YAML::Emitter& out, const IProceduralNoise& noise);
+void LoadProceduralNoiseGraph(const YAML::Node& in, IProceduralNoise& noise);
 
+class ProceduralNoise2D : public IAsset, public IProceduralNoise {
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -108,16 +98,11 @@ class ProceduralNoise2D : public IAsset, public IProceduralNoise {
   ProceduralNoise2D();
   float GetValue(const glm::vec2& offset) const;
   void OnCreate() override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 class ProceduralNoise3D : public IAsset, public IProceduralNoise {
-  std::shared_ptr<Texture2D> test_texture_2d_;
-
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -125,17 +110,11 @@ class ProceduralNoise3D : public IAsset, public IProceduralNoise {
   ProceduralNoise3D();
   float GetValue(const glm::vec3& offset) const;
   void OnCreate() override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 class ProceduralNoise4D : public IAsset, public IProceduralNoise {
-  std::shared_ptr<Texture2D> test_texture_2d_;
-
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -143,8 +122,5 @@ class ProceduralNoise4D : public IAsset, public IProceduralNoise {
   ProceduralNoise4D();
   float GetValue(const glm::vec4& offset) const;
   void OnCreate() override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 }  // namespace evo_engine::procedural_noise

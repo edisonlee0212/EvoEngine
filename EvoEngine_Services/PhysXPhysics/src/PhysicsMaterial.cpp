@@ -1,5 +1,5 @@
-#include "PhysicsMaterial.hpp"
 #include "Application.hpp"
+#include "PhysXSerializationAdapters.hpp"
 #include "PhysicsLayer.hpp"
 void evo_engine::PhysicsMaterial::OnCreate() {
   const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
@@ -37,16 +37,16 @@ void evo_engine::PhysicsMaterial::OnGui() {
     SetRestitution(restitution_);
   }
 }
-void evo_engine::PhysicsMaterial::Serialize(YAML::Emitter &out) const {
-  out << YAML::Key << "static_friction_" << YAML::Value << static_friction_;
-  out << YAML::Key << "dynamic_friction_" << YAML::Value << dynamic_friction_;
-  out << YAML::Key << "restitution_" << YAML::Value << restitution_;
+void evo_engine::SerializePhysicsMaterial(YAML::Emitter &out, const PhysicsMaterial &target) {
+  out << YAML::Key << "static_friction_" << YAML::Value << target.static_friction_;
+  out << YAML::Key << "dynamic_friction_" << YAML::Value << target.dynamic_friction_;
+  out << YAML::Key << "restitution_" << YAML::Value << target.restitution_;
 }
-void evo_engine::PhysicsMaterial::Deserialize(const YAML::Node &in) {
-  static_friction_ = in["static_friction_"].as<float>();
-  restitution_ = in["restitution_"].as<float>();
-  dynamic_friction_ = in["dynamic_friction_"].as<float>();
-  SetStaticFriction(static_friction_);
-  SetRestitution(restitution_);
-  SetDynamicFriction(dynamic_friction_);
+void evo_engine::DeserializePhysicsMaterial(const YAML::Node &in, PhysicsMaterial &target) {
+  target.static_friction_ = in["static_friction_"].as<float>();
+  target.restitution_ = in["restitution_"].as<float>();
+  target.dynamic_friction_ = in["dynamic_friction_"].as<float>();
+  target.SetStaticFriction(target.static_friction_);
+  target.SetRestitution(target.restitution_);
+  target.SetDynamicFriction(target.dynamic_friction_);
 }

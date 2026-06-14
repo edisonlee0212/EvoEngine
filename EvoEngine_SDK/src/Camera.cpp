@@ -320,6 +320,7 @@ void Camera::OnCreate() {
 bool Camera::Rendered() const {
   return rendered_;
 }
+
 void Camera::SetRequireRendering(const bool value) {
   require_rendering_ = require_rendering_ || value;
 }
@@ -461,183 +462,9 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
           glm::vec3(ltw.value[3]) + camera_settings.far_distance * dir};
 }
 
-void Camera::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "x" << YAML::Value << size_.x;
-
-  out << YAML::Key << "y" << YAML::Value << size_.y;
-  out << YAML::Key << "use_clear_color" << YAML::Value << camera_settings.use_clear_color;
-  out << YAML::Key << "clear_color" << YAML::Value << camera_settings.clear_color;
-  out << YAML::Key << "near_distance" << YAML::Value << camera_settings.near_distance;
-  out << YAML::Key << "far_distance" << YAML::Value << camera_settings.far_distance;
-  out << YAML::Key << "fov" << YAML::Value << camera_settings.fov;
-  out << YAML::Key << "background_intensity" << YAML::Value << camera_settings.background_intensity;
-  out << YAML::Key << "fade_ratio" << YAML::Value << camera_settings.fade_ratio;
-  out << YAML::Key << "fade_factor" << YAML::Value << camera_settings.fade_factor;
-
-  out << YAML::Key << "sample_size" << YAML::Value << camera_settings.sample_size;
-  out << YAML::Key << "bounce" << YAML::Value << camera_settings.bounce;
-  out << YAML::Key << "gamma" << YAML::Value << camera_settings.gamma;
-
-  skybox.Save("skybox", out);
-  post_processing_stack_ref.Save("post_processing_stack_ref", out);
-}
-
-void Camera::Deserialize(const YAML::Node& in) {
-  if (in["use_clear_color"])
-    camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
-  if (in["clear_color"])
-    camera_settings.clear_color = in["clear_color"].as<glm::vec4>();
-  if (in["near_distance"])
-    camera_settings.near_distance = in["near_distance"].as<float>();
-  if (in["far_distance"])
-    camera_settings.far_distance = in["far_distance"].as<float>();
-  if (in["fade_ratio"])
-    camera_settings.fade_ratio = in["fade_ratio"].as<float>();
-  if (in["fade_factor"])
-    camera_settings.fade_factor = in["fade_factor"].as<float>();
-
-  if (in["fov"])
-    camera_settings.fov = in["fov"].as<float>();
-
-  if (in["x"] && in["y"]) {
-    int resolution_x = in["x"].as<int>();
-    int resolution_y = in["y"].as<int>();
-    Resize({resolution_x, resolution_y});
-  }
-  skybox.Load("skybox", in);
-  post_processing_stack_ref.Load("post_processing_stack_ref", in);
-  rendered_ = false;
-  require_rendering_ = false;
-
-  if (in["background_intensity"])
-    camera_settings.background_intensity = in["background_intensity"].as<float>();
-
-  if (in["sample_size"])
-    camera_settings.sample_size = in["sample_size"].as<uint32_t>();
-  if (in["bounce"])
-    camera_settings.bounce = in["bounce"].as<uint32_t>();
-  if (in["gamma"])
-    camera_settings.gamma = in["gamma"].as<float>();
-}
-
 void Camera::OnDestroy() {
   post_processing_stack_ref.Clear();
   skybox.Clear();
-}
-
-bool Camera::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  uint32_t mode = static_cast<uint32_t>(camera_render_mode);
-  if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
-    camera_render_mode = static_cast<CameraRenderMode>(mode);
-    frame_count_ = 0;
-    changed = true;
-  }
-  if (ImGui::DragFloat("Fade ratio", &camera_settings.fade_ratio, 0.01f, 0.01f, 1.0f)) {
-    changed = true;
-  }
-  if (camera_settings.fade_ratio != 0.f) {
-    if (ImGui::DragFloat("Fade factor", &camera_settings.fade_factor, 0.01f, 0.01f, 1.0f)) {
-      changed = true;
-    }
-  }
-  if (camera_render_mode == CameraRenderMode::RayTracing) {
-    if (ImGui::DragFloat("Gamma", &camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
-      changed = true;
-    }
-    if (ImGui::SliderInt("Samples", &camera_settings.sample_size, 1, 32)) {
-      changed = true;
-    }
-    if (ImGui::SliderInt("Bounce", &camera_settings.bounce, 1, 8)) {
-      changed = true;
-    }
-  }
-  if (ImGui::TreeNode("Debug")) {
-    require_rendering_ = true;
-    static bool external_window = false;
-
-    ImGui::Checkbox("Display in external window", &external_window);
-
-    static float debug_scale = 0.25f;
-    if (rendered_) {
-      if (external_window) {
-        if (ImGui::Begin("Camera Debug")) {
-          ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-          debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-          DebugViews(debug_scale);
-        }
-        ImGui::End();
-      } else {
-        ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-        debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-        DebugViews(debug_scale);
-      }
-    }
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Background", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::DragFloat("Intensity", &camera_settings.background_intensity, 0.01f, 0.0f, 10.f)) {
-      changed = true;
-    }
-    if (ImGui::Checkbox("Use clear color", &camera_settings.use_clear_color)) {
-      changed = true;
-    }
-    if (camera_settings.use_clear_color) {
-      if (ImGui::ColorEdit4("Clear Color", (float*)(void*)&camera_settings.clear_color)) {
-        changed = true;
-      }
-    } else if (editor_layer->DragAndDropButton<Cubemap>(skybox, "Skybox")) {
-      changed = true;
-    }
-    ImGui::TreePop();
-  }
-
-  if (const auto scene = GetScene()) {
-    const bool saved_state = (this == scene->main_camera.Get<Camera>().get());
-    bool is_main_camera = saved_state;
-    ImGui::Checkbox("Main Camera", &is_main_camera);
-    if (saved_state != is_main_camera) {
-      changed = true;
-      if (is_main_camera) {
-        scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(GetOwner()).lock();
-      } else {
-        ApplicationContext::Get().GetActiveScene()->main_camera.Clear();
-      }
-    }
-    if (!is_main_camera || !ApplicationContext::Get().GetLayer<EditorLayer>()->main_camera_allow_auto_resize) {
-      glm::ivec2 resolution = {size_.x, size_.y};
-      if (ImGui::DragInt2("Resolution", &resolution.x, 1, 1, 4096)) {
-        Resize({resolution.x, resolution.y});
-      }
-    }
-  }
-  if (editor_layer->DragAndDropButton<PostProcessingStack>(post_processing_stack_ref, "PostProcessingStack")) {
-    changed = true;
-  }
-  const auto pps = post_processing_stack_ref.Get<PostProcessingStack>();
-  if (ImGui::TreeNode("Intrinsic Settings")) {
-    if (ImGui::DragFloat("Near", &camera_settings.near_distance, camera_settings.near_distance / 10.0f, 0,
-                         camera_settings.far_distance)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Far", &camera_settings.far_distance, camera_settings.far_distance / 10.0f,
-                         camera_settings.near_distance)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("FOV", &camera_settings.fov, 1.0f, 1, 359)) {
-      changed = true;
-    }
-    ImGui::TreePop();
-  }
-  FileUtils::SaveFile(
-      "ScreenShot", "Image", {".png", ".jpg", ".hdr"},
-      [this](const std::filesystem::path& file_path) {
-        render_texture_->Save(file_path);
-      },
-      false);
-
-  return changed;
 }
 
 void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -648,32 +475,30 @@ void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
 const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
   return g_buffer_descriptor_set_;
 }
+
+const std::shared_ptr<Image>& Camera::GetGBufferNormalImage() const {
+  return g_buffer_normal_;
+}
+
+ImTextureID Camera::GetGBufferNormalImTextureId() const {
+  return g_buffer_normal_im_texture_id_;
+}
+
+ImTextureID Camera::GetGBufferMaterialTexCoordImTextureId() const {
+  return g_buffer_material_tex_coord_im_texture_id_;
+}
+
+ImTextureID Camera::GetGBufferMaterialIndicesImTextureId() const {
+  return g_buffer_material_indices_im_texture_id_;
+}
+
 void Camera::SetRendered() {
   rendered_ = true;
 }
+void Camera::ResetRenderState() {
+  rendered_ = false;
+  require_rendering_ = false;
+}
 void Camera::ResetFrameCount() {
   frame_count_ = 0;
-}
-
-void Camera::DebugViews(const float debug_scale) const {
-  if (ImGui::TreeNodeEx("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Image(g_buffer_normal_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale), ImVec2(0, 1),
-                 ImVec2(1, 0));
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNodeEx("UV", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Image(g_buffer_material_tex_coord_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale),
-                 ImVec2(0, 1), ImVec2(1, 0));
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Instance/Material Index")) {
-    ImGui::Image(g_buffer_material_indices_im_texture_id_, ImVec2(size_.x * debug_scale, size_.y * debug_scale),
-                 ImVec2(0, 1), ImVec2(1, 0));
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Depth")) {
-    ImGui::Image(render_texture_->GetDepthImTextureId(), ImVec2(size_.x * debug_scale, size_.y * debug_scale),
-                 ImVec2(0, 1), ImVec2(1, 0));
-    ImGui::TreePop();
-  }
 }

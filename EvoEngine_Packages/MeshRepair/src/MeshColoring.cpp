@@ -2,13 +2,15 @@
 
 #include "ClassRegistry.hpp"
 #include "CpuRayTracer.hpp"
+#include "MeshRepairInspectionAdapters.hpp"
 #include "Prefab.hpp"
 #include "Times.hpp"
 #include "VisibilityTest.hpp"
 using namespace mesh_repair_package;
 
-bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  const auto scene = GetScene();
+bool mesh_repair_package::InspectMeshColoring(InspectorContext& context, MeshColoring& mesh_coloring) {
+  const auto& editor_layer = context.editor_layer;
+  const auto scene = mesh_coloring.GetScene();
   auto find_mesh = [&](const std::shared_ptr<Prefab>& target_prefab) {
     target_prefab->GatherAssets();
     for (auto& asset_ref : target_prefab->collected_assets) {
@@ -18,7 +20,7 @@ bool MeshColoring::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
     return std::shared_ptr<Mesh>();
   };
-  const auto owner = GetOwner();
+  const auto owner = mesh_coloring.GetOwner();
 
   static AssetRef visibility_test_prefab_ref;
   static AssetRef visibility_test_mesh_ref;

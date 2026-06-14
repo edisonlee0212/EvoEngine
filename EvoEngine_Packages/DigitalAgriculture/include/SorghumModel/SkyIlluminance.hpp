@@ -48,25 +48,6 @@ class SkyIlluminance : public IAsset {
    * @param path The file path of the CSV containing sky illuminance data.
    */
   void ImportCsv(const std::filesystem::path &path);
-
-  /**
-   * @brief Inspects and allows modification of the sky illuminance asset in the editor.
-   * @param editor_layer The editor layer responsible for rendering UI components.
-   * @return True if the asset's content remains unchanged, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
-
-  /**
-   * @brief Serializes the sky illuminance data into a YAML emitter.
-   * @param out The YAML emitter used for serialization.
-   */
-  void Serialize(YAML::Emitter &out) const override;
-
-  /**
-   * @brief Deserializes sky illuminance data from a YAML node.
-   * @param in The YAML node containing serialized sky illuminance data.
-   */
-  void Deserialize(const YAML::Node &in) override;
 };
 
 }  // namespace digital_agriculture_package

@@ -19,25 +19,13 @@ class ClimateDescriptor : public IAsset {
    * @param editor_layer The editor layer handling the inspection.
    * @return True if the asset's content is not modified during inspection, otherwise false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Generates a thumbnail texture representing the climate descriptor.
    * @return A shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-
-  /**
-   * @brief Serializes the climate descriptor into a YAML emitter.
-   * @param out The YAML emitter to serialize data into.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the climate descriptor from a YAML node.
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -60,25 +48,13 @@ class Climate : public IPrivateComponent {
    * @note ImGui menu goes here. You can also handle visualization with Gizmos here.
    *       The visualization will only be activated while inspecting the soil private component in the entity inspector.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the climate component into a YAML emitter.
-   * @param out The YAML emitter to serialize data into.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the climate component from a YAML node.
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Collects asset references used by this component.
    * @param list The list to store asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Initializes the climate model with relevant parameters.

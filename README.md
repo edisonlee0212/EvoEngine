@@ -77,9 +77,9 @@ Assets are handle-based and are managed by the asset, file, and project managers
 Persistent engine types must be registered with the serialization system. New persistent types usually need:
 
 - a type registration such as `AssetRegistration`, `PrivateComponentRegistration`, `DataComponentRegistration`, or system registration
-- `Serialize` and `Deserialize`
-- `OnInspect` when editor editing is useful
-- `CollectAssetRef` and `Relink` when the type stores `AssetRef`, `EntityRef`, or component/entity handles
+- concrete `Serialize` and `Deserialize` methods, or explicit serialization registry handlers
+- a concrete `OnInspect` method or explicit inspector registry handler when editor editing is useful
+- concrete asset-reference collection and relink methods, or explicit support handlers, when the type stores `AssetRef`, `EntityRef`, or component/entity handles
 
 ### Rendering
 

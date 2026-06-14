@@ -1,13 +1,13 @@
-#include "Collider.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
 #include "EditorLayer.hpp"
+#include "PhysXSerializationAdapters.hpp"
 #include "PhysicsLayer.hpp"
 using namespace evo_engine;
 
 const char* rigid_body_shape[]{"Sphere", "Box", "Capsule"};
 
-bool Collider::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool Collider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool status_changed = false;
   if (ImGui::Combo("Shape", reinterpret_cast<int*>(&shape_type_), rigid_body_shape, IM_ARRAYSIZE(rigid_body_shape))) {
     status_changed = true;
@@ -108,25 +108,25 @@ void Collider::SetShapeParam(const glm::vec3& param) {
 void Collider::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(physics_material_);
 }
-void Collider::Serialize(YAML::Emitter& out) const {
-  physics_material_.Save("physics_material_", out);
-  out << YAML::Key << "shape_param_" << YAML::Value << shape_param_;
-  out << YAML::Key << "attach_count_" << YAML::Value << attach_count_;
-  out << YAML::Key << "shape_type_" << YAML::Value << static_cast<unsigned>(shape_type_);
+void evo_engine::SerializeCollider(YAML::Emitter& out, const Collider& target) {
+  target.physics_material_.Save("physics_material_", out);
+  out << YAML::Key << "shape_param_" << YAML::Value << target.shape_param_;
+  out << YAML::Key << "attach_count_" << YAML::Value << target.attach_count_;
+  out << YAML::Key << "shape_type_" << YAML::Value << static_cast<unsigned>(target.shape_type_);
 }
-void Collider::Deserialize(const YAML::Node& in) {
-  physics_material_.Load("physics_material_", in);
-  shape_param_ = in["shape_param_"].as<glm::vec3>();
-  shape_type_ = static_cast<ShapeType>(in["shape_type_"].as<unsigned>());
-  SetShapeType(shape_type_);
-  SetShapeParam(shape_param_);
-  auto mat = physics_material_.Get<PhysicsMaterial>();
+void evo_engine::DeserializeCollider(const YAML::Node& in, Collider& target) {
+  target.physics_material_.Load("physics_material_", in);
+  target.shape_param_ = in["shape_param_"].as<glm::vec3>();
+  target.shape_type_ = static_cast<ShapeType>(in["shape_type_"].as<unsigned>());
+  target.SetShapeType(target.shape_type_);
+  target.SetShapeParam(target.shape_param_);
+  auto mat = target.physics_material_.Get<PhysicsMaterial>();
   if (!mat) {
     const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();
     if (!physics_layer)
       return;
     mat = physics_layer->default_physics_material;
   }
-  SetMaterial(mat);
-  attach_count_ = in["attach_count_"].as<size_t>();
+  target.SetMaterial(mat);
+  target.attach_count_ = in["attach_count_"].as<size_t>();
 }

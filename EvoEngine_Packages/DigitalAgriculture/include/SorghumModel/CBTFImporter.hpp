@@ -24,17 +24,6 @@ class CBTFImporter : public IPrivateComponent {
   std::vector<std::filesystem::path> m_importFolders;
 
   /**
-   * @brief Handles the inspection of the CBTFImporter in the editor layer.
-   *
-   * This function is called by the editor layer and provides an interface
-   * for inspecting and possibly modifying the import settings.
-   *
-   * @param editor_layer A shared pointer to the editor layer instance.
-   * @return True if the asset's content is not modified during inspection, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Updates the importer state for handling the import process.
    *
    * This function should be called periodically to process files and manage the import lifecycle.

@@ -1,10 +1,11 @@
 #include "DynamicStrandsInitializationParameters.hpp"
 
 #include "BasicFoliageDescriptor.hpp"
+#include "SDKInspectionAdapters.hpp"
 
 using namespace eco_sys_lab_package;
 
-bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicStrandsInitializeParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
     changed = true;
@@ -22,7 +23,7 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
     static bool show_damage_graph = false;
     ImGui::Checkbox("Show damage graph", &show_damage_graph);
     if (show_damage_graph) {
-      changed = damage_graph.ShowGraph("Damage graph", editor_layer) || changed;
+      changed = evo_engine::DrawProceduralNoiseGraph(damage_graph, "Damage graph", editor_layer) || changed;
     }
 
     if (ImGui::DragFloat3("Damage scale factor", &damage_scale_factor.x, 0.001f, 0.f, 1.f)) {
@@ -60,16 +61,16 @@ bool DynamicStrandsInitializeParameters::OnInspect(const std::shared_ptr<EditorL
     }
 
     if (ImGui::TreeNode("Foliage attachments")) {
-      if (leaf_position_alpha.OnInspect("Leaf position alpha"))
+      if (leaf_position_alpha.Draw("Leaf position alpha"))
         changed = true;
 
-      if (leaf_rotation_alpha.OnInspect("Leaf rotation alpha"))
+      if (leaf_rotation_alpha.Draw("Leaf rotation alpha"))
         changed = true;
 
-      if (max_leaf_position_strain.OnInspect("Max leaf position strain"))
+      if (max_leaf_position_strain.Draw("Max leaf position strain"))
         changed = true;
 
-      if (max_leaf_rotation_strain.OnInspect("Max leaf rotation strain"))
+      if (max_leaf_rotation_strain.Draw("Max leaf rotation strain"))
         changed = true;
 
       ImGui::TreePop();

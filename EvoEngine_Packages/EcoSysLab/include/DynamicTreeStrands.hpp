@@ -95,23 +95,11 @@ class DynamicTreeStrands : public IPrivateComponent {
   void CreateStaticRoot();
 
   /**
-   * @brief Serializes the object data to YAML format.
-   * @param out YAML emitter to store serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the object data from YAML format.
-   * @param in YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Inspects and modifies the object in the editor.
    * @param editor_layer Shared pointer to editor layer.
    * @return True if the content is not modified, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Called upon creation of the component.
@@ -127,7 +115,7 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @brief Collects references to all asset resources.
    * @param list Vector to store collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @enum PivotType
@@ -157,7 +145,7 @@ class DynamicTreeStrands : public IPrivateComponent {
      * @param editor_layer Shared pointer to editor layer.
      * @return True if the content is not modified, false otherwise.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
@@ -190,7 +178,7 @@ class DynamicTreeStrands : public IPrivateComponent {
      * @param editor_layer Shared pointer to editor layer.
      * @return True if the content is not modified, false otherwise.
      */
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**

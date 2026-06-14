@@ -111,7 +111,7 @@ BrowserTileInteraction DrawBrowserTile(const char* id, const std::shared_ptr<Tex
 }
 }  // namespace
 
-void ProjectContentBrowserPanel::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& project_manager = ProjectManager::GetInstance();
   if (project_manager.show_project_window) {
     if (ImGui::Begin("Project")) {
@@ -335,6 +335,7 @@ void ProjectContentBrowserPanel::OnInspect(const std::shared_ptr<EditorLayer>& e
                   auto entity_handle = *static_cast<Handle*>(payload->Data);
                   auto scene = ApplicationContext::Get().GetActiveScene();
                   if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
+                    prefab->FromEntity(entity);
                     // If current folder doesn't contain file with same name
                     auto file_name = scene->GetEntityName(entity);
                     auto file_extension = Serialization::PeekAssetExtensions("Prefab").front();
@@ -404,7 +405,7 @@ void ProjectContentBrowserPanel::OnInspect(const std::shared_ptr<EditorLayer>& e
               if (interaction.double_clicked && i.second->GetAssetTypeName() != "Binary") {
                 // If it's an asset then inspect.
                 if (auto asset = AssetManager::GetAssetImpl(i.second->asset_handle_))
-                  editor_layer->inspecting_asset = asset;
+                  editor_layer->OpenAssetInspector(asset);
               }
               ImGui::NextColumn();
             }
@@ -606,7 +607,7 @@ void ProjectContentBrowserPanel::DrawSearchResults(const std::shared_ptr<EditorL
       }
       if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && file->GetAssetTypeName() != "Binary") {
         if (auto asset = AssetManager::GetAssetImpl(file->asset_handle_)) {
-          editor_layer->inspecting_asset = asset;
+          editor_layer->OpenAssetInspector(asset);
         }
       }
       if (ImGui::BeginPopupContextItem(("SearchFileContext" + std::to_string(handle.GetValue())).c_str())) {
@@ -823,7 +824,7 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
         if (ImGui::IsMouseDoubleClicked(0) && i.second->GetAssetTypeName() != "Binary") {
           // If it's an asset then inspect.
           if (auto asset = AssetManager::GetAssetImpl(i.second->asset_handle_))
-            editor_layer->inspecting_asset = asset;
+            editor_layer->OpenAssetInspector(asset);
         }
       }
       if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {

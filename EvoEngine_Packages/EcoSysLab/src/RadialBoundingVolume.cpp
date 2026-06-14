@@ -2,6 +2,7 @@
 
 #include <Material.hpp>
 
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "Platform.hpp"
 #include "PointCloud.hpp"
 #include "Tree.hpp"
@@ -344,10 +345,10 @@ void RadialBoundingVolume::CalculateVolume(const std::vector<glm::vec3>& points)
   CalculateSizes();
 }
 
-bool RadialBoundingVolume::OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) {
+bool RadialBoundingVolume::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
   bool changed = false;
 
-  if (IVolume::OnInspect(editorLayer))
+  if (IVolume::DrawGui(editorLayer))
     changed = true;
 
   PrivateComponentRef treeRef;
@@ -471,44 +472,43 @@ bool RadialBoundingVolume::InVolume(const GlobalTransform& globalTransform, cons
   return true;
 }
 
-void RadialBoundingVolume::Deserialize(const YAML::Node& in) {
-  IVolume::Deserialize(in);
-  m_meshGenerated = false;
-  m_offset = in["m_offset"].as<float>();
-  m_displayColor = in["m_displayColor"].as<glm::vec4>();
-  m_maxHeight = in["m_maxHeight"].as<float>();
-  m_maxRadius = in["m_maxRadius"].as<float>();
-  m_displayScale = in["m_displayScale"].as<float>();
-  m_layerAmount = in["m_layerAmount"].as<int>();
-  m_sectorAmount = in["m_sectorAmount"].as<int>();
+void eco_sys_lab_package::DeserializeRadialBoundingVolume(const YAML::Node& in, RadialBoundingVolume& target) {
+  target.m_meshGenerated = false;
+  target.m_offset = in["m_offset"].as<float>();
+  target.m_displayColor = in["m_displayColor"].as<glm::vec4>();
+  target.m_maxHeight = in["m_maxHeight"].as<float>();
+  target.m_maxRadius = in["m_maxRadius"].as<float>();
+  target.m_displayScale = in["m_displayScale"].as<float>();
+  target.m_layerAmount = in["m_layerAmount"].as<int>();
+  target.m_sectorAmount = in["m_sectorAmount"].as<int>();
 
   if (in["m_layers"]) {
-    m_layers.resize(m_layerAmount);
-    for (auto& i : m_layers) {
-      i.resize(m_sectorAmount);
+    target.m_layers.resize(target.m_layerAmount);
+    for (auto& i : target.m_layers) {
+      i.resize(target.m_sectorAmount);
     }
     int index = 0;
     for (const auto& i : in["m_layers"]) {
-      m_layers[index / m_sectorAmount][index % m_sectorAmount].m_maxDistance = i["m_maxDistance"].as<float>();
+      target.m_layers[index / target.m_sectorAmount][index % target.m_sectorAmount].m_maxDistance =
+          i["m_maxDistance"].as<float>();
       index++;
     }
   }
-  GenerateMesh();
+  target.GenerateMesh();
 }
 
-void RadialBoundingVolume::Serialize(YAML::Emitter& out) const {
-  IVolume::Serialize(out);
-  out << YAML::Key << "offset" << YAML::Value << m_offset;
-  out << YAML::Key << "m_displayColor" << YAML::Value << m_displayColor;
-  out << YAML::Key << "m_maxHeight" << YAML::Value << m_maxHeight;
-  out << YAML::Key << "m_maxRadius" << YAML::Value << m_maxRadius;
-  out << YAML::Key << "m_displayScale" << YAML::Value << m_displayScale;
-  out << YAML::Key << "m_layerAmount" << YAML::Value << m_layerAmount;
-  out << YAML::Key << "m_sectorAmount" << YAML::Value << m_sectorAmount;
+void eco_sys_lab_package::SerializeRadialBoundingVolume(YAML::Emitter& out, const RadialBoundingVolume& target) {
+  out << YAML::Key << "offset" << YAML::Value << target.m_offset;
+  out << YAML::Key << "m_displayColor" << YAML::Value << target.m_displayColor;
+  out << YAML::Key << "m_maxHeight" << YAML::Value << target.m_maxHeight;
+  out << YAML::Key << "m_maxRadius" << YAML::Value << target.m_maxRadius;
+  out << YAML::Key << "m_displayScale" << YAML::Value << target.m_displayScale;
+  out << YAML::Key << "m_layerAmount" << YAML::Value << target.m_layerAmount;
+  out << YAML::Key << "m_sectorAmount" << YAML::Value << target.m_sectorAmount;
 
-  if (!m_layers.empty()) {
+  if (!target.m_layers.empty()) {
     out << YAML::Key << "m_layers" << YAML::BeginSeq;
-    for (const auto& i : m_layers) {
+    for (const auto& i : target.m_layers) {
       for (const auto& j : i) {
         out << YAML::BeginMap;
         out << YAML::Key << "m_maxDistance" << YAML::Value << j.m_maxDistance;

@@ -51,25 +51,6 @@ class Particles : public IPrivateComponent {
   void RecalculateBoundingBox();
 
   /**
-   * @brief Displays an inspector interface for the component in the editor layer.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return Returns true if the inspection modifies any property.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the component's data into YAML format.
-   * @param out The YAML emitter to write the component's data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the component's data from a YAML node.
-   * @param in The YAML node containing the component's data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Post-clone action executed after cloning the component. Allows
    *        additional processing for the cloned component.
    * @param target Shared pointer to the cloned component.
@@ -80,7 +61,7 @@ class Particles : public IPrivateComponent {
    * @brief Collects all asset references used by this component into a list.
    * @param list Vector to store collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Called when the component is destroyed. Can be overridden

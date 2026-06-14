@@ -29,7 +29,7 @@ class PrivateComponentRef final : public ISerializable {
    * @brief Serializes the private component reference to a YAML emitter.
    * @param[out] out The YAML emitter to write to.
    */
-  void Serialize(YAML::Emitter& out) const override {
+  void Serialize(YAML::Emitter& out) const {
     out << YAML::Key << "entity_handle_" << YAML::Value << entity_handle_;
     out << YAML::Key << "private_component_type_name_" << YAML::Value << private_component_type_name_;
   }
@@ -38,7 +38,7 @@ class PrivateComponentRef final : public ISerializable {
    * @brief Deserializes the private component reference from a YAML node.
    * @param[in] in The YAML node to read from.
    */
-  void Deserialize(const YAML::Node& in) override {
+  void Deserialize(const YAML::Node& in) {
     entity_handle_ = Handle(in["entity_handle_"].as<uint64_t>());
     private_component_type_name_ = in["private_component_type_name_"].as<std::string>();
     scene_.reset();

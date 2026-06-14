@@ -1,5 +1,6 @@
-#include "Sorghum.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 
+#include "DigitalAgricultureInspectionAdapters.hpp"
 #include "SorghumGenerator.hpp"
 #include "SorghumLayer.hpp"
 #ifdef CUDA_MODULE_SERVICE
@@ -227,22 +228,27 @@ void Sorghum::OnDestroy() {
   sorghum_growth_stages.Clear();
 }
 
-void Sorghum::Serialize(YAML::Emitter& out) const {
-  sorghum_descriptor.Save("sorghum_descriptor", out);
-  sorghum_generator.Save("sorghum_generator", out);
-  sorghum_state.Save("sorghum_state", out);
+void digital_agriculture_package::SerializeSorghum(YAML::Emitter& out, const Sorghum& target) {
+  target.sorghum_descriptor.Save("sorghum_descriptor", out);
+  target.sorghum_generator.Save("sorghum_generator", out);
+  target.sorghum_state.Save("sorghum_state", out);
 
-  sorghum_growth_stages.Save("sorghum_growth_stages", out);
+  target.sorghum_growth_stages.Save("sorghum_growth_stages", out);
 }
 
-void Sorghum::Deserialize(const YAML::Node& in) {
-  sorghum_descriptor.Load("sorghum_descriptor", in);
-  sorghum_growth_stages.Load("sorghum_growth_stages", in);
-  sorghum_state.Load("sorghum_state", in);
-  sorghum_generator.Load("sorghum_generator", in);
+void digital_agriculture_package::DeserializeSorghum(const YAML::Node& in, Sorghum& target) {
+  target.sorghum_descriptor.Load("sorghum_descriptor", in);
+  target.sorghum_growth_stages.Load("sorghum_growth_stages", in);
+  target.sorghum_state.Load("sorghum_state", in);
+  target.sorghum_generator.Load("sorghum_generator", in);
 }
 
-bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorghum& sorghum) {
+  const auto& editor_layer = context.editor_layer;
+  auto& sorghum_generator = sorghum.sorghum_generator;
+  auto& sorghum_growth_stages = sorghum.sorghum_growth_stages;
+  auto& sorghum_state = sorghum.sorghum_state;
+  auto& sorghum_descriptor = sorghum.sorghum_descriptor;
   bool changed = false;
   if (editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_generator, "SorghumGenerator"))
     changed = true;
@@ -256,7 +262,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     changed = true;
 
   if (ImGui::Button("Form meshes")) {
-    GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
+    sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   }
 
   if (const auto ssg = sorghum_generator.Get<SorghumGenerator>()) {
@@ -269,7 +275,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           sorghum_descriptor = sd;
         }
         ssg->Apply(sd, seed);
-        GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
+        sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
       }
       ImGui::TreePop();
     }
@@ -285,7 +291,7 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           sorghum_descriptor = sd;
         }
         sgs->Apply(sd, time);
-        GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
+        sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
       }
       ImGui::TreePop();
     }
@@ -306,8 +312,8 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     if (show_all_node) {
       if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
         std::vector<ParticleInfo> particle_infos;
-        const auto owner = GetOwner();
-        const auto scene = GetScene();
+        const auto owner = sorghum.GetOwner();
+        const auto scene = sorghum.GetScene();
         const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
         for (const auto& leaf_state : sd->leaves) {
           const auto start_index = particle_infos.size();
@@ -324,12 +330,12 @@ bool Sorghum::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
         node_debug_info_list->SetParticleInfos(particle_infos);
       }
     } else {
-      const auto owner = GetOwner();
+      const auto owner = sorghum.GetOwner();
       if (ImGui::Button("Refresh leaf nodes") || previous_referenced_entity != owner) {
         if (const auto sd = sorghum_descriptor.Get<SorghumDescriptor>()) {
           std::vector<ParticleInfo> particle_infos;
 
-          const auto scene = GetScene();
+          const auto scene = sorghum.GetScene();
           const auto plant_position = scene->GetDataComponent<GlobalTransform>(owner).GetPosition();
           for (const auto& leaf_state : sd->leaves) {
             SorghumSpline leaf_part;

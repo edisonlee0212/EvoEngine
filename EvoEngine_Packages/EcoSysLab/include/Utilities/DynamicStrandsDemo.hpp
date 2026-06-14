@@ -105,7 +105,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
    * @param editor_layer Shared pointer to the editor layer for UI rendering.
    * @return True if asset content is unmodified, otherwise false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates the physics simulation and demo state.

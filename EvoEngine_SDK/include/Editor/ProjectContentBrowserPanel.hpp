@@ -14,7 +14,7 @@ class Folder;
 
 class ProjectContentBrowserPanel final : public EditorPanel {
  public:
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void Draw(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
  private:
   enum class SelectedItemType { None, Folder, File };

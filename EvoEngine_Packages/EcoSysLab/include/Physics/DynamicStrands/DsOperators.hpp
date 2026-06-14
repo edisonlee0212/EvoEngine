@@ -28,7 +28,7 @@ class IDsPhysicsOperator {
    * @param editor_layer The current editor layer.
    * @return True if the asset content is unmodified, false otherwise.
    */
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
 
@@ -79,7 +79,7 @@ class DsLeafDrop final : public IDsPhysicsOperator {
    * @param editor_layer The editor layer.
    * @return True if content is unchanged.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /**
    * @brief Constructor for setting default values.
@@ -145,7 +145,7 @@ class DsAttraction final : public IDsPhysicsOperator {
    * @param editor_layer The editor layer.
    * @return True if content is unchanged.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 /**
@@ -170,7 +170,7 @@ class IDsOperator {
    * @param editor_layer The current editor layer.
    * @return True if the asset content is unmodified, false otherwise.
    */
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
     return false;
   }
 
@@ -466,7 +466,7 @@ class DsSnow : public IDsPhysicsOperator {
    * @param editor_layer The editor layer.
    * @return True if content is unchanged.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 /**
@@ -529,7 +529,7 @@ class DsWind : public IDsPhysicsOperator {
    * @param editor_layer The editor layer.
    * @return True if content is unchanged.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 /**

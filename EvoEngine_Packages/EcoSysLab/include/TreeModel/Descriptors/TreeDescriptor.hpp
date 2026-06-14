@@ -19,7 +19,7 @@ class IShootDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -37,7 +37,7 @@ class IRootDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the root descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -55,7 +55,7 @@ class IFineRootDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the root descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -75,7 +75,7 @@ class IPruningDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -101,7 +101,7 @@ class IFoliageDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -127,7 +127,7 @@ class IReproductionModuleDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -147,7 +147,7 @@ class IBarkDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -160,7 +160,7 @@ class IFlowerDescriptor : public IAsset {
    * \brief Generates a thumbnail texture representing the shoot descriptor.
    * \return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -216,7 +216,7 @@ class TreeDescriptor : public IAsset {
    * @param editor_layer The shared pointer to the editor layer.
    * @return Returns true if the asset's content is not modified during inspection.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Collects all asset references contained within this asset.
@@ -225,7 +225,7 @@ class TreeDescriptor : public IAsset {
    *
    * @param list A vector to store collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Instantiates the tree entity from this descriptor.
@@ -235,24 +235,10 @@ class TreeDescriptor : public IAsset {
   Entity Instantiate() const;
 
   /**
-   * @brief Serializes the tree descriptor to a YAML emitter.
-   *
-   * @param out The YAML emitter to write serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
    * @brief Generates a thumbnail texture for the asset.
    *
    * @return A shared pointer to a Texture2D representing the thumbnail.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
-
-  /**
-   * @brief Deserializes the tree descriptor from a YAML node.
-   *
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 }  // namespace eco_sys_lab_package

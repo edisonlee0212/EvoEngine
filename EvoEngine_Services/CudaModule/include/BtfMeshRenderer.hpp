@@ -9,9 +9,7 @@ class BtfMeshRenderer : public IPrivateComponent {
   AssetRef mesh;
   AssetRef btf;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
-  void Serialize(YAML::Emitter &out) const override;
-  void Deserialize(const YAML::Node &in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
 
   void CollectAssetRef(std::vector<AssetRef> &list) override;
 };

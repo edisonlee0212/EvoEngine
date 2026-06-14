@@ -117,17 +117,6 @@ class ILayer {
   }
 
   /**
-   * @brief Handles editor-specific inspection of the layer.
-   *
-   * This function is invoked when the layer is inspected in the editor. Derived classes can override this
-   * function to provide custom inspection logic.
-   *
-   * @param editor_layer A shared pointer to the EditorLayer managing the editor interface.
-   */
-  virtual void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  }
-
-  /**
    * @brief Processes input events received by the layer.
    *
    * Derived classes can override this function to handle specific input events.

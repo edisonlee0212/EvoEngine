@@ -3,6 +3,7 @@
 #include "IPrivateComponent.hpp"
 
 namespace evo_engine {
+void RegisterWayPointsHandlers();
 
 /**
  * @brief Class representing waypoints for an entity.
@@ -29,14 +30,6 @@ class WayPoints : public IPrivateComponent {
    * @brief The list of entity references that define the waypoints.
    */
   std::vector<EntityRef> entities;
-
-  /**
-   * @brief Function called to provide an interface for inspecting the object's properties.
-   *
-   * @param editor_layer A shared pointer to the editor layer used for rendering the interface.
-   * @return True if inspection was successful, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /**
    * @brief Function called when the component is created.

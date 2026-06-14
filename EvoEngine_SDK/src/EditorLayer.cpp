@@ -5,6 +5,7 @@
 #include "EditorTheme.hpp"
 #include "EnvironmentalMap.hpp"
 #include "ILayer.hpp"
+#include "InspectorRegistry.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
@@ -16,7 +17,9 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "SDKInspectionAdapters.hpp"
 #include "Scene.hpp"
+#include "Serialization.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -34,21 +37,19 @@ using namespace evo_engine;
 
 namespace {
 constexpr size_t kMaxRuntimePackageBuildOutputSize = 128 * 1024;
-constexpr ImGuiID kInspectorWindowClassId = 0xEC0E1001;
 const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
 
 class CallbackEditorPanel final : public EditorPanel {
  public:
-  explicit CallbackEditorPanel(std::function<void(const std::shared_ptr<EditorLayer>&)> on_inspect)
-      : on_inspect_(std::move(on_inspect)) {
+  explicit CallbackEditorPanel(std::function<void(const std::shared_ptr<EditorLayer>&)> draw) : draw_(std::move(draw)) {
   }
 
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override {
-    on_inspect_(editor_layer);
+  void Draw(const std::shared_ptr<EditorLayer>& editor_layer) override {
+    draw_(editor_layer);
   }
 
  private:
-  std::function<void(const std::shared_ptr<EditorLayer>&)> on_inspect_;
+  std::function<void(const std::shared_ptr<EditorLayer>&)> draw_;
 };
 
 struct RuntimePackageCMakeBuildRequest {
@@ -322,15 +323,6 @@ bool CopyPackageBuildOutputToRuntimeDir(const RuntimePackageCMakeBuildRequest& r
   return true;
 }
 
-void ApplyInspectorWindowClass(const ImGuiID dock_space_id) {
-  ImGuiWindowClass inspector_window_class;
-  inspector_window_class.ClassId = kInspectorWindowClassId;
-  ImGui::SetNextWindowClass(&inspector_window_class);
-  if (dock_space_id != 0) {
-    ImGui::SetNextWindowDockID(dock_space_id, ImGuiCond_FirstUseEver);
-  }
-}
-
 void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock_size) {
   ImGui::DockBuilderRemoveNode(dock_space_id);
   ImGui::DockBuilderAddNode(dock_space_id, ImGuiDockNodeFlags_DockSpace);
@@ -345,8 +337,6 @@ void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& doc
   ImGui::DockBuilderDockWindow("Camera", center_node);
   ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
   ImGui::DockBuilderDockWindow("Entity Inspector", right_node);
-  ImGui::DockBuilderDockWindow("Asset Inspector", right_node);
-  ImGui::DockBuilderDockWindow("Layer Inspector", right_node);
   ImGui::DockBuilderDockWindow("Scene Camera Debug", right_node);
   ImGui::DockBuilderDockWindow("Project", bottom_node);
   ImGui::DockBuilderDockWindow("Console", bottom_node);
@@ -583,7 +573,66 @@ void EditorLayer::PreUpdate() {
 
   const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
   HandleSceneDeleteShortcut(scene);
-  editor_panel_manager_.OnInspect(EditorPanelCategory::View, editor_layer);
+  editor_panel_manager_.Draw(EditorPanelCategory::View, editor_layer);
+  DrawAssetInspectorWindows();
+  DrawLayerInspectionWindows(scene, editor_layer);
+}
+
+void EditorLayer::OpenAssetInspector(const std::shared_ptr<IAsset>& asset) {
+  if (!asset || asset->GetTypeName() == "Binary") {
+    return;
+  }
+
+  const auto asset_handle = asset->GetHandle().GetValue();
+  for (auto& inspector_window : inspecting_assets_) {
+    if (inspector_window.asset && inspector_window.asset->GetHandle().GetValue() == asset_handle) {
+      inspector_window.asset = asset;
+      inspector_window.open = true;
+      inspector_window.focus_requested = true;
+      return;
+    }
+  }
+  inspecting_assets_.push_back({asset, true, true});
+}
+
+void EditorLayer::ClearAssetInspectors() {
+  inspecting_assets_.clear();
+}
+
+void EditorLayer::DrawAssetInspectorWindows() {
+  const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
+  for (size_t i = 0; i < inspecting_assets_.size(); ++i) {
+    const auto asset = inspecting_assets_[i].asset;
+    if (!asset) {
+      inspecting_assets_[i].open = false;
+      continue;
+    }
+
+    const auto asset_handle = asset->GetHandle().GetValue();
+    bool open = inspecting_assets_[i].open;
+    if (inspecting_assets_[i].focus_requested) {
+      ImGui::SetNextWindowFocus();
+      inspecting_assets_[i].focus_requested = false;
+    }
+
+    const auto window_title =
+        "Asset Inspector - " + asset->GetTitle() + "###AssetInspector_" + std::to_string(asset_handle);
+    if (ImGui::Begin(window_title.c_str(), &open)) {
+      AssetManager::DrawAssetInspectorContent(editor_layer, asset);
+    }
+    ImGui::End();
+
+    if (i < inspecting_assets_.size() && inspecting_assets_[i].asset &&
+        inspecting_assets_[i].asset->GetHandle().GetValue() == asset_handle) {
+      inspecting_assets_[i].open = open;
+    }
+  }
+
+  inspecting_assets_.erase(std::remove_if(inspecting_assets_.begin(), inspecting_assets_.end(),
+                                          [](const AssetInspectorWindow& inspector) {
+                                            return !inspector.open || !inspector.asset;
+                                          }),
+                           inspecting_assets_.end());
 }
 
 void EditorLayer::RegisterEditorPanels() {
@@ -621,20 +670,9 @@ void EditorLayer::RegisterEditorPanels() {
                  [this](const std::shared_ptr<EditorLayer>&) {
                    DrawRuntimePackageManagerWindow();
                  });
-  register_panel("layer_inspector", "Layer Inspector", show_layer_inspector_window,
-                 [this](const std::shared_ptr<EditorLayer>& editor_layer) {
-                   DrawLayerInspectionWindows(ApplicationContext::Get().GetActiveScene(), editor_layer);
-                 });
   register_panel("resources", "Resources", Resources::GetInstance().show_resources_,
                  [](const std::shared_ptr<EditorLayer>& editor_layer) {
-                   Resources::OnInspect(editor_layer);
-                 });
-  register_panel("asset_inspector", "Asset Inspector", AssetManager::GetInstance().show_asset_inspector_,
-                 [this](const std::shared_ptr<EditorLayer>& editor_layer) {
-                   if (AssetManager::GetInstance().show_asset_inspector_) {
-                     ApplyInspectorWindowClass(dock_space_id);
-                   }
-                   AssetManager::OnInspect(editor_layer);
+                   Resources::Draw(editor_layer);
                  });
   editor_panel_manager_.RegisterPanel(EditorPanelCategory::View, "project", "Project",
                                       ProjectManager::GetInstance().show_project_window,
@@ -762,7 +800,7 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
       DraggableAsset(scene);
       RenameAsset(scene);
       if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        inspecting_asset = scene;
+        OpenAssetInspector(scene);
       }
       if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
@@ -934,7 +972,10 @@ void EditorLayer::DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene,
             if (!skip) {
               if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
                                     ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (data.private_component_data->OnInspect(editor_layer))
+                InspectorContext context;
+                context.editor_layer = editor_layer;
+                context.scene = scene;
+                if (InspectorRegistry::GetInstance().Inspect(context, *data.private_component_data))
                   scene->SetUnsaved();
                 ImGui::TreePop();
               }
@@ -1476,7 +1517,7 @@ void EditorLayer::DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene
       ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
       debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
       auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-      sceneCamera->DebugViews(debug_scale);
+      DrawCameraDebugViews(*sceneCamera, debug_scale);
     }
     ImGui::End();
   }
@@ -1484,28 +1525,29 @@ void EditorLayer::DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene
 
 void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                              const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (!show_layer_inspector_window) {
-    return;
-  }
-  ApplyInspectorWindowClass(dock_space_id);
-  if (ImGui::Begin("Layer Inspector", &show_layer_inspector_window)) {
-    if (!scene) {
-      ImGui::TextUnformatted("No active scene.");
-    } else if (ImGui::BeginTabBar("LayerInspectorTabs")) {
-      const auto layers = ApplicationContext::Get().GetLayers();
-      for (const auto& layer : layers) {
-        if (layer->enable_inspection && ImGui::BeginTabItem(layer->layer_name_.c_str())) {
-          layer->OnInspect(editor_layer);
-          ImGui::EndTabItem();
-        }
-      }
-      ImGui::EndTabBar();
+  const auto layers = ApplicationContext::Get().GetLayers();
+  for (const auto& layer : layers) {
+    if (!layer->enable_inspection) {
+      continue;
+    }
+    InspectorContext context;
+    context.editor_layer = editor_layer;
+    context.scene = scene;
+    const auto& inspector_registry = InspectorRegistry::GetInstance();
+    if (inspector_registry.FindInspector(typeid(*layer))) {
+      inspector_registry.Inspect(context, *layer);
     }
   }
-  ImGui::End();
 }
 
-void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& editor_layer) {
+  const auto window_title = GetLayerName();
+  bool open = enable_inspection;
+  if (!ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::End();
+    enable_inspection = open;
+    return;
+  }
   ImGui::Checkbox("Scene Window", &show_scene_window);
   if (show_scene_window) {
     ImGui::Checkbox("Scene Camera Debug Window", &show_scene_camera_debug);
@@ -1519,7 +1561,6 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Entity Inspector", &show_entity_inspector_window);
   ImGui::Checkbox("Console", &show_console_window);
   ImGui::Checkbox("Runtime Packages", &show_package_manager_window);
-  ImGui::Checkbox("Layer Inspector", &show_layer_inspector_window);
 
   if (ImGui::TreeNode("Scene camera settings")) {
     ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
@@ -1537,12 +1578,17 @@ void EditorLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::DragFloat("Resolution", &scene_camera_resolution_multiplier, 0.1f, 0.1f, 4.0f);
 
     if (ImGui::TreeNode("Camera settings")) {
-      sceneCamera->OnInspect(editor_layer);
+      InspectorContext context;
+      context.editor_layer = editor_layer;
+      context.scene = ApplicationContext::Get().GetActiveScene();
+      InspectorRegistry::GetInstance().Inspect(context, *sceneCamera);
       ImGui::TreePop();
     }
 
     ImGui::TreePop();
   }
+  ImGui::End();
+  enable_inspection = open;
 }
 
 void EditorLayer::DrawMainMenuBar() {
@@ -1808,7 +1854,7 @@ void EditorLayer::SceneCameraWindow() {
         scene_camera_resolution_x_ = static_cast<int>(view_port_size.x * scene_camera_resolution_multiplier);
         scene_camera_resolution_y_ = static_cast<int>(view_port_size.y * scene_camera_resolution_multiplier);
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
-        if (scene_camera && scene_camera->rendered_) {
+        if (scene_camera && scene_camera->Rendered()) {
           // Because I use the texture from OpenGL, I need to invert the V from the UV.
           ImGui::Image(scene_camera->GetRenderTexture()->GetColorImTextureId(),
                        ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
@@ -1853,7 +1899,7 @@ void EditorLayer::SceneCameraWindow() {
             uint32_t mode = static_cast<uint32_t>(scene_camera->camera_render_mode);
             if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
               scene_camera->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
-              scene_camera->frame_count_ = 0;
+              scene_camera->ResetFrameCount();
             }
           }
           ImGui::EndChild();
@@ -2003,7 +2049,7 @@ void EditorLayer::MainCameraWindow() {
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
         // Because I use the texture from OpenGL, I need to invert the V from the UV.
         const auto main_camera = scene->main_camera.Get<Camera>();
-        if (main_camera && main_camera->rendered_) {
+        if (main_camera && main_camera->Rendered()) {
           ImGui::Image(main_camera->GetRenderTexture()->GetColorImTextureId(),
                        ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
           CameraWindowDragAndDrop();
@@ -2052,7 +2098,7 @@ void EditorLayer::MainCameraWindow() {
             uint32_t mode = static_cast<uint32_t>(main_camera->camera_render_mode);
             if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
               main_camera->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
-              main_camera->frame_count_ = 0;
+              main_camera->ResetFrameCount();
             }
           }
           ImGui::EndChild();
@@ -2465,7 +2511,7 @@ void EditorLayer::MouseEntitySelection() {
 Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
                                          const glm::vec2& mouse_position) const {
   Entity ret_val;
-  const auto& g_buffer_normal = target_camera->g_buffer_normal_;
+  const auto& g_buffer_normal = target_camera->GetGBufferNormalImage();
   const glm::vec2 resolution = target_camera->GetSize();
   glm::vec2 point = resolution;
   point.x = mouse_position.x;
@@ -2548,7 +2594,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      inspecting_asset = ptr;
+      OpenAssetInspector(ptr);
     }
   } else {
     ImGui::Button("none");
@@ -2583,67 +2629,31 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
 }
 
 void EditorLayer::LoadIcons() {
-  editor_icons_["Scene"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Scene"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Scene.png");
+  const auto default_resources = std::filesystem::path("./DefaultResources");
+  auto load_icon = [&](const std::string& name, const std::filesystem::path& path) {
+    auto icon = AssetManager::CreateTemporaryAsset<Texture2D>();
+    Serialization::LoadAsset(*icon, path);
+    editor_icons_[name] = std::move(icon);
+  };
 
-  editor_icons_["Binary"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Binary"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Binary.png");
-
-  editor_icons_["Folder"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Folder"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Folder.png");
-
-  editor_icons_["Material"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Material"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Material.png");
-
-  editor_icons_["Mesh"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Mesh"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Mesh.png");
-
-  editor_icons_["Prefab"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Prefab"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Prefab.png");
-
-  editor_icons_["Texture2D"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["Texture2D"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Assets/Texture2D.png");
-  editor_icons_["PlayButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["PlayButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                            "Editor/Navigation/PlayButton.png");
-
-  editor_icons_["PauseButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["PauseButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                             "Editor/Navigation/PauseButton.png");
-
-  editor_icons_["StopButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["StopButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                            "Editor/Navigation/StopButton.png");
-
-  editor_icons_["StepButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["StepButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                            "Editor/Navigation/StepButton.png");
-
-  editor_icons_["BackButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["BackButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/back.png");
-
-  editor_icons_["LeftButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["LeftButton"]->LoadInternal(std::filesystem::path("./DefaultResources") / "Editor/Navigation/left.png");
-
-  editor_icons_["RightButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["RightButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                             "Editor/Navigation/right.png");
-
-  editor_icons_["RefreshButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["RefreshButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                               "Editor/Navigation/refresh.png");
-
-  editor_icons_["InfoButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["InfoButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                            "Editor/Console/InfoButton.png");
-
-  editor_icons_["ErrorButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["ErrorButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                             "Editor/Console/ErrorButton.png");
-
-  editor_icons_["WarningButton"] = AssetManager::CreateTemporaryAsset<Texture2D>();
-  editor_icons_["WarningButton"]->LoadInternal(std::filesystem::path("./DefaultResources") /
-                                               "Editor/Console/WarningButton.png");
+  load_icon("Scene", default_resources / "Editor/Assets/Scene.png");
+  load_icon("Binary", default_resources / "Editor/Assets/Binary.png");
+  load_icon("Folder", default_resources / "Editor/Assets/Folder.png");
+  load_icon("Material", default_resources / "Editor/Assets/Material.png");
+  load_icon("Mesh", default_resources / "Editor/Assets/Mesh.png");
+  load_icon("Prefab", default_resources / "Editor/Assets/Prefab.png");
+  load_icon("Texture2D", default_resources / "Editor/Assets/Texture2D.png");
+  load_icon("PlayButton", default_resources / "Editor/Navigation/PlayButton.png");
+  load_icon("PauseButton", default_resources / "Editor/Navigation/PauseButton.png");
+  load_icon("StopButton", default_resources / "Editor/Navigation/StopButton.png");
+  load_icon("StepButton", default_resources / "Editor/Navigation/StepButton.png");
+  load_icon("BackButton", default_resources / "Editor/Navigation/back.png");
+  load_icon("LeftButton", default_resources / "Editor/Navigation/left.png");
+  load_icon("RightButton", default_resources / "Editor/Navigation/right.png");
+  load_icon("RefreshButton", default_resources / "Editor/Navigation/refresh.png");
+  load_icon("InfoButton", default_resources / "Editor/Console/InfoButton.png");
+  load_icon("ErrorButton", default_resources / "Editor/Console/ErrorButton.png");
+  load_icon("WarningButton", default_resources / "Editor/Console/WarningButton.png");
 }
 
 void EditorLayer::CameraWindowDragAndDrop() const {

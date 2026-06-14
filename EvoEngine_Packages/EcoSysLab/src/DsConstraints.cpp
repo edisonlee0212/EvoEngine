@@ -342,7 +342,7 @@ DsStiffRod::DsStiffRod() {
   }
 }
 
-bool DsStiffRod::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsStiffRod::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("StiffRod")) {
     if (ImGui::Checkbox("Enable", &enabled))
@@ -719,7 +719,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
   });
 }
 
-bool DsBundle::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Random Bundle")) {
     if (ImGui::Checkbox("Enable", &enabled))

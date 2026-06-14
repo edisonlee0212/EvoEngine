@@ -60,32 +60,20 @@ class ForestPatch : public IAsset {
    * @brief Generates a thumbnail texture representing the forest patch.
    * @return Shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Collects asset references from the forest patch.
    * @param list List to store collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
-
-  /**
-   * @brief Serializes the forest patch data into YAML format.
-   * @param out Output YAML emitter.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the forest patch data from YAML format.
-   * @param in Input YAML node.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Inspects the asset within the editor layer.
    * @param editorLayer Shared pointer to the editor layer.
    * @return True if the asset content remains unchanged.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer);
 };
 
 /**
@@ -98,18 +86,6 @@ struct TreeInfo {
 
   /// Reference to the tree descriptor.
   AssetRef tree_descriptor{};
-
-  /**
-   * @brief Serializes tree information into YAML format.
-   * @param out Output YAML emitter.
-   */
-  void Serialize(YAML::Emitter& out) const;
-
-  /**
-   * @brief Deserializes tree information from YAML format.
-   * @param in Input YAML node.
-   */
-  void Deserialize(const YAML::Node& in);
 
   /**
    * @brief Collects asset references from tree information.
@@ -134,7 +110,7 @@ class ForestDescriptor : public IAsset {
    * @brief Generates a thumbnail texture representing the forest.
    * @return Shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Applies a single tree descriptor to the forest.
@@ -174,7 +150,7 @@ class ForestDescriptor : public IAsset {
    * @param editorLayer Shared pointer to the editor layer.
    * @return True if the asset content remains unchanged.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer);
 
   /**
    * @brief Called when the asset is created.
@@ -185,19 +161,7 @@ class ForestDescriptor : public IAsset {
    * @brief Collects asset references from the forest descriptor.
    * @param list List to store collected asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
-
-  /**
-   * @brief Serializes the forest descriptor data into YAML format.
-   * @param out Output YAML emitter.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the forest descriptor data from YAML format.
-   * @param in Input YAML node.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 
   /**
    * @brief Sets up a grid for tree placement within the forest.

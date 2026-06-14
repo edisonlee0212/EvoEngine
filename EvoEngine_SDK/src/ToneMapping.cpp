@@ -4,14 +4,16 @@
 #include "Shader.hpp"
 using namespace evo_engine;
 
-bool ToneMapping::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Exposure", &exposure, 0.01f, 0.01f, 10.0f))
-    changed = true;
-  if (ImGui::DragFloat("Gamma", &gamma, 0.01f, 0.01f, 10.0f))
-    changed = true;
+void ToneMapping::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "exposure" << YAML::Value << exposure;
+  out << YAML::Key << "gamma" << YAML::Value << gamma;
+}
 
-  return changed;
+void ToneMapping::Deserialize(const YAML::Node& in) {
+  if (in["exposure"])
+    exposure = in["exposure"].as<float>();
+  if (in["gamma"])
+    gamma = in["gamma"].as<float>();
 }
 
 void ToneMapping::Process(const PostProcessingStack& post_processing_stack,

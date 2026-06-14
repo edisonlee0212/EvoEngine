@@ -30,7 +30,7 @@ struct SimulationParams {
   glm::mat3 matrixAc;
 };
 
-bool FungusTest::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool FungusTest::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Enable Update", &update);
   if (update) {
     DownloadGpuResults();

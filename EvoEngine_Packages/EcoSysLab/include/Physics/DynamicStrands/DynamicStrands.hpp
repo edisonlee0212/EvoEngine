@@ -203,7 +203,7 @@ class DynamicStrands {
     int leaf_break_from_moisture = 0;
     float leaf_break_threshold = 0.4f;
 
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   std::shared_ptr<DsFungus> fungus;

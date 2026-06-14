@@ -263,9 +263,9 @@ class StrandModelProfile {
    * @param draw_func Callback function to handle custom drawing.
    * @param show_grid If true, displays the simulation grid during inspection.
    */
-  void OnInspect(const std::function<void(glm::vec2 position)>& func,
-                 const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func,
-                 bool show_grid = false);
+  void DrawGui(const std::function<void(glm::vec2 position)>& func,
+               const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func,
+               bool show_grid = false);
 };
 
 template <typename T>
@@ -749,9 +749,9 @@ double StrandModelProfile<ParticleData>::GetLastSimulationTime() const {
 }
 
 template <typename T>
-void StrandModelProfile<T>::OnInspect(
-    const std::function<void(glm::vec2 position)>& func,
-    const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func, bool show_grid) {
+void StrandModelProfile<T>::DrawGui(const std::function<void(glm::vec2 position)>& func,
+                                    const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func,
+                                    bool show_grid) {
   static auto scrolling = glm::vec2(0.0f);
   static float zoom_factor = 5.f;
   ImGui::Text(("Particle count: " + std::to_string(particles_2d_.size()) +

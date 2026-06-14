@@ -3,25 +3,27 @@
 //
 
 #include "CBTFImporter.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "BtfMaterial.hpp"
 #endif
 
 using namespace digital_agriculture_package;
 
-bool CBTFImporter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text("Current output folder: %s", m_currentExportFolder.string().c_str());
+bool digital_agriculture_package::InspectCBTFImporter(InspectorContext& context, CBTFImporter& importer) {
+  (void)context;
+  ImGui::Text("Current output folder: %s", importer.m_currentExportFolder.string().c_str());
   FileUtils::OpenFolder(
       "Choose output folder...",
-      [&](const std::filesystem::path& path) {
-        m_currentExportFolder = std::filesystem::absolute(path);
+      [&importer](const std::filesystem::path& path) {
+        importer.m_currentExportFolder = std::filesystem::absolute(path);
       },
       false);
 
   FileUtils::OpenFolder(
       "Collect CBTF Folders",
-      [&](const std::filesystem::path& path) {
-        m_importFolders.clear();
+      [&importer](const std::filesystem::path& path) {
+        importer.m_importFolders.clear();
         auto& projectManager = ProjectManager::GetInstance();
         if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
           for (const auto& folderEntry : std::filesystem::recursive_directory_iterator(path)) {
@@ -29,7 +31,7 @@ bool CBTFImporter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
               for (const auto& fileEntry : std::filesystem::directory_iterator(folderEntry)) {
                 if (!std::filesystem::is_directory(fileEntry.path()) &&
                     fileEntry.path().filename() == "all_materialInfo.txt") {
-                  m_importFolders.emplace_back(folderEntry);
+                  importer.m_importFolders.emplace_back(folderEntry);
                   break;
                 }
               }
@@ -39,20 +41,20 @@ bool CBTFImporter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       },
       false);
 
-  ImGui::Text(("Remaining Folders: " + std::to_string(m_importFolders.size())).c_str());
+  ImGui::Text(("Remaining Folders: " + std::to_string(importer.m_importFolders.size())).c_str());
 
-  if (m_processing) {
+  if (importer.m_processing) {
     if (ImGui::Button("Pause")) {
-      m_processing = false;
+      importer.m_processing = false;
     }
   } else {
-    if (ApplicationContext::Get().IsPlaying() && !m_importFolders.empty()) {
+    if (ApplicationContext::Get().IsPlaying() && !importer.m_importFolders.empty()) {
       if (ImGui::Button("Process")) {
-        m_processing = true;
+        importer.m_processing = true;
       }
     }
-    if (!m_importFolders.empty() && ImGui::Button("Clear"))
-      m_importFolders.clear();
+    if (!importer.m_importFolders.empty() && ImGui::Button("Clear"))
+      importer.m_importFolders.clear();
   }
   return false;
 }

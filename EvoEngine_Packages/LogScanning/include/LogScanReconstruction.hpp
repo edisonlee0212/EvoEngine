@@ -16,7 +16,6 @@ class LogScanReconstruction {
     float tie_width_inch = 9.f;
     float tie_height_inch = 7.f;
     float max_split_depth_detection_inch = 2.f;
-    bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   struct ProcessedPoint {

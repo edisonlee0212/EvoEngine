@@ -23,7 +23,7 @@ class SimulationStats {
    * @param editor_layer A reference to the editor layer handling the inspection.
    * @return True if the statistics are not updated during inspection, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**
@@ -79,6 +79,6 @@ class SimulationSettings {
    * @param editor_layer A reference to the editor layer handling the inspection.
    * @return True if the settings are not modified during inspection, false otherwise.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

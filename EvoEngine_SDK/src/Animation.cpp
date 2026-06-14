@@ -16,20 +16,6 @@ void Bone::Animate(const std::string& target_name, const float& animation_time, 
   }
 }
 
-bool Bone::OnInspect() {
-  bool changed = false;
-  if (ImGui::TreeNode((name + "##" + std::to_string(index)).c_str())) {
-    ImGui::Text("Controller: ");
-    ImGui::SameLine();
-    for (auto& i : children) {
-      if (i->OnInspect())
-        changed = true;
-    }
-    ImGui::TreePop();
-  }
-  return changed;
-}
-
 int BoneKeyFrames::GetPositionIndex(const float& animation_time) const {
   const int size = positions.size();
   for (int index = 0; index < size - 1; ++index) {
@@ -112,17 +98,6 @@ std::map<std::string, float>& Animation::UnsafeGetAnimationLengths() {
   return animation_length;
 }
 
-bool Animation::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (!root_bone)
-    return changed;
-  ImGui::Text(("Bone size: " + std::to_string(bone_size)).c_str());
-  if (root_bone->OnInspect())
-    changed = true;
-
-  return changed;
-}
-
 void Animation::Animate(const std::string& name, const float& animation_time, const glm::mat4& root_transform,
                         std::vector<glm::mat4>& results) {
   if (animation_length.find(name) == animation_length.end() || !root_bone) {
@@ -152,40 +127,6 @@ bool Animation::HasAnimation(const std::string& animation_name) const {
 
 bool Animation::IsEmpty() const {
   return animation_length.empty();
-}
-
-void Animation::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "bone_size" << YAML::Value << bone_size;
-
-  if (!animation_length.empty()) {
-    out << YAML::Key << "animation_length" << YAML::Value << YAML::BeginSeq;
-    for (const auto& i : animation_length) {
-      out << YAML::BeginMap;
-      out << YAML::Key << "Name" << YAML::Value << i.first;
-      out << YAML::Key << "Length" << YAML::Value << i.second;
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-  }
-  if (root_bone) {
-    out << YAML::Key << "root_bone" << YAML::Value << YAML::BeginMap;
-    root_bone->Serialize(out);
-    out << YAML::EndMap;
-  }
-}
-void Animation::Deserialize(const YAML::Node& in) {
-  bone_size = in["bone_size"].as<size_t>();
-  auto in_animation_name_and_length = in["animation_length"];
-  animation_length.clear();
-  if (in_animation_name_and_length) {
-    for (const auto& i : in_animation_name_and_length) {
-      animation_length.insert({i["Name"].as<std::string>(), i["Length"].as<float>()});
-    }
-  }
-  if (in["root_bone"]) {
-    root_bone = std::make_shared<Bone>();
-    root_bone->Deserialize(in["root_bone"]);
-  }
 }
 
 void BoneKeyFrames::Serialize(YAML::Emitter& out) const {

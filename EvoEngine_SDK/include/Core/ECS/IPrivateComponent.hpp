@@ -20,6 +20,7 @@ class IPrivateComponent : public ISerializable {
   friend class PrivateComponentStorage;
   friend class Serialization;
   friend class Scene;
+  friend void DeserializeScene(const YAML::Node& in, Scene& scene);
   friend class Prefab;
   friend class PackageRegistrar;
   friend struct EntityMetadata;
@@ -69,19 +70,6 @@ class IPrivateComponent : public ISerializable {
    * @return True if the component has started, false otherwise.
    */
   [[nodiscard]] bool Started() const;
-
-  /**
-   * @brief Virtual function for inspection in the editor layer.
-   *
-   * This function can be overridden by derived classes to implement
-   * component-specific logic for editor inspection.
-   *
-   * @param editor_layer Reference to the editor layer.
-   * @return True if inspection was successful, false otherwise.
-   */
-  virtual bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
 
   /**
    * @brief Virtual function called during the fixed update phase.
@@ -141,27 +129,6 @@ class IPrivateComponent : public ISerializable {
    * @brief Lifecycle callback invoked when the component is destroyed.
    */
   virtual void OnDestroy() {
-  }
-
-  /**
-   * @brief Collect references to assets used by the component.
-   *
-   * Must set this up to keep track of `AssetRef` during serialization/deserialization.
-   *
-   * @param list List of collected `AssetRef`. Note that you must add all `AssetRef` members.
-   */
-  virtual void CollectAssetRef(std::vector<AssetRef>& list) {
-  }
-
-  /**
-   * @brief Relink `EntityRef` members during serialization/deserialization or prefab initialization.
-   *
-   * Must set this up to map `EntityRef` members to the new scene during these operations.
-   *
-   * @param map Map of original saved owner handles to actual owner handles.
-   * @param scene The target scene.
-   */
-  virtual void Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) {
   }
 
   /**

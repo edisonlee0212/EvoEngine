@@ -18,14 +18,18 @@ file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT
 add_executable(EvoEngine_Tests
 	Core/TaskRuntimeTest.cpp
 	Core/AssetManagerTest.cpp
+	Core/DemoSceneTest.cpp
 	Core/LauncherUtilsTest.cpp
 	Core/GpuServiceTest.cpp
+	Core/InspectorRegistryTest.cpp
+	Core/SerializationRegistryTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
 	)
 target_link_libraries(EvoEngine_Tests
 	PRIVATE
 	EvoEngine_SDK
+	EvoEngine_DemoScene
 	GTest::gtest_main
 	)
 target_include_directories(EvoEngine_Tests
@@ -77,8 +81,23 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER DemoScene.*
+	PROPERTIES LABELS "core,demo"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER GpuService.*
 	PROPERTIES LABELS "render,gpu,jobs"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER InspectorRegistry.*
+	PROPERTIES LABELS "core,editor,registry"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER SerializationRegistry.*
+	PROPERTIES LABELS "core,serialization,registry"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

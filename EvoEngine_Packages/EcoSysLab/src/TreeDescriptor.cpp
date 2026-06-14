@@ -2,6 +2,7 @@
 // Created by lllll on 10/24/2022.
 //
 
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "Tree.hpp"
 
 #include "Application.hpp"
@@ -110,7 +111,7 @@ std::shared_ptr<Texture2D> IFlowerDescriptor::GenerateThumbnailTexture() {
 void TreeDescriptor::OnCreate() {
 }
 
-bool TreeDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool TreeDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   std::shared_ptr<Climate> climate;
@@ -186,14 +187,14 @@ Entity TreeDescriptor::Instantiate() const {
   return {};
 }
 
-void TreeDescriptor::Serialize(YAML::Emitter& out) const {
-  shoot_descriptor.Save("shoot_descriptor", out);
-  root_descriptor.Save("root_descriptor", out);
-  pruning_descriptor.Save("pruning_descriptor", out);
-  foliage_descriptor.Save("foliage_descriptor", out);
-  bark_descriptor.Save("bark_descriptor", out);
+void eco_sys_lab_package::SerializeTreeDescriptor(YAML::Emitter& out, const TreeDescriptor& target) {
+  target.shoot_descriptor.Save("shoot_descriptor", out);
+  target.root_descriptor.Save("root_descriptor", out);
+  target.pruning_descriptor.Save("pruning_descriptor", out);
+  target.foliage_descriptor.Save("foliage_descriptor", out);
+  target.bark_descriptor.Save("bark_descriptor", out);
 
-  reproduction_module_descriptor.Save("reproduction_module_descriptor", out);
+  target.reproduction_module_descriptor.Save("reproduction_module_descriptor", out);
 }
 
 std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
@@ -206,12 +207,12 @@ std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
   return thumbnail;
 }
 
-void TreeDescriptor::Deserialize(const YAML::Node& in) {
-  shoot_descriptor.Load("shoot_descriptor", in);
-  root_descriptor.Load("root_descriptor", in);
-  pruning_descriptor.Load("pruning_descriptor", in);
-  foliage_descriptor.Load("foliage_descriptor", in);
-  bark_descriptor.Load("bark_descriptor", in);
+void eco_sys_lab_package::DeserializeTreeDescriptor(const YAML::Node& in, TreeDescriptor& target) {
+  target.shoot_descriptor.Load("shoot_descriptor", in);
+  target.root_descriptor.Load("root_descriptor", in);
+  target.pruning_descriptor.Load("pruning_descriptor", in);
+  target.foliage_descriptor.Load("foliage_descriptor", in);
+  target.bark_descriptor.Load("bark_descriptor", in);
 
-  reproduction_module_descriptor.Load("reproduction_module_descriptor", in);
+  target.reproduction_module_descriptor.Load("reproduction_module_descriptor", in);
 }

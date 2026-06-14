@@ -2,7 +2,7 @@
 // Created by lllll on 8/16/2021.
 //
 
-#include "ObjectRotator.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "Scene.hpp"
 #include "Times.hpp"
 #include "Transform.hpp"
@@ -16,20 +16,20 @@ void ObjectRotator::FixedUpdate() {
   scene->SetDataComponent(GetOwner(), transform);
 }
 
-bool ObjectRotator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool ObjectRotator::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::DragFloat("Speed", &rotate_speed);
   ImGui::DragFloat3("Rotation", &rotation.x);
   return false;
 }
 
-void ObjectRotator::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "rotate_speed" << YAML::Value << rotate_speed;
-  out << YAML::Key << "rotation" << YAML::Value << rotation;
+void eco_sys_lab_package::SerializeObjectRotator(YAML::Emitter& out, const ObjectRotator& target) {
+  out << YAML::Key << "rotate_speed" << YAML::Value << target.rotate_speed;
+  out << YAML::Key << "rotation" << YAML::Value << target.rotation;
 }
 
-void ObjectRotator::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeObjectRotator(const YAML::Node& in, ObjectRotator& target) {
   if (in["rotate_speed"])
-    rotate_speed = in["rotate_speed"].as<float>();
+    target.rotate_speed = in["rotate_speed"].as<float>();
   if (in["rotation"])
-    rotation = in["m_rotation"].as<glm::vec3>();
+    target.rotation = in["m_rotation"].as<glm::vec3>();
 }

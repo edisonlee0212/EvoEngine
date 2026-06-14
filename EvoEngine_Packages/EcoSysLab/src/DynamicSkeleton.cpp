@@ -5,19 +5,19 @@
 
 using namespace eco_sys_lab_package;
 
-bool DynamicSkeleton::InitializeParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicSkeleton::InitializeParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (ImGui::TreeNode("Material Properties")) {
-    if (wood_density.OnInspect("Wood Density"))
+    if (wood_density.Draw("Wood Density"))
       changed = true;
-    if (max_youngs_modulus.OnInspect("Wood Young's modulus"))
+    if (max_youngs_modulus.Draw("Wood Young's modulus"))
       changed = true;
-    if (max_shear_modulus.OnInspect("Wood Shear modulus"))
+    if (max_shear_modulus.Draw("Wood Shear modulus"))
       changed = true;
-    if (max_bending_modulus.OnInspect("Wood Bending modulus"))
+    if (max_bending_modulus.Draw("Wood Bending modulus"))
       changed = true;
-    if (max_twisting_modulus.OnInspect("Wood Torsion modulus"))
+    if (max_twisting_modulus.Draw("Wood Torsion modulus"))
       changed = true;
     ImGui::TreePop();
   }
@@ -25,7 +25,7 @@ bool DynamicSkeleton::InitializeParameters::OnInspect(const std::shared_ptr<Edit
   return changed;
 }
 
-bool DynamicSkeleton::PhysicsParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicSkeleton::PhysicsParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (ImGui::DragFloat("Time step", &time_step, 0.001f, 0.001f, 1.0f))
@@ -49,7 +49,7 @@ bool DynamicSkeleton::PhysicsParameters::OnInspect(const std::shared_ptr<EditorL
   return changed;
 }
 
-bool DynamicSkeleton::VisualizationParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicSkeleton::VisualizationParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   return changed;
 }

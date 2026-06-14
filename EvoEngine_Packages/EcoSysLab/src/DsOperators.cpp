@@ -26,7 +26,7 @@ void DsLeafDrop::Execute(const DynamicStrands::PhysicsParameters& physics_parame
   });
 }
 
-bool DsLeafDrop::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsLeafDrop::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Enabled", &enabled)) {
     changed = true;
@@ -153,7 +153,7 @@ void DsAttraction::Execute(const DynamicStrands::PhysicsParameters& physics_para
   });
 }
 
-bool DsAttraction::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsAttraction::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Multiplier", &distance_multiplier, 0.01f, 0.0f, 1.0f)) {
     changed = true;
@@ -534,7 +534,7 @@ void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
   });
 }
 
-bool DsSnow::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsSnow::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Enabled", &enabled)) {
     changed = true;
@@ -631,7 +631,7 @@ void DsWind::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
   });
 }
 
-bool DsWind::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DsWind::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Enabled", &enabled)) {
     changed = true;

@@ -110,20 +110,6 @@ class Prefab : public IAsset {
 #pragma endregion
 
   /**
-   * @brief Inspects the components of the given prefab.
-   * @param[in] walker The prefab to inspect.
-   * @return True if the inspection modifies any data; otherwise false.
-   */
-  static bool OnInspectComponents(const std::shared_ptr<Prefab>& walker);
-
-  /**
-   * @brief Inspects the given prefab walker.
-   * @param[in] walker The prefab to inspect.
-   * @return True if the inspection modifies any data; otherwise false.
-   */
-  static bool OnInspectWalker(const std::shared_ptr<Prefab>& walker);
-
-  /**
    * @brief Gathers the assets associated with the given prefab walker.
    * @param[in] walker The prefab from which to gather assets.
    * @param[out] assets A map of asset handles and their references.
@@ -136,31 +122,31 @@ class Prefab : public IAsset {
    * @param[in] path The path to the file to load from.
    * @return True if loading is successful; otherwise false.
    */
-  [[nodiscard]] bool LoadInternal(const std::filesystem::path& path) override;
+  [[nodiscard]] bool LoadInternal(const std::filesystem::path& path);
 
   /**
    * @brief Native prefab YAML can be parsed as staged work; model import remains legacy.
    */
-  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const;
 
   /**
    * @brief Parses a native prefab YAML file into a staged payload.
    */
   [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
-      const std::filesystem::path& path) const override;
+      const std::filesystem::path& path) const;
 
   /**
    * @brief Reconstructs prefab-local assets and prefab data from a staged YAML payload.
    */
   bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload) override;
+                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
   /**
    * @brief Saves the prefab asset to a specified file path.
    * @param[in] path The path to the file to save to.
    * @return True if saving is successful; otherwise false.
    */
-  [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const override;
+  [[nodiscard]] bool SaveInternal(const std::filesystem::path& path) const;
 
   /**
    * @brief Loads a model from a specified file path with optional optimization and flags.
@@ -181,11 +167,18 @@ class Prefab : public IAsset {
   [[nodiscard]] bool SaveModelInternal(const std::filesystem::path& path) const;
 
  public:
+  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "Prefab");
+
   /**
    * @brief Generates a thumbnail texture for the prefab.
    * @return The generated thumbnail texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
+
+  [[nodiscard]] bool IsPrefabEnabled() const;
+
+  void SetPrefabEnabled(bool value);
 
   /// Name of the prefab instance.
   std::string instance_name;
@@ -197,13 +190,6 @@ class Prefab : public IAsset {
 
   /// A map of collected asset handles and their references.
   std::unordered_map<Handle, AssetRef> collected_assets;
-
-  /**
-   * @brief Inspects the prefab using the editor layer.
-   * @param[in] editor_layer The editor layer used for inspection.
-   * @return True if the inspection modifies any data; otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /// Handle to the prefab's entity.
   Handle entity_handle = Handle();
@@ -274,18 +260,6 @@ class Prefab : public IAsset {
    * @param[out] map A map of asset handles and their corresponding IAsset instances.
    */
   void CollectAssets(std::unordered_map<Handle, std::shared_ptr<IAsset>>& map) const;
-
-  /**
-   * @brief Serializes the prefab to YAML format.
-   * @param[out] out The YAML emitter for serialization.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the prefab from YAML format.
-   * @param[in] in The YAML node containing the serialized prefab data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 };
 
 template <typename T>

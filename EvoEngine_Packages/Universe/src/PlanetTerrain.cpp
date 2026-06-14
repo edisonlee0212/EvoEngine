@@ -1,22 +1,25 @@
-#include "PlanetTerrain.hpp"
+#include "UniverseSerializationAdapters.hpp"
+
 #include "EditorLayer.hpp"
+#include "UniverseInspectionAdapters.hpp"
 #include "yaml-cpp/yaml.h"
 
 using namespace universe_package;
-void PlanetTerrain::Serialize(YAML::Emitter &out) const {
+void universe_package::SerializePlanetTerrain(YAML::Emitter &out, const PlanetTerrain &target) {
+  const auto &info = target.GetPlanetInfo();
   out << YAML::Key << "planet_info";
   out << YAML::BeginMap;
-  out << YAML::Key << "max_lod_level" << YAML::Value << info_.max_lod_level;
-  out << YAML::Key << "lod_distance" << YAML::Value << info_.lod_distance;
-  out << YAML::Key << "radius" << YAML::Value << info_.radius;
-  out << YAML::Key << "index" << YAML::Value << info_.index;
-  out << YAML::Key << "resolution" << YAML::Value << info_.resolution;
+  out << YAML::Key << "max_lod_level" << YAML::Value << info.max_lod_level;
+  out << YAML::Key << "lod_distance" << YAML::Value << info.lod_distance;
+  out << YAML::Key << "radius" << YAML::Value << info.radius;
+  out << YAML::Key << "index" << YAML::Value << info.index;
+  out << YAML::Key << "resolution" << YAML::Value << info.resolution;
   out << YAML::EndMap;
 
-  surface_material.Save("surface_material", out);
+  target.surface_material.Save("surface_material", out);
 }
 
-void PlanetTerrain::Deserialize(const YAML::Node &in) {
+void universe_package::DeserializePlanetTerrain(const YAML::Node &in, PlanetTerrain &target) {
   auto info = in["planet_info"];
   PlanetInfo planet_info;
   planet_info.max_lod_level = info["max_lod_level"].as<unsigned>();
@@ -24,9 +27,13 @@ void PlanetTerrain::Deserialize(const YAML::Node &in) {
   planet_info.radius = info["radius"].as<double>();
   planet_info.index = info["index"].as<unsigned>();
   planet_info.resolution = info["resolution"].as<unsigned>();
-  SetPlanetInfo(planet_info);
+  target.SetPlanetInfo(planet_info);
 
-  surface_material.Load("surface_material", in);
+  target.surface_material.Load("surface_material", in);
+}
+
+const PlanetInfo &PlanetTerrain::GetPlanetInfo() const {
+  return info_;
 }
 void PlanetTerrain::Init() {
   if (initialized_)
@@ -79,8 +86,8 @@ void PlanetTerrain::Init() {
   initialized_ = true;
 }
 
-bool PlanetTerrain::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
-  return editor_layer->DragAndDropButton<Material>(surface_material, "Material");
+bool universe_package::InspectPlanetTerrain(InspectorContext &context, PlanetTerrain &planet_terrain) {
+  return context.editor_layer->DragAndDropButton<Material>(planet_terrain.surface_material, "Material");
 }
 void PlanetTerrain::PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) {
   info_ = std::static_pointer_cast<PlanetTerrain>(target)->info_;

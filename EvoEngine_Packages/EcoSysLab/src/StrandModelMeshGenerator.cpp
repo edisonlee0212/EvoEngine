@@ -14,7 +14,7 @@
 
 using namespace eco_sys_lab_package;
 
-void StrandModelMeshGeneratorSettings::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void StrandModelMeshGeneratorSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Combo("Mode", {"Iterative Slicing", "Marching Cube", "Alpha Shape", "Kinetic Voronoi"}, generator_type);
   if (generator_type == 0 && ImGui::TreeNode("Iterative Slicing settings")) {
     ImGui::DragInt("Steps per segment", &steps_per_segment, 1.0f, 1, 99);

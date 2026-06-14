@@ -17,9 +17,9 @@
 //   1. inherit publicly from ILSystemExplorableDescriptor;
 //   2. override RegisterExplorableAxes to list every field you want exposed;
 //   3. own a `ParamSpaceExplorer explorer_` member (or share one externally);
-//   4. in OnInspect call:
+//   4. in editor draw call:
 //          if (!explorer_.IsBound()) explorer_.Bind(*this);
-//          explorer_.OnInspect();
+//          explorer_.DrawGui();
 
 namespace l_system_package {
 
@@ -41,7 +41,7 @@ class ILSystemExplorableDescriptor {
   }
 
   /// Cheap fingerprint of the descriptor's *structural* shape (e.g. dynamic
-  /// array sizes such as tropism count). Used by ParamSpaceExplorer::OnInspect
+  /// array sizes such as tropism count). Used by ParamSpaceExplorer::DrawGui
   /// to detect when axes_ became stale and an automatic RebuildAxes is needed.
   /// Implementations must change this value whenever RegisterExplorableAxes
   /// would emit a different number/order of axes. Default = 0 disables

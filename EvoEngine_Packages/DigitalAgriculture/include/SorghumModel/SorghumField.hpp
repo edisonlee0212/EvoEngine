@@ -60,35 +60,16 @@ class SorghumField : public IAsset {
   Entity InstantiateField(uint32_t base_seed = 0) const;
 
   /**
-   * @brief Inspects the sorghum field in the editor.
-   * @param editor_layer The editor layer handling the asset inspection.
-   * @return True if the asset's content is unchanged, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes the field data.
-   * @param out The YAML emitter to write the serialized data.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the field data.
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Generates a thumbnail texture for the sorghum field.
    * @return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Collects all asset references used in this field.
    * @param list The output list of asset references.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 
 }  // namespace digital_agriculture_package

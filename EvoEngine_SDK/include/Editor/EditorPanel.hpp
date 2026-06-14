@@ -8,6 +8,6 @@ class EditorLayer;
 class EditorPanel {
  public:
   virtual ~EditorPanel() = default;
-  virtual void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) = 0;
+  virtual void Draw(const std::shared_ptr<EditorLayer>& editor_layer) = 0;
 };
 }  // namespace evo_engine

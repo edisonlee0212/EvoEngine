@@ -21,10 +21,9 @@ class EnvironmentalMap final : public IAsset {
   friend class Environment;
   friend class RenderLayer;
   friend class Resources;
-  AssetRef inspection_target_texture_;
 
  public:
-  [[nodiscard]] bool SupportsStagedLoading() const override {
+  [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
@@ -66,14 +65,6 @@ class EnvironmentalMap final : public IAsset {
    * @param target_render_texture A shared pointer to the target render texture.
    */
   void ConstructFromRenderTexture(const std::shared_ptr<RenderTexture>& target_render_texture);
-
-  /**
-   * @brief Displays and handles inspection of the environmental map in the editor.
-   *
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the inspection is successful; otherwise, false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 }  // namespace evo_engine

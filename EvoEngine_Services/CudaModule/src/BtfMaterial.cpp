@@ -2,7 +2,7 @@
 // Created by lllll on 10/13/2022.
 //
 
-#include "BtfMaterial.hpp"
+#include "CudaSerializationAdapters.hpp"
 
 using namespace evo_engine;
 
@@ -347,7 +347,7 @@ bool BtfMaterial::ImportFromFolder(const std::filesystem::path &path) {
 #pragma endregion
 }
 
-bool BtfMaterial::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
+bool BtfMaterial::DrawGui(const std::shared_ptr<EditorLayer> &editor_layer) {
   bool changed = false;
   FileUtils::OpenFolder(
       "Import Database",
@@ -751,64 +751,64 @@ void SaveList(const std::string &name, YAML::Emitter &out, const std::vector<T> 
   }
 }
 
-void BtfMaterial::Serialize(YAML::Emitter &out) const {
-  if (btf_base.has_data) {
+void evo_engine::SerializeBtfMaterial(YAML::Emitter &out, const BtfMaterial &target) {
+  if (target.btf_base.has_data) {
     out << YAML::Key << "btf_base" << YAML::Value << YAML::BeginMap;
-    SerializeBtfBase(btf_base, out);
+    SerializeBtfBase(target.btf_base, out);
     out << YAML::EndMap;
 
-    SaveList("shared_coordinates_beta_angles", out, shared_coordinates_beta_angles);
+    SaveList("shared_coordinates_beta_angles", out, target.shared_coordinates_beta_angles);
 
-    SaveList("pdf6d", out, pdf6d);
-    SaveList("pdf6d_scales", out, pdf6d_scales);
+    SaveList("pdf6d", out, target.pdf6d);
+    SaveList("pdf6d_scales", out, target.pdf6d_scales);
 
-    SaveList("pdf4d", out, pdf4d);
-    SaveList("pdf4d_scales", out, pdf4d_scales);
+    SaveList("pdf4d", out, target.pdf4d);
+    SaveList("pdf4d_scales", out, target.pdf4d_scales);
 
-    SaveList("pdf3d", out, pdf3d);
-    SaveList("pdf3d_scales", out, pdf3d_scales);
+    SaveList("pdf3d", out, target.pdf3d);
+    SaveList("pdf3d_scales", out, target.pdf3d_scales);
 
-    SaveList("luminance_color_indices", out, luminance_color_indices);
-    SaveList("pdf2d_colors", out, pdf2d_colors);
-    SaveList("pdf2d_scales", out, pdf2d_scales);
-    SaveList("pdf2d", out, pdf2d);
+    SaveList("luminance_color_indices", out, target.luminance_color_indices);
+    SaveList("pdf2d_colors", out, target.pdf2d_colors);
+    SaveList("pdf2d_scales", out, target.pdf2d_scales);
+    SaveList("pdf2d", out, target.pdf2d);
 
-    SaveList("index_ab", out, index_ab);
+    SaveList("index_ab", out, target.index_ab);
 
-    SaveList("pdf1d", out, pdf1d);
-    SaveList("vector_color", out, vector_color);
+    SaveList("pdf1d", out, target.pdf1d);
+    SaveList("vector_color", out, target.vector_color);
   }
 }
 
-void BtfMaterial::Deserialize(const YAML::Node &in) {
-  btf_base.has_data = false;
+void evo_engine::DeserializeBtfMaterial(const YAML::Node &in, BtfMaterial &target) {
+  target.btf_base.has_data = false;
   if (in["btf_base"]) {
-    DeserializeBtfBase(btf_base, in["btf_base"]);
+    DeserializeBtfBase(target.btf_base, in["btf_base"]);
 
-    LoadList("shared_coordinates_beta_angles", in, shared_coordinates_beta_angles);
+    LoadList("shared_coordinates_beta_angles", in, target.shared_coordinates_beta_angles);
 
-    LoadList("pdf6d", in, pdf6d);
-    LoadList("pdf6d_scales", in, pdf6d_scales);
+    LoadList("pdf6d", in, target.pdf6d);
+    LoadList("pdf6d_scales", in, target.pdf6d_scales);
 
-    LoadList("pdf4d", in, pdf4d);
-    LoadList("pdf4d_scales", in, pdf4d_scales);
+    LoadList("pdf4d", in, target.pdf4d);
+    LoadList("pdf4d_scales", in, target.pdf4d_scales);
 
-    LoadList("pdf3d", in, pdf3d);
-    LoadList("pdf3d_scales", in, pdf3d_scales);
+    LoadList("pdf3d", in, target.pdf3d);
+    LoadList("pdf3d_scales", in, target.pdf3d_scales);
 
-    LoadList("luminance_color_indices", in, luminance_color_indices);
-    LoadList("pdf2d_colors", in, pdf2d_colors);
-    LoadList("pdf2d_scales", in, pdf2d_scales);
-    LoadList("pdf2d", in, pdf2d);
+    LoadList("luminance_color_indices", in, target.luminance_color_indices);
+    LoadList("pdf2d_colors", in, target.pdf2d_colors);
+    LoadList("pdf2d_scales", in, target.pdf2d_scales);
+    LoadList("pdf2d", in, target.pdf2d);
 
-    LoadList("index_ab", in, index_ab);
+    LoadList("index_ab", in, target.index_ab);
 
-    LoadList("pdf1d", in, pdf1d);
-    LoadList("vector_color", in, vector_color);
+    LoadList("pdf1d", in, target.pdf1d);
+    LoadList("vector_color", in, target.vector_color);
 
-    UploadDeviceData();
+    target.UploadDeviceData();
   }
-  saved_ = true;
+  target.saved_ = true;
 }
 
 void BtfMaterial::UploadDeviceData() {

@@ -6,7 +6,7 @@
 using namespace eco_sys_lab_package;
 PrivateComponentRef dynamic_tree_skeleton_tree_ref{};
 
-bool DynamicTreeSkeleton::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool DynamicTreeSkeleton::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Physics", &simulate))
     changed = true;

@@ -1,5 +1,6 @@
-#include "SorghumGenerator.hpp"
 #include "Application.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 #include "ProjectManager.hpp"
 #include "SorghumLayer.hpp"
 
@@ -19,9 +20,32 @@ void TipMenu(const std::string& content) {
   }
 }
 
-bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectSorghumGenerator(InspectorContext& context, SorghumGenerator& generator) {
+  (void)context;
+  auto& panicle_size = generator.panicle_size;
+  auto& panicle_seed_amount = generator.panicle_seed_amount;
+  auto& panicle_seed_radius = generator.panicle_seed_radius;
+  auto& stem_tilt_angle = generator.stem_tilt_angle;
+  auto& internode_length = generator.internode_length;
+  auto& stem_width = generator.stem_width;
+  auto& leaf_amount = generator.leaf_amount;
+  auto& leaf_starting_point = generator.leaf_starting_point;
+  auto& leaf_curling = generator.leaf_curling;
+  auto& leaf_roll_angle = generator.leaf_roll_angle;
+  auto& leaf_branching_angle = generator.leaf_branching_angle;
+  auto& leaf_bending = generator.leaf_bending;
+  auto& leaf_bending_acceleration = generator.leaf_bending_acceleration;
+  auto& leaf_bending_smoothness = generator.leaf_bending_smoothness;
+  auto& leaf_waviness = generator.leaf_waviness;
+  auto& leaf_waviness_frequency = generator.leaf_waviness_frequency;
+  auto& leaf_length = generator.leaf_length;
+  auto& leaf_width = generator.leaf_width;
+  auto& width_along_stem = generator.width_along_stem;
+  auto& curling_along_leaf = generator.curling_along_leaf;
+  auto& width_along_leaf = generator.width_along_leaf;
+  auto& waviness_along_leaf = generator.waviness_along_leaf;
   if (ImGui::Button("Instantiate")) {
-    auto entity = CreateEntity();
+    auto entity = generator.CreateEntity();
   }
   static bool auto_save = true;
   ImGui::Checkbox("Auto save", &auto_save);
@@ -44,32 +68,32 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
     TipMenu(
         "The settings for panicle. The panicle will always be placed "
         "at the tip of the stem.");
-    if (panicle_size.OnInspect("Size", 0.001f, "The size of panicle")) {
+    if (panicle_size.Draw("Size", 0.001f, "The size of panicle")) {
       changed = true;
     }
-    if (panicle_seed_amount.OnInspect("Seed amount", 1.0f, "The amount of seeds in the panicle"))
+    if (panicle_seed_amount.Draw("Seed amount", 1.0f, "The amount of seeds in the panicle"))
       changed = true;
-    if (panicle_seed_radius.OnInspect("Seed radius", 0.001f, "The size of the seed in the panicle"))
+    if (panicle_seed_radius.Draw("Seed radius", 0.001f, "The size of the seed in the panicle"))
       changed = true;
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Stem settings", ImGuiTreeNodeFlags_DefaultOpen)) {
     TipMenu("The settings for stem.");
-    if (stem_tilt_angle.OnInspect("Stem tilt angle", 0.001f, "The tilt angle for stem")) {
+    if (stem_tilt_angle.Draw("Stem tilt angle", 0.001f, "The tilt angle for stem")) {
       changed = true;
     }
-    if (internode_length.OnInspect("Length", 0.01f,
-                                   "The length of the stem, use Ending Point in leaf settings to make "
-                                   "stem taller than top leaf for panicle"))
+    if (internode_length.Draw("Length", 0.01f,
+                              "The length of the stem, use Ending Point in leaf settings to make "
+                              "stem taller than top leaf for panicle"))
       changed = true;
-    if (stem_width.OnInspect("Width", 0.001f,
-                             "The overall width of the stem, adjust the width "
-                             "along stem in Stem Details"))
+    if (stem_width.Draw("Width", 0.001f,
+                        "The overall width of the stem, adjust the width "
+                        "along stem in Stem Details"))
       changed = true;
     if (ImGui::TreeNode("Stem Details")) {
       TipMenu("The detailed settings for stem.");
-      if (width_along_stem.OnInspect("Width along stem"))
+      if (width_along_stem.Draw("Width along stem"))
         changed = true;
       ImGui::TreePop();
     }
@@ -77,7 +101,7 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
   }
   if (ImGui::TreeNodeEx("Leaves settings", ImGuiTreeNodeFlags_DefaultOpen)) {
     TipMenu("The settings for leaves.");
-    if (leaf_amount.OnInspect("Num of leaves", 1.0f, "The total amount of leaves"))
+    if (leaf_amount.Draw("Num of leaves", 1.0f, "The total amount of leaves"))
       changed = true;
 
     static PlottedDistributionSettings leaf_starting_point = {
@@ -87,14 +111,14 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
         "The starting point of each leaf along stem. Default each leaf "
         "located uniformly on stem."};
 
-    if (this->leaf_starting_point.OnInspect("Starting point along stem", leaf_starting_point)) {
+    if (generator.leaf_starting_point.Draw("Starting point along stem", leaf_starting_point)) {
       changed = true;
     }
 
     static PlottedDistributionSettings leaf_curling = {
         0.01f, {0.01f, false, true, ""}, {0.01f, false, false, ""}, "The leaf curling."};
 
-    if (this->leaf_curling.OnInspect("Leaf curling", leaf_curling)) {
+    if (generator.leaf_curling.Draw("Leaf curling", leaf_curling)) {
       changed = true;
     }
 
@@ -104,12 +128,12 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
         {},
         "The polar angle of leaf. Normally you should only change the "
         "deviation. Values are in degrees"};
-    if (this->leaf_roll_angle.OnInspect("Roll angle", leaf_roll_angle))
+    if (generator.leaf_roll_angle.Draw("Roll angle", leaf_roll_angle))
       changed = true;
 
     static PlottedDistributionSettings leaf_branching_angle = {
         0.01f, {}, {}, "The branching angle of the leaf. Values are in degrees"};
-    if (this->leaf_branching_angle.OnInspect("Branching angle", leaf_branching_angle))
+    if (generator.leaf_branching_angle.Draw("Branching angle", leaf_branching_angle))
       changed = true;
 
     static PlottedDistributionSettings leaf_bending = {1.0f,
@@ -118,44 +142,44 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
                                                        "The bending of the leaf, controls how leaves bend because of "
                                                        "gravity. Positive value results in leaf bending towards the "
                                                        "ground, negative value results in leaf bend towards the sky"};
-    if (this->leaf_bending.OnInspect("Bending", leaf_bending))
+    if (generator.leaf_bending.Draw("Bending", leaf_bending))
       changed = true;
 
     static PlottedDistributionSettings leaf_bending_acceleration = {
         0.01f, {0.01f, false, true, ""}, {}, "The changes of bending along the leaf."};
 
-    if (this->leaf_bending_acceleration.OnInspect("Bending acceleration", leaf_bending_acceleration))
+    if (generator.leaf_bending_acceleration.Draw("Bending acceleration", leaf_bending_acceleration))
       changed = true;
 
     static PlottedDistributionSettings leaf_bending_smoothness = {
         0.01f, {0.01f, false, true, ""}, {}, "The smoothness of bending along the leaf."};
 
-    if (this->leaf_bending_smoothness.OnInspect("Bending smoothness", leaf_bending_smoothness))
+    if (generator.leaf_bending_smoothness.Draw("Bending smoothness", leaf_bending_smoothness))
       changed = true;
 
-    if (leaf_waviness.OnInspect("Waviness"))
+    if (leaf_waviness.Draw("Waviness"))
       changed = true;
-    if (leaf_waviness_frequency.OnInspect("Waviness Frequency"))
+    if (leaf_waviness_frequency.Draw("Waviness Frequency"))
       changed = true;
 
-    if (leaf_length.OnInspect("Length"))
+    if (leaf_length.Draw("Length"))
       changed = true;
-    if (leaf_width.OnInspect("Width"))
+    if (leaf_width.Draw("Width"))
       changed = true;
 
     if (ImGui::TreeNode("Per leaf settings")) {
       if (ImGui::TreeNode("Width along leaf")) {
-        if (width_along_leaf.OnInspect("Width along leaf"))
+        if (width_along_leaf.Draw("Width along leaf"))
           changed = true;
         ImGui::TreePop();
       }
       if (ImGui::TreeNode("Waviness along leaf")) {
-        if (waviness_along_leaf.OnInspect("Waviness along leaf"))
+        if (waviness_along_leaf.Draw("Waviness along leaf"))
           changed = true;
         ImGui::TreePop();
       }
       if (ImGui::TreeNode("Curling along leaf")) {
-        if (curling_along_leaf.OnInspect("Curling along leaf"))
+        if (curling_along_leaf.Draw("Curling along leaf"))
           changed = true;
         ImGui::TreePop();
       }
@@ -178,13 +202,13 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
       last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
     } else if (last_auto_save_time + auto_save_interval < ApplicationContext::Get().GetTimes().Now()) {
       last_auto_save_time = ApplicationContext::Get().GetTimes().Now();
-      if (!saved_) {
-        Save();
-        EVOENGINE_LOG(GetTypeName() + " autosaved!");
+      if (!generator.Saved()) {
+        generator.Save();
+        EVOENGINE_LOG(generator.GetTypeName() + " autosaved!");
       }
     }
   } else {
-    if (!saved_) {
+    if (!generator.Saved()) {
       ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
       ImGui::Text("[Changed unsaved!]");
       ImGui::PopStyleColor();
@@ -193,63 +217,63 @@ bool SorghumGenerator::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
 
   return changed;
 }
-void SorghumGenerator::Serialize(YAML::Emitter& out) const {
-  panicle_size.Save("panicle_size", out);
-  panicle_seed_amount.Save("panicle_seed_amount", out);
-  panicle_seed_radius.Save("panicle_seed_radius", out);
+void digital_agriculture_package::SerializeSorghumGenerator(YAML::Emitter& out, const SorghumGenerator& target) {
+  target.panicle_size.Save("panicle_size", out);
+  target.panicle_seed_amount.Save("panicle_seed_amount", out);
+  target.panicle_seed_radius.Save("panicle_seed_radius", out);
 
-  stem_tilt_angle.Save("stem_tilt_angle", out);
-  internode_length.Save("internode_length", out);
-  stem_width.Save("stem_width", out);
+  target.stem_tilt_angle.Save("stem_tilt_angle", out);
+  target.internode_length.Save("internode_length", out);
+  target.stem_width.Save("stem_width", out);
 
-  leaf_amount.Save("leaf_amount", out);
-  leaf_starting_point.Save("leaf_starting_point", out);
-  leaf_curling.Save("leaf_curling", out);
+  target.leaf_amount.Save("leaf_amount", out);
+  target.leaf_starting_point.Save("leaf_starting_point", out);
+  target.leaf_curling.Save("leaf_curling", out);
 
-  leaf_roll_angle.Save("leaf_roll_angle", out);
-  leaf_branching_angle.Save("leaf_branching_angle", out);
+  target.leaf_roll_angle.Save("leaf_roll_angle", out);
+  target.leaf_branching_angle.Save("leaf_branching_angle", out);
 
-  leaf_bending.Save("leaf_bending", out);
-  leaf_bending_acceleration.Save("leaf_bending_acceleration", out);
-  leaf_bending_smoothness.Save("leaf_bending_smoothness", out);
-  leaf_waviness.Save("leaf_waviness", out);
-  leaf_waviness_frequency.Save("leaf_waviness_frequency", out);
-  leaf_length.Save("leaf_length", out);
-  leaf_width.Save("leaf_width", out);
+  target.leaf_bending.Save("leaf_bending", out);
+  target.leaf_bending_acceleration.Save("leaf_bending_acceleration", out);
+  target.leaf_bending_smoothness.Save("leaf_bending_smoothness", out);
+  target.leaf_waviness.Save("leaf_waviness", out);
+  target.leaf_waviness_frequency.Save("leaf_waviness_frequency", out);
+  target.leaf_length.Save("leaf_length", out);
+  target.leaf_width.Save("leaf_width", out);
 
-  width_along_stem.Save("width_along_stem", out);
-  width_along_leaf.Save("width_along_leaf", out);
-  waviness_along_leaf.Save("waviness_along_leaf", out);
-  curling_along_leaf.Save("curling_along_leaf", out);
+  target.width_along_stem.Save("width_along_stem", out);
+  target.width_along_leaf.Save("width_along_leaf", out);
+  target.waviness_along_leaf.Save("waviness_along_leaf", out);
+  target.curling_along_leaf.Save("curling_along_leaf", out);
 }
-void SorghumGenerator::Deserialize(const YAML::Node& in) {
-  panicle_size.Load("panicle_size", in);
-  panicle_seed_amount.Load("panicle_seed_amount", in);
-  panicle_seed_radius.Load("panicle_seed_radius", in);
+void digital_agriculture_package::DeserializeSorghumGenerator(const YAML::Node& in, SorghumGenerator& target) {
+  target.panicle_size.Load("panicle_size", in);
+  target.panicle_seed_amount.Load("panicle_seed_amount", in);
+  target.panicle_seed_radius.Load("panicle_seed_radius", in);
 
-  stem_tilt_angle.Load("stem_tilt_angle", in);
-  internode_length.Load("internode_length", in);
-  stem_width.Load("stem_width", in);
+  target.stem_tilt_angle.Load("stem_tilt_angle", in);
+  target.internode_length.Load("internode_length", in);
+  target.stem_width.Load("stem_width", in);
 
-  leaf_amount.Load("leaf_amount", in);
-  leaf_starting_point.Load("leaf_starting_point", in);
-  leaf_curling.Load("leaf_curling", in);
+  target.leaf_amount.Load("leaf_amount", in);
+  target.leaf_starting_point.Load("leaf_starting_point", in);
+  target.leaf_curling.Load("leaf_curling", in);
 
-  leaf_roll_angle.Load("leaf_roll_angle", in);
-  leaf_branching_angle.Load("leaf_branching_angle", in);
+  target.leaf_roll_angle.Load("leaf_roll_angle", in);
+  target.leaf_branching_angle.Load("leaf_branching_angle", in);
 
-  leaf_bending.Load("leaf_bending", in);
-  leaf_bending_acceleration.Load("leaf_bending_acceleration", in);
-  leaf_bending_smoothness.Load("leaf_bending_smoothness", in);
-  leaf_waviness.Load("leaf_waviness", in);
-  leaf_waviness_frequency.Load("leaf_waviness_frequency", in);
-  leaf_length.Load("leaf_length", in);
-  leaf_width.Load("leaf_width", in);
+  target.leaf_bending.Load("leaf_bending", in);
+  target.leaf_bending_acceleration.Load("leaf_bending_acceleration", in);
+  target.leaf_bending_smoothness.Load("leaf_bending_smoothness", in);
+  target.leaf_waviness.Load("leaf_waviness", in);
+  target.leaf_waviness_frequency.Load("leaf_waviness_frequency", in);
+  target.leaf_length.Load("leaf_length", in);
+  target.leaf_width.Load("leaf_width", in);
 
-  width_along_stem.Load("width_along_stem", in);
-  width_along_leaf.Load("width_along_leaf", in);
-  waviness_along_leaf.Load("waviness_along_leaf", in);
-  curling_along_leaf.Load("curling_along_leaf", in);
+  target.width_along_stem.Load("width_along_stem", in);
+  target.width_along_leaf.Load("width_along_leaf", in);
+  target.waviness_along_leaf.Load("waviness_along_leaf", in);
+  target.curling_along_leaf.Load("curling_along_leaf", in);
 }
 
 std::shared_ptr<Texture2D> SorghumGenerator::GenerateThumbnailTexture() {

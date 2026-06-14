@@ -32,7 +32,7 @@ class CubeVolume : public IVolume {
    * @param editorLayer A shared pointer to the editor layer.
    * @return True if the asset's content is not modified during inspection.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editorLayer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) override;
 
   /**
    * @brief Checks if a given position is inside the volume.
@@ -54,17 +54,5 @@ class CubeVolume : public IVolume {
    * @return A random 3D point inside the cubic volume.
    */
   glm::vec3 GetRandomPoint() override;
-
-  /**
-   * @brief Serializes the volume data to YAML format.
-   * @param out The YAML emitter to serialize data into.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the volume data from YAML format.
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
 };
 }  // namespace eco_sys_lab_package

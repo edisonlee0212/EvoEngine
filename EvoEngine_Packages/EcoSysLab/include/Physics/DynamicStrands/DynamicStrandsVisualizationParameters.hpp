@@ -59,6 +59,6 @@ struct DynamicStrandsVisualizationParameters {
 
   glm::vec4 foliage_color_main = glm::vec4(0, 1, 0, 1);
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

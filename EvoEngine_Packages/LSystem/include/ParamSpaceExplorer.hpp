@@ -44,7 +44,7 @@ class ParamSpaceExplorer {
   }
 
   /// Draw controls + parallel-coords canvas. Returns true if any parameter changed.
-  bool OnInspect();
+  bool DrawGui();
 
   void Reset();
   void SaveSnapshotA();

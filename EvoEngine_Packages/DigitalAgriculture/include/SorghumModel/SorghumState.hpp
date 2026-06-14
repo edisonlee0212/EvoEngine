@@ -27,12 +27,6 @@ struct SorghumPanicleState {
   SorghumPanicleState();
 
   /**
-   * @brief Inspects the current state.
-   * @return True if the asset's content is not modified, otherwise false.
-   */
-  bool OnInspectImpl();
-
-  /**
    * @brief Serializes the state to a YAML emitter.
    * @param out The YAML emitter to serialize to.
    */
@@ -85,13 +79,6 @@ struct SorghumStemState {
   void Deserialize(const YAML::Node& in);
 
   /**
-   * @brief Inspects the current state.
-   * @param mode Inspection mode.
-   * @return True if the asset's content is not modified, otherwise false.
-   */
-  bool OnInspectImpl(int mode);
-
-  /**
    * @brief Applies the state to a SorghumStemDescriptor.
    * @param target_sorghum_stem_descriptor Target stem descriptor.
    */
@@ -141,13 +128,6 @@ struct SorghumLeafState {
   void Deserialize(const YAML::Node& in);
 
   /**
-   * @brief Inspects the current state.
-   * @param mode Inspection mode.
-   * @return True if the asset's content is not modified, otherwise false.
-   */
-  bool OnInspectImpl(int mode);
-
-  /**
    * @brief Applies the state to a SorghumLeafDescriptor.
    * @param stem_state The associated stem state.
    * @param target_sorghum_leaf_descriptor Target leaf descriptor.
@@ -173,6 +153,8 @@ struct SorghumLeafState {
  */
 class SorghumState : public IAsset {
   friend class SorghumGrowthStages;
+  friend void SerializeSorghumState(YAML::Emitter& out, const SorghumState& target);
+  friend void DeserializeSorghumState(const YAML::Node& in, SorghumState& target);
 
  public:
   /// @brief Default constructor.
@@ -185,36 +167,10 @@ class SorghumState : public IAsset {
   std::vector<SorghumLeafState> leaves;  ///< Leaves present in the sorghum.
 
   /**
-   * @brief Inspects the current state.
-   * @param mode Inspection mode.
-   * @return True if the asset's content is not modified, otherwise false.
-   */
-  bool OnInspectImpl(int mode);
-
-  /**
-   * @brief Inspects the current state in an editor environment.
-   * @param editor_layer Editor layer reference.
-   * @return True if the asset's content is not modified, otherwise false.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Applies the state to a SorghumDescriptor.
    * @param target_sorghum_descriptor Target sorghum descriptor.
    */
   void Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor) const;
-
-  /**
-   * @brief Serializes the state to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the state from a YAML node.
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
 
   /**
    * @brief Creates an entity with the given name.
@@ -227,7 +183,7 @@ class SorghumState : public IAsset {
    * @brief Generates a thumbnail texture representation.
    * @return Smart pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Modifies waviness of all leaves in the state.

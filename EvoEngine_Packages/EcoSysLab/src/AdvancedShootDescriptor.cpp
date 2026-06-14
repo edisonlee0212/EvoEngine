@@ -1,17 +1,21 @@
-#include "AdvancedShootDescriptor.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 using namespace eco_sys_lab_package;
 
 void AdvancedShootDescriptor::PrepareController(ShootGrowthController& shoot_growth_controller) const {
 }
 
-void AdvancedShootDescriptor::Serialize(YAML::Emitter& out) const {
+void eco_sys_lab_package::SerializeAdvancedShootDescriptor(YAML::Emitter& out, const AdvancedShootDescriptor& target) {
+  (void)out;
+  (void)target;
 }
 
-void AdvancedShootDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeAdvancedShootDescriptor(const YAML::Node& in, AdvancedShootDescriptor& target) {
+  (void)in;
+  (void)target;
 }
 
-bool AdvancedShootDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool AdvancedShootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   return changed;
 }

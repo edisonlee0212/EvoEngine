@@ -1,20 +1,13 @@
 #include <IAsset.hpp>
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 #include "ProjectManager.hpp"
+#include "Serialization.hpp"
 using namespace evo_engine;
-
-namespace {
-class YamlStagedLoadPayload final : public StagedAssetLoadPayload {
- public:
-  YAML::Node node;
-};
-}  // namespace
 
 bool IAsset::Save() {
   if (IsTemporary())
     return false;
-  if (const auto path = GetAbsolutePath(); SaveInternal(path)) {
+  if (const auto path = GetAbsolutePath(); Serialization::SaveAsset(*this, path)) {
     saved_ = true;
     return true;
   }
@@ -23,7 +16,7 @@ bool IAsset::Save() {
 bool IAsset::Load() {
   if (IsTemporary())
     return false;
-  if (const auto path = GetAbsolutePath(); LoadInternal(path)) {
+  if (const auto path = GetAbsolutePath(); Serialization::LoadAsset(*this, path)) {
     saved_ = true;
     return true;
   }
@@ -38,80 +31,6 @@ void IAsset::Load(const std::string &name, const YAML::Node &in) {
 
 std::shared_ptr<IAsset> IAsset::GetSelf() const {
   return self_.lock();
-}
-
-bool IAsset::SaveInternal(const std::filesystem::path &path) const {
-  try {
-    YAML::Emitter out;
-    out << YAML::BeginMap;
-    Serialize(out);
-    out << YAML::EndMap;
-    std::ofstream file_output(path.string());
-    file_output << out.c_str();
-    file_output.close();
-  } catch (const std::exception &e) {
-    EVOENGINE_ERROR("Failed to save: " + std::string(e.what()))
-    return false;
-  }
-  return true;
-}
-bool IAsset::LoadInternal(const std::filesystem::path &path) {
-  if (!std::filesystem::exists(path)) {
-    EVOENGINE_ERROR("Not exist!")
-    return false;
-  }
-  try {
-    const std::ifstream stream(path.string());
-    std::stringstream string_stream;
-    string_stream << stream.rdbuf();
-    const YAML::Node in = YAML::Load(string_stream.str());
-    Deserialize(in);
-  } catch (const std::exception &e) {
-    EVOENGINE_ERROR("Failed to load: " + std::string(e.what()))
-    return false;
-  }
-  return true;
-}
-
-bool IAsset::SupportsStagedLoading() const {
-  return false;
-}
-
-bool IAsset::SupportsStagedLoading(const std::filesystem::path &) const {
-  return SupportsStagedLoading();
-}
-
-std::shared_ptr<StagedAssetLoadPayload> IAsset::LoadStagedPayloadInternal(const std::filesystem::path &path) const {
-  if (!std::filesystem::exists(path)) {
-    EVOENGINE_ERROR("Not exist!")
-    return {};
-  }
-  try {
-    const std::ifstream stream(path.string());
-    std::stringstream string_stream;
-    string_stream << stream.rdbuf();
-    auto payload = std::make_shared<YamlStagedLoadPayload>();
-    payload->node = YAML::Load(string_stream.str());
-    return payload;
-  } catch (const std::exception &e) {
-    EVOENGINE_ERROR("Failed to load staged payload: " + std::string(e.what()))
-    return {};
-  }
-}
-
-bool IAsset::ApplyStagedPayloadInternal(const std::filesystem::path &,
-                                        const std::shared_ptr<StagedAssetLoadPayload> &payload) {
-  const auto yaml_payload = std::dynamic_pointer_cast<YamlStagedLoadPayload>(payload);
-  if (!yaml_payload) {
-    return false;
-  }
-  try {
-    Deserialize(yaml_payload->node);
-  } catch (const std::exception &e) {
-    EVOENGINE_ERROR("Failed to apply staged payload: " + std::string(e.what()))
-    return false;
-  }
-  return true;
 }
 
 void IAsset::TrackPendingGpuWork(const JobHandle &handle) {
@@ -156,14 +75,14 @@ bool IAsset::Export(const std::filesystem::path &path) const {
     EVOENGINE_ERROR("Path is in project folder!")
     return false;
   }
-  return SaveInternal(path);
+  return Serialization::SaveAsset(*this, path);
 }
 bool IAsset::Import(const std::filesystem::path &path) {
   if (!ProjectManager::GetAssetsFolderPath().empty() && ProjectManager::IsInAssetsFolder(path)) {
     EVOENGINE_ERROR("Path is in project folder!")
     return false;
   }
-  return LoadInternal(path);
+  return Serialization::LoadAsset(*this, path);
 }
 
 void IAsset::SetUnsaved() {
@@ -188,10 +107,6 @@ std::filesystem::path IAsset::GetAbsolutePath() const {
   if (file_record_.expired())
     return {};
   return file_record_.lock()->GetAbsolutePath();
-}
-
-std::shared_ptr<Texture2D> IAsset::GenerateThumbnailTexture() {
-  return EditorLayer::FindIcon("Binary");
 }
 
 uint32_t IAsset::GetVersion() const {

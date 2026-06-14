@@ -54,7 +54,7 @@ void DynamicStrands::BuildSegmentPairsRenderingPipeline() {
   segment_pairs_visualization_render_pipeline->Initialize();
 }
 
-bool SegmentPairsRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SegmentPairsRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat3("Position scale", &position_scale.x, 0.1f, 0.1f, 100.f)) {
     changed = true;

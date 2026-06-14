@@ -86,16 +86,16 @@ class Curve2D {
   [[nodiscard]] bool IsTangent() const;
 
   /**
-   * @brief Handles curve inspection via an editor UI.
+   * @brief Draws curve editing controls.
    *
    * @param label Label for the curve in the UI.
    * @param editor_size Size of the editor panel.
    * @param flags Customization flags for the editor.
-   * @return `true` if any changes were made during inspection.
+   * @return `true` if any changes were made.
    */
-  bool OnInspect(const std::string& label, const ImVec2& editor_size = ImVec2(-1, -1),
-                 unsigned flags = static_cast<unsigned>(CurveEditorFlags::AllowResize) |
-                                  static_cast<unsigned>(CurveEditorFlags::ShowGrid));
+  bool Draw(const std::string& label, const ImVec2& editor_size = ImVec2(-1, -1),
+            unsigned flags = static_cast<unsigned>(CurveEditorFlags::AllowResize) |
+                             static_cast<unsigned>(CurveEditorFlags::ShowGrid));
 
   /**
    * @brief Evaluates the value of the curve at a given X-coordinate.
@@ -159,13 +159,13 @@ struct Plot2D {
   Plot2D(T min, T max, const Curve2D& curve = Curve2D(0.5f, 0.5f, {0, 0}, {1, 1}));
 
   /**
-   * @brief Inspects the plot via an editor UI.
+   * @brief Draws plot editing controls.
    *
    * @param name The name of the plot to be displayed in the UI.
    * @param settings Settings for editing the plot descriptor.
-   * @return `true` if any changes were made during inspection.
+   * @return `true` if any changes were made.
    */
-  bool OnInspect(const std::string& name, const CurveDescriptorSettings& settings = {});
+  bool Draw(const std::string& name, const CurveDescriptorSettings& settings = {});
 
   /**
    * @brief Serializes the plot data to a YAML emitter.
@@ -203,14 +203,14 @@ struct SingleDistribution {
   float deviation = 0.0f; /**< The deviation of the distribution. */
 
   /**
-   * @brief Inspects the single distribution via an editor UI.
+   * @brief Draws single distribution editing controls.
    *
    * @param name The name of the distribution to be displayed in the UI.
    * @param speed Adjustment speed for the distribution controls.
    * @param tip Tooltip string for the UI.
-   * @return `true` if any changes were made during inspection.
+   * @return `true` if any changes were made.
    */
-  bool OnInspect(const std::string& name, float speed = 0.01f, const std::string& tip = "");
+  bool Draw(const std::string& name, float speed = 0.01f, const std::string& tip = "");
 
   /**
    * @brief Serializes the single distribution data to a YAML emitter.
@@ -257,13 +257,13 @@ struct PlottedDistribution {
   Plot2D<float> deviation; /**< Plot for the deviation values. */
 
   /**
-   * @brief Inspects the plotted distribution via an editor UI.
+   * @brief Draws plotted distribution editing controls.
    *
    * @param name The name of the distribution to be displayed in the UI.
    * @param settings Settings for configuring the plotted distribution.
-   * @return `true` if any changes were made during inspection.
+   * @return `true` if any changes were made.
    */
-  bool OnInspect(const std::string& name, const PlottedDistributionSettings& settings = {});
+  bool Draw(const std::string& name, const PlottedDistributionSettings& settings = {});
 
   /**
    * @brief Serializes the plotted distribution data to a YAML emitter.
@@ -330,16 +330,16 @@ void SingleDistribution<T>::Load(const std::string& name, const YAML::Node& in) 
 }
 
 /**
- * @brief Inspects the single distribution via an editor UI.
+ * @brief Draws single distribution editing controls.
  *
  * @tparam T Type of the mean value.
  * @param name The name of the distribution to be displayed in the UI.
  * @param speed Adjustment speed for the distribution controls.
  * @param tip Tooltip string for the UI.
- * @return `true` if any changes were made during inspection.
+ * @return `true` if any changes were made.
  */
 template <class T>
-bool SingleDistribution<T>::OnInspect(const std::string& name, const float speed, const std::string& tip) {
+bool SingleDistribution<T>::Draw(const std::string& name, const float speed, const std::string& tip) {
   bool changed = false;
   if (ImGui::TreeNode(name.c_str())) {
     if (!tip.empty() && ImGui::IsItemHovered()) {
@@ -373,15 +373,15 @@ T SingleDistribution<T>::GetValue() const {
 }
 
 /**
- * @brief Inspects the plotted distribution via an editor UI.
+ * @brief Draws plotted distribution editing controls.
  *
  * @tparam T Type of the mean values.
  * @param name The name of the distribution to be displayed in the UI.
  * @param settings Settings for configuring the plotted distribution.
- * @return `true` if any changes were made during inspection.
+ * @return `true` if any changes were made.
  */
 template <class T>
-bool PlottedDistribution<T>::OnInspect(const std::string& name, const PlottedDistributionSettings& settings) {
+bool PlottedDistribution<T>::Draw(const std::string& name, const PlottedDistributionSettings& settings) {
   bool changed = false;
   if (ImGui::TreeNode(name.c_str())) {
     if (!settings.tip.empty() && ImGui::IsItemHovered()) {
@@ -391,8 +391,8 @@ bool PlottedDistribution<T>::OnInspect(const std::string& name, const PlottedDis
     }
     auto mean_title = name + " (mean)";
     const auto dev_title = name + " (deviation)";
-    changed = mean.OnInspect(mean_title, settings.mean_settings);
-    if (deviation.OnInspect(dev_title, settings.dev_settings))
+    changed = mean.Draw(mean_title, settings.mean_settings);
+    if (deviation.Draw(dev_title, settings.dev_settings))
       changed = true;
     ImGui::TreePop();
   }
@@ -448,15 +448,15 @@ T PlottedDistribution<T>::GetValue(float t) const {
 }
 
 /**
- * @brief Inspects the plot via an editor UI.
+ * @brief Draws plot editing controls.
  *
  * @tparam T Type of the plot's minimum and maximum values.
  * @param name The name of the plot to be displayed in the UI.
  * @param settings Settings for editing the plot descriptor.
- * @return `true` if any changes were made during inspection.
+ * @return `true` if any changes were made.
  */
 template <class T>
-bool Plot2D<T>::OnInspect(const std::string& name, const CurveDescriptorSettings& settings) {
+bool Plot2D<T>::Draw(const std::string& name, const CurveDescriptorSettings& settings) {
   bool changed = false;
   if (ImGui::TreeNode(name.c_str())) {
     if (!settings.m_tip.empty() && ImGui::IsItemHovered()) {
@@ -484,7 +484,7 @@ bool Plot2D<T>::OnInspect(const std::string& name, const CurveDescriptorSettings
             ? static_cast<unsigned>(CurveEditorFlags::AllowResize) | static_cast<unsigned>(CurveEditorFlags::ShowGrid)
             : static_cast<unsigned>(CurveEditorFlags::AllowResize) | static_cast<unsigned>(CurveEditorFlags::ShowGrid) |
                   static_cast<unsigned>(CurveEditorFlags::DisableStartEndY);
-    if (curve.OnInspect(("Curve2D##" + name).c_str(), ImVec2(-1, -1), flag)) {
+    if (curve.Draw(("Curve2D##" + name).c_str(), ImVec2(-1, -1), flag)) {
       changed = true;
     }
 

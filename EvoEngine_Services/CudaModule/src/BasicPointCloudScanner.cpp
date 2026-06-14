@@ -2,7 +2,7 @@
 // Created by lllll on 12/15/2021.
 //
 
-#include "BasicPointCloudScanner.hpp"
+#include "CudaSerializationAdapters.hpp"
 
 #include "EditorLayer.hpp"
 #include "Jobs.hpp"
@@ -10,7 +10,7 @@
 #include "Resources.hpp"
 using namespace evo_engine;
 
-bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) {
+bool BasicPointCloudScanner::DrawGui(const std::shared_ptr<EditorLayer> &editor_layer) {
   bool changed = false;
 
   if (ImGui::DragFloat("Angle", &rotate_angle, 0.1f, -90.0f, 90.0f))
@@ -64,10 +64,14 @@ bool BasicPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer> &edito
   return changed;
 }
 
-void BasicPointCloudScanner::Serialize(YAML::Emitter &out) const {
+void evo_engine::SerializeBasicPointCloudScanner(YAML::Emitter &out, const BasicPointCloudScanner &target) {
+  (void)out;
+  (void)target;
 }
 
-void BasicPointCloudScanner::Deserialize(const YAML::Node &in) {
+void evo_engine::DeserializeBasicPointCloudScanner(const YAML::Node &in, BasicPointCloudScanner &target) {
+  (void)in;
+  (void)target;
 }
 
 void BasicPointCloudScanner::Scan() {

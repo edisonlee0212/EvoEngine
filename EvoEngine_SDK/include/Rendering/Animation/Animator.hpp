@@ -68,7 +68,7 @@ class Animator final : public IPrivateComponent {
   /**
    * @brief Current time point in the active animation.
    */
-  float current_animation_time_;
+  float current_animation_time_ = 0.0f;
 
   /**
    * @brief Applies the calculated transformations to the skeleton.
@@ -109,7 +109,26 @@ class Animator final : public IPrivateComponent {
    *
    * @return The name of the currently active animation.
    */
-  [[nodiscard]] std::string GetCurrentAnimationName();
+  [[nodiscard]] std::string GetCurrentAnimationName() const;
+
+  /**
+   * @brief Gets the number of bones currently managed by this animator.
+   *
+   * @return The number of bones in the current animation skeleton.
+   */
+  [[nodiscard]] size_t GetBoneSize() const;
+
+  [[nodiscard]] const std::vector<glm::mat4> &PeekTransformChain() const;
+
+  [[nodiscard]] std::vector<glm::mat4> &RefTransformChain();
+
+  [[nodiscard]] const std::vector<glm::mat4> &PeekOffsetMatrices() const;
+
+  [[nodiscard]] std::vector<glm::mat4> &RefOffsetMatrices();
+
+  [[nodiscard]] const std::vector<std::string> &PeekBoneNames() const;
+
+  [[nodiscard]] std::vector<std::string> &RefBoneNames();
 
   /**
    * @brief Animates the skeleton using the specified animation name and time.
@@ -139,12 +158,9 @@ class Animator final : public IPrivateComponent {
   void Setup(const std::shared_ptr<Animation> &target_animation);
 
   /**
-   * @brief Called during the inspection process in the editor layer.
-   *
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if changes were made during inspection, false otherwise.
+   * @brief Clears the current animation asset and derived skeleton state.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer> &editor_layer) override;
+  void ClearAnimation();
 
   /**
    * @brief Called during the post-clone process to apply actions to the cloned object.
@@ -160,26 +176,20 @@ class Animator final : public IPrivateComponent {
    */
   [[nodiscard]] std::shared_ptr<Animation> GetAnimation();
 
-  /**
-   * @brief Serializes the animator's properties into a YAML emitter.
-   *
-   * @param out The YAML emitter used for serialization.
-   */
-  void Serialize(YAML::Emitter &out) const override;
+  [[nodiscard]] const AssetRef &PeekAnimationRef() const;
 
-  /**
-   * @brief Deserializes the animator's properties from a YAML node.
-   *
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node &in) override;
+  [[nodiscard]] AssetRef &RefAnimationRef();
+
+  void RestorePlaybackState(const std::string &animation_name, float time);
+
+  void RebuildAnimationState();
 
   /**
    * @brief Collects asset references used by the animator.
    *
    * @param list The list to append asset references to.
    */
-  void CollectAssetRef(std::vector<AssetRef> &list) override;
+  void CollectAssetRef(std::vector<AssetRef> &list);
 };
 
 }  // namespace evo_engine

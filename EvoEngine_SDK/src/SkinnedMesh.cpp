@@ -5,6 +5,7 @@
 #include "GeometryStorage.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Serialization.hpp"
 using namespace evo_engine;
 void SkinnedVertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
@@ -61,24 +62,9 @@ void BoneMatrices::UploadData() {
   descriptor_set_[current_frame_index]->UpdateBufferDescriptorBinding(0, buffer_info);
 }
 
-bool SkinnedMesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text(("Vertices size: " + std::to_string(skinned_vertices_.size())).c_str());
-  ImGui::Text(("Triangle amount: " + std::to_string(skinned_triangles_.size())).c_str());
-
-  if (!skinned_vertices_.empty()) {
-    FileUtils::SaveFile(
-        "Export as OBJ", "Mesh", {".obj"},
-        [&](const std::filesystem::path& path) {
-          Export(path);
-        },
-        false);
-  }
-  return changed;
-}
 bool SkinnedMesh::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".eveskinnedmesh") {
-    return IAsset::SaveInternal(path);
+    return Serialization::SaveAssetAsYaml(*this, path);
   } else if (path.extension() == ".obj") {
     std::ofstream of;
     of.open(path.string(), std::ofstream::out | std::ofstream::trunc);
@@ -136,6 +122,18 @@ bool SkinnedMesh::SaveInternal(const std::filesystem::path& path) const {
     }
   }
   return false;
+}
+
+bool SkinnedMesh::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<SkinnedMesh>(
+      [](const SkinnedMesh& asset, const std::filesystem::path& path) {
+        return asset.SaveInternal(path);
+      },
+      {},
+      [](const SkinnedMesh& asset, const std::filesystem::path&) {
+        return asset.SupportsStagedLoading();
+      },
+      {}, {}, owner_name, type_name);
 }
 
 SkinnedMesh::~SkinnedMesh() {
@@ -308,54 +306,14 @@ std::vector<SkinnedVertex>& SkinnedMesh::UnsafeGetSkinnedVertices() {
   return skinned_vertices_;
 }
 
-void SkinnedMesh::Serialize(YAML::Emitter& out) const {
-  if (!bone_animator_indices.empty()) {
-    out << YAML::Key << "bone_animator_indices" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(bone_animator_indices.data()),
-                        bone_animator_indices.size() * sizeof(unsigned));
-  }
-
-  out << YAML::Key << "skinned_vertex_attributes_" << YAML::BeginMap;
-  skinned_vertex_attributes_.Serialize(out);
-  out << YAML::EndMap;
-
-  if (!skinned_vertices_.empty() && !skinned_triangles_.empty()) {
-    out << YAML::Key << "skinned_vertices_" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(skinned_vertices_.data()),
-                        skinned_vertices_.size() * sizeof(SkinnedVertex));
-    out << YAML::Key << "skinned_triangles_" << YAML::Value
-        << YAML::Binary(reinterpret_cast<const unsigned char*>(skinned_triangles_.data()),
-                        skinned_triangles_.size() * sizeof(glm::uvec3));
-  }
+const SkinnedVertexAttributes& SkinnedMesh::GetSkinnedVertexAttributes() const {
+  return skinned_vertex_attributes_;
 }
-void SkinnedMesh::Deserialize(const YAML::Node& in) {
-  if (in["bone_animator_indices"]) {
-    const YAML::Binary& bone_indices = in["bone_animator_indices"].as<YAML::Binary>();
-    bone_animator_indices.resize(bone_indices.size() / sizeof(unsigned));
-    std::memcpy(bone_animator_indices.data(), bone_indices.data(), bone_indices.size());
-  }
 
-  if (in["skinned_vertex_attributes_"]) {
-    skinned_vertex_attributes_.Deserialize(in["skinned_vertex_attributes_"]);
-  } else {
-    skinned_vertex_attributes_ = {};
-    skinned_vertex_attributes_.normal = true;
-    skinned_vertex_attributes_.tangent = true;
-    skinned_vertex_attributes_.tex_coord = true;
-    skinned_vertex_attributes_.color = true;
-  }
+const std::vector<SkinnedVertex>& SkinnedMesh::PeekSkinnedVertices() const {
+  return skinned_vertices_;
+}
 
-  if (in["skinned_vertices_"] && in["skinned_triangles_"]) {
-    const YAML::Binary& skinned_vertex_data = in["skinned_vertices_"].as<YAML::Binary>();
-    std::vector<SkinnedVertex> skinned_vertices;
-    skinned_vertices.resize(skinned_vertex_data.size() / sizeof(SkinnedVertex));
-    std::memcpy(skinned_vertices.data(), skinned_vertex_data.data(), skinned_vertex_data.size());
-
-    const YAML::Binary& triangle_data = in["skinned_triangles_"].as<YAML::Binary>();
-    std::vector<glm::uvec3> triangles;
-    triangles.resize(triangle_data.size() / sizeof(glm::uvec3));
-    std::memcpy(triangles.data(), triangle_data.data(), triangle_data.size());
-
-    SetVertices(skinned_vertex_attributes_, skinned_vertices, triangles);
-  }
+const std::vector<glm::uvec3>& SkinnedMesh::PeekTriangles() const {
+  return skinned_triangles_;
 }

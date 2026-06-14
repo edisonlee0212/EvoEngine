@@ -1,4 +1,4 @@
-﻿#include "ScotsPineDescriptor.hpp"
+#include "ScotsPineDescriptor.hpp"
 #include <yaml-cpp/yaml.h>
 #include <Application.hpp>
 #include <EditorLayer.hpp>
@@ -10,10 +10,16 @@
 #include <cmath>
 #include <limits>
 #include "LSystemDescriptorDefaults.hpp"
+#include "LSystemInspectionAdapters.hpp"
+#include "LSystemSerializationAdapters.hpp"
 #include "ScotsPine.hpp"
 
 using namespace l_system_package;
 using namespace evo_engine;
+
+bool l_system_package::InspectScotsPineDescriptor(InspectorContext& context, ScotsPineDescriptor& descriptor) {
+  return descriptor.DrawEditorControls(context.editor_layer);
+}
 
 // ===========================================================================
 // File-local helpers (defaults file resolution, loading, target_gdd sampling).
@@ -183,7 +189,7 @@ bool LoadScotsPineDescriptorDefaultsFromFile(ScotsPineDescriptor& descriptor, co
   if (!descriptor_defaults::LoadDefaultsYamlMap(file_path, defaults, kScotsPineDescriptorName)) {
     return false;
   }
-  descriptor.Deserialize(defaults);
+  DeserializeScotsPineDescriptor(defaults, descriptor);
   return true;
 }
 
@@ -478,7 +484,7 @@ Entity ScotsPineDescriptor::Instantiate() const {
 // ===========================================================================
 // Inspector UI
 // ===========================================================================
-bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   bool editor_preferences_changed = false;
 
@@ -724,7 +730,7 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
   if (ImGui::TreeNodeEx("Parameter Space Explorer")) {
     if (!explorer_.IsBound())
       explorer_.Bind(*this);
-    if (explorer_.OnInspect()) {
+    if (explorer_.DrawGui()) {
       changed = true;
     }
     show_item_hover_description("Interactive parameter sweep and sensitivity exploration tools for this descriptor.");
@@ -735,25 +741,25 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Global development clock --
   if (ImGui::TreeNodeEx("Global Development", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed |= target_gdd.OnInspect("Target GDD", 1.0f,
-                                    "Distribution of target GDD used by Instantiate, Grid spawn, and Triangle spawn.");
-    changed |= plastochron_gdd.OnInspect("Plastochron (GDD)", 10.0f,
-                                         "Physiological time between consecutive phytomer events on an axis.");
-    changed |= max_phytomers_per_seasonal_growth.OnInspect("Max Phytomers per Seasonal Growth", 0.5f,
-                                                           "Phytomers (internode + optional needle cluster) emitted "
-                                                           "per active season before the apex pauses until next year.");
+    changed |= target_gdd.Draw("Target GDD", 1.0f,
+                               "Distribution of target GDD used by Instantiate, Grid spawn, and Triangle spawn.");
+    changed |= plastochron_gdd.Draw("Plastochron (GDD)", 10.0f,
+                                    "Physiological time between consecutive phytomer events on an axis.");
+    changed |= max_phytomers_per_seasonal_growth.Draw("Max Phytomers per Seasonal Growth", 0.5f,
+                                                      "Phytomers (internode + optional needle cluster) emitted "
+                                                      "per active season before the apex pauses until next year.");
 
     // -- Per-pine calendar / GDD-per-day fields --
     // Consumed by LSystemLayer::SamplePineTemporalParameters() and applied
     // in the per-pine update path. delta_gdd = sampled_gdd_per_day * delta_days
     // where delta_days = chronological_days_per_second * dt.
-    changed |= gdd_per_day.OnInspect("GDD per Day", 0.1f,
-                                     "Per-pine thermal accumulation rate. Sampled per plant; multiplied by "
-                                     "chronological day delta from LSystemLayer.");
-    changed |= growing_season_start_day.OnInspect(
+    changed |= gdd_per_day.Draw("GDD per Day", 0.1f,
+                                "Per-pine thermal accumulation rate. Sampled per plant; multiplied by "
+                                "chronological day delta from LSystemLayer.");
+    changed |= growing_season_start_day.Draw(
         "Growing Season Start Day", 1.0f,
         "Per-pine active season start day-of-year (0-365). Sampled per plant; gates pine growth in LSystemLayer.");
-    changed |= growing_season_end_day.OnInspect(
+    changed |= growing_season_end_day.Draw(
         "Growing Season End Day", 1.0f,
         "Per-pine active season end day-of-year (0-365). Sampled per plant; gates pine growth in LSystemLayer.");
 
@@ -786,12 +792,12 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Main stem geometry --
   if (ImGui::TreeNodeEx("Main Stem (Leader Axis)", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed |= internode_length_m.OnInspect("Phytomer Internode Length (m)", 0.001f,
-                                            "Length of one phytomer's internode in metres.");
-    changed |= leader_internode_thickness_m.OnInspect(
+    changed |= internode_length_m.Draw("Phytomer Internode Length (m)", 0.001f,
+                                       "Length of one phytomer's internode in metres.");
+    changed |= leader_internode_thickness_m.Draw(
         "Main Stem Width (Diameter, m)", 0.0001f,
         "Main stem thickness control. This is the leader internode diameter in metres.");
-    changed |= initial_orientation_yaw_deg.OnInspect(
+    changed |= initial_orientation_yaw_deg.Draw(
         "Initial Orientation Yaw (deg)", 1.0f,
         "Sampled once per plant and applied as root yaw around +Y. Set deviation > 0 for random initial orientation.");
     if (ImGui::ColorEdit4("Main Stem Color", &main_stem_color_rgba.x)) {
@@ -809,26 +815,26 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     show_item_hover_description(
         "Response curve for stem aging color. 1 = linear, >1 delays browning, <1 accelerates it.");
     ImGui::Text("Mean Radius (m): %.6f", std::max(0.0f, leader_internode_thickness_m.mean) * 0.5f);
-    changed |= lateral_length_ratio.OnInspect("Lateral Length Ratio", 0.05f);
+    changed |= lateral_length_ratio.Draw("Lateral Length Ratio", 0.05f);
     show_item_hover_description("Lateral shoot length = leader_length * ratio^order.");
-    changed |= lateral_thickness_ratio.OnInspect("Lateral Thickness Ratio", 0.05f);
+    changed |= lateral_thickness_ratio.Draw("Lateral Thickness Ratio", 0.05f);
     show_item_hover_description("Lateral shoot thickness = leader_thickness * ratio^order.");
     ImGui::TreePop();
   }
 
   // -- Main stem branching --
   if (ImGui::TreeNodeEx("Main Stem Branching (Whorl Buds)", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed |= max_branching_order.OnInspect("Max Branching Order", 0.5f);
+    changed |= max_branching_order.Draw("Max Branching Order", 0.5f);
     show_item_hover_description("0 = leader only, 1 = primary laterals, 2 = secondary laterals.");
-    changed |= branches_per_whorl.OnInspect("Branches per Whorl", 0.5f);
+    changed |= branches_per_whorl.Draw("Branches per Whorl", 0.5f);
     show_item_hover_description("Lateral count spawned at whorl bud activation.");
-    changed |= whorl_dormancy_years.OnInspect("Whorl Dormancy (years)", 0.05f,
-                                              "Chronological years a whorl bud waits before activating laterals. "
-                                              "Bud release is chilling/photoperiod-driven, NOT heat-sum-driven "
-                                              "(FSPM Rule of Ontogeny). Default 1 yr = annual Scots pine cycle.");
-    changed |= branch_insertion_angle_deg.OnInspect("Branch Insertion Angle (deg)", 1.0f);
+    changed |= whorl_dormancy_years.Draw("Whorl Dormancy (years)", 0.05f,
+                                         "Chronological years a whorl bud waits before activating laterals. "
+                                         "Bud release is chilling/photoperiod-driven, NOT heat-sum-driven "
+                                         "(FSPM Rule of Ontogeny). Default 1 yr = annual Scots pine cycle.");
+    changed |= branch_insertion_angle_deg.Draw("Branch Insertion Angle (deg)", 1.0f);
     show_item_hover_description("Angle laterals depart parent (degrees).");
-    changed |= branch_roll_phyllotaxis_deg.OnInspect("Branch Roll Phyllotaxis (deg)", 1.0f);
+    changed |= branch_roll_phyllotaxis_deg.Draw("Branch Roll Phyllotaxis (deg)", 1.0f);
     show_item_hover_description("Golden-angle azimuth offset between consecutive laterals and needles.");
     ImGui::TreePop();
   }
@@ -871,7 +877,7 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
         "Mean maturity response curve. x = maturity age fraction [0,1], y = size multiplier [0,1].";
     maturity_settings.dev_settings.m_tip =
         "Variance (sigma) over maturity age. Runtime uses a fixed per-organ realization (no frame jitter).";
-    changed |= selected_distribution->OnInspect(selected_label, maturity_settings);
+    changed |= selected_distribution->Draw(selected_label, maturity_settings);
 
     auto clamp_plot_01 = [](evo_engine::Plot2D<float>& plot) {
       plot.min_value = std::clamp(plot.min_value, 0.0f, 1.0f);
@@ -979,7 +985,7 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
                             evo_engine::PlottedDistribution<float>& profile_distribution, const char* max_label,
                             const char* profile_label, const char* tooltip) {
       if (ImGui::TreeNodeEx(axis_name, ImGuiTreeNodeFlags_DefaultOpen)) {
-        changed |= max_distribution.OnInspect(max_label, 0.00005f, tooltip);
+        changed |= max_distribution.Draw(max_label, 0.00005f, tooltip);
         clamp_nonnegative_distribution(max_distribution);
 
         evo_engine::PlottedDistributionSettings profile_settings;
@@ -990,7 +996,7 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
             "Mean multiplier profile in [0,4]. 1 keeps the max diameter; 0 collapses axis radius; "
             "values >1 enlarge it.";
         profile_settings.dev_settings.m_tip = "Variance (sigma) profile in [0,4] around the mean profile.";
-        changed |= profile_distribution.OnInspect(profile_label, profile_settings);
+        changed |= profile_distribution.Draw(profile_label, profile_settings);
         clamp_profile_distribution(profile_distribution, 4.0f);
 
         ImGui::Text("Current mean max diameter: %.3f mm", std::max(0.0f, max_distribution.mean) * 1000.0f);
@@ -1012,8 +1018,8 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
     temporal_settings.mean_settings.m_tip =
         "Mean multiplier in [0,1]. Default is sinusoidal: 0.25 at t=0 years to 1.0 at t=2 years.";
     temporal_settings.dev_settings.m_tip = "Variance (sigma) profile around the temporal mean in [0,1].";
-    changed |= needle_cross_section_temporal_maturity_curve.OnInspect("Shared Temporal Width/Thickness Maturity",
-                                                                      temporal_settings);
+    changed |= needle_cross_section_temporal_maturity_curve.Draw("Shared Temporal Width/Thickness Maturity",
+                                                                 temporal_settings);
     clamp_profile_distribution(needle_cross_section_temporal_maturity_curve, 1.0f);
 
     ImGui::TreePop();
@@ -1021,34 +1027,34 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Needles --
   if (ImGui::TreeNodeEx("Needles (Layout and Lifecycle)", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed |= bare_zone_fraction.OnInspect(
+    changed |= bare_zone_fraction.Draw(
         "Bare Zone Fraction", 0.01f,
         "Temporal fraction at the start of each year that emits internode-only phytomers [0, 0.95).");
-    changed |= needle_count_per_cluster.OnInspect("Needles per Cluster", 0.5f);
+    changed |= needle_count_per_cluster.Draw("Needles per Cluster", 0.5f);
     show_item_hover_description("Pinus sylvestris fascicle count (typically 2).");
     if (ImGui::DragInt("Needle Segments", &needle_segment_count, 1.0f, 3, 128)) {
       needle_segment_count = std::clamp(needle_segment_count, 3, 128);
       changed = true;
     }
     show_item_hover_description("Longitudinal segments per needle centerline. Mesh stations = segments + 1.");
-    changed |= needle_length_m.OnInspect("Needle Length (m)", 0.001f, "Length of needles in metres.");
-    changed |= needle_lifespan_years.OnInspect("Needle Lifespan (years)", 0.1f,
-                                               "Chronological years a needle stays alive post-maturity. Senescence "
-                                               "is calendar-driven, NOT heat-sum-driven (FSPM Rule of Ontogeny). "
-                                               "Scots pine typical: 3-4 yr.");
-    changed |= needle_browning_years.OnInspect("Needle Browning (years)", 0.05f,
-                                               "Chronological years from senescence onset to abscission.");
-    changed |= needle_flush_delay_gdd.OnInspect("Needle Flush Delay (GDD)", 10.0f,
-                                                "Delay from phytomer emergence to needle flush.");
-    changed |= internode_maturation_gdd.OnInspect("Shoot Maturation (GDD)", 10.0f,
-                                                  "Thermal time from emergence to mature internode length.");
-    changed |= needle_maturation_gdd.OnInspect("Needle Maturation (GDD)", 10.0f,
-                                               "Thermal time from flush to mature needle length.");
-    changed |= needle_branching_angle_deg.OnInspect(
-        "Needle Branching Angle (deg)", 0.25f, "Final branching angle from the parent axis reached after relaxation.");
-    changed |= needle_branching_relax_gdd.OnInspect("Needle Branching Relaxation (GDD-equivalent)", 10.0f,
-                                                    "Converted using 1500 GDD/year, then applied against chronological "
-                                                    "age so relaxation continues during dormant season.");
+    changed |= needle_length_m.Draw("Needle Length (m)", 0.001f, "Length of needles in metres.");
+    changed |= needle_lifespan_years.Draw("Needle Lifespan (years)", 0.1f,
+                                          "Chronological years a needle stays alive post-maturity. Senescence "
+                                          "is calendar-driven, NOT heat-sum-driven (FSPM Rule of Ontogeny). "
+                                          "Scots pine typical: 3-4 yr.");
+    changed |= needle_browning_years.Draw("Needle Browning (years)", 0.05f,
+                                          "Chronological years from senescence onset to abscission.");
+    changed |= needle_flush_delay_gdd.Draw("Needle Flush Delay (GDD)", 10.0f,
+                                           "Delay from phytomer emergence to needle flush.");
+    changed |= internode_maturation_gdd.Draw("Shoot Maturation (GDD)", 10.0f,
+                                             "Thermal time from emergence to mature internode length.");
+    changed |= needle_maturation_gdd.Draw("Needle Maturation (GDD)", 10.0f,
+                                          "Thermal time from flush to mature needle length.");
+    changed |= needle_branching_angle_deg.Draw("Needle Branching Angle (deg)", 0.25f,
+                                               "Final branching angle from the parent axis reached after relaxation.");
+    changed |= needle_branching_relax_gdd.Draw("Needle Branching Relaxation (GDD-equivalent)", 10.0f,
+                                               "Converted using 1500 GDD/year, then applied against chronological "
+                                               "age so relaxation continues during dormant season.");
     if (ImGui::DragFloat("Order Needle Length Attenuation", &needle_order_length_attenuation, 0.01f, 0.0f, 1.0f,
                          "%.3f")) {
       needle_order_length_attenuation = std::clamp(needle_order_length_attenuation, 0.0f, 1.0f);
@@ -1251,24 +1257,24 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Needle curvature (bilateral differential growth field) --
   if (ImGui::TreeNodeEx("Needle Shape (Curvature Field)")) {
-    changed |= needle_curvature_adaxial_bias.OnInspect(
+    changed |= needle_curvature_adaxial_bias.Draw(
         "Adaxial Elongation Bias", 0.001f, "Dimensionless adaxial side elongation. Positive bends needle toward stem.");
-    changed |= needle_curvature_abaxial_bias.OnInspect(
+    changed |= needle_curvature_abaxial_bias.Draw(
         "Abaxial Elongation Bias", 0.001f,
         "Dimensionless abaxial side elongation. Positive bends needle away from stem.");
-    changed |= needle_curvature_gradient_per_arclen.OnInspect(
+    changed |= needle_curvature_gradient_per_arclen.Draw(
         "Curvature Gradient (per s_norm)", 0.001f,
         "Linear gradient added to (abaxial - adaxial) along normalized arc length.");
-    changed |= needle_diameter_for_curvature_m.OnInspect(
+    changed |= needle_diameter_for_curvature_m.Draw(
         "Effective Diameter (m)", 0.0001f,
         "Cross-section diameter used to convert strain differential into curvature. "
         "Set > 0 to activate the field.");
-    changed |= needle_sinusoidal_amplitude_deg.OnInspect(
+    changed |= needle_sinusoidal_amplitude_deg.Draw(
         "Sinusoidal Wave Amplitude (deg)", 0.10f,
         "Additional intrinsic waviness amplitude applied along the needle; 0 keeps arc-only behavior.");
-    changed |= needle_sinusoidal_frequency_cycles.OnInspect("Sinusoidal Wave Frequency (cycles)", 0.05f,
-                                                            "Number of waviness cycles along full needle length.");
-    changed |= needle_sinusoidal_phase_randomness_deg.OnInspect(
+    changed |= needle_sinusoidal_frequency_cycles.Draw("Sinusoidal Wave Frequency (cycles)", 0.05f,
+                                                       "Number of waviness cycles along full needle length.");
+    changed |= needle_sinusoidal_phase_randomness_deg.Draw(
         "Sinusoidal Phase Randomness (deg)", 0.10f,
         "Sampled phase jitter magnitude combined with deterministic per-needle phase.");
     ImGui::TreePop();
@@ -1276,42 +1282,42 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Needle mechanics (elastica) --
   if (ImGui::TreeNodeEx("Needle Mechanics (Elastica)")) {
-    changed |= needle_young_modulus_baseline_Pa.OnInspect(
-        "Young's Modulus Baseline (Pa)", 1e6f, "Asymptotic Young's modulus at maturity. 0 = solver disabled.");
-    changed |= needle_lignification_maturation_years.OnInspect("Lignification Maturation (yr)", 0.05f,
-                                                               "Sigmoid maturation duration for E(t).");
-    changed |= needle_density_kg_m3.OnInspect("Tissue Density (kg/m^3)", 10.0f,
-                                              "Used to derive distributed weight per unit arc length.");
-    changed |= gravity_m_s2.OnInspect("Gravity (m/s^2)", 0.1f, "World-frame gravity magnitude. 0 = no body force.");
+    changed |= needle_young_modulus_baseline_Pa.Draw("Young's Modulus Baseline (Pa)", 1e6f,
+                                                     "Asymptotic Young's modulus at maturity. 0 = solver disabled.");
+    changed |= needle_lignification_maturation_years.Draw("Lignification Maturation (yr)", 0.05f,
+                                                          "Sigmoid maturation duration for E(t).");
+    changed |= needle_density_kg_m3.Draw("Tissue Density (kg/m^3)", 10.0f,
+                                         "Used to derive distributed weight per unit arc length.");
+    changed |= gravity_m_s2.Draw("Gravity (m/s^2)", 0.1f, "World-frame gravity magnitude. 0 = no body force.");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Needle Per-Needle Variability")) {
-    changed |= needle_per_needle_length_cv.OnInspect(
-        "Length CV", 0.01f, "CV-style variation across needles within a cluster for length scale.");
-    changed |= needle_per_needle_curvature_cv.OnInspect(
+    changed |= needle_per_needle_length_cv.Draw("Length CV", 0.01f,
+                                                "CV-style variation across needles within a cluster for length scale.");
+    changed |= needle_per_needle_curvature_cv.Draw(
         "Curvature CV", 0.01f, "CV-style variation across needles within a cluster for curvature-field magnitude.");
-    changed |= needle_per_needle_radius_cv.OnInspect(
+    changed |= needle_per_needle_radius_cv.Draw(
         "Radius CV", 0.01f, "CV-style variation across needles within a cluster for cross-section axis scale.");
-    changed |= needle_per_needle_modulus_cv.OnInspect(
+    changed |= needle_per_needle_modulus_cv.Draw(
         "Young's Modulus CV", 0.01f,
         "CV-style variation across needles within a cluster for baseline Young's modulus.");
-    changed |= needle_per_needle_density_cv.OnInspect(
+    changed |= needle_per_needle_density_cv.Draw(
         "Density CV", 0.01f, "CV-style variation across needles within a cluster for tissue density.");
-    changed |= needle_per_needle_wave_amplitude_cv.OnInspect(
+    changed |= needle_per_needle_wave_amplitude_cv.Draw(
         "Wave Amplitude CV", 0.01f,
         "CV-style variation across needles within a cluster for sinusoidal waviness amplitude.");
-    changed |= needle_per_needle_wave_frequency_cv.OnInspect(
+    changed |= needle_per_needle_wave_frequency_cv.Draw(
         "Wave Frequency CV", 0.01f,
         "CV-style variation across needles within a cluster for sinusoidal waviness frequency.");
-    changed |= needle_per_needle_wave_phase_cv.OnInspect("Wave Phase CV", 0.01f,
-                                                         "CV-style scaling of per-needle sinusoidal phase randomness.");
+    changed |= needle_per_needle_wave_phase_cv.Draw("Wave Phase CV", 0.01f,
+                                                    "CV-style scaling of per-needle sinusoidal phase randomness.");
     ImGui::TreePop();
   }
 
   // -- Tropism --
   if (ImGui::TreeNodeEx("Tropism (Global)")) {
-    changed |= gravitropism_first_order.OnInspect(
+    changed |= gravitropism_first_order.Draw(
         "Main Stem Tropism (deg/GDD)", 0.0001f,
         "Per-GDD curvature applied to leader internodes only (branch order 0). Positive bends upward.");
     ImGui::TreePop();
@@ -1319,14 +1325,14 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 
   // -- Per-shoot stochastic noise --
   if (ImGui::TreeNodeEx("Stochastic Variation (Per Shoot)")) {
-    changed |= internode_length_per_node_cv.OnInspect(
-        "Internode Length CV", 0.005f, "Per-internode Gaussian CV on phytomer length. 0 = deterministic.");
-    changed |= internode_thickness_per_node_cv.OnInspect(
-        "Internode Thickness CV", 0.005f, "Per-internode Gaussian CV on shoot thickness. 0 = deterministic.");
-    changed |= branch_angle_per_node_sigma_deg.OnInspect("Branch Angle Sigma (deg)", 0.5f,
-                                                         "Per-lateral additive Gaussian sigma on insertion angle.");
-    changed |= roll_phyllotaxis_per_node_sigma_deg.OnInspect(
-        "Roll Phyllotaxis Sigma (deg)", 0.5f, "Per-lateral additive Gaussian sigma on phyllotaxis roll.");
+    changed |= internode_length_per_node_cv.Draw("Internode Length CV", 0.005f,
+                                                 "Per-internode Gaussian CV on phytomer length. 0 = deterministic.");
+    changed |= internode_thickness_per_node_cv.Draw("Internode Thickness CV", 0.005f,
+                                                    "Per-internode Gaussian CV on shoot thickness. 0 = deterministic.");
+    changed |= branch_angle_per_node_sigma_deg.Draw("Branch Angle Sigma (deg)", 0.5f,
+                                                    "Per-lateral additive Gaussian sigma on insertion angle.");
+    changed |= roll_phyllotaxis_per_node_sigma_deg.Draw("Roll Phyllotaxis Sigma (deg)", 0.5f,
+                                                        "Per-lateral additive Gaussian sigma on phyllotaxis roll.");
     ImGui::TreePop();
   }
 
@@ -1367,15 +1373,15 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
         const std::string label = "Tropism #" + std::to_string(i);
         if (ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
           auto& entry = tropisms[i];
-          changed |= entry.direction_x.OnInspect("Direction X", 0.05f);
-          changed |= entry.direction_y.OnInspect("Direction Y", 0.05f);
-          changed |= entry.direction_z.OnInspect("Direction Z", 0.05f);
-          changed |= entry.strength.OnInspect("Strength", 0.05f);
+          changed |= entry.direction_x.Draw("Direction X", 0.05f);
+          changed |= entry.direction_y.Draw("Direction Y", 0.05f);
+          changed |= entry.direction_z.Draw("Direction Z", 0.05f);
+          changed |= entry.strength.Draw("Strength", 0.05f);
           if (ImGui::DragFloat("Usage Chance (%)", &entry.usage_chance_percent, 1.0f, 0.0f, 100.0f, "%.1f")) {
             entry.usage_chance_percent = std::clamp(entry.usage_chance_percent, 0.0f, 100.0f);
             changed = true;
           }
-          changed |= entry.order_response.OnInspect("Order Response (vs branching order)");
+          changed |= entry.order_response.Draw("Order Response (vs branching order)");
           if (ImGui::Button("Remove"))
             remove_index = static_cast<int>(i);
           ImGui::TreePop();
@@ -1403,140 +1409,147 @@ bool ScotsPineDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_l
 // ===========================================================================
 // Serialize
 // ===========================================================================
-void ScotsPineDescriptor::Serialize(YAML::Emitter& out) const {
+void l_system_package::SerializeScotsPineDescriptor(YAML::Emitter& out, const ScotsPineDescriptor& target) {
   // Phytomer scheduling.
-  max_branching_order.Save("max_branching_order", out);
-  plastochron_gdd.Save("plastochron_gdd", out);
-  max_phytomers_per_seasonal_growth.Save("max_phytomers_per_seasonal_growth", out);
+  target.max_branching_order.Save("max_branching_order", out);
+  target.plastochron_gdd.Save("plastochron_gdd", out);
+  target.max_phytomers_per_seasonal_growth.Save("max_phytomers_per_seasonal_growth", out);
 
   // Whorl architecture.
-  branches_per_whorl.Save("branches_per_whorl", out);
-  whorl_dormancy_years.Save("whorl_dormancy_years", out);
-  branch_insertion_angle_deg.Save("branch_insertion_angle_deg", out);
-  branch_roll_phyllotaxis_deg.Save("branch_roll_phyllotaxis_deg", out);
+  target.branches_per_whorl.Save("branches_per_whorl", out);
+  target.whorl_dormancy_years.Save("whorl_dormancy_years", out);
+  target.branch_insertion_angle_deg.Save("branch_insertion_angle_deg", out);
+  target.branch_roll_phyllotaxis_deg.Save("branch_roll_phyllotaxis_deg", out);
 
   // Phytomer dimensions.
-  internode_length_m.Save("internode_length_m", out);
-  leader_internode_thickness_m.Save("leader_internode_thickness_m", out);
+  target.internode_length_m.Save("internode_length_m", out);
+  target.leader_internode_thickness_m.Save("leader_internode_thickness_m", out);
   // Alias for discoverability in .spine files.
-  leader_internode_thickness_m.Save("main_stem_width_m", out);
-  lateral_length_ratio.Save("lateral_length_ratio", out);
-  lateral_thickness_ratio.Save("lateral_thickness_ratio", out);
-  out << YAML::Key << "main_stem_color_rgba" << YAML::Value << main_stem_color_rgba;
-  out << YAML::Key << "main_stem_old_color_rgba" << YAML::Value << main_stem_old_color_rgba;
-  out << YAML::Key << "internode_age_exponent" << YAML::Value << internode_age_exponent;
+  target.leader_internode_thickness_m.Save("main_stem_width_m", out);
+  target.lateral_length_ratio.Save("lateral_length_ratio", out);
+  target.lateral_thickness_ratio.Save("lateral_thickness_ratio", out);
+  out << YAML::Key << "main_stem_color_rgba" << YAML::Value << target.main_stem_color_rgba;
+  out << YAML::Key << "main_stem_old_color_rgba" << YAML::Value << target.main_stem_old_color_rgba;
+  out << YAML::Key << "internode_age_exponent" << YAML::Value << target.internode_age_exponent;
 
   // Needles.
-  bare_zone_fraction.Save("bare_zone_fraction", out);
-  needle_count_per_cluster.Save("needle_count_per_cluster", out);
-  out << YAML::Key << "needle_segment_count" << YAML::Value << needle_segment_count;
-  needle_length_m.Save("needle_length_m", out);
-  needle_lifespan_years.Save("needle_lifespan_years", out);
-  needle_browning_years.Save("needle_browning_years", out);
-  needle_flush_delay_gdd.Save("needle_flush_delay_gdd", out);
-  internode_maturation_gdd.Save("internode_maturation_gdd", out);
-  needle_maturation_gdd.Save("needle_maturation_gdd", out);
-  needle_branching_angle_deg.Save("needle_branching_angle_deg", out);
-  needle_branching_relax_gdd.Save("needle_branching_relax_gdd", out);
-  internode_length_maturity_curve.Save("internode_length_maturity_curve", out);
-  internode_width_maturity_curve.Save("internode_width_maturity_curve", out);
-  needle_length_maturity_curve.Save("needle_length_maturity_curve", out);
-  needle_cross_section_width_max_m.Save("needle_cross_section_width_max_m", out);
-  needle_cross_section_thickness_max_m.Save("needle_cross_section_thickness_max_m", out);
-  needle_cross_section_width_profile.Save("needle_cross_section_width_profile", out);
-  needle_cross_section_thickness_profile.Save("needle_cross_section_thickness_profile", out);
-  needle_cross_section_temporal_maturity_curve.Save("needle_cross_section_temporal_maturity_curve", out);
-  out << YAML::Key << "needle_order_length_attenuation" << YAML::Value << needle_order_length_attenuation;
-  out << YAML::Key << "needle_order_radius_attenuation" << YAML::Value << needle_order_radius_attenuation;
-  out << YAML::Key << "needle_order_min_length_scale" << YAML::Value << needle_order_min_length_scale;
-  out << YAML::Key << "needle_order_min_radius_scale" << YAML::Value << needle_order_min_radius_scale;
-  out << YAML::Key << "needle_intra_year_base_ratio" << YAML::Value << needle_intra_year_base_ratio;
-  out << YAML::Key << "needle_intra_year_sigmoid_steepness" << YAML::Value << needle_intra_year_sigmoid_steepness;
+  target.bare_zone_fraction.Save("bare_zone_fraction", out);
+  target.needle_count_per_cluster.Save("needle_count_per_cluster", out);
+  out << YAML::Key << "needle_segment_count" << YAML::Value << target.needle_segment_count;
+  target.needle_length_m.Save("needle_length_m", out);
+  target.needle_lifespan_years.Save("needle_lifespan_years", out);
+  target.needle_browning_years.Save("needle_browning_years", out);
+  target.needle_flush_delay_gdd.Save("needle_flush_delay_gdd", out);
+  target.internode_maturation_gdd.Save("internode_maturation_gdd", out);
+  target.needle_maturation_gdd.Save("needle_maturation_gdd", out);
+  target.needle_branching_angle_deg.Save("needle_branching_angle_deg", out);
+  target.needle_branching_relax_gdd.Save("needle_branching_relax_gdd", out);
+  target.internode_length_maturity_curve.Save("internode_length_maturity_curve", out);
+  target.internode_width_maturity_curve.Save("internode_width_maturity_curve", out);
+  target.needle_length_maturity_curve.Save("needle_length_maturity_curve", out);
+  target.needle_cross_section_width_max_m.Save("needle_cross_section_width_max_m", out);
+  target.needle_cross_section_thickness_max_m.Save("needle_cross_section_thickness_max_m", out);
+  target.needle_cross_section_width_profile.Save("needle_cross_section_width_profile", out);
+  target.needle_cross_section_thickness_profile.Save("needle_cross_section_thickness_profile", out);
+  target.needle_cross_section_temporal_maturity_curve.Save("needle_cross_section_temporal_maturity_curve", out);
+  out << YAML::Key << "needle_order_length_attenuation" << YAML::Value << target.needle_order_length_attenuation;
+  out << YAML::Key << "needle_order_radius_attenuation" << YAML::Value << target.needle_order_radius_attenuation;
+  out << YAML::Key << "needle_order_min_length_scale" << YAML::Value << target.needle_order_min_length_scale;
+  out << YAML::Key << "needle_order_min_radius_scale" << YAML::Value << target.needle_order_min_radius_scale;
+  out << YAML::Key << "needle_intra_year_base_ratio" << YAML::Value << target.needle_intra_year_base_ratio;
+  out << YAML::Key << "needle_intra_year_sigmoid_steepness" << YAML::Value
+      << target.needle_intra_year_sigmoid_steepness;
   out << YAML::Key << "needle_intra_year_sigmoid_midpoint_fraction" << YAML::Value
-      << needle_intra_year_sigmoid_midpoint_fraction;
+      << target.needle_intra_year_sigmoid_midpoint_fraction;
   out << YAML::Key << "needle_intra_year_late_decay_start_fraction" << YAML::Value
-      << needle_intra_year_late_decay_start_fraction;
-  out << YAML::Key << "needle_intra_year_late_decay_end_scale" << YAML::Value << needle_intra_year_late_decay_end_scale;
-  out << YAML::Key << "needle_fascicular_start_year" << YAML::Value << needle_fascicular_start_year;
-  out << YAML::Key << "needle_year2plus_length_multiplier" << YAML::Value << needle_year2plus_length_multiplier;
-  out << YAML::Key << "needle_year2plus_width_multiplier" << YAML::Value << needle_year2plus_width_multiplier;
-  out << YAML::Key << "needle_year2plus_thickness_multiplier" << YAML::Value << needle_year2plus_thickness_multiplier;
-  out << YAML::Key << "needle_lignification_factor_year1" << YAML::Value << needle_lignification_factor_year1;
-  out << YAML::Key << "needle_lignification_factor_year2plus" << YAML::Value << needle_lignification_factor_year2plus;
-  out << YAML::Key << "needle_stomatal_strip_density_year1" << YAML::Value << needle_stomatal_strip_density_year1;
+      << target.needle_intra_year_late_decay_start_fraction;
+  out << YAML::Key << "needle_intra_year_late_decay_end_scale" << YAML::Value
+      << target.needle_intra_year_late_decay_end_scale;
+  out << YAML::Key << "needle_fascicular_start_year" << YAML::Value << target.needle_fascicular_start_year;
+  out << YAML::Key << "needle_year2plus_length_multiplier" << YAML::Value << target.needle_year2plus_length_multiplier;
+  out << YAML::Key << "needle_year2plus_width_multiplier" << YAML::Value << target.needle_year2plus_width_multiplier;
+  out << YAML::Key << "needle_year2plus_thickness_multiplier" << YAML::Value
+      << target.needle_year2plus_thickness_multiplier;
+  out << YAML::Key << "needle_lignification_factor_year1" << YAML::Value << target.needle_lignification_factor_year1;
+  out << YAML::Key << "needle_lignification_factor_year2plus" << YAML::Value
+      << target.needle_lignification_factor_year2plus;
+  out << YAML::Key << "needle_stomatal_strip_density_year1" << YAML::Value
+      << target.needle_stomatal_strip_density_year1;
   out << YAML::Key << "needle_stomatal_strip_density_year2plus" << YAML::Value
-      << needle_stomatal_strip_density_year2plus;
-  out << YAML::Key << "needle_basal_taper_ratio_year1" << YAML::Value << needle_basal_taper_ratio_year1;
-  out << YAML::Key << "needle_basal_taper_ratio_year2plus" << YAML::Value << needle_basal_taper_ratio_year2plus;
-  out << YAML::Key << "needle_fascicle_sheath_budget_gdd" << YAML::Value << needle_fascicle_sheath_budget_gdd;
-  out << YAML::Key << "needle_specularity_plasticity_year1" << YAML::Value << needle_specularity_plasticity_year1;
+      << target.needle_stomatal_strip_density_year2plus;
+  out << YAML::Key << "needle_basal_taper_ratio_year1" << YAML::Value << target.needle_basal_taper_ratio_year1;
+  out << YAML::Key << "needle_basal_taper_ratio_year2plus" << YAML::Value << target.needle_basal_taper_ratio_year2plus;
+  out << YAML::Key << "needle_fascicle_sheath_budget_gdd" << YAML::Value << target.needle_fascicle_sheath_budget_gdd;
+  out << YAML::Key << "needle_specularity_plasticity_year1" << YAML::Value
+      << target.needle_specularity_plasticity_year1;
   out << YAML::Key << "needle_specularity_plasticity_year2plus" << YAML::Value
-      << needle_specularity_plasticity_year2plus;
-  out << YAML::Key << "needle_bud_storage_vigor_strength" << YAML::Value << needle_bud_storage_vigor_strength;
-  out << YAML::Key << "needle_bud_storage_completion_floor" << YAML::Value << needle_bud_storage_completion_floor;
+      << target.needle_specularity_plasticity_year2plus;
+  out << YAML::Key << "needle_bud_storage_vigor_strength" << YAML::Value << target.needle_bud_storage_vigor_strength;
+  out << YAML::Key << "needle_bud_storage_completion_floor" << YAML::Value
+      << target.needle_bud_storage_completion_floor;
   out << YAML::Key << "needle_radius_to_stem_thickness_max_ratio" << YAML::Value
-      << needle_radius_to_stem_thickness_max_ratio;
-  out << YAML::Key << "needle_color_rgba" << YAML::Value << needle_color_rgba;
-  out << YAML::Key << "needle_old_color_rgba" << YAML::Value << needle_old_color_rgba;
-  out << YAML::Key << "needle_axial_age_span" << YAML::Value << needle_axial_age_span;
-  out << YAML::Key << "needle_axial_age_exponent" << YAML::Value << needle_axial_age_exponent;
+      << target.needle_radius_to_stem_thickness_max_ratio;
+  out << YAML::Key << "needle_color_rgba" << YAML::Value << target.needle_color_rgba;
+  out << YAML::Key << "needle_old_color_rgba" << YAML::Value << target.needle_old_color_rgba;
+  out << YAML::Key << "needle_axial_age_span" << YAML::Value << target.needle_axial_age_span;
+  out << YAML::Key << "needle_axial_age_exponent" << YAML::Value << target.needle_axial_age_exponent;
 
   // Needle curvature.
-  needle_curvature_adaxial_bias.Save("needle_curvature_adaxial_bias", out);
-  needle_curvature_abaxial_bias.Save("needle_curvature_abaxial_bias", out);
-  needle_curvature_gradient_per_arclen.Save("needle_curvature_gradient_per_arclen", out);
-  needle_diameter_for_curvature_m.Save("needle_diameter_for_curvature_m", out);
-  needle_sinusoidal_amplitude_deg.Save("needle_sinusoidal_amplitude_deg", out);
-  needle_sinusoidal_frequency_cycles.Save("needle_sinusoidal_frequency_cycles", out);
-  needle_sinusoidal_phase_randomness_deg.Save("needle_sinusoidal_phase_randomness_deg", out);
+  target.needle_curvature_adaxial_bias.Save("needle_curvature_adaxial_bias", out);
+  target.needle_curvature_abaxial_bias.Save("needle_curvature_abaxial_bias", out);
+  target.needle_curvature_gradient_per_arclen.Save("needle_curvature_gradient_per_arclen", out);
+  target.needle_diameter_for_curvature_m.Save("needle_diameter_for_curvature_m", out);
+  target.needle_sinusoidal_amplitude_deg.Save("needle_sinusoidal_amplitude_deg", out);
+  target.needle_sinusoidal_frequency_cycles.Save("needle_sinusoidal_frequency_cycles", out);
+  target.needle_sinusoidal_phase_randomness_deg.Save("needle_sinusoidal_phase_randomness_deg", out);
 
   // Needle mechanics.
-  needle_young_modulus_baseline_Pa.Save("needle_young_modulus_baseline_Pa", out);
-  needle_lignification_maturation_years.Save("needle_lignification_maturation_years", out);
-  needle_density_kg_m3.Save("needle_density_kg_m3", out);
-  gravity_m_s2.Save("gravity_m_s2", out);
-  needle_per_needle_length_cv.Save("needle_per_needle_length_cv", out);
-  needle_per_needle_curvature_cv.Save("needle_per_needle_curvature_cv", out);
-  needle_per_needle_radius_cv.Save("needle_per_needle_radius_cv", out);
-  needle_per_needle_modulus_cv.Save("needle_per_needle_modulus_cv", out);
-  needle_per_needle_density_cv.Save("needle_per_needle_density_cv", out);
-  needle_per_needle_wave_amplitude_cv.Save("needle_per_needle_wave_amplitude_cv", out);
-  needle_per_needle_wave_frequency_cv.Save("needle_per_needle_wave_frequency_cv", out);
-  needle_per_needle_wave_phase_cv.Save("needle_per_needle_wave_phase_cv", out);
+  target.needle_young_modulus_baseline_Pa.Save("needle_young_modulus_baseline_Pa", out);
+  target.needle_lignification_maturation_years.Save("needle_lignification_maturation_years", out);
+  target.needle_density_kg_m3.Save("needle_density_kg_m3", out);
+  target.gravity_m_s2.Save("gravity_m_s2", out);
+  target.needle_per_needle_length_cv.Save("needle_per_needle_length_cv", out);
+  target.needle_per_needle_curvature_cv.Save("needle_per_needle_curvature_cv", out);
+  target.needle_per_needle_radius_cv.Save("needle_per_needle_radius_cv", out);
+  target.needle_per_needle_modulus_cv.Save("needle_per_needle_modulus_cv", out);
+  target.needle_per_needle_density_cv.Save("needle_per_needle_density_cv", out);
+  target.needle_per_needle_wave_amplitude_cv.Save("needle_per_needle_wave_amplitude_cv", out);
+  target.needle_per_needle_wave_frequency_cv.Save("needle_per_needle_wave_frequency_cv", out);
+  target.needle_per_needle_wave_phase_cv.Save("needle_per_needle_wave_phase_cv", out);
 
   // Tropism.
-  gravitropism_first_order.Save("gravitropism_first_order", out);
-  initial_orientation_yaw_deg.Save("initial_orientation_yaw_deg", out);
+  target.gravitropism_first_order.Save("gravitropism_first_order", out);
+  target.initial_orientation_yaw_deg.Save("initial_orientation_yaw_deg", out);
 
   // Per-instance target.
-  target_gdd.Save("target_gdd", out);
-  gdd_per_day.Save("gdd_per_day", out);
-  growing_season_start_day.Save("growing_season_start_day", out);
-  growing_season_end_day.Save("growing_season_end_day", out);
+  target.target_gdd.Save("target_gdd", out);
+  target.gdd_per_day.Save("gdd_per_day", out);
+  target.growing_season_start_day.Save("growing_season_start_day", out);
+  target.growing_season_end_day.Save("growing_season_end_day", out);
 
   // Per-shoot stochastic noise.
-  internode_length_per_node_cv.Save("internode_length_per_node_cv", out);
-  internode_thickness_per_node_cv.Save("internode_thickness_per_node_cv", out);
-  branch_angle_per_node_sigma_deg.Save("branch_angle_per_node_sigma_deg", out);
-  roll_phyllotaxis_per_node_sigma_deg.Save("roll_phyllotaxis_per_node_sigma_deg", out);
+  target.internode_length_per_node_cv.Save("internode_length_per_node_cv", out);
+  target.internode_thickness_per_node_cv.Save("internode_thickness_per_node_cv", out);
+  target.branch_angle_per_node_sigma_deg.Save("branch_angle_per_node_sigma_deg", out);
+  target.roll_phyllotaxis_per_node_sigma_deg.Save("roll_phyllotaxis_per_node_sigma_deg", out);
 
   // Editor preferences.
-  out << YAML::Key << "live_preview" << YAML::Value << live_preview;
-  out << YAML::Key << "live_preview_rate_hz" << YAML::Value << live_preview_rate_hz;
-  out << YAML::Key << "live_preview_representative_only" << YAML::Value << live_preview_representative_only;
-  out << YAML::Key << "live_preview_cap_target_gdd" << YAML::Value << live_preview_cap_target_gdd;
-  out << YAML::Key << "live_preview_max_gdd" << YAML::Value << live_preview_max_gdd;
-  out << YAML::Key << "live_preview_max_growth_steps" << YAML::Value << live_preview_max_growth_steps;
-  out << YAML::Key << "grid_rows" << YAML::Value << grid_rows;
-  out << YAML::Key << "grid_cols" << YAML::Value << grid_cols;
-  out << YAML::Key << "grid_spacing" << YAML::Value << grid_spacing;
-  out << YAML::Key << "triangle_side_length" << YAML::Value << triangle_side_length;
+  out << YAML::Key << "live_preview" << YAML::Value << target.live_preview;
+  out << YAML::Key << "live_preview_rate_hz" << YAML::Value << target.live_preview_rate_hz;
+  out << YAML::Key << "live_preview_representative_only" << YAML::Value << target.live_preview_representative_only;
+  out << YAML::Key << "live_preview_cap_target_gdd" << YAML::Value << target.live_preview_cap_target_gdd;
+  out << YAML::Key << "live_preview_max_gdd" << YAML::Value << target.live_preview_max_gdd;
+  out << YAML::Key << "live_preview_max_growth_steps" << YAML::Value << target.live_preview_max_growth_steps;
+  out << YAML::Key << "grid_rows" << YAML::Value << target.grid_rows;
+  out << YAML::Key << "grid_cols" << YAML::Value << target.grid_cols;
+  out << YAML::Key << "grid_spacing" << YAML::Value << target.grid_spacing;
+  out << YAML::Key << "triangle_side_length" << YAML::Value << target.triangle_side_length;
 
   // Tropism array.
-  out << YAML::Key << "tropism_count" << YAML::Value << static_cast<int>(tropisms.size());
-  for (size_t i = 0; i < tropisms.size(); ++i) {
+  out << YAML::Key << "tropism_count" << YAML::Value << static_cast<int>(target.tropisms.size());
+  for (size_t i = 0; i < target.tropisms.size(); ++i) {
     const std::string prefix = "tropism_" + std::to_string(i) + "_";
-    const auto& entry = tropisms[i];
+    const auto& entry = target.tropisms[i];
     entry.direction_x.Save(prefix + "dir_x", out);
     entry.direction_y.Save(prefix + "dir_y", out);
     entry.direction_z.Save(prefix + "dir_z", out);
@@ -1556,74 +1569,76 @@ void ScotsPineDescriptor::Serialize(YAML::Emitter& out) const {
 // - Other older experimental keys remain ignored.
 // Missing keys retain inline member defaults.
 // ===========================================================================
-void ScotsPineDescriptor::Deserialize(const YAML::Node& in) {
-  ConfigurePineMaturityDefaults(*this);
+void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, ScotsPineDescriptor& target) {
+  ConfigurePineMaturityDefaults(target);
 
-  LoadSingleDistributionWithScalarFallback(in, "max_branching_order", max_branching_order);
-  LoadSingleDistributionWithScalarFallback(in, "plastochron_gdd", plastochron_gdd);
-  LoadSingleDistributionWithScalarFallback(in, "max_phytomers_per_seasonal_growth", max_phytomers_per_seasonal_growth);
+  LoadSingleDistributionWithScalarFallback(in, "max_branching_order", target.max_branching_order);
+  LoadSingleDistributionWithScalarFallback(in, "plastochron_gdd", target.plastochron_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "max_phytomers_per_seasonal_growth",
+                                           target.max_phytomers_per_seasonal_growth);
 
-  LoadSingleDistributionWithScalarFallback(in, "branches_per_whorl", branches_per_whorl);
+  LoadSingleDistributionWithScalarFallback(in, "branches_per_whorl", target.branches_per_whorl);
   // Clock-rule fix: prefer years key; fall back to legacy GDD key with /1500.
   if (in["whorl_dormancy_years"]) {
-    LoadSingleDistributionWithScalarFallback(in, "whorl_dormancy_years", whorl_dormancy_years);
+    LoadSingleDistributionWithScalarFallback(in, "whorl_dormancy_years", target.whorl_dormancy_years);
   } else {
-    LoadLegacyGddDistributionAsYears(in, "whorl_dormancy_gdd", whorl_dormancy_years);
+    LoadLegacyGddDistributionAsYears(in, "whorl_dormancy_gdd", target.whorl_dormancy_years);
   }
-  LoadSingleDistributionWithScalarFallback(in, "branch_insertion_angle_deg", branch_insertion_angle_deg);
-  LoadSingleDistributionWithScalarFallback(in, "branch_roll_phyllotaxis_deg", branch_roll_phyllotaxis_deg);
+  LoadSingleDistributionWithScalarFallback(in, "branch_insertion_angle_deg", target.branch_insertion_angle_deg);
+  LoadSingleDistributionWithScalarFallback(in, "branch_roll_phyllotaxis_deg", target.branch_roll_phyllotaxis_deg);
 
-  LoadSingleDistributionWithScalarFallback(in, "internode_length_m", internode_length_m);
-  LoadSingleDistributionWithScalarFallback(in, "leader_internode_thickness_m", leader_internode_thickness_m);
+  LoadSingleDistributionWithScalarFallback(in, "internode_length_m", target.internode_length_m);
+  LoadSingleDistributionWithScalarFallback(in, "leader_internode_thickness_m", target.leader_internode_thickness_m);
   // Backward/forward alias support.
-  LoadSingleDistributionWithScalarFallback(in, "main_stem_width_m", leader_internode_thickness_m);
-  LoadSingleDistributionWithScalarFallback(in, "lateral_length_ratio", lateral_length_ratio);
-  LoadSingleDistributionWithScalarFallback(in, "lateral_thickness_ratio", lateral_thickness_ratio);
+  LoadSingleDistributionWithScalarFallback(in, "main_stem_width_m", target.leader_internode_thickness_m);
+  LoadSingleDistributionWithScalarFallback(in, "lateral_length_ratio", target.lateral_length_ratio);
+  LoadSingleDistributionWithScalarFallback(in, "lateral_thickness_ratio", target.lateral_thickness_ratio);
   if (in["main_stem_color_rgba"]) {
-    main_stem_color_rgba = in["main_stem_color_rgba"].as<glm::vec4>();
+    target.main_stem_color_rgba = in["main_stem_color_rgba"].as<glm::vec4>();
   }
   if (in["main_stem_old_color_rgba"]) {
-    main_stem_old_color_rgba = in["main_stem_old_color_rgba"].as<glm::vec4>();
+    target.main_stem_old_color_rgba = in["main_stem_old_color_rgba"].as<glm::vec4>();
   }
   if (in["internode_age_exponent"]) {
-    internode_age_exponent = std::clamp(in["internode_age_exponent"].as<float>(), 0.1f, 4.0f);
+    target.internode_age_exponent = std::clamp(in["internode_age_exponent"].as<float>(), 0.1f, 4.0f);
   }
 
-  LoadSingleDistributionWithScalarFallback(in, "bare_zone_fraction", bare_zone_fraction);
-  LoadSingleDistributionWithScalarFallback(in, "needle_count_per_cluster", needle_count_per_cluster);
+  LoadSingleDistributionWithScalarFallback(in, "bare_zone_fraction", target.bare_zone_fraction);
+  LoadSingleDistributionWithScalarFallback(in, "needle_count_per_cluster", target.needle_count_per_cluster);
   if (in["needle_segment_count"]) {
-    needle_segment_count = std::clamp(in["needle_segment_count"].as<int>(), 3, 128);
+    target.needle_segment_count = std::clamp(in["needle_segment_count"].as<int>(), 3, 128);
   }
-  LoadSingleDistributionWithScalarFallback(in, "needle_length_m", needle_length_m);
+  LoadSingleDistributionWithScalarFallback(in, "needle_length_m", target.needle_length_m);
   // Clock-rule fix: prefer years keys; fall back to legacy GDD keys with /1500.
   if (in["needle_lifespan_years"]) {
-    LoadSingleDistributionWithScalarFallback(in, "needle_lifespan_years", needle_lifespan_years);
+    LoadSingleDistributionWithScalarFallback(in, "needle_lifespan_years", target.needle_lifespan_years);
   } else {
-    LoadLegacyGddDistributionAsYears(in, "needle_lifespan_gdd", needle_lifespan_years);
+    LoadLegacyGddDistributionAsYears(in, "needle_lifespan_gdd", target.needle_lifespan_years);
   }
   if (in["needle_browning_years"]) {
-    LoadSingleDistributionWithScalarFallback(in, "needle_browning_years", needle_browning_years);
+    LoadSingleDistributionWithScalarFallback(in, "needle_browning_years", target.needle_browning_years);
   } else {
-    LoadLegacyGddDistributionAsYears(in, "needle_browning_gdd", needle_browning_years);
+    LoadLegacyGddDistributionAsYears(in, "needle_browning_gdd", target.needle_browning_years);
   }
-  LoadSingleDistributionWithScalarFallback(in, "needle_flush_delay_gdd", needle_flush_delay_gdd);
-  LoadSingleDistributionWithScalarFallback(in, "internode_maturation_gdd", internode_maturation_gdd);
-  LoadSingleDistributionWithScalarFallback(in, "needle_maturation_gdd", needle_maturation_gdd);
-  LoadSingleDistributionWithScalarFallback(in, "needle_branching_angle_deg", needle_branching_angle_deg);
-  LoadSingleDistributionWithScalarFallback(in, "needle_branching_relax_gdd", needle_branching_relax_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "needle_flush_delay_gdd", target.needle_flush_delay_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "internode_maturation_gdd", target.internode_maturation_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "needle_maturation_gdd", target.needle_maturation_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "needle_branching_angle_deg", target.needle_branching_angle_deg);
+  LoadSingleDistributionWithScalarFallback(in, "needle_branching_relax_gdd", target.needle_branching_relax_gdd);
   const bool has_new_cross_section_width_max = static_cast<bool>(in["needle_cross_section_width_max_m"]);
   const bool has_new_cross_section_thickness_max = static_cast<bool>(in["needle_cross_section_thickness_max_m"]);
   const bool has_new_cross_section_width_profile = static_cast<bool>(in["needle_cross_section_width_profile"]);
   const bool has_new_cross_section_thickness_profile = static_cast<bool>(in["needle_cross_section_thickness_profile"]);
-  internode_length_maturity_curve.Load("internode_length_maturity_curve", in);
-  internode_width_maturity_curve.Load("internode_width_maturity_curve", in);
-  needle_length_maturity_curve.Load("needle_length_maturity_curve", in);
-  LoadSingleDistributionWithScalarFallback(in, "needle_cross_section_width_max_m", needle_cross_section_width_max_m);
+  target.internode_length_maturity_curve.Load("internode_length_maturity_curve", in);
+  target.internode_width_maturity_curve.Load("internode_width_maturity_curve", in);
+  target.needle_length_maturity_curve.Load("needle_length_maturity_curve", in);
+  LoadSingleDistributionWithScalarFallback(in, "needle_cross_section_width_max_m",
+                                           target.needle_cross_section_width_max_m);
   LoadSingleDistributionWithScalarFallback(in, "needle_cross_section_thickness_max_m",
-                                           needle_cross_section_thickness_max_m);
-  needle_cross_section_width_profile.Load("needle_cross_section_width_profile", in);
-  needle_cross_section_thickness_profile.Load("needle_cross_section_thickness_profile", in);
-  needle_cross_section_temporal_maturity_curve.Load("needle_cross_section_temporal_maturity_curve", in);
+                                           target.needle_cross_section_thickness_max_m);
+  target.needle_cross_section_width_profile.Load("needle_cross_section_width_profile", in);
+  target.needle_cross_section_thickness_profile.Load("needle_cross_section_thickness_profile", in);
+  target.needle_cross_section_temporal_maturity_curve.Load("needle_cross_section_temporal_maturity_curve", in);
 
   evo_engine::SingleDistribution<float> legacy_base_radius_m{0.0f};
   evo_engine::SingleDistribution<float> legacy_tip_radius_m{0.0f};
@@ -1643,16 +1658,16 @@ void ScotsPineDescriptor::Deserialize(const YAML::Node& in) {
     const float legacy_tip_diameter_mean_m = std::max(0.0f, legacy_tip_radius_m.mean) * 2.0f;
     const float legacy_tip_diameter_dev_m = std::max(0.0f, legacy_tip_radius_m.deviation) * 2.0f;
     if (!has_new_cross_section_width_max) {
-      needle_cross_section_width_max_m.mean = legacy_width_max_mean_m;
-      needle_cross_section_width_max_m.deviation = legacy_width_max_dev_m;
+      target.needle_cross_section_width_max_m.mean = legacy_width_max_mean_m;
+      target.needle_cross_section_width_max_m.deviation = legacy_width_max_dev_m;
     }
     if (!has_new_cross_section_thickness_max) {
       const float fallback_thickness_mean_m =
           (legacy_tip_diameter_mean_m > 0.0f) ? legacy_tip_diameter_mean_m : legacy_width_max_mean_m;
       const float fallback_thickness_dev_m =
           (legacy_tip_diameter_dev_m > 0.0f) ? legacy_tip_diameter_dev_m : legacy_width_max_dev_m;
-      needle_cross_section_thickness_max_m.mean = fallback_thickness_mean_m;
-      needle_cross_section_thickness_max_m.deviation = fallback_thickness_dev_m;
+      target.needle_cross_section_thickness_max_m.mean = fallback_thickness_mean_m;
+      target.needle_cross_section_thickness_max_m.deviation = fallback_thickness_dev_m;
     }
   }
 
@@ -1661,16 +1676,18 @@ void ScotsPineDescriptor::Deserialize(const YAML::Node& in) {
     legacy_tip_taper_ratio = std::clamp(in["needle_simple_tip_taper_ratio"].as<float>(), 0.0f, 1.0f);
   }
   if (!has_new_cross_section_width_profile) {
-    ConfigureNeedleCrossSectionProfileDefaults(needle_cross_section_width_profile, 1.0f, legacy_tip_taper_ratio);
+    ConfigureNeedleCrossSectionProfileDefaults(target.needle_cross_section_width_profile, 1.0f, legacy_tip_taper_ratio);
   }
   if (!has_new_cross_section_thickness_profile) {
-    ConfigureNeedleCrossSectionProfileDefaults(needle_cross_section_thickness_profile, 1.0f, legacy_tip_taper_ratio);
+    ConfigureNeedleCrossSectionProfileDefaults(target.needle_cross_section_thickness_profile, 1.0f,
+                                               legacy_tip_taper_ratio);
   }
 
-  needle_cross_section_width_max_m.mean = std::max(0.0f, needle_cross_section_width_max_m.mean);
-  needle_cross_section_width_max_m.deviation = std::max(0.0f, needle_cross_section_width_max_m.deviation);
-  needle_cross_section_thickness_max_m.mean = std::max(0.0f, needle_cross_section_thickness_max_m.mean);
-  needle_cross_section_thickness_max_m.deviation = std::max(0.0f, needle_cross_section_thickness_max_m.deviation);
+  target.needle_cross_section_width_max_m.mean = std::max(0.0f, target.needle_cross_section_width_max_m.mean);
+  target.needle_cross_section_width_max_m.deviation = std::max(0.0f, target.needle_cross_section_width_max_m.deviation);
+  target.needle_cross_section_thickness_max_m.mean = std::max(0.0f, target.needle_cross_section_thickness_max_m.mean);
+  target.needle_cross_section_thickness_max_m.deviation =
+      std::max(0.0f, target.needle_cross_section_thickness_max_m.deviation);
   auto clamp_plot_range = [](evo_engine::Plot2D<float>& plot, const float max_value) {
     plot.min_value = std::clamp(plot.min_value, 0.0f, 1.0f);
     plot.max_value = std::clamp(plot.max_value, 0.0f, max_value);
@@ -1678,180 +1695,193 @@ void ScotsPineDescriptor::Deserialize(const YAML::Node& in) {
       std::swap(plot.min_value, plot.max_value);
     }
   };
-  clamp_plot_range(needle_cross_section_width_profile.mean, 4.0f);
-  clamp_plot_range(needle_cross_section_width_profile.deviation, 4.0f);
-  clamp_plot_range(needle_cross_section_thickness_profile.mean, 4.0f);
-  clamp_plot_range(needle_cross_section_thickness_profile.deviation, 4.0f);
-  clamp_plot_range(needle_cross_section_temporal_maturity_curve.mean, 1.0f);
-  clamp_plot_range(needle_cross_section_temporal_maturity_curve.deviation, 1.0f);
+  clamp_plot_range(target.needle_cross_section_width_profile.mean, 4.0f);
+  clamp_plot_range(target.needle_cross_section_width_profile.deviation, 4.0f);
+  clamp_plot_range(target.needle_cross_section_thickness_profile.mean, 4.0f);
+  clamp_plot_range(target.needle_cross_section_thickness_profile.deviation, 4.0f);
+  clamp_plot_range(target.needle_cross_section_temporal_maturity_curve.mean, 1.0f);
+  clamp_plot_range(target.needle_cross_section_temporal_maturity_curve.deviation, 1.0f);
   if (in["needle_order_length_attenuation"]) {
-    needle_order_length_attenuation = std::clamp(in["needle_order_length_attenuation"].as<float>(), 0.0f, 1.0f);
+    target.needle_order_length_attenuation = std::clamp(in["needle_order_length_attenuation"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_order_radius_attenuation"]) {
-    needle_order_radius_attenuation = std::clamp(in["needle_order_radius_attenuation"].as<float>(), 0.0f, 1.0f);
+    target.needle_order_radius_attenuation = std::clamp(in["needle_order_radius_attenuation"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_order_min_length_scale"]) {
-    needle_order_min_length_scale = std::clamp(in["needle_order_min_length_scale"].as<float>(), 0.10f, 1.00f);
+    target.needle_order_min_length_scale = std::clamp(in["needle_order_min_length_scale"].as<float>(), 0.10f, 1.00f);
   }
   if (in["needle_order_min_radius_scale"]) {
-    needle_order_min_radius_scale = std::clamp(in["needle_order_min_radius_scale"].as<float>(), 0.10f, 1.00f);
+    target.needle_order_min_radius_scale = std::clamp(in["needle_order_min_radius_scale"].as<float>(), 0.10f, 1.00f);
   }
   if (in["needle_intra_year_base_ratio"]) {
-    needle_intra_year_base_ratio = std::clamp(in["needle_intra_year_base_ratio"].as<float>(), 0.0f, 1.0f);
+    target.needle_intra_year_base_ratio = std::clamp(in["needle_intra_year_base_ratio"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_intra_year_sigmoid_steepness"]) {
-    needle_intra_year_sigmoid_steepness = std::max(0.01f, in["needle_intra_year_sigmoid_steepness"].as<float>());
+    target.needle_intra_year_sigmoid_steepness = std::max(0.01f, in["needle_intra_year_sigmoid_steepness"].as<float>());
   }
   if (in["needle_intra_year_sigmoid_midpoint_fraction"]) {
-    needle_intra_year_sigmoid_midpoint_fraction =
+    target.needle_intra_year_sigmoid_midpoint_fraction =
         std::clamp(in["needle_intra_year_sigmoid_midpoint_fraction"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_intra_year_late_decay_start_fraction"]) {
-    needle_intra_year_late_decay_start_fraction =
+    target.needle_intra_year_late_decay_start_fraction =
         std::clamp(in["needle_intra_year_late_decay_start_fraction"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_intra_year_late_decay_end_scale"]) {
-    needle_intra_year_late_decay_end_scale =
+    target.needle_intra_year_late_decay_end_scale =
         std::clamp(in["needle_intra_year_late_decay_end_scale"].as<float>(), 0.0f, 2.0f);
   }
   if (in["needle_fascicular_start_year"]) {
-    needle_fascicular_start_year = std::clamp(in["needle_fascicular_start_year"].as<int>(), 0, 16);
+    target.needle_fascicular_start_year = std::clamp(in["needle_fascicular_start_year"].as<int>(), 0, 16);
   }
   if (in["needle_year2plus_length_multiplier"]) {
-    needle_year2plus_length_multiplier = std::max(0.0f, in["needle_year2plus_length_multiplier"].as<float>());
+    target.needle_year2plus_length_multiplier = std::max(0.0f, in["needle_year2plus_length_multiplier"].as<float>());
   }
   if (in["needle_year2plus_width_multiplier"]) {
-    needle_year2plus_width_multiplier = std::max(0.0f, in["needle_year2plus_width_multiplier"].as<float>());
+    target.needle_year2plus_width_multiplier = std::max(0.0f, in["needle_year2plus_width_multiplier"].as<float>());
   }
   if (in["needle_year2plus_thickness_multiplier"]) {
-    needle_year2plus_thickness_multiplier = std::max(0.0f, in["needle_year2plus_thickness_multiplier"].as<float>());
+    target.needle_year2plus_thickness_multiplier =
+        std::max(0.0f, in["needle_year2plus_thickness_multiplier"].as<float>());
   }
   if (in["needle_lignification_factor_year1"]) {
-    needle_lignification_factor_year1 = std::clamp(in["needle_lignification_factor_year1"].as<float>(), 0.0f, 2.0f);
+    target.needle_lignification_factor_year1 =
+        std::clamp(in["needle_lignification_factor_year1"].as<float>(), 0.0f, 2.0f);
   }
   if (in["needle_lignification_factor_year2plus"]) {
-    needle_lignification_factor_year2plus =
+    target.needle_lignification_factor_year2plus =
         std::clamp(in["needle_lignification_factor_year2plus"].as<float>(), 0.0f, 2.0f);
   }
   if (in["needle_stomatal_strip_density_year1"]) {
-    needle_stomatal_strip_density_year1 = std::clamp(in["needle_stomatal_strip_density_year1"].as<float>(), 0.0f, 1.0f);
+    target.needle_stomatal_strip_density_year1 =
+        std::clamp(in["needle_stomatal_strip_density_year1"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_stomatal_strip_density_year2plus"]) {
-    needle_stomatal_strip_density_year2plus =
+    target.needle_stomatal_strip_density_year2plus =
         std::clamp(in["needle_stomatal_strip_density_year2plus"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_basal_taper_ratio_year1"]) {
-    needle_basal_taper_ratio_year1 = std::clamp(in["needle_basal_taper_ratio_year1"].as<float>(), 0.6f, 1.2f);
+    target.needle_basal_taper_ratio_year1 = std::clamp(in["needle_basal_taper_ratio_year1"].as<float>(), 0.6f, 1.2f);
   }
   if (in["needle_basal_taper_ratio_year2plus"]) {
-    needle_basal_taper_ratio_year2plus = std::clamp(in["needle_basal_taper_ratio_year2plus"].as<float>(), 0.6f, 1.2f);
+    target.needle_basal_taper_ratio_year2plus =
+        std::clamp(in["needle_basal_taper_ratio_year2plus"].as<float>(), 0.6f, 1.2f);
   }
   if (in["needle_fascicle_sheath_budget_gdd"]) {
-    needle_fascicle_sheath_budget_gdd = std::max(0.0f, in["needle_fascicle_sheath_budget_gdd"].as<float>());
+    target.needle_fascicle_sheath_budget_gdd = std::max(0.0f, in["needle_fascicle_sheath_budget_gdd"].as<float>());
   }
   if (in["needle_specularity_plasticity_year1"]) {
-    needle_specularity_plasticity_year1 = std::clamp(in["needle_specularity_plasticity_year1"].as<float>(), 0.0f, 1.0f);
+    target.needle_specularity_plasticity_year1 =
+        std::clamp(in["needle_specularity_plasticity_year1"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_specularity_plasticity_year2plus"]) {
-    needle_specularity_plasticity_year2plus =
+    target.needle_specularity_plasticity_year2plus =
         std::clamp(in["needle_specularity_plasticity_year2plus"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_bud_storage_vigor_strength"]) {
-    needle_bud_storage_vigor_strength = std::clamp(in["needle_bud_storage_vigor_strength"].as<float>(), 0.0f, 1.0f);
+    target.needle_bud_storage_vigor_strength =
+        std::clamp(in["needle_bud_storage_vigor_strength"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_bud_storage_completion_floor"]) {
-    needle_bud_storage_completion_floor = std::clamp(in["needle_bud_storage_completion_floor"].as<float>(), 0.0f, 1.0f);
+    target.needle_bud_storage_completion_floor =
+        std::clamp(in["needle_bud_storage_completion_floor"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_radius_to_stem_thickness_max_ratio"]) {
-    needle_radius_to_stem_thickness_max_ratio =
+    target.needle_radius_to_stem_thickness_max_ratio =
         std::clamp(in["needle_radius_to_stem_thickness_max_ratio"].as<float>(), 0.0f, 4.0f);
   }
   if (in["needle_color_rgba"]) {
-    needle_color_rgba = in["needle_color_rgba"].as<glm::vec4>();
+    target.needle_color_rgba = in["needle_color_rgba"].as<glm::vec4>();
   }
   if (in["needle_old_color_rgba"]) {
-    needle_old_color_rgba = in["needle_old_color_rgba"].as<glm::vec4>();
+    target.needle_old_color_rgba = in["needle_old_color_rgba"].as<glm::vec4>();
   }
   if (in["needle_axial_age_span"]) {
-    needle_axial_age_span = std::clamp(in["needle_axial_age_span"].as<float>(), -1.0f, 1.0f);
+    target.needle_axial_age_span = std::clamp(in["needle_axial_age_span"].as<float>(), -1.0f, 1.0f);
   }
   if (in["needle_axial_age_exponent"]) {
-    needle_axial_age_exponent = std::clamp(in["needle_axial_age_exponent"].as<float>(), 0.1f, 4.0f);
+    target.needle_axial_age_exponent = std::clamp(in["needle_axial_age_exponent"].as<float>(), 0.1f, 4.0f);
   }
 
-  LoadSingleDistributionWithScalarFallback(in, "needle_curvature_adaxial_bias", needle_curvature_adaxial_bias);
-  LoadSingleDistributionWithScalarFallback(in, "needle_curvature_abaxial_bias", needle_curvature_abaxial_bias);
+  LoadSingleDistributionWithScalarFallback(in, "needle_curvature_adaxial_bias", target.needle_curvature_adaxial_bias);
+  LoadSingleDistributionWithScalarFallback(in, "needle_curvature_abaxial_bias", target.needle_curvature_abaxial_bias);
   LoadSingleDistributionWithScalarFallback(in, "needle_curvature_gradient_per_arclen",
-                                           needle_curvature_gradient_per_arclen);
-  LoadSingleDistributionWithScalarFallback(in, "needle_diameter_for_curvature_m", needle_diameter_for_curvature_m);
-  LoadSingleDistributionWithScalarFallback(in, "needle_sinusoidal_amplitude_deg", needle_sinusoidal_amplitude_deg);
+                                           target.needle_curvature_gradient_per_arclen);
+  LoadSingleDistributionWithScalarFallback(in, "needle_diameter_for_curvature_m",
+                                           target.needle_diameter_for_curvature_m);
+  LoadSingleDistributionWithScalarFallback(in, "needle_sinusoidal_amplitude_deg",
+                                           target.needle_sinusoidal_amplitude_deg);
   LoadSingleDistributionWithScalarFallback(in, "needle_sinusoidal_frequency_cycles",
-                                           needle_sinusoidal_frequency_cycles);
+                                           target.needle_sinusoidal_frequency_cycles);
   LoadSingleDistributionWithScalarFallback(in, "needle_sinusoidal_phase_randomness_deg",
-                                           needle_sinusoidal_phase_randomness_deg);
+                                           target.needle_sinusoidal_phase_randomness_deg);
 
-  LoadSingleDistributionWithScalarFallback(in, "needle_young_modulus_baseline_Pa", needle_young_modulus_baseline_Pa);
+  LoadSingleDistributionWithScalarFallback(in, "needle_young_modulus_baseline_Pa",
+                                           target.needle_young_modulus_baseline_Pa);
   LoadSingleDistributionWithScalarFallback(in, "needle_lignification_maturation_years",
-                                           needle_lignification_maturation_years);
-  LoadSingleDistributionWithScalarFallback(in, "needle_density_kg_m3", needle_density_kg_m3);
-  LoadSingleDistributionWithScalarFallback(in, "gravity_m_s2", gravity_m_s2);
-  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_length_cv", needle_per_needle_length_cv);
-  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_curvature_cv", needle_per_needle_curvature_cv);
-  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_radius_cv", needle_per_needle_radius_cv);
-  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_modulus_cv", needle_per_needle_modulus_cv);
-  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_density_cv", needle_per_needle_density_cv);
+                                           target.needle_lignification_maturation_years);
+  LoadSingleDistributionWithScalarFallback(in, "needle_density_kg_m3", target.needle_density_kg_m3);
+  LoadSingleDistributionWithScalarFallback(in, "gravity_m_s2", target.gravity_m_s2);
+  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_length_cv", target.needle_per_needle_length_cv);
+  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_curvature_cv", target.needle_per_needle_curvature_cv);
+  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_radius_cv", target.needle_per_needle_radius_cv);
+  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_modulus_cv", target.needle_per_needle_modulus_cv);
+  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_density_cv", target.needle_per_needle_density_cv);
   LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_wave_amplitude_cv",
-                                           needle_per_needle_wave_amplitude_cv);
+                                           target.needle_per_needle_wave_amplitude_cv);
   LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_wave_frequency_cv",
-                                           needle_per_needle_wave_frequency_cv);
-  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_wave_phase_cv", needle_per_needle_wave_phase_cv);
+                                           target.needle_per_needle_wave_frequency_cv);
+  LoadSingleDistributionWithScalarFallback(in, "needle_per_needle_wave_phase_cv",
+                                           target.needle_per_needle_wave_phase_cv);
 
-  LoadSingleDistributionWithScalarFallback(in, "gravitropism_first_order", gravitropism_first_order);
-  LoadSingleDistributionWithScalarFallback(in, "initial_orientation_yaw_deg", initial_orientation_yaw_deg);
+  LoadSingleDistributionWithScalarFallback(in, "gravitropism_first_order", target.gravitropism_first_order);
+  LoadSingleDistributionWithScalarFallback(in, "initial_orientation_yaw_deg", target.initial_orientation_yaw_deg);
 
-  LoadSingleDistributionWithScalarFallback(in, "target_gdd", target_gdd);
-  LoadSingleDistributionWithScalarFallback(in, "gdd_per_day", gdd_per_day);
-  LoadSingleDistributionWithScalarFallback(in, "growing_season_start_day", growing_season_start_day);
-  LoadSingleDistributionWithScalarFallback(in, "growing_season_end_day", growing_season_end_day);
+  LoadSingleDistributionWithScalarFallback(in, "target_gdd", target.target_gdd);
+  LoadSingleDistributionWithScalarFallback(in, "gdd_per_day", target.gdd_per_day);
+  LoadSingleDistributionWithScalarFallback(in, "growing_season_start_day", target.growing_season_start_day);
+  LoadSingleDistributionWithScalarFallback(in, "growing_season_end_day", target.growing_season_end_day);
 
-  gdd_per_day.mean = std::max(0.0f, gdd_per_day.mean);
-  gdd_per_day.deviation = std::max(0.0f, gdd_per_day.deviation);
-  growing_season_start_day.mean = std::clamp(growing_season_start_day.mean, 0.0f, 365.0f);
-  growing_season_start_day.deviation = std::max(0.0f, std::round(growing_season_start_day.deviation));
-  growing_season_end_day.mean = std::clamp(growing_season_end_day.mean, 0.0f, 365.0f);
-  growing_season_end_day.deviation = std::max(0.0f, std::round(growing_season_end_day.deviation));
+  target.gdd_per_day.mean = std::max(0.0f, target.gdd_per_day.mean);
+  target.gdd_per_day.deviation = std::max(0.0f, target.gdd_per_day.deviation);
+  target.growing_season_start_day.mean = std::clamp(target.growing_season_start_day.mean, 0.0f, 365.0f);
+  target.growing_season_start_day.deviation = std::max(0.0f, std::round(target.growing_season_start_day.deviation));
+  target.growing_season_end_day.mean = std::clamp(target.growing_season_end_day.mean, 0.0f, 365.0f);
+  target.growing_season_end_day.deviation = std::max(0.0f, std::round(target.growing_season_end_day.deviation));
 
-  LoadSingleDistributionWithScalarFallback(in, "internode_length_per_node_cv", internode_length_per_node_cv);
-  LoadSingleDistributionWithScalarFallback(in, "internode_thickness_per_node_cv", internode_thickness_per_node_cv);
-  LoadSingleDistributionWithScalarFallback(in, "branch_angle_per_node_sigma_deg", branch_angle_per_node_sigma_deg);
+  LoadSingleDistributionWithScalarFallback(in, "internode_length_per_node_cv", target.internode_length_per_node_cv);
+  LoadSingleDistributionWithScalarFallback(in, "internode_thickness_per_node_cv",
+                                           target.internode_thickness_per_node_cv);
+  LoadSingleDistributionWithScalarFallback(in, "branch_angle_per_node_sigma_deg",
+                                           target.branch_angle_per_node_sigma_deg);
   LoadSingleDistributionWithScalarFallback(in, "roll_phyllotaxis_per_node_sigma_deg",
-                                           roll_phyllotaxis_per_node_sigma_deg);
+                                           target.roll_phyllotaxis_per_node_sigma_deg);
 
   if (in["live_preview"])
-    live_preview = in["live_preview"].as<bool>();
+    target.live_preview = in["live_preview"].as<bool>();
   if (in["live_preview_rate_hz"])
-    live_preview_rate_hz = in["live_preview_rate_hz"].as<float>();
+    target.live_preview_rate_hz = in["live_preview_rate_hz"].as<float>();
   if (in["live_preview_representative_only"])
-    live_preview_representative_only = in["live_preview_representative_only"].as<bool>();
+    target.live_preview_representative_only = in["live_preview_representative_only"].as<bool>();
   if (in["live_preview_cap_target_gdd"])
-    live_preview_cap_target_gdd = in["live_preview_cap_target_gdd"].as<bool>();
+    target.live_preview_cap_target_gdd = in["live_preview_cap_target_gdd"].as<bool>();
   if (in["live_preview_max_gdd"])
-    live_preview_max_gdd = in["live_preview_max_gdd"].as<float>();
+    target.live_preview_max_gdd = in["live_preview_max_gdd"].as<float>();
   if (in["live_preview_max_growth_steps"])
-    live_preview_max_growth_steps = in["live_preview_max_growth_steps"].as<int>();
+    target.live_preview_max_growth_steps = in["live_preview_max_growth_steps"].as<int>();
   if (in["grid_rows"])
-    grid_rows = in["grid_rows"].as<int>();
+    target.grid_rows = in["grid_rows"].as<int>();
   if (in["grid_cols"])
-    grid_cols = in["grid_cols"].as<int>();
+    target.grid_cols = in["grid_cols"].as<int>();
   if (in["grid_spacing"])
-    grid_spacing = in["grid_spacing"].as<float>();
+    target.grid_spacing = in["grid_spacing"].as<float>();
   if (in["triangle_side_length"])
-    triangle_side_length = in["triangle_side_length"].as<float>();
+    target.triangle_side_length = in["triangle_side_length"].as<float>();
 
-  tropisms.clear();
+  target.tropisms.clear();
   if (in["tropism_count"]) {
     const int count = std::max(0, in["tropism_count"].as<int>());
-    tropisms.reserve(count);
+    target.tropisms.reserve(count);
     for (int i = 0; i < count; ++i) {
       const std::string prefix = "tropism_" + std::to_string(i) + "_";
       TropismEntry entry;
@@ -1863,7 +1893,7 @@ void ScotsPineDescriptor::Deserialize(const YAML::Node& in) {
       if (in[usage_key])
         entry.usage_chance_percent = in[usage_key].as<float>();
       entry.order_response.Load(prefix + "order_response", in);
-      tropisms.emplace_back(std::move(entry));
+      target.tropisms.emplace_back(std::move(entry));
     }
   }
 }

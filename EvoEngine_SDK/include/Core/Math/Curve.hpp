@@ -102,9 +102,9 @@ class BezierSpline {
   [[nodiscard]] glm::vec3 EvaluatePointFromCurves(float point) const;
 
   /**
-   * @brief Performs inspection and debugging-related functionality for the spline.
+   * @brief Draws editor controls for the spline.
    */
-  void OnInspect();
+  void Draw();
 
   /**
    * @brief Serializes the Bezier spline to an output YAML emitter.

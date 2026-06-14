@@ -1,7 +1,8 @@
 //
 // Created by lllll on 2/23/2022.
 //
-#include "SkyIlluminance.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 #include "rapidcsv.h"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
@@ -66,12 +67,13 @@ void SkyIlluminance::ImportCsv(const std::filesystem::path& path) {
     }
   }
 }
-bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectSkyIlluminance(InspectorContext& context, SkyIlluminance& illuminance) {
+  (void)context;
   bool changed = false;
   FileUtils::OpenFile(
       "Import CSV", "CSV", {".csv"},
-      [&](const std::filesystem::path& path) {
-        ImportCsv(path);
+      [&illuminance, &changed](const std::filesystem::path& path) {
+        illuminance.ImportCsv(path);
         changed = true;
       },
       false);
@@ -79,8 +81,8 @@ bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   static SkyIlluminanceSnapshot snapshot;
   static bool auto_apply = false;
   ImGui::Checkbox("Auto Apply", &auto_apply);
-  if (ImGui::SliderFloat("Time", &time, min_time, max_time)) {
-    snapshot = Get(time);
+  if (ImGui::SliderFloat("Time", &time, illuminance.min_time, illuminance.max_time)) {
+    snapshot = illuminance.Get(time);
 #ifdef CUDA_MODULE_SERVICE
     if (auto_apply) {
       auto& env_prop = ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties;
@@ -94,12 +96,12 @@ bool SkyIlluminance::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   ImGui::Text("Zenith: %.3f", snapshot.m_zenith);
   return changed;
 }
-void SkyIlluminance::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "min_time" << YAML::Value << min_time;
-  out << YAML::Key << "max_time" << YAML::Value << max_time;
-  if (!snapshots.empty()) {
+void digital_agriculture_package::SerializeSkyIlluminance(YAML::Emitter& out, const SkyIlluminance& target) {
+  out << YAML::Key << "min_time" << YAML::Value << target.min_time;
+  out << YAML::Key << "max_time" << YAML::Value << target.max_time;
+  if (!target.snapshots.empty()) {
     out << YAML::Key << "snapshots" << YAML::Value << YAML::BeginSeq;
-    for (const auto& pair : snapshots) {
+    for (const auto& pair : target.snapshots) {
       out << YAML::BeginMap;
       out << YAML::Key << "time" << YAML::Value << pair.first;
       out << YAML::Key << "m_ghi" << YAML::Value << pair.second.m_ghi;
@@ -110,19 +112,19 @@ void SkyIlluminance::Serialize(YAML::Emitter& out) const {
     out << YAML::EndSeq;
   }
 }
-void SkyIlluminance::Deserialize(const YAML::Node& in) {
+void digital_agriculture_package::DeserializeSkyIlluminance(const YAML::Node& in, SkyIlluminance& target) {
   if (in["min_time"])
-    min_time = in["min_time"].as<float>();
+    target.min_time = in["min_time"].as<float>();
   if (in["max_time"])
-    max_time = in["max_time"].as<float>();
+    target.max_time = in["max_time"].as<float>();
   if (in["snapshots"]) {
-    snapshots.clear();
+    target.snapshots.clear();
     for (const auto& data : in["snapshots"]) {
       SkyIlluminanceSnapshot snapshot;
       snapshot.m_ghi = data["m_ghi"].as<float>();
       snapshot.m_azimuth = data["m_azimuth"].as<float>();
       snapshot.m_zenith = data["m_zenith"].as<float>();
-      snapshots[data["time"].as<float>()] = snapshot;
+      target.snapshots[data["time"].as<float>()] = snapshot;
     }
   }
 }

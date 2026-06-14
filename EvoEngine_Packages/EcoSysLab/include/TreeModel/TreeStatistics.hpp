@@ -13,7 +13,7 @@ struct TreeStatistics {
    * @param editor_layer The editor layer managing inspection.
    * @return True if data was not modified during inspection.
    */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Saves pruning settings to a YAML emitter.

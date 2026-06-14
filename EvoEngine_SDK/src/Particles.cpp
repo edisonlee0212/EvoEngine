@@ -1,6 +1,5 @@
 #include "Particles.hpp"
 #include "AssetManager.hpp"
-#include "EditorLayer.hpp"
 
 using namespace evo_engine;
 
@@ -35,58 +34,6 @@ void Particles::RecalculateBoundingBox() {
   bounding_box.min = min_bound;
 }
 
-bool Particles::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Cast shadow##Particles", &cast_shadow))
-    changed = true;
-  if (editor_layer->DragAndDropButton<Material>(material, "Material"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<Mesh>(mesh, "Mesh"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<ParticleInfoList>(particle_info_list, "ParticleInfoList"))
-    changed = true;
-
-  if (const auto pil = particle_info_list.Get<ParticleInfoList>()) {
-    ImGui::Text(("Instance count##Particles" + std::to_string(pil->PeekParticleInfoList().size())).c_str());
-    if (ImGui::Button("Calculate bounds##Particles")) {
-      RecalculateBoundingBox();
-    }
-    static bool display_bound;
-    ImGui::Checkbox("Display bounds##Particles", &display_bound);
-    if (display_bound) {
-      static auto display_bound_color = glm::vec4(0.0f, 1.0f, 0.0f, 0.2f);
-      ImGui::ColorEdit4("Color:##Particles", (float*)(void*)&display_bound_color);
-      const auto transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
-
-      GizmoSettings gizmo_settings;
-      gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-      gizmo_settings.draw_settings.blending = true;
-      gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
-      gizmo_settings.draw_settings.line_width = 3.0f;
-
-      editor_layer->DrawGizmoCube(display_bound_color,
-                                  transform * glm::translate(bounding_box.Center()) * glm::scale(bounding_box.Size()),
-                                  1, gizmo_settings);
-    }
-  }
-  return changed;
-}
-
-void Particles::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "cast_shadow" << cast_shadow;
-
-  mesh.Save("mesh", out);
-  material.Save("material", out);
-  particle_info_list.Save("particle_info_list", out);
-}
-
-void Particles::Deserialize(const YAML::Node& in) {
-  cast_shadow = in["cast_shadow"].as<bool>();
-
-  mesh.Load("mesh", in);
-  material.Load("material", in);
-  particle_info_list.Load("particle_info_list", in);
-}
 void Particles::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
 }
 

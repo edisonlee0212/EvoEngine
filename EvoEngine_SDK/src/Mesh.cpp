@@ -6,12 +6,13 @@
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
 #include "Platform.hpp"
+#include "Serialization.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
 
 bool Mesh::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".evemesh") {
-    return IAsset::SaveInternal(path);
+    return Serialization::SaveAssetAsYaml(*this, path);
   }
   if (path.extension() == ".obj") {
     std::ofstream of;
@@ -72,23 +73,20 @@ bool Mesh::SaveInternal(const std::filesystem::path& path) const {
   return false;
 }
 
-std::shared_ptr<Texture2D> Mesh::GenerateThumbnailTexture() {
-  return EditorLayer::FindIcon("Mesh");
+bool Mesh::RegisterAssetIoHandlers(const std::string& owner_name, const std::string& type_name) {
+  return Serialization::RegisterAssetIoHandler<Mesh>(
+      [](const Mesh& asset, const std::filesystem::path& path) {
+        return asset.SaveInternal(path);
+      },
+      {},
+      [](const Mesh& asset, const std::filesystem::path&) {
+        return asset.SupportsStagedLoading();
+      },
+      {}, {}, owner_name, type_name);
 }
 
-bool Mesh::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text(("Vertices size: " + std::to_string(vertices_.size())).c_str());
-  ImGui::Text(("Triangle amount: " + std::to_string(triangles_.size())).c_str());
-  if (!vertices_.empty()) {
-    FileUtils::SaveFile(
-        "Export as OBJ", "Mesh", {".obj"},
-        [&](const std::filesystem::path& path) {
-          Export(path);
-        },
-        false);
-  }
-  return changed;
+std::shared_ptr<Texture2D> Mesh::GenerateThumbnailTexture() {
+  return EditorLayer::FindIcon("Mesh");
 }
 
 void Mesh::OnCreate() {
@@ -333,6 +331,18 @@ std::vector<glm::uvec3>& Mesh::UnsafeGetTriangles() {
   return triangles_;
 }
 
+const VertexAttributes& Mesh::GetVertexAttributes() const {
+  return vertex_attributes_;
+}
+
+const std::vector<Vertex>& Mesh::PeekVertices() const {
+  return vertices_;
+}
+
+const std::vector<glm::uvec3>& Mesh::PeekTriangles() const {
+  return triangles_;
+}
+
 Bound Mesh::GetBound() const {
   return bound_;
 }
@@ -341,44 +351,6 @@ std::shared_ptr<BottomLevelAccelerationStructure> Mesh::GetBlas() const {
   return blas_;
 }
 
-void Mesh::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "vertex_attributes_" << YAML::BeginMap;
-  vertex_attributes_.Serialize(out);
-  out << YAML::EndMap;
-
-  if (!vertices_.empty() && !triangles_.empty()) {
-    out << YAML::Key << "vertices_" << YAML::Value
-        << YAML::Binary((const unsigned char*)vertices_.data(), vertices_.size() * sizeof(Vertex));
-    out << YAML::Key << "triangles_" << YAML::Value
-        << YAML::Binary((const unsigned char*)triangles_.data(), triangles_.size() * sizeof(glm::uvec3));
-  }
-}
-
-void Mesh::Deserialize(const YAML::Node& in) {
-  if (in["vertex_attributes_"]) {
-    vertex_attributes_.Deserialize(in["vertex_attributes_"]);
-  } else {
-    vertex_attributes_ = {};
-    vertex_attributes_.normal = true;
-    vertex_attributes_.tangent = true;
-    vertex_attributes_.tex_coord = true;
-    vertex_attributes_.color = true;
-  }
-
-  if (in["vertices_"] && in["triangles_"]) {
-    const auto& vertex_data = in["vertices_"].as<YAML::Binary>();
-    std::vector<Vertex> vertices;
-    vertices.resize(vertex_data.size() / sizeof(Vertex));
-    std::memcpy(vertices.data(), vertex_data.data(), vertex_data.size());
-
-    const auto& triangle_data = in["triangles_"].as<YAML::Binary>();
-    std::vector<glm::uvec3> triangles;
-    triangles.resize(triangle_data.size() / sizeof(glm::uvec3));
-    std::memcpy(triangles.data(), triangle_data.data(), triangle_data.size());
-
-    SetVertices(vertex_attributes_, vertices, triangles);
-  }
-}
 void VertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
   out << YAML::Key << "tangent" << YAML::Value << tangent;
@@ -404,18 +376,6 @@ void ParticleInfoList::OnCreate() {
 
 ParticleInfoList::~ParticleInfoList() {
   GeometryStorage::FreeParticleInfo(range_descriptor_);
-}
-
-void ParticleInfoList::Serialize(YAML::Emitter& out) const {
-  Serialization::SerializeVector("particle_infos", GeometryStorage::PeekParticleInfoList(range_descriptor_), out);
-}
-
-void ParticleInfoList::Deserialize(const YAML::Node& in) {
-  if (in["particle_infos"]) {
-    std::vector<ParticleInfo> particle_infos;
-    Serialization::DeserializeVector("particle_infos", particle_infos, in);
-    GeometryStorage::UpdateParticleInfo(range_descriptor_, particle_infos);
-  }
 }
 
 void ParticleInfoList::ApplyRays(const std::vector<Ray>& rays, const glm::vec4& color, const float ray_width) const {

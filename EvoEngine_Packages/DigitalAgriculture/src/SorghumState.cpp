@@ -2,6 +2,8 @@
 // Created by lllll on 1/8/2022.
 //
 #include "Application.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
 #include "Scene.hpp"
 
@@ -14,20 +16,20 @@
 #include "rapidcsv.h"
 using namespace digital_agriculture_package;
 
-bool SorghumPanicleState::OnInspectImpl() {
+bool digital_agriculture_package::DrawSorghumPanicleStateGui(SorghumPanicleState& state) {
   bool changed = false;
-  if (ImGui::DragFloat("Panicle width", &panicle_size.x, 0.001f)) {
+  if (ImGui::DragFloat("Panicle width", &state.panicle_size.x, 0.001f)) {
     changed = true;
-    panicle_size.z = panicle_size.x;
+    state.panicle_size.z = state.panicle_size.x;
   }
-  if (ImGui::DragFloat("Panicle height", &panicle_size.y, 0.001f))
+  if (ImGui::DragFloat("Panicle height", &state.panicle_size.y, 0.001f))
     changed = true;
-  if (ImGui::DragInt("Num of seeds", &seed_amount, 1.0f))
+  if (ImGui::DragInt("Num of seeds", &state.seed_amount, 1.0f))
     changed = true;
-  if (ImGui::DragFloat("Seed radius", &seed_radius, 0.0001f))
+  if (ImGui::DragFloat("Seed radius", &state.seed_radius, 0.0001f))
     changed = true;
   if (changed)
-    saved = false;
+    state.saved = false;
   return changed;
 }
 
@@ -87,26 +89,26 @@ void SorghumStemState::Deserialize(const YAML::Node& in) {
   saved = true;
 }
 
-bool SorghumStemState::OnInspectImpl(int mode) {
+bool digital_agriculture_package::DrawSorghumStemStateGui(SorghumStemState& state, int mode) {
   bool changed = false;
   switch (static_cast<StateMode>(mode)) {
     case StateMode::Default:
       // ImGui::DragFloat3("Direction", &direction.x, 0.01f);
-      if (ImGui::DragFloat("Length", &length, 0.01f))
+      if (ImGui::DragFloat("Length", &state.length, 0.01f))
         changed = true;
       break;
     case StateMode::CubicBezier:
       if (ImGui::TreeNode("Spline")) {
-        spline.OnInspect();
+        state.spline.Draw();
         ImGui::TreePop();
       }
       break;
   }
-  if (width_along_stem.OnInspect("Width along stem"))
+  if (state.width_along_stem.Draw("Width along stem"))
     changed = true;
 
   if (changed)
-    saved = false;
+    state.saved = false;
   return changed;
 }
 
@@ -128,28 +130,28 @@ void SorghumStemState::Apply(SorghumStemDescriptor& target_sorghum_stem_descript
   }
 }
 
-bool SorghumLeafState::OnInspectImpl(int mode) {
+bool digital_agriculture_package::DrawSorghumLeafStateGui(SorghumLeafState& state, int mode) {
   bool changed = false;
-  if (ImGui::Checkbox("Dead", &dead)) {
+  if (ImGui::Checkbox("Dead", &state.dead)) {
     changed = true;
-    if (!dead && length == 0.0f)
-      length = 0.35f;
+    if (!state.dead && state.length == 0.0f)
+      state.length = 0.35f;
   }
-  if (!dead) {
-    if (ImGui::InputFloat("Starting point", &starting_point)) {
-      starting_point = glm::clamp(starting_point, 0.0f, 1.0f);
+  if (!state.dead) {
+    if (ImGui::InputFloat("Starting point", &state.starting_point)) {
+      state.starting_point = glm::clamp(state.starting_point, 0.0f, 1.0f);
       changed = true;
     }
     switch (static_cast<StateMode>(mode)) {
       case StateMode::Default:
         if (ImGui::TreeNodeEx("Geometric", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::DragFloat("Length", &length, 0.01f, 0.0f, 999.0f))
+          if (ImGui::DragFloat("Length", &state.length, 0.01f, 0.0f, 999.0f))
             changed = true;
           if (ImGui::TreeNodeEx("Angles", ImGuiTreeNodeFlags_DefaultOpen)) {
-            if (ImGui::DragFloat("Roll angle", &roll_angle, 1.0f, -999.0f, 999.0f))
+            if (ImGui::DragFloat("Roll angle", &state.roll_angle, 1.0f, -999.0f, 999.0f))
               changed = true;
-            if (ImGui::InputFloat("Branching angle", &branching_angle)) {
-              branching_angle = glm::clamp(branching_angle, 0.0f, 180.0f);
+            if (ImGui::InputFloat("Branching angle", &state.branching_angle)) {
+              state.branching_angle = glm::clamp(state.branching_angle, 0.0f, 180.0f);
               changed = true;
             }
             ImGui::TreePop();
@@ -159,16 +161,16 @@ bool SorghumLeafState::OnInspectImpl(int mode) {
         break;
       case StateMode::CubicBezier:
         if (ImGui::TreeNodeEx("Geometric", ImGuiTreeNodeFlags_DefaultOpen)) {
-          spline.OnInspect();
+          state.spline.Draw();
           ImGui::TreePop();
         }
         break;
     }
 
     if (ImGui::TreeNodeEx("Others")) {
-      if (width_along_leaf.OnInspect("Width"))
+      if (state.width_along_leaf.Draw("Width"))
         changed = true;
-      if (curling_along_leaf.OnInspect("Rolling"))
+      if (state.curling_along_leaf.Draw("Rolling"))
         changed = true;
 
       static CurveDescriptorSettings leaf_bending = {1.0f, false, true,
@@ -176,22 +178,22 @@ bool SorghumLeafState::OnInspectImpl(int mode) {
                                                      "gravity. Positive value results in leaf bending towards the "
                                                      "ground, negative value results in leaf bend towards the sky"};
 
-      if (bending_along_leaf.OnInspect("Bending along leaf", leaf_bending)) {
+      if (state.bending_along_leaf.Draw("Bending along leaf", leaf_bending)) {
         changed = true;
-        bending_along_leaf.curve.UnsafeGetValues()[1].y = 0.5f;
+        state.bending_along_leaf.curve.UnsafeGetValues()[1].y = 0.5f;
       }
-      if (waviness_along_leaf.OnInspect("Waviness along leaf"))
+      if (state.waviness_along_leaf.Draw("Waviness along leaf"))
         changed = true;
 
-      if (ImGui::DragFloat("Waviness frequency", &waviness_frequency, 0.01f, 0.0f, 999.0f))
+      if (ImGui::DragFloat("Waviness frequency", &state.waviness_frequency, 0.01f, 0.0f, 999.0f))
         changed = true;
-      if (ImGui::DragFloat2("Waviness start period", &waviness_period_start.x, 0.01f, 0.0f, 999.0f))
+      if (ImGui::DragFloat2("Waviness start period", &state.waviness_period_start.x, 0.01f, 0.0f, 999.0f))
         changed = true;
       ImGui::TreePop();
     }
   }
   if (changed)
-    saved = false;
+    state.saved = false;
   return changed;
 }
 
@@ -380,41 +382,41 @@ void SorghumLeafState::CopyShape(const SorghumLeafState& another) {
   saved = false;
 }
 
-bool SorghumState::OnInspectImpl(int mode) {
+bool digital_agriculture_package::DrawSorghumStateGui(SorghumState& state, int mode) {
   bool changed = false;
   if (ImGui::TreeNodeEx((std::string("Stem")).c_str())) {
-    if (stem.OnInspectImpl(mode))
+    if (DrawSorghumStemStateGui(state.stem, mode))
       changed = true;
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Leaves")) {
-    int leaf_size = leaves.size();
+    int leaf_size = state.leaves.size();
     if (ImGui::InputInt("Number of leaves", &leaf_size)) {
       changed = true;
       leaf_size = glm::clamp(leaf_size, 0, 999);
-      const auto previous_size = leaves.size();
-      leaves.resize(leaf_size);
+      const auto previous_size = state.leaves.size();
+      state.leaves.resize(leaf_size);
       for (int i = 0; i < leaf_size; i++) {
         if (i >= previous_size) {
           if (i - 1 >= 0) {
-            leaves[i] = leaves[i - 1];
-            leaves[i].roll_angle = glm::mod(leaves[i - 1].roll_angle + 180.0f, 360.0f);
-            leaves[i].starting_point = leaves[i - 1].starting_point + 0.1f;
+            state.leaves[i] = state.leaves[i - 1];
+            state.leaves[i].roll_angle = glm::mod(state.leaves[i - 1].roll_angle + 180.0f, 360.0f);
+            state.leaves[i].starting_point = state.leaves[i - 1].starting_point + 0.1f;
           } else {
-            leaves[i] = SorghumLeafState();
-            leaves[i].roll_angle = 0;
-            leaves[i].starting_point = 0.1f;
+            state.leaves[i] = SorghumLeafState();
+            state.leaves[i].roll_angle = 0;
+            state.leaves[i].starting_point = 0.1f;
           }
         }
-        leaves[i].index = i;
+        state.leaves[i].index = i;
       }
     }
-    for (auto& leaf : leaves) {
+    for (auto& leaf : state.leaves) {
       if (ImGui::TreeNode(
               ("Leaf No." + std::to_string(leaf.index + 1) + (leaf.length == 0.0f || leaf.dead ? " (Dead)" : ""))
                   .c_str())) {
-        if (leaf.OnInspectImpl(mode))
+        if (DrawSorghumLeafStateGui(leaf, mode))
           changed = true;
         ImGui::TreePop();
       }
@@ -423,14 +425,14 @@ bool SorghumState::OnInspectImpl(int mode) {
   }
 
   if (ImGui::TreeNodeEx((std::string("Panicle")).c_str())) {
-    if (panicle.OnInspectImpl())
+    if (DrawSorghumPanicleStateGui(state.panicle))
       changed = true;
     ImGui::TreePop();
   }
   if (mode == static_cast<int>(StateMode::CubicBezier)) {
     FileUtils::OpenFile(
         "Import...", "TXT", {".txt"},
-        [&](const std::filesystem::path& path) {
+        [&state, &changed](const std::filesystem::path& path) {
           std::ifstream file(path, std::fstream::in);
           if (!file.is_open()) {
             EVOENGINE_LOG("Failed to open file!");
@@ -440,8 +442,8 @@ bool SorghumState::OnInspectImpl(int mode) {
           // Number of leaves in the file
           int leaf_count;
           file >> leaf_count;
-          stem = SorghumStemState();
-          stem.spline.Import(file);
+          state.stem = SorghumStemState();
+          state.stem.spline.Import(file);
           /*
           // Recenter plant:
           glm::vec3 posSum = stem.spline.curves.front().p0;
@@ -452,44 +454,45 @@ bool SorghumState::OnInspectImpl(int mode) {
             curve.m_p3 -= posSum;
           }
           */
-          leaves.resize(leaf_count);
+          state.leaves.resize(leaf_count);
           for (int i = 0; i < leaf_count; i++) {
             float starting_point;
             file >> starting_point;
-            leaves[i] = SorghumLeafState();
-            leaves[i].starting_point = starting_point;
-            leaves[i].spline.Import(file);
-            leaves[i].spline.curves[0].p0 = stem.spline.EvaluatePointFromCurves(starting_point);
+            state.leaves[i] = SorghumLeafState();
+            state.leaves[i].starting_point = starting_point;
+            state.leaves[i].spline.Import(file);
+            state.leaves[i].spline.curves[0].p0 = state.stem.spline.EvaluatePointFromCurves(starting_point);
           }
 
           for (int i = 0; i < leaf_count; i++) {
-            leaves[i].index = i;
+            state.leaves[i].index = i;
           }
         },
         false);
   }
   if (changed)
-    saved = false;
+    state.saved = false;
   return changed;
 }
 
-bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectSorghumState(InspectorContext& context, SorghumState& state) {
+  (void)context;
   bool changed = false;
   if (ImGui::Button("Instantiate")) {
-    const auto new_entity = CreateEntity("New Sorghum");
+    const auto new_entity = state.CreateEntity("New Sorghum");
   }
 
   static float target_waviness_factor = 1.0f;
   ImGui::DragFloat("Target leaf waviness", &target_waviness_factor, 0.01f, 0.01f, 3.0f);
   if (ImGui::Button("Create sorghum with changed waviness")) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto sorghum_entity = scene->CreateEntity(GetTitle());
+    const auto sorghum_entity = scene->CreateEntity(state.GetTitle());
     const auto sorghum = scene->GetOrSetPrivateComponent<Sorghum>(sorghum_entity).lock();
     const auto new_sorghum_state = AssetManager::CreateTemporaryAsset<SorghumState>();
     SorghumMeshGeneratorSettings settings{};
     settings.enable_leaf_sheath = false;
     settings.bottom_face = false;
-    ChangeWaviness(target_waviness_factor, settings, *new_sorghum_state);
+    state.ChangeWaviness(target_waviness_factor, settings, *new_sorghum_state);
 
     sorghum->sorghum_state = new_sorghum_state;
     if (const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>()) {
@@ -504,7 +507,7 @@ bool SorghumState::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::Combo("Mode", &state_mode, state_modes, IM_ARRAYSIZE(state_modes))) {
     changed = false;
   }
-  OnInspectImpl(state_mode);
+  DrawSorghumStateGui(state, state_mode);
   return changed;
 }
 
@@ -517,19 +520,19 @@ void SorghumState::Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghu
   }
 }
 
-void SorghumState::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "version_" << YAML::Value << version_;
-  out << YAML::Key << "name" << YAML::Value << name;
+void digital_agriculture_package::SerializeSorghumState(YAML::Emitter& out, const SorghumState& target) {
+  out << YAML::Key << "version_" << YAML::Value << target.version_;
+  out << YAML::Key << "name" << YAML::Value << target.name;
   out << YAML::Key << "panicle" << YAML::Value << YAML::BeginMap;
-  panicle.Serialize(out);
+  target.panicle.Serialize(out);
   out << YAML::EndMap;
   out << YAML::Key << "stem" << YAML::Value << YAML::BeginMap;
-  stem.Serialize(out);
+  target.stem.Serialize(out);
   out << YAML::EndMap;
 
-  if (!leaves.empty()) {
+  if (!target.leaves.empty()) {
     out << YAML::Key << "leaves" << YAML::Value << YAML::BeginSeq;
-    for (auto& i : leaves) {
+    for (auto& i : target.leaves) {
       out << YAML::BeginMap;
       i.Serialize(out);
       out << YAML::EndMap;
@@ -538,22 +541,22 @@ void SorghumState::Serialize(YAML::Emitter& out) const {
   }
 }
 
-void SorghumState::Deserialize(const YAML::Node& in) {
+void digital_agriculture_package::DeserializeSorghumState(const YAML::Node& in, SorghumState& target) {
   if (in["version_"])
-    version_ = in["version_"].as<unsigned>();
+    target.version_ = in["version_"].as<unsigned>();
   if (in["name"])
-    name = in["name"].as<std::string>();
+    target.name = in["name"].as<std::string>();
   if (in["panicle"])
-    panicle.Deserialize(in["panicle"]);
+    target.panicle.Deserialize(in["panicle"]);
 
   if (in["stem"])
-    stem.Deserialize(in["stem"]);
+    target.stem.Deserialize(in["stem"]);
 
   if (in["leaves"]) {
     for (const auto& i : in["leaves"]) {
       SorghumLeafState leaf;
       leaf.Deserialize(i);
-      leaves.push_back(leaf);
+      target.leaves.push_back(leaf);
     }
   }
 }

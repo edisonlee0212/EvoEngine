@@ -12,6 +12,8 @@ namespace evo_engine {
 class RayTracerCamera : public IPrivateComponent {
   friend class RayTracerLayer;
   friend class OptiXRayTracer;
+  friend void SerializeRayTracerCamera(YAML::Emitter& out, const RayTracerCamera& target);
+  friend void DeserializeRayTracerCamera(const YAML::Node& in, RayTracerCamera& target);
   CameraProperties camera_properties_;
   bool rendered_ = false;
   bool main_camera_ = false;
@@ -26,7 +28,7 @@ class RayTracerCamera : public IPrivateComponent {
   RayProperties ray_properties;
   glm::uvec2 frame_size;
   void Ready(const glm::vec3& position, const glm::quat& rotation);
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void SetFov(float value);
   void SetAperture(float value);
   void SetFocalLength(float value);
@@ -41,8 +43,6 @@ class RayTracerCamera : public IPrivateComponent {
   void SetDenoiserStrength(float value);
   void OnCreate() override;
   void OnDestroy() override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
   RayTracerCamera& operator=(const RayTracerCamera& source);
   void Render();
   void Render(const RayProperties& ray_properties);

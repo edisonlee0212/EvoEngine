@@ -45,36 +45,11 @@ class Sorghum final : public IPrivateComponent {
   void OnDestroy() override;
 
   /**
-   * @brief Serializes the sorghum instance to a YAML emitter.
-   *
-   * @param out The YAML emitter where the data will be serialized.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the sorghum instance from a given YAML node.
-   *
-   * @param in The YAML node containing serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
-   * @brief Handles the inspection process in the editor layer.
-   *
-   * This function allows users to modify asset properties during inspection.
-   * It returns true if the asset's content is not modified during inspection.
-   *
-   * @param editor_layer The editor layer instance.
-   * @return true if the asset's content remains unmodified, false otherwise.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
    * @brief Collects all asset references used by the sorghum instance.
    *
    * @param list The list to which asset references will be added.
    */
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  void CollectAssetRef(std::vector<AssetRef>& list);
   /**
    * \brief Get number of leaves for current sorghum.
    * \return Number of leaves.

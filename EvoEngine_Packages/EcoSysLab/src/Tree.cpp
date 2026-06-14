@@ -12,6 +12,7 @@
 #include "Application.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
 #include "Octree.hpp"
 #include "Soil.hpp"
@@ -41,7 +42,7 @@ void Tree::Reset() {
   root_visualizer.Reset(root_model);
 }
 
-bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool Tree::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Preset settings")) {
     if (ImGui::Button("Oak Trunk Crack Process")) {
@@ -90,7 +91,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 #ifdef BILLBOARD_CLOUDS_PACKAGE
   static BillboardCloud::GenerateSettings foliage_billboard_cloud_generate_settings{};
 
-  foliage_billboard_cloud_generate_settings.OnInspect("Foliage billboard cloud settings");
+  foliage_billboard_cloud_generate_settings.DrawGui("Foliage billboard cloud settings");
 
   if (ImGui::Button("Generate billboard")) {
     GenerateBillboardClouds(foliage_billboard_cloud_generate_settings);
@@ -144,7 +145,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
           }
           ImGui::TreePop();
         }
-        if (shoot_model.tree_growth_settings.OnInspect(editor_layer))
+        if (shoot_model.tree_growth_settings.DrawGui(editor_layer))
           changed = true;
 
         if (shoot_model.tree_growth_settings.use_space_colonization &&
@@ -186,7 +187,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::TreeNode("Cylindrical Mesh generation settings")) {
         ImGui::DragInt("Iterations", &mesh_generate_iterations, 1, 0, shoot_model.CurrentIteration());
         mesh_generate_iterations = glm::clamp(mesh_generate_iterations, 0, shoot_model.CurrentIteration());
-        tree_mesh_generator_settings.OnInspect(editor_layer);
+        tree_mesh_generator_settings.DrawGui(editor_layer);
 
         ImGui::TreePop();
       }
@@ -272,7 +273,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   */
 
   if (ImGui::TreeNode("Strand Model")) {
-    if (strand_model_parameters.OnInspect(editor_layer))
+    if (strand_model_parameters.DrawGui(editor_layer))
       changed = true;
 
     ImGui::Text(("Strand count: " +
@@ -292,7 +293,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
     }
 
     if (ImGui::TreeNodeEx("Strand Model Mesh Generator Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      strand_model_mesh_generator_settings.OnInspect(editor_layer);
+      strand_model_mesh_generator_settings.DrawGui(editor_layer);
       ImGui::TreePop();
     }
 
@@ -323,7 +324,7 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
 
   shoot_visualizer.Visualize(shoot_strand_model);
   if (ImGui::TreeNode("Skeletal graph settings")) {
-    if (skeletal_graph_settings.OnInspect(editor_layer))
+    if (skeletal_graph_settings.DrawGui(editor_layer))
       changed = true;
 
     ImGui::TreePop();
@@ -544,23 +545,23 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
   return shoot_grown || root_grown;
 }
 
-void Tree::Serialize(YAML::Emitter& out) const {
-  tree_descriptor_ref.Save("tree_descriptor_ref", out);
+void eco_sys_lab_package::SerializeTree(YAML::Emitter& out, const Tree& target) {
+  target.tree_descriptor_ref.Save("tree_descriptor_ref", out);
 
-  strand_model_parameters.Save("strand_model_parameters", out);
-  tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
-  shoot_strand_model.Save("shoot_strand_model", out);
-  shoot_model.Save("shoot_model", out);
+  target.strand_model_parameters.Save("strand_model_parameters", out);
+  target.tree_mesh_generator_settings.Save("tree_mesh_generator_settings", out);
+  target.shoot_strand_model.Save("shoot_strand_model", out);
+  target.shoot_model.Save("shoot_model", out);
 }
 
-void Tree::Deserialize(const YAML::Node& in) {
-  tree_descriptor_ref.Load("tree_descriptor_ref", in);
+void eco_sys_lab_package::DeserializeTree(const YAML::Node& in, Tree& target) {
+  target.tree_descriptor_ref.Load("tree_descriptor_ref", in);
 
-  strand_model_parameters.Load("strand_model_parameters", in);
-  tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
+  target.strand_model_parameters.Load("strand_model_parameters", in);
+  target.tree_mesh_generator_settings.Load("tree_mesh_generator_settings", in);
 
-  shoot_strand_model.Load("shoot_strand_model", in);
-  shoot_model.Load("shoot_model", in);
+  target.shoot_strand_model.Load("shoot_strand_model", in);
+  target.shoot_model.Load("shoot_model", in);
 }
 
 void Tree::RegisterVoxel() {

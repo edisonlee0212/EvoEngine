@@ -2,7 +2,6 @@
 #include "Application.hpp"
 
 #include "Camera.hpp"
-#include "EditorLayer.hpp"
 #include "Scene.hpp"
 #include "Times.hpp"
 using namespace evo_engine;
@@ -83,33 +82,18 @@ void PlayerController::LateUpdate() {
 
 void PlayerController::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
 }
-void PlayerController::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "velocity" << YAML::Value << velocity;
-  out << YAML::Key << "sensitivity" << YAML::Value << sensitivity;
-  out << YAML::Key << "scene_camera_yaw_angle_" << YAML::Value << scene_camera_yaw_angle_;
-  out << YAML::Key << "scene_camera_pitch_angle_" << YAML::Value << scene_camera_pitch_angle_;
+float& PlayerController::RefSceneCameraYawAngle() {
+  return scene_camera_yaw_angle_;
 }
-void PlayerController::Deserialize(const YAML::Node& in) {
-  if (in["velocity"])
-    velocity = in["velocity"].as<float>();
-  if (in["sensitivity"])
-    sensitivity = in["sensitivity"].as<float>();
-  if (in["scene_camera_yaw_angle_"])
-    scene_camera_yaw_angle_ = in["scene_camera_yaw_angle_"].as<float>();
-  if (in["scene_camera_pitch_angle_"])
-    scene_camera_pitch_angle_ = in["scene_camera_pitch_angle_"].as<float>();
+
+float& PlayerController::RefSceneCameraPitchAngle() {
+  return scene_camera_pitch_angle_;
 }
-bool PlayerController::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
 
-  if (ImGui::DragFloat("Velocity", &velocity, 0.01f))
-    changed = true;
-  if (ImGui::DragFloat("Mouse sensitivity", &sensitivity, 0.01f))
-    changed = true;
-  if (ImGui::DragFloat("Yaw angle", &scene_camera_yaw_angle_, 0.01f))
-    changed = true;
-  if (ImGui::DragFloat("Pitch angle", &scene_camera_pitch_angle_, 0.01f))
-    changed = true;
+float PlayerController::GetSceneCameraYawAngle() const {
+  return scene_camera_yaw_angle_;
+}
 
-  return changed;
+float PlayerController::GetSceneCameraPitchAngle() const {
+  return scene_camera_pitch_angle_;
 }

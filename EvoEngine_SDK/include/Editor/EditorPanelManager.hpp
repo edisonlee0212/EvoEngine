@@ -26,7 +26,7 @@ class EditorPanelManager {
   void UnregisterSettingsHandler();
   void DrawMenuItems(EditorPanelCategory category);
   void ResetPanelOpenStatesToDefaults();
-  void OnInspect(EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer);
+  void Draw(EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer);
 
  private:
   struct PanelRecord {

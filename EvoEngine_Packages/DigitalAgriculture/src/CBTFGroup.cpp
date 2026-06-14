@@ -4,12 +4,16 @@
 
 #include "CBTFGroup.hpp"
 
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "BtfMaterial.hpp"
 #endif
 
 using namespace digital_agriculture_package;
-bool CBTFGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool digital_agriculture_package::InspectCBTFGroup(InspectorContext& context, CBTFGroup& group) {
+  const auto& editor_layer = context.editor_layer;
+  auto& btfs = group.btfs;
   bool changed = false;
 #ifdef CUDA_MODULE_SERVICE
   static AssetRef temp;
@@ -36,10 +40,11 @@ void CBTFGroup::CollectAssetRef(std::vector<AssetRef>& list) {
   for (const auto& i : btfs)
     list.push_back(i);
 }
-void CBTFGroup::Serialize(YAML::Emitter& out) const {
-  if (!btfs.empty()) {
+#ifdef CUDA_MODULE_SERVICE
+void digital_agriculture_package::SerializeCBTFGroup(YAML::Emitter& out, const CBTFGroup& target) {
+  if (!target.btfs.empty()) {
     out << YAML::Key << "btfs" << YAML::Value << YAML::BeginSeq;
-    for (auto& c_btf : btfs) {
+    for (auto& c_btf : target.btfs) {
       out << YAML::BeginMap;
       c_btf.Serialize(out);
       out << YAML::EndMap;
@@ -47,16 +52,15 @@ void CBTFGroup::Serialize(YAML::Emitter& out) const {
     out << YAML::EndSeq;
   }
 }
-void CBTFGroup::Deserialize(const YAML::Node& in) {
+void digital_agriculture_package::DeserializeCBTFGroup(const YAML::Node& in, CBTFGroup& target) {
   if (auto in_cbt_fs = in["btfs"]) {
     for (const auto& i : in_cbt_fs) {
       AssetRef ref;
       ref.Deserialize(i);
-      btfs.emplace_back(ref);
+      target.btfs.emplace_back(ref);
     }
   }
 }
-#ifdef CUDA_MODULE_SERVICE
 std::shared_ptr<BtfMaterial> CBTFGroup::GetRandom() {
   if (!btfs.empty()) {
     return btfs[glm::linearRand(0, static_cast<int>(btfs.size()) - 1)].Get<BtfMaterial>();

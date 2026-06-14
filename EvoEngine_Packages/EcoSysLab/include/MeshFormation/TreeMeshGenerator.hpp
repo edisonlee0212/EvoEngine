@@ -133,7 +133,7 @@ struct TreeMeshGeneratorSettings {
    * @brief Inspects the tree mesh generator settings.
    * @param editor_layer The editor layer requesting the inspection.
    */
-  void OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Saves the settings to YAML format.

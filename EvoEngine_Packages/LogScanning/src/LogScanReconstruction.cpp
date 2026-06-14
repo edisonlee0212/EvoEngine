@@ -1,20 +1,23 @@
 #include "LogScanReconstruction.hpp"
 
+#include "LogScanningInspectionAdapters.hpp"
+
 using namespace log_scanning_package;
 
-bool LogScanReconstruction::ReconstructionParameter::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool log_scanning_package::DrawLogScanReconstructionParameterGui(
+    LogScanReconstruction::ReconstructionParameter& parameter) {
   bool changed = false;
 
-  if (ImGui::DragFloat("Outlier discard", &boundary_outlier_percentage, 0.01f, 0.0f, 0.5f)) {
+  if (ImGui::DragFloat("Outlier discard", &parameter.boundary_outlier_percentage, 0.01f, 0.0f, 0.5f)) {
     changed = true;
   }
-  if (ImGui::DragFloat("Tie width", &tie_width_inch, 0.01f, 1.f, 10.f)) {
+  if (ImGui::DragFloat("Tie width", &parameter.tie_width_inch, 0.01f, 1.f, 10.f)) {
     changed = true;
   }
-  if (ImGui::DragFloat("Tie height", &tie_height_inch, 0.01f, 1.f, 10.f)) {
+  if (ImGui::DragFloat("Tie height", &parameter.tie_height_inch, 0.01f, 1.f, 10.f)) {
     changed = true;
   }
-  if (ImGui::DragFloat("Max split depth", &max_split_depth_detection_inch, 0.01f, 0.0f, 4.f)) {
+  if (ImGui::DragFloat("Max split depth", &parameter.max_split_depth_detection_inch, 0.01f, 0.0f, 4.f)) {
     changed = true;
   }
   return changed;

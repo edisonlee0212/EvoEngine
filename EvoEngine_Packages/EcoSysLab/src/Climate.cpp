@@ -1,4 +1,5 @@
 #include "Climate.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 #include "AssetManager.hpp"
 #include "EcoSysLabLayer.hpp"
@@ -7,7 +8,7 @@
 
 using namespace eco_sys_lab_package;
 
-bool ClimateDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool ClimateDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Button("Instantiate")) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
@@ -28,13 +29,13 @@ std::shared_ptr<Texture2D> ClimateDescriptor::GenerateThumbnailTexture() {
   return thumbnail;
 }
 
-void ClimateDescriptor::Serialize(YAML::Emitter& out) const {
+void eco_sys_lab_package::SerializeClimateDescriptor(YAML::Emitter& out, const ClimateDescriptor& target) {
 }
 
-void ClimateDescriptor::Deserialize(const YAML::Node& in) {
+void eco_sys_lab_package::DeserializeClimateDescriptor(const YAML::Node& in, ClimateDescriptor& target) {
 }
 
-bool Climate::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool Climate::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<ClimateDescriptor>(climate_descriptor_ref, "ClimateDescriptor", true)) {
     InitializeClimateModel();
@@ -46,8 +47,8 @@ bool Climate::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   return changed;
 }
 
-void Climate::Serialize(YAML::Emitter& out) const {
-  climate_descriptor_ref.Save("climate_descriptor_ref", out);
+void eco_sys_lab_package::SerializeClimate(YAML::Emitter& out, const Climate& target) {
+  target.climate_descriptor_ref.Save("climate_descriptor_ref", out);
 }
 
 void Climate::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -55,7 +56,7 @@ void Climate::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
 void Climate::InitializeClimateModel() {
-  if (const auto climate_descriptor = this->climate_descriptor_ref.Get<ClimateDescriptor>()) {
+  if (const auto climate_descriptor = climate_descriptor_ref.Get<ClimateDescriptor>()) {
     const auto params = climate_descriptor->climate_parameters;
     climate_model.Initialize(params);
   }
@@ -100,6 +101,6 @@ void Climate::PrepareForGrowth() {
   estimator.LightPropagation(eco_sys_lab_layer->simulation_settings);
 }
 
-void Climate::Deserialize(const YAML::Node& in) {
-  climate_descriptor_ref.Load("climate_descriptor_ref", in);
+void eco_sys_lab_package::DeserializeClimate(const YAML::Node& in, Climate& target) {
+  target.climate_descriptor_ref.Load("climate_descriptor_ref", in);
 }

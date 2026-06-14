@@ -166,33 +166,11 @@ class SorghumGrowthStages : public IAsset {
   void Apply(const std::shared_ptr<SorghumDescriptor>& target_sorghum_descriptor, float time) const;
 
   /**
-   * @brief Inspects this asset in the editor.
-   *
-   * @param editor_layer The editor layer that is inspecting this asset.
-   * @return True if the asset's content was not modified.
-   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-  /**
-   * @brief Serializes this object to YAML.
-   *
-   * @param out The YAML emitter where data is serialized.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes this object from YAML.
-   *
-   * @param in The YAML node containing the serialized data.
-   */
-  void Deserialize(const YAML::Node& in) override;
-
-  /**
    * @brief Generates a texture for the thumbnail representation of the sorghum model.
    *
    * @return A shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture() override;
+  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Creates an entity representing the sorghum at a specific time.

@@ -29,10 +29,6 @@ class LSystemDescriptor : public evo_engine::IAsset {
   float default_length = 1.0f;                     ///< Default internode length.
   float default_thickness = 0.1f;                  ///< Default internode thickness.
   bool auto_derive_on_change = true;               ///< Re-derive when parameters change in editor.
-
-  bool OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 };
 
 }  // namespace l_system_package

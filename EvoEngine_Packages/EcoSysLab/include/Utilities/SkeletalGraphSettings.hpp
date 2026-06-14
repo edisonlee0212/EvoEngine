@@ -25,7 +25,7 @@ struct SkeletalGraphSettings {
   /**
    * @brief Handles inspection of graphical settings in the editor.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Saves to a YAML emitter.

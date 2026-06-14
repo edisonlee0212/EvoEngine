@@ -4,7 +4,7 @@
 #include <Times.hpp>
 using namespace eco_sys_lab_package;
 
-bool Physics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool Physics2DDemo::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   static bool enable_render = true;
   if (ImGui::Button("Reset")) {
@@ -25,7 +25,7 @@ bool Physics2DDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) 
   if (enable_render) {
     const std::string tag = "Physics2D Scene [" + std::to_string(GetOwner().GetIndex()) + "]";
     if (ImGui::Begin(tag.c_str())) {
-      physics_2d_.OnInspect(
+      physics_2d_.DrawGui(
           [&](glm::vec2 position) {
             const auto rigid_body_handle = physics_2d_.AllocateRigidBody();
             auto& particle = physics_2d_.RefRigidBody(rigid_body_handle);
