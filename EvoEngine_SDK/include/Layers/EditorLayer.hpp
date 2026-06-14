@@ -829,12 +829,15 @@ class EditorLayer : public ILayer {
   /**
    * @brief Draws the root ImGui dockspace for the editor.
    */
-  void DrawDockspace();
+  void DrawDockspace(float top_offset);
 
   /**
    * @brief Draws the editor menu bar.
    */
   void DrawMainMenuBar();
+  void DrawCustomTitleBar();
+  void DrawMainMenuItems();
+  void DrawPlayControls();
   void RequestDefaultEditorLayout();
 
   void UpdateCameraTransition();

@@ -118,6 +118,7 @@ int main(const int argc, char** argv) {
     application_info.application_name = launch_metadata.application_name;
     application_info.default_window_size = {1920, 1080};
     application_info.project_path = *project_path;
+    application_info.use_custom_title_bar = true;
     application_info.startup_runtime_packages = launch_metadata.startup_runtime_packages;
     application_info.enable_runtime_packages = !application_info.startup_runtime_packages.empty();
     ApplicationContext::Get().Initialize(application_info);

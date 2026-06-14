@@ -1,5 +1,7 @@
 
 #pragma once
+#include <cstdint>
+#include <optional>
 #include "ILayer.hpp"
 
 namespace evo_engine {
@@ -47,6 +49,12 @@ class WindowLayer final : public ILayer {
    * @brief Size of the window in pixels.
    */
   glm::ivec2 window_size_ = {1, 1};
+
+  bool custom_title_bar_ = false;
+  bool has_title_bar_drag_region_ = false;
+  glm::vec4 title_bar_drag_region_ = glm::vec4(0.0f);
+  void* native_window_handle_ = nullptr;
+  intptr_t default_window_proc_ = 0;
 #pragma endregion
 
   /**
@@ -90,6 +98,10 @@ class WindowLayer final : public ILayer {
    */
   void OnDestroy() override;
 
+  void InstallCustomTitleBar();
+  void UninstallCustomTitleBar();
+  [[nodiscard]] std::optional<intptr_t> HitTestCustomTitleBar(void* native_window_handle, intptr_t l_param) const;
+
   /**
    * @brief Executes rendering of the window content.
    */
@@ -102,6 +114,21 @@ class WindowLayer final : public ILayer {
    * @return A pointer to the GLFWwindow object.
    */
   [[nodiscard]] GLFWwindow* GetGlfwWindow() const;
+
+  [[nodiscard]] bool UsesCustomTitleBar() const;
+
+  [[nodiscard]] bool IsWindowMaximized() const;
+
+  intptr_t HandleNativeWindowMessage(void* native_window_handle, unsigned int message, uintptr_t w_param,
+                                     intptr_t l_param) const;
+
+  void MinimizeWindow() const;
+
+  void ToggleMaximized() const;
+
+  void SetCustomTitleBarDragRegion(const glm::vec4& region);
+
+  void ClearCustomTitleBarDragRegion();
 
   /**
    * @brief Resizes the GLFW window to the specified dimensions.

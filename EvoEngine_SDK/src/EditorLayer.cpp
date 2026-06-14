@@ -37,6 +37,9 @@ using namespace evo_engine;
 
 namespace {
 constexpr size_t kMaxRuntimePackageBuildOutputSize = 128 * 1024;
+constexpr float kCustomTitleBarHeight = 34.0f;
+constexpr float kWindowControlWidth = 46.0f;
+constexpr float kWindowControlHeight = 32.0f;
 const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
 
 class CallbackEditorPanel final : public EditorPanel {
@@ -90,6 +93,17 @@ ImVec4 WarningTextColor() {
 
 ImVec4 ErrorTextColor() {
   return UsesLightBackground() ? ImVec4(0.74f, 0.13f, 0.13f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
+}
+
+bool WindowControlButton(const char* label, const bool close_button) {
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, close_button ? ImVec4(0.75f, 0.12f, 0.12f, 1.0f)
+                                                             : ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, close_button ? ImVec4(0.62f, 0.08f, 0.08f, 1.0f)
+                                                            : ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+  const bool clicked = ImGui::Button(label, ImVec2(kWindowControlWidth, kWindowControlHeight));
+  ImGui::PopStyleColor(3);
+  return clicked;
 }
 
 void AppendCappedOutput(std::string& output, const char* data, const size_t size) {
@@ -561,8 +575,14 @@ void EditorLayer::OnDestroy() {
 }
 
 void EditorLayer::PreUpdate() {
-  DrawDockspace();
-  DrawMainMenuBar();
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+  const bool use_custom_title_bar = window_layer && window_layer->UsesCustomTitleBar();
+  DrawDockspace(use_custom_title_bar ? kCustomTitleBarHeight : 0.0f);
+  if (use_custom_title_bar) {
+    DrawCustomTitleBar();
+  } else {
+    DrawMainMenuBar();
+  }
 
   const auto scene = ApplicationContext::Get().GetActiveScene();
   UpdateCameraTransition();
@@ -1594,98 +1614,159 @@ void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& ed
 void EditorLayer::DrawMainMenuBar() {
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
   if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("Application")) {
-      if (ImGui::MenuItem("Exit")) {
+    DrawMainMenuItems();
+    DrawPlayControls();
+    ImGui::EndMainMenuBar();
+  }
+  ImGui::PopStyleVar();
+}
+
+void EditorLayer::DrawCustomTitleBar() {
+  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+  if (!window_layer) {
+    return;
+  }
+
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->Pos);
+  ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, kCustomTitleBarHeight));
+  ImGui::SetNextWindowViewport(viewport->ID);
+  constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
+                                     ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar;
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 5.0f));
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+  if (ImGui::Begin("Editor Custom Title Bar", nullptr, flags)) {
+    if (ImGui::BeginMenuBar()) {
+      const auto& application_name = ApplicationContext::Get().GetApplicationInfo().application_name;
+      ImGui::TextUnformatted(application_name.c_str());
+      ImGui::SameLine();
+      DrawMainMenuItems();
+      DrawPlayControls();
+
+      const float controls_width = kWindowControlWidth * 3.0f;
+      const float drag_start_x = ImGui::GetCursorPosX();
+      const float controls_x = std::max(drag_start_x, ImGui::GetWindowWidth() - controls_width);
+      const float drag_width = controls_x - drag_start_x;
+      if (drag_width > 0.0f) {
+        window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
+        ImGui::Dummy(ImVec2(drag_width, 1.0f));
+        ImGui::SameLine(0.0f, 0.0f);
+      } else {
+        window_layer->ClearCustomTitleBarDragRegion();
+      }
+
+      ImGui::SetCursorPosX(controls_x);
+      if (WindowControlButton("-##EditorMinimize", false)) {
+        window_layer->MinimizeWindow();
+      }
+      ImGui::SameLine(0.0f, 0.0f);
+      if (WindowControlButton(window_layer->IsWindowMaximized() ? "[]##EditorRestore" : "[ ]##EditorMaximize", false)) {
+        window_layer->ToggleMaximized();
+      }
+      ImGui::SameLine(0.0f, 0.0f);
+      if (WindowControlButton("X##EditorClose", true)) {
         ApplicationContext::Get().End();
       }
-      ImGui::EndMenu();
+      ImGui::EndMenuBar();
     }
-    if (ImGui::BeginMenu("View")) {
-      editor_panel_manager_.DrawMenuItems(EditorPanelCategory::View);
-      ImGui::Separator();
-      if (ImGui::BeginMenu("Theme")) {
-        DrawThemeMenuItems();
-        ImGui::EndMenu();
-      }
-      if (ImGui::BeginMenu("Layouts")) {
-        if (ImGui::MenuItem("Reset Default Layout")) {
-          RequestDefaultEditorLayout();
-        }
-        ImGui::EndMenu();
-      }
-      if (ImGui::BeginMenu("Layer Inspection")) {
-        for (const auto& layer : ApplicationContext::Get().GetLayers()) {
-          ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
-        }
-        ImGui::EndMenu();
-      }
-      ImGui::EndMenu();
-    }
-    ProjectManager::DrawProjectMenu();
+  }
+  ImGui::End();
+  ImGui::PopStyleColor();
+  ImGui::PopStyleVar(4);
+}
 
-    if (show_play_buttons) {
-      ImGui::Separator();
-      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
-      switch (ApplicationContext::Get().GetApplicationStatus()) {
-        case Application::ExecutionStatus::NotPlaying: {
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
-          if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Play();
-          }
-          if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Step();
-          }
-          ImGui::PopID();
-          ImGui::PopID();
-          break;
-        }
-        case Application::ExecutionStatus::Playing: {
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PauseButton"]->GetImTextureId());
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
-          if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Pause();
-          }
-          if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Stop();
-          }
-          ImGui::PopID();
-          ImGui::PopID();
-          break;
-        }
-        case Application::ExecutionStatus::Pause: {
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
-          ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
-          if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Play();
-          }
-          if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Step();
-          }
-          if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1},
-                                 {1, 0})) {
-            ApplicationContext::Get().Stop();
-          }
-          ImGui::PopID();
-          ImGui::PopID();
-          ImGui::PopID();
-          break;
-        }
-        case Application::ExecutionStatus::Uninitialized:
-        case Application::ExecutionStatus::Step:
-        case Application::ExecutionStatus::OnDestroy:
-          break;
-      }
-      ImGui::PopStyleVar();
+void EditorLayer::DrawMainMenuItems() {
+  if (ImGui::BeginMenu("Application")) {
+    if (ImGui::MenuItem("Exit")) {
+      ApplicationContext::Get().End();
     }
-    ImGui::EndMainMenuBar();
+    ImGui::EndMenu();
+  }
+  if (ImGui::BeginMenu("View")) {
+    editor_panel_manager_.DrawMenuItems(EditorPanelCategory::View);
+    ImGui::Separator();
+    if (ImGui::BeginMenu("Theme")) {
+      DrawThemeMenuItems();
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Layouts")) {
+      if (ImGui::MenuItem("Reset Default Layout")) {
+        RequestDefaultEditorLayout();
+      }
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Layer Inspection")) {
+      for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+        ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
+      }
+      ImGui::EndMenu();
+    }
+    ImGui::EndMenu();
+  }
+  ProjectManager::DrawProjectMenu();
+}
+
+void EditorLayer::DrawPlayControls() {
+  if (!show_play_buttons) {
+    return;
+  }
+  ImGui::Separator();
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+  switch (ApplicationContext::Get().GetApplicationStatus()) {
+    case Application::ExecutionStatus::NotPlaying: {
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
+      if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Play();
+      }
+      if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Step();
+      }
+      ImGui::PopID();
+      ImGui::PopID();
+      break;
+    }
+    case Application::ExecutionStatus::Playing: {
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PauseButton"]->GetImTextureId());
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
+      if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Pause();
+      }
+      if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Stop();
+      }
+      ImGui::PopID();
+      ImGui::PopID();
+      break;
+    }
+    case Application::ExecutionStatus::Pause: {
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
+      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
+      if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Play();
+      }
+      if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Step();
+      }
+      if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+        ApplicationContext::Get().Stop();
+      }
+      ImGui::PopID();
+      ImGui::PopID();
+      ImGui::PopID();
+      break;
+    }
+    case Application::ExecutionStatus::Uninitialized:
+    case Application::ExecutionStatus::Step:
+    case Application::ExecutionStatus::OnDestroy:
+      break;
   }
   ImGui::PopStyleVar();
 }
@@ -1695,7 +1776,7 @@ void EditorLayer::RequestDefaultEditorLayout() {
   dock_layout_reset_pending_ = true;
 }
 
-void EditorLayer::DrawDockspace() {
+void EditorLayer::DrawDockspace(const float top_offset) {
 #pragma region Dock
   static bool opt_fullscreen_persistent = true;
   const bool opt_fullscreen = opt_fullscreen_persistent;
@@ -1706,8 +1787,11 @@ void EditorLayer::DrawDockspace() {
   ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   if (opt_fullscreen) {
-    ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(viewport->WorkSize);
+    const ImVec2 pos = top_offset > 0.0f ? ImVec2(viewport->Pos.x, viewport->Pos.y + top_offset) : viewport->WorkPos;
+    const ImVec2 size = top_offset > 0.0f ? ImVec2(viewport->Size.x, std::max(1.0f, viewport->Size.y - top_offset))
+                                          : viewport->WorkSize;
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowViewport(viewport->ID);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);

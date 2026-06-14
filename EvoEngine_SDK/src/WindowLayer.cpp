@@ -6,7 +6,32 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#ifdef EVOENGINE_WINDOWS
+#  ifndef GLFW_EXPOSE_NATIVE_WIN32
+#    define GLFW_EXPOSE_NATIVE_WIN32
+#  endif
+#  include <windowsx.h>
+#  include "GLFW/glfw3native.h"
+#endif
 using namespace evo_engine;
+
+#ifdef EVOENGINE_WINDOWS
+namespace {
+constexpr wchar_t kWindowLayerProperty[] = L"EvoEngineWindowLayer";
+
+bool Contains(const glm::vec4& region, const POINT& point) {
+  return point.x >= region.x && point.x < region.x + region.z && point.y >= region.y && point.y < region.y + region.w;
+}
+
+LRESULT CALLBACK CustomTitleBarWindowProc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param) {
+  const auto window_layer = static_cast<WindowLayer*>(GetPropW(hwnd, kWindowLayerProperty));
+  if (window_layer) {
+    return window_layer->HandleNativeWindowMessage(hwnd, message, w_param, l_param);
+  }
+  return DefWindowProcW(hwnd, message, w_param, l_param);
+}
+}  // namespace
+#endif
 
 void WindowLayer::FramebufferSizeCallback(GLFWwindow* window, int width, int height) {
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>(); window_layer->window_ == window) {
@@ -49,9 +74,123 @@ void WindowLayer::OnCreate() {
 
 void WindowLayer::OnDestroy() {
 #pragma region Windows
+  UninstallCustomTitleBar();
   glfwDestroyWindow(window_);
   glfwTerminate();
 #pragma endregion
+}
+
+void WindowLayer::InstallCustomTitleBar() {
+#ifdef EVOENGINE_WINDOWS
+  if (!custom_title_bar_ || !window_) {
+    return;
+  }
+  const auto hwnd = glfwGetWin32Window(window_);
+  native_window_handle_ = hwnd;
+  auto style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+  style &= ~(WS_CAPTION | WS_POPUP);
+  style |= WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+  SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+  SetPropW(hwnd, kWindowLayerProperty, this);
+  default_window_proc_ = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc));
+  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+#endif
+}
+
+void WindowLayer::UninstallCustomTitleBar() {
+#ifdef EVOENGINE_WINDOWS
+  const auto hwnd = static_cast<HWND>(native_window_handle_);
+  if (!hwnd) {
+    return;
+  }
+  if (default_window_proc_ &&
+      GetWindowLongPtrW(hwnd, GWLP_WNDPROC) == reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc)) {
+    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, default_window_proc_);
+  }
+  RemovePropW(hwnd, kWindowLayerProperty);
+#endif
+  native_window_handle_ = nullptr;
+  default_window_proc_ = 0;
+  has_title_bar_drag_region_ = false;
+}
+
+std::optional<intptr_t> WindowLayer::HitTestCustomTitleBar(void* native_window_handle, const intptr_t l_param) const {
+#ifdef EVOENGINE_WINDOWS
+  if (!custom_title_bar_) {
+    return {};
+  }
+  const auto hwnd = static_cast<HWND>(native_window_handle);
+  POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+  const bool maximized = IsZoomed(hwnd);
+  RECT window_rect{};
+  GetWindowRect(hwnd, &window_rect);
+
+  if (!maximized) {
+    const int resize_border = std::max(6, GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER));
+    const int x = point.x - window_rect.left;
+    const int y = point.y - window_rect.top;
+    const int width = window_rect.right - window_rect.left;
+    const int height = window_rect.bottom - window_rect.top;
+    const bool left = x < resize_border;
+    const bool right = x >= width - resize_border;
+    const bool top = y < resize_border;
+    const bool bottom = y >= height - resize_border;
+
+    if (top && left)
+      return HTTOPLEFT;
+    if (top && right)
+      return HTTOPRIGHT;
+    if (bottom && left)
+      return HTBOTTOMLEFT;
+    if (bottom && right)
+      return HTBOTTOMRIGHT;
+    if (top)
+      return HTTOP;
+    if (bottom)
+      return HTBOTTOM;
+    if (left)
+      return HTLEFT;
+    if (right)
+      return HTRIGHT;
+  }
+
+  ScreenToClient(hwnd, &point);
+  if (has_title_bar_drag_region_ && Contains(title_bar_drag_region_, point)) {
+    return HTCAPTION;
+  }
+#endif
+  return {};
+}
+
+intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, const unsigned int message,
+                                                const uintptr_t w_param, const intptr_t l_param) const {
+#ifdef EVOENGINE_WINDOWS
+  const auto hwnd = static_cast<HWND>(native_window_handle);
+  switch (message) {
+    case WM_NCCALCSIZE:
+      if (w_param == TRUE && IsZoomed(hwnd)) {
+        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param);
+        MONITORINFO monitor_info{sizeof(monitor_info)};
+        GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor_info);
+        params->rgrc[0] = monitor_info.rcWork;
+        return 0;
+      }
+      break;
+    case WM_NCHITTEST:
+      if (const auto hit = HitTestCustomTitleBar(hwnd, l_param)) {
+        return *hit;
+      }
+      break;
+    default:
+      break;
+  }
+  if (default_window_proc_) {
+    return CallWindowProcW(reinterpret_cast<WNDPROC>(default_window_proc_), hwnd, message, w_param, l_param);
+  }
+  return DefWindowProcW(hwnd, message, w_param, l_param);
+#else
+  return 0;
+#endif
 }
 
 void WindowLayer::Render() {
@@ -171,6 +310,35 @@ void WindowLayer::Render() {
 
 GLFWwindow* WindowLayer::GetGlfwWindow() const {
   return window_;
+}
+
+bool WindowLayer::UsesCustomTitleBar() const {
+  return custom_title_bar_;
+}
+
+bool WindowLayer::IsWindowMaximized() const {
+  return window_ && glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
+}
+
+void WindowLayer::MinimizeWindow() const {
+  glfwIconifyWindow(window_);
+}
+
+void WindowLayer::ToggleMaximized() const {
+  if (IsWindowMaximized()) {
+    glfwRestoreWindow(window_);
+  } else {
+    glfwMaximizeWindow(window_);
+  }
+}
+
+void WindowLayer::SetCustomTitleBarDragRegion(const glm::vec4& region) {
+  title_bar_drag_region_ = region;
+  has_title_bar_drag_region_ = region.z > 0.0f && region.w > 0.0f;
+}
+
+void WindowLayer::ClearCustomTitleBarDragRegion() {
+  has_title_bar_drag_region_ = false;
 }
 
 void WindowLayer::ResizeWindow(int x, int y) const {

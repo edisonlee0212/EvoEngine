@@ -127,6 +127,20 @@ constexpr const char* kRecentProjectsWindow = "Recent Projects";
 constexpr const char* kTemplateWindow = "Choose Template";
 constexpr const char* kAvailablePackagesWindow = "Available Packages";
 constexpr const char* kProjectDetailsWindow = "Project Details";
+constexpr float kCustomTitleBarHeight = 34.0f;
+constexpr float kWindowControlWidth = 46.0f;
+constexpr float kWindowControlHeight = 32.0f;
+
+bool WindowControlButton(const char* label, const bool close_button) {
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, close_button ? ImVec4(0.75f, 0.12f, 0.12f, 1.0f)
+                                                             : ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, close_button ? ImVec4(0.62f, 0.08f, 0.08f, 1.0f)
+                                                            : ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+  const bool clicked = ImGui::Button(label, ImVec2(kWindowControlWidth, kWindowControlHeight));
+  ImGui::PopStyleColor(3);
+  return clicked;
+}
 
 std::filesystem::path EditorExecutablePath() {
 #ifdef EVOENGINE_WINDOWS
@@ -213,8 +227,14 @@ class LauncherLayer final : public ILayer {
       OpenProject(project_path);
       return;
     }
-    DrawMainMenuBar();
-    DrawWorkspace();
+    const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+    if (window_layer && window_layer->UsesCustomTitleBar()) {
+      DrawWorkspace(kCustomTitleBarHeight);
+      DrawCustomTitleBar();
+    } else {
+      DrawMainMenuBar();
+      DrawWorkspace(0.0f);
+    }
   }
 
  private:
@@ -233,28 +253,94 @@ class LauncherLayer final : public ILayer {
   void DrawMainMenuBar() {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
     if (ImGui::BeginMainMenuBar()) {
-      if (ImGui::BeginMenu("Project")) {
-        if (ImGui::MenuItem("Exit")) {
-          ApplicationContext::Get().End();
-        }
-        ImGui::EndMenu();
-      }
-      if (ImGui::BeginMenu("View")) {
-        if (ImGui::BeginMenu("Theme")) {
-          DrawThemeMenuItems();
-          ImGui::EndMenu();
-        }
-        ImGui::EndMenu();
-      }
+      DrawMainMenuItems();
       ImGui::EndMainMenuBar();
     }
     ImGui::PopStyleVar();
   }
 
-  void DrawWorkspace() {
+  void DrawCustomTitleBar() {
+    const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+    if (!window_layer) {
+      return;
+    }
+
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, kCustomTitleBarHeight));
+    ImGui::SetNextWindowViewport(viewport->ID);
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
+                                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 5.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+    if (ImGui::Begin("Launcher Custom Title Bar", nullptr, flags)) {
+      if (ImGui::BeginMenuBar()) {
+        ImGui::TextUnformatted("EvoEngine Launcher");
+        ImGui::SameLine();
+        DrawMainMenuItems();
+
+        const float controls_width = kWindowControlWidth * 3.0f;
+        const float drag_start_x = ImGui::GetCursorPosX();
+        const float controls_x = std::max(drag_start_x, ImGui::GetWindowWidth() - controls_width);
+        const float drag_width = controls_x - drag_start_x;
+        if (drag_width > 0.0f) {
+          window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
+          ImGui::Dummy(ImVec2(drag_width, 1.0f));
+          ImGui::SameLine(0.0f, 0.0f);
+        } else {
+          window_layer->ClearCustomTitleBarDragRegion();
+        }
+
+        ImGui::SetCursorPosX(controls_x);
+        if (WindowControlButton("-##LauncherMinimize", false)) {
+          window_layer->MinimizeWindow();
+        }
+        ImGui::SameLine(0.0f, 0.0f);
+        if (WindowControlButton(window_layer->IsWindowMaximized() ? "[]##LauncherRestore" : "[ ]##LauncherMaximize",
+                                false)) {
+          window_layer->ToggleMaximized();
+        }
+        ImGui::SameLine(0.0f, 0.0f);
+        if (WindowControlButton("X##LauncherClose", true)) {
+          ApplicationContext::Get().End();
+        }
+        ImGui::EndMenuBar();
+      }
+    }
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(4);
+  }
+
+  void DrawMainMenuItems() {
+    if (ImGui::BeginMenu("Project")) {
+      if (ImGui::MenuItem("Exit")) {
+        ApplicationContext::Get().End();
+      }
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("View")) {
+      if (ImGui::BeginMenu("Theme")) {
+        DrawThemeMenuItems();
+        ImGui::EndMenu();
+      }
+      ImGui::EndMenu();
+    }
+  }
+
+  void DrawWorkspace(const float top_offset) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 pos = top_offset > 0.0f ? ImVec2(viewport->Pos.x, viewport->Pos.y + top_offset) : viewport->WorkPos;
+    const ImVec2 size = top_offset > 0.0f ? ImVec2(viewport->Size.x, std::max(1.0f, viewport->Size.y - top_offset))
+                                          : viewport->WorkSize;
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowViewport(viewport->ID);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -739,6 +825,7 @@ int main() {
     ApplicationInitializationSettings application_info{};
     application_info.application_name = "EvoEngine Launcher";
     application_info.allow_empty_project = true;
+    application_info.use_custom_title_bar = true;
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

@@ -49,6 +49,7 @@ struct ApplicationInitializationSettings {
   bool enable_docking = true;                    /**< Whether to enable docking in the application. */
   bool enable_viewport = true;                   /**< Whether to enable the viewport feature. */
   bool full_screen = false;                      /**< Whether the application starts in full-screen mode. */
+  bool use_custom_title_bar = false;             /**< Whether supported platforms should use app-rendered chrome. */
   bool load_default_resources = true;            /**< Whether to load built-in default rendering resources. */
   bool load_project_assets = true;               /**< Whether project open should load all discovered project assets. */
   bool load_project_start_scene = true;          /**< Whether project open should load/create and attach a scene. */
