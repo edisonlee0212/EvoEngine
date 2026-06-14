@@ -18,9 +18,27 @@ using namespace evo_engine;
 #ifdef EVOENGINE_WINDOWS
 namespace {
 constexpr wchar_t kWindowLayerProperty[] = L"EvoEngineWindowLayer";
+constexpr DWORD kDwmWindowCornerPreference = 33;
+constexpr DWORD kDwmWindowCornerDefault = 0;
+constexpr DWORD kDwmWindowCornerRound = 2;
 
 bool Contains(const glm::vec4& region, const POINT& point) {
   return point.x >= region.x && point.x < region.x + region.z && point.y >= region.y && point.y < region.y + region.w;
+}
+
+void SetWindowCornerPreference(HWND hwnd, const DWORD preference) {
+  using DwmSetWindowAttributeFunc = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+  const HMODULE dwmapi = LoadLibraryW(L"dwmapi.dll");
+  if (!dwmapi) {
+    return;
+  }
+
+  const auto set_window_attribute =
+      reinterpret_cast<DwmSetWindowAttributeFunc>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
+  if (set_window_attribute) {
+    set_window_attribute(hwnd, kDwmWindowCornerPreference, &preference, sizeof(preference));
+  }
+  FreeLibrary(dwmapi);
 }
 
 LRESULT CALLBACK CustomTitleBarWindowProc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param) {
@@ -94,6 +112,7 @@ void WindowLayer::InstallCustomTitleBar() {
   SetPropW(hwnd, kWindowLayerProperty, this);
   default_window_proc_ = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc));
   SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  SetWindowCornerPreference(hwnd, kDwmWindowCornerRound);
 #endif
 }
 
@@ -107,6 +126,7 @@ void WindowLayer::UninstallCustomTitleBar() {
       GetWindowLongPtrW(hwnd, GWLP_WNDPROC) == reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc)) {
     SetWindowLongPtrW(hwnd, GWLP_WNDPROC, default_window_proc_);
   }
+  SetWindowCornerPreference(hwnd, kDwmWindowCornerDefault);
   RemovePropW(hwnd, kWindowLayerProperty);
 #endif
   native_window_handle_ = nullptr;
@@ -168,11 +188,13 @@ intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, cons
   const auto hwnd = static_cast<HWND>(native_window_handle);
   switch (message) {
     case WM_NCCALCSIZE:
-      if (w_param == TRUE && IsZoomed(hwnd)) {
+      if (w_param == TRUE) {
         auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param);
-        MONITORINFO monitor_info{sizeof(monitor_info)};
-        GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor_info);
-        params->rgrc[0] = monitor_info.rcWork;
+        if (IsZoomed(hwnd)) {
+          MONITORINFO monitor_info{sizeof(monitor_info)};
+          GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor_info);
+          params->rgrc[0] = monitor_info.rcWork;
+        }
         return 0;
       }
       break;

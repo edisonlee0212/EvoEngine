@@ -37,9 +37,26 @@ using namespace evo_engine;
 
 namespace {
 constexpr size_t kMaxRuntimePackageBuildOutputSize = 128 * 1024;
-constexpr float kCustomTitleBarHeight = 34.0f;
-constexpr float kWindowControlWidth = 46.0f;
-constexpr float kWindowControlHeight = 32.0f;
+constexpr float kCustomTitleBarHeight = 57.0f;
+constexpr float kTitleBarMenuY = 4.0f;
+constexpr float kTitleBarTextY = 8.0f;
+constexpr float kTitleBarLogoSize = 38.0f;
+constexpr float kTitleBarLogoX = 10.0f;
+constexpr float kTitleBarMenuX = 61.0f;
+constexpr float kTitleBarButtonsAreaWidth = 94.0f;
+constexpr float kTitleBarButtonSize = 14.0f;
+constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
+constexpr ImU32 kTitleBarMenuAccent = IM_COL32(236, 158, 36, 255);
+constexpr ImU32 kTitleBarMenuPopupBg = IM_COL32(50, 50, 50, 255);
+constexpr ImU32 kTitleBarMenuPopupBorder = IM_COL32(55, 55, 55, 255);
+constexpr ImU32 kTitleBarMenuItemHovered = IM_COL32(0, 0, 0, 80);
+constexpr ImU32 kTitleBarMenuActiveText = IM_COL32(26, 26, 26, 255);
+constexpr ImU32 kTitleBarAccentIdle = IM_COL32(18, 88, 30, 255);
+constexpr ImU32 kTitleBarAccentPlaying = IM_COL32(186, 66, 30, 255);
+constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
+constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
+constexpr ImU32 kTitleBarMuted = IM_COL32(77, 77, 77, 255);
+ImU32 editor_title_bar_accent = kTitleBarAccentIdle;
 const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
 
 class CallbackEditorPanel final : public EditorPanel {
@@ -95,15 +112,191 @@ ImVec4 ErrorTextColor() {
   return UsesLightBackground() ? ImVec4(0.74f, 0.13f, 0.13f, 1.0f) : ImVec4(1.0f, 0.35f, 0.35f, 1.0f);
 }
 
-bool WindowControlButton(const char* label, const bool close_button) {
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, close_button ? ImVec4(0.75f, 0.12f, 0.12f, 1.0f)
-                                                             : ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, close_button ? ImVec4(0.62f, 0.08f, 0.08f, 1.0f)
-                                                            : ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-  const bool clicked = ImGui::Button(label, ImVec2(kWindowControlWidth, kWindowControlHeight));
-  ImGui::PopStyleColor(3);
+ImU32 MultiplyColor(const ImU32 color, const float multiplier) {
+  ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
+  value.x = std::clamp(value.x * multiplier, 0.0f, 1.0f);
+  value.y = std::clamp(value.y * multiplier, 0.0f, 1.0f);
+  value.z = std::clamp(value.z * multiplier, 0.0f, 1.0f);
+  return ImGui::ColorConvertFloat4ToU32(value);
+}
+
+ImU32 ColorWithSaturation(const ImU32 color, const float saturation) {
+  ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
+  float hue;
+  float current_saturation;
+  float brightness;
+  ImGui::ColorConvertRGBtoHSV(value.x, value.y, value.z, hue, current_saturation, brightness);
+  ImGui::ColorConvertHSVtoRGB(hue, std::clamp(saturation, 0.0f, 1.0f), brightness, value.x, value.y, value.z);
+  return ImGui::ColorConvertFloat4ToU32(value);
+}
+
+std::shared_ptr<Texture2D> FindIconInMap(const std::unordered_map<std::string, std::shared_ptr<Texture2D>>& icons,
+                                         const std::string& name) {
+  if (const auto search = icons.find(name); search != icons.end()) {
+    return search->second;
+  }
+  return {};
+}
+
+void DrawFittedImage(ImDrawList* draw_list, const std::shared_ptr<Texture2D>& icon, const ImRect& rect,
+                     const ImU32 tint) {
+  if (!icon) {
+    return;
+  }
+  const glm::uvec2 resolution = icon->GetResolution();
+  if (resolution.x == 0 || resolution.y == 0) {
+    return;
+  }
+
+  const ImVec2 bounds = rect.GetSize();
+  const float scale =
+      std::min(bounds.x / static_cast<float>(resolution.x), bounds.y / static_cast<float>(resolution.y));
+  const ImVec2 size(static_cast<float>(resolution.x) * scale, static_cast<float>(resolution.y) * scale);
+  const ImVec2 min(rect.Min.x + (bounds.x - size.x) * 0.5f, rect.Min.y + (bounds.y - size.y) * 0.5f);
+  draw_list->AddImage(icon->GetImTextureId(), min, ImVec2(min.x + size.x, min.y + size.y), ImVec2(0, 1), ImVec2(1, 0),
+                      tint);
+}
+
+void DrawFittedImage(const std::shared_ptr<Texture2D>& icon, const ImRect& rect, const ImU32 tint) {
+  DrawFittedImage(ImGui::GetWindowDrawList(), icon, rect, tint);
+}
+
+bool DrawTitleBarImageButton(const char* id, const std::shared_ptr<Texture2D>& icon, const ImVec2 screen_position,
+                             const bool close_button) {
+  ImGui::SetCursorScreenPos(screen_position);
+  const ImRect button_rect(screen_position,
+                           ImVec2(screen_position.x + kTitleBarButtonSize, screen_position.y + kTitleBarButtonSize));
+  const bool clicked = ImGui::InvisibleButton(id, ImVec2(kTitleBarButtonSize, kTitleBarButtonSize));
+  ImU32 tint = close_button ? kTitleBarText : MultiplyColor(kTitleBarText, 0.9f);
+  if (ImGui::IsItemActive()) {
+    tint = kTitleBarTextDarker;
+  } else if (ImGui::IsItemHovered()) {
+    tint = close_button ? MultiplyColor(kTitleBarText, 1.4f) : MultiplyColor(kTitleBarText, 1.2f);
+  }
+  DrawFittedImage(icon, button_rect, tint);
   return clicked;
+}
+
+bool BeginTitleBarMenuBar(const ImRect& bar_rectangle) {
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  if (window->SkipItems) {
+    return false;
+  }
+
+  IM_ASSERT(!window->DC.MenuBarAppending);
+  ImGui::BeginGroup();
+  ImGui::PushID("##titlebar_menu");
+
+  const ImRect bar_rect(ImVec2(bar_rectangle.Min.x, bar_rectangle.Min.y + window->WindowPadding.y),
+                        ImVec2(bar_rectangle.Max.x, bar_rectangle.Max.y + window->WindowPadding.y));
+  ImRect clip_rect(IM_ROUND(window->Pos.x + bar_rect.Min.x), IM_ROUND(window->Pos.y + bar_rect.Min.y),
+                   IM_ROUND(window->Pos.x + bar_rect.Max.x), IM_ROUND(window->Pos.y + bar_rect.Max.y));
+  clip_rect.ClipWith(window->OuterRectClipped);
+  ImGui::PushClipRect(clip_rect.Min, clip_rect.Max, false);
+
+  window->DC.CursorPos = window->DC.CursorMaxPos =
+      ImVec2(window->Pos.x + bar_rect.Min.x, window->Pos.y + bar_rect.Min.y);
+  window->DC.LayoutType = ImGuiLayoutType_Horizontal;
+  window->DC.NavLayerCurrent = ImGuiNavLayer_Menu;
+  window->DC.MenuBarAppending = true;
+  ImGui::AlignTextToFramePadding();
+  return true;
+}
+
+void EndTitleBarMenuBar() {
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  if (window->SkipItems) {
+    return;
+  }
+
+  IM_ASSERT(window->DC.MenuBarAppending);
+  ImGui::PopClipRect();
+  ImGui::PopID();
+  window->DC.MenuBarOffset.x = window->DC.CursorPos.x - window->Pos.x;
+  GImGui->GroupStack.back().EmitItem = false;
+  ImGui::EndGroup();
+  window->DC.LayoutType = ImGuiLayoutType_Vertical;
+  window->DC.NavLayerCurrent = ImGuiNavLayer_Main;
+  window->DC.MenuBarAppending = false;
+}
+
+void PushTitleBarMenuStyle() {
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 5.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 4.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+  ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBg));
+  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBorder));
+}
+
+void PopTitleBarMenuStyle() {
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(5);
+}
+
+void PushTitleBarMenuActiveHighlight() {
+  const ImU32 active_color = ColorWithSaturation(kTitleBarMenuAccent, 0.5f);
+  ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(active_color));
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(active_color));
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(active_color));
+}
+
+bool BeginTitleBarMenu(const char* label, bool& menu_open) {
+  bool pushed_active_text = false;
+  if (menu_open && ImGui::IsPopupOpen(label)) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuActiveText));
+    pushed_active_text = true;
+  }
+
+  if (ImGui::BeginMenu(label)) {
+    if (menu_open) {
+      ImGui::PopStyleColor(pushed_active_text ? 4 : 3);
+      menu_open = false;
+      pushed_active_text = false;
+    }
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+    return true;
+  }
+
+  if (pushed_active_text) {
+    ImGui::PopStyleColor();
+  }
+  return false;
+}
+
+void EndTitleBarMenu() {
+  ImGui::PopStyleColor(2);
+  ImGui::EndMenu();
+}
+
+bool DrawToolbarImageButton(const char* id, const std::shared_ptr<Texture2D>& icon, const char* tooltip) {
+  constexpr ImVec2 button_size(23.0f, 23.0f);
+  const ImVec2 button_min = ImGui::GetCursorScreenPos();
+  const ImRect button_rect(button_min, ImVec2(button_min.x + button_size.x, button_min.y + button_size.y));
+  const bool clicked = ImGui::InvisibleButton(id, button_size);
+  const ImU32 tint = ImGui::IsItemActive() ? kTitleBarTextDarker : kTitleBarText;
+  DrawFittedImage(ImGui::GetForegroundDrawList(), icon, button_rect, tint);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s", tooltip);
+  }
+  return clicked;
+}
+
+int PlaybackControlCount(const Application::ExecutionStatus status) {
+  switch (status) {
+    case Application::ExecutionStatus::NotPlaying:
+    case Application::ExecutionStatus::Playing:
+      return 2;
+    case Application::ExecutionStatus::Pause:
+      return 3;
+    case Application::ExecutionStatus::Uninitialized:
+    case Application::ExecutionStatus::Step:
+    case Application::ExecutionStatus::OnDestroy:
+      return 0;
+  }
+  return 0;
 }
 
 void AppendCappedOutput(std::string& output, const char* data, const size_t size) {
@@ -438,6 +631,7 @@ RuntimePackageCMakeBuildResult RunRuntimePackageBuild(const RuntimePackageCMakeB
 }  // namespace
 
 void EditorLayer::OnCreate() {
+  enable_inspection = false;
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (!window_layer) {
     throw std::runtime_error("WindowLayer not present!");
@@ -1615,7 +1809,6 @@ void EditorLayer::DrawMainMenuBar() {
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
   if (ImGui::BeginMainMenuBar()) {
     DrawMainMenuItems();
-    DrawPlayControls();
     ImGui::EndMainMenuBar();
   }
   ImGui::PopStyleVar();
@@ -1634,61 +1827,134 @@ void EditorLayer::DrawCustomTitleBar() {
   constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
                                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
                                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
-                                     ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_MenuBar;
+                                     ImGuiWindowFlags_NoScrollWithMouse;
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 5.0f));
-  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(kTitleBarColor));
+  ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImGui::ColorConvertU32ToFloat4(kTitleBarColor));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kTitleBarText));
   if (ImGui::Begin("Editor Custom Title Bar", nullptr, flags)) {
-    if (ImGui::BeginMenuBar()) {
-      const auto& application_name = ApplicationContext::Get().GetApplicationInfo().application_name;
-      ImGui::TextUnformatted(application_name.c_str());
-      ImGui::SameLine();
-      DrawMainMenuItems();
-      DrawPlayControls();
+    const auto draw_list = ImGui::GetWindowDrawList();
+    const ImVec2 titlebar_min = ImGui::GetWindowPos();
+    const ImVec2 titlebar_max(titlebar_min.x + ImGui::GetWindowWidth(), titlebar_min.y + kCustomTitleBarHeight);
+    draw_list->AddRectFilled(titlebar_min, titlebar_max, kTitleBarColor);
+    draw_list->AddRectFilledMultiColor(titlebar_min, ImVec2(titlebar_min.x + 380.0f, titlebar_max.y),
+                                       editor_title_bar_accent, kTitleBarColor, kTitleBarColor,
+                                       editor_title_bar_accent);
 
-      const float controls_width = kWindowControlWidth * 3.0f;
-      const float drag_start_x = ImGui::GetCursorPosX();
-      const float controls_x = std::max(drag_start_x, ImGui::GetWindowWidth() - controls_width);
-      const float drag_width = controls_x - drag_start_x;
-      if (drag_width > 0.0f) {
-        window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
-        ImGui::Dummy(ImVec2(drag_width, 1.0f));
-        ImGui::SameLine(0.0f, 0.0f);
-      } else {
-        window_layer->ClearCustomTitleBarDragRegion();
-      }
+    const ImVec2 logo_min(titlebar_min.x + kTitleBarLogoX,
+                          titlebar_min.y + (kCustomTitleBarHeight - kTitleBarLogoSize) * 0.5f);
+    DrawFittedImage(FindIconInMap(editor_icons_, "TitleBarLogo"),
+                    ImRect(logo_min, ImVec2(logo_min.x + kTitleBarLogoSize, logo_min.y + kTitleBarLogoSize)),
+                    IM_COL32_WHITE);
 
-      ImGui::SetCursorPosX(controls_x);
-      if (WindowControlButton("-##EditorMinimize", false)) {
-        window_layer->MinimizeWindow();
-      }
-      ImGui::SameLine(0.0f, 0.0f);
-      if (WindowControlButton(window_layer->IsWindowMaximized() ? "[]##EditorRestore" : "[ ]##EditorMaximize", false)) {
-        window_layer->ToggleMaximized();
-      }
-      ImGui::SameLine(0.0f, 0.0f);
-      if (WindowControlButton("X##EditorClose", true)) {
-        ApplicationContext::Get().End();
-      }
-      ImGui::EndMenuBar();
+    float menu_right = kTitleBarMenuX;
+    const float controls_x = ImGui::GetWindowWidth() - kTitleBarButtonsAreaWidth;
+    PushTitleBarMenuStyle();
+    const ImRect menu_bar_rect(ImVec2(kTitleBarMenuX, kTitleBarMenuY),
+                               ImVec2(controls_x, kTitleBarMenuY + ImGui::GetFrameHeightWithSpacing()));
+    if (BeginTitleBarMenuBar(menu_bar_rect)) {
+      DrawMainMenuItems(true);
+      menu_right = std::max(menu_right, ImGui::GetItemRectMax().x - titlebar_min.x);
+      EndTitleBarMenuBar();
     }
+    PopTitleBarMenuStyle();
+
+    const std::string scene_name = GetScene() ? GetScene()->GetTitle() : std::string();
+    if (!scene_name.empty()) {
+      const ImVec2 scene_text_size = ImGui::CalcTextSize(scene_name.c_str());
+      const float scene_x = menu_right + 50.0f;
+      if (scene_x + scene_text_size.x + 24.0f < ImGui::GetWindowWidth() * 0.5f) {
+        const ImVec2 scene_pos(titlebar_min.x + scene_x, titlebar_min.y + kTitleBarTextY);
+        draw_list->AddText(scene_pos, kTitleBarText, scene_name.c_str());
+        draw_list->AddRectFilled(ImVec2(scene_pos.x - 8.0f, scene_pos.y - 1.0f),
+                                 ImVec2(scene_pos.x - 6.0f, scene_pos.y + scene_text_size.y + 1.0f), kTitleBarMuted,
+                                 2.0f);
+      }
+    }
+
+    const auto& application_name = ApplicationContext::Get().GetApplicationInfo().application_name;
+    const ImVec2 title_size = ImGui::CalcTextSize(application_name.c_str());
+    if (title_size.x + kTitleBarButtonsAreaWidth * 2.0f < ImGui::GetWindowWidth()) {
+      draw_list->AddText(ImVec2(titlebar_min.x + ImGui::GetWindowWidth() * 0.5f - title_size.x * 0.5f,
+                                titlebar_min.y + kTitleBarTextY),
+                         kTitleBarText, application_name.c_str());
+    }
+
+    const std::string project_name = ProjectManager::HasProject() ? ProjectManager::GetProjectName() : std::string();
+    if (!project_name.empty() && ImGui::GetWindowWidth() > 760.0f) {
+      const ImVec2 project_size = ImGui::CalcTextSize(project_name.c_str());
+      const float right_offset = ImGui::GetWindowWidth() / 5.0f;
+      const ImVec2 project_pos(titlebar_min.x + ImGui::GetWindowWidth() - right_offset - project_size.x,
+                               titlebar_min.y + kTitleBarTextY);
+      if (project_pos.x > titlebar_min.x + ImGui::GetWindowWidth() * 0.5f + title_size.x * 0.5f + 24.0f) {
+        draw_list->AddText(project_pos, kTitleBarTextDarker, project_name.c_str());
+        draw_list->AddRect(ImVec2(project_pos.x - 12.0f, project_pos.y - 5.0f),
+                           ImVec2(project_pos.x + project_size.x + 12.0f, project_pos.y + project_size.y + 5.0f),
+                           IM_COL32(40, 40, 40, 255), 3.0f);
+      }
+    }
+
+    const float drag_start_x = menu_right + 24.0f;
+    const float drag_width = controls_x - drag_start_x;
+    if (drag_width > 0.0f) {
+      window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
+    } else {
+      window_layer->ClearCustomTitleBarDragRegion();
+    }
+
+    ImGui::PushClipRect(titlebar_min, titlebar_max, false);
+    const float button_y = titlebar_min.y + 8.0f;
+    float button_x = titlebar_min.x + ImGui::GetWindowWidth() - 18.0f - kTitleBarButtonSize;
+    if (DrawTitleBarImageButton("Close##Editor", FindIconInMap(editor_icons_, "WindowClose"),
+                                ImVec2(button_x, button_y), true)) {
+      ApplicationContext::Get().End();
+    }
+    button_x -= 15.0f + kTitleBarButtonSize;
+    if (DrawTitleBarImageButton(
+            window_layer->IsWindowMaximized() ? "Restore##Editor" : "Maximize##Editor",
+            FindIconInMap(editor_icons_, window_layer->IsWindowMaximized() ? "WindowRestore" : "WindowMaximize"),
+            ImVec2(button_x, button_y), false)) {
+      window_layer->ToggleMaximized();
+    }
+    button_x -= 17.0f + kTitleBarButtonSize;
+    if (DrawTitleBarImageButton("Minimize##Editor", FindIconInMap(editor_icons_, "WindowMinimize"),
+                                ImVec2(button_x, button_y), false)) {
+      window_layer->MinimizeWindow();
+    }
+    ImGui::PopClipRect();
   }
   ImGui::End();
-  ImGui::PopStyleColor();
+  ImGui::PopStyleColor(3);
   ImGui::PopStyleVar(4);
 }
 
-void EditorLayer::DrawMainMenuItems() {
-  if (ImGui::BeginMenu("Application")) {
+void EditorLayer::DrawMainMenuItems(const bool title_bar_style) {
+  bool menu_open = title_bar_style && ImGui::IsPopupOpen("##titlebar_menu", ImGuiPopupFlags_AnyPopupId);
+  if (menu_open) {
+    PushTitleBarMenuActiveHighlight();
+  }
+  auto begin_menu = [&](const char* label) {
+    return title_bar_style ? BeginTitleBarMenu(label, menu_open) : ImGui::BeginMenu(label);
+  };
+  auto end_menu = [&]() {
+    if (title_bar_style) {
+      EndTitleBarMenu();
+    } else {
+      ImGui::EndMenu();
+    }
+  };
+
+  if (begin_menu("Application")) {
     if (ImGui::MenuItem("Exit")) {
       ApplicationContext::Get().End();
     }
-    ImGui::EndMenu();
+    end_menu();
   }
-  if (ImGui::BeginMenu("View")) {
+  if (begin_menu("View")) {
     editor_panel_manager_.DrawMenuItems(EditorPanelCategory::View);
     ImGui::Separator();
     if (ImGui::BeginMenu("Theme")) {
@@ -1707,66 +1973,95 @@ void EditorLayer::DrawMainMenuItems() {
       }
       ImGui::EndMenu();
     }
-    ImGui::EndMenu();
+    end_menu();
   }
   ProjectManager::DrawProjectMenu();
+  if (menu_open) {
+    ImGui::PopStyleColor(3);
+  }
 }
 
-void EditorLayer::DrawPlayControls() {
+bool EditorLayer::DrawPlayControls() {
   if (!show_play_buttons) {
-    return;
+    return false;
   }
-  ImGui::Separator();
-  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+  bool toolbar_interacted = false;
+  auto draw_button = [&](const char* id, const char* icon_name, const char* tooltip) {
+    const bool clicked = DrawToolbarImageButton(id, FindIconInMap(editor_icons_, icon_name), tooltip);
+    toolbar_interacted = toolbar_interacted || ImGui::IsItemHovered() || ImGui::IsItemActive();
+    return clicked;
+  };
+
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 0.0f));
   switch (ApplicationContext::Get().GetApplicationStatus()) {
     case Application::ExecutionStatus::NotPlaying: {
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
-      if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      if (draw_button("PlayButton", "PlayButton", "Play")) {
+        editor_title_bar_accent = kTitleBarAccentPlaying;
         ApplicationContext::Get().Play();
       }
-      if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      ImGui::SameLine();
+      if (draw_button("StepButton", "StepButton", "Step")) {
         ApplicationContext::Get().Step();
       }
-      ImGui::PopID();
-      ImGui::PopID();
       break;
     }
     case Application::ExecutionStatus::Playing: {
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PauseButton"]->GetImTextureId());
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
-      if (ImGui::ImageButton("PauseButton", editor_icons_["PauseButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      if (draw_button("PauseButton", "PauseButton", "Pause")) {
         ApplicationContext::Get().Pause();
       }
-      if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      ImGui::SameLine();
+      if (draw_button("StopButton", "StopButton", "Stop")) {
+        editor_title_bar_accent = kTitleBarAccentIdle;
         ApplicationContext::Get().Stop();
       }
-      ImGui::PopID();
-      ImGui::PopID();
       break;
     }
     case Application::ExecutionStatus::Pause: {
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["PlayButton"]->GetImTextureId());
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StepButton"]->GetImTextureId());
-      ImGui::PushID((ImTextureID)(intptr_t)editor_icons_["StopButton"]->GetImTextureId());
-      if (ImGui::ImageButton("PlayButton", editor_icons_["PlayButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      if (draw_button("PlayButton", "PlayButton", "Resume")) {
+        editor_title_bar_accent = kTitleBarAccentPlaying;
         ApplicationContext::Get().Play();
       }
-      if (ImGui::ImageButton("StepButton", editor_icons_["StepButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      ImGui::SameLine();
+      if (draw_button("StepButton", "StepButton", "Step")) {
         ApplicationContext::Get().Step();
       }
-      if (ImGui::ImageButton("StopButton", editor_icons_["StopButton"]->GetImTextureId(), {20, 20}, {0, 1}, {1, 0})) {
+      ImGui::SameLine();
+      if (draw_button("StopButton", "StopButton", "Stop")) {
+        editor_title_bar_accent = kTitleBarAccentIdle;
         ApplicationContext::Get().Stop();
       }
-      ImGui::PopID();
-      ImGui::PopID();
-      ImGui::PopID();
       break;
     }
     case Application::ExecutionStatus::Uninitialized:
     case Application::ExecutionStatus::Step:
     case Application::ExecutionStatus::OnDestroy:
       break;
+  }
+  ImGui::PopStyleVar();
+  return toolbar_interacted;
+}
+
+void EditorLayer::DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size) {
+  const int button_count = PlaybackControlCount(ApplicationContext::Get().GetApplicationStatus());
+  if (!show_play_buttons || button_count == 0) {
+    return;
+  }
+
+  constexpr float button_size = 23.0f;
+  constexpr float horizontal_padding = 12.0f;
+  constexpr float item_spacing = 8.0f;
+  constexpr float background_height = 31.0f;
+  const float background_width = horizontal_padding * 2.0f + button_size * static_cast<float>(button_count) +
+                                 item_spacing * static_cast<float>(button_count - 1);
+  const ImVec2 background_min(overlay_pos.x + (view_port_size.x - background_width) * 0.5f, overlay_pos.y + 4.0f);
+  const ImVec2 background_max(background_min.x + background_width, background_min.y + background_height);
+  ImGui::GetForegroundDrawList()->AddRectFilled(background_min, background_max, IM_COL32(15, 15, 15, 127), 4.0f);
+
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(item_spacing, 0.0f));
+  ImGui::SetCursorScreenPos(
+      ImVec2(background_min.x + horizontal_padding, background_min.y + (background_height - button_size) * 0.5f));
+  if (DrawPlayControls()) {
+    scene_camera_window_focused_ = false;
   }
   ImGui::PopStyleVar();
 }
@@ -1946,6 +2241,7 @@ void EditorLayer::SceneCameraWindow() {
         } else {
           ImGui::Text("No active scene camera!");
         }
+        DrawScenePlaybackToolbar(overlay_pos, view_port_size);
         const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
                                        (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
 
@@ -2342,7 +2638,7 @@ void EditorLayer::SetSceneCameraRotation(const glm::quat& target_rotation) {
 
 void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sampler, const VkImageView image_view,
                                   const VkImageLayout image_layout) {
-  if (!ApplicationContext::Get().GetLayer<EditorLayer>())
+  if (!ImGui::GetCurrentContext())
     return;
   if (target != 0)
     ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(target));
@@ -2727,10 +3023,15 @@ void EditorLayer::LoadIcons() {
   load_icon("Mesh", default_resources / "Editor/Assets/Mesh.png");
   load_icon("Prefab", default_resources / "Editor/Assets/Prefab.png");
   load_icon("Texture2D", default_resources / "Editor/Assets/Texture2D.png");
-  load_icon("PlayButton", default_resources / "Editor/Navigation/PlayButton.png");
-  load_icon("PauseButton", default_resources / "Editor/Navigation/PauseButton.png");
-  load_icon("StopButton", default_resources / "Editor/Navigation/StopButton.png");
-  load_icon("StepButton", default_resources / "Editor/Navigation/StepButton.png");
+  load_icon("TitleBarLogo", default_resources / "Editor/HazelStyle/TitleBar/EvoEngine64White.png");
+  load_icon("WindowMinimize", default_resources / "Editor/HazelStyle/Window/Minimize.png");
+  load_icon("WindowMaximize", default_resources / "Editor/HazelStyle/Window/Maximize.png");
+  load_icon("WindowRestore", default_resources / "Editor/HazelStyle/Window/Restore.png");
+  load_icon("WindowClose", default_resources / "Editor/HazelStyle/Window/Close.png");
+  load_icon("PlayButton", default_resources / "Editor/HazelStyle/Viewport/Play.png");
+  load_icon("PauseButton", default_resources / "Editor/HazelStyle/Viewport/Pause.png");
+  load_icon("StopButton", default_resources / "Editor/HazelStyle/Viewport/Stop.png");
+  load_icon("StepButton", default_resources / "Editor/HazelStyle/Viewport/Simulate.png");
   load_icon("BackButton", default_resources / "Editor/Navigation/back.png");
   load_icon("LeftButton", default_resources / "Editor/Navigation/left.png");
   load_icon("RightButton", default_resources / "Editor/Navigation/right.png");
