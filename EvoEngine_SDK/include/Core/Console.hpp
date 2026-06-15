@@ -1,19 +1,34 @@
 
 #pragma once
 #include <iostream>
+#include <memory>
+#include <sstream>
 
 namespace evo_engine {
+class EditorLayer;
+enum class ConsoleMessageType;
 
 /**
  * \class Console
  * \brief A final class for logging different levels of console messages (log, error, warning).
  */
 class Console final {
+  struct StreamRedirectState;
+  std::unique_ptr<StreamRedirectState> stream_redirect_state_;
+
+  static void PushMessage(ConsoleMessageType type, const std::string& msg);
+  static void AppendMessageToEditor(const std::shared_ptr<EditorLayer>& editor_layer, ConsoleMessageType type,
+                                    const std::string& msg, double time);
+
  public:
+  Console();
+  ~Console();
+
   static Console& GetInstance();
 
- private:
- public:
+  void InstallStandardStreamRedirectors();
+  void RestoreStandardStreamRedirectors();
+
   /**
    * \brief Logs an informational message to the console.
    *
@@ -68,13 +83,13 @@ class Console final {
  *
  * \param msg The informational message to be logged.
  */
-#define EVOENGINE_LOG(msg)                                                              \
-  {                                                                                     \
-    std::stringstream ss;                                                               \
-    ss << msg;                                                                          \
-    evo_engine::Console::Log(ss.str());                                                 \
-    std::cout << "[EvoEngine]Log: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
-              << ")\n==========" << std::endl;                                          \
+#define EVOENGINE_LOG(msg)                                                                   \
+  {                                                                                          \
+    std::stringstream ss;                                                                    \
+    ss << msg;                                                                               \
+    evo_engine::Console::Log(ss.str());                                                      \
+    std::cout << "[EvoEngine]Log: " << ss.str() << " (" << __FILE__ << ": line " << __LINE__ \
+              << ")\n==========" << std::endl;                                               \
   }
 
 /**
@@ -89,13 +104,13 @@ class Console final {
  *
  * \param msg The error message to be logged.
  */
-#define EVOENGINE_ERROR(msg)                                                              \
-  {                                                                                       \
-    std::stringstream ss;                                                                 \
-    ss << msg;                                                                            \
-    evo_engine::Console::Error(ss.str());                                                 \
-    std::cerr << "[EvoEngine]Error: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
-              << ")\n==========" << std::endl;                                            \
+#define EVOENGINE_ERROR(msg)                                                                   \
+  {                                                                                            \
+    std::stringstream ss;                                                                      \
+    ss << msg;                                                                                 \
+    evo_engine::Console::Error(ss.str());                                                      \
+    std::cerr << "[EvoEngine]Error: " << ss.str() << " (" << __FILE__ << ": line " << __LINE__ \
+              << ")\n==========" << std::endl;                                                 \
   }
 
 /**
@@ -111,11 +126,11 @@ class Console final {
  *
  * \param msg The warning message to be logged.
  */
-#define EVOENGINE_WARNING(msg)                                                              \
-  {                                                                                         \
-    std::stringstream ss;                                                                   \
-    ss << msg;                                                                              \
-    evo_engine::Console::Warning(ss.str());                                                 \
-    std::cout << "[EvoEngine]Warning: " << msg << " (" << __FILE__ << ": line " << __LINE__ \
-              << ")\n==========" << std::endl;                                              \
+#define EVOENGINE_WARNING(msg)                                                                   \
+  {                                                                                              \
+    std::stringstream ss;                                                                        \
+    ss << msg;                                                                                   \
+    evo_engine::Console::Warning(ss.str());                                                      \
+    std::cout << "[EvoEngine]Warning: " << ss.str() << " (" << __FILE__ << ": line " << __LINE__ \
+              << ")\n==========" << std::endl;                                                   \
   }

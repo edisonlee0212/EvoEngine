@@ -1893,12 +1893,14 @@ void EditorLayer::DrawMainMenuBar() {
   ImGui::PopStyleVar();
 }
 
-float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float controls_x, float& drag_start_x) {
+float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float controls_x, const float drag_start_x,
+                                      std::vector<glm::vec4>& drag_regions) {
   const float window_width = ImGui::GetWindowWidth();
   const float left_limit = titlebar_min.x + drag_start_x + 18.0f;
   const float right_limit = titlebar_min.x + controls_x - 16.0f;
   const float available_width = right_limit - left_limit;
   if (available_width < kTitleBarSearchMinWidth) {
+    drag_regions.emplace_back(drag_start_x, 0.0f, controls_x - drag_start_x, kCustomTitleBarHeight);
     return titlebar_min.x + window_width * 0.5f;
   }
 
@@ -1928,9 +1930,13 @@ float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float co
   ImGui::PopStyleColor(6);
   ImGui::PopStyleVar(3);
 
+  const float search_left = search_min.x - titlebar_min.x;
+  const float search_right = search_max.x - titlebar_min.x;
+  drag_regions.emplace_back(drag_start_x, 0.0f, search_left - drag_start_x - 6.0f, kCustomTitleBarHeight);
+  drag_regions.emplace_back(search_right + 6.0f, 0.0f, controls_x - search_right - 6.0f, kCustomTitleBarHeight);
+
   const bool has_query = search_buffer[0] != '\0';
   if (!has_query) {
-    drag_start_x = std::max(drag_start_x, search_max.x - titlebar_min.x + 16.0f);
     return search_max.x;
   }
 
@@ -2095,7 +2101,6 @@ float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float co
   ImGui::PopStyleColor(5);
   ImGui::PopStyleVar(4);
 
-  drag_start_x = std::max(drag_start_x, search_max.x - titlebar_min.x + 16.0f);
   return search_max.x;
 }
 
@@ -2191,7 +2196,8 @@ void EditorLayer::DrawCustomTitleBar() {
       }
     }
 
-    const float search_reserved_right = DrawTitleBarSearch(titlebar_min, controls_x, drag_start_x);
+    std::vector<glm::vec4> drag_regions;
+    const float search_reserved_right = DrawTitleBarSearch(titlebar_min, controls_x, drag_start_x, drag_regions);
 
     const std::string project_name = ProjectManager::HasProject() ? ProjectManager::GetProjectName() : std::string();
     if (!project_name.empty() && ImGui::GetWindowWidth() > 760.0f) {
@@ -2207,9 +2213,8 @@ void EditorLayer::DrawCustomTitleBar() {
       }
     }
 
-    const float drag_width = controls_x - drag_start_x;
-    if (drag_width > 0.0f) {
-      window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
+    if (!drag_regions.empty()) {
+      window_layer->SetCustomTitleBarDragRegions(drag_regions);
     } else {
       window_layer->ClearCustomTitleBarDragRegion();
     }
@@ -2226,12 +2231,16 @@ void EditorLayer::DrawCustomTitleBar() {
             window_layer->IsWindowMaximized() ? "Restore##Editor" : "Maximize##Editor",
             FindIconInMap(editor_icons_, window_layer->IsWindowMaximized() ? "WindowRestore" : "WindowMaximize"),
             ImVec2(button_x, button_y), false)) {
-      window_layer->ToggleMaximized();
+      ApplicationContext::Get().QueueEndOfLoopAction([window_layer]() {
+        window_layer->ToggleMaximized();
+      });
     }
     button_x -= 17.0f + kTitleBarButtonSize;
     if (DrawTitleBarImageButton("Minimize##Editor", FindIconInMap(editor_icons_, "WindowMinimize"),
                                 ImVec2(button_x, button_y), false)) {
-      window_layer->MinimizeWindow();
+      ApplicationContext::Get().QueueEndOfLoopAction([window_layer]() {
+        window_layer->MinimizeWindow();
+      });
     }
     ImGui::PopClipRect();
   }
@@ -3355,15 +3364,15 @@ void EditorLayer::LoadIcons() {
   load_icon("Mesh", default_resources / "Editor/Assets/Mesh.png");
   load_icon("Prefab", default_resources / "Editor/Assets/Prefab.png");
   load_icon("Texture2D", default_resources / "Editor/Assets/Texture2D.png");
-  load_icon("TitleBarLogo", default_resources / "Editor/HazelStyle/TitleBar/EvoEngine64White.png");
-  load_icon("WindowMinimize", default_resources / "Editor/HazelStyle/Window/Minimize.png");
-  load_icon("WindowMaximize", default_resources / "Editor/HazelStyle/Window/Maximize.png");
-  load_icon("WindowRestore", default_resources / "Editor/HazelStyle/Window/Restore.png");
-  load_icon("WindowClose", default_resources / "Editor/HazelStyle/Window/Close.png");
-  load_icon("PlayButton", default_resources / "Editor/HazelStyle/Viewport/Play.png");
-  load_icon("PauseButton", default_resources / "Editor/HazelStyle/Viewport/Pause.png");
-  load_icon("StopButton", default_resources / "Editor/HazelStyle/Viewport/Stop.png");
-  load_icon("StepButton", default_resources / "Editor/HazelStyle/Viewport/Simulate.png");
+  load_icon("TitleBarLogo", default_resources / "Editor/TitleBar/EvoEngine64White.png");
+  load_icon("WindowMinimize", default_resources / "Editor/Window/Minimize.png");
+  load_icon("WindowMaximize", default_resources / "Editor/Window/Maximize.png");
+  load_icon("WindowRestore", default_resources / "Editor/Window/Restore.png");
+  load_icon("WindowClose", default_resources / "Editor/Window/Close.png");
+  load_icon("PlayButton", default_resources / "Editor/Viewport/Play.png");
+  load_icon("PauseButton", default_resources / "Editor/Viewport/Pause.png");
+  load_icon("StopButton", default_resources / "Editor/Viewport/Stop.png");
+  load_icon("StepButton", default_resources / "Editor/Viewport/Simulate.png");
   load_icon("BackButton", default_resources / "Editor/Navigation/back.png");
   load_icon("LeftButton", default_resources / "Editor/Navigation/left.png");
   load_icon("RightButton", default_resources / "Editor/Navigation/right.png");

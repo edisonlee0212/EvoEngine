@@ -52,6 +52,13 @@
 #include <algorithm>
 #include <cstring>
 
+#ifdef EVOENGINE_WINDOWS
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  include <Windows.h>
+#endif
+
 using namespace evo_engine;
 
 namespace {
@@ -75,6 +82,29 @@ void MergeProjectLaunchMetadata(ApplicationInitializationSettings& settings) {
   if (!settings.startup_runtime_packages.empty()) {
     settings.enable_runtime_packages = true;
   }
+}
+
+void ConfigureConsoleWindow(const bool hide_console_window) {
+#ifdef EVOENGINE_WINDOWS
+  if (!hide_console_window) {
+    if (!GetConsoleWindow() && !AttachConsole(ATTACH_PARENT_PROCESS)) {
+      AllocConsole();
+    }
+    return;
+  }
+
+  const HWND console_window = GetConsoleWindow();
+  if (!console_window) {
+    return;
+  }
+
+  DWORD console_process_ids[2] = {};
+  if (GetConsoleProcessList(console_process_ids, 2) <= 1) {
+    ShowWindow(console_window, SW_HIDE);
+  }
+#else
+  (void)hide_console_window;
+#endif
 }
 
 template <typename T>
@@ -1507,6 +1537,12 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     return;
   }
   this->initialization_settings = application_create_info;
+  ConfigureConsoleWindow(this->initialization_settings.hide_console_window);
+  if (this->initialization_settings.redirect_standard_streams_to_console) {
+    console_->InstallStandardStreamRedirectors();
+  } else {
+    console_->RestoreStandardStreamRedirectors();
+  }
   const auto render_layer = GetLayer<RenderLayer>();
   const auto window_layer = GetLayer<WindowLayer>();
   if (!this->initialization_settings.project_path.empty()) {
@@ -1582,6 +1618,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
         stbi_image_free(i.pixels);
       }
     }
+    window_layer->ShowWindow();
   }
   this->execution_status_ = ExecutionStatus::NotPlaying;
 

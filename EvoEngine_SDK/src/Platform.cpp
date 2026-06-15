@@ -649,7 +649,7 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
 }
 
 void Platform::CreateInstance() {
-  auto application_info = ApplicationContext::Get().GetApplicationInfo();
+  const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (window_layer) {
 #pragma region Windows
@@ -668,10 +668,21 @@ void Platform::CreateInstance() {
     window_layer->primary_monitor_ = glfwGetPrimaryMonitor();
     glfwSetMonitorCallback(window_layer->SetMonitorCallback);
 
-    const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
     window_layer->window_size_ = application_info.default_window_size;
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+#ifdef EVOENGINE_WINDOWS
+    if (application_info.use_custom_title_bar) {
+      glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+    }
+#endif
     window_layer->window_ = glfwCreateWindow(window_layer->window_size_.x, window_layer->window_size_.y,
                                              application_info.application_name.c_str(), nullptr, nullptr);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+#ifdef EVOENGINE_WINDOWS
+    if (application_info.use_custom_title_bar) {
+      glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+    }
+#endif
 
     if (application_info.full_screen)
       glfwMaximizeWindow(window_layer->window_);

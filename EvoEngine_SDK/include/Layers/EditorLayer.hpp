@@ -836,7 +836,8 @@ class EditorLayer : public ILayer {
    */
   void DrawMainMenuBar();
   void DrawCustomTitleBar();
-  float DrawTitleBarSearch(const ImVec2& titlebar_min, float controls_x, float& drag_start_x);
+  float DrawTitleBarSearch(const ImVec2& titlebar_min, float controls_x, float drag_start_x,
+                           std::vector<glm::vec4>& drag_regions);
   void DrawMainMenuItems(bool title_bar_style = false);
   bool DrawPlayControls();
   void DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
