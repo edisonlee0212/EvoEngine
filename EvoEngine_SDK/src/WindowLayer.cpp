@@ -363,6 +363,67 @@ void WindowLayer::ClearCustomTitleBarDragRegion() {
   has_title_bar_drag_region_ = false;
 }
 
+void WindowLayer::CenterWindow() const {
+  if (!window_ || IsWindowMaximized()) {
+    return;
+  }
+
+  GLFWmonitor* monitor = primary_monitor_ ? primary_monitor_ : glfwGetPrimaryMonitor();
+  if (!monitor) {
+    return;
+  }
+
+  int work_x = 0;
+  int work_y = 0;
+  int work_width = 0;
+  int work_height = 0;
+  glfwGetMonitorWorkarea(monitor, &work_x, &work_y, &work_width, &work_height);
+  if (work_width <= 0 || work_height <= 0) {
+    glfwGetMonitorPos(monitor, &work_x, &work_y);
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    if (!mode) {
+      return;
+    }
+    work_width = mode->width;
+    work_height = mode->height;
+  }
+
+  int width = 0;
+  int height = 0;
+#ifdef EVOENGINE_WINDOWS
+  if (custom_title_bar_ && native_window_handle_) {
+    RECT rect{};
+    GetWindowRect(static_cast<HWND>(native_window_handle_), &rect);
+    width = rect.right - rect.left;
+    height = rect.bottom - rect.top;
+  } else
+#endif
+  {
+    glfwGetWindowSize(window_, &width, &height);
+  }
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  const int x = work_x + std::max(0, (work_width - width) / 2);
+  const int y = work_y + std::max(0, (work_height - height) / 2);
+#ifdef EVOENGINE_WINDOWS
+  if (custom_title_bar_ && native_window_handle_) {
+    SetWindowPos(static_cast<HWND>(native_window_handle_), nullptr, x, y, 0, 0,
+                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return;
+  }
+#endif
+  glfwSetWindowPos(window_, x, y);
+}
+
 void WindowLayer::ResizeWindow(int x, int y) const {
+#ifdef EVOENGINE_WINDOWS
+  if (custom_title_bar_ && native_window_handle_) {
+    SetWindowPos(static_cast<HWND>(native_window_handle_), nullptr, 0, 0, x, y,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return;
+  }
+#endif
   glfwSetWindowSize(window_, x, y);
 }

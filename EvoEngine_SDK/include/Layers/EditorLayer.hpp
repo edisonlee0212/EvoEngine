@@ -1089,7 +1089,7 @@ void EditorLayer::DraggableAsset(const std::shared_ptr<T>& target) {
     if (ptr) {
       const auto title = ptr->GetTitle();
       ImGui::SetDragDropPayload("Asset", &ptr->handle_, sizeof(Handle));
-      ImGui::TextColored(ImVec4(0, 0, 1, 1), title.c_str());
+      ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextLink), title.c_str());
     }
     ImGui::EndDragDropSource();
   }

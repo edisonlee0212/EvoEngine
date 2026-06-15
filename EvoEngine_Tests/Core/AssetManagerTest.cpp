@@ -23,6 +23,12 @@
 using namespace evo_engine;
 using namespace std::chrono_literals;
 
+TEST(ApplicationInitializationSettings, DefaultsToFullHdWindowSize) {
+  const ApplicationInitializationSettings settings;
+  EXPECT_EQ(settings.default_window_size.x, 1920);
+  EXPECT_EQ(settings.default_window_size.y, 1080);
+}
+
 namespace {
 constexpr uint64_t kBlockingAssetHandle = 0xE701'0000'0000'0001ull;
 constexpr auto kBlockingAssetTypeName = "BlockingLoadAsset";

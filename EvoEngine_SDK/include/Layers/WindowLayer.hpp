@@ -130,6 +130,8 @@ class WindowLayer final : public ILayer {
 
   void ClearCustomTitleBarDragRegion();
 
+  void CenterWindow() const;
+
   /**
    * @brief Resizes the GLFW window to the specified dimensions.
    *

@@ -45,19 +45,36 @@ constexpr float kTitleBarLogoX = 10.0f;
 constexpr float kTitleBarMenuX = 61.0f;
 constexpr float kTitleBarButtonsAreaWidth = 94.0f;
 constexpr float kTitleBarButtonSize = 14.0f;
+constexpr const char* kEditorTitle = "EvoEngine";
 constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
 constexpr ImU32 kTitleBarMenuAccent = IM_COL32(236, 158, 36, 255);
 constexpr ImU32 kTitleBarMenuPopupBg = IM_COL32(50, 50, 50, 255);
 constexpr ImU32 kTitleBarMenuPopupBorder = IM_COL32(55, 55, 55, 255);
 constexpr ImU32 kTitleBarMenuItemHovered = IM_COL32(0, 0, 0, 80);
 constexpr ImU32 kTitleBarMenuActiveText = IM_COL32(26, 26, 26, 255);
-constexpr ImU32 kTitleBarAccentIdle = IM_COL32(18, 88, 30, 255);
-constexpr ImU32 kTitleBarAccentPlaying = IM_COL32(186, 66, 30, 255);
+constexpr ImU32 kTitleBarAccentPlaying = IM_COL32(18, 88, 30, 255);
+constexpr ImU32 kTitleBarAccentPaused = IM_COL32(236, 158, 36, 255);
 constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
 constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
 constexpr ImU32 kTitleBarMuted = IM_COL32(77, 77, 77, 255);
-ImU32 editor_title_bar_accent = kTitleBarAccentIdle;
 const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
+
+bool CurrentTitleBarAccent(ImU32& accent) {
+  switch (ApplicationContext::Get().GetApplicationStatus()) {
+    case Application::ExecutionStatus::Playing:
+    case Application::ExecutionStatus::Step:
+      accent = kTitleBarAccentPlaying;
+      return true;
+    case Application::ExecutionStatus::Pause:
+      accent = kTitleBarAccentPaused;
+      return true;
+    case Application::ExecutionStatus::NotPlaying:
+    case Application::ExecutionStatus::Uninitialized:
+    case Application::ExecutionStatus::OnDestroy:
+      return false;
+  }
+  return false;
+}
 
 class CallbackEditorPanel final : public EditorPanel {
  public:
@@ -277,7 +294,7 @@ bool DrawToolbarImageButton(const char* id, const std::shared_ptr<Texture2D>& ic
   const ImRect button_rect(button_min, ImVec2(button_min.x + button_size.x, button_min.y + button_size.y));
   const bool clicked = ImGui::InvisibleButton(id, button_size);
   const ImU32 tint = ImGui::IsItemActive() ? kTitleBarTextDarker : kTitleBarText;
-  DrawFittedImage(ImGui::GetForegroundDrawList(), icon, button_rect, tint);
+  DrawFittedImage(ImGui::GetWindowDrawList(), icon, button_rect, tint);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("%s", tooltip);
   }
@@ -297,6 +314,33 @@ int PlaybackControlCount(const Application::ExecutionStatus status) {
       return 0;
   }
   return 0;
+}
+
+void AcceptEntityExplorerRootDrop(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+
+  const ImVec2 drop_min = ImGui::GetCursorScreenPos();
+  const ImVec2 window_pos = ImGui::GetWindowPos();
+  const ImVec2 content_max = ImGui::GetWindowContentRegionMax();
+  const ImVec2 drop_max(window_pos.x + content_max.x, window_pos.y + content_max.y);
+  if (drop_max.x <= drop_min.x || drop_max.y <= drop_min.y) {
+    return;
+  }
+
+  if (ImGui::BeginDragDropTargetCustom(ImRect(drop_min, drop_max), ImGui::GetID("##EntityExplorerRootDropTarget"))) {
+    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
+      IM_ASSERT(payload->DataSize == sizeof(Handle));
+      const auto entity = scene->GetEntity(*static_cast<Handle*>(payload->Data));
+      if (scene->IsEntityValid(entity)) {
+        if (const auto parent = scene->GetParent(entity); parent.GetIndex() != 0) {
+          scene->RemoveChild(entity, parent);
+        }
+      }
+    }
+    ImGui::EndDragDropTarget();
+  }
 }
 
 void AppendCappedOutput(std::string& output, const char* data, const size_t size) {
@@ -1009,61 +1053,44 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
 
     ImGui::Combo("Display mode", &selected_hierarchy_display_mode, hierarchy_display_mode,
                  IM_ARRAYSIZE(hierarchy_display_mode));
-    std::string title = scene->GetTitle();
-    if (ImGui::CollapsingHeader(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow)) {
-      DraggableAsset(scene);
-      RenameAsset(scene);
-      if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-        OpenAssetInspector(scene);
-      }
-      if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
-          IM_ASSERT(payload->DataSize == sizeof(Handle));
-          const auto payload_n = *static_cast<Handle*>(payload->Data);
-          const auto new_entity = scene->GetEntity(payload_n);
-          if (const auto parent = scene->GetParent(new_entity); parent.GetIndex() != 0)
-            scene->RemoveChild(new_entity, parent);
-        }
-        ImGui::EndDragDropTarget();
-      }
-      if (selected_hierarchy_display_mode == 0) {
-        scene->UnsafeForEachEntityStorage([&](size_t i, const std::string& name, const DataComponentStorage& storage) {
-          if (i == 0)
-            return;
-          ImGui::Separator();
-          const std::string title1 = std::to_string(i) + ". " + name;
-          if (ImGui::TreeNode(title1.c_str())) {
-            for (size_t j = 0; j < storage.entity_alive_count; j++) {
-              Entity entity = storage.chunk_array.entity_array.at(j);
-              std::string title2 = std::to_string(entity.GetIndex()) + ": ";
-              title2 += scene->GetEntityName(entity);
-              const bool enabled = scene->IsEntityEnabled(entity);
-              if (enabled) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
-              }
-              ImGui::TreeNodeEx(
-                  title2.c_str(),
-                  ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-                      (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
-              if (enabled) {
-                ImGui::PopStyleColor();
-              }
-              DrawEntityMenu(enabled, entity);
-              if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                SetSelectedEntity(entity, false);
-              }
+    if (selected_hierarchy_display_mode == 0) {
+      scene->UnsafeForEachEntityStorage([&](size_t i, const std::string& name, const DataComponentStorage& storage) {
+        if (i == 0)
+          return;
+        ImGui::Separator();
+        const std::string title1 = std::to_string(i) + ". " + name;
+        if (ImGui::TreeNode(title1.c_str())) {
+          for (size_t j = 0; j < storage.entity_alive_count; j++) {
+            Entity entity = storage.chunk_array.entity_array.at(j);
+            std::string title2 = std::to_string(entity.GetIndex()) + ": ";
+            title2 += scene->GetEntityName(entity);
+            const bool enabled = scene->IsEntityEnabled(entity);
+            if (enabled) {
+              ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
             }
-            ImGui::TreePop();
+            ImGui::TreeNodeEx(
+                title2.c_str(),
+                ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
+                    (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+            if (enabled) {
+              ImGui::PopStyleColor();
+            }
+            DrawEntityMenu(enabled, entity);
+            if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+              SetSelectedEntity(entity, false);
+            }
           }
-        });
-      } else if (selected_hierarchy_display_mode == 1) {
-        scene->ForAllEntities([&](size_t, const Entity entity) {
-          if (scene->GetParent(entity).GetIndex() == 0)
-            DrawEntityNode(entity, 0);
-        });
-        selected_entity_hierarchy_list_.clear();
-      }
+          ImGui::TreePop();
+        }
+      });
+    } else if (selected_hierarchy_display_mode == 1) {
+      scene->ForAllEntities([&](size_t, const Entity entity) {
+        if (scene->GetParent(entity).GetIndex() == 0)
+          DrawEntityNode(entity, 0);
+      });
+      selected_entity_hierarchy_list_.clear();
     }
+    AcceptEntityExplorerRootDrop(scene);
   } else {
     ImGui::Text("No Scene!");
   }
@@ -1841,9 +1868,11 @@ void EditorLayer::DrawCustomTitleBar() {
     const ImVec2 titlebar_min = ImGui::GetWindowPos();
     const ImVec2 titlebar_max(titlebar_min.x + ImGui::GetWindowWidth(), titlebar_min.y + kCustomTitleBarHeight);
     draw_list->AddRectFilled(titlebar_min, titlebar_max, kTitleBarColor);
-    draw_list->AddRectFilledMultiColor(titlebar_min, ImVec2(titlebar_min.x + 380.0f, titlebar_max.y),
-                                       editor_title_bar_accent, kTitleBarColor, kTitleBarColor,
-                                       editor_title_bar_accent);
+    ImU32 titlebar_accent = 0;
+    if (CurrentTitleBarAccent(titlebar_accent)) {
+      draw_list->AddRectFilledMultiColor(titlebar_min, ImVec2(titlebar_min.x + 380.0f, titlebar_max.y), titlebar_accent,
+                                         kTitleBarColor, kTitleBarColor, titlebar_accent);
+    }
 
     const ImVec2 logo_min(titlebar_min.x + kTitleBarLogoX,
                           titlebar_min.y + (kCustomTitleBarHeight - kTitleBarLogoSize) * 0.5f);
@@ -1863,25 +1892,52 @@ void EditorLayer::DrawCustomTitleBar() {
     }
     PopTitleBarMenuStyle();
 
-    const std::string scene_name = GetScene() ? GetScene()->GetTitle() : std::string();
-    if (!scene_name.empty()) {
+    float drag_start_x = menu_right + 24.0f;
+    const auto scene = GetScene();
+    const std::string scene_name = scene ? scene->GetTitle() : std::string();
+    if (scene && !scene_name.empty()) {
+      const auto& style = ImGui::GetStyle();
       const ImVec2 scene_text_size = ImGui::CalcTextSize(scene_name.c_str());
+      const float scene_button_width = scene_text_size.x + style.FramePadding.x * 2.0f;
       const float scene_x = menu_right + 50.0f;
-      if (scene_x + scene_text_size.x + 24.0f < ImGui::GetWindowWidth() * 0.5f) {
-        const ImVec2 scene_pos(titlebar_min.x + scene_x, titlebar_min.y + kTitleBarTextY);
-        draw_list->AddText(scene_pos, kTitleBarText, scene_name.c_str());
-        draw_list->AddRectFilled(ImVec2(scene_pos.x - 8.0f, scene_pos.y - 1.0f),
-                                 ImVec2(scene_pos.x - 6.0f, scene_pos.y + scene_text_size.y + 1.0f), kTitleBarMuted,
+      if (scene_x + scene_button_width + 24.0f < ImGui::GetWindowWidth() * 0.5f) {
+        const ImVec2 scene_pos(titlebar_min.x + scene_x, titlebar_min.y + 6.0f);
+        const float separator_y = scene_pos.y + (ImGui::GetFrameHeight() - scene_text_size.y) * 0.5f;
+        draw_list->AddRectFilled(ImVec2(scene_pos.x - 8.0f, separator_y - 1.0f),
+                                 ImVec2(scene_pos.x - 6.0f, separator_y + scene_text_size.y + 1.0f), kTitleBarMuted,
                                  2.0f);
+        ImGui::SetCursorScreenPos(scene_pos);
+        ImGui::PushID("TitleBarSceneAsset");
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+        ImGui::Button((scene_name + "##SceneTitle").c_str(), ImVec2(scene_button_width, 0.0f));
+        ImGui::PopStyleColor(3);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+          OpenAssetInspector(scene);
+        }
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+        if (ImGui::BeginDragDropSource()) {
+          const Handle scene_handle = scene->GetHandle();
+          ImGui::SetDragDropPayload("Asset", &scene_handle, sizeof(Handle));
+          ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
+          ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+          ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+          ImGui::Button((scene_name + "##SceneTitleDragPreview").c_str(), ImVec2(scene_button_width, 0.0f));
+          ImGui::PopStyleColor(3);
+          ImGui::EndDragDropSource();
+        }
+        ImGui::PopStyleVar();
+        ImGui::PopID();
+        drag_start_x = std::max(drag_start_x, scene_x + scene_button_width + 24.0f);
       }
     }
 
-    const auto& application_name = ApplicationContext::Get().GetApplicationInfo().application_name;
-    const ImVec2 title_size = ImGui::CalcTextSize(application_name.c_str());
+    const ImVec2 title_size = ImGui::CalcTextSize(kEditorTitle);
     if (title_size.x + kTitleBarButtonsAreaWidth * 2.0f < ImGui::GetWindowWidth()) {
       draw_list->AddText(ImVec2(titlebar_min.x + ImGui::GetWindowWidth() * 0.5f - title_size.x * 0.5f,
                                 titlebar_min.y + kTitleBarTextY),
-                         kTitleBarText, application_name.c_str());
+                         kTitleBarText, kEditorTitle);
     }
 
     const std::string project_name = ProjectManager::HasProject() ? ProjectManager::GetProjectName() : std::string();
@@ -1898,7 +1954,6 @@ void EditorLayer::DrawCustomTitleBar() {
       }
     }
 
-    const float drag_start_x = menu_right + 24.0f;
     const float drag_width = controls_x - drag_start_x;
     if (drag_width > 0.0f) {
       window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
@@ -1996,7 +2051,6 @@ bool EditorLayer::DrawPlayControls() {
   switch (ApplicationContext::Get().GetApplicationStatus()) {
     case Application::ExecutionStatus::NotPlaying: {
       if (draw_button("PlayButton", "PlayButton", "Play")) {
-        editor_title_bar_accent = kTitleBarAccentPlaying;
         ApplicationContext::Get().Play();
       }
       ImGui::SameLine();
@@ -2011,14 +2065,12 @@ bool EditorLayer::DrawPlayControls() {
       }
       ImGui::SameLine();
       if (draw_button("StopButton", "StopButton", "Stop")) {
-        editor_title_bar_accent = kTitleBarAccentIdle;
         ApplicationContext::Get().Stop();
       }
       break;
     }
     case Application::ExecutionStatus::Pause: {
       if (draw_button("PlayButton", "PlayButton", "Resume")) {
-        editor_title_bar_accent = kTitleBarAccentPlaying;
         ApplicationContext::Get().Play();
       }
       ImGui::SameLine();
@@ -2027,7 +2079,6 @@ bool EditorLayer::DrawPlayControls() {
       }
       ImGui::SameLine();
       if (draw_button("StopButton", "StopButton", "Stop")) {
-        editor_title_bar_accent = kTitleBarAccentIdle;
         ApplicationContext::Get().Stop();
       }
       break;
@@ -2055,7 +2106,7 @@ void EditorLayer::DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVe
                                  item_spacing * static_cast<float>(button_count - 1);
   const ImVec2 background_min(overlay_pos.x + (view_port_size.x - background_width) * 0.5f, overlay_pos.y + 4.0f);
   const ImVec2 background_max(background_min.x + background_width, background_min.y + background_height);
-  ImGui::GetForegroundDrawList()->AddRectFilled(background_min, background_max, IM_COL32(15, 15, 15, 127), 4.0f);
+  ImGui::GetWindowDrawList()->AddRectFilled(background_min, background_max, IM_COL32(15, 15, 15, 127), 4.0f);
 
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(item_spacing, 0.0f));
   ImGui::SetCursorScreenPos(

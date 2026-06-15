@@ -140,7 +140,6 @@ constexpr float kTitleBarLogoX = 10.0f;
 constexpr float kTitleBarButtonsAreaWidth = 94.0f;
 constexpr float kTitleBarButtonSize = 14.0f;
 constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
-constexpr ImU32 kTitleBarAccent = IM_COL32(18, 88, 30, 255);
 constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
 constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
 
@@ -394,8 +393,6 @@ class LauncherLayer final : public ILayer {
       const ImVec2 titlebar_min = ImGui::GetWindowPos();
       const ImVec2 titlebar_max(titlebar_min.x + ImGui::GetWindowWidth(), titlebar_min.y + kCustomTitleBarHeight);
       draw_list->AddRectFilled(titlebar_min, titlebar_max, kTitleBarColor);
-      draw_list->AddRectFilledMultiColor(titlebar_min, ImVec2(titlebar_min.x + 380.0f, titlebar_max.y), kTitleBarAccent,
-                                         kTitleBarColor, kTitleBarColor, kTitleBarAccent);
 
       const ImVec2 logo_min(titlebar_min.x + kTitleBarLogoX,
                             titlebar_min.y + (kCustomTitleBarHeight - kTitleBarLogoSize) * 0.5f);

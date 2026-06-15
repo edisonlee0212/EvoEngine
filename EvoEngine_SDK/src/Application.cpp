@@ -1546,6 +1546,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   if (window_layer) {
     window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
                                this->initialization_settings.default_window_size.y);
+    if (!this->initialization_settings.full_screen) {
+      window_layer->CenterWindow();
+    }
     if (this->initialization_settings.icon_paths.empty()) {
       GLFWimage images[4];
       images[0].pixels =

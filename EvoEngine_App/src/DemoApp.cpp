@@ -184,6 +184,7 @@ int main(const int argc, char** argv) {
 
     ApplicationInitializationSettings application_info;
     SetupDemoScene(demo_setup, application_info);
+    application_info.use_custom_title_bar = true;
 
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;

@@ -44,7 +44,7 @@ struct ApplicationInitializationSettings {
   std::filesystem::path project_path;            /**< The path to the application's project. */
   std::string application_name = "Evo Engine";   /**< The name of the application. */
   std::vector<std::filesystem::path> icon_paths; /**< Paths to application icons. */
-  glm::ivec2 default_window_size = {1280, 720};  /**< The default size of the application window. */
+  glm::ivec2 default_window_size = {1920, 1080}; /**< The default size of the application window. */
   bool allow_empty_project = false;              /**< Whether initialization may proceed without a project path. */
   bool enable_docking = true;                    /**< Whether to enable docking in the application. */
   bool enable_viewport = true;                   /**< Whether to enable the viewport feature. */
