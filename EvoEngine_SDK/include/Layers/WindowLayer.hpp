@@ -51,8 +51,7 @@ class WindowLayer final : public ILayer {
   glm::ivec2 window_size_ = {1, 1};
 
   bool custom_title_bar_ = false;
-  bool has_title_bar_drag_region_ = false;
-  glm::vec4 title_bar_drag_region_ = glm::vec4(0.0f);
+  std::vector<glm::vec4> title_bar_drag_regions_;
   void* native_window_handle_ = nullptr;
   intptr_t default_window_proc_ = 0;
 #pragma endregion
@@ -100,6 +99,7 @@ class WindowLayer final : public ILayer {
 
   void InstallCustomTitleBar();
   void UninstallCustomTitleBar();
+  void ShowWindow() const;
   [[nodiscard]] std::optional<intptr_t> HitTestCustomTitleBar(void* native_window_handle, intptr_t l_param) const;
 
   /**
@@ -122,11 +122,15 @@ class WindowLayer final : public ILayer {
   intptr_t HandleNativeWindowMessage(void* native_window_handle, unsigned int message, uintptr_t w_param,
                                      intptr_t l_param) const;
 
+  void RefreshCustomTitleBar();
+
   void MinimizeWindow() const;
 
   void ToggleMaximized() const;
 
   void SetCustomTitleBarDragRegion(const glm::vec4& region);
+
+  void SetCustomTitleBarDragRegions(const std::vector<glm::vec4>& regions);
 
   void ClearCustomTitleBarDragRegion();
 

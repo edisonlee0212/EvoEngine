@@ -70,6 +70,7 @@ function(register_evoengine_app app_name default_enable)
 					${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
 					${EVOENGINE_APP_RESOURCE_DIR}/${app_name}.rc
 					)
+				set_target_properties(${app_name} PROPERTIES WIN32_EXECUTABLE TRUE)
 			else()
 				add_executable(${app_name}
 					${EVOENGINE_APP_SOURCE_DIR}/${app_name}.cpp
@@ -115,6 +116,9 @@ function(register_evoengine_app app_name default_enable)
 				target_compile_options(${app_name} PRIVATE -Werror)
 			elseif (MSVC)
 				target_compile_options(${app_name} PRIVATE /EHsc /W2 /c)
+				if (WIN32)
+					target_link_options(${app_name} PRIVATE /ENTRY:mainCRTStartup)
+				endif()
 			elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 				target_compile_options(${app_name} PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
 			endif ()

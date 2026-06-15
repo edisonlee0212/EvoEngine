@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <unordered_map>
+#include <vector>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -131,9 +132,7 @@ ImVec4 ColorSelectedBorder() {
 }
 
 constexpr const char* kRecentProjectsWindow = "Recent Projects";
-constexpr const char* kTemplateWindow = "Choose Template";
-constexpr const char* kAvailablePackagesWindow = "Available Packages";
-constexpr const char* kProjectDetailsWindow = "Project Details";
+constexpr const char* kNewProjectWindow = "New Project";
 constexpr float kCustomTitleBarHeight = 57.0f;
 constexpr float kTitleBarLogoSize = 38.0f;
 constexpr float kTitleBarLogoX = 10.0f;
@@ -307,7 +306,7 @@ class LauncherLayer final : public ILayer {
     RefreshPackageAvailability();
     LoadRecentProjects();
     AppendRecentProjectCountTestLog();
-    AppendTemplateAvailabilityTestLog();
+    AppendPackageAvailabilityTestLog();
     AppendTestLog("mode:hub");
     if (const char* open_project = std::getenv("EVOENGINE_LAUNCHER_TEST_OPEN_PROJECT")) {
       pending_test_open_project_ = open_project;
@@ -332,12 +331,12 @@ class LauncherLayer final : public ILayer {
 
  private:
   char project_name_[256] = {};
-  int selected_project_template_index_ = 0;
   std::filesystem::path parent_folder_;
   std::string create_error_;
   std::string launch_error_;
   std::vector<std::filesystem::path> recent_project_paths_;
   std::vector<AvailablePackageInfo> available_packages_;
+  std::vector<std::string> selected_startup_runtime_packages_;
   launcher::PackageAvailability package_availability_;
   std::unordered_map<std::string, std::shared_ptr<Texture2D>> title_bar_icons_;
   bool dock_layout_dirty_ = true;
@@ -357,11 +356,11 @@ class LauncherLayer final : public ILayer {
       title_bar_icons_[name] = std::move(icon);
     };
 
-    load_icon("TitleBarLogo", default_resources / "Editor/HazelStyle/TitleBar/EvoEngine64White.png");
-    load_icon("WindowMinimize", default_resources / "Editor/HazelStyle/Window/Minimize.png");
-    load_icon("WindowMaximize", default_resources / "Editor/HazelStyle/Window/Maximize.png");
-    load_icon("WindowRestore", default_resources / "Editor/HazelStyle/Window/Restore.png");
-    load_icon("WindowClose", default_resources / "Editor/HazelStyle/Window/Close.png");
+    load_icon("TitleBarLogo", default_resources / "Editor/TitleBar/EvoEngine64White.png");
+    load_icon("WindowMinimize", default_resources / "Editor/Window/Minimize.png");
+    load_icon("WindowMaximize", default_resources / "Editor/Window/Maximize.png");
+    load_icon("WindowRestore", default_resources / "Editor/Window/Restore.png");
+    load_icon("WindowClose", default_resources / "Editor/Window/Close.png");
   }
 
   void DrawCustomTitleBar() {
@@ -404,14 +403,6 @@ class LauncherLayer final : public ILayer {
         DrawFallbackLogo(logo_min, kTitleBarLogoSize, IM_COL32_WHITE);
       }
 
-      constexpr const char* title = "EvoEngine Launcher";
-      const ImVec2 title_size = ImGui::CalcTextSize(title);
-      if (title_size.x + kTitleBarButtonsAreaWidth * 2.0f < ImGui::GetWindowWidth()) {
-        draw_list->AddText(
-            ImVec2(titlebar_min.x + ImGui::GetWindowWidth() * 0.5f - title_size.x * 0.5f, titlebar_min.y + 15.0f),
-            kTitleBarText, title);
-      }
-
       const float drag_start_x = kTitleBarLogoX + kTitleBarLogoSize + 18.0f;
       const float drag_width = controls_x - drag_start_x;
       if (drag_width > 0.0f) {
@@ -433,12 +424,16 @@ class LauncherLayer final : public ILayer {
               FindIcon(title_bar_icons_, window_layer->IsWindowMaximized() ? "WindowRestore" : "WindowMaximize"),
               ImVec2(button_x, button_y), false,
               window_layer->IsWindowMaximized() ? TitleBarGlyph::Restore : TitleBarGlyph::Maximize)) {
-        window_layer->ToggleMaximized();
+        ApplicationContext::Get().QueueEndOfLoopAction([window_layer]() {
+          window_layer->ToggleMaximized();
+        });
       }
       button_x -= 17.0f + kTitleBarButtonSize;
       if (DrawTitleBarImageButton("Minimize##Launcher", FindIcon(title_bar_icons_, "WindowMinimize"),
                                   ImVec2(button_x, button_y), false, TitleBarGlyph::Minimize)) {
-        window_layer->MinimizeWindow();
+        ApplicationContext::Get().QueueEndOfLoopAction([window_layer]() {
+          window_layer->MinimizeWindow();
+        });
       }
       ImGui::PopClipRect();
     }
@@ -468,11 +463,7 @@ class LauncherLayer final : public ILayer {
       ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 8.0f));
       ImGui::PushStyleColor(ImGuiCol_Border, ColorBorder());
-      const ImVec2 workspace_size = ImGui::GetContentRegionAvail();
-      const float padding = 28.0f;
-      ImGui::SetCursorPos(ImVec2(padding, 24.0f));
-      DrawHeader(workspace_size.x - padding * 2.0f);
-      ImGui::SetCursorPos(ImVec2(0.0f, 92.0f));
+      ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
       if (ImGui::BeginChild("LauncherDockHost", ImVec2(0.0f, 0.0f), false,
                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         DrawLauncherDockspace();
@@ -485,29 +476,6 @@ class LauncherLayer final : public ILayer {
     ImGui::PopStyleVar(3);
 
     DrawProjectHub();
-  }
-
-  void DrawHeader(const float width) {
-    const float header_top = ImGui::GetCursorPosY();
-    ImGui::BeginGroup();
-    ImGui::TextUnformatted("EvoEngine Launcher");
-    ImGui::TextColored(ColorTextMuted(), "Open an existing project or create a new workspace.");
-    ImGui::EndGroup();
-
-    ImGui::SetCursorPosY(header_top);
-    ImGui::SetCursorPosX(std::max(width - 136.0f, 0.0f));
-    ImGui::PushID("HeaderOpenProject");
-    FileUtils::OpenFile(
-        "Open Project", "Project", {".eveproj"},
-        [this](const std::filesystem::path& path) {
-          OpenProject(path);
-        },
-        false);
-    ImGui::PopID();
-    ImGui::SameLine();
-    if (ImGui::Button("Exit")) {
-      ApplicationContext::Get().End();
-    }
   }
 
   void DrawLauncherDockspace() {
@@ -525,13 +493,9 @@ class LauncherLayer final : public ILayer {
     ImGui::DockBuilderAddNode(dock_space_id_, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dock_space_id_, dock_size);
     ImGuiID main_node = dock_space_id_;
-    const ImGuiID recent_node = ImGui::DockBuilderSplitNode(main_node, ImGuiDir_Left, 0.30f, nullptr, &main_node);
-    const ImGuiID details_node = ImGui::DockBuilderSplitNode(main_node, ImGuiDir_Right, 0.32f, nullptr, &main_node);
-    const ImGuiID packages_node = ImGui::DockBuilderSplitNode(main_node, ImGuiDir_Down, 0.36f, nullptr, &main_node);
+    const ImGuiID recent_node = ImGui::DockBuilderSplitNode(main_node, ImGuiDir_Left, 0.34f, nullptr, &main_node);
     ImGui::DockBuilderDockWindow(kRecentProjectsWindow, recent_node);
-    ImGui::DockBuilderDockWindow(kTemplateWindow, main_node);
-    ImGui::DockBuilderDockWindow(kAvailablePackagesWindow, packages_node);
-    ImGui::DockBuilderDockWindow(kProjectDetailsWindow, details_node);
+    ImGui::DockBuilderDockWindow(kNewProjectWindow, main_node);
     ImGui::DockBuilderFinish(dock_space_id_);
     dock_layout_dirty_ = false;
   }
@@ -540,13 +504,7 @@ class LauncherLayer final : public ILayer {
     DrawDockedPanel(kRecentProjectsWindow, [this](const float width) {
       DrawRecentProjectsPanel(width);
     });
-    DrawDockedPanel(kTemplateWindow, [this](const float width) {
-      DrawTemplateCards(width);
-    });
-    DrawDockedPanel(kAvailablePackagesWindow, [this](const float width) {
-      DrawAvailablePackagesPanel(width);
-    });
-    DrawDockedPanel(kProjectDetailsWindow, [this](const float width) {
+    DrawDockedPanel(kNewProjectWindow, [this](const float width) {
       DrawCreateProjectForm(ImVec2(width, 0.0f));
     });
   }
@@ -568,6 +526,15 @@ class LauncherLayer final : public ILayer {
     if (!launch_error_.empty()) {
       ImGui::TextColored(ColorError(), "%s", launch_error_.c_str());
     }
+    ImGui::PushID("RecentOpenProject");
+    FileUtils::OpenFile(
+        "Open Project", "Project", {".eveproj"},
+        [this](const std::filesystem::path& path) {
+          OpenProject(path);
+        },
+        false);
+    ImGui::PopID();
+    ImGui::SameLine();
     if (ImGui::Button("Refresh", ImVec2(92.0f, 28.0f))) {
       RefreshRecentProjects();
     }
@@ -655,10 +622,8 @@ class LauncherLayer final : public ILayer {
   }
 
   void DrawCreateProjectForm(const ImVec2& content_size) {
-    EnsureSelectedTemplateAvailable();
     ImGui::SetNextItemWidth(content_size.x);
     ImGui::InputText("Project Name", project_name_, sizeof(project_name_));
-    DrawTemplateSummary(SelectedProjectTemplate(), content_size.x);
     FileUtils::OpenFolder(
         "Parent Folder",
         [this](const std::filesystem::path& path) {
@@ -666,6 +631,8 @@ class LauncherLayer final : public ILayer {
           create_error_.clear();
         },
         false);
+
+    DrawPackageSelector(content_size.x);
 
     const auto project_name = launcher::Trim(project_name_);
     const auto derived_project_path = launcher::BuildDerivedProjectPath(parent_folder_, project_name);
@@ -682,80 +649,7 @@ class LauncherLayer final : public ILayer {
     ImGui::Spacing();
     if (ImGui::Button("Create", ImVec2(120.0f, 32.0f))) {
       CreateProject(project_name, derived_project_path.folder, derived_project_path.project_file,
-                    launcher::BuildProjectLaunchMetadata(project_name, SelectedProjectTemplate()));
-    }
-  }
-
-  const launcher::ProjectTemplate& SelectedProjectTemplate() const {
-    const auto& templates = launcher::ProjectTemplates();
-    if (selected_project_template_index_ < 0 ||
-        selected_project_template_index_ >= static_cast<int>(templates.size())) {
-      return templates.front();
-    }
-    return templates[static_cast<size_t>(selected_project_template_index_)];
-  }
-
-  void DrawTemplateCards(const float content_width) {
-    const auto& templates = launcher::ProjectTemplates();
-    const bool two_columns = content_width >= 500.0f;
-    const float card_width = two_columns ? (content_width - 42.0f) * 0.5f : content_width - 22.0f;
-    for (size_t i = 0; i < templates.size(); ++i) {
-      if (two_columns && i % 2 == 1) {
-        ImGui::SameLine();
-      }
-      DrawTemplateCard(i, card_width);
-    }
-  }
-
-  void DrawTemplateCard(const size_t template_index, const float width) {
-    const auto& project_template = launcher::ProjectTemplates()[template_index];
-    const bool selected = selected_project_template_index_ == static_cast<int>(template_index);
-    const bool available = IsTemplateAvailable(project_template);
-    ImGui::PushID(static_cast<int>(template_index));
-    ImGui::PushStyleColor(ImGuiCol_Border, selected ? ColorSelectedBorder() : ColorBorder());
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, selected ? ColorSelectedPanel() : ColorPanelAlt());
-    ImGui::BeginChild("TemplateCard", ImVec2(width, 124.0f), true);
-    ImGui::TextUnformatted(project_template.name.c_str());
-    if (project_template.startup_runtime_packages.empty()) {
-      ImGui::TextColored(ColorTextMuted(), "No runtime packages");
-    } else {
-      ImGui::TextColored(ColorTextMuted(), "Required packages:");
-      ImGui::TextWrapped("%s", launcher::JoinPackages(project_template.startup_runtime_packages).c_str());
-      if (available) {
-        ImGui::TextColored(ColorSuccess(), "Packages available");
-      } else {
-        ImGui::TextColored(ColorWarning(), "Missing packages: %s",
-                           launcher::JoinPackages(launcher::MissingPackages(package_availability_,
-                                                                            project_template.startup_runtime_packages))
-                               .c_str());
-      }
-    }
-    ImGui::EndChild();
-    const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
-    if (hovered && available && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-      selected_project_template_index_ = static_cast<int>(template_index);
-      create_error_.clear();
-    }
-    if (hovered && !available) {
-      ImGui::SetTooltip("Missing packages: %s",
-                        launcher::JoinPackages(
-                            launcher::MissingPackages(package_availability_, project_template.startup_runtime_packages))
-                            .c_str());
-    }
-    ImGui::PopStyleColor(2);
-    ImGui::PopID();
-  }
-
-  bool IsTemplateAvailable(const launcher::ProjectTemplate& project_template) const {
-    return launcher::IsTemplateAvailable(project_template, package_availability_);
-  }
-
-  void EnsureSelectedTemplateAvailable() {
-    const int selected_index = launcher::SelectAvailableTemplateIndex(
-        launcher::ProjectTemplates(), package_availability_, selected_project_template_index_);
-    if (selected_index != selected_project_template_index_) {
-      selected_project_template_index_ = selected_index;
-      create_error_.clear();
+                    launcher::BuildProjectLaunchMetadata(project_name, selected_startup_runtime_packages_));
     }
   }
 
@@ -767,38 +661,21 @@ class LauncherLayer final : public ILayer {
     }
   }
 
-  void DrawTemplateSummary(const launcher::ProjectTemplate& project_template, const float width) {
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ColorPanelAlt());
-    ImGui::BeginChild("TemplateSummary",
-                      ImVec2(width, project_template.startup_runtime_packages.empty() ? 72.0f : 112.0f), true);
-    ImGui::TextUnformatted(project_template.name.c_str());
-    ImGui::TextColored(
-        ColorTextMuted(), "%s",
-        project_template.startup_runtime_packages.empty() ? "Generic project" : "Package-backed template");
-    if (project_template.startup_runtime_packages.empty()) {
-      ImGui::TextColored(ColorTextMuted(), "Packages: none");
-    } else {
-      DrawPackageStatusList(project_template.startup_runtime_packages);
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-  }
-
-  void DrawAvailablePackagesPanel(const float content_width) {
-    if (ImGui::Button("Refresh Packages", ImVec2(138.0f, 28.0f))) {
+  void DrawPackageSelector(const float content_width) {
+    ImGui::Spacing();
+    ImGui::TextUnformatted("Runtime Packages");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Refresh")) {
       RefreshPackageAvailability();
     }
-    ImGui::SameLine();
     ImGui::TextColored(ColorTextMuted(), "%zu manifest%s", available_packages_.size(),
                        available_packages_.size() == 1 ? "" : "s");
     ImGui::Spacing();
 
-    const auto& selected_template = SelectedProjectTemplate();
-    if (selected_template.startup_runtime_packages.empty()) {
-      ImGui::TextColored(ColorTextMuted(), "Selected template does not require runtime packages.");
+    if (selected_startup_runtime_packages_.empty()) {
+      ImGui::TextColored(ColorTextMuted(), "No startup runtime packages selected.");
     } else {
-      ImGui::TextUnformatted("Selected template requires:");
-      DrawPackageStatusList(selected_template.startup_runtime_packages);
+      DrawPackageStatusList(selected_startup_runtime_packages_);
     }
     ImGui::Separator();
 
@@ -806,31 +683,60 @@ class LauncherLayer final : public ILayer {
       ImGui::TextUnformatted("No package manifests found.");
       return;
     }
-    if (ImGui::BeginChild("AvailablePackageRows", ImVec2(0.0f, 0.0f), false)) {
+    const float package_height = std::clamp(ImGui::GetContentRegionAvail().y * 0.45f, 180.0f, 360.0f);
+    if (ImGui::BeginChild("PackageSelectionRows", ImVec2(content_width, package_height), false)) {
       for (const auto& package : available_packages_) {
-        DrawAvailablePackageRow(package, content_width - 16.0f);
+        DrawPackageSelectionRow(package, content_width - 18.0f);
       }
     }
     ImGui::EndChild();
   }
 
-  void DrawAvailablePackageRow(const AvailablePackageInfo& package, const float width) const {
+  void DrawPackageSelectionRow(const AvailablePackageInfo& package, const float width) {
+    bool selected = std::find(selected_startup_runtime_packages_.begin(), selected_startup_runtime_packages_.end(),
+                              package.name) != selected_startup_runtime_packages_.end();
     ImGui::PushID(package.name.c_str());
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ColorPanelAlt());
-    ImGui::BeginChild("PackageRow", ImVec2(width, 42.0f), true);
-    ImGui::TextUnformatted(package.name.c_str());
-    ImGui::SameLine();
-    ImGui::TextColored(ColorTextMuted(), "Version: %s", package.version.empty() ? "unknown" : package.version.c_str());
+    ImGui::BeginChild("PackageSelectionRow", ImVec2(width, 76.0f), true);
+    ImGui::BeginDisabled(!package.library_exists);
+    if (ImGui::Checkbox(package.name.c_str(), &selected)) {
+      SetPackageSelected(package.name, selected);
+      create_error_.clear();
+    }
+    ImGui::EndDisabled();
+    ImGui::TextColored(package.library_exists ? ColorTextMuted() : ColorWarning(), "Version: %s",
+                       package.version.empty() ? "unknown" : package.version.c_str());
+    if (!package.dependencies.empty()) {
+      ImGui::TextColored(ColorTextMuted(), "Dependencies: %s", launcher::JoinPackages(package.dependencies).c_str());
+    }
+    if (!package.library_exists) {
+      ImGui::TextColored(ColorWarning(), "Library missing");
+    }
     ImGui::EndChild();
     ImGui::PopStyleColor();
     ImGui::PopID();
+  }
+
+  void SetPackageSelected(const std::string& package_name, const bool selected) {
+    const auto search =
+        std::find(selected_startup_runtime_packages_.begin(), selected_startup_runtime_packages_.end(), package_name);
+    if (selected && search == selected_startup_runtime_packages_.end()) {
+      selected_startup_runtime_packages_.emplace_back(package_name);
+    } else if (!selected && search != selected_startup_runtime_packages_.end()) {
+      selected_startup_runtime_packages_.erase(search);
+    }
   }
 
   void RefreshPackageAvailability() {
     PackageManager::ScanAvailablePackages();
     available_packages_ = PackageManager::GetAvailablePackages();
     package_availability_ = launcher::BuildPackageAvailability(available_packages_);
-    EnsureSelectedTemplateAvailable();
+    selected_startup_runtime_packages_.erase(
+        std::remove_if(selected_startup_runtime_packages_.begin(), selected_startup_runtime_packages_.end(),
+                       [this](const std::string& package_name) {
+                         return !launcher::IsPackageAvailable(package_availability_, package_name);
+                       }),
+        selected_startup_runtime_packages_.end());
   }
 
   void CreateProject(const std::string& project_name, const std::filesystem::path& project_folder,
@@ -890,10 +796,10 @@ class LauncherLayer final : public ILayer {
     }
   }
 
-  void AppendTemplateAvailabilityTestLog() const {
-    for (const auto& project_template : launcher::ProjectTemplates()) {
-      AppendTestLog("template:" + project_template.name + ":" +
-                    (IsTemplateAvailable(project_template) ? "available" : "missing"));
+  void AppendPackageAvailabilityTestLog() const {
+    AppendTestLog("package-count:" + std::to_string(available_packages_.size()));
+    for (const auto& package : available_packages_) {
+      AppendTestLog("package:" + package.name + ":" + (package.library_exists ? "available" : "missing"));
     }
   }
 

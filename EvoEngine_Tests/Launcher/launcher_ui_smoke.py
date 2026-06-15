@@ -19,6 +19,7 @@ else:
 
 GWL_STYLE = -16
 WS_CAPTION = 0x00C00000
+WS_POPUP = 0x80000000
 WS_THICKFRAME = 0x00040000
 
 
@@ -77,8 +78,10 @@ def assert_custom_title_bar_window(hwnd: int, label: str) -> None:
     if width <= 100 or height <= 100:
         raise RuntimeError(f"{label} window dimensions are invalid: {width}x{height}.")
     style = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
-    if style & WS_CAPTION:
-        raise RuntimeError(f"{label} still has a native Windows caption.")
+    if not style & WS_CAPTION:
+        raise RuntimeError(f"{label} is missing the native caption style required for Windows animations.")
+    if style & WS_POPUP:
+        raise RuntimeError(f"{label} still has popup window styling.")
     if not style & WS_THICKFRAME:
         raise RuntimeError(f"{label} is missing a resizable frame.")
 
@@ -142,11 +145,11 @@ def main() -> int:
             print(f"Launcher exited after workspace click with code {launcher.returncode}.")
             return 1
 
-        if not log_contains(log_path, "template:Generic:available"):
-            print("Launcher did not log Generic template availability.")
+        if not log_contains(log_path, "package-count:"):
+            print("Launcher did not log package availability.")
             return 1
-        if "template:" not in log_path.read_text(encoding="utf-8", errors="ignore"):
-            print("Launcher did not log template availability.")
+        if "template:" in log_path.read_text(encoding="utf-8", errors="ignore"):
+            print("Launcher still logged template availability.")
             return 1
         click((rect.left + rect.right) // 2 + 70, (rect.top + rect.bottom) // 2 + 135)
         time.sleep(1)

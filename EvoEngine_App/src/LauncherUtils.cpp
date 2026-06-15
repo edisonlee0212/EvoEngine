@@ -7,21 +7,12 @@
 using namespace evo_engine;
 
 namespace evo_engine::launcher {
-const std::vector<ProjectTemplate>& ProjectTemplates() {
-  static const std::vector<ProjectTemplate> project_templates = {{"Generic", {}},
-                                                                 {"LSystem", {"LSystem", "DigitalAgriculture"}},
-                                                                 {"EcoSysLab", {"EcoSysLab"}},
-                                                                 {"Digital Agriculture", {"DigitalAgriculture"}},
-                                                                 {"Log Grading", {"LogGrading"}}};
-  return project_templates;
-}
-
 ProjectLaunchMetadata BuildProjectLaunchMetadata(const std::string& project_name,
-                                                 const ProjectTemplate& project_template) {
+                                                 const std::vector<std::string>& startup_runtime_packages) {
   ProjectLaunchMetadata metadata;
   metadata.application_name = project_name;
   metadata.preferred_editor = "EvoEngineEditor";
-  metadata.startup_runtime_packages = project_template.startup_runtime_packages;
+  metadata.startup_runtime_packages = startup_runtime_packages;
   return metadata;
 }
 
@@ -85,20 +76,6 @@ bool ArePackagesAvailable(const PackageAvailability& availability, const std::ve
   return MissingPackages(availability, package_names).empty();
 }
 
-bool IsTemplateAvailable(const ProjectTemplate& project_template, const PackageAvailability& availability) {
-  return project_template.startup_runtime_packages.empty() ||
-         ArePackagesAvailable(availability, project_template.startup_runtime_packages);
-}
-
-int SelectAvailableTemplateIndex(const std::vector<ProjectTemplate>& templates, const PackageAvailability& availability,
-                                 const int selected_index) {
-  if (selected_index < 0 || selected_index >= static_cast<int>(templates.size()) ||
-      !IsTemplateAvailable(templates[static_cast<size_t>(selected_index)], availability)) {
-    return 0;
-  }
-  return selected_index;
-}
-
 DerivedProjectPath BuildDerivedProjectPath(const std::filesystem::path& parent_folder,
                                            const std::string& project_name) {
   const auto project_folder = parent_folder / project_name;
@@ -114,7 +91,7 @@ std::string ValidateCreateProjectRequest(const std::string& project_name, const 
     return "Project name is empty or contains invalid filename characters.";
   }
   if (!ArePackagesAvailable(availability, metadata.startup_runtime_packages)) {
-    return "Selected template has missing runtime packages.";
+    return "Selected runtime packages are missing.";
   }
   if (parent_folder.empty() || !std::filesystem::exists(parent_folder) ||
       !std::filesystem::is_directory(parent_folder)) {

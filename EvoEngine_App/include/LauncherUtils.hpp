@@ -12,11 +12,6 @@
 namespace evo_engine::launcher {
 constexpr size_t kMaxRecentProjectCount = 8;
 
-struct ProjectTemplate {
-  std::string name;
-  std::vector<std::string> startup_runtime_packages;
-};
-
 struct DerivedProjectPath {
   std::filesystem::path folder;
   std::filesystem::path project_file;
@@ -24,9 +19,8 @@ struct DerivedProjectPath {
 
 using PackageAvailability = std::unordered_map<std::string, bool>;
 
-[[nodiscard]] const std::vector<ProjectTemplate>& ProjectTemplates();
-[[nodiscard]] ProjectLaunchMetadata BuildProjectLaunchMetadata(const std::string& project_name,
-                                                               const ProjectTemplate& project_template);
+[[nodiscard]] ProjectLaunchMetadata BuildProjectLaunchMetadata(
+    const std::string& project_name, const std::vector<std::string>& startup_runtime_packages);
 [[nodiscard]] std::string Trim(const std::string& value);
 [[nodiscard]] bool IsValidProjectName(const std::string& project_name);
 [[nodiscard]] std::string JoinPackages(const std::vector<std::string>& package_names);
@@ -36,10 +30,6 @@ using PackageAvailability = std::unordered_map<std::string, bool>;
                                                        const std::vector<std::string>& package_names);
 [[nodiscard]] bool ArePackagesAvailable(const PackageAvailability& availability,
                                         const std::vector<std::string>& package_names);
-[[nodiscard]] bool IsTemplateAvailable(const ProjectTemplate& project_template,
-                                       const PackageAvailability& availability);
-[[nodiscard]] int SelectAvailableTemplateIndex(const std::vector<ProjectTemplate>& templates,
-                                               const PackageAvailability& availability, int selected_index);
 [[nodiscard]] DerivedProjectPath BuildDerivedProjectPath(const std::filesystem::path& parent_folder,
                                                          const std::string& project_name);
 [[nodiscard]] std::string ValidateCreateProjectRequest(const std::string& project_name,

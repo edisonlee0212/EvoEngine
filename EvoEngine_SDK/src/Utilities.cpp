@@ -9,6 +9,7 @@
 #include "WindowLayer.hpp"
 
 #ifdef EVOENGINE_WINDOWS
+#  include "ShObjIdl.h"
 #  define GLFW_EXPOSE_NATIVE_WIN32  ///< Exposes native Win32 context for GLFW
 #  include "GLFW/glfw3native.h"
 #  define STBI_MSC_SECURE_CRT  ///< Configures CRT secure functions for stb_image on Windows
@@ -20,6 +21,116 @@
 #include "Utilities/X11MacroCleanup.hpp"
 
 using namespace evo_engine;
+
+#ifdef EVOENGINE_WINDOWS
+namespace {
+std::wstring ToWideString(const std::string& value) {
+  if (value.empty()) {
+    return {};
+  }
+  const int size = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0);
+  if (size <= 0) {
+    return std::wstring(value.begin(), value.end());
+  }
+  std::wstring result(size, L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), size);
+  return result;
+}
+
+std::wstring BuildFileDialogPattern(const std::vector<std::string>& extensions) {
+  std::wstring pattern;
+  for (size_t i = 0; i < extensions.size(); ++i) {
+    if (i != 0) {
+      pattern += L";";
+    }
+    pattern += L"*";
+    pattern += ToWideString(extensions[i]);
+  }
+  return pattern;
+}
+
+std::wstring BuildFileDialogFilterName(const std::string& file_type, const std::vector<std::string>& extensions) {
+  std::wstring name = ToWideString(file_type);
+  const std::wstring pattern = BuildFileDialogPattern(extensions);
+  if (!pattern.empty()) {
+    name += L" (" + pattern + L")";
+  }
+  return name;
+}
+
+void RefreshOwnerChrome(const std::shared_ptr<WindowLayer>& window_layer) {
+  if (window_layer) {
+    window_layer->RefreshCustomTitleBar();
+  }
+}
+
+bool OpenWindowsFileDialog(const std::shared_ptr<WindowLayer>& window_layer, const std::string& dialog_title,
+                           const std::string& file_type, const std::vector<std::string>& extensions,
+                           std::filesystem::path& selected_path) {
+  if (!window_layer || !window_layer->GetGlfwWindow()) {
+    return false;
+  }
+
+  RefreshOwnerChrome(window_layer);
+  const HRESULT initialize_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+  const bool uninitialize = SUCCEEDED(initialize_result);
+  if (FAILED(initialize_result) && initialize_result != RPC_E_CHANGED_MODE) {
+    RefreshOwnerChrome(window_layer);
+    return false;
+  }
+
+  IFileOpenDialog* dialog = nullptr;
+  HRESULT result = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+  if (FAILED(result) || !dialog) {
+    if (uninitialize) {
+      CoUninitialize();
+    }
+    RefreshOwnerChrome(window_layer);
+    return false;
+  }
+
+  const std::wstring title = ToWideString(dialog_title);
+  dialog->SetTitle(title.c_str());
+
+  DWORD options = 0;
+  if (SUCCEEDED(dialog->GetOptions(&options))) {
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+  }
+
+  const std::wstring filter_name = BuildFileDialogFilterName(file_type, extensions);
+  const std::wstring filter_pattern = BuildFileDialogPattern(extensions);
+  if (!filter_name.empty() && !filter_pattern.empty()) {
+    const COMDLG_FILTERSPEC filters[] = {{filter_name.c_str(), filter_pattern.c_str()}};
+    dialog->SetFileTypes(1, filters);
+    dialog->SetFileTypeIndex(1);
+  }
+
+  const HWND owner = glfwGetWin32Window(window_layer->GetGlfwWindow());
+  bool selected = false;
+  result = dialog->Show(owner);
+  if (SUCCEEDED(result)) {
+    IShellItem* item = nullptr;
+    if (SUCCEEDED(dialog->GetResult(&item)) && item) {
+      PWSTR file_path = nullptr;
+      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &file_path)) && file_path) {
+        selected_path = std::filesystem::path(file_path);
+        selected = true;
+        CoTaskMemFree(file_path);
+      }
+      item->Release();
+    }
+  }
+
+  dialog->Release();
+  if (uninitialize) {
+    CoUninitialize();
+  }
+  RefreshOwnerChrome(window_layer);
+  return selected;
+}
+}  // namespace
+#endif
+
 std::string FileUtils::LoadFileAsString(const std::filesystem::path& path) {
   std::ifstream file;
   file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
@@ -44,6 +155,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #ifdef EVOENGINE_WINDOWS
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
+    RefreshOwnerChrome(window_layer);
     TCHAR path[MAX_PATH];
     BROWSEINFO bi = {0};
     bi.lpszTitle = dialog_title.c_str();
@@ -74,6 +186,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
       if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
+    RefreshOwnerChrome(window_layer);
   }
 #else
   if (window_layer && ImGui::Button(dialog_title.c_str()))
@@ -101,62 +214,11 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
   auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #ifdef EVOENGINE_WINDOWS
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
-    OPENFILENAMEA ofn;
-    CHAR sz_file[260] = {0};
-    ZeroMemory(&ofn, sizeof(OPENFILENAME));
-    ofn.lStructSize = sizeof(OPENFILENAME);
-    ofn.hwndOwner = glfwGetWin32Window(window_layer->GetGlfwWindow());
-    ofn.lpstrFile = sz_file;
-    ofn.nMaxFile = sizeof(sz_file);
-    std::string filters = file_type + " (";
-    for (int i = 0; i < extensions.size(); i++) {
-      filters += "*" + extensions[i];
-      if (i < extensions.size() - 1)
-        filters += ", ";
-    }
-    filters += ") ";
-    std::string filters2;
-    for (int i = 0; i < extensions.size(); i++) {
-      filters2 += "*" + extensions[i];
-      if (i < extensions.size() - 1)
-        filters2 += ";";
-    }
-    char actual_filter[256];
-    char title[256];
-    strcpy(title, dialog_title.c_str());
-    int index = 0;
-    for (auto& i : filters) {
-      actual_filter[index] = i;
-      index++;
-    }
-    actual_filter[index] = 0;
-    index++;
-    for (auto& i : filters2) {
-      actual_filter[index] = i;
-      index++;
-    }
-    actual_filter[index] = 0;
-    index++;
-    actual_filter[index] = 0;
-    index++;
-    ofn.lpstrFilter = actual_filter;
-    ofn.nFilterIndex = 1;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
-    ofn.lpstrTitle = title;
-    if (GetOpenFileNameA(&ofn) == TRUE) {
-      std::string ret_val = ofn.lpstrFile;
-      const std::string search = "\\";
-      size_t pos = ret_val.find(search);
-      // Repeat till end is reached
-      while (pos != std::string::npos) {
-        // Replace this occurrence of Sub String
-        ret_val.replace(pos, 1, "/");
-        // Get the next occurrence from the current position
-        pos = ret_val.find(search, pos + 1);
-      }
-      std::filesystem::path path = ret_val;
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
+    std::filesystem::path path;
+    if (OpenWindowsFileDialog(window_layer, dialog_title, file_type, extensions, path)) {
+      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path)) {
         func(path);
+      }
     }
   }
 #else
@@ -192,6 +254,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 #ifdef EVOENGINE_WINDOWS
   if (ImGui::Button(dialog_title.c_str())) {
+    RefreshOwnerChrome(window_layer);
     OPENFILENAMEA ofn;
     CHAR sz_file[260] = {0};
     ZeroMemory(&ofn, sizeof(OPENFILENAME));
@@ -252,6 +315,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
       if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
         func(path);
     }
+    RefreshOwnerChrome(window_layer);
   }
 #else
   std::stringstream fileExtensions;

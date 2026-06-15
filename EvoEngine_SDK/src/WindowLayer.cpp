@@ -10,6 +10,7 @@
 #  ifndef GLFW_EXPOSE_NATIVE_WIN32
 #    define GLFW_EXPOSE_NATIVE_WIN32
 #  endif
+#  include <dwmapi.h>
 #  include <windowsx.h>
 #  include "GLFW/glfw3native.h"
 #endif
@@ -39,6 +40,47 @@ void SetWindowCornerPreference(HWND hwnd, const DWORD preference) {
     set_window_attribute(hwnd, kDwmWindowCornerPreference, &preference, sizeof(preference));
   }
   FreeLibrary(dwmapi);
+}
+
+void ExtendFrameIntoClientArea(HWND hwnd) {
+  using DwmExtendFrameIntoClientAreaFunc = HRESULT(WINAPI*)(HWND, const MARGINS*);
+  const HMODULE dwmapi = LoadLibraryW(L"dwmapi.dll");
+  if (!dwmapi) {
+    return;
+  }
+
+  const auto extend_frame =
+      reinterpret_cast<DwmExtendFrameIntoClientAreaFunc>(GetProcAddress(dwmapi, "DwmExtendFrameIntoClientArea"));
+  if (extend_frame) {
+    const MARGINS margins{0, 0, 0, 0};
+    extend_frame(hwnd, &margins);
+  }
+  FreeLibrary(dwmapi);
+}
+
+void ApplyCustomTitleBarStyle(HWND hwnd) {
+  auto style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+  style &= ~WS_POPUP;
+  style |= WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+  SetWindowLongPtrW(hwnd, GWL_STYLE, style);
+  ExtendFrameIntoClientArea(hwnd);
+  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  SetWindowCornerPreference(hwnd, kDwmWindowCornerRound);
+}
+
+void ApplyMaximizedWorkArea(HWND hwnd, LPARAM l_param) {
+  auto* min_max_info = reinterpret_cast<MINMAXINFO*>(l_param);
+  MONITORINFO monitor_info{sizeof(monitor_info)};
+  if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor_info)) {
+    return;
+  }
+
+  const RECT& work_area = monitor_info.rcWork;
+  const RECT& monitor_area = monitor_info.rcMonitor;
+  min_max_info->ptMaxPosition.x = work_area.left - monitor_area.left;
+  min_max_info->ptMaxPosition.y = work_area.top - monitor_area.top;
+  min_max_info->ptMaxSize.x = work_area.right - work_area.left;
+  min_max_info->ptMaxSize.y = work_area.bottom - work_area.top;
 }
 
 LRESULT CALLBACK CustomTitleBarWindowProc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param) {
@@ -79,7 +121,8 @@ void WindowLayer::SetMonitorCallback(GLFWmonitor* monitor, int event) {
 void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 
-  if (focused) {
+  if (focused && window_layer) {
+    window_layer->RefreshCustomTitleBar();
     ProjectManager::DispatchScanAssetsTask();
   }
 }
@@ -105,14 +148,15 @@ void WindowLayer::InstallCustomTitleBar() {
   }
   const auto hwnd = glfwGetWin32Window(window_);
   native_window_handle_ = hwnd;
-  auto style = GetWindowLongPtrW(hwnd, GWL_STYLE);
-  style &= ~(WS_CAPTION | WS_POPUP);
-  style |= WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
-  SetWindowLongPtrW(hwnd, GWL_STYLE, style);
   SetPropW(hwnd, kWindowLayerProperty, this);
-  default_window_proc_ = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc));
-  SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-  SetWindowCornerPreference(hwnd, kDwmWindowCornerRound);
+  const auto current_window_proc = GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+  if (current_window_proc != reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc)) {
+    if (!default_window_proc_ || current_window_proc != default_window_proc_) {
+      default_window_proc_ = current_window_proc;
+    }
+    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CustomTitleBarWindowProc));
+  }
+  RefreshCustomTitleBar();
 #endif
 }
 
@@ -131,7 +175,7 @@ void WindowLayer::UninstallCustomTitleBar() {
 #endif
   native_window_handle_ = nullptr;
   default_window_proc_ = 0;
-  has_title_bar_drag_region_ = false;
+  title_bar_drag_regions_.clear();
 }
 
 std::optional<intptr_t> WindowLayer::HitTestCustomTitleBar(void* native_window_handle, const intptr_t l_param) const {
@@ -175,8 +219,10 @@ std::optional<intptr_t> WindowLayer::HitTestCustomTitleBar(void* native_window_h
   }
 
   ScreenToClient(hwnd, &point);
-  if (has_title_bar_drag_region_ && Contains(title_bar_drag_region_, point)) {
-    return HTCAPTION;
+  for (const auto& region : title_bar_drag_regions_) {
+    if (Contains(region, point)) {
+      return HTCAPTION;
+    }
   }
 #endif
   return {};
@@ -187,6 +233,13 @@ intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, cons
 #ifdef EVOENGINE_WINDOWS
   const auto hwnd = static_cast<HWND>(native_window_handle);
   switch (message) {
+    case WM_ACTIVATE:
+    case WM_ENABLE:
+      ApplyCustomTitleBarStyle(hwnd);
+      break;
+    case WM_GETMINMAXINFO:
+      ApplyMaximizedWorkArea(hwnd, l_param);
+      return 0;
     case WM_NCCALCSIZE:
       if (w_param == TRUE) {
         auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param);
@@ -198,6 +251,9 @@ intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, cons
         return 0;
       }
       break;
+    case WM_NCACTIVATE:
+    case WM_NCPAINT:
+      return TRUE;
     case WM_NCHITTEST:
       if (const auto hit = HitTestCustomTitleBar(hwnd, l_param)) {
         return *hit;
@@ -342,11 +398,45 @@ bool WindowLayer::IsWindowMaximized() const {
   return window_ && glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
 }
 
+void WindowLayer::ShowWindow() const {
+  if (window_) {
+    glfwShowWindow(window_);
+  }
+}
+
+void WindowLayer::RefreshCustomTitleBar() {
+#ifdef EVOENGINE_WINDOWS
+  if (!custom_title_bar_ || !window_) {
+    return;
+  }
+  const auto hwnd = native_window_handle_ ? static_cast<HWND>(native_window_handle_) : glfwGetWin32Window(window_);
+  if (!hwnd) {
+    return;
+  }
+  native_window_handle_ = hwnd;
+  SetPropW(hwnd, kWindowLayerProperty, this);
+  ApplyCustomTitleBarStyle(hwnd);
+#endif
+}
+
 void WindowLayer::MinimizeWindow() const {
+#ifdef EVOENGINE_WINDOWS
+  if (custom_title_bar_ && native_window_handle_) {
+    SendMessageW(static_cast<HWND>(native_window_handle_), WM_SYSCOMMAND, SC_MINIMIZE, 0);
+    return;
+  }
+#endif
   glfwIconifyWindow(window_);
 }
 
 void WindowLayer::ToggleMaximized() const {
+#ifdef EVOENGINE_WINDOWS
+  if (custom_title_bar_ && native_window_handle_) {
+    const auto hwnd = static_cast<HWND>(native_window_handle_);
+    SendMessageW(hwnd, WM_SYSCOMMAND, IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE, 0);
+    return;
+  }
+#endif
   if (IsWindowMaximized()) {
     glfwRestoreWindow(window_);
   } else {
@@ -355,12 +445,23 @@ void WindowLayer::ToggleMaximized() const {
 }
 
 void WindowLayer::SetCustomTitleBarDragRegion(const glm::vec4& region) {
-  title_bar_drag_region_ = region;
-  has_title_bar_drag_region_ = region.z > 0.0f && region.w > 0.0f;
+  title_bar_drag_regions_.clear();
+  if (region.z > 0.0f && region.w > 0.0f) {
+    title_bar_drag_regions_.push_back(region);
+  }
+}
+
+void WindowLayer::SetCustomTitleBarDragRegions(const std::vector<glm::vec4>& regions) {
+  title_bar_drag_regions_.clear();
+  for (const auto& region : regions) {
+    if (region.z > 0.0f && region.w > 0.0f) {
+      title_bar_drag_regions_.push_back(region);
+    }
+  }
 }
 
 void WindowLayer::ClearCustomTitleBarDragRegion() {
-  has_title_bar_drag_region_ = false;
+  title_bar_drag_regions_.clear();
 }
 
 void WindowLayer::CenterWindow() const {

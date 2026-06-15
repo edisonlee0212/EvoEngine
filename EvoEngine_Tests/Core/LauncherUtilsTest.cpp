@@ -47,42 +47,43 @@ AvailablePackageInfo PackageInfo(const std::string& name, const bool library_exi
 }
 }  // namespace
 
-TEST(LauncherUtils, GenericTemplateIsAlwaysAvailable) {
-  const auto& templates = launcher::ProjectTemplates();
-  ASSERT_FALSE(templates.empty());
-  EXPECT_EQ(templates.front().name, "Generic");
-  EXPECT_TRUE(launcher::IsTemplateAvailable(templates.front(), {}));
+TEST(LauncherUtils, PackageAvailabilityTracksManifestAndLibraryState) {
+  const auto availability =
+      launcher::BuildPackageAvailability({PackageInfo("LSystem", true), PackageInfo("DigitalAgriculture", false)});
+
+  EXPECT_TRUE(launcher::IsPackageAvailable(availability, "LSystem"));
+  EXPECT_FALSE(launcher::IsPackageAvailable(availability, "DigitalAgriculture"));
+  EXPECT_FALSE(launcher::IsPackageAvailable(availability, "MissingPackage"));
 }
 
-TEST(LauncherUtils, PackageBackedTemplatesRequireAllPackages) {
-  const launcher::ProjectTemplate lsystem_template{"LSystem", {"LSystem", "DigitalAgriculture"}};
+TEST(LauncherUtils, SelectedRuntimePackagesRequireAllPackages) {
+  const std::vector<std::string> selected_packages{"LSystem", "DigitalAgriculture"};
   const auto full_availability =
       launcher::BuildPackageAvailability({PackageInfo("LSystem", true), PackageInfo("DigitalAgriculture", true)});
   const auto missing_manifest = launcher::BuildPackageAvailability({PackageInfo("LSystem", true)});
   const auto missing_library =
       launcher::BuildPackageAvailability({PackageInfo("LSystem", true), PackageInfo("DigitalAgriculture", false)});
 
-  EXPECT_TRUE(launcher::IsTemplateAvailable(lsystem_template, full_availability));
-  EXPECT_FALSE(launcher::IsTemplateAvailable(lsystem_template, missing_manifest));
-  EXPECT_FALSE(launcher::IsTemplateAvailable(lsystem_template, missing_library));
-  EXPECT_EQ(launcher::MissingPackages(missing_library, lsystem_template.startup_runtime_packages),
+  EXPECT_TRUE(launcher::ArePackagesAvailable(full_availability, selected_packages));
+  EXPECT_FALSE(launcher::ArePackagesAvailable(missing_manifest, selected_packages));
+  EXPECT_FALSE(launcher::ArePackagesAvailable(missing_library, selected_packages));
+  EXPECT_EQ(launcher::MissingPackages(missing_library, selected_packages),
             std::vector<std::string>{"DigitalAgriculture"});
 }
 
-TEST(LauncherUtils, UnavailableSelectedTemplateFallsBackToGeneric) {
-  const auto& templates = launcher::ProjectTemplates();
-  ASSERT_GT(templates.size(), 1);
+TEST(LauncherUtils, BuildsProjectMetadataFromSelectedPackages) {
+  const std::vector<std::string> selected_packages{"LSystem", "DigitalAgriculture"};
+  const auto metadata = launcher::BuildProjectLaunchMetadata("NewProject", selected_packages);
 
-  EXPECT_EQ(launcher::SelectAvailableTemplateIndex(templates, {}, 1), 0);
-  EXPECT_EQ(launcher::SelectAvailableTemplateIndex(templates, {}, -1), 0);
-  EXPECT_EQ(launcher::SelectAvailableTemplateIndex(templates, {}, static_cast<int>(templates.size())), 0);
-  EXPECT_EQ(launcher::SelectAvailableTemplateIndex(templates, {}, 0), 0);
+  EXPECT_EQ(metadata.application_name, "NewProject");
+  EXPECT_EQ(metadata.preferred_editor, "EvoEngineEditor");
+  EXPECT_EQ(metadata.startup_runtime_packages, selected_packages);
 }
 
 TEST(LauncherUtils, ValidatesProjectNamesAndCreatePaths) {
   TempLauncherDirectory temp;
   const launcher::PackageAvailability availability;
-  const auto metadata = launcher::BuildProjectLaunchMetadata("NewProject", launcher::ProjectTemplates().front());
+  const auto metadata = launcher::BuildProjectLaunchMetadata("NewProject", {});
   const auto derived_path = launcher::BuildDerivedProjectPath(temp.RootPath(), "NewProject");
 
   EXPECT_EQ(launcher::Trim("  NewProject\t"), "NewProject");
