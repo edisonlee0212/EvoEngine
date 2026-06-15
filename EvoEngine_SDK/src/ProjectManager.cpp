@@ -587,29 +587,24 @@ void ProjectManager::OnDestroy() {
   project_manager.initialized = false;
 }
 
-void ProjectManager::DrawProjectMenu() {
-  auto& project_manager = GetInstance();
+void ProjectManager::DrawProjectMenuItems() {
   static std::string close_project_error;
-  if (ImGui::BeginMenu("Project")) {
-    ImGui::Text(("Current Project path: " + project_manager.project_path_.string()).c_str());
 
-    if (ImGui::Button("Save")) {
-      SaveProject();
+  if (ImGui::MenuItem("Save Project")) {
+    SaveProject();
+  }
+  if (ImGui::MenuItem("Close Project")) {
+    close_project_error.clear();
+    SaveProject();
+    std::string error;
+    if (LaunchLauncherProcess(error)) {
+      ApplicationContext::Get().End();
+    } else {
+      close_project_error = error;
     }
-    if (ImGui::Button("Close Project")) {
-      close_project_error.clear();
-      SaveProject();
-      std::string error;
-      if (LaunchLauncherProcess(error)) {
-        ApplicationContext::Get().End();
-      } else {
-        close_project_error = error;
-      }
-    }
-    if (!close_project_error.empty()) {
-      ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", close_project_error.c_str());
-    }
-    ImGui::EndMenu();
+  }
+  if (!close_project_error.empty()) {
+    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", close_project_error.c_str());
   }
 }
 

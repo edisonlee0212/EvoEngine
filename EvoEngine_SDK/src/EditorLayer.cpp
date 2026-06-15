@@ -28,6 +28,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <functional>
@@ -45,7 +46,10 @@ constexpr float kTitleBarLogoX = 10.0f;
 constexpr float kTitleBarMenuX = 61.0f;
 constexpr float kTitleBarButtonsAreaWidth = 94.0f;
 constexpr float kTitleBarButtonSize = 14.0f;
-constexpr const char* kEditorTitle = "EvoEngine";
+constexpr float kTitleBarSearchMinWidth = 250.0f;
+constexpr float kTitleBarSearchMaxWidth = 430.0f;
+constexpr float kTitleBarSearchHeight = 28.0f;
+constexpr size_t kTitleBarSearchMaxResults = 18;
 constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
 constexpr ImU32 kTitleBarMenuAccent = IM_COL32(236, 158, 36, 255);
 constexpr ImU32 kTitleBarMenuPopupBg = IM_COL32(50, 50, 50, 255);
@@ -57,7 +61,22 @@ constexpr ImU32 kTitleBarAccentPaused = IM_COL32(236, 158, 36, 255);
 constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
 constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
 constexpr ImU32 kTitleBarMuted = IM_COL32(77, 77, 77, 255);
+constexpr ImU32 kTitleBarSearchBg = IM_COL32(30, 30, 30, 255);
+constexpr ImU32 kTitleBarSearchHovered = IM_COL32(38, 38, 38, 255);
+constexpr ImU32 kTitleBarSearchActive = IM_COL32(44, 44, 44, 255);
+constexpr ImU32 kTitleBarSearchBorder = IM_COL32(70, 70, 70, 255);
 const std::array<std::string, 4> kCMakeConfigs = {"RelWithDebInfo", "Debug", "Release", "MinSizeRel"};
+
+enum class TitleBarSearchResultType { Entity, Layer, Asset };
+
+struct TitleBarSearchResult {
+  TitleBarSearchResultType type = TitleBarSearchResultType::Entity;
+  std::string label;
+  std::string detail;
+  Entity entity;
+  Handle asset_handle = Handle(0);
+  std::shared_ptr<ILayer> layer;
+};
 
 bool CurrentTitleBarAccent(ImU32& accent) {
   switch (ApplicationContext::Get().GetApplicationStatus()) {
@@ -74,6 +93,38 @@ bool CurrentTitleBarAccent(ImU32& accent) {
       return false;
   }
   return false;
+}
+
+bool TextContainsCaseInsensitive(const std::string& text, const std::string& query) {
+  if (query.empty()) {
+    return true;
+  }
+  return std::search(text.begin(), text.end(), query.begin(), query.end(),
+                     [](const char text_char, const char query_char) {
+                       return std::tolower(static_cast<unsigned char>(text_char)) ==
+                              std::tolower(static_cast<unsigned char>(query_char));
+                     }) != text.end();
+}
+
+const char* TitleBarSearchResultTypeName(const TitleBarSearchResultType type) {
+  switch (type) {
+    case TitleBarSearchResultType::Entity:
+      return "Entity";
+    case TitleBarSearchResultType::Layer:
+      return "Layer";
+    case TitleBarSearchResultType::Asset:
+      return "Asset";
+  }
+  return "";
+}
+
+std::unordered_map<EditorLayer*, std::array<char, 128>>& TitleBarSearchBuffers() {
+  static std::unordered_map<EditorLayer*, std::array<char, 128>> buffers;
+  return buffers;
+}
+
+std::array<char, 128>& TitleBarSearchBuffer(EditorLayer* editor_layer) {
+  return TitleBarSearchBuffers()[editor_layer];
 }
 
 class CallbackEditorPanel final : public EditorPanel {
@@ -797,6 +848,7 @@ void EditorLayer::OnCreate() {
 }
 
 void EditorLayer::OnDestroy() {
+  TitleBarSearchBuffers().erase(this);
   if (ImGui::GetCurrentContext() && ImGui::GetFrameCount() > 0) {
     const auto* ini_filename = ImGui::GetIO().IniFilename;
     if (ini_filename) {
@@ -1841,6 +1893,212 @@ void EditorLayer::DrawMainMenuBar() {
   ImGui::PopStyleVar();
 }
 
+float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float controls_x, float& drag_start_x) {
+  const float window_width = ImGui::GetWindowWidth();
+  const float left_limit = titlebar_min.x + drag_start_x + 18.0f;
+  const float right_limit = titlebar_min.x + controls_x - 16.0f;
+  const float available_width = right_limit - left_limit;
+  if (available_width < kTitleBarSearchMinWidth) {
+    return titlebar_min.x + window_width * 0.5f;
+  }
+
+  const float desired_width = std::max(kTitleBarSearchMinWidth, window_width * 0.24f);
+  const float search_width = std::min(kTitleBarSearchMaxWidth, std::min(desired_width, available_width));
+  float search_x = titlebar_min.x + (window_width - search_width) * 0.5f;
+  search_x = std::max(left_limit, std::min(search_x, right_limit - search_width));
+  const float search_y = titlebar_min.y + (kCustomTitleBarHeight - kTitleBarSearchHeight) * 0.5f;
+
+  ImGui::SetCursorScreenPos(ImVec2(search_x, search_y));
+  ImGui::SetNextItemWidth(search_width);
+  const float vertical_padding = std::max(2.0f, (kTitleBarSearchHeight - ImGui::GetFontSize()) * 0.5f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, vertical_padding));
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchBg));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchHovered));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchActive));
+  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchBorder));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kTitleBarText));
+  ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImGui::ColorConvertU32ToFloat4(kTitleBarTextDarker));
+  auto& search_buffer = TitleBarSearchBuffer(this);
+  ImGui::InputTextWithHint("##TitleBarSearch", "Search entities, layers, assets", search_buffer.data(),
+                           search_buffer.size());
+  const ImVec2 search_min = ImGui::GetItemRectMin();
+  const ImVec2 search_max = ImGui::GetItemRectMax();
+  ImGui::PopStyleColor(6);
+  ImGui::PopStyleVar(3);
+
+  const bool has_query = search_buffer[0] != '\0';
+  if (!has_query) {
+    drag_start_x = std::max(drag_start_x, search_max.x - titlebar_min.x + 16.0f);
+    return search_max.x;
+  }
+
+  ImGui::SetNextWindowPos(ImVec2(search_min.x, search_max.y + 6.0f), ImGuiCond_Always);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(search_width, 0.0f), ImVec2(search_width, 360.0f));
+  ImGui::SetNextWindowSize(ImVec2(search_width, 0.0f), ImGuiCond_Always);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBg));
+  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBorder));
+  ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+  constexpr ImGuiWindowFlags search_result_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                                                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                                                   ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                                                   ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_AlwaysAutoResize;
+  if (ImGui::Begin("##TitleBarSearchResults", nullptr, search_result_flags)) {
+    const std::string query(search_buffer.data());
+    std::vector<TitleBarSearchResult> results;
+    results.reserve(kTitleBarSearchMaxResults);
+
+    auto add_result = [&](const TitleBarSearchResult& result) {
+      if (results.size() < kTitleBarSearchMaxResults) {
+        results.push_back(result);
+      }
+    };
+
+    if (const auto scene = GetScene()) {
+      scene->ForAllEntities([&](const size_t, const Entity entity) {
+        if (results.size() >= kTitleBarSearchMaxResults) {
+          return;
+        }
+        const std::string entity_name = scene->GetEntityName(entity);
+        const std::string entity_handle = std::to_string(scene->GetEntityHandle(entity).GetValue());
+        if (!TextContainsCaseInsensitive(entity_name, query) && !TextContainsCaseInsensitive(entity_handle, query)) {
+          return;
+        }
+        TitleBarSearchResult result;
+        result.type = TitleBarSearchResultType::Entity;
+        result.label = entity_name.empty() ? "Unnamed Entity" : entity_name;
+        result.detail = "Handle " + entity_handle;
+        result.entity = entity;
+        add_result(result);
+      });
+    }
+
+    const auto& inspector_registry = InspectorRegistry::GetInstance();
+    for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+      if (!layer || results.size() >= kTitleBarSearchMaxResults) {
+        continue;
+      }
+      const auto* inspector = inspector_registry.FindInspector(typeid(*layer));
+      if (!inspector) {
+        continue;
+      }
+      const std::string layer_name = layer->GetLayerName();
+      if (!TextContainsCaseInsensitive(layer_name, query) &&
+          !TextContainsCaseInsensitive(inspector->type_name, query)) {
+        continue;
+      }
+      TitleBarSearchResult result;
+      result.type = TitleBarSearchResultType::Layer;
+      result.label = layer_name;
+      result.detail = inspector->type_name.empty() ? "Inspectable layer" : inspector->type_name;
+      result.layer = layer;
+      add_result(result);
+    }
+
+    if (ProjectManager::HasProject()) {
+      std::function<void(const std::shared_ptr<Folder>&)> add_folder_assets =
+          [&](const std::shared_ptr<Folder>& folder) {
+            if (!folder || results.size() >= kTitleBarSearchMaxResults) {
+              return;
+            }
+            for (const auto& i : folder->files) {
+              if (results.size() >= kTitleBarSearchMaxResults) {
+                return;
+              }
+              const auto& file = i.second;
+              if (!file || file->GetAssetTypeName() == "Binary") {
+                continue;
+              }
+              const std::string file_name = file->GetAssetFileName() + file->GetAssetExtension();
+              const std::string relative_path = file->GetAssetsFolderRelativePath().string();
+              const std::string type_name = file->GetAssetTypeName();
+              if (!TextContainsCaseInsensitive(file_name, query) &&
+                  !TextContainsCaseInsensitive(relative_path, query) &&
+                  !TextContainsCaseInsensitive(type_name, query)) {
+                continue;
+              }
+              TitleBarSearchResult result;
+              result.type = TitleBarSearchResultType::Asset;
+              result.label = file_name;
+              result.detail = type_name + " - " + relative_path;
+              result.asset_handle = file->GetAssetHandle();
+              add_result(result);
+            }
+            for (const auto& i : folder->children_) {
+              add_folder_assets(i.second);
+              if (results.size() >= kTitleBarSearchMaxResults) {
+                return;
+              }
+            }
+          };
+      add_folder_assets(ProjectManager::GetAssetsFolder());
+    }
+
+    auto activate_result = [&](const TitleBarSearchResult& result) {
+      switch (result.type) {
+        case TitleBarSearchResultType::Entity: {
+          if (const auto scene = GetScene(); scene && scene->IsEntityValid(result.entity)) {
+            show_entity_explorer_window = true;
+            show_entity_inspector_window = true;
+            SetSelectedEntity(result.entity);
+          }
+          break;
+        }
+        case TitleBarSearchResultType::Layer:
+          if (result.layer) {
+            result.layer->enable_inspection = true;
+          }
+          break;
+        case TitleBarSearchResultType::Asset:
+          if (const auto asset = AssetManager::GetAssetImpl(result.asset_handle)) {
+            OpenAssetInspector(asset);
+          }
+          break;
+      }
+      search_buffer.fill('\0');
+    };
+
+    if (results.empty()) {
+      ImGui::TextDisabled("No results");
+    } else {
+      const float row_height = 36.0f;
+      for (size_t i = 0; i < results.size(); ++i) {
+        const auto& result = results[i];
+        ImGui::PushID(static_cast<int>(i));
+        const ImVec2 row_min = ImGui::GetCursorScreenPos();
+        if (ImGui::Selectable("##TitleBarSearchResult", false, ImGuiSelectableFlags_None, ImVec2(0.0f, row_height))) {
+          activate_result(result);
+          ImGui::PopID();
+          break;
+        }
+        const ImVec2 label_pos(row_min.x + 8.0f, row_min.y + 4.0f);
+        const ImVec2 detail_pos(row_min.x + 8.0f, row_min.y + 20.0f);
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        draw_list->AddText(label_pos, kTitleBarText, result.label.c_str());
+        const std::string detail = std::string(TitleBarSearchResultTypeName(result.type)) + " - " + result.detail;
+        draw_list->AddText(detail_pos, kTitleBarTextDarker, detail.c_str());
+        ImGui::PopID();
+      }
+      if (results.size() == kTitleBarSearchMaxResults) {
+        ImGui::TextDisabled("Keep typing to narrow results");
+      }
+    }
+  }
+  ImGui::End();
+  ImGui::PopStyleColor(5);
+  ImGui::PopStyleVar(4);
+
+  drag_start_x = std::max(drag_start_x, search_max.x - titlebar_min.x + 16.0f);
+  return search_max.x;
+}
+
 void EditorLayer::DrawCustomTitleBar() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (!window_layer) {
@@ -1933,12 +2191,7 @@ void EditorLayer::DrawCustomTitleBar() {
       }
     }
 
-    const ImVec2 title_size = ImGui::CalcTextSize(kEditorTitle);
-    if (title_size.x + kTitleBarButtonsAreaWidth * 2.0f < ImGui::GetWindowWidth()) {
-      draw_list->AddText(ImVec2(titlebar_min.x + ImGui::GetWindowWidth() * 0.5f - title_size.x * 0.5f,
-                                titlebar_min.y + kTitleBarTextY),
-                         kTitleBarText, kEditorTitle);
-    }
+    const float search_reserved_right = DrawTitleBarSearch(titlebar_min, controls_x, drag_start_x);
 
     const std::string project_name = ProjectManager::HasProject() ? ProjectManager::GetProjectName() : std::string();
     if (!project_name.empty() && ImGui::GetWindowWidth() > 760.0f) {
@@ -1946,7 +2199,7 @@ void EditorLayer::DrawCustomTitleBar() {
       const float right_offset = ImGui::GetWindowWidth() / 5.0f;
       const ImVec2 project_pos(titlebar_min.x + ImGui::GetWindowWidth() - right_offset - project_size.x,
                                titlebar_min.y + kTitleBarTextY);
-      if (project_pos.x > titlebar_min.x + ImGui::GetWindowWidth() * 0.5f + title_size.x * 0.5f + 24.0f) {
+      if (project_pos.x > search_reserved_right + 24.0f) {
         draw_list->AddText(project_pos, kTitleBarTextDarker, project_name.c_str());
         draw_list->AddRect(ImVec2(project_pos.x - 12.0f, project_pos.y - 5.0f),
                            ImVec2(project_pos.x + project_size.x + 12.0f, project_pos.y + project_size.y + 5.0f),
@@ -2002,35 +2255,63 @@ void EditorLayer::DrawMainMenuItems(const bool title_bar_style) {
       ImGui::EndMenu();
     }
   };
-
-  if (begin_menu("Application")) {
-    if (ImGui::MenuItem("Exit")) {
-      ApplicationContext::Get().End();
-    }
-    end_menu();
-  }
-  if (begin_menu("View")) {
-    editor_panel_manager_.DrawMenuItems(EditorPanelCategory::View);
-    ImGui::Separator();
-    if (ImGui::BeginMenu("Theme")) {
-      DrawThemeMenuItems();
-      ImGui::EndMenu();
-    }
-    if (ImGui::BeginMenu("Layouts")) {
-      if (ImGui::MenuItem("Reset Default Layout")) {
-        RequestDefaultEditorLayout();
-      }
-      ImGui::EndMenu();
-    }
+  auto panel_menu_item = [](const char* label, bool& open) {
+    ImGui::MenuItem(label, nullptr, &open);
+  };
+  auto draw_layer_inspection_menu = []() {
     if (ImGui::BeginMenu("Layer Inspection")) {
       for (const auto& layer : ApplicationContext::Get().GetLayers()) {
         ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
       }
       ImGui::EndMenu();
     }
+  };
+
+  if (begin_menu("File")) {
+    ProjectManager::DrawProjectMenuItems();
+    ImGui::Separator();
+    if (ImGui::MenuItem("Exit")) {
+      ApplicationContext::Get().End();
+    }
     end_menu();
   }
-  ProjectManager::DrawProjectMenu();
+  if (begin_menu("Window")) {
+    if (ImGui::BeginMenu("Scene")) {
+      panel_menu_item("Scene Window", show_scene_window);
+      panel_menu_item("Main Camera Window", show_camera_window);
+      panel_menu_item("Scene Camera Debug", show_scene_camera_debug);
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Entity")) {
+      panel_menu_item("Entity Explorer", show_entity_explorer_window);
+      panel_menu_item("Entity Inspector", show_entity_inspector_window);
+      ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Content")) {
+      panel_menu_item("Project", ProjectManager::GetInstance().show_project_window);
+      panel_menu_item("Resources", Resources::GetInstance().show_resources_);
+      ImGui::EndMenu();
+    }
+    panel_menu_item("Console", show_console_window);
+    panel_menu_item("Runtime Packages", show_package_manager_window);
+    ImGui::Separator();
+    if (ImGui::BeginMenu("Layout")) {
+      if (ImGui::MenuItem("Reset Default Layout")) {
+        RequestDefaultEditorLayout();
+      }
+      ImGui::EndMenu();
+    }
+    end_menu();
+  }
+  if (begin_menu("View")) {
+    if (ImGui::BeginMenu("Theme")) {
+      DrawThemeMenuItems();
+      ImGui::EndMenu();
+    }
+    ImGui::Separator();
+    draw_layer_inspection_menu();
+    end_menu();
+  }
   if (menu_open) {
     ImGui::PopStyleColor(3);
   }
