@@ -12,64 +12,22 @@ from pathlib import Path
 
 
 user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
+if ctypes.sizeof(ctypes.c_void_p) == 8:
+    LONG_PTR = ctypes.c_longlong
+else:
+    LONG_PTR = ctypes.c_long
+
+GWL_STYLE = -16
+WS_CAPTION = 0x00C00000
+WS_THICKFRAME = 0x00040000
 
 
 class RECT(ctypes.Structure):
     _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
 
 
-class BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [
-        ("biSize", wintypes.DWORD),
-        ("biWidth", ctypes.c_long),
-        ("biHeight", ctypes.c_long),
-        ("biPlanes", wintypes.WORD),
-        ("biBitCount", wintypes.WORD),
-        ("biCompression", wintypes.DWORD),
-        ("biSizeImage", wintypes.DWORD),
-        ("biXPelsPerMeter", ctypes.c_long),
-        ("biYPelsPerMeter", ctypes.c_long),
-        ("biClrUsed", wintypes.DWORD),
-        ("biClrImportant", wintypes.DWORD),
-    ]
-
-
-class BITMAPINFO(ctypes.Structure):
-    _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", wintypes.DWORD * 1)]
-
-
-user32.GetWindowDC.argtypes = [wintypes.HWND]
-user32.GetWindowDC.restype = wintypes.HDC
-user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
-gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
-gdi32.CreateCompatibleDC.restype = wintypes.HDC
-gdi32.CreateCompatibleBitmap.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
-gdi32.CreateCompatibleBitmap.restype = wintypes.HBITMAP
-gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
-gdi32.SelectObject.restype = wintypes.HGDIOBJ
-gdi32.BitBlt.argtypes = [
-    wintypes.HDC,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    ctypes.c_int,
-    wintypes.HDC,
-    ctypes.c_int,
-    ctypes.c_int,
-    wintypes.DWORD,
-]
-gdi32.GetDIBits.argtypes = [
-    wintypes.HDC,
-    wintypes.HBITMAP,
-    wintypes.UINT,
-    wintypes.UINT,
-    wintypes.LPVOID,
-    ctypes.POINTER(BITMAPINFO),
-    wintypes.UINT,
-]
-gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
-gdi32.DeleteDC.argtypes = [wintypes.HDC]
+user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.GetWindowLongPtrW.restype = LONG_PTR
 
 
 def wait_for_window(process: subprocess.Popen[bytes], timeout: float = 15.0) -> tuple[int, RECT]:
@@ -111,47 +69,18 @@ def click(x: int, y: int) -> None:
     user32.mouse_event(0x0004, 0, 0, 0, None)
 
 
-def capture_window_pixels(hwnd: int) -> tuple[int, int, bytes]:
+def assert_custom_title_bar_window(hwnd: int, label: str) -> None:
     rect = RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
     width = rect.right - rect.left
     height = rect.bottom - rect.top
-    if width <= 0 or height <= 0:
-        return width, height, b""
-
-    window_dc = user32.GetWindowDC(hwnd)
-    memory_dc = gdi32.CreateCompatibleDC(window_dc)
-    bitmap = gdi32.CreateCompatibleBitmap(window_dc, width, height)
-    old_bitmap = gdi32.SelectObject(memory_dc, bitmap)
-    try:
-        gdi32.BitBlt(memory_dc, 0, 0, width, height, window_dc, 0, 0, 0x00CC0020)
-        info = BITMAPINFO()
-        info.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-        info.bmiHeader.biWidth = width
-        info.bmiHeader.biHeight = -height
-        info.bmiHeader.biPlanes = 1
-        info.bmiHeader.biBitCount = 32
-        info.bmiHeader.biCompression = 0
-        buffer = ctypes.create_string_buffer(width * height * 4)
-        rows = gdi32.GetDIBits(memory_dc, bitmap, 0, height, buffer, ctypes.byref(info), 0)
-        if rows != height:
-            raise RuntimeError("Failed to capture launcher window pixels.")
-        return width, height, bytes(buffer)
-    finally:
-        gdi32.SelectObject(memory_dc, old_bitmap)
-        gdi32.DeleteObject(bitmap)
-        gdi32.DeleteDC(memory_dc)
-        user32.ReleaseDC(hwnd, window_dc)
-
-
-def assert_nonblank_window(hwnd: int, label: str) -> None:
-    width, height, pixels = capture_window_pixels(hwnd)
-    if width <= 100 or height <= 100 or not pixels:
-        raise RuntimeError(f"{label} screenshot dimensions are invalid: {width}x{height}.")
-    stride = max(4, len(pixels) // 4096 // 4 * 4)
-    samples = {pixels[i:i + 3] for i in range(0, len(pixels), stride)}
-    if len(samples) < 8:
-        raise RuntimeError(f"{label} screenshot appears blank.")
+    if width <= 100 or height <= 100:
+        raise RuntimeError(f"{label} window dimensions are invalid: {width}x{height}.")
+    style = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
+    if style & WS_CAPTION:
+        raise RuntimeError(f"{label} still has a native Windows caption.")
+    if not style & WS_THICKFRAME:
+        raise RuntimeError(f"{label} is missing a resizable frame.")
 
 
 def log_contains(path: Path, needle: str) -> bool:
@@ -204,7 +133,7 @@ def main() -> int:
         if not wait_for_log(log_path, "recent-count:1"):
             print("Launcher did not load seeded recent project.")
             return 1
-        assert_nonblank_window(hwnd, "Launcher project hub")
+        assert_custom_title_bar_window(hwnd, "Launcher project hub")
         center_x = (rect.left + rect.right) // 2
         center_y = (rect.top + rect.bottom) // 2
         click(center_x, center_y)

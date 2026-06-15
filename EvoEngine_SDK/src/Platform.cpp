@@ -655,6 +655,11 @@ void Platform::CreateInstance() {
 #pragma region Windows
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+#ifdef EVOENGINE_WINDOWS
+    window_layer->custom_title_bar_ = application_info.use_custom_title_bar;
+#else
+    window_layer->custom_title_bar_ = false;
+#endif
     int size;
     const auto monitors = glfwGetMonitors(&size);
     for (auto i = 0; i < size; i++) {
@@ -670,6 +675,7 @@ void Platform::CreateInstance() {
 
     if (application_info.full_screen)
       glfwMaximizeWindow(window_layer->window_);
+    window_layer->InstallCustomTitleBar();
 
     glfwSetFramebufferSizeCallback(window_layer->window_, window_layer->FramebufferSizeCallback);
     glfwSetWindowFocusCallback(window_layer->window_, window_layer->WindowFocusCallback);

@@ -70,6 +70,7 @@ int main() {
   application_configs.application_name = "LSystem";
   application_configs.project_path = lsystem_project_path;
   application_configs.enable_runtime_packages = true;
+  application_configs.use_custom_title_bar = true;
   // Keep LSystem first while also loading DigitalAgriculture so copied
   // default-scene components deserialize with maximal compatibility.
   application_configs.startup_runtime_packages = {"LSystem", "DigitalAgriculture"};

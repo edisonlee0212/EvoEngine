@@ -76,6 +76,7 @@ int main() {
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
   application_configs.enable_runtime_packages = true;
+  application_configs.use_custom_title_bar = true;
   application_configs.startup_runtime_packages = {"EcoSysLab"};
   ApplicationContext::Get().Initialize(application_configs);
 

@@ -188,6 +188,7 @@ void RenderLayer::ForwardRenderingAllCameras(
 }
 
 void RenderLayer::OnCreate() {
+  enable_inspection = false;
 #pragma region Graphics Pipelines
   if (!point_light_shadow_pipeline_normal) {
     point_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();

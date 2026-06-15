@@ -1,4 +1,5 @@
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "EditorTheme.hpp"
 #include "ILayer.hpp"
 #include "ImGuiLayer.hpp"
@@ -6,14 +7,18 @@
 #include "PackageManager.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Serialization.hpp"
+#include "Texture2D.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <unordered_map>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -57,6 +62,18 @@ std::filesystem::path CurrentExecutablePath() {
 #else
   return std::filesystem::absolute("EvoEngineLauncher");
 #endif
+}
+
+std::filesystem::path DefaultResourcesPath() {
+  const std::array candidates = {CurrentExecutablePath().parent_path() / "DefaultResources",
+                                 std::filesystem::current_path() / "DefaultResources",
+                                 std::filesystem::current_path() / "EvoEngine_SDK/Internals/DefaultResources"};
+  for (const auto& candidate : candidates) {
+    if (std::filesystem::exists(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates.front();
 }
 
 void AppendTestLog(const std::string& line) {
@@ -113,20 +130,111 @@ ImVec4 ColorSelectedBorder() {
   return ImGui::GetStyleColorVec4(ImGuiCol_TextLink);
 }
 
-void DrawThemeMenuItems() {
-  const auto current_theme = editor_theme::GetCurrentTheme();
-  if (ImGui::MenuItem("Dark", nullptr, current_theme == editor_theme::Theme::Dark)) {
-    editor_theme::Apply(editor_theme::Theme::Dark);
-  }
-  if (ImGui::MenuItem("Light", nullptr, current_theme == editor_theme::Theme::Light)) {
-    editor_theme::Apply(editor_theme::Theme::Light);
-  }
-}
-
 constexpr const char* kRecentProjectsWindow = "Recent Projects";
 constexpr const char* kTemplateWindow = "Choose Template";
 constexpr const char* kAvailablePackagesWindow = "Available Packages";
 constexpr const char* kProjectDetailsWindow = "Project Details";
+constexpr float kCustomTitleBarHeight = 57.0f;
+constexpr float kTitleBarLogoSize = 38.0f;
+constexpr float kTitleBarLogoX = 10.0f;
+constexpr float kTitleBarButtonsAreaWidth = 94.0f;
+constexpr float kTitleBarButtonSize = 14.0f;
+constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
+constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
+constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
+
+ImU32 MultiplyColor(const ImU32 color, const float multiplier) {
+  ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
+  value.x = std::clamp(value.x * multiplier, 0.0f, 1.0f);
+  value.y = std::clamp(value.y * multiplier, 0.0f, 1.0f);
+  value.z = std::clamp(value.z * multiplier, 0.0f, 1.0f);
+  return ImGui::ColorConvertFloat4ToU32(value);
+}
+
+std::shared_ptr<Texture2D> FindIcon(const std::unordered_map<std::string, std::shared_ptr<Texture2D>>& icons,
+                                    const std::string& name) {
+  if (const auto search = icons.find(name); search != icons.end()) {
+    return search->second;
+  }
+  return {};
+}
+
+bool DrawFittedImage(const std::shared_ptr<Texture2D>& icon, const ImVec2 min, const ImVec2 max, const ImU32 tint) {
+  if (!icon || icon->GetImTextureId() == 0) {
+    return false;
+  }
+  const glm::uvec2 resolution = icon->GetResolution();
+  if (resolution.x == 0 || resolution.y == 0) {
+    return false;
+  }
+
+  const ImVec2 bounds(max.x - min.x, max.y - min.y);
+  const float scale =
+      std::min(bounds.x / static_cast<float>(resolution.x), bounds.y / static_cast<float>(resolution.y));
+  const ImVec2 size(static_cast<float>(resolution.x) * scale, static_cast<float>(resolution.y) * scale);
+  const ImVec2 image_min(min.x + (bounds.x - size.x) * 0.5f, min.y + (bounds.y - size.y) * 0.5f);
+  ImGui::GetWindowDrawList()->AddImage(icon->GetImTextureId(), image_min,
+                                       ImVec2(image_min.x + size.x, image_min.y + size.y), ImVec2(0, 1), ImVec2(1, 0),
+                                       tint);
+  return true;
+}
+
+void DrawFallbackLogo(const ImVec2 min, const float size, const ImU32 tint) {
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const ImVec2 center(min.x + size * 0.5f, min.y + size * 0.5f);
+  const float radius = size * 0.36f;
+  std::array<ImVec2, 6> points{};
+  for (size_t i = 0; i < points.size(); ++i) {
+    const float angle = -IM_PI * 0.5f + IM_PI / 3.0f * static_cast<float>(i);
+    points[i] = ImVec2(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
+  }
+  draw_list->AddPolyline(points.data(), static_cast<int>(points.size()), tint, ImDrawFlags_Closed, 3.0f);
+  draw_list->AddLine(center, points[0], tint, 3.0f);
+  draw_list->AddLine(center, points[2], tint, 3.0f);
+  draw_list->AddLine(center, points[4], tint, 3.0f);
+}
+
+enum class TitleBarGlyph { Minimize, Maximize, Restore, Close };
+
+void DrawFallbackTitleBarGlyph(const ImVec2 min, const ImVec2 max, const TitleBarGlyph glyph, const ImU32 tint) {
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  const float thickness = 1.6f;
+  switch (glyph) {
+    case TitleBarGlyph::Minimize: {
+      const float y = (min.y + max.y) * 0.5f;
+      draw_list->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), tint, thickness);
+      break;
+    }
+    case TitleBarGlyph::Maximize:
+      draw_list->AddRect(min, max, tint, 0.0f, 0, thickness);
+      break;
+    case TitleBarGlyph::Restore:
+      draw_list->AddRect(ImVec2(min.x + 3.0f, min.y), max, tint, 0.0f, 0, thickness);
+      draw_list->AddRect(ImVec2(min.x, min.y + 3.0f), ImVec2(max.x - 3.0f, max.y), tint, 0.0f, 0, thickness);
+      break;
+    case TitleBarGlyph::Close:
+      draw_list->AddLine(ImVec2(min.x + 1.0f, min.y + 1.0f), ImVec2(max.x - 1.0f, max.y - 1.0f), tint, thickness);
+      draw_list->AddLine(ImVec2(max.x - 1.0f, min.y + 1.0f), ImVec2(min.x + 1.0f, max.y - 1.0f), tint, thickness);
+      break;
+  }
+}
+
+bool DrawTitleBarImageButton(const char* id, const std::shared_ptr<Texture2D>& icon, const ImVec2 screen_position,
+                             const bool close_button, const TitleBarGlyph fallback_glyph) {
+  ImGui::SetCursorScreenPos(screen_position);
+  const ImVec2 button_max(screen_position.x + kTitleBarButtonSize, screen_position.y + kTitleBarButtonSize);
+  const bool clicked = ImGui::InvisibleButton(id, ImVec2(kTitleBarButtonSize, kTitleBarButtonSize));
+  ImU32 tint = close_button ? kTitleBarText : MultiplyColor(kTitleBarText, 0.9f);
+  if (ImGui::IsItemActive()) {
+    tint = kTitleBarTextDarker;
+  } else if (ImGui::IsItemHovered()) {
+    tint = close_button ? MultiplyColor(kTitleBarText, 1.4f) : MultiplyColor(kTitleBarText, 1.2f);
+  }
+  if (!DrawFittedImage(icon, screen_position, button_max, tint)) {
+    DrawFallbackTitleBarGlyph(screen_position, button_max, fallback_glyph, tint);
+  }
+  return clicked;
+}
 
 std::filesystem::path EditorExecutablePath() {
 #ifdef EVOENGINE_WINDOWS
@@ -213,8 +321,13 @@ class LauncherLayer final : public ILayer {
       OpenProject(project_path);
       return;
     }
-    DrawMainMenuBar();
-    DrawWorkspace();
+    const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+    if (window_layer && window_layer->UsesCustomTitleBar()) {
+      DrawWorkspace(kCustomTitleBarHeight);
+      DrawCustomTitleBar();
+    } else {
+      DrawWorkspace(0.0f);
+    }
   }
 
  private:
@@ -226,35 +339,121 @@ class LauncherLayer final : public ILayer {
   std::vector<std::filesystem::path> recent_project_paths_;
   std::vector<AvailablePackageInfo> available_packages_;
   launcher::PackageAvailability package_availability_;
+  std::unordered_map<std::string, std::shared_ptr<Texture2D>> title_bar_icons_;
   bool dock_layout_dirty_ = true;
   ImGuiID dock_space_id_ = 0;
   std::filesystem::path pending_test_open_project_;
 
-  void DrawMainMenuBar() {
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5, 5));
-    if (ImGui::BeginMainMenuBar()) {
-      if (ImGui::BeginMenu("Project")) {
-        if (ImGui::MenuItem("Exit")) {
-          ApplicationContext::Get().End();
-        }
-        ImGui::EndMenu();
-      }
-      if (ImGui::BeginMenu("View")) {
-        if (ImGui::BeginMenu("Theme")) {
-          DrawThemeMenuItems();
-          ImGui::EndMenu();
-        }
-        ImGui::EndMenu();
-      }
-      ImGui::EndMainMenuBar();
-    }
-    ImGui::PopStyleVar();
+  void LoadTitleBarIcons() {
+    const auto default_resources = DefaultResourcesPath();
+    auto load_icon = [&](const std::string& name, const std::filesystem::path& path) {
+      auto icon = AssetManager::CreateTemporaryAsset<Texture2D>();
+      const bool loaded = Serialization::LoadAsset(*icon, path);
+      icon->UnsafeUploadDataImmediately();
+      const glm::uvec2 resolution = icon->GetResolution();
+      AppendTestLog("titlebar-icon:" + name + ":" + (loaded ? "loaded" : "load-failed") + ":" +
+                    std::to_string(resolution.x) + "x" + std::to_string(resolution.y) + ":" +
+                    (icon->GetImTextureId() != 0 ? "texture-id" : "zero-texture-id") + ":" + path.string());
+      title_bar_icons_[name] = std::move(icon);
+    };
+
+    load_icon("TitleBarLogo", default_resources / "Editor/HazelStyle/TitleBar/EvoEngine64White.png");
+    load_icon("WindowMinimize", default_resources / "Editor/HazelStyle/Window/Minimize.png");
+    load_icon("WindowMaximize", default_resources / "Editor/HazelStyle/Window/Maximize.png");
+    load_icon("WindowRestore", default_resources / "Editor/HazelStyle/Window/Restore.png");
+    load_icon("WindowClose", default_resources / "Editor/HazelStyle/Window/Close.png");
   }
 
-  void DrawWorkspace() {
+  void DrawCustomTitleBar() {
+    const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+    if (!window_layer) {
+      return;
+    }
+    if (title_bar_icons_.empty()) {
+      LoadTitleBarIcons();
+    }
+
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowPos(viewport->Pos);
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, kCustomTitleBarHeight));
+    ImGui::SetNextWindowViewport(viewport->ID);
+    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
+                                       ImGuiWindowFlags_NoScrollWithMouse;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 5.0f));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(kTitleBarColor));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kTitleBarText));
+    if (ImGui::Begin("Launcher Custom Title Bar", nullptr, flags)) {
+      const auto draw_list = ImGui::GetWindowDrawList();
+      const ImVec2 titlebar_min = ImGui::GetWindowPos();
+      const ImVec2 titlebar_max(titlebar_min.x + ImGui::GetWindowWidth(), titlebar_min.y + kCustomTitleBarHeight);
+      draw_list->AddRectFilled(titlebar_min, titlebar_max, kTitleBarColor);
+
+      const ImVec2 logo_min(titlebar_min.x + kTitleBarLogoX,
+                            titlebar_min.y + (kCustomTitleBarHeight - kTitleBarLogoSize) * 0.5f);
+
+      const float controls_x = ImGui::GetWindowWidth() - kTitleBarButtonsAreaWidth;
+
+      if (!DrawFittedImage(FindIcon(title_bar_icons_, "TitleBarLogo"), logo_min,
+                           ImVec2(logo_min.x + kTitleBarLogoSize, logo_min.y + kTitleBarLogoSize), IM_COL32_WHITE)) {
+        DrawFallbackLogo(logo_min, kTitleBarLogoSize, IM_COL32_WHITE);
+      }
+
+      constexpr const char* title = "EvoEngine Launcher";
+      const ImVec2 title_size = ImGui::CalcTextSize(title);
+      if (title_size.x + kTitleBarButtonsAreaWidth * 2.0f < ImGui::GetWindowWidth()) {
+        draw_list->AddText(
+            ImVec2(titlebar_min.x + ImGui::GetWindowWidth() * 0.5f - title_size.x * 0.5f, titlebar_min.y + 15.0f),
+            kTitleBarText, title);
+      }
+
+      const float drag_start_x = kTitleBarLogoX + kTitleBarLogoSize + 18.0f;
+      const float drag_width = controls_x - drag_start_x;
+      if (drag_width > 0.0f) {
+        window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
+      } else {
+        window_layer->ClearCustomTitleBarDragRegion();
+      }
+
+      ImGui::PushClipRect(titlebar_min, titlebar_max, false);
+      const float button_y = titlebar_min.y + (kCustomTitleBarHeight - kTitleBarButtonSize) * 0.5f;
+      float button_x = titlebar_min.x + ImGui::GetWindowWidth() - 18.0f - kTitleBarButtonSize;
+      if (DrawTitleBarImageButton("Close##Launcher", FindIcon(title_bar_icons_, "WindowClose"),
+                                  ImVec2(button_x, button_y), true, TitleBarGlyph::Close)) {
+        ApplicationContext::Get().End();
+      }
+      button_x -= 15.0f + kTitleBarButtonSize;
+      if (DrawTitleBarImageButton(
+              window_layer->IsWindowMaximized() ? "Restore##Launcher" : "Maximize##Launcher",
+              FindIcon(title_bar_icons_, window_layer->IsWindowMaximized() ? "WindowRestore" : "WindowMaximize"),
+              ImVec2(button_x, button_y), false,
+              window_layer->IsWindowMaximized() ? TitleBarGlyph::Restore : TitleBarGlyph::Maximize)) {
+        window_layer->ToggleMaximized();
+      }
+      button_x -= 17.0f + kTitleBarButtonSize;
+      if (DrawTitleBarImageButton("Minimize##Launcher", FindIcon(title_bar_icons_, "WindowMinimize"),
+                                  ImVec2(button_x, button_y), false, TitleBarGlyph::Minimize)) {
+        window_layer->MinimizeWindow();
+      }
+      ImGui::PopClipRect();
+    }
+    ImGui::End();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(4);
+  }
+
+  void DrawWorkspace(const float top_offset) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 pos = top_offset > 0.0f ? ImVec2(viewport->Pos.x, viewport->Pos.y + top_offset) : viewport->WorkPos;
+    const ImVec2 size = top_offset > 0.0f ? ImVec2(viewport->Size.x, std::max(1.0f, viewport->Size.y - top_offset))
+                                          : viewport->WorkSize;
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowViewport(viewport->ID);
     constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -739,6 +938,7 @@ int main() {
     ApplicationInitializationSettings application_info{};
     application_info.application_name = "EvoEngine Launcher";
     application_info.allow_empty_project = true;
+    application_info.use_custom_title_bar = true;
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

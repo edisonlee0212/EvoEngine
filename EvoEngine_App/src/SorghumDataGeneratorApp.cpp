@@ -35,6 +35,7 @@ int main() {
   application_info.application_name = "Sorghum Data Generator";
   application_info.project_path = FindResourceFolder() / "DigitalAgricultureProject" / "test.eveproj";
   application_info.enable_runtime_packages = true;
+  application_info.use_custom_title_bar = true;
   application_info.startup_runtime_packages = {"DatasetGeneration"};
 
   ApplicationContext::Get().Initialize(application_info);

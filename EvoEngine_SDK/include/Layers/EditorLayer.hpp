@@ -829,12 +829,17 @@ class EditorLayer : public ILayer {
   /**
    * @brief Draws the root ImGui dockspace for the editor.
    */
-  void DrawDockspace();
+  void DrawDockspace(float top_offset);
 
   /**
    * @brief Draws the editor menu bar.
    */
   void DrawMainMenuBar();
+  void DrawCustomTitleBar();
+  float DrawTitleBarSearch(const ImVec2& titlebar_min, float controls_x, float& drag_start_x);
+  void DrawMainMenuItems(bool title_bar_style = false);
+  bool DrawPlayControls();
+  void DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
   void RequestDefaultEditorLayout();
 
   void UpdateCameraTransition();
@@ -1085,7 +1090,7 @@ void EditorLayer::DraggableAsset(const std::shared_ptr<T>& target) {
     if (ptr) {
       const auto title = ptr->GetTitle();
       ImGui::SetDragDropPayload("Asset", &ptr->handle_, sizeof(Handle));
-      ImGui::TextColored(ImVec4(0, 0, 1, 1), title.c_str());
+      ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextLink), title.c_str());
     }
     ImGui::EndDragDropSource();
   }
