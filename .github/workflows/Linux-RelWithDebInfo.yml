@@ -23,6 +23,9 @@ jobs:
     steps:
     - name: Setup Libraries
       run: |
+          for source in $(grep -rl "packages.microsoft.com/repos/azure-cli" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null || true); do
+            sudo mv "$source" "$source.disabled"
+          done
           sudo apt-get update
           sudo apt-get install -qq -o=Dpkg::Use-Pty=0 clang-14
           sudo apt-get install -qq -o=Dpkg::Use-Pty=0 cmake
