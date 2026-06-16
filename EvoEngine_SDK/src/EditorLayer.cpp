@@ -943,6 +943,7 @@ void EditorLayer::PreUpdate() {
   editor_panel_manager_.Draw(EditorPanelCategory::View, editor_layer);
   DrawAssetInspectorWindows();
   DrawLayerInspectionWindows(scene, editor_layer);
+  DrawProjectLoadingPopup();
 }
 
 void EditorLayer::OpenAssetInspector(const std::shared_ptr<IAsset>& asset) {
@@ -1000,6 +1001,89 @@ void EditorLayer::DrawAssetInspectorWindows() {
                                             return !inspector.open || !inspector.asset;
                                           }),
                            inspecting_assets_.end());
+}
+
+void EditorLayer::DrawProjectLoadingPopup() {
+  auto& project_manager = ProjectManager::GetInstance();
+  const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
+  const bool scene_ready = project_manager.start_scene_ != nullptr;
+  const bool pending_scene_load = !project_manager.new_project_path_.empty() && !scene_ready &&
+                                  ApplicationContext::Get().GetApplicationInfo().load_project_start_scene;
+  constexpr ImGuiWindowFlags modal_flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings;
+
+  if (project_manager.scan_assets_pending && !scene_ready) {
+    ImGui::OpenPopup("Scanning assets...");
+  } else if (asset_load_snapshot.Active() && !scene_ready) {
+    ImGui::OpenPopup("Loading assets...");
+  } else if (project_manager.scene_loading_popup_visible_ || pending_scene_load) {
+    ImGui::OpenPopup("Loading Scene...");
+  } else if (!project_manager.new_project_path_.empty() && !scene_ready) {
+    ImGui::OpenPopup("Loading Project...");
+  }
+
+  const auto draw_loading_status = [&]() {
+    ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
+  };
+
+  if (ImGui::BeginPopupModal("Loading Scene...", nullptr, modal_flags)) {
+    ImGui::TextUnformatted("Scene is loading.");
+    draw_loading_status();
+    ImGui::SetItemDefaultFocus();
+    if ((!project_manager.scene_loading_popup_visible_ && !pending_scene_load) || scene_ready) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+
+  if (ImGui::BeginPopupModal("Loading Project...", nullptr, modal_flags)) {
+    draw_loading_status();
+    if (project_manager.new_project_path_.empty() || scene_ready || pending_scene_load) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+
+  if (ImGui::BeginPopupModal("Scanning assets...", nullptr, modal_flags)) {
+    draw_loading_status();
+    if (!project_manager.scan_assets_pending || scene_ready) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+
+  if (ImGui::BeginPopupModal("Loading assets...", nullptr, modal_flags)) {
+    if (!project_manager.loading_status_.empty()) {
+      ImGui::Text("%s", project_manager.loading_status_.c_str());
+    }
+    ImGui::TextUnformatted("Progress:");
+    const auto completed_asset_count =
+        asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
+    const auto active_asset_count = asset_load_snapshot.queued + asset_load_snapshot.loading_cpu +
+                                    asset_load_snapshot.waiting_for_finalize + asset_load_snapshot.gpu_pending;
+    auto total_asset_count = asset_load_snapshot.total;
+    total_asset_count = std::max(total_asset_count, completed_asset_count + active_asset_count);
+    total_asset_count = std::max(total_asset_count, project_manager.pending_asset_size);
+    const float fraction = total_asset_count == 0
+                               ? 1.0f
+                               : static_cast<float>(completed_asset_count) / static_cast<float>(total_asset_count);
+    const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
+                             std::to_string(completed_asset_count) + "/" + std::to_string(total_asset_count);
+    ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
+    if (!asset_load_snapshot.active_asset_name.empty()) {
+      ImGui::Text("Asset: %s", asset_load_snapshot.active_asset_name.c_str());
+    }
+    if (!asset_load_snapshot.message.empty()) {
+      ImGui::Text("%s", asset_load_snapshot.message.c_str());
+    }
+    if (asset_load_snapshot.failed != 0 || asset_load_snapshot.cancelled != 0) {
+      ImGui::Text("Failed: %zu  Cancelled: %zu", asset_load_snapshot.failed, asset_load_snapshot.cancelled);
+    }
+    ImGui::SetItemDefaultFocus();
+    if (!asset_load_snapshot.Active() || scene_ready) {
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
 }
 
 void EditorLayer::RegisterEditorPanels() {

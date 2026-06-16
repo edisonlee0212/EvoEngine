@@ -1,5 +1,6 @@
 #include "ProjectManager.hpp"
 #include "Application.hpp"
+#include "EditorLayer.hpp"
 #include "PathUtils.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
@@ -332,6 +333,9 @@ bool ProjectManager::DeleteFolder(const Handle& folder_handle) {
 }
 
 void ProjectManager::SetupDefaultScene() {
+  if (ArmSceneLoadingPopupBeforeSetup()) {
+    return;
+  }
   auto& project_manager = GetInstance();
   project_manager.loading_status_ = "Loading start scene...";
   const auto setup_start = LoadingClock::now();
@@ -404,6 +408,20 @@ void ProjectManager::SetupDefaultScene() {
   project_manager.loading_status_ = "Scene ready.";
   LogLoadingDuration("Start scene setup", setup_start);
   project_manager.new_project_path_ = "";
+  project_manager.scene_loading_popup_visible_ = false;
+}
+
+bool ProjectManager::ArmSceneLoadingPopupBeforeSetup() {
+  auto& project_manager = GetInstance();
+  if (project_manager.scene_loading_popup_visible_) {
+    return false;
+  }
+  if (!ApplicationContext::Get().GetLayer<WindowLayer>() || !ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    return false;
+  }
+  project_manager.scene_loading_popup_visible_ = true;
+  project_manager.loading_status_ = "Loading start scene...";
+  return true;
 }
 
 void ProjectManager::PreUpdate() {
@@ -631,6 +649,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
   project_manager.project_launch_metadata_ = LoadProjectLaunchMetadata(project_absolute_path);
   project_manager.loading_status_ = "Opening project...";
+  project_manager.scene_loading_popup_visible_ = false;
   project_manager.start_scene_.reset();
   MergeApplicationLaunchMetadata(project_manager.project_launch_metadata_);
   AssetManager::Clear();
@@ -728,6 +747,7 @@ void ProjectManager::OnDestroy() {
   project_manager.project_asset_load_dispatched = false;
   project_manager.pending_asset_size = 0;
   project_manager.pending_assets.clear();
+  project_manager.scene_loading_popup_visible_ = false;
   project_manager.assets_folder_.reset();
   project_manager.new_scene_customizer_.reset();
   project_manager.current_focused_folder_.reset();

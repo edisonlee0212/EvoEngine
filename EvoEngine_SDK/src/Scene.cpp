@@ -12,6 +12,9 @@
 #include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "UnknownPrivateComponent.hpp"
+
+#include <system_error>
+
 using namespace evo_engine;
 
 void WriteSceneSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
@@ -700,6 +703,12 @@ void Scene::OnCreate() {
   scene_data_storage_.entity_metadata_list.emplace_back();
   scene_data_storage_.data_component_storage_list.emplace_back();
   scene_data_storage_.entity_private_component_storage.owner_scene = std::dynamic_pointer_cast<Scene>(GetSelf());
+  if (!IsTemporary()) {
+    std::error_code error_code;
+    if (std::filesystem::exists(GetAbsolutePath(), error_code)) {
+      return;
+    }
+  }
 
 #pragma region Main Camera
   const auto main_camera_entity = CreateEntity("Main Camera");

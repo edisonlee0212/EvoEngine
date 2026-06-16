@@ -12,7 +12,10 @@ class Camera;
 
 class PostProcessingStack : public IAsset {
   glm::uvec2 current_size = glm::uvec2(1);
+  size_t pipeline_build_step_ = 0;
+  bool pipelines_ready_ = false;
   void Resize(const glm::uvec2& size);
+  bool BuildNextPipeline();
 
   mutable std::shared_ptr<DescriptorSetLayout> blur_layout;
   mutable std::shared_ptr<GraphicsPipeline> blur_pipeline;

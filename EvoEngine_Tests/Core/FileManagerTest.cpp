@@ -22,6 +22,8 @@ using namespace evo_engine;
 namespace {
 constexpr uint64_t kBinaryAssetHandle = 0xE702'0000'0000'0001ull;
 constexpr uint64_t kThumbnailProbeAssetHandle = 0xE702'0000'0000'0002ull;
+constexpr uint64_t kNativePrefabAssetHandle = 0xE702'0000'0000'0003ull;
+constexpr uint64_t kSourceModelPrefabAssetHandle = 0xE702'0000'0000'0004ull;
 constexpr auto kThumbnailProbeAssetTypeName = "ThumbnailProbeAsset";
 constexpr auto kThumbnailProbeAssetExtension = ".evethumbnailprobe";
 
@@ -104,6 +106,30 @@ void WriteThumbnailProbeAssetFixture(const TempFileManagerProject& project) {
   metadata_file << "asset_file_name_: ThumbnailProbe\n";
   metadata_file << "asset_type_name_: " << kThumbnailProbeAssetTypeName << "\n";
   metadata_file << "asset_handle_: " << kThumbnailProbeAssetHandle << "\n";
+}
+
+void WritePrefabFixture(const TempFileManagerProject& project, const std::string& file_name,
+                        const std::string& extension, const uint64_t handle) {
+  const auto asset_path = project.AssetsPath() / (file_name + extension);
+  std::ofstream asset_file(asset_path);
+  if (extension == ".eveprefab") {
+    asset_file << "in: " << file_name << "\n";
+    asset_file << "e: true\n";
+    asset_file << "eh: 0\n";
+  } else {
+    asset_file << "o " << file_name << "\n";
+    asset_file << "v 0 0 0\n";
+    asset_file << "v 1 0 0\n";
+    asset_file << "v 0 1 0\n";
+    asset_file << "f 1 2 3\n";
+  }
+  asset_file.close();
+
+  std::ofstream metadata_file(asset_path.string() + ".evefilemeta");
+  metadata_file << "asset_extension_: " << extension << "\n";
+  metadata_file << "asset_file_name_: " << file_name << "\n";
+  metadata_file << "asset_type_name_: Prefab\n";
+  metadata_file << "asset_handle_: " << handle << "\n";
 }
 
 bool WaitForThumbnailProbeLoad(const std::chrono::milliseconds timeout) {
@@ -222,6 +248,22 @@ TEST(FileManager, DuplicateBinaryAssetRegistersCopiedFile) {
   ASSERT_TRUE(copied_file);
   EXPECT_EQ(copied_file->GetAssetFileName(), "Source (1)");
   EXPECT_EQ(copied_file->GetAssetExtension(), ".bin");
+}
+
+TEST(FileManager, ProjectScanDefersSourceModelPrefabAutoLoad) {
+  TempFileManagerProject project;
+  WritePrefabFixture(project, "NativePrefab", ".eveprefab", kNativePrefabAssetHandle);
+  WritePrefabFixture(project, "SourceModel", ".obj", kSourceModelPrefabAssetHandle);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  ASSERT_TRUE(FileManager::GetFile(Handle(kNativePrefabAssetHandle)));
+  ASSERT_TRUE(FileManager::GetFile(Handle(kSourceModelPrefabAssetHandle)));
+  const auto snapshot = AssetManager::GetAssetLoadSnapshot();
+  EXPECT_EQ(snapshot.total, 1);
+  EXPECT_EQ(snapshot.completed + snapshot.failed + snapshot.cancelled, 1);
 }
 
 TEST(FileManager, ThumbnailLookupCanAvoidStartingAssetLoad) {

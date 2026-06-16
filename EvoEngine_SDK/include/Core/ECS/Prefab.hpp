@@ -158,6 +158,7 @@ class Prefab : public IAsset {
   bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
                          unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
                                           aiProcess_GenSmoothNormals);
+  bool LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene);
 
   /**
    * @brief Saves the model to a specified file path.

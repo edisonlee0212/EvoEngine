@@ -44,6 +44,21 @@ constexpr float kInspectorPreviewMinZoom = 0.4f;
 constexpr float kInspectorPreviewMaxZoom = 3.0f;
 constexpr auto kMainThreadAssetTaskHitchThreshold = std::chrono::milliseconds(16);
 
+std::string AssetTaskLabel(const std::string& action, const Handle& asset_handle) {
+  auto label = action + " asset " + std::to_string(asset_handle.GetValue());
+  if (const auto file = FileManager::GetFile(asset_handle)) {
+    auto path = file->GetAssetsFolderRelativePath().string();
+    if (path.empty()) {
+      path = file->GetAssetFileName() + file->GetAssetExtension();
+    }
+    label = action + " " + file->GetAssetTypeName();
+    if (!path.empty()) {
+      label += " " + path;
+    }
+  }
+  return label;
+}
+
 std::shared_future<std::shared_ptr<IAsset>> MakeReadyAssetFuture(std::shared_ptr<IAsset> asset) {
   std::promise<std::shared_ptr<IAsset>> promise;
   promise.set_value(std::move(asset));
@@ -488,7 +503,7 @@ size_t AssetManager::ExecuteMainThreadAssetTasksWithinBudget(const size_t max_ta
       break;
     }
 
-    std::function<void()> task;
+    MainThreadAssetTask task;
     {
       auto& asset_manager = GetInstance();
       std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
@@ -498,13 +513,13 @@ size_t AssetManager::ExecuteMainThreadAssetTasksWithinBudget(const size_t max_ta
       task = std::move(asset_manager.asset_registry_.main_thread_asset_tasks_.front());
       asset_manager.asset_registry_.main_thread_asset_tasks_.pop_front();
     }
-    if (task) {
+    if (task.action) {
       const auto task_start = std::chrono::steady_clock::now();
-      task();
+      task.action();
       const auto task_duration =
           std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - task_start);
       if (task_duration >= kMainThreadAssetTaskHitchThreshold) {
-        EVOENGINE_WARNING("Main-thread asset task took " + std::to_string(task_duration.count()) + " ms")
+        EVOENGINE_WARNING("Main-thread asset task took " + std::to_string(task_duration.count()) + " ms: " + task.label)
       }
       ++executed_task_size;
     }
@@ -573,48 +588,50 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
     UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Creating asset object.");
     auto context_promise = std::make_shared<std::promise<AssetServiceLoadContext>>();
     const auto context_future = context_promise->get_future().share();
-    ScheduleMainThreadAssetTaskImpl([asset_handle, context_promise]() {
-      try {
-        auto& asset_manager = GetInstance();
-        {
-          std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
-          if (const auto search = asset_manager.asset_registry_.assets_.find(asset_handle);
-              search != asset_manager.asset_registry_.assets_.end() && !search->second.expired()) {
-            AssetServiceLoadContext context;
-            context.asset = search->second.lock();
-            context_promise->set_value(std::move(context));
-            return;
-          }
-        }
+    ScheduleMainThreadAssetTaskImpl(
+        [asset_handle, context_promise]() {
+          try {
+            auto& asset_manager = GetInstance();
+            {
+              std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+              if (const auto search = asset_manager.asset_registry_.assets_.find(asset_handle);
+                  search != asset_manager.asset_registry_.assets_.end() && !search->second.expired()) {
+                AssetServiceLoadContext context;
+                context.asset = search->second.lock();
+                context_promise->set_value(std::move(context));
+                return;
+              }
+            }
 
-        AssetServiceLoadContext context;
-        context.file = FileManager::GetFile(asset_handle);
-        if (context.file) {
-          size_t hash_code;
-          context.asset = std::dynamic_pointer_cast<IAsset>(Serialization::ProduceSerializable(
-              Serialization::HasSerializableType(context.file->asset_type_name_) ? context.file->asset_type_name_
-                                                                                 : "UnknownAsset",
-              hash_code, asset_handle));
-          if (!context.asset) {
-            throw std::runtime_error("Failed to create asset instance.");
+            AssetServiceLoadContext context;
+            context.file = FileManager::GetFile(asset_handle);
+            if (context.file) {
+              size_t hash_code;
+              context.asset = std::dynamic_pointer_cast<IAsset>(Serialization::ProduceSerializable(
+                  Serialization::HasSerializableType(context.file->asset_type_name_) ? context.file->asset_type_name_
+                                                                                     : "UnknownAsset",
+                  hash_code, asset_handle));
+              if (!context.asset) {
+                throw std::runtime_error("Failed to create asset instance.");
+              }
+              if (const auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(context.asset)) {
+                unknown_asset->SetOriginalTypeName(context.file->asset_type_name_);
+              }
+              context.asset->file_record_ = context.file;
+              context.asset->self_ = context.asset;
+              context.asset->OnCreate();
+              context.absolute_path = context.file->GetAbsolutePath();
+              context.path_exists = std::filesystem::exists(context.absolute_path);
+              context.staged = context.path_exists &&
+                               Serialization::SupportsStagedAssetLoading(*context.asset, context.absolute_path);
+              SetLoadingAssetImpl(asset_handle, context.asset, !context.staged);
+            }
+            context_promise->set_value(std::move(context));
+          } catch (...) {
+            context_promise->set_exception(std::current_exception());
           }
-          if (const auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(context.asset)) {
-            unknown_asset->SetOriginalTypeName(context.file->asset_type_name_);
-          }
-          context.asset->file_record_ = context.file;
-          context.asset->self_ = context.asset;
-          context.asset->OnCreate();
-          context.absolute_path = context.file->GetAbsolutePath();
-          context.path_exists = std::filesystem::exists(context.absolute_path);
-          context.staged =
-              context.path_exists && Serialization::SupportsStagedAssetLoading(*context.asset, context.absolute_path);
-          SetLoadingAssetImpl(asset_handle, context.asset, !context.staged);
-        }
-        context_promise->set_value(std::move(context));
-      } catch (...) {
-        context_promise->set_exception(std::current_exception());
-      }
-    });
+        },
+        AssetTaskLabel("Create", asset_handle));
 
     auto context = context_future.get();
     if (context.asset && !context.file) {
@@ -638,14 +655,81 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
         throw std::runtime_error("Failed to build staged asset payload.");
       }
       UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for asset finalization.");
-      ScheduleMainThreadAssetTaskImpl([asset_handle, context = std::move(context), promise,
-                                       payload = std::move(payload)]() {
-        try {
-          if (!Serialization::ApplyStagedAssetPayload(*context.asset, context.absolute_path, payload)) {
-            throw std::runtime_error("Failed to apply staged asset load payload.");
-          }
-          context.asset->saved_ = true;
-          auto publish_loaded_asset = [asset_handle, context, promise]() {
+      ScheduleMainThreadAssetTaskImpl(
+          [asset_handle, context = std::move(context), promise, payload = std::move(payload)]() {
+            try {
+              if (!Serialization::ApplyStagedAssetPayload(*context.asset, context.absolute_path, payload)) {
+                throw std::runtime_error("Failed to apply staged asset load payload.");
+              }
+              context.asset->saved_ = true;
+              auto publish_loaded_asset = [asset_handle, context, promise]() {
+                context.file->asset_ = context.asset;
+                {
+                  auto& asset_manager = GetInstance();
+                  std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
+                  asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
+                }
+                promise->set_value(context.asset);
+                UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
+                FinishAssetLoadingImpl(asset_handle);
+              };
+              auto pending_gpu_work = context.asset->ConsumePendingGpuWorkHandles();
+              if (!pending_gpu_work.empty()) {
+                UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::GpuPending, "Waiting for GPU finalization.");
+                JobOptions gpu_ready_options;
+                gpu_ready_options.executor = JobExecutorType::Background;
+                gpu_ready_options.affinity = JobThreadAffinity::Background;
+                gpu_ready_options.debug_name = "AssetManager::WaitForAssetGpuReady";
+                auto pending_handles = std::make_shared<std::vector<JobHandle>>(std::move(pending_gpu_work));
+                const auto gpu_ready_handle = Jobs::Run(
+                    *pending_handles, gpu_ready_options,
+                    [asset_handle, promise, publish_loaded_asset, pending_handles]() {
+                      try {
+                        for (const auto& handle : *pending_handles) {
+                          Jobs::Wait(handle);
+                        }
+                        ScheduleMainThreadAssetTaskImpl(publish_loaded_asset, AssetTaskLabel("Publish", asset_handle));
+                      } catch (const std::exception& e) {
+                        promise->set_exception(std::current_exception());
+                        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
+                        FinishAssetLoadingImpl(asset_handle);
+                      } catch (...) {
+                        promise->set_exception(std::current_exception());
+                        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed,
+                                                 "Unknown asset GPU finalization failure.");
+                        FinishAssetLoadingImpl(asset_handle);
+                      }
+                    });
+                if (!gpu_ready_handle.Valid()) {
+                  throw std::runtime_error("Failed to schedule asset GPU readiness wait.");
+                }
+                Jobs::Execute(gpu_ready_handle);
+                return;
+              }
+              publish_loaded_asset();
+            } catch (const std::exception& e) {
+              promise->set_exception(std::current_exception());
+              UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
+              FinishAssetLoadingImpl(asset_handle);
+            } catch (...) {
+              promise->set_exception(std::current_exception());
+              UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset finalization failure.");
+              FinishAssetLoadingImpl(asset_handle);
+            }
+          },
+          AssetTaskLabel("Finalize staged", asset_handle));
+      return;
+    }
+
+    UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for legacy asset load.");
+    ScheduleMainThreadAssetTaskImpl(
+        [asset_handle, context = std::move(context), promise]() {
+          try {
+            if (context.path_exists) {
+              context.asset->Load();
+            } else {
+              context.asset->Save();
+            }
             context.file->asset_ = context.asset;
             {
               auto& asset_manager = GetInstance();
@@ -654,79 +738,16 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
             }
             promise->set_value(context.asset);
             UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
-            FinishAssetLoadingImpl(asset_handle);
-          };
-          auto pending_gpu_work = context.asset->ConsumePendingGpuWorkHandles();
-          if (!pending_gpu_work.empty()) {
-            UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::GpuPending, "Waiting for GPU finalization.");
-            JobOptions gpu_ready_options;
-            gpu_ready_options.executor = JobExecutorType::Background;
-            gpu_ready_options.affinity = JobThreadAffinity::Background;
-            gpu_ready_options.debug_name = "AssetManager::WaitForAssetGpuReady";
-            auto pending_handles = std::make_shared<std::vector<JobHandle>>(std::move(pending_gpu_work));
-            const auto gpu_ready_handle = Jobs::Run(
-                *pending_handles, gpu_ready_options, [asset_handle, promise, publish_loaded_asset, pending_handles]() {
-                  try {
-                    for (const auto& handle : *pending_handles) {
-                      Jobs::Wait(handle);
-                    }
-                    ScheduleMainThreadAssetTaskImpl(publish_loaded_asset);
-                  } catch (const std::exception& e) {
-                    promise->set_exception(std::current_exception());
-                    UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
-                    FinishAssetLoadingImpl(asset_handle);
-                  } catch (...) {
-                    promise->set_exception(std::current_exception());
-                    UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed,
-                                             "Unknown asset GPU finalization failure.");
-                    FinishAssetLoadingImpl(asset_handle);
-                  }
-                });
-            if (!gpu_ready_handle.Valid()) {
-              throw std::runtime_error("Failed to schedule asset GPU readiness wait.");
-            }
-            Jobs::Execute(gpu_ready_handle);
-            return;
+          } catch (const std::exception& e) {
+            promise->set_exception(std::current_exception());
+            UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
+          } catch (...) {
+            promise->set_exception(std::current_exception());
+            UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset load failure.");
           }
-          publish_loaded_asset();
-        } catch (const std::exception& e) {
-          promise->set_exception(std::current_exception());
-          UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
           FinishAssetLoadingImpl(asset_handle);
-        } catch (...) {
-          promise->set_exception(std::current_exception());
-          UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset finalization failure.");
-          FinishAssetLoadingImpl(asset_handle);
-        }
-      });
-      return;
-    }
-
-    UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for legacy asset load.");
-    ScheduleMainThreadAssetTaskImpl([asset_handle, context = std::move(context), promise]() {
-      try {
-        if (context.path_exists) {
-          context.asset->Load();
-        } else {
-          context.asset->Save();
-        }
-        context.file->asset_ = context.asset;
-        {
-          auto& asset_manager = GetInstance();
-          std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
-          asset_manager.asset_registry_.assets_[asset_handle] = context.asset;
-        }
-        promise->set_value(context.asset);
-        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Loaded, "Asset loaded.");
-      } catch (const std::exception& e) {
-        promise->set_exception(std::current_exception());
-        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, e.what());
-      } catch (...) {
-        promise->set_exception(std::current_exception());
-        UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::Failed, "Unknown asset load failure.");
-      }
-      FinishAssetLoadingImpl(asset_handle);
-    });
+        },
+        AssetTaskLabel(context.path_exists ? "Load legacy" : "Save missing", asset_handle));
   } catch (...) {
     finish_with_exception();
   }
@@ -819,10 +840,13 @@ std::shared_future<std::shared_ptr<IAsset>> AssetManager::GetOrCreateAssetLoadFu
   return future;
 }
 
-void AssetManager::ScheduleMainThreadAssetTaskImpl(const std::function<void()>& action) {
+void AssetManager::ScheduleMainThreadAssetTaskImpl(std::function<void()> action, std::string label) {
   auto& asset_manager = GetInstance();
   std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
-  asset_manager.asset_registry_.main_thread_asset_tasks_.emplace_back(action);
+  if (label.empty()) {
+    label = "Asset task";
+  }
+  asset_manager.asset_registry_.main_thread_asset_tasks_.push_back({std::move(action), std::move(label)});
 }
 
 void AssetManager::ResetAssetLoadSnapshotImpl(const size_t total) {

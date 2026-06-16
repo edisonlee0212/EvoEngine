@@ -9,6 +9,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
+#include "WindowLayer.hpp"
 using namespace evo_engine;
 
 void Bloom::Serialize(YAML::Emitter& out) const {
@@ -437,11 +438,12 @@ void PostProcessingStack::OnCreate() {
   bloom = std::make_shared<Bloom>();
   screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   tone_mapping = std::make_shared<ToneMapping>();
-
-  screen_space_ambient_occlusion->BuildPipelines();
-  bloom->BuildPipelines();
-  screen_space_reflection->BuildPipelines();
-  tone_mapping->BuildPipelines();
+  pipeline_build_step_ = 0;
+  pipelines_ready_ = false;
+  if (!ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    while (!BuildNextPipeline()) {
+    }
+  }
 
   enable_screen_space_ambient_occlusion = true;
   enable_bloom = true;
@@ -449,8 +451,42 @@ void PostProcessingStack::OnCreate() {
   enable_tone_mapping = true;
 }
 
+bool PostProcessingStack::BuildNextPipeline() {
+  if (pipelines_ready_) {
+    return true;
+  }
+  if (!screen_space_ambient_occlusion || !bloom || !screen_space_reflection || !tone_mapping) {
+    return false;
+  }
+  switch (pipeline_build_step_) {
+    case 0:
+      screen_space_ambient_occlusion->BuildPipelines();
+      break;
+    case 1:
+      bloom->BuildPipelines();
+      break;
+    case 2:
+      screen_space_reflection->BuildPipelines();
+      break;
+    case 3:
+      tone_mapping->BuildPipelines();
+      break;
+    default:
+      pipelines_ready_ = true;
+      return true;
+  }
+  ++pipeline_build_step_;
+  pipelines_ready_ = pipeline_build_step_ > 3;
+  return false;
+}
+
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) {
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!target_camera) {
+    return;
+  }
+  if (!BuildNextPipeline()) {
+    return;
+  }
   Resize(target_camera->GetSize());
   {
     VkDescriptorImageInfo image_info;

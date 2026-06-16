@@ -841,6 +841,7 @@ class EditorLayer : public ILayer {
   void DrawMainMenuItems(bool title_bar_style = false);
   bool DrawPlayControls();
   void DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
+  void DrawProjectLoadingPopup();
   void RequestDefaultEditorLayout();
 
   void UpdateCameraTransition();

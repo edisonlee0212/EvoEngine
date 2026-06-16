@@ -76,6 +76,7 @@ class ProjectManager {
   bool project_asset_load_dispatched = false;  ///< True while a project asset batch is owned by AssetManager.
   size_t pending_asset_size = 0;               ///< The count of assets pending to be processed.
   std::set<Handle> pending_assets;             ///< The list of handles to pending assets.
+  bool scene_loading_popup_visible_ = false;   ///< True while the editor should show the scene-loading modal.
 
   /**
    * @brief Scans and updates the asset list based on the current assets folder.
@@ -88,6 +89,7 @@ class ProjectManager {
    * @brief Sets up the default scene for the project.
    */
   static void SetupDefaultScene();
+  static bool ArmSceneLoadingPopupBeforeSetup();
 
   /**
    * @brief Pre-update hook for any project manager operations that need to occur before other updates.

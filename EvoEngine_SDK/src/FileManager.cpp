@@ -6,6 +6,8 @@
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <system_error>
 
@@ -35,6 +37,26 @@ bool CanGenerateThumbnailThisFrame() {
 
 bool SupportsGeneratedThumbnail(const File& file) {
   return AssetThumbnailProvider::SupportsGeneratedThumbnail(file.GetAssetTypeName());
+}
+
+std::string LowercaseExtension(std::string extension) {
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return extension;
+}
+
+bool IsDeferredImportSource(const File& file) {
+  if (file.GetAssetTypeName() != "Prefab") {
+    return false;
+  }
+  const auto extension = LowercaseExtension(file.GetAssetExtension());
+  return extension == ".obj" || extension == ".gltf" || extension == ".glb" || extension == ".blend" ||
+         extension == ".ply" || extension == ".fbx" || extension == ".dae" || extension == ".x3d";
+}
+
+bool ShouldAutoLoadAsset(const File& file) {
+  return file.GetAssetTypeName() != "Binary" && !IsDeferredImportSource(file);
 }
 
 std::filesystem::path FileMetadataPath(const std::filesystem::path& asset_path) {
@@ -629,7 +651,7 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     RemoveFile(i);
   }
   for (const auto& i : files) {
-    if (i.second->asset_type_name_ != "Binary" && !i.second->asset_) {
+    if (ShouldAutoLoadAsset(*i.second) && !i.second->asset_) {
       assets_pending_loading.emplace_back(i.second->asset_handle_);
     }
   }

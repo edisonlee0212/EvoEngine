@@ -81,6 +81,34 @@ bool SaveEntityAsPrefab(const std::shared_ptr<Folder>& folder, const Handle& ent
   return ProjectManager::SaveAsset(prefab, folder, scene->GetEntityName(entity), prefab_extensions.front());
 }
 
+void DrawBackgroundAssetProgressBar(const AssetManager::AssetLoadSnapshot& snapshot) {
+  const auto completed_asset_count = snapshot.completed + snapshot.failed + snapshot.cancelled;
+  const auto active_asset_count =
+      snapshot.queued + snapshot.loading_cpu + snapshot.waiting_for_finalize + snapshot.gpu_pending;
+  const auto total_asset_count = std::max(snapshot.total, completed_asset_count + active_asset_count);
+  const float progress = total_asset_count == 0 ? 1.0f : static_cast<float>(completed_asset_count) / total_asset_count;
+  const std::string label = std::to_string(static_cast<int>(progress * 100.0f)) + "% " +
+                            std::to_string(completed_asset_count) + "/" + std::to_string(total_asset_count);
+
+  const float progress_width = std::min(220.0f, std::max(90.0f, ImGui::GetContentRegionAvail().x));
+  ImGui::ProgressBar(progress, ImVec2(progress_width, 0.0f), label.c_str());
+  if (ImGui::IsItemHovered()) {
+    ImGui::BeginTooltip();
+    ImGui::TextUnformatted("Background assets");
+    ImGui::Text("Progress: %zu/%zu", completed_asset_count, total_asset_count);
+    if (!snapshot.active_asset_name.empty()) {
+      ImGui::TextWrapped("Asset: %s", snapshot.active_asset_name.c_str());
+    }
+    if (!snapshot.message.empty()) {
+      ImGui::TextWrapped("%s", snapshot.message.c_str());
+    }
+    if (snapshot.failed != 0 || snapshot.cancelled != 0) {
+      ImGui::Text("Failed: %zu  Cancelled: %zu", snapshot.failed, snapshot.cancelled);
+    }
+    ImGui::EndTooltip();
+  }
+}
+
 BrowserTileInteraction DrawBrowserTile(const char* id, const std::shared_ptr<Texture2D>& texture,
                                        const std::string& type_label, const std::string& name, const bool selected,
                                        const float thumbnail_size, const float tile_width) {
@@ -364,74 +392,6 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
     }
     ImGui::End();
   }
-
-  const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
-  const bool scene_ready = project_manager.start_scene_ != nullptr;
-  if (project_manager.scan_assets_pending && !scene_ready) {
-    ImGui::OpenPopup("Scanning assets...");
-  } else if (asset_load_snapshot.Active() && !scene_ready) {
-    ImGui::OpenPopup("Loading assets...");
-  } else if (!project_manager.new_project_path_.empty() && !scene_ready) {
-    ImGui::OpenPopup("Loading Project...");
-  } else if (asset_load_snapshot.Active() && scene_ready) {
-    const auto completed_asset_count =
-        asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
-    const auto active_asset_count = asset_load_snapshot.queued + asset_load_snapshot.loading_cpu +
-                                    asset_load_snapshot.waiting_for_finalize + asset_load_snapshot.gpu_pending;
-    const auto total_asset_count = std::max(asset_load_snapshot.total, completed_asset_count + active_asset_count);
-    ImGui::TextDisabled("Background assets: %zu/%zu", completed_asset_count, total_asset_count);
-    if (!asset_load_snapshot.active_asset_name.empty()) {
-      ImGui::SameLine();
-      ImGui::TextDisabled("%s", asset_load_snapshot.active_asset_name.c_str());
-    }
-  }
-  if (ImGui::BeginPopupModal("Loading Project...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
-    if (project_manager.new_project_path_.empty() || scene_ready) {
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-  }
-  if (ImGui::BeginPopupModal("Scanning assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
-    if (!project_manager.scan_assets_pending || scene_ready) {
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-  }
-  if (ImGui::BeginPopupModal("Loading assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    if (!project_manager.loading_status_.empty()) {
-      ImGui::Text("%s", project_manager.loading_status_.c_str());
-    }
-    ImGui::Text("Progress: ");
-    const auto completed_asset_count =
-        asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
-    const auto active_asset_count = asset_load_snapshot.queued + asset_load_snapshot.loading_cpu +
-                                    asset_load_snapshot.waiting_for_finalize + asset_load_snapshot.gpu_pending;
-    auto total_asset_count = asset_load_snapshot.total;
-    total_asset_count = std::max(total_asset_count, completed_asset_count + active_asset_count);
-    total_asset_count = std::max(total_asset_count, project_manager.pending_asset_size);
-    const float fraction = total_asset_count == 0
-                               ? 1.0f
-                               : static_cast<float>(completed_asset_count) / static_cast<float>(total_asset_count);
-    const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
-                             std::to_string(completed_asset_count) + "/" + std::to_string(total_asset_count);
-    ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
-    if (!asset_load_snapshot.active_asset_name.empty()) {
-      ImGui::Text("Asset: %s", asset_load_snapshot.active_asset_name.c_str());
-    }
-    if (!asset_load_snapshot.message.empty()) {
-      ImGui::Text("%s", asset_load_snapshot.message.c_str());
-    }
-    if (asset_load_snapshot.failed != 0 || asset_load_snapshot.cancelled != 0) {
-      ImGui::Text("Failed: %zu  Cancelled: %zu", asset_load_snapshot.failed, asset_load_snapshot.cancelled);
-    }
-    ImGui::SetItemDefaultFocus();
-    if (!asset_load_snapshot.Active() || scene_ready) {
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-  }
 }
 
 void ProjectContentBrowserPanel::DrawToolbar(const std::shared_ptr<Folder>& current_folder) {
@@ -493,6 +453,12 @@ void ProjectContentBrowserPanel::DrawToolbar(const std::shared_ptr<Folder>& curr
     ImGui::SetNextItemWidth(160.0f);
     ImGui::SliderFloat("Padding", &thumbnail_padding_, 4.0f, 24.0f, "%.0f");
     ImGui::EndPopup();
+  }
+
+  const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
+  if (ProjectManager::GetInstance().start_scene_ && asset_load_snapshot.Active()) {
+    ImGui::SameLine();
+    DrawBackgroundAssetProgressBar(asset_load_snapshot);
   }
 
   DrawBreadcrumbs(current_folder);
