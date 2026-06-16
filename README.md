@@ -130,4 +130,6 @@ EvoEngine supports research workflows used in digital forestry and digital agric
 
 ## License
 
-This repository is licensed under the Creative Commons Attribution-NonCommercial 4.0 International license. See [LICENSE](LICENSE) for the full text.
+EvoEngine is source-available for inspection, learning, and direct contribution only. It is not open source. You may not copy, reuse, redistribute, publish, sublicense, incorporate, or commercially use EvoEngine code, assets, documentation, or other repository content without prior written permission.
+
+Contributions are welcome. You may fork, clone, build, and modify EvoEngine solely to prepare contributions directly back to this repository. See [LICENSE](LICENSE) for the full terms.
