@@ -49,6 +49,11 @@ class CudaModule {
                                              std::vector<IlluminationSampler<glm::vec3>> &lightProbes, unsigned seed,
                                              float pushNormalDistance);
 
+  static void EstimateIlluminationRayTracingSpectral(const EnvironmentProperties &environmentProperties,
+                                                     const RayProperties &rayProperties,
+                                                     std::vector<IlluminationSampler<glm::vec3>> &lightProbes,
+                                                     unsigned seed, float pushNormalDistance);
+
   static void SamplePointCloud(const EnvironmentProperties &environmentProperties,
                                std::vector<PointCloudSample> &samples);
   static std::shared_ptr<CudaImage> ImportTexture2D(const std::shared_ptr<evo_engine::Texture2D> &texture2D);

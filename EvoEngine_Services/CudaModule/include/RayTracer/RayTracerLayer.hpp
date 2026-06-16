@@ -20,6 +20,7 @@ class RayTracerLayer : public ILayer {
                            bool& update_shader_binding_table) const;
 
   void SceneCameraWindow();
+  void SceneCameraSpectrumWindow();
 
   static void RayCameraWindow();
 
@@ -31,8 +32,11 @@ class RayTracerLayer : public ILayer {
 
   static bool CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
                                const std::shared_ptr<BtfMaterial>& compressed_btf);
+  void SyncSceneSpectralCameraSettings() const;
 
   glm::ivec2 scene_camera_resolution_ = glm::ivec2(0);
+  glm::uvec2 scene_rt_window_size_ = glm::uvec2(0);
+  glm::uvec2 scene_spectrum_window_size_ = glm::uvec2(0);
 
  public:
   bool show_scene_info = false;
@@ -46,12 +50,14 @@ class RayTracerLayer : public ILayer {
   std::shared_ptr<CudaImage> environmental_map_image;
   Handle environmental_map_handle = 0;
 
-  bool show_scene_window = false;
+  bool show_scene_window = true;
+  bool show_scene_spectrum_window = true;
   bool show_camera_window = false;
 
   bool rendering_enabled = true;
   float resolution_multiplier = 1.0f;
   std::shared_ptr<RayTracerCamera> scene_camera;
+  std::shared_ptr<RayTracerCamera> scene_spectral_camera;
 
   bool UpdateScene(const std::shared_ptr<Scene>& scene);
 

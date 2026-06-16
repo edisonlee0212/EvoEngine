@@ -2,6 +2,20 @@
 
 namespace evo_engine {
 extern "C" __constant__ IlluminationEstimationLaunchParams illuminationEstimationLaunchParams;
+
+static __forceinline__ __device__ void SampleProbePoint(const Vertex &a, const Vertex &b, const Vertex &c,
+                                                        Random &random, glm::vec3 &position, glm::vec3 &normal) {
+  float coord_a = random();
+  float coord_b = random();
+  if (coord_a + coord_b > 1.0f) {
+    coord_a = 1.0f - coord_a;
+    coord_b = 1.0f - coord_b;
+  }
+  const float coord_c = 1.0f - coord_a - coord_b;
+  position = coord_c * a.position + coord_a * b.position + coord_b * c.position;
+  normal = glm::normalize(coord_c * a.normal + coord_a * b.normal + coord_b * c.normal);
+}
+
 #pragma region Closest hit functions
 extern "C" __global__ void __closesthit__IE_R() {
   ClosestHitFunc(illuminationEstimationLaunchParams.ray_tracer_properties,
@@ -51,10 +65,9 @@ extern "C" __global__ void __raygen__IE() {
       perRayData.energy = glm::vec3(0.0f);
       perRayData.hit_count = 0;
       glm::vec3 rayDir, rayOrigin;
-      float coordA = perRayData.random();
-      float coordB = perRayData.random();
-      glm::vec3 position = (1.f - coordA - coordB) * a.position + coordA * b.position + coordB * c.position;
-      glm::vec3 normal = (1.f - coordA - coordB) * a.normal + coordA * b.normal + coordB * c.normal;
+      glm::vec3 position;
+      glm::vec3 normal;
+      SampleProbePoint(a, b, c, perRayData.random, position, normal);
       rayDir = RandomSampleHemisphere(perRayData.random, normal);
       rayOrigin = position + normal * pushDistance;
       float3 rayOriginInternal = make_float3(rayOrigin.x, rayOrigin.y, rayOrigin.z);
@@ -80,10 +93,10 @@ extern "C" __global__ void __raygen__IE() {
       perRayData.energy = glm::vec3(0.0f);
       perRayData.hit_count = 0;
       glm::vec3 rayDir, rayOrigin;
-      float coordA = perRayData.random();
-      float coordB = perRayData.random();
-      glm::vec3 position = (1.f - coordA - coordB) * a.position + coordA * b.position + coordB * c.position;
-      glm::vec3 normal = -(1.f - coordA - coordB) * a.normal - coordA * b.normal - coordB * c.normal;
+      glm::vec3 position;
+      glm::vec3 normal;
+      SampleProbePoint(a, b, c, perRayData.random, position, normal);
+      normal = -normal;
       rayDir = RandomSampleHemisphere(perRayData.random, normal);
       rayOrigin = position + normal * pushDistance;
       float3 rayOriginInternal = make_float3(rayOrigin.x, rayOrigin.y, rayOrigin.z);

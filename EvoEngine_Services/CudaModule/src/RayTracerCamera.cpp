@@ -66,7 +66,7 @@ void RayTracerCamera::OnCreate() {
   render_texture_create_info.extent.width = frame_size.x;
   render_texture_create_info.extent.height = frame_size.y;
   render_texture_create_info.extent.depth = 1;
-  render_texture = std::make_unique<RenderTexture>(render_texture_create_info);
+  render_texture = std::make_shared<RenderTexture>(render_texture_create_info);
   Ready(glm::vec3(0), glm::vec3(0));
 }
 
@@ -177,6 +177,36 @@ void RayTracerCamera::Render(const RayProperties &ray_properties, const Environm
     auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
     Ready(global_transform[3], glm::quat_cast(global_transform));
     rendered_ = CudaModule::GetRayTracer()->RenderToCamera(environment_properties, camera_properties_, ray_properties);
+  }
+}
+
+void RayTracerCamera::RenderSpectral() {
+  if (!CudaModule::GetRayTracer()->instances.empty()) {
+    auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
+    Ready(global_transform[3], glm::quat_cast(global_transform));
+    rendered_ = CudaModule::GetRayTracer()->RenderToCameraSpectral(
+        ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, camera_properties_,
+        ray_properties);
+  }
+}
+
+void RayTracerCamera::RenderSpectral(const RayProperties &ray_properties) {
+  if (!CudaModule::GetRayTracer()->instances.empty()) {
+    auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
+    Ready(global_transform[3], glm::quat_cast(global_transform));
+    rendered_ = CudaModule::GetRayTracer()->RenderToCameraSpectral(
+        ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, camera_properties_,
+        ray_properties);
+  }
+}
+
+void RayTracerCamera::RenderSpectral(const RayProperties &ray_properties,
+                                     const EnvironmentProperties &environment_properties) {
+  if (!CudaModule::GetRayTracer()->instances.empty()) {
+    auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
+    Ready(global_transform[3], glm::quat_cast(global_transform));
+    rendered_ =
+        CudaModule::GetRayTracer()->RenderToCameraSpectral(environment_properties, camera_properties_, ray_properties);
   }
 }
 

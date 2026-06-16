@@ -378,6 +378,42 @@ struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) IlluminationEstimationRayHitRecord 
   __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
   SBT data;
 };
+
+/*! SBT record for a raygen program */
+struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) CameraSpectralRayGenRecord {
+  __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  void *data;
+};
+
+/*! SBT record for a miss program */
+struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) CameraSpectralRayMissRecord {
+  __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  void *data;
+};
+
+/*! SBT record for a hitgroup program */
+struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) CameraSpectralRayHitRecord {
+  __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  SBT data;
+};
+
+/*! SBT record for a raygen program */
+struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) IlluminationEstimationSpectralRayGenRecord {
+  __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  void *data;
+};
+
+/*! SBT record for a miss program */
+struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) IlluminationEstimationSpectralRayMissRecord {
+  __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  void *data;
+};
+
+/*! SBT record for a hitgroup program */
+struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) IlluminationEstimationSpectralRayHitRecord {
+  __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];
+  SBT data;
+};
 /*! SBT record for a raygen program */
 struct __align__(OPTIX_SBT_RECORD_ALIGNMENT) PointCloudScanningRayGenRecord {
   __align__(OPTIX_SBT_RECORD_ALIGNMENT) char header[OPTIX_SBT_RECORD_HEADER_SIZE];

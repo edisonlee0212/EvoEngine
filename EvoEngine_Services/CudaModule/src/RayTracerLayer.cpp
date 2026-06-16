@@ -18,6 +18,65 @@ using namespace evo_engine;
 
 std::shared_ptr<RayTracerCamera> RayTracerLayer::ray_tracer_camera_;
 
+void RayTracerLayer::SyncSceneSpectralCameraSettings() const {
+  if (!scene_camera || !scene_spectral_camera)
+    return;
+  scene_spectral_camera->allow_auto_resize = scene_camera->allow_auto_resize;
+  scene_spectral_camera->ray_properties = scene_camera->ray_properties;
+  auto& source = scene_camera->camera_properties_;
+  auto& target = scene_spectral_camera->camera_properties_;
+  if (target.accumulate != source.accumulate) {
+    target.accumulate = source.accumulate;
+    target.modified = true;
+  }
+  if (target.denoiser_strength != source.denoiser_strength) {
+    target.denoiser_strength = source.denoiser_strength;
+    target.modified = true;
+  }
+  if (target.fov != source.fov) {
+    target.fov = source.fov;
+    target.modified = true;
+  }
+  if (target.max_distance != source.max_distance) {
+    target.max_distance = source.max_distance;
+    target.modified = true;
+  }
+  if (target.output_type != source.output_type) {
+    target.output_type = source.output_type;
+    target.modified = true;
+  }
+  if (target.background_color != source.background_color) {
+    target.background_color = source.background_color;
+    target.modified = true;
+  }
+  if (target.background_type != source.background_type) {
+    target.background_type = source.background_type;
+    target.modified = true;
+  }
+  if (target.gamma != source.gamma) {
+    target.gamma = source.gamma;
+    target.modified = true;
+  }
+  if (target.aperture != source.aperture) {
+    target.aperture = source.aperture;
+    target.modified = true;
+  }
+  if (target.focal_length != source.focal_length) {
+    target.focal_length = source.focal_length;
+    target.modified = true;
+  }
+  if (scene_spectral_camera->skybox_ != scene_camera->skybox_) {
+    scene_spectral_camera->skybox_ = scene_camera->skybox_;
+    if (const auto cubemap = scene_camera->skybox_.Get<Cubemap>()) {
+      scene_spectral_camera->SetSkybox(cubemap);
+    } else {
+      target.skybox = source.skybox;
+      target.modified = true;
+    }
+  }
+  scene_spectral_camera->main_camera_ = false;
+}
+
 void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
                                          std::unordered_map<uint64_t, RayTracedMaterial>& material_storage,
                                          std::unordered_map<uint64_t, RayTracedGeometry>& geometry_storage,
@@ -387,6 +446,7 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
 void RayTracerLayer::RegisterTypes(Application& application) {
   application.RegisterPrivateComponent<BtfMeshRenderer>("BtfMeshRenderer");
   application.RegisterPrivateComponent<TriangleIlluminationEstimator>("TriangleIlluminationEstimator");
+  application.RegisterPrivateComponent<IlluminationLightmapEstimator>("IlluminationLightmapEstimator");
   application.RegisterPrivateComponent<RayTracerCamera>("RayTracerCamera");
   application.RegisterPrivateComponent<BasicPointCloudScanner>("BasicPointCloudScanner");
   application.RegisterAsset<BtfMaterial>("BtfMaterial", {".btf"});
@@ -397,6 +457,9 @@ void RayTracerLayer::OnCreate() {
 
   scene_camera = Serialization::ProduceSerializable<RayTracerCamera>();
   scene_camera->OnCreate();
+  scene_spectral_camera = Serialization::ProduceSerializable<RayTracerCamera>();
+  scene_spectral_camera->OnCreate();
+  SyncSceneSpectralCameraSettings();
   ApplicationContext::Get().RegisterPostAttachSceneFunction([&](const std::shared_ptr<Scene>& scene) {
     ray_tracer_camera_.reset();
   });
@@ -404,8 +467,18 @@ void RayTracerLayer::OnCreate() {
 
 void RayTracerLayer::PreUpdate() {
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-      show_scene_window && editor_layer && rendering_enabled) {
+      (show_scene_window || show_scene_spectrum_window) && editor_layer && rendering_enabled) {
+    if (scene_camera->allow_auto_resize) {
+      if (show_scene_window && scene_rt_window_size_.x > 0 && scene_rt_window_size_.y > 0) {
+        scene_camera->frame_size = glm::uvec2(glm::vec2(scene_rt_window_size_) * resolution_multiplier);
+      }
+      if (show_scene_spectrum_window && scene_spectrum_window_size_.x > 0 && scene_spectrum_window_size_.y > 0) {
+        scene_spectral_camera->frame_size = glm::uvec2(glm::vec2(scene_spectrum_window_size_) * resolution_multiplier);
+      }
+    }
+    SyncSceneSpectralCameraSettings();
     scene_camera->Ready(editor_layer->GetSceneCameraPosition(), editor_layer->GetSceneCameraRotation());
+    scene_spectral_camera->Ready(editor_layer->GetSceneCameraPosition(), editor_layer->GetSceneCameraRotation());
   }
 }
 
@@ -416,9 +489,15 @@ void RayTracerLayer::LateUpdate() {
   bool ray_tracer_updated = UpdateScene(scene);
   if (!CudaModule::GetRayTracer()->instances.empty()) {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-        show_scene_window && editor_layer && rendering_enabled) {
-      scene_camera->rendered_ = CudaModule::GetRayTracer()->RenderToCamera(
-          environment_properties, scene_camera->camera_properties_, scene_camera->ray_properties);
+        (show_scene_window || show_scene_spectrum_window) && editor_layer && rendering_enabled) {
+      if (show_scene_window) {
+        scene_camera->rendered_ = CudaModule::GetRayTracer()->RenderToCamera(
+            environment_properties, scene_camera->camera_properties_, scene_camera->ray_properties);
+      }
+      if (show_scene_spectrum_window) {
+        scene_spectral_camera->rendered_ = CudaModule::GetRayTracer()->RenderToCameraSpectral(
+            environment_properties, scene_spectral_camera->camera_properties_, scene_spectral_camera->ray_properties);
+      }
     }
     const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<RayTracerCamera>();
     ray_tracer_camera_.reset();
@@ -463,6 +542,7 @@ void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   if (show_scene_window) {
     ImGui::Checkbox("Scene (RT) Window Info", &show_scene_info);
   }
+  ImGui::Checkbox("Scene Spectrum (RT) Window", &show_scene_spectrum_window);
   ImGui::Checkbox("Camera (RT) Window", &show_camera_window);
 
   ImGui::Checkbox("Mesh Renderer", &render_mesh_renderer);
@@ -484,11 +564,14 @@ void RayTracerLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     RayCameraWindow();
   if (show_scene_window)
     SceneCameraWindow();
+  if (show_scene_spectrum_window)
+    SceneCameraSpectrumWindow();
 }
 
 void RayTracerLayer::OnDestroy() {
   environmental_map_image.reset();
   scene_camera.reset();
+  scene_spectral_camera.reset();
   CudaModule::Terminate();
 }
 
@@ -507,8 +590,7 @@ void RayTracerLayer::SceneCameraWindow() {
 
       ImVec2 view_port_size = ImGui::GetWindowSize();
       scene_camera_resolution_ = glm::ivec2(view_port_size.x, view_port_size.y);
-      if (scene_camera->allow_auto_resize)
-        scene_camera->frame_size = glm::vec2(view_port_size.x, view_port_size.y) * resolution_multiplier;
+      scene_rt_window_size_ = glm::uvec2(std::max(1.0f, view_port_size.x), std::max(1.0f, view_port_size.y));
       if (scene_camera->rendered_) {
         ImGui::Image(scene_camera->render_texture->GetColorImTextureId(), ImVec2(view_port_size.x, view_port_size.y),
                      ImVec2(0, 1), ImVec2(1, 0));
@@ -635,6 +717,124 @@ void RayTracerLayer::RayCameraWindow() {
       }
     }
     ImGui::EndChild();
+  }
+  ImGui::End();
+  ImGui::PopStyleVar();
+}
+
+void RayTracerLayer::SceneCameraSpectrumWindow() {
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (!editor_layer)
+    return;
+  auto scene_camera_rotation = editor_layer->GetSceneCameraRotation();
+  auto scene_camera_position = editor_layer->GetSceneCameraPosition();
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+  if (ImGui::Begin("Scene Spectrum (RT)")) {
+    if (ImGui::BeginChild("RaySceneSpectrumRenderer", ImVec2(0, 0), false)) {
+      static int corner = 1;
+      const ImVec2 overlay_pos = ImGui::GetWindowPos();
+
+      ImVec2 view_port_size = ImGui::GetWindowSize();
+      scene_camera_resolution_ = glm::ivec2(view_port_size.x, view_port_size.y);
+      scene_spectrum_window_size_ = glm::uvec2(std::max(1.0f, view_port_size.x), std::max(1.0f, view_port_size.y));
+      if (scene_spectral_camera->rendered_) {
+        ImGui::Image(scene_spectral_camera->render_texture->GetColorImTextureId(),
+                     ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
+        editor_layer->CameraWindowDragAndDrop();
+      } else
+        ImGui::Text("No mesh in the scene!");
+
+      const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
+                                     (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
+      if (show_scene_info) {
+        const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
+        ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+        ImGui::SetNextWindowBgAlpha(0.35f);
+        constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
+                                                  ImGuiWindowFlags_NoSavedSettings |
+                                                  ImGuiWindowFlags_NoFocusOnAppearing;
+        if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
+            ImGui::BeginChild("Spectrum Info", ImVec2(300, 300), child_flags, window_flags)) {
+          ImGui::Text("Info & Settings");
+          ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
+          ImGui::PushItemWidth(100);
+          ImGui::DragFloat("Resolution multiplier", &resolution_multiplier, 0.01f, 0.1f, 1.0f);
+          scene_camera->camera_properties_.OnInspect();
+          scene_camera->ray_properties.OnInspect();
+          ImGui::PopItemWidth();
+        }
+        ImGui::EndChild();
+      }
+
+      auto mouse_position = glm::vec2(FLT_MAX, FLT_MIN);
+      if (ImGui::IsWindowFocused()) {
+        auto mp = ImGui::GetMousePos();
+        auto wp = ImGui::GetWindowPos();
+        mouse_position = glm::vec2(mp.x - wp.x, mp.y - wp.y);
+        static bool is_dragging_previously = false;
+        bool mouse_drag = true;
+#pragma region Scene Spectrum Camera Controller
+        if (mouse_position.x < 0 || mouse_position.y < 0 || mouse_position.x > view_port_size.x ||
+            mouse_position.y > view_port_size.y ||
+            editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
+          mouse_drag = false;
+        }
+        static float prev_x = 0;
+        static float prev_y = 0;
+        if (mouse_drag && !is_dragging_previously) {
+          prev_x = mouse_position.x;
+          prev_y = mouse_position.y;
+        }
+        const float x_offset = mouse_position.x - prev_x;
+        const float y_offset = mouse_position.y - prev_y;
+        prev_x = mouse_position.x;
+        prev_y = mouse_position.y;
+        is_dragging_previously = mouse_drag;
+        if (mouse_drag && !editor_layer->lock_camera) {
+          glm::vec3 front = scene_camera_rotation * glm::vec3(0, 0, -1);
+          const glm::vec3 right = scene_camera_rotation * glm::vec3(1, 0, 0);
+          if (editor_layer->GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
+            scene_camera_position +=
+                front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
+          }
+          if (editor_layer->GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
+            scene_camera_position -=
+                front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
+          }
+          if (editor_layer->GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
+            scene_camera_position -=
+                right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
+          }
+          if (editor_layer->GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
+            scene_camera_position +=
+                right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
+          }
+          if (editor_layer->GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
+            scene_camera_position.y +=
+                editor_layer->velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
+          }
+          if (editor_layer->GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
+            scene_camera_position.y -=
+                editor_layer->velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
+          }
+          if (x_offset != 0.0f || y_offset != 0.0f) {
+            front = glm::rotate(front, glm::radians(-x_offset * editor_layer->sensitivity), glm::vec3(0, 1, 0));
+            const glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+            if ((front.y < 0.99f && y_offset < 0.0f) || (front.y > -0.99f && y_offset > 0.0f)) {
+              front = glm::rotate(front, glm::radians(-y_offset * editor_layer->sensitivity), right);
+            }
+            const glm::vec3 up = glm::normalize(glm::cross(right, front));
+            scene_camera_rotation = glm::quatLookAt(front, up);
+          }
+          editor_layer->SetSceneCameraPosition(scene_camera_position);
+          editor_layer->SetSceneCameraRotation(scene_camera_rotation);
+        }
+#pragma endregion
+      }
+    }
+    ImGui::EndChild();
+    auto* window = ImGui::FindWindowByName("Scene Spectrum (RT)");
+    rendering_enabled = !(window->Hidden && !window->Collapsed);
   }
   ImGui::End();
   ImGui::PopStyleVar();

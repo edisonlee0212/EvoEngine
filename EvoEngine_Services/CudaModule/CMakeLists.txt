@@ -56,6 +56,8 @@ include_directories(${CUDA_MODULE_INCLUDES})
 
 cuda_compile_and_embed(camera_rendering_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/CameraRendering.cu)
 cuda_compile_and_embed(illumination_estimation_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimation.cu)
+cuda_compile_and_embed(camera_spectral_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/CameraSpectral.cu)
+cuda_compile_and_embed(illumination_estimation_spectral_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimationSpectral.cu)
 cuda_compile_and_embed(point_cloud_scanning_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/PointCloudScanning.cu)
 
 add_library(CudaModuleService
@@ -63,6 +65,8 @@ add_library(CudaModuleService
 	#Default
 	${camera_rendering_ptx}
 	${illumination_estimation_ptx}
+	${camera_spectral_ptx}
+	${illumination_estimation_spectral_ptx}
 	${point_cloud_scanning_ptx}
 
 	#C++

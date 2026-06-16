@@ -75,6 +75,22 @@ void CudaModule::EstimateIlluminationRayTracing(const EnvironmentProperties& env
   deviceLightProbes.Free();
 }
 
+void CudaModule::EstimateIlluminationRayTracingSpectral(const EnvironmentProperties& environmentProperties,
+                                                        const RayProperties& rayProperties,
+                                                        std::vector<IlluminationSampler<glm::vec3>>& lightProbes,
+                                                        const unsigned seed, const float pushNormalDistance) {
+  auto& cudaModule = GetInstance();
+#pragma region Prepare light probes
+  const size_t size = lightProbes.size();
+  CudaBuffer deviceLightProbes;
+  deviceLightProbes.Upload(lightProbes);
+#pragma endregion
+  cudaModule.ray_tracer_->EstimateIlluminationSpectral(size, environmentProperties, rayProperties, deviceLightProbes,
+                                                       seed, pushNormalDistance);
+  deviceLightProbes.Download(lightProbes.data(), size);
+  deviceLightProbes.Free();
+}
+
 void CudaModule::SamplePointCloud(const EnvironmentProperties& environmentProperties,
                                   std::vector<PointCloudSample>& samples) {
   auto& cudaModule = GetInstance();
