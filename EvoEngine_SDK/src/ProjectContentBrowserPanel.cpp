@@ -148,9 +148,15 @@ BrowserTileInteraction DrawBrowserTile(const char* id, const std::shared_ptr<Tex
 
   const ImU32 type_color = StyleColor(ImGuiCol_TextDisabled);
   const auto type_size = ImGui::CalcTextSize(type_label.c_str());
-  draw_list->AddText(ImVec2(min.x + glm::max((tile_width - type_size.x) * 0.5f, kTilePadding),
-                            type_min.y + glm::max((kTileTypeHeight - type_size.y) * 0.5f, 0.0f)),
-                     type_color, type_label.c_str());
+  const float available_type_width = glm::max(tile_width - kTilePadding * 2.0f, 1.0f);
+  const float type_scale =
+      type_size.x > available_type_width ? glm::max(available_type_width / glm::max(type_size.x, 1.0f), 0.7f) : 1.0f;
+  const ImVec2 scaled_type_size(type_size.x * type_scale, type_size.y * type_scale);
+  const ImVec2 type_text_min(min.x + kTilePadding + glm::max((available_type_width - scaled_type_size.x) * 0.5f, 0.0f),
+                             type_min.y + glm::max((kTileTypeHeight - scaled_type_size.y) * 0.5f, 0.0f));
+  const ImVec4 type_clip(type_min.x, type_min.y, type_max.x, type_max.y);
+  draw_list->AddText(nullptr, ImGui::GetFontSize() * type_scale, type_text_min, type_color, type_label.c_str(), nullptr,
+                     0.0f, &type_clip);
 
   const ImVec2 label_min(min.x + kTilePadding, type_max.y + kTilePadding * 0.5f);
   const ImVec2 label_max(max.x - kTilePadding, max.y - kTilePadding * 0.5f);
