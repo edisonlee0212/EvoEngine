@@ -704,6 +704,51 @@ void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& doc
   ImGui::DockBuilderFinish(dock_space_id);
 }
 
+void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock_size,
+                                 const EditorDockLayoutSettings& settings) {
+  ImGui::DockBuilderRemoveNode(dock_space_id);
+  ImGui::DockBuilderAddNode(dock_space_id, ImGuiDockNodeFlags_DockSpace);
+  ImGui::DockBuilderSetNodeSize(dock_space_id, dock_size);
+
+  ImGuiID center_node = dock_space_id;
+  const ImGuiID left_node =
+      ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Left, settings.left_fraction, nullptr, &center_node);
+  ImGuiID right_node =
+      ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Right, settings.right_fraction, nullptr, &center_node);
+  const ImGuiID bottom_node =
+      ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Down, settings.bottom_fraction, nullptr, &center_node);
+  const ImGuiID camera_node =
+      settings.camera_fraction
+          ? ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Right, *settings.camera_fraction, nullptr, &center_node)
+          : center_node;
+
+  ImGui::DockBuilderDockWindow("Scene", center_node);
+  ImGui::DockBuilderDockWindow("Camera", camera_node);
+  ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
+  ImGui::DockBuilderDockWindow("Entity Inspector", right_node);
+  ImGui::DockBuilderDockWindow("Project", bottom_node);
+  ImGui::DockBuilderDockWindow("Console", bottom_node);
+  ImGui::DockBuilderFinish(dock_space_id);
+}
+
+ImVec2 ResolveFloatingWindowPosition(const EditorFloatingWindowLayout& layout) {
+  const auto* viewport = ImGui::GetMainViewport();
+  const ImVec2 size(layout.size.x, layout.size.y);
+  const ImVec2 margin(layout.margin.x, layout.margin.y);
+  switch (layout.anchor) {
+    case EditorFloatingWindowLayout::Anchor::UpperRight:
+      return {viewport->WorkPos.x + viewport->WorkSize.x - size.x - margin.x, viewport->WorkPos.y + margin.y};
+    case EditorFloatingWindowLayout::Anchor::LowerLeft:
+      return {viewport->WorkPos.x + margin.x, viewport->WorkPos.y + viewport->WorkSize.y - size.y - margin.y};
+    case EditorFloatingWindowLayout::Anchor::LowerRight:
+      return {viewport->WorkPos.x + viewport->WorkSize.x - size.x - margin.x,
+              viewport->WorkPos.y + viewport->WorkSize.y - size.y - margin.y};
+    case EditorFloatingWindowLayout::Anchor::UpperLeft:
+    default:
+      return {viewport->WorkPos.x + margin.x, viewport->WorkPos.y + margin.y};
+  }
+}
+
 RuntimePackageCMakeBuildResult RunRuntimePackageBuild(const RuntimePackageCMakeBuildRequest& request) {
   RuntimePackageCMakeBuildResult result;
   result.command = BuildCMakeCommandText(request);
@@ -981,6 +1026,11 @@ void EditorLayer::DrawAssetInspectorWindows() {
     if (inspecting_assets_[i].focus_requested) {
       ImGui::SetNextWindowFocus();
       inspecting_assets_[i].focus_requested = false;
+    }
+    if (custom_layout_settings_ && custom_layout_settings_->asset_inspector_window) {
+      const auto& window_layout = *custom_layout_settings_->asset_inspector_window;
+      ImGui::SetNextWindowPos(ResolveFloatingWindowPosition(window_layout), ImGuiCond_Always);
+      ImGui::SetNextWindowSize(ImVec2(window_layout.size.x, window_layout.size.y), ImGuiCond_Always);
     }
 
     const auto window_title =
@@ -1490,6 +1540,11 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
   PollRuntimePackageBuildJobs();
 
   bool package_manager_open = show_package_manager_window;
+  if (custom_layout_settings_ && custom_layout_settings_->runtime_package_manager) {
+    const auto& window_layout = custom_layout_settings_->runtime_package_manager->floating_window;
+    ImGui::SetNextWindowPos(ResolveFloatingWindowPosition(window_layout), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(window_layout.size.x, window_layout.size.y), ImGuiCond_Always);
+  }
   if (ImGui::Begin("Runtime Package Manager", &package_manager_open)) {
     if (ImGui::Button("Scan")) {
       PackageManager::ScanAvailablePackages();
@@ -1844,7 +1899,17 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
 
     ImGui::Separator();
     const auto content_region = ImGui::GetContentRegionAvail();
-    const float package_list_width = std::min(420.0f, std::max(260.0f, content_region.x * 0.36f));
+    const auto package_list_fraction = custom_layout_settings_ && custom_layout_settings_->runtime_package_manager
+                                           ? custom_layout_settings_->runtime_package_manager->list_width_fraction
+                                           : 0.36f;
+    const auto package_list_min = custom_layout_settings_ && custom_layout_settings_->runtime_package_manager
+                                      ? custom_layout_settings_->runtime_package_manager->list_width_min
+                                      : 260.0f;
+    const auto package_list_max = custom_layout_settings_ && custom_layout_settings_->runtime_package_manager
+                                      ? custom_layout_settings_->runtime_package_manager->list_width_max
+                                      : 420.0f;
+    const float package_list_width =
+        std::min(package_list_max, std::max(package_list_min, content_region.x * package_list_fraction));
     if (ImGui::BeginChild("RuntimePackageListPanel", ImVec2(package_list_width, 0.0f), true)) {
       ImGui::TextUnformatted("Package List");
       ImGui::Separator();
@@ -2556,6 +2621,39 @@ void EditorLayer::DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVe
 
 void EditorLayer::RequestDefaultEditorLayout() {
   editor_panel_manager_.ResetPanelOpenStatesToDefaults();
+  custom_layout_settings_.reset();
+  dock_layout_reset_pending_ = true;
+}
+
+void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
+  const auto apply_visibility = [](const std::optional<bool>& value, bool& target) {
+    if (value) {
+      target = *value;
+    }
+  };
+
+  apply_visibility(settings.panels.scene, show_scene_window);
+  apply_visibility(settings.panels.camera, show_camera_window);
+  apply_visibility(settings.panels.scene_camera_debug, show_scene_camera_debug);
+  apply_visibility(settings.panels.scene_info, show_scene_info);
+  apply_visibility(settings.panels.camera_info, show_camera_info);
+  apply_visibility(settings.panels.entity_explorer, show_entity_explorer_window);
+  apply_visibility(settings.panels.entity_inspector, show_entity_inspector_window);
+  apply_visibility(settings.panels.console, show_console_window);
+  apply_visibility(settings.panels.project, ProjectManager::GetInstance().show_project_window);
+  apply_visibility(settings.panels.resources, Resources::GetInstance().show_resources_);
+  apply_visibility(settings.panels.runtime_package_manager, show_package_manager_window);
+
+  if (project_content_browser_panel_ && settings.project_browser) {
+    if (settings.project_browser->hierarchy_width) {
+      project_content_browser_panel_->SetHierarchyWidth(*settings.project_browser->hierarchy_width);
+    }
+    if (settings.project_browser->reveal_folder) {
+      project_content_browser_panel_->RevealFolder(*settings.project_browser->reveal_folder);
+    }
+  }
+
+  custom_layout_settings_ = settings;
   dock_layout_reset_pending_ = true;
 }
 
@@ -2603,7 +2701,11 @@ void EditorLayer::DrawDockspace(const float top_offset) {
   dock_space_id = ImGui::GetID("MyDockSpace");
   const ImVec2 dock_size = ImGui::GetContentRegionAvail();
   if (dock_layout_reset_pending_ && dock_size.x > 1.0f && dock_size.y > 1.0f) {
-    BuildDefaultEditorDockLayout(dock_space_id, dock_size);
+    if (custom_layout_settings_ && custom_layout_settings_->dock_layout) {
+      BuildCustomEditorDockLayout(dock_space_id, dock_size, *custom_layout_settings_->dock_layout);
+    } else {
+      BuildDefaultEditorDockLayout(dock_space_id, dock_size);
+    }
     dock_layout_reset_pending_ = false;
     ImGui::MarkIniSettingsDirty();
   }

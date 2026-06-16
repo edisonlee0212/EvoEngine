@@ -185,6 +185,37 @@ void ProjectContentBrowserPanel::RevealAsset(const Handle& asset_handle) {
   selected_item_handle_ = file->GetAssetHandle();
 }
 
+void ProjectContentBrowserPanel::RevealFolder(const std::filesystem::path& assets_relative_path) {
+  auto folder = ProjectManager::GetInstance().assets_folder_;
+  if (!folder) {
+    return;
+  }
+  for (const auto& path_part : assets_relative_path) {
+    const auto part = path_part.string();
+    if (part.empty() || part == ".") {
+      continue;
+    }
+    std::shared_ptr<Folder> next_folder;
+    for (const auto& [_, child] : folder->children_) {
+      if (child && child->GetName() == part) {
+        next_folder = child;
+        break;
+      }
+    }
+    if (!next_folder) {
+      return;
+    }
+    folder = next_folder;
+  }
+
+  search_query_.fill('\0');
+  NavigateToFolder(folder);
+}
+
+void ProjectContentBrowserPanel::SetHierarchyWidth(const float width) {
+  hierarchy_width_ = glm::max(width, 32.0f);
+}
+
 void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& project_manager = ProjectManager::GetInstance();
   if (project_manager.show_project_window) {
@@ -682,9 +713,15 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
                                                        const std::shared_ptr<Folder>& folder) {
   auto& project_manager = ProjectManager::GetInstance();
   auto focus_folder = project_manager.current_focused_folder_.lock();
+  if (focus_folder && folder->IsSelfOrAncestor(focus_folder->GetHandle())) {
+    ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+  }
   const bool opened = ImGui::TreeNodeEx(
       folder->name_.c_str(), ImGuiTreeNodeFlags_OpenOnArrow |
                                  (folder == focus_folder ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None));
+  if (folder == focus_folder) {
+    ImGui::SetScrollHereY(0.35f);
+  }
   if (ImGui::BeginDragDropTarget()) {
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Folder")) {
       IM_ASSERT(payload->DataSize == sizeof(Handle));
