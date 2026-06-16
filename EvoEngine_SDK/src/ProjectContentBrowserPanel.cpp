@@ -169,6 +169,22 @@ BrowserTileInteraction DrawBrowserTile(const char* id, const std::shared_ptr<Tex
 }
 }  // namespace
 
+void ProjectContentBrowserPanel::RevealAsset(const Handle& asset_handle) {
+  const auto file = FileManager::GetFile(asset_handle);
+  if (!file) {
+    return;
+  }
+  const auto folder = file->GetFolder().lock();
+  if (!folder) {
+    return;
+  }
+
+  search_query_.fill('\0');
+  NavigateToFolder(folder);
+  selected_item_type_ = SelectedItemType::File;
+  selected_item_handle_ = file->GetAssetHandle();
+}
+
 void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto& project_manager = ProjectManager::GetInstance();
   if (project_manager.show_project_window) {

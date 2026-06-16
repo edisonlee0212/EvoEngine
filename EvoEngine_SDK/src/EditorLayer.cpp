@@ -1125,9 +1125,10 @@ void EditorLayer::RegisterEditorPanels() {
                  [](const std::shared_ptr<EditorLayer>& editor_layer) {
                    Resources::Draw(editor_layer);
                  });
+  project_content_browser_panel_ = std::make_shared<ProjectContentBrowserPanel>();
   editor_panel_manager_.RegisterPanel(EditorPanelCategory::View, "project", "Project",
                                       ProjectManager::GetInstance().show_project_window,
-                                      std::make_shared<ProjectContentBrowserPanel>());
+                                      project_content_browser_panel_);
   editor_panel_manager_.RegisterSettingsHandler();
 }
 
@@ -2204,6 +2205,10 @@ float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float co
           }
           break;
         case TitleBarSearchResultType::Asset:
+          ProjectManager::GetInstance().show_project_window = true;
+          if (project_content_browser_panel_) {
+            project_content_browser_panel_->RevealAsset(result.asset_handle);
+          }
           if (const auto asset = AssetManager::GetAssetImpl(result.asset_handle)) {
             OpenAssetInspector(asset);
           }

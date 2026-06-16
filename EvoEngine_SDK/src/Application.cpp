@@ -1597,6 +1597,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     if (!this->initialization_settings.full_screen) {
       window_layer->CenterWindow();
     }
+    // Texture loading flips STB globally; GLFW window icons need image-space orientation.
+    stbi_set_flip_vertically_on_load(false);
     if (this->initialization_settings.icon_paths.empty()) {
       GLFWimage images[4];
       images[0].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine16.png").string().c_str(),
