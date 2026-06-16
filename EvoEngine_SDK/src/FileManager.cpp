@@ -177,7 +177,7 @@ void File::Load(const std::filesystem::path& path) {
   InvalidateThumbnail();
 }
 
-std::shared_ptr<Texture2D> File::GetThumbnail() {
+std::shared_ptr<Texture2D> File::GetThumbnail(const bool allow_asset_load) {
   const auto fallback_thumbnail = GetFallbackThumbnail();
   if (!SupportsGeneratedThumbnail(*this)) {
     return fallback_thumbnail;
@@ -186,6 +186,9 @@ std::shared_ptr<Texture2D> File::GetThumbnail() {
   SyncThumbnailSourceWriteTime();
   if (thumbnail_) {
     return thumbnail_;
+  }
+  if (!allow_asset_load) {
+    return fallback_thumbnail;
   }
 
   if (!thumbnail_future_.valid()) {

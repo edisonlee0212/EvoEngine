@@ -692,6 +692,39 @@ TEST(ProjectManager, OpensMetadataOnlyProjectByCreatingDefaultStartScene) {
   EXPECT_NE(project_yaml["start_scene_handle"].as<uint64_t>(), 0);
 }
 
+TEST(ProjectManager, LoadedStateDoesNotWaitForBackgroundAssetLoad) {
+  ResetStagedLoadState();
+  TempProject project;
+  WriteStagedAssetFixture(project);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<StagedLoadAsset>(kStagedAssetTypeName, {kStagedAssetExtension});
+  ASSERT_TRUE(StagedLoadAsset::RegisterAssetIoHandlers());
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+  ProjectManager::SetStartScene(std::make_shared<Scene>());
+
+  auto asset_future = AssetManager::RequestAssetLoad(Handle(kStagedAssetHandle));
+  const bool payload_started = WaitForStagedPayloadStartedWhilePumping(5s);
+  if (!payload_started) {
+    ReleaseStagedPayload();
+    FAIL() << "Timed out waiting for staged asset payload loading to start.";
+  }
+  ScopedStagedPayloadRelease release_on_exit;
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::Loaded);
+  EXPECT_TRUE(ProjectManager::IsProjectLoaded());
+  EXPECT_FALSE(ProjectManager::IsProjectIdle());
+  EXPECT_EQ(asset_future.wait_for(100ms), std::future_status::timeout);
+
+  ReleaseStagedPayload();
+  ASSERT_TRUE(WaitForAssetFutureReadyWhilePumping(asset_future, 5s));
+  EXPECT_NE(asset_future.get(), nullptr);
+  EXPECT_TRUE(ProjectManager::IsProjectIdle());
+}
+
 TEST(ProjectManager, SaveLaunchMetadataPreservesExistingStartSceneHandle) {
   TempProject project;
   std::ofstream project_file(project.ProjectPath());

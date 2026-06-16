@@ -56,6 +56,10 @@ std::string TypeLabelForFile(const std::shared_ptr<File>& file) {
   return "??? (" + file->GetAssetExtension() + ")";
 }
 
+ImVec2 BrowserTileSize(const float thumbnail_size, const float tile_width) {
+  return {tile_width, thumbnail_size + kTileTypeHeight + kTileLabelHeight + kTilePadding};
+}
+
 bool SaveEntityAsPrefab(const std::shared_ptr<Folder>& folder, const Handle& entity_handle) {
   if (!folder) {
     return false;
@@ -80,8 +84,7 @@ bool SaveEntityAsPrefab(const std::shared_ptr<Folder>& folder, const Handle& ent
 BrowserTileInteraction DrawBrowserTile(const char* id, const std::shared_ptr<Texture2D>& texture,
                                        const std::string& type_label, const std::string& name, const bool selected,
                                        const float thumbnail_size, const float tile_width) {
-  const ImVec2 tile_size(tile_width, thumbnail_size + kTileTypeHeight + kTileLabelHeight + kTilePadding);
-  ImGui::InvisibleButton(id, tile_size);
+  ImGui::InvisibleButton(id, BrowserTileSize(thumbnail_size, tile_width));
   BrowserTileInteraction interaction;
   interaction.clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
   interaction.hovered = ImGui::IsItemHovered();
@@ -304,7 +307,8 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
               const bool item_selected = selected_item_type_ == SelectedItemType::File &&
                                          selected_item_handle_.GetValue() == i.first.GetValue();
 
-              const auto thumbnail_tex = i.second->GetThumbnail();
+              const bool tile_visible = ImGui::IsRectVisible(BrowserTileSize(thumbnail_size_, cell_size));
+              const auto thumbnail_tex = i.second->GetThumbnail(tile_visible);
               const auto display_name = show_extension_ ? file_name.string() : file_name.stem().string();
               const auto interaction = DrawBrowserTile(icon_tag.c_str(), thumbnail_tex, TypeLabelForFile(i.second),
                                                        display_name, item_selected, thumbnail_size_, cell_size);
@@ -362,28 +366,43 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
   }
 
   const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
-  if (project_manager.scan_assets_pending) {
+  const bool scene_ready = project_manager.start_scene_ != nullptr;
+  if (project_manager.scan_assets_pending && !scene_ready) {
     ImGui::OpenPopup("Scanning assets...");
-  } else if (asset_load_snapshot.Active()) {
+  } else if (asset_load_snapshot.Active() && !scene_ready) {
     ImGui::OpenPopup("Loading assets...");
-  } else if (!project_manager.new_project_path_.empty()) {
+  } else if (!project_manager.new_project_path_.empty() && !scene_ready) {
     ImGui::OpenPopup("Loading Project...");
+  } else if (asset_load_snapshot.Active() && scene_ready) {
+    const auto completed_asset_count =
+        asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
+    const auto active_asset_count = asset_load_snapshot.queued + asset_load_snapshot.loading_cpu +
+                                    asset_load_snapshot.waiting_for_finalize + asset_load_snapshot.gpu_pending;
+    const auto total_asset_count = std::max(asset_load_snapshot.total, completed_asset_count + active_asset_count);
+    ImGui::TextDisabled("Background assets: %zu/%zu", completed_asset_count, total_asset_count);
+    if (!asset_load_snapshot.active_asset_name.empty()) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("%s", asset_load_snapshot.active_asset_name.c_str());
+    }
   }
   if (ImGui::BeginPopupModal("Loading Project...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::Text("Busy...");
-    if (project_manager.new_project_path_.empty()) {
+    ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
+    if (project_manager.new_project_path_.empty() || scene_ready) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
   }
   if (ImGui::BeginPopupModal("Scanning assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::Text("Busy...");
-    if (!project_manager.scan_assets_pending) {
+    ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
+    if (!project_manager.scan_assets_pending || scene_ready) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
   }
   if (ImGui::BeginPopupModal("Loading assets...", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (!project_manager.loading_status_.empty()) {
+      ImGui::Text("%s", project_manager.loading_status_.c_str());
+    }
     ImGui::Text("Progress: ");
     const auto completed_asset_count =
         asset_load_snapshot.completed + asset_load_snapshot.failed + asset_load_snapshot.cancelled;
@@ -408,7 +427,7 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
       ImGui::Text("Failed: %zu  Cancelled: %zu", asset_load_snapshot.failed, asset_load_snapshot.cancelled);
     }
     ImGui::SetItemDefaultFocus();
-    if (!asset_load_snapshot.Active()) {
+    if (!asset_load_snapshot.Active() || scene_ready) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

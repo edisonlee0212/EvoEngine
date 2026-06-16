@@ -1,6 +1,7 @@
 #include "AssetManager.hpp"
 #include "ApplicationContext.hpp"
 #include "AssetThumbnailProvider.hpp"
+#include "Console.hpp"
 #include "EditorLayer.hpp"
 #include "FileManager.hpp"
 #include "InspectorRegistry.hpp"
@@ -41,6 +42,7 @@ constexpr float kInspectorPreviewMinPitch = -1.4f;
 constexpr float kInspectorPreviewMaxPitch = 1.4f;
 constexpr float kInspectorPreviewMinZoom = 0.4f;
 constexpr float kInspectorPreviewMaxZoom = 3.0f;
+constexpr auto kMainThreadAssetTaskHitchThreshold = std::chrono::milliseconds(16);
 
 std::shared_future<std::shared_ptr<IAsset>> MakeReadyAssetFuture(std::shared_ptr<IAsset> asset) {
   std::promise<std::shared_ptr<IAsset>> promise;
@@ -473,8 +475,19 @@ AssetManager::AssetLoadSnapshot AssetManager::GetAssetLoadSnapshot() {
 }
 
 size_t AssetManager::ExecuteMainThreadAssetTasks(const size_t max_task_size) {
+  return ExecuteMainThreadAssetTasksWithinBudget(max_task_size, std::chrono::milliseconds(0));
+}
+
+size_t AssetManager::ExecuteMainThreadAssetTasksWithinBudget(const size_t max_task_size,
+                                                             const std::chrono::milliseconds max_duration) {
   size_t executed_task_size = 0;
+  const auto budget_start = std::chrono::steady_clock::now();
   while (max_task_size == 0 || executed_task_size < max_task_size) {
+    if (executed_task_size != 0 && max_duration.count() > 0 &&
+        std::chrono::steady_clock::now() - budget_start >= max_duration) {
+      break;
+    }
+
     std::function<void()> task;
     {
       auto& asset_manager = GetInstance();
@@ -486,7 +499,13 @@ size_t AssetManager::ExecuteMainThreadAssetTasks(const size_t max_task_size) {
       asset_manager.asset_registry_.main_thread_asset_tasks_.pop_front();
     }
     if (task) {
+      const auto task_start = std::chrono::steady_clock::now();
       task();
+      const auto task_duration =
+          std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - task_start);
+      if (task_duration >= kMainThreadAssetTaskHitchThreshold) {
+        EVOENGINE_WARNING("Main-thread asset task took " + std::to_string(task_duration.count()) + " ms")
+      }
       ++executed_task_size;
     }
   }

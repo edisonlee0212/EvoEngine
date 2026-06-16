@@ -50,6 +50,7 @@
 #include "WindowLayer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #ifdef EVOENGINE_WINDOWS
@@ -62,6 +63,8 @@
 using namespace evo_engine;
 
 namespace {
+constexpr auto kMainThreadAssetTaskFrameBudget = std::chrono::milliseconds(2);
+
 void AddUniqueStartupPackage(ApplicationInitializationSettings& settings, const std::string& package_name) {
   if (!package_name.empty() &&
       std::find(settings.startup_runtime_packages.begin(), settings.startup_runtime_packages.end(), package_name) ==
@@ -1323,9 +1326,18 @@ void Application::PreUpdateInternal() {
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     Platform::PreUpdate();
   }
-  AssetManager::ExecuteMainThreadAssetTasks(1);
+  const auto asset_task_budget_start = std::chrono::steady_clock::now();
+  const auto run_asset_tasks = [&]() {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                               asset_task_budget_start);
+    if (elapsed >= kMainThreadAssetTaskFrameBudget) {
+      return size_t{0};
+    }
+    return AssetManager::ExecuteMainThreadAssetTasksWithinBudget(1, kMainThreadAssetTaskFrameBudget - elapsed);
+  };
+  run_asset_tasks();
   ProjectManager::PreUpdate();
-  AssetManager::ExecuteMainThreadAssetTasks(1);
+  run_asset_tasks();
   if (this->active_scene_) {
     TransformGraph::CalculateTransformGraphs(this->active_scene_);
     for (const auto& i : this->external_pre_update_functions_)

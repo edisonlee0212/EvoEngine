@@ -4,17 +4,44 @@
 
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "AssetManager.hpp"
 #include "FileManager.hpp"
+#include "IAsset.hpp"
+#include "Jobs.hpp"
 #include "ProjectManager.hpp"
+#include "Serialization.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 using namespace evo_engine;
 
 namespace {
 constexpr uint64_t kBinaryAssetHandle = 0xE702'0000'0000'0001ull;
+constexpr uint64_t kThumbnailProbeAssetHandle = 0xE702'0000'0000'0002ull;
+constexpr auto kThumbnailProbeAssetTypeName = "ThumbnailProbeAsset";
+constexpr auto kThumbnailProbeAssetExtension = ".evethumbnailprobe";
+
+std::atomic<size_t>& ThumbnailProbeLoadCount() {
+  static std::atomic<size_t> count{0};
+  return count;
+}
+
+class ThumbnailProbeAsset final : public IAsset {
+ public:
+  static bool RegisterAssetIoHandlers() {
+    return Serialization::RegisterAssetIoHandler<ThumbnailProbeAsset>(
+        {},
+        [](ThumbnailProbeAsset&, const std::filesystem::path&) {
+          ++ThumbnailProbeLoadCount();
+          return true;
+        },
+        {}, {}, {}, {}, kThumbnailProbeAssetTypeName);
+  }
+};
 
 class TempFileManagerProject {
  public:
@@ -64,6 +91,32 @@ void WriteBinaryAssetFixture(const TempFileManagerProject& project) {
   metadata_file << "asset_file_name_: Source\n";
   metadata_file << "asset_type_name_: Binary\n";
   metadata_file << "asset_handle_: " << kBinaryAssetHandle << "\n";
+}
+
+void WriteThumbnailProbeAssetFixture(const TempFileManagerProject& project) {
+  const auto asset_path = project.AssetsPath() / ("ThumbnailProbe" + std::string(kThumbnailProbeAssetExtension));
+  std::ofstream asset_file(asset_path);
+  asset_file << "thumbnail probe payload";
+  asset_file.close();
+
+  std::ofstream metadata_file(asset_path.string() + ".evefilemeta");
+  metadata_file << "asset_extension_: " << kThumbnailProbeAssetExtension << "\n";
+  metadata_file << "asset_file_name_: ThumbnailProbe\n";
+  metadata_file << "asset_type_name_: " << kThumbnailProbeAssetTypeName << "\n";
+  metadata_file << "asset_handle_: " << kThumbnailProbeAssetHandle << "\n";
+}
+
+bool WaitForThumbnailProbeLoad(const std::chrono::milliseconds timeout) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    AssetManager::ExecuteMainThreadAssetTasks(1);
+    Jobs::ExecuteMainThreadJobs(1);
+    if (ThumbnailProbeLoadCount().load() != 0) {
+      return true;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  return false;
 }
 
 void OpenProject(Application& app, const TempFileManagerProject& project) {
@@ -169,6 +222,38 @@ TEST(FileManager, DuplicateBinaryAssetRegistersCopiedFile) {
   ASSERT_TRUE(copied_file);
   EXPECT_EQ(copied_file->GetAssetFileName(), "Source (1)");
   EXPECT_EQ(copied_file->GetAssetExtension(), ".bin");
+}
+
+TEST(FileManager, ThumbnailLookupCanAvoidStartingAssetLoad) {
+  ThumbnailProbeLoadCount() = 0;
+  TempFileManagerProject project;
+  WriteThumbnailProbeAssetFixture(project);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<ThumbnailProbeAsset>(kThumbnailProbeAssetTypeName, {kThumbnailProbeAssetExtension});
+  ASSERT_TRUE(ThumbnailProbeAsset::RegisterAssetIoHandlers());
+  ASSERT_TRUE(Serialization::RegisterAssetPreviewHandler<ThumbnailProbeAsset>(
+      [](const std::shared_ptr<ThumbnailProbeAsset>&, const OffscreenPreviewSettings&) {
+        return std::shared_ptr<Texture2D>();
+      },
+      {}, kThumbnailProbeAssetTypeName));
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+
+  const auto file = FileManager::GetFile(Handle(kThumbnailProbeAssetHandle));
+  ASSERT_TRUE(file);
+
+  (void)file->GetThumbnail(false);
+  for (size_t i = 0; i < 8; ++i) {
+    AssetManager::ExecuteMainThreadAssetTasks(1);
+    Jobs::ExecuteMainThreadJobs(1);
+  }
+  EXPECT_EQ(ThumbnailProbeLoadCount().load(), 0);
+
+  (void)file->GetThumbnail(true);
+  EXPECT_TRUE(WaitForThumbnailProbeLoad(std::chrono::seconds(5)));
 }
 
 TEST(ProjectManager, CreateFolderGeneratesUniqueChildFolders) {

@@ -47,6 +47,7 @@ class ProjectManager {
   std::weak_ptr<Folder> current_focused_folder_;  ///< A weak pointer to the currently focused folder.
 
   ProjectLaunchMetadata project_launch_metadata_;  ///< Launcher/editor metadata persisted in the project file.
+  std::string loading_status_;                     ///< Human-readable project loading phase for editor progress UI.
 
   friend class ClassRegistry;
   std::shared_ptr<Scene> start_scene_;  ///< The starting scene of the project.

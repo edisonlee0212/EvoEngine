@@ -1,5 +1,6 @@
 
 #pragma once
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <future>
@@ -239,6 +240,8 @@ class AssetManager {
    */
   static std::shared_future<std::shared_ptr<IAsset>> GetOrCreateAssetLoadFutureImpl(const Handle& asset_handle,
                                                                                     bool async);
+
+  static size_t ExecuteMainThreadAssetTasksWithinBudget(size_t max_task_size, std::chrono::milliseconds max_duration);
 
   static void ScheduleMainThreadAssetTaskImpl(const std::function<void()>& action);
 
