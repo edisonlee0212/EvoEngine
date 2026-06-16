@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 #include "Shader.hpp"
 using namespace evo_engine;
 
@@ -51,7 +52,7 @@ void ToneMapping::BuildPipelines(const bool force_rebuild) {
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Compute/PostProcessing/ToneMapping.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMapping.comp");
 
     pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());

@@ -50,6 +50,7 @@
 #include "WindowLayer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 #ifdef EVOENGINE_WINDOWS
@@ -62,6 +63,8 @@
 using namespace evo_engine;
 
 namespace {
+constexpr auto kMainThreadAssetTaskFrameBudget = std::chrono::milliseconds(2);
+
 void AddUniqueStartupPackage(ApplicationInitializationSettings& settings, const std::string& package_name) {
   if (!package_name.empty() &&
       std::find(settings.startup_runtime_packages.begin(), settings.startup_runtime_packages.end(), package_name) ==
@@ -1323,9 +1326,18 @@ void Application::PreUpdateInternal() {
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     Platform::PreUpdate();
   }
-  AssetManager::ExecuteMainThreadAssetTasks(1);
+  const auto asset_task_budget_start = std::chrono::steady_clock::now();
+  const auto run_asset_tasks = [&]() {
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                               asset_task_budget_start);
+    if (elapsed >= kMainThreadAssetTaskFrameBudget) {
+      return size_t{0};
+    }
+    return AssetManager::ExecuteMainThreadAssetTasksWithinBudget(1, kMainThreadAssetTaskFrameBudget - elapsed);
+  };
+  run_asset_tasks();
   ProjectManager::PreUpdate();
-  AssetManager::ExecuteMainThreadAssetTasks(1);
+  run_asset_tasks();
   if (this->active_scene_) {
     TransformGraph::CalculateTransformGraphs(this->active_scene_);
     for (const auto& i : this->external_pre_update_functions_)
@@ -1585,20 +1597,18 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     if (!this->initialization_settings.full_screen) {
       window_layer->CenterWindow();
     }
+    // Texture loading flips STB globally; GLFW window icons need image-space orientation.
+    stbi_set_flip_vertically_on_load(false);
     if (this->initialization_settings.icon_paths.empty()) {
       GLFWimage images[4];
-      images[0].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine16.png").string().c_str(),
-                    &images[0].width, &images[0].height, nullptr, 4);  // rgba channels
-      images[1].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine24.png").string().c_str(),
-                    &images[1].width, &images[1].height, nullptr, 4);  // rgba channels
-      images[2].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine32.png").string().c_str(),
-                    &images[2].width, &images[2].height, nullptr, 4);  // rgba channels
-      images[3].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine64.png").string().c_str(),
-                    &images[3].width, &images[3].height, nullptr, 4);  // rgba channels
+      images[0].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine16.png").string().c_str(),
+                                   &images[0].width, &images[0].height, nullptr, 4);  // rgba channels
+      images[1].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine24.png").string().c_str(),
+                                   &images[1].width, &images[1].height, nullptr, 4);  // rgba channels
+      images[2].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine32.png").string().c_str(),
+                                   &images[2].width, &images[2].height, nullptr, 4);  // rgba channels
+      images[3].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine64.png").string().c_str(),
+                                   &images[3].width, &images[3].height, nullptr, 4);  // rgba channels
       glfwSetWindowIcon(window_layer->window_, 4, images);
       stbi_image_free(images[0].pixels);
       stbi_image_free(images[1].pixels);

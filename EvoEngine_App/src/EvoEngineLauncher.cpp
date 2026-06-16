@@ -5,6 +5,7 @@
 #include "ImGuiLayer.hpp"
 #include "LauncherUtils.hpp"
 #include "PackageManager.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Serialization.hpp"
@@ -53,28 +54,20 @@ std::filesystem::path LauncherSettingsPath() {
 
 std::filesystem::path CurrentExecutablePath() {
 #ifdef EVOENGINE_WINDOWS
-  std::wstring path(MAX_PATH, L'\0');
-  const DWORD size = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-  if (size == 0 || size == path.size()) {
-    return std::filesystem::absolute("EvoEngineLauncher.exe");
-  }
-  path.resize(size);
-  return path;
+  return path_utils::CurrentExecutablePath("EvoEngineLauncher.exe");
 #else
-  return std::filesystem::absolute("EvoEngineLauncher");
+  return path_utils::CurrentExecutablePath("EvoEngineLauncher");
 #endif
 }
 
 std::filesystem::path DefaultResourcesPath() {
-  const std::array candidates = {CurrentExecutablePath().parent_path() / "DefaultResources",
-                                 std::filesystem::current_path() / "DefaultResources",
-                                 std::filesystem::current_path() / "EvoEngine_SDK/Internals/DefaultResources"};
-  for (const auto& candidate : candidates) {
-    if (std::filesystem::exists(candidate)) {
-      return candidate;
-    }
+  const std::vector<std::filesystem::path> candidates = {
+      CurrentExecutablePath().parent_path() / "DefaultResources", std::filesystem::current_path() / "DefaultResources",
+      std::filesystem::current_path() / "EvoEngine_SDK/Internals/DefaultResources"};
+  if (const auto default_resources = path_utils::FindExistingPath(candidates); !default_resources.empty()) {
+    return default_resources;
   }
-  return candidates.front();
+  return path_utils::NormalizeAbsolutePath(candidates.front());
 }
 
 void AppendTestLog(const std::string& line) {
@@ -97,6 +90,14 @@ float BackgroundLuminance() {
 
 bool UsesLightBackground() {
   return BackgroundLuminance() > 0.5f;
+}
+
+const char* TitleBarLogoIconName() {
+  return editor_theme::GetCurrentTheme() == editor_theme::Theme::Light ? "TitleBarLogoBlack" : "TitleBarLogoWhite";
+}
+
+ImU32 TitleBarLogoFallbackTint() {
+  return editor_theme::GetCurrentTheme() == editor_theme::Theme::Light ? IM_COL32(0, 0, 0, 255) : IM_COL32_WHITE;
 }
 
 ImVec4 ColorSuccess() {
@@ -356,7 +357,8 @@ class LauncherLayer final : public ILayer {
       title_bar_icons_[name] = std::move(icon);
     };
 
-    load_icon("TitleBarLogo", default_resources / "Editor/TitleBar/EvoEngine64White.png");
+    load_icon("TitleBarLogoWhite", default_resources / "Editor/TitleBar/EvoEngine64White.png");
+    load_icon("TitleBarLogoBlack", default_resources / "Icons/EvoEngine64.png");
     load_icon("WindowMinimize", default_resources / "Editor/Window/Minimize.png");
     load_icon("WindowMaximize", default_resources / "Editor/Window/Maximize.png");
     load_icon("WindowRestore", default_resources / "Editor/Window/Restore.png");
@@ -398,9 +400,9 @@ class LauncherLayer final : public ILayer {
 
       const float controls_x = ImGui::GetWindowWidth() - kTitleBarButtonsAreaWidth;
 
-      if (!DrawFittedImage(FindIcon(title_bar_icons_, "TitleBarLogo"), logo_min,
+      if (!DrawFittedImage(FindIcon(title_bar_icons_, TitleBarLogoIconName()), logo_min,
                            ImVec2(logo_min.x + kTitleBarLogoSize, logo_min.y + kTitleBarLogoSize), IM_COL32_WHITE)) {
-        DrawFallbackLogo(logo_min, kTitleBarLogoSize, IM_COL32_WHITE);
+        DrawFallbackLogo(logo_min, kTitleBarLogoSize, TitleBarLogoFallbackTint());
       }
 
       const float drag_start_x = kTitleBarLogoX + kTitleBarLogoSize + 18.0f;

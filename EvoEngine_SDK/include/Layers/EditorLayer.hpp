@@ -26,6 +26,8 @@
 
 namespace evo_engine {
 
+class ProjectContentBrowserPanel;
+
 /**
  * @brief Enumeration of console message types.
  */
@@ -841,6 +843,7 @@ class EditorLayer : public ILayer {
   void DrawMainMenuItems(bool title_bar_style = false);
   bool DrawPlayControls();
   void DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
+  void DrawProjectLoadingPopup();
   void RequestDefaultEditorLayout();
 
   void UpdateCameraTransition();
@@ -890,6 +893,7 @@ class EditorLayer : public ILayer {
   std::vector<ConsoleMessage> console_messages_; /**< List of console messages. */
   std::mutex console_message_mutex_;             /**< Mutex for accessing console messages. */
   EditorPanelManager editor_panel_manager_;
+  std::shared_ptr<ProjectContentBrowserPanel> project_content_browser_panel_;
   bool dock_layout_reset_pending_ = false;
 
   bool runtime_package_manager_scanned_ = false;                   /**< Whether package manifests were scanned. */

@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "Console.hpp"
 #include "EditorLayer.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "WindowLayer.hpp"
 
@@ -21,6 +22,16 @@
 #include "Utilities/X11MacroCleanup.hpp"
 
 using namespace evo_engine;
+
+namespace {
+void EmitDialogPath(const std::filesystem::path& selected_path, const bool project_dir_check,
+                    const std::function<void(const std::filesystem::path& path)>& func) {
+  const auto normalized_path = path_utils::NormalizeAbsolutePath(selected_path);
+  if (!project_dir_check || ProjectManager::IsInAssetsFolder(normalized_path)) {
+    func(normalized_path);
+  }
+}
+}  // namespace
 
 #ifdef EVOENGINE_WINDOWS
 namespace {
@@ -172,19 +183,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
         imalloc->Free(pidl);
         imalloc->Release();
       }
-      std::string ret_val = path;
-      const std::string search = "\\";
-      size_t pos = ret_val.find(search);
-      // Repeat till end is reached
-      while (pos != std::string::npos) {
-        // Replace this occurrence of Sub String
-        ret_val.replace(pos, 1, "/");
-        // Get the next occurrence from the current position
-        pos = ret_val.find(search, pos + 1);
-      }
-      std::filesystem::path path = ret_val;
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
-        func(path);
+      EmitDialogPath(path, project_dir_check, func);
     }
     RefreshOwnerChrome(window_layer);
   }
@@ -198,9 +197,7 @@ void FileUtils::OpenFolder(const std::string& dialog_title,
     // action if OK
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
-      std::filesystem::path path = ImGuiFileDialog::Instance()->GetCurrentPath();
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
-        func(path);
+      EmitDialogPath(ImGuiFileDialog::Instance()->GetCurrentPath(), project_dir_check, func);
     }
     // close
     ImGuiFileDialog::Instance()->Close();
@@ -216,9 +213,7 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
   if (window_layer && ImGui::Button(dialog_title.c_str())) {
     std::filesystem::path path;
     if (OpenWindowsFileDialog(window_layer, dialog_title, file_type, extensions, path)) {
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path)) {
-        func(path);
-      }
+      EmitDialogPath(path, project_dir_check, func);
     }
   }
 #else
@@ -237,9 +232,7 @@ void FileUtils::OpenFile(const std::string& dialog_title, const std::string& fil
     // action if OK
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
-      std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
-        func(path);
+      EmitDialogPath(ImGuiFileDialog::Instance()->GetFilePathName(), project_dir_check, func);
     }
 
     // close
@@ -301,19 +294,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
     ofn.lpstrDefExt = strchr(actual_filter, '\0') + 1;
 
     if (GetSaveFileNameA(&ofn) == TRUE) {
-      std::string ret_val = ofn.lpstrFile;
-      const std::string search = "\\";
-      size_t pos = ret_val.find(search);
-      // Repeat till end is reached
-      while (pos != std::string::npos) {
-        // Replace this occurrence of Sub String
-        ret_val.replace(pos, 1, "/");
-        // Get the next occurrence from the current position
-        pos = ret_val.find(search, pos + 1);
-      }
-      std::filesystem::path path = ret_val;
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
-        func(path);
+      EmitDialogPath(ofn.lpstrFile, project_dir_check, func);
     }
     RefreshOwnerChrome(window_layer);
   }
@@ -333,9 +314,7 @@ void FileUtils::SaveFile(const std::string& dialog_title, const std::string& fil
     // action if OK
     if (ImGuiFileDialog::Instance()->IsOk()) {
       // action
-      std::filesystem::path path = ImGuiFileDialog::Instance()->GetFilePathName();
-      if (!project_dir_check || ProjectManager::IsInAssetsFolder(path))
-        func(path);
+      EmitDialogPath(ImGuiFileDialog::Instance()->GetFilePathName(), project_dir_check, func);
     }
 
     // close

@@ -208,12 +208,11 @@ void ScreenSpaceReflection::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !reflect_pipeline) {
     reflect_pipeline = std::make_shared<GraphicsPipeline>();
-    reflect_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    reflect_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     reflect_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/SSRReflect.frag");
     reflect_pipeline->geometry_type = GeometryType::Mesh;
     reflect_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -232,12 +231,11 @@ void ScreenSpaceReflection::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !combine_pipeline) {
     combine_pipeline = std::make_shared<GraphicsPipeline>();
-    combine_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    combine_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     combine_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/SSRCombine.frag");
     combine_pipeline->geometry_type = GeometryType::Mesh;
     combine_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());

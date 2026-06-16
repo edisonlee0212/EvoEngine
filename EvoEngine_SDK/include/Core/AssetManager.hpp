@@ -1,5 +1,6 @@
 
 #pragma once
+#include <chrono>
 #include <deque>
 #include <functional>
 #include <future>
@@ -131,6 +132,11 @@ class AssetManager {
    * @class AssetRegistry
    * @brief Internal registry for managing assets and their corresponding handles.
    */
+  struct MainThreadAssetTask {
+    std::function<void()> action;
+    std::string label;
+  };
+
   class AssetRegistry {
     struct AssetLoadingRecord {
       std::shared_future<std::shared_ptr<IAsset>> future;  ///< Shared result for all waiters on the asset load.
@@ -147,7 +153,7 @@ class AssetManager {
     std::mutex asset_registry_mutex;  ///< Mutex for synchronizing access to the asset registry.
     std::unordered_map<Handle, std::weak_ptr<IAsset>> assets_;       ///< Map storing assets by their handles.
     std::unordered_map<Handle, AssetLoadingRecord> loading_assets_;  ///< In-flight loads by asset handle.
-    std::deque<std::function<void()>> main_thread_asset_tasks_;      ///< Asset tasks that must run on main.
+    std::deque<MainThreadAssetTask> main_thread_asset_tasks_;        ///< Asset tasks that must run on main.
     AssetLoadSnapshot load_snapshot_;                                ///< Current asset-service progress snapshot.
 
     friend class AssetManager;  ///< AssetManager has access to private members of AssetRegistry.
@@ -240,7 +246,9 @@ class AssetManager {
   static std::shared_future<std::shared_ptr<IAsset>> GetOrCreateAssetLoadFutureImpl(const Handle& asset_handle,
                                                                                     bool async);
 
-  static void ScheduleMainThreadAssetTaskImpl(const std::function<void()>& action);
+  static size_t ExecuteMainThreadAssetTasksWithinBudget(size_t max_task_size, std::chrono::milliseconds max_duration);
+
+  static void ScheduleMainThreadAssetTaskImpl(std::function<void()> action, std::string label);
 
   static void ResetAssetLoadSnapshotImpl(size_t total);
 

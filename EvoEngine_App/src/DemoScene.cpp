@@ -5,6 +5,7 @@
 #include "EditorLayer.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
+#include "PathUtils.hpp"
 #include "PlayerController.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
@@ -131,29 +132,10 @@ void RemoveGeneratedFiles(const std::filesystem::path& root, const std::unordere
 
 std::filesystem::path evo_engine::FindDemoResourcesRoot(const std::filesystem::path& preferred_root) {
   if (!preferred_root.empty() && std::filesystem::exists(preferred_root)) {
-    return std::filesystem::absolute(preferred_root);
+    return path_utils::NormalizeAbsolutePath(preferred_root);
   }
 
-  std::filesystem::path resource_folder_path("../../../../../Resources");
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    return {};
-  }
-  return std::filesystem::absolute(resource_folder_path);
+  return path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
 }
 
 void evo_engine::ClearGeneratedDemoProjectFiles(const std::filesystem::path& resource_folder_path) {

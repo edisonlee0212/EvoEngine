@@ -11,6 +11,10 @@
 #include "UnknownPrivateComponent.hpp"
 #include "Utilities.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+
 using namespace evo_engine;
 void Prefab::OnCreate() {
   instance_name = "New Prefab";
@@ -684,6 +688,116 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
   }
   return added_mesh_renderer;
 }
+
+std::string LowercaseExtension(const std::filesystem::path& path) {
+  auto extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  return extension;
+}
+
+bool IsNativePrefabPath(const std::filesystem::path& path) {
+  return LowercaseExtension(path) == ".eveprefab";
+}
+
+bool SupportsStagedModelImportPath(const std::filesystem::path& path) {
+  const auto extension = LowercaseExtension(path);
+  return extension == ".obj" || extension == ".gltf" || extension == ".glb" || extension == ".blend" ||
+         extension == ".ply" || extension == ".fbx" || extension == ".dae" || extension == ".x3d";
+}
+
+using PrefabImportClock = std::chrono::steady_clock;
+
+void LogPrefabImportPhaseDuration(const std::filesystem::path& path, const std::string& phase,
+                                  const PrefabImportClock::time_point start) {
+  const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(PrefabImportClock::now() - start);
+  if (duration < std::chrono::milliseconds(16)) {
+    return;
+  }
+  EVOENGINE_WARNING("Prefab import phase took " + std::to_string(duration.count()) + " ms: " + phase + " " +
+                    path.filename().string())
+}
+
+bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene) {
+  auto temp = path;
+  const std::string directory = temp.remove_filename().string();
+  instance_name = path.filename().string();
+  std::unordered_map<unsigned, std::shared_ptr<Material>> loaded_materials;
+  std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>> opacity_maps;
+  std::unordered_map<std::string, std::shared_ptr<Bone>> bones_map;
+  std::shared_ptr<Animation> animation;
+  if (!bones_map.empty() || scene.HasAnimations()) {
+    animation = AssetManager::CreateTemporaryAsset<Animation>();
+  }
+  std::shared_ptr<AssimpImportNode> root_assimp_node = std::make_shared<AssimpImportNode>(scene.mRootNode);
+
+  std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>> bones_lists;
+  const auto process_nodes_start = PrefabImportClock::now();
+  if (std::unordered_map<std::string, std::shared_ptr<Texture2D>> loaded_textures;
+      !ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, bones_lists, bones_map,
+                   scene.mRootNode, root_assimp_node, &scene, animation)) {
+    EVOENGINE_ERROR("Model is empty!")
+    return false;
+  }
+  LogPrefabImportPhaseDuration(path, "Process nodes", process_nodes_start);
+
+  const auto opacity_maps_start = PrefabImportClock::now();
+  for (auto& pair : opacity_maps) {
+    std::vector<glm::vec4> color_data;
+    const auto& albedo_texture = pair.first;
+    const auto& opacity_texture = pair.second;
+    if (!albedo_texture || !opacity_texture)
+      continue;
+    albedo_texture->GetRgbaChannelData(color_data);
+    std::vector<glm::vec4> alpha_data;
+    const auto resolution = albedo_texture->GetResolution();
+    opacity_texture->GetRgbaChannelData(alpha_data, resolution.x, resolution.y);
+    Jobs::RunParallelFor(color_data.size(), [&](size_t i) {
+      color_data[i].a = alpha_data[i].r;
+    });
+    std::shared_ptr<Texture2D> replacement_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+    replacement_texture->SetRgbaChannelData(color_data, albedo_texture->GetResolution(), true);
+    pair.second = replacement_texture;
+  }
+  LogPrefabImportPhaseDuration(path, "Apply opacity maps", opacity_maps_start);
+
+  const auto material_relink_start = PrefabImportClock::now();
+  for (const auto& material : loaded_materials) {
+    const auto albedo_texture = material.second->GetAlbedoTexture();
+    if (!albedo_texture)
+      continue;
+    for (const auto& pair : opacity_maps) {
+      if (albedo_texture->GetHandle() == pair.first->GetHandle()) {
+        material.second->SetAlbedoTexture(pair.second);
+      }
+    }
+  }
+  LogPrefabImportPhaseDuration(path, "Relink materials", material_relink_start);
+
+  if (!bones_map.empty() || scene.HasAnimations()) {
+    const auto animation_start = PrefabImportClock::now();
+    root_assimp_node->NecessaryWalker(bones_map);
+    size_t index = 0;
+    root_assimp_node->AttachToAnimator(animation, index);
+    animation->bone_size = index + 1;
+    ReadAnimations(&scene, animation, bones_map);
+    ApplyBoneIndices(bones_lists, this);
+
+    auto animator = Serialization::ProduceSerializable<Animator>();
+    animator->Setup(animation);
+    AttachAnimator(this, entity_handle);
+    PrivateComponentHolder holder;
+    holder.enabled = true;
+    holder.private_component = std::static_pointer_cast<IPrivateComponent>(animator);
+    private_components.push_back(holder);
+    LogPrefabImportPhaseDuration(path, "Build animation", animation_start);
+  }
+  const auto gather_assets_start = PrefabImportClock::now();
+  GatherAssets();
+  LogPrefabImportPhaseDuration(path, "Gather assets", gather_assets_start);
+  return true;
+}
 #pragma endregion
 void Prefab::ApplyBoneIndices(const std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>>& bones_lists,
                               Prefab* node) {
@@ -826,20 +940,39 @@ bool Prefab::LoadInternal(const std::filesystem::path& path) {
 namespace {
 class PrefabStagedLoadPayload final : public StagedAssetLoadPayload {
  public:
+  enum class Kind { NativePrefab, ModelImport };
+
+  Kind kind = Kind::NativePrefab;
   YAML::Node node;
+  std::filesystem::path path;
+  std::unique_ptr<Assimp::Importer> importer;
+  const aiScene* scene = nullptr;
 };
 }  // namespace
 
 bool Prefab::SupportsStagedLoading(const std::filesystem::path& path) const {
-  return path.extension() == ".eveprefab";
+  return IsNativePrefabPath(path) || SupportsStagedModelImportPath(path);
 }
 
 std::shared_ptr<StagedAssetLoadPayload> Prefab::LoadStagedPayloadInternal(const std::filesystem::path& path) const {
+  auto payload = std::make_shared<PrefabStagedLoadPayload>();
+  payload->path = path;
+  if (!IsNativePrefabPath(path)) {
+    payload->kind = PrefabStagedLoadPayload::Kind::ModelImport;
+    payload->importer = std::make_unique<Assimp::Importer>();
+    const auto flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals;
+    payload->scene = payload->importer->ReadFile(path.string(), flags);
+    if (!payload->scene || payload->scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !payload->scene->mRootNode) {
+      EVOENGINE_LOG("Assimp: " + std::string(payload->importer->GetErrorString()))
+      return {};
+    }
+    return payload;
+  }
+
   try {
     const std::ifstream stream(path.string());
     std::stringstream string_stream;
     string_stream << stream.rdbuf();
-    auto payload = std::make_shared<PrefabStagedLoadPayload>();
     payload->node = YAML::Load(string_stream.str());
     return payload;
   } catch (const std::exception& e) {
@@ -854,6 +987,13 @@ bool Prefab::ApplyStagedPayloadInternal(const std::filesystem::path&,
   if (!prefab_payload) {
     return false;
   }
+  if (prefab_payload->kind == PrefabStagedLoadPayload::Kind::ModelImport) {
+    if (!prefab_payload->scene) {
+      return false;
+    }
+    return LoadModelSceneInternal(prefab_payload->path, *prefab_payload->scene);
+  }
+
   try {
     const auto& in = prefab_payload->node;
     if (const auto& in_local_assets = in["LocalAssets"]) {
@@ -917,74 +1057,7 @@ bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize,
     EVOENGINE_LOG("Assimp: " + std::string(importer.GetErrorString()));
     return false;
   }
-  // retrieve the directory path of the filepath
-  auto temp = path;
-  const std::string directory = temp.remove_filename().string();
-  instance_name = path.filename().string();
-  std::unordered_map<unsigned, std::shared_ptr<Material>> loaded_materials;
-  std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>> opacity_maps;
-  std::unordered_map<std::string, std::shared_ptr<Bone>> bones_map;
-  std::shared_ptr<Animation> animation;
-  if (!bones_map.empty() || scene->HasAnimations()) {
-    animation = AssetManager::CreateTemporaryAsset<Animation>();
-  }
-  std::shared_ptr<AssimpImportNode> root_assimp_node = std::make_shared<AssimpImportNode>(scene->mRootNode);
-
-  std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>> bones_lists;
-  if (std::unordered_map<std::string, std::shared_ptr<Texture2D>> loaded_textures;
-      !ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, bones_lists, bones_map,
-                   scene->mRootNode, root_assimp_node, scene, animation)) {
-    EVOENGINE_ERROR("Model is empty!")
-    return false;
-  }
-
-  for (auto& pair : opacity_maps) {
-    std::vector<glm::vec4> color_data;
-    const auto& albedo_texture = pair.first;
-    const auto& opacity_texture = pair.second;
-    if (!albedo_texture || !opacity_texture)
-      continue;
-    albedo_texture->GetRgbaChannelData(color_data);
-    std::vector<glm::vec4> alpha_data;
-    const auto resolution = albedo_texture->GetResolution();
-    opacity_texture->GetRgbaChannelData(alpha_data, resolution.x, resolution.y);
-    Jobs::RunParallelFor(color_data.size(), [&](size_t i) {
-      color_data[i].a = alpha_data[i].r;
-    });
-    std::shared_ptr<Texture2D> replacement_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
-    replacement_texture->SetRgbaChannelData(color_data, albedo_texture->GetResolution(), true);
-    pair.second = replacement_texture;
-  }
-
-  for (const auto& material : loaded_materials) {
-    const auto albedo_texture = material.second->GetAlbedoTexture();
-    if (!albedo_texture)
-      continue;
-    for (const auto& pair : opacity_maps) {
-      if (albedo_texture->GetHandle() == pair.first->GetHandle()) {
-        material.second->SetAlbedoTexture(pair.second);
-      }
-    }
-  }
-
-  if (!bones_map.empty() || scene->HasAnimations()) {
-    root_assimp_node->NecessaryWalker(bones_map);
-    size_t index = 0;
-    root_assimp_node->AttachToAnimator(animation, index);
-    animation->bone_size = index + 1;
-    ReadAnimations(scene, animation, bones_map);
-    ApplyBoneIndices(bones_lists, this);
-
-    auto animator = Serialization::ProduceSerializable<Animator>();
-    animator->Setup(animation);
-    AttachAnimator(this, entity_handle);
-    PrivateComponentHolder holder;
-    holder.enabled = true;
-    holder.private_component = std::static_pointer_cast<IPrivateComponent>(animator);
-    private_components.push_back(holder);
-  }
-  GatherAssets();
-  return true;
+  return LoadModelSceneInternal(path, *scene);
 }
 
 #pragma endregion

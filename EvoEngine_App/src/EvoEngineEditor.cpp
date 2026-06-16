@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "ImGuiLayer.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
@@ -38,15 +39,9 @@ std::optional<std::filesystem::path> ParseProjectPath(const int argc, char** arg
 
 std::filesystem::path CurrentExecutablePath() {
 #ifdef EVOENGINE_WINDOWS
-  std::wstring path(MAX_PATH, L'\0');
-  const DWORD size = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-  if (size == 0 || size == path.size()) {
-    return std::filesystem::absolute("EvoEngineEditor.exe");
-  }
-  path.resize(size);
-  return path;
+  return path_utils::CurrentExecutablePath("EvoEngineEditor.exe");
 #else
-  return std::filesystem::absolute("EvoEngineEditor");
+  return path_utils::CurrentExecutablePath("EvoEngineEditor");
 #endif
 }
 

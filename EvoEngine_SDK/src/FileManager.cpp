@@ -6,6 +6,8 @@
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <system_error>
 
@@ -35,6 +37,46 @@ bool CanGenerateThumbnailThisFrame() {
 
 bool SupportsGeneratedThumbnail(const File& file) {
   return AssetThumbnailProvider::SupportsGeneratedThumbnail(file.GetAssetTypeName());
+}
+
+std::string LowercaseExtension(std::string extension) {
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return extension;
+}
+
+bool IsDeferredImportSource(const File& file) {
+  if (file.GetAssetTypeName() != "Prefab") {
+    return false;
+  }
+  const auto extension = LowercaseExtension(file.GetAssetExtension());
+  return extension == ".obj" || extension == ".gltf" || extension == ".glb" || extension == ".blend" ||
+         extension == ".ply" || extension == ".fbx" || extension == ".dae" || extension == ".x3d";
+}
+
+bool ShouldAutoLoadAsset(const File& file) {
+  return file.GetAssetTypeName() != "Binary" && !IsDeferredImportSource(file);
+}
+
+std::filesystem::path FileMetadataPath(const std::filesystem::path& asset_path) {
+  return asset_path.string() + ".evefilemeta";
+}
+
+std::filesystem::path FolderMetadataPath(const std::filesystem::path& folder_path) {
+  return folder_path.string() + ".evefoldermeta";
+}
+
+void HideFileOnWindows(const std::filesystem::path& path) {
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  const auto path_string = path.string();
+  const DWORD attributes = GetFileAttributes(path_string.c_str());
+  if (attributes != INVALID_FILE_ATTRIBUTES) {
+    SetFileAttributes(path_string.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
+  }
+#else
+  (void)path;
+#endif
 }
 }  // namespace
 
@@ -113,7 +155,7 @@ void File::SetAssetExtension(const std::string& new_extension) {
   Save();
 }
 void File::Save() const {
-  const auto path = GetAbsolutePath().string() + ".evefilemeta";
+  const auto path = FileMetadataPath(GetAbsolutePath());
   YAML::Emitter out;
   out << YAML::BeginMap;
   out << YAML::Key << "asset_extension_" << YAML::Value << asset_extension_;
@@ -124,18 +166,14 @@ void File::Save() const {
   std::ofstream file_out(path);
   file_out << out.c_str();
   file_out.close();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-  const DWORD attributes = GetFileAttributes(path.c_str());
-  SetFileAttributes(path.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
-#endif
+  HideFileOnWindows(path);
 }
 
 Handle File::GetAssetHandle() const {
   return asset_handle_;
 }
 void File::DeleteMetadata() const {
-  const auto path = GetAbsolutePath().string() + ".evefilemeta";
-  std::filesystem::remove(path);
+  std::filesystem::remove(FileMetadataPath(GetAbsolutePath()));
 }
 void File::Load(const std::filesystem::path& path) {
   if (!std::filesystem::exists(path)) {
@@ -161,7 +199,7 @@ void File::Load(const std::filesystem::path& path) {
   InvalidateThumbnail();
 }
 
-std::shared_ptr<Texture2D> File::GetThumbnail() {
+std::shared_ptr<Texture2D> File::GetThumbnail(const bool allow_asset_load) {
   const auto fallback_thumbnail = GetFallbackThumbnail();
   if (!SupportsGeneratedThumbnail(*this)) {
     return fallback_thumbnail;
@@ -170,6 +208,9 @@ std::shared_ptr<Texture2D> File::GetThumbnail() {
   SyncThumbnailSourceWriteTime();
   if (thumbnail_) {
     return thumbnail_;
+  }
+  if (!allow_asset_load) {
+    return fallback_thumbnail;
   }
 
   if (!thumbnail_future_.valid()) {
@@ -295,7 +336,7 @@ void Folder::Rename(const std::string& new_name) {
   Save();
 }
 void Folder::Save() const {
-  const auto path = GetAbsolutePath().string() + ".evefoldermeta";
+  const auto path = FolderMetadataPath(GetAbsolutePath());
   YAML::Emitter out;
   out << YAML::BeginMap;
   out << YAML::Key << "handle_" << YAML::Value << handle_;
@@ -304,10 +345,7 @@ void Folder::Save() const {
   std::ofstream file_out(path);
   file_out << out.c_str();
   file_out.close();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-  const DWORD attributes = GetFileAttributes(path.c_str());
-  SetFileAttributes(path.c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
-#endif
+  HideFileOnWindows(path);
 }
 void Folder::Load(const std::filesystem::path& path) {
   if (!std::filesystem::exists(path)) {
@@ -324,10 +362,13 @@ void Folder::Load(const std::filesystem::path& path) {
     name_ = in["type_name"].as<std::string>();
 }
 void Folder::DeleteMetadata() const {
-  const auto path = GetAbsolutePath().replace_extension(".evefoldermeta");
-  std::filesystem::remove(path);
+  std::filesystem::remove(FolderMetadataPath(GetAbsolutePath()));
 }
 void Folder::MoveChild(const Handle& child_handle, const std::shared_ptr<Folder>& dest) {
+  if (!dest) {
+    EVOENGINE_ERROR("Destination folder not exist!")
+    return;
+  }
   const auto search = children_.find(child_handle);
   if (search == children_.end()) {
     EVOENGINE_ERROR("Child not exist!")
@@ -376,11 +417,18 @@ std::weak_ptr<Folder> Folder::GetOrCreateChild(const std::string& folder_name) {
   return new_folder;
 }
 void Folder::DeleteChild(const Handle& child_handle) {
-  const auto child = GetChild(child_handle).lock();
+  const auto search = children_.find(child_handle);
+  if (search == children_.end() || !search->second) {
+    EVOENGINE_ERROR("Child not exist!")
+    return;
+  }
+  const auto child = search->second;
   const auto child_folder_path = child->GetAbsolutePath();
   std::filesystem::remove_all(child_folder_path);
   child->DeleteMetadata();
-  children_.erase(child_handle);
+  children_.erase(search);
+  auto& file_manager = FileManager::GetInstance();
+  file_manager.folder_registry_.erase(child_handle);
 }
 std::shared_ptr<IAsset> Folder::GetOrCreateAsset(const std::string& file_name, const std::string& extension) {
   const auto type_name = Serialization::GetAssetTypeName(extension);
@@ -415,8 +463,17 @@ std::shared_ptr<IAsset> Folder::GetAsset(const Handle& asset_handle) {
 }
 
 std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
-  const auto file_record = files[handle];
+  const auto search = files.find(handle);
+  if (search == files.end() || !search->second) {
+    EVOENGINE_ERROR("File not exist!")
+    return std::nullopt;
+  }
+  const auto file_record = search->second;
   const auto folder = file_record->GetFolder().lock();
+  if (!folder) {
+    EVOENGINE_ERROR("Folder expired!")
+    return std::nullopt;
+  }
   const auto path = file_record->GetAssetsFolderRelativePath();
   const auto prefix = (folder->GetAssetsRelativePath() / path.stem()).string();
   const auto postfix = path.extension().string();
@@ -426,6 +483,7 @@ std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
                           std::filesystem::copy_options::overwrite_existing);
   } catch (const std::exception& e) {
     EVOENGINE_ERROR(e.what());
+    return std::nullopt;
   }
   if (file_record->asset_type_name_ != "Binary") {
     return folder->GetOrCreateAsset(new_path.stem().string(), new_path.extension().string());
@@ -438,11 +496,16 @@ std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
   record->asset_handle_ = Handle();
   record->self_ = record;
   files[record->asset_handle_] = record;
+  auto& file_manager = FileManager::GetInstance();
+  file_manager.file_registry_[record->asset_handle_] = record;
   record->Save();
   return std::nullopt;
 }
 
 std::shared_ptr<File> Folder::MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& dest) {
+  if (!dest) {
+    throw std::invalid_argument("Destination folder not exist!");
+  }
   const auto search = files.find(asset_handle);
   if (search == files.end()) {
     throw std::invalid_argument("File not exist!");
@@ -464,13 +527,18 @@ std::shared_ptr<File> Folder::MoveAsset(const Handle& asset_handle, const std::s
   return asset_record;
 }
 void Folder::RemoveFile(const Handle& asset_handle) {
+  const auto search = files.find(asset_handle);
+  if (search == files.end() || !search->second) {
+    EVOENGINE_ERROR("File not exist!")
+    return;
+  }
   auto& file_manager = FileManager::GetInstance();
-  const auto asset_record = files[asset_handle];
+  const auto asset_record = search->second;
   file_manager.file_registry_.erase(asset_record->asset_handle_);
   const auto asset_path = asset_record->GetAbsolutePath();
   std::filesystem::remove(asset_path);
   asset_record->DeleteMetadata();
-  files.erase(asset_handle);
+  files.erase(search);
 }
 void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
   auto& file_manager = FileManager::GetInstance();
@@ -490,16 +558,10 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
       child_folder_list.push_back(entry.path());
     } else if (entry.path().extension() == ".evefoldermeta") {
       child_folder_metadata_list.push_back(entry.path());
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-      const DWORD attributes = GetFileAttributes(entry.path().string().c_str());
-      SetFileAttributes(entry.path().string().c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
-#endif
+      HideFileOnWindows(entry.path());
     } else if (entry.path().extension() == ".evefilemeta") {
       asset_metadata_list.push_back(entry.path());
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-      const DWORD attributes = GetFileAttributes(entry.path().string().c_str());
-      SetFileAttributes(entry.path().string().c_str(), attributes | FILE_ATTRIBUTE_HIDDEN);
-#endif
+      HideFileOnWindows(entry.path());
     } else if (entry.path().filename() != "" && entry.path().extension() != ".eveproj") {
       file_list.push_back(entry.path());
     }
@@ -589,7 +651,7 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     RemoveFile(i);
   }
   for (const auto& i : files) {
-    if (i.second->asset_type_name_ != "Binary" && !i.second->asset_) {
+    if (ShouldAutoLoadAsset(*i.second) && !i.second->asset_) {
       assets_pending_loading.emplace_back(i.second->asset_handle_);
     }
   }

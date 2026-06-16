@@ -9,6 +9,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
+#include "WindowLayer.hpp"
 using namespace evo_engine;
 
 void Bloom::Serialize(YAML::Emitter& out) const {
@@ -324,13 +325,11 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !downsampling_pipeline) {
     downsampling_pipeline = std::make_shared<GraphicsPipeline>();
-    downsampling_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-    downsampling_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                std::filesystem::path("./DefaultResources") /
-                                    "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
+    downsampling_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    downsampling_pipeline->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
 
     downsampling_pipeline->geometry_type = GeometryType::Mesh;
     downsampling_pipeline->descriptor_set_layouts.emplace_back(
@@ -347,12 +346,11 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !upsampling_pipeline) {
     upsampling_pipeline = std::make_shared<GraphicsPipeline>();
-    upsampling_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    upsampling_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     upsampling_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
 
     upsampling_pipeline->geometry_type = GeometryType::Mesh;
     upsampling_pipeline->descriptor_set_layouts.emplace_back(
@@ -369,12 +367,11 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !copy_pipeline) {
     copy_pipeline = std::make_shared<GraphicsPipeline>();
-    copy_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    copy_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     copy_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
     copy_pipeline->geometry_type = GeometryType::Mesh;
     copy_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -387,12 +384,11 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !mix_pipeline) {
     mix_pipeline = std::make_shared<GraphicsPipeline>();
-    mix_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    mix_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     mix_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
     mix_pipeline->geometry_type = GeometryType::Mesh;
     mix_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -442,11 +438,12 @@ void PostProcessingStack::OnCreate() {
   bloom = std::make_shared<Bloom>();
   screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   tone_mapping = std::make_shared<ToneMapping>();
-
-  screen_space_ambient_occlusion->BuildPipelines();
-  bloom->BuildPipelines();
-  screen_space_reflection->BuildPipelines();
-  tone_mapping->BuildPipelines();
+  pipeline_build_step_ = 0;
+  pipelines_ready_ = false;
+  if (!ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    while (!BuildNextPipeline()) {
+    }
+  }
 
   enable_screen_space_ambient_occlusion = true;
   enable_bloom = true;
@@ -454,8 +451,42 @@ void PostProcessingStack::OnCreate() {
   enable_tone_mapping = true;
 }
 
+bool PostProcessingStack::BuildNextPipeline() {
+  if (pipelines_ready_) {
+    return true;
+  }
+  if (!screen_space_ambient_occlusion || !bloom || !screen_space_reflection || !tone_mapping) {
+    return false;
+  }
+  switch (pipeline_build_step_) {
+    case 0:
+      screen_space_ambient_occlusion->BuildPipelines();
+      break;
+    case 1:
+      bloom->BuildPipelines();
+      break;
+    case 2:
+      screen_space_reflection->BuildPipelines();
+      break;
+    case 3:
+      tone_mapping->BuildPipelines();
+      break;
+    default:
+      pipelines_ready_ = true;
+      return true;
+  }
+  ++pipeline_build_step_;
+  pipelines_ready_ = pipeline_build_step_ > 3;
+  return false;
+}
+
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) {
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!target_camera) {
+    return;
+  }
+  if (!BuildNextPipeline()) {
+    return;
+  }
   Resize(target_camera->GetSize());
   {
     VkDescriptorImageInfo image_info;
@@ -494,11 +525,10 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
   };
   if (!blur_pipeline) {
     blur_pipeline = std::make_shared<GraphicsPipeline>();
-    blur_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    blur_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     blur_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+        Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
                                                           "Shaders/Graphics/Fragment/PostProcessing/Blur.frag");
     blur_pipeline->geometry_type = GeometryType::Mesh;
     blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);

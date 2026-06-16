@@ -300,12 +300,11 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !geometry_pipeline) {
     geometry_pipeline = std::make_shared<GraphicsPipeline>();
-    geometry_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    geometry_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/SSAOGeometry.frag");
     geometry_pipeline->geometry_type = GeometryType::Mesh;
     geometry_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -324,12 +323,11 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !combine_pipeline) {
     combine_pipeline = std::make_shared<GraphicsPipeline>();
-    combine_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    combine_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     combine_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/PostProcessing/SSAOCombine.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/SSAOCombine.frag");
     combine_pipeline->geometry_type = GeometryType::Mesh;
     combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
     combine_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
@@ -356,11 +354,10 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
 
   if (force_rebuild || !blur_pipeline) {
     blur_pipeline = std::make_shared<GraphicsPipeline>();
-    blur_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                        "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+    blur_pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     blur_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+        Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
                                                           "Shaders/Graphics/Fragment/PostProcessing/SSAOBlur.frag");
     blur_pipeline->geometry_type = GeometryType::Mesh;
     blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);

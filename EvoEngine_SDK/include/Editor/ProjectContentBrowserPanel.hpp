@@ -15,6 +15,7 @@ class Folder;
 class ProjectContentBrowserPanel final : public EditorPanel {
  public:
   void Draw(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  void RevealAsset(const Handle& asset_handle);
 
  private:
   enum class SelectedItemType { None, Folder, File };

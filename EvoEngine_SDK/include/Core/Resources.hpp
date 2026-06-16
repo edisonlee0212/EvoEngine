@@ -4,6 +4,8 @@
 #include "EvoEngineAPI.hpp"
 #include "Serialization.hpp"
 
+#include <filesystem>
+
 namespace evo_engine {
 class Texture2D;
 class Mesh;
@@ -144,6 +146,8 @@ class Resources {
   static void OnDestroy();
 
  public:
+  [[nodiscard]] static std::filesystem::path GetDefaultResourcesPath();
+  [[nodiscard]] static std::filesystem::path GetDefaultResourcePath(const std::filesystem::path& relative_path);
   [[nodiscard]] const std::shared_ptr<Texture2D>& GetMissingTexture() const;
   [[nodiscard]] const std::shared_ptr<Cubemap>& GetDefaultSkybox() const;
   [[nodiscard]] const std::shared_ptr<EnvironmentalMap>& GetDefaultEnvironmentalMap() const;

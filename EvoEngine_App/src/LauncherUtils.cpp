@@ -1,4 +1,5 @@
 #include "LauncherUtils.hpp"
+#include "PathUtils.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -30,11 +31,7 @@ std::string Trim(const std::string& value) {
 }
 
 bool IsValidProjectName(const std::string& project_name) {
-  if (project_name.empty()) {
-    return false;
-  }
-  static constexpr std::string_view invalid_chars = R"(<>:"/\|?*)";
-  return project_name.find_first_of(invalid_chars) == std::string::npos;
+  return path_utils::IsValidFileName(project_name);
 }
 
 std::string JoinPackages(const std::vector<std::string>& package_names) {
@@ -107,7 +104,7 @@ std::string ValidateCreateProjectRequest(const std::string& project_name, const 
 }
 
 std::filesystem::path NormalizeProjectPath(const std::filesystem::path& path) {
-  return std::filesystem::absolute(path).lexically_normal();
+  return path_utils::NormalizeAbsolutePath(path);
 }
 
 std::vector<std::filesystem::path> LoadRecentProjects(const std::filesystem::path& settings_path, bool& pruned,

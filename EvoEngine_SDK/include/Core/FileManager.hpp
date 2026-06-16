@@ -86,9 +86,10 @@ class File {
 
   /**
    * @brief Retrieves the thumbnail representation of the file.
+   * @param allow_asset_load Whether this call may enqueue/load/generate the asset-backed thumbnail.
    * @return A shared pointer to the thumbnail texture.
    */
-  std::shared_ptr<Texture2D> GetThumbnail();
+  std::shared_ptr<Texture2D> GetThumbnail(bool allow_asset_load = true);
 
  private:
   friend class Folder;

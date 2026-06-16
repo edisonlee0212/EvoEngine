@@ -58,7 +58,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
 #endif
   graphics.CreateLogicalDevice();
   graphics.SetupVmaAllocator();
-  graphics.RegisterShaderIncludePath(std::filesystem::path("./DefaultResources/Shaders/Includes"));
+  graphics.RegisterShaderIncludePath(Resources::GetDefaultResourcePath("Shaders/Includes"));
   const auto& selected_physical_device = graphics.selected_physical_device;
 
   if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
@@ -118,11 +118,10 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
     }
     if (!graphics.render_texture_present_pipeline) {
       graphics.render_texture_present_pipeline = std::make_shared<GraphicsPipeline>();
-      graphics.render_texture_present_pipeline->vertex_shader =
-          Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
-                                                          "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+      graphics.render_texture_present_pipeline->vertex_shader = Shader::CreateTemporary(
+          ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
       graphics.render_texture_present_pipeline->fragment_shader =
-          Shader::CreateTemporary(ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
+          Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
                                                             "Shaders/Graphics/Fragment/TexturePassThrough.frag");
       graphics.render_texture_present_pipeline->geometry_type = GeometryType::Mesh;
       graphics.render_texture_present_pipeline->descriptor_set_layouts.emplace_back(

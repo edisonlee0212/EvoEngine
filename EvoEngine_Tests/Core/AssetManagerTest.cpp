@@ -8,10 +8,12 @@
 #include "IAsset.hpp"
 #include "Jobs.hpp"
 #include "PackageManager.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
@@ -543,6 +545,7 @@ ApplicationInitializationSettings TestApplicationSettings(const TempProject& pro
   settings.load_default_resources = false;
   settings.load_project_start_scene = false;
   settings.enable_runtime_packages = false;
+  settings.redirect_standard_streams_to_console = false;
   return settings;
 }
 }  // namespace
@@ -689,6 +692,39 @@ TEST(ProjectManager, OpensMetadataOnlyProjectByCreatingDefaultStartScene) {
   EXPECT_NE(project_yaml["start_scene_handle"].as<uint64_t>(), 0);
 }
 
+TEST(ProjectManager, LoadedStateDoesNotWaitForBackgroundAssetLoad) {
+  ResetStagedLoadState();
+  TempProject project;
+  WriteStagedAssetFixture(project);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<StagedLoadAsset>(kStagedAssetTypeName, {kStagedAssetExtension});
+  ASSERT_TRUE(StagedLoadAsset::RegisterAssetIoHandlers());
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+  ProjectManager::SetStartScene(std::make_shared<Scene>());
+
+  auto asset_future = AssetManager::RequestAssetLoad(Handle(kStagedAssetHandle));
+  const bool payload_started = WaitForStagedPayloadStartedWhilePumping(5s);
+  if (!payload_started) {
+    ReleaseStagedPayload();
+    FAIL() << "Timed out waiting for staged asset payload loading to start.";
+  }
+  ScopedStagedPayloadRelease release_on_exit;
+
+  EXPECT_EQ(ProjectManager::GetProjectState(), ProjectState::Loaded);
+  EXPECT_TRUE(ProjectManager::IsProjectLoaded());
+  EXPECT_FALSE(ProjectManager::IsProjectIdle());
+  EXPECT_EQ(asset_future.wait_for(100ms), std::future_status::timeout);
+
+  ReleaseStagedPayload();
+  ASSERT_TRUE(WaitForAssetFutureReadyWhilePumping(asset_future, 5s));
+  EXPECT_NE(asset_future.get(), nullptr);
+  EXPECT_TRUE(ProjectManager::IsProjectIdle());
+}
+
 TEST(ProjectManager, SaveLaunchMetadataPreservesExistingStartSceneHandle) {
   TempProject project;
   std::ofstream project_file(project.ProjectPath());
@@ -779,6 +815,19 @@ TEST(PackageManager, ReportsManifestLibraryAvailability) {
   const auto missing_library_package = find_package("MissingLibraryPackage");
   ASSERT_NE(missing_library_package, packages.end());
   EXPECT_FALSE(missing_library_package->library_exists);
+}
+
+TEST(PackageManager, InitializeDeduplicatesSearchPaths) {
+  TempPackageDirectory package_directory;
+
+  Application app;
+  ApplicationContextScope scope(app);
+  PackageManager::Initialize({package_directory.RootPath(), package_directory.RootPath() / "."}, {});
+
+  const auto expected_path = path_utils::NormalizeAbsolutePath(package_directory.RootPath());
+  const auto search_paths = PackageManager::GetSearchPaths();
+  const auto count = std::count(search_paths.begin(), search_paths.end(), expected_path);
+  EXPECT_EQ(count, 1);
 }
 
 TEST(PackageManager, ModificationIsBlockedWhilePlayingPausedOrStepping) {
