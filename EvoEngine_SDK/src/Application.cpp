@@ -1587,18 +1587,14 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     }
     if (this->initialization_settings.icon_paths.empty()) {
       GLFWimage images[4];
-      images[0].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine16.png").string().c_str(),
-                    &images[0].width, &images[0].height, nullptr, 4);  // rgba channels
-      images[1].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine24.png").string().c_str(),
-                    &images[1].width, &images[1].height, nullptr, 4);  // rgba channels
-      images[2].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine32.png").string().c_str(),
-                    &images[2].width, &images[2].height, nullptr, 4);  // rgba channels
-      images[3].pixels =
-          stbi_load(std::filesystem::absolute("./DefaultResources/Icons/EvoEngine64.png").string().c_str(),
-                    &images[3].width, &images[3].height, nullptr, 4);  // rgba channels
+      images[0].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine16.png").string().c_str(),
+                                   &images[0].width, &images[0].height, nullptr, 4);  // rgba channels
+      images[1].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine24.png").string().c_str(),
+                                   &images[1].width, &images[1].height, nullptr, 4);  // rgba channels
+      images[2].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine32.png").string().c_str(),
+                                   &images[2].width, &images[2].height, nullptr, 4);  // rgba channels
+      images[3].pixels = stbi_load(Resources::GetDefaultResourcePath("Icons/EvoEngine64.png").string().c_str(),
+                                   &images[3].width, &images[3].height, nullptr, 4);  // rgba channels
       glfwSetWindowIcon(window_layer->window_, 4, images);
       stbi_image_free(images[0].pixels);
       stbi_image_free(images[1].pixels);

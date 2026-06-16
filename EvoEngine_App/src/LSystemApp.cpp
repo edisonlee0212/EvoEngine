@@ -9,6 +9,7 @@
 #include <filesystem>
 
 #include "ClassRegistry.hpp"
+#include "PathUtils.hpp"
 #include "Times.hpp"
 
 #include "ProjectManager.hpp"
@@ -23,20 +24,12 @@ using namespace evo_engine;
 namespace {
 
 std::filesystem::path FindResourceFolder() {
-  std::filesystem::path resource_folder_path("../../../../../Resources");
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../../Resources";
+  if (const auto resource_folder_path =
+          path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
+      !resource_folder_path.empty()) {
+    return resource_folder_path;
   }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../Resources";
-  }
-  return resource_folder_path;
+  return path_utils::NormalizeAbsolutePath("Resources");
 }
 
 std::filesystem::path ResolveDefaultLSystemProjectPath(const std::filesystem::path& resource_folder_path) {

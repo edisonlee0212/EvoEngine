@@ -227,11 +227,72 @@ class ProjectManager {
   [[maybe_unused]] static std::weak_ptr<Folder> GetOrCreateFolder(const std::filesystem::path& assets_relative_path);
 
   /**
+   * @brief Creates a uniquely named child folder inside an existing project folder.
+   * @param folder The destination parent folder.
+   * @param folder_name The preferred folder name.
+   * @return The created folder, or nullptr on failure.
+   */
+  [[nodiscard]] static std::shared_ptr<Folder> CreateFolder(const std::shared_ptr<Folder>& folder,
+                                                            const std::string& folder_name);
+
+  /**
    * @brief Finds or creates an asset using the relative path within the assets directory.
    * @param assets_relative_path The relative path to the asset.
    * @return A shared pointer to the asset.
    */
   [[nodiscard]] static std::shared_ptr<IAsset> GetOrCreateAsset(const std::filesystem::path& assets_relative_path);
+
+  /**
+   * @brief Creates a uniquely named asset in an existing project folder.
+   * @param folder The destination folder.
+   * @param type_name The registered asset type name.
+   * @return The created asset, or nullptr on failure.
+   */
+  [[nodiscard]] static std::shared_ptr<IAsset> CreateAsset(const std::shared_ptr<Folder>& folder,
+                                                           const std::string& type_name);
+
+  /**
+   * @brief Saves an asset to a project folder using a preferred stem and extension.
+   * @param asset The asset to save.
+   * @param folder The destination folder.
+   * @param file_stem The preferred file stem.
+   * @param extension The file extension to use.
+   * @param generate_unique_path Whether to adjust the file name when a file already exists.
+   * @return True if the asset was saved to the requested folder.
+   */
+  [[nodiscard]] static bool SaveAsset(const std::shared_ptr<IAsset>& asset, const std::shared_ptr<Folder>& folder,
+                                      const std::string& file_stem, const std::string& extension,
+                                      bool generate_unique_path = true);
+
+  /**
+   * @brief Moves or saves the asset identified by handle into a project folder.
+   * @param asset_handle Asset or file handle to move.
+   * @param folder The destination folder.
+   * @return True if a project asset/file changed folder or path.
+   */
+  [[nodiscard]] static bool MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& folder);
+
+  /**
+   * @brief Moves the folder identified by handle into another project folder.
+   * @param folder_handle Folder handle to move.
+   * @param destination_folder The destination parent folder.
+   * @return True if the folder was moved.
+   */
+  [[nodiscard]] static bool MoveFolder(const Handle& folder_handle, const std::shared_ptr<Folder>& destination_folder);
+
+  /**
+   * @brief Deletes the asset/file identified by handle from the project.
+   * @param asset_handle Asset or file handle to delete.
+   * @return True if a project file was deleted.
+   */
+  [[nodiscard]] static bool DeleteAsset(const Handle& asset_handle);
+
+  /**
+   * @brief Deletes the folder identified by handle from the project.
+   * @param folder_handle Folder handle to delete.
+   * @return True if a project folder was deleted.
+   */
+  [[nodiscard]] static bool DeleteFolder(const Handle& folder_handle);
 
   /**
    * @brief Checks if the specified absolute path belongs to the assets folder.

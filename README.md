@@ -106,9 +106,6 @@ Interactive project asset loading now dispatches scanned assets as an `AssetMana
 | `DemoApp` | General renderer/framework demo with multiple Service registrations. |
 | `EcoSysLabApp` | Interactive digital forestry and ecosystem workflow. |
 | `DigitalAgricultureApp` | Interactive sorghum and agriculture workflow. |
-| `LogGradingApp` | Log grading workflow; LogGrading and LogScanning features are supplied by runtime packages. |
-| `TreeDataGeneratorApp` | Batch-oriented tree dataset generation. |
-| `SorghumDataGeneratorApp` | Batch-oriented sorghum dataset generation. |
 
 `.eveproj` files can carry launch metadata used by `EvoEngineLauncher` and `EvoEngineEditor`: `application_name`,
 `preferred_editor`, and `startup_runtime_packages`. The generic editor reads package names from this metadata before

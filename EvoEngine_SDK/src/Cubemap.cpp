@@ -99,11 +99,11 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
   if (!atmosphere_to_cubemap_pipeline_) {
     atmosphere_to_cubemap_pipeline_ = std::make_shared<GraphicsPipeline>();
     atmosphere_to_cubemap_pipeline_->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+        Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
                                                         "Shaders/Graphics/Vertex/Lighting/AtmosphereToCubemap.vert");
     atmosphere_to_cubemap_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment,
-        std::filesystem::path("./DefaultResources") / "Shaders/Graphics/Fragment/Lighting/AtmosphereToCubemap.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/AtmosphereToCubemap.frag");
     atmosphere_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
 
     atmosphere_to_cubemap_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
@@ -258,11 +258,11 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
   if (!equirectangular_to_cubemap_pipeline_) {
     equirectangular_to_cubemap_pipeline_ = std::make_shared<GraphicsPipeline>();
     equirectangular_to_cubemap_pipeline_->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+        Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
                                                         "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
     equirectangular_to_cubemap_pipeline_->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
-                                  "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
+        ShaderType::Fragment,
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
     equirectangular_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
 
     equirectangular_to_cubemap_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;

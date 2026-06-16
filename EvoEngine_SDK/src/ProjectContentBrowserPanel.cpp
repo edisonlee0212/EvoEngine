@@ -56,6 +56,27 @@ std::string TypeLabelForFile(const std::shared_ptr<File>& file) {
   return "??? (" + file->GetAssetExtension() + ")";
 }
 
+bool SaveEntityAsPrefab(const std::shared_ptr<Folder>& folder, const Handle& entity_handle) {
+  if (!folder) {
+    return false;
+  }
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return false;
+  }
+  const auto entity = scene->GetEntity(entity_handle);
+  if (!scene->IsEntityValid(entity)) {
+    return false;
+  }
+  auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
+  prefab->FromEntity(entity);
+  const auto& prefab_extensions = Serialization::PeekAssetExtensions("Prefab");
+  if (prefab_extensions.empty()) {
+    return false;
+  }
+  return ProjectManager::SaveAsset(prefab, folder, scene->GetEntityName(entity), prefab_extensions.front());
+}
+
 BrowserTileInteraction DrawBrowserTile(const char* id, const std::shared_ptr<Texture2D>& texture,
                                        const std::string& type_label, const std::string& name, const bool selected,
                                        const float thumbnail_size, const float tile_width) {
@@ -122,52 +143,17 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
           project_manager.current_focused_folder_ = current_focused_folder;
         }
         SyncNavigationHistory(current_focused_folder);
-        auto current_folder_path = current_focused_folder->GetAssetsRelativePath();
         if (ImGui::BeginDragDropTarget()) {
           if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
             IM_ASSERT(payload->DataSize == sizeof(Handle));
             Handle handle = *static_cast<Handle*>(payload->Data);
-            if (const auto asset = AssetManager::GetAssetImpl(handle)) {
-              if (asset->IsTemporary()) {
-                auto file_extension = Serialization::PeekAssetExtensions(asset->GetTypeName()).front();
-                auto file_name = "New " + asset->GetTypeName();
-                auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-                    (current_focused_folder->GetAssetsRelativePath() / file_name).string(), file_extension);
-                asset->SetPathAndSave(file_path);
-              } else {
-                if (auto file = asset->file_record_.lock();
-                    file->GetFolder().lock().get() != current_focused_folder.get()) {
-                  auto file_extension = file->GetAssetExtension();
-                  auto file_name = file->GetAssetFileName();
-                  auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-                      (current_focused_folder->GetAssetsRelativePath() / file_name).string(), file_extension);
-                  asset->SetPathAndSave(file_path);
-                }
-              }
-            } else {
-              if (const auto file = FileManager::GetFile(handle)) {
-                auto folder = file->GetFolder().lock();
-                if (folder.get() != current_focused_folder.get()) {
-                  folder->MoveAsset(file->GetAssetHandle(), current_focused_folder);
-                }
-              }
-            }
+            (void)ProjectManager::MoveAsset(handle, current_focused_folder);
           }
 
           if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
             IM_ASSERT(payload->DataSize == sizeof(Handle));
-            auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
             auto entity_handle = *static_cast<Handle*>(payload->Data);
-            auto scene = ApplicationContext::Get().GetActiveScene();
-            if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
-              prefab->FromEntity(entity);
-              // If current folder doesn't contain file with same name
-              auto file_name = scene->GetEntityName(entity);
-              auto file_extension = Serialization::PeekAssetExtensions("Prefab").front();
-              auto file_path = ProjectManager::GenerateNewAssetsRelativePath((current_folder_path / file_name).string(),
-                                                                             file_extension);
-              prefab->SetPathAndSave(file_path);
-            }
+            SaveEntityAsPrefab(current_focused_folder, entity_handle);
           }
 
           ImGui::EndDragDropTarget();
@@ -204,26 +190,21 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
               [&](const std::filesystem::path& path) {
                 const auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
                 if (prefab->Import(path)) {
-                  prefab->SetPathAndSave(current_focused_folder->GetAssetsRelativePath() /
-                                         path.filename().replace_extension(".eveprefab"));
+                  (void)ProjectManager::SaveAsset(prefab, current_focused_folder, path.stem().string(), ".eveprefab",
+                                                  false);
                 }
               },
               false);
 
           if (ImGui::Button("New folder...")) {
-            auto new_path = ProjectManager::GenerateNewAssetsRelativePath(
-                (current_focused_folder->GetAssetsRelativePath() / "New Folder").string(), "");
-            ProjectManager::GetOrCreateFolder(new_path);
+            (void)ProjectManager::CreateFolder(current_focused_folder, "New Folder");
           }
           if (ImGui::BeginMenu("New asset...")) {
             for (auto& i : Serialization::GetInstance().asset_extensions_) {
               if (i.first == "IAsset")
                 continue;
               if (ImGui::Button(i.first.c_str())) {
-                std::string new_file_name = "New " + i.first;
-                std::filesystem::path new_path = ProjectManager::GenerateNewAssetsRelativePath(
-                    (current_focused_folder->GetAssetsRelativePath() / new_file_name).string(), i.second.front());
-                current_focused_folder->GetOrCreateAsset(new_path.stem().string(), new_path.extension().string());
+                (void)ProjectManager::CreateAsset(current_focused_folder, i.first);
               }
             }
             ImGui::EndMenu();
@@ -271,8 +252,7 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
                     ImGui::EndMenu();
                   }
                   if (ImGui::Button(("Remove" + icon_tag).c_str())) {
-                    i.second->parent_.lock()->DeleteChild(i.second->handle_);
-                    updated = true;
+                    updated = ProjectManager::DeleteFolder(i.second->handle_);
                     ImGui::CloseCurrentPopup();
                     ImGui::EndPopup();
                     break;
@@ -284,65 +264,25 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Folder")) {
                   IM_ASSERT(payload->DataSize == sizeof(Handle));
                   if (Handle payload_n = *static_cast<Handle*>(payload->Data); payload_n.GetValue() != 0) {
-                    if (auto received_folder = FileManager::GetFolder(payload_n)) {
-                      if (!i.second->IsSelfOrAncestor(received_folder->handle_) &&
-                          received_folder->parent_.lock().get() != i.second.get()) {
-                        received_folder->parent_.lock()->MoveChild(received_folder->GetHandle(), i.second);
-                      }
-                    }
+                    (void)ProjectManager::MoveFolder(payload_n, i.second);
                   }
                 }
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
                   IM_ASSERT(payload->DataSize == sizeof(Handle));
                   Handle payload_n = *static_cast<Handle*>(payload->Data);
-                  if (const auto asset = AssetManager::GetAssetImpl(payload_n)) {
-                    if (asset->IsTemporary()) {
-                      auto file_extension = Serialization::PeekAssetExtensions(asset->GetTypeName()).front();
-                      auto file_name = "New " + asset->GetTypeName();
-                      auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-                          (i.second->GetAssetsRelativePath() / file_name).string(), file_extension);
-                      asset->SetPathAndSave(file_path);
-                    } else {
-                      if (auto asset_record = asset->file_record_.lock();
-                          asset_record->GetFolder().lock().get() != i.second.get()) {
-                        auto file_extension = asset_record->GetAssetExtension();
-                        auto file_name = asset_record->GetAssetFileName();
-                        auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-                            (i.second->GetAssetsRelativePath() / file_name).string(), file_extension);
-                        asset->SetPathAndSave(file_path);
-                      }
-                    }
-                  } else {
-                    if (const auto file = FileManager::GetFile(payload_n)) {
-                      auto folder = file->GetFolder().lock();
-                      if (folder.get() != i.second.get()) {
-                        folder->MoveAsset(file->GetAssetHandle(), i.second);
-                      }
-                    }
-                  }
+                  (void)ProjectManager::MoveAsset(payload_n, i.second);
                 }
 
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Binary")) {
                   IM_ASSERT(payload->DataSize == sizeof(Handle));
                   Handle payload_n = *static_cast<Handle*>(payload->Data);
-                  if (const auto file = FileManager::GetFile(payload_n))
-                    file->GetFolder().lock()->MoveAsset(payload_n, i.second);
+                  (void)ProjectManager::MoveAsset(payload_n, i.second);
                 }
 
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Entity")) {
                   IM_ASSERT(payload->DataSize == sizeof(Handle));
-                  auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
                   auto entity_handle = *static_cast<Handle*>(payload->Data);
-                  auto scene = ApplicationContext::Get().GetActiveScene();
-                  if (auto entity = scene->GetEntity(entity_handle); scene->IsEntityValid(entity)) {
-                    prefab->FromEntity(entity);
-                    // If current folder doesn't contain file with same name
-                    auto file_name = scene->GetEntityName(entity);
-                    auto file_extension = Serialization::PeekAssetExtensions("Prefab").front();
-                    auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-                        (i.second->GetAssetsRelativePath() / file_name).string(), file_extension);
-                    prefab->SetPathAndSave(file_path);
-                  }
+                  SaveEntityAsPrefab(i.second, entity_handle);
                 }
 
                 ImGui::EndDragDropTarget();
@@ -394,7 +334,7 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
                   ImGui::EndMenu();
                 }
                 if (ImGui::Button(("Delete" + icon_tag).c_str())) {
-                  current_focused_folder->RemoveFile(i.first);
+                  (void)ProjectManager::DeleteAsset(i.first);
                   ImGui::EndPopup();
                   break;
                 }
@@ -619,7 +559,7 @@ void ProjectContentBrowserPanel::DrawSearchResults(const std::shared_ptr<EditorL
           return;
         }
         if (ImGui::Button("Delete")) {
-          file->GetFolder().lock()->RemoveFile(handle);
+          (void)ProjectManager::DeleteAsset(handle);
           updated = true;
           ImGui::CloseCurrentPopup();
           ImGui::EndPopup();
@@ -743,41 +683,13 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
       IM_ASSERT(payload->DataSize == sizeof(Handle));
       Handle payload_n = *static_cast<Handle*>(payload->Data);
       if (payload_n.GetValue() != 0) {
-        if (const auto received_folder = FileManager::GetFolder(payload_n)) {
-          if (!folder->IsSelfOrAncestor(received_folder->handle_) &&
-              received_folder->parent_.lock().get() != folder.get()) {
-            received_folder->parent_.lock()->MoveChild(received_folder->GetHandle(), folder);
-          }
-        }
+        (void)ProjectManager::MoveFolder(payload_n, folder);
       }
     }
     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("Asset")) {
       IM_ASSERT(payload->DataSize == sizeof(Handle));
       Handle payload_n = *static_cast<Handle*>(payload->Data);
-      if (const auto asset = AssetManager::GetAssetImpl(payload_n)) {
-        if (asset->IsTemporary()) {
-          auto file_extension = Serialization::PeekAssetExtensions(asset->GetTypeName()).front();
-          auto file_name = "New " + asset->GetTypeName();
-          auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-              (folder->GetAssetsRelativePath() / file_name).string(), file_extension);
-          asset->SetPathAndSave(file_path);
-        } else {
-          if (auto asset_record = asset->file_record_.lock(); asset_record->GetFolder().lock().get() != folder.get()) {
-            auto file_extension = asset_record->GetAssetExtension();
-            auto file_name = asset_record->GetAssetFileName();
-            auto file_path = ProjectManager::GenerateNewAssetsRelativePath(
-                (folder->GetAssetsRelativePath() / file_name).string(), file_extension);
-            asset->SetPathAndSave(file_path);
-          }
-        }
-      } else {
-        if (const auto file = FileManager::GetFile(payload_n)) {
-          auto previous_folder = file->GetFolder().lock();
-          if (folder && previous_folder.get() != folder.get()) {
-            previous_folder->MoveAsset(file->GetAssetHandle(), folder);
-          }
-        }
-      }
+      (void)ProjectManager::MoveAsset(payload_n, folder);
     }
     ImGui::EndDragDropTarget();
   }
@@ -803,7 +715,7 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
         ImGui::EndMenu();
       }
       if (ImGui::Button(("Remove" + tag).c_str())) {
-        folder->parent_.lock()->DeleteChild(folder->handle_);
+        (void)ProjectManager::DeleteFolder(folder->handle_);
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;

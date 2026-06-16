@@ -8,10 +8,12 @@
 #include "IAsset.hpp"
 #include "Jobs.hpp"
 #include "PackageManager.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
@@ -543,6 +545,7 @@ ApplicationInitializationSettings TestApplicationSettings(const TempProject& pro
   settings.load_default_resources = false;
   settings.load_project_start_scene = false;
   settings.enable_runtime_packages = false;
+  settings.redirect_standard_streams_to_console = false;
   return settings;
 }
 }  // namespace
@@ -779,6 +782,19 @@ TEST(PackageManager, ReportsManifestLibraryAvailability) {
   const auto missing_library_package = find_package("MissingLibraryPackage");
   ASSERT_NE(missing_library_package, packages.end());
   EXPECT_FALSE(missing_library_package->library_exists);
+}
+
+TEST(PackageManager, InitializeDeduplicatesSearchPaths) {
+  TempPackageDirectory package_directory;
+
+  Application app;
+  ApplicationContextScope scope(app);
+  PackageManager::Initialize({package_directory.RootPath(), package_directory.RootPath() / "."}, {});
+
+  const auto expected_path = path_utils::NormalizeAbsolutePath(package_directory.RootPath());
+  const auto search_paths = PackageManager::GetSearchPaths();
+  const auto count = std::count(search_paths.begin(), search_paths.end(), expected_path);
+  EXPECT_EQ(count, 1);
 }
 
 TEST(PackageManager, ModificationIsBlockedWhilePlayingPausedOrStepping) {

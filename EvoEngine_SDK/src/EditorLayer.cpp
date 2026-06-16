@@ -172,6 +172,62 @@ bool UsesLightBackground() {
   return background.x * 0.299f + background.y * 0.587f + background.z * 0.114f > 0.5f;
 }
 
+bool UsesLightTheme() {
+  return editor_theme::GetCurrentTheme() == editor_theme::Theme::Light;
+}
+
+const char* TitleBarLogoIconName() {
+  return UsesLightTheme() ? "TitleBarLogoBlack" : "TitleBarLogoWhite";
+}
+
+ImU32 TitleBarColor() {
+  return UsesLightTheme() ? IM_COL32(246, 247, 248, 255) : kTitleBarColor;
+}
+
+ImU32 TitleBarTextColor() {
+  return UsesLightTheme() ? IM_COL32(28, 31, 34, 255) : kTitleBarText;
+}
+
+ImU32 TitleBarSecondaryTextColor() {
+  return UsesLightTheme() ? IM_COL32(98, 104, 110, 255) : kTitleBarTextDarker;
+}
+
+ImU32 TitleBarMutedColor() {
+  return UsesLightTheme() ? IM_COL32(208, 212, 216, 255) : kTitleBarMuted;
+}
+
+ImU32 TitleBarBorderColor() {
+  return UsesLightTheme() ? IM_COL32(214, 218, 222, 255) : IM_COL32(40, 40, 40, 255);
+}
+
+ImU32 TitleBarMenuPopupBgColor() {
+  return UsesLightTheme() ? IM_COL32(255, 255, 255, 255) : kTitleBarMenuPopupBg;
+}
+
+ImU32 TitleBarMenuPopupBorderColor() {
+  return UsesLightTheme() ? IM_COL32(214, 218, 222, 255) : kTitleBarMenuPopupBorder;
+}
+
+ImU32 TitleBarMenuItemHoveredColor() {
+  return UsesLightTheme() ? IM_COL32(0, 0, 0, 18) : kTitleBarMenuItemHovered;
+}
+
+ImU32 TitleBarSearchBgColor() {
+  return UsesLightTheme() ? IM_COL32(255, 255, 255, 255) : kTitleBarSearchBg;
+}
+
+ImU32 TitleBarSearchHoveredColor() {
+  return UsesLightTheme() ? IM_COL32(250, 251, 252, 255) : kTitleBarSearchHovered;
+}
+
+ImU32 TitleBarSearchActiveColor() {
+  return UsesLightTheme() ? IM_COL32(255, 255, 255, 255) : kTitleBarSearchActive;
+}
+
+ImU32 TitleBarSearchBorderColor() {
+  return UsesLightTheme() ? IM_COL32(194, 200, 206, 255) : kTitleBarSearchBorder;
+}
+
 ImVec4 WarningTextColor() {
   return UsesLightBackground() ? ImVec4(0.70f, 0.38f, 0.04f, 1.0f) : ImVec4(0.95f, 0.67f, 0.24f, 1.0f);
 }
@@ -235,11 +291,12 @@ bool DrawTitleBarImageButton(const char* id, const std::shared_ptr<Texture2D>& i
   const ImRect button_rect(screen_position,
                            ImVec2(screen_position.x + kTitleBarButtonSize, screen_position.y + kTitleBarButtonSize));
   const bool clicked = ImGui::InvisibleButton(id, ImVec2(kTitleBarButtonSize, kTitleBarButtonSize));
-  ImU32 tint = close_button ? kTitleBarText : MultiplyColor(kTitleBarText, 0.9f);
+  const ImU32 title_bar_text = TitleBarTextColor();
+  ImU32 tint = close_button ? title_bar_text : MultiplyColor(title_bar_text, 0.9f);
   if (ImGui::IsItemActive()) {
-    tint = kTitleBarTextDarker;
+    tint = TitleBarSecondaryTextColor();
   } else if (ImGui::IsItemHovered()) {
-    tint = close_button ? MultiplyColor(kTitleBarText, 1.4f) : MultiplyColor(kTitleBarText, 1.2f);
+    tint = close_button ? MultiplyColor(title_bar_text, 1.4f) : MultiplyColor(title_bar_text, 1.2f);
   }
   DrawFittedImage(icon, button_rect, tint);
   return clicked;
@@ -294,8 +351,8 @@ void PushTitleBarMenuStyle() {
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 4.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
-  ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBg));
-  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBorder));
+  ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGui::ColorConvertU32ToFloat4(TitleBarMenuPopupBgColor()));
+  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(TitleBarMenuPopupBorderColor()));
 }
 
 void PopTitleBarMenuStyle() {
@@ -323,8 +380,8 @@ bool BeginTitleBarMenu(const char* label, bool& menu_open) {
       menu_open = false;
       pushed_active_text = false;
     }
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(TitleBarMenuItemHoveredColor()));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(TitleBarMenuItemHoveredColor()));
     return true;
   }
 
@@ -1916,12 +1973,12 @@ float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float co
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, vertical_padding));
   ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-  ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchBg));
-  ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchHovered));
-  ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchActive));
-  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kTitleBarSearchBorder));
-  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kTitleBarText));
-  ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImGui::ColorConvertU32ToFloat4(kTitleBarTextDarker));
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(TitleBarSearchBgColor()));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImGui::ColorConvertU32ToFloat4(TitleBarSearchHoveredColor()));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImGui::ColorConvertU32ToFloat4(TitleBarSearchActiveColor()));
+  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(TitleBarSearchBorderColor()));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(TitleBarTextColor()));
+  ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImGui::ColorConvertU32ToFloat4(TitleBarSecondaryTextColor()));
   auto& search_buffer = TitleBarSearchBuffer(this);
   ImGui::InputTextWithHint("##TitleBarSearch", "Search entities, layers, assets", search_buffer.data(),
                            search_buffer.size());
@@ -1947,11 +2004,11 @@ float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float co
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBg));
-  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuPopupBorder));
-  ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
-  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
-  ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(kTitleBarMenuItemHovered));
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(TitleBarMenuPopupBgColor()));
+  ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(TitleBarMenuPopupBorderColor()));
+  ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(TitleBarMenuItemHoveredColor()));
+  ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(TitleBarMenuItemHoveredColor()));
+  ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(TitleBarMenuItemHoveredColor()));
   constexpr ImGuiWindowFlags search_result_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking |
                                                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
                                                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoFocusOnAppearing |
@@ -2087,9 +2144,9 @@ float EditorLayer::DrawTitleBarSearch(const ImVec2& titlebar_min, const float co
         const ImVec2 label_pos(row_min.x + 8.0f, row_min.y + 4.0f);
         const ImVec2 detail_pos(row_min.x + 8.0f, row_min.y + 20.0f);
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        draw_list->AddText(label_pos, kTitleBarText, result.label.c_str());
+        draw_list->AddText(label_pos, TitleBarTextColor(), result.label.c_str());
         const std::string detail = std::string(TitleBarSearchResultTypeName(result.type)) + " - " + result.detail;
-        draw_list->AddText(detail_pos, kTitleBarTextDarker, detail.c_str());
+        draw_list->AddText(detail_pos, TitleBarSecondaryTextColor(), detail.c_str());
         ImGui::PopID();
       }
       if (results.size() == kTitleBarSearchMaxResults) {
@@ -2123,23 +2180,24 @@ void EditorLayer::DrawCustomTitleBar() {
   ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, 5.0f));
-  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(kTitleBarColor));
-  ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImGui::ColorConvertU32ToFloat4(kTitleBarColor));
-  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(kTitleBarText));
+  const ImU32 title_bar_color = TitleBarColor();
+  ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::ColorConvertU32ToFloat4(title_bar_color));
+  ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImGui::ColorConvertU32ToFloat4(title_bar_color));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(TitleBarTextColor()));
   if (ImGui::Begin("Editor Custom Title Bar", nullptr, flags)) {
     const auto draw_list = ImGui::GetWindowDrawList();
     const ImVec2 titlebar_min = ImGui::GetWindowPos();
     const ImVec2 titlebar_max(titlebar_min.x + ImGui::GetWindowWidth(), titlebar_min.y + kCustomTitleBarHeight);
-    draw_list->AddRectFilled(titlebar_min, titlebar_max, kTitleBarColor);
+    draw_list->AddRectFilled(titlebar_min, titlebar_max, title_bar_color);
     ImU32 titlebar_accent = 0;
     if (CurrentTitleBarAccent(titlebar_accent)) {
       draw_list->AddRectFilledMultiColor(titlebar_min, ImVec2(titlebar_min.x + 380.0f, titlebar_max.y), titlebar_accent,
-                                         kTitleBarColor, kTitleBarColor, titlebar_accent);
+                                         title_bar_color, title_bar_color, titlebar_accent);
     }
 
     const ImVec2 logo_min(titlebar_min.x + kTitleBarLogoX,
                           titlebar_min.y + (kCustomTitleBarHeight - kTitleBarLogoSize) * 0.5f);
-    DrawFittedImage(FindIconInMap(editor_icons_, "TitleBarLogo"),
+    DrawFittedImage(FindIconInMap(editor_icons_, TitleBarLogoIconName()),
                     ImRect(logo_min, ImVec2(logo_min.x + kTitleBarLogoSize, logo_min.y + kTitleBarLogoSize)),
                     IM_COL32_WHITE);
 
@@ -2167,8 +2225,8 @@ void EditorLayer::DrawCustomTitleBar() {
         const ImVec2 scene_pos(titlebar_min.x + scene_x, titlebar_min.y + 6.0f);
         const float separator_y = scene_pos.y + (ImGui::GetFrameHeight() - scene_text_size.y) * 0.5f;
         draw_list->AddRectFilled(ImVec2(scene_pos.x - 8.0f, separator_y - 1.0f),
-                                 ImVec2(scene_pos.x - 6.0f, separator_y + scene_text_size.y + 1.0f), kTitleBarMuted,
-                                 2.0f);
+                                 ImVec2(scene_pos.x - 6.0f, separator_y + scene_text_size.y + 1.0f),
+                                 TitleBarMutedColor(), 2.0f);
         ImGui::SetCursorScreenPos(scene_pos);
         ImGui::PushID("TitleBarSceneAsset");
         ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
@@ -2206,10 +2264,10 @@ void EditorLayer::DrawCustomTitleBar() {
       const ImVec2 project_pos(titlebar_min.x + ImGui::GetWindowWidth() - right_offset - project_size.x,
                                titlebar_min.y + kTitleBarTextY);
       if (project_pos.x > search_reserved_right + 24.0f) {
-        draw_list->AddText(project_pos, kTitleBarTextDarker, project_name.c_str());
+        draw_list->AddText(project_pos, TitleBarSecondaryTextColor(), project_name.c_str());
         draw_list->AddRect(ImVec2(project_pos.x - 12.0f, project_pos.y - 5.0f),
                            ImVec2(project_pos.x + project_size.x + 12.0f, project_pos.y + project_size.y + 5.0f),
-                           IM_COL32(40, 40, 40, 255), 3.0f);
+                           TitleBarBorderColor(), 3.0f);
       }
     }
 
@@ -3350,7 +3408,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
 }
 
 void EditorLayer::LoadIcons() {
-  const auto default_resources = std::filesystem::path("./DefaultResources");
+  const auto default_resources = Resources::GetDefaultResourcesPath();
   auto load_icon = [&](const std::string& name, const std::filesystem::path& path) {
     auto icon = AssetManager::CreateTemporaryAsset<Texture2D>();
     Serialization::LoadAsset(*icon, path);
@@ -3364,7 +3422,8 @@ void EditorLayer::LoadIcons() {
   load_icon("Mesh", default_resources / "Editor/Assets/Mesh.png");
   load_icon("Prefab", default_resources / "Editor/Assets/Prefab.png");
   load_icon("Texture2D", default_resources / "Editor/Assets/Texture2D.png");
-  load_icon("TitleBarLogo", default_resources / "Editor/TitleBar/EvoEngine64White.png");
+  load_icon("TitleBarLogoWhite", default_resources / "Editor/TitleBar/EvoEngine64White.png");
+  load_icon("TitleBarLogoBlack", default_resources / "Icons/EvoEngine64.png");
   load_icon("WindowMinimize", default_resources / "Editor/Window/Minimize.png");
   load_icon("WindowMaximize", default_resources / "Editor/Window/Maximize.png");
   load_icon("WindowRestore", default_resources / "Editor/Window/Restore.png");

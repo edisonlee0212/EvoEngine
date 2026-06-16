@@ -4,13 +4,33 @@
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuService.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
+
+#include <vector>
 using namespace evo_engine;
+
+std::filesystem::path Resources::GetDefaultResourcesPath() {
+  std::vector<std::filesystem::path> candidates;
+  if (const auto executable_path = path_utils::CurrentExecutablePath(); !executable_path.empty()) {
+    candidates.emplace_back(executable_path.parent_path() / "DefaultResources");
+  }
+  candidates.emplace_back(std::filesystem::current_path() / "DefaultResources");
+  candidates.emplace_back(std::filesystem::current_path() / "EvoEngine_SDK/Internals/DefaultResources");
+  if (const auto default_resources = path_utils::FindExistingPath(candidates); !default_resources.empty()) {
+    return default_resources;
+  }
+  return path_utils::NormalizeAbsolutePath("DefaultResources");
+}
+
+std::filesystem::path Resources::GetDefaultResourcePath(const std::filesystem::path& relative_path) {
+  return GetDefaultResourcesPath() / relative_path;
+}
 
 const std::shared_ptr<Texture2D>& Resources::GetMissingTexture() const {
   return missing_texture_;
@@ -52,7 +72,7 @@ void Resources::ClearPrimitives() {
 }
 
 void Resources::LoadPrimitives() {
-  const auto default_resources = std::filesystem::path("./DefaultResources");
+  const auto default_resources = GetDefaultResourcesPath();
   auto load_primitive = [&](std::shared_ptr<Mesh>& primitive, const std::filesystem::path& path) {
     primitive = CreateResource<Mesh>();
     Serialization::LoadAsset(*primitive, path);
@@ -141,18 +161,16 @@ void Resources::Initialize() {
   GeometryStorage::WaitForPendingUploads();
   TextureStorage::DeviceSync();
   resources.missing_texture_ = CreateResource<Texture2D>();
-  Serialization::LoadAsset(*resources.missing_texture_,
-                           std::filesystem::path("./DefaultResources") / "Textures/texture-missing.png");
+  const auto default_resources = GetDefaultResourcesPath();
+  Serialization::LoadAsset(*resources.missing_texture_, default_resources / "Textures/texture-missing.png");
 
   resources.default_environmental_map_texture_ = CreateResource<Texture2D>();
-  Serialization::LoadAsset(
-      *resources.default_environmental_map_texture_,
-      std::filesystem::path("./DefaultResources") / "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_3k.hdr");
+  Serialization::LoadAsset(*resources.default_environmental_map_texture_,
+                           default_resources / "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_3k.hdr");
 
   resources.default_skybox_texture_ = CreateResource<Texture2D>();
-  Serialization::LoadAsset(
-      *resources.default_skybox_texture_,
-      std::filesystem::path("./DefaultResources") / "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_Env.hdr");
+  Serialization::LoadAsset(*resources.default_skybox_texture_,
+                           default_resources / "Textures/Cubemaps/GrandCanyon/GCanyon_C_YumaPoint_Env.hdr");
 
   TextureStorage::DeviceSync();
 

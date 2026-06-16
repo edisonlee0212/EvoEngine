@@ -4,6 +4,7 @@
 #include "Material.hpp"
 #include "MeshRenderer.hpp"
 #include "ProjectManager.hpp"
+#include "Resources.hpp"
 #include "Shader.hpp"
 
 using namespace evo_engine;
@@ -941,7 +942,7 @@ void CpuRayTracer::AggregatedScene::TraceGpu(const std::vector<RayDescriptor>& r
   if (!trace_shader) {
     trace_shader = AssetManager::CreateTemporaryAsset<Shader>();
     trace_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                             std::filesystem::path("./DefaultResources") / "Shaders/Compute/Trace.comp");
+                             Resources::GetDefaultResourcesPath() / "Shaders/Compute/Trace.comp");
   }
 
   if (!trace_pipeline) {

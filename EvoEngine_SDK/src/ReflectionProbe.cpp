@@ -115,11 +115,11 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
   if (!prefilter_construct_pipeline_) {
     prefilter_construct_pipeline_ = std::make_shared<GraphicsPipeline>();
     prefilter_construct_pipeline_->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, std::filesystem::path("./DefaultResources") /
+        Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
                                                         "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
     prefilter_construct_pipeline_->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, std::filesystem::path("./DefaultResources") /
-                                  "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");
+        ShaderType::Fragment,
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");
     prefilter_construct_pipeline_->geometry_type = GeometryType::Mesh;
 
     prefilter_construct_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;

@@ -4,6 +4,7 @@
 #include <Application.hpp>
 
 #include "ClassRegistry.hpp"
+#include "PathUtils.hpp"
 #include "PostProcessingStack.hpp"
 #include "Times.hpp"
 
@@ -18,18 +19,9 @@ void EngineSetup();
 
 int main() {
   Application application;
-  std::filesystem::path resource_folder_path("../../../../../Resources");
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../Resources";
+  auto resource_folder_path = path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
+  if (resource_folder_path.empty()) {
+    resource_folder_path = path_utils::NormalizeAbsolutePath("Resources");
   }
   if (std::filesystem::exists(resource_folder_path)) {
     for (auto i : std::filesystem::recursive_directory_iterator(resource_folder_path)) {

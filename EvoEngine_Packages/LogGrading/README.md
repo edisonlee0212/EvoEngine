@@ -33,10 +33,6 @@ The package entrypoint registers:
 
 - `LogGrader`
 
-`LogGradingApp` still registers:
-
-- `BasicBarkDescriptor` with `.bs`
-
 ## SDK Integration
 
 The package uses SDK private components, meshes, particle lists, materials/descriptors from EcoSysLab, editor inspection, and scene entity/component workflows.

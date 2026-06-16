@@ -3,6 +3,7 @@
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "InspectorRegistry.hpp"
+#include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 
@@ -137,32 +138,10 @@ std::filesystem::path PackageManager::CreateShadowCopy(const std::filesystem::pa
 
 std::vector<std::filesystem::path> PackageManager::BuildDefaultSearchPaths() {
   std::vector<std::filesystem::path> ret_val;
-  auto push_unique = [&](const std::filesystem::path& path) {
-    std::error_code ec;
-    auto absolute_path = std::filesystem::absolute(path, ec);
-    if (ec)
-      absolute_path = path;
-    for (const auto& existing : ret_val) {
-      if (existing == absolute_path)
-        return;
-    }
-    ret_val.emplace_back(absolute_path);
-  };
-
-  push_unique(std::filesystem::current_path() / "Packages");
-#if defined(_WIN32)
-  std::vector<wchar_t> buffer(32768);
-  const auto size = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-  if (size > 0 && size < buffer.size()) {
-    push_unique(std::filesystem::path(buffer.data(), buffer.data() + size).parent_path() / "Packages");
+  path_utils::AddUniqueNormalizedPath(ret_val, std::filesystem::current_path() / "Packages");
+  if (const auto executable_path = path_utils::CurrentExecutablePath(); !executable_path.empty()) {
+    path_utils::AddUniqueNormalizedPath(ret_val, executable_path.parent_path() / "Packages");
   }
-#elif defined(__linux__)
-  std::error_code executable_path_ec;
-  const auto executable_path = std::filesystem::read_symlink("/proc/self/exe", executable_path_ec);
-  if (!executable_path_ec) {
-    push_unique(executable_path.parent_path() / "Packages");
-  }
-#endif
   return ret_val;
 }
 
@@ -376,19 +355,7 @@ void PackageManager::Initialize(const std::vector<std::filesystem::path>& packag
     std::lock_guard lock(manager.mutex_);
     manager.search_paths_ = BuildDefaultSearchPaths();
     for (const auto& path : package_search_paths) {
-      std::error_code ec;
-      auto absolute_path = std::filesystem::absolute(path, ec);
-      if (ec)
-        absolute_path = path;
-      bool exists = false;
-      for (const auto& existing : manager.search_paths_) {
-        if (existing == absolute_path) {
-          exists = true;
-          break;
-        }
-      }
-      if (!exists)
-        manager.search_paths_.emplace_back(absolute_path);
+      path_utils::AddUniqueNormalizedPath(manager.search_paths_, path);
     }
   }
   RefreshManifests();

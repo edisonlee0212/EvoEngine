@@ -19,6 +19,8 @@ add_executable(EvoEngine_Tests
 	Core/TaskRuntimeTest.cpp
 	Core/AssetManagerTest.cpp
 	Core/DemoSceneTest.cpp
+	Core/FileManagerTest.cpp
+	Core/PathUtilsTest.cpp
 	Core/LauncherUtilsTest.cpp
 	Core/GpuServiceTest.cpp
 	Core/InspectorRegistryTest.cpp
@@ -68,6 +70,16 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER ProjectManager.*
 	PROPERTIES LABELS "core,project"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER PathUtils.*
+	PROPERTIES LABELS "core,filesystem"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER FileManager.*
+	PROPERTIES LABELS "core,filesystem"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
