@@ -47,5 +47,8 @@ class RayTracerCamera : public IPrivateComponent {
   void Render();
   void Render(const RayProperties& ray_properties);
   void Render(const RayProperties& ray_properties, const EnvironmentProperties& environment_properties);
+  void RenderSpectral();
+  void RenderSpectral(const RayProperties& ray_properties);
+  void RenderSpectral(const RayProperties& ray_properties, const EnvironmentProperties& environment_properties);
 };
 }  // namespace evo_engine

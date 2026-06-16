@@ -169,6 +169,12 @@ struct CameraRenderingLaunchParams {
   OptixTraversableHandle traversable;
 };
 
+struct CameraSpectralLaunchParams {
+  CameraProperties camera_properties;
+  RayTracerProperties ray_tracer_properties;
+  OptixTraversableHandle traversable;
+};
+
 template <typename T>
 struct IlluminationSampler {
   evo_engine::Vertex v_0;
@@ -200,6 +206,15 @@ struct IlluminationSampler {
 };
 
 struct IlluminationEstimationLaunchParams {
+  unsigned seed = 0;
+  float push_normal_distance = 0.001f;
+  size_t size;
+  RayTracerProperties ray_tracer_properties;
+  IlluminationSampler<glm::vec3>* light_probes;
+  OptixTraversableHandle traversable;
+};
+
+struct IlluminationEstimationSpectralLaunchParams {
   unsigned seed = 0;
   float push_normal_distance = 0.001f;
   size_t size;
@@ -335,9 +350,16 @@ class OptiXRayTracer {
   [[nodiscard]] bool RenderToCamera(const EnvironmentProperties& environment_properties,
                                     CameraProperties& camera_properties, const RayProperties& ray_properties);
 
+  [[nodiscard]] bool RenderToCameraSpectral(const EnvironmentProperties& environment_properties,
+                                            CameraProperties& camera_properties, const RayProperties& ray_properties);
+
   void EstimateIllumination(const size_t& size, const EnvironmentProperties& environment_properties,
                             const RayProperties& ray_properties, const CudaBuffer& light_probes, unsigned seed,
                             float push_normal_distance);
+
+  void EstimateIlluminationSpectral(const size_t& size, const EnvironmentProperties& environment_properties,
+                                    const RayProperties& ray_properties, const CudaBuffer& light_probes,
+                                    unsigned seed, float push_normal_distance);
 
   void ScanPointCloud(const size_t& size, const EnvironmentProperties& environment_properties,
                       const CudaBuffer& samples);
@@ -371,11 +393,15 @@ class OptiXRayTracer {
 #pragma region Pipeline setup
 
   CameraRenderingLaunchParams camera_rendering_launch_params_;
+  CameraSpectralLaunchParams camera_spectral_launch_params_;
   IlluminationEstimationLaunchParams illumination_estimation_launch_params_;
+  IlluminationEstimationSpectralLaunchParams illumination_estimation_spectral_launch_params_;
   PointCloudScanningLaunchParams point_cloud_scanning_launch_params_;
 
   RayTracerPipeline camera_rendering_pipeline_;
+  RayTracerPipeline camera_spectral_pipeline_;
   RayTracerPipeline illumination_estimation_pipeline_;
+  RayTracerPipeline illumination_estimation_spectral_pipeline_;
   RayTracerPipeline point_cloud_scanning_pipeline_;
 
   /*! creates the module that contains all the programs we are going

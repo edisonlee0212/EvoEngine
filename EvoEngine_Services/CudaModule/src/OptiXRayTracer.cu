@@ -455,6 +455,176 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
   return true;
 }
 
+bool OptiXRayTracer::RenderToCameraSpectral(const EnvironmentProperties &environment_properties,
+                                            CameraProperties &camera_properties, const RayProperties &ray_properties) {
+  if (camera_properties.target_frame.size.x == 0 | camera_properties.target_frame.size.y == 0)
+    return true;
+  if (!has_acceleration_structure_)
+    return false;
+  BuildSbt();
+  bool status_changed = false;
+  if (scene_modified)
+    status_changed = true;
+  camera_spectral_launch_params_.camera_properties = camera_properties;
+  status_changed = status_changed || camera_properties.modified;
+  camera_properties.modified = false;
+  if (camera_spectral_launch_params_.ray_tracer_properties.environment.Changed(environment_properties)) {
+    camera_spectral_launch_params_.ray_tracer_properties.environment = environment_properties;
+    status_changed = true;
+  }
+  if (camera_spectral_launch_params_.ray_tracer_properties.ray_properties.Changed(ray_properties)) {
+    camera_spectral_launch_params_.ray_tracer_properties.ray_properties = ray_properties;
+    status_changed = true;
+  }
+  if (!camera_spectral_launch_params_.camera_properties.accumulate || status_changed) {
+    camera_spectral_launch_params_.camera_properties.target_frame.frame_id = 0;
+    camera_properties.target_frame.frame_id = 0;
+  }
+#pragma region Upload parameters
+  camera_spectral_pipeline_.launch_params_buffer.Upload(&camera_spectral_launch_params_, 1);
+  camera_spectral_launch_params_.camera_properties.target_frame.frame_id++;
+  camera_properties.target_frame.frame_id++;
+#pragma endregion
+#pragma region Launch rays from camera
+  OPTIX_CHECK(optixLaunch(/*! pipeline we're launching launch: */
+                          camera_spectral_pipeline_.pipeline, stream_,
+                          /*! parameters and SBT */
+                          camera_spectral_pipeline_.launch_params_buffer.DevicePointer(),
+                          camera_spectral_pipeline_.launch_params_buffer.size_in_bytes,
+                          &camera_spectral_pipeline_.sbt,
+                          /*! dimensions of the launch: */
+                          camera_spectral_launch_params_.camera_properties.target_frame.size.x,
+                          camera_spectral_launch_params_.camera_properties.target_frame.size.y, 1));
+#pragma endregion
+  CUDA_SYNC_CHECK();
+#pragma region Bind output texture
+  cudaArray_t output_array;
+  CUDA_CHECK(GetMipmappedArrayLevel(
+      &output_array, camera_spectral_launch_params_.camera_properties.target_image->mipmapped_image_array, 0));
+#pragma endregion
+#pragma region Copy results to output texture
+  OptixImage2D input_layer[3];
+  input_layer[0].data = camera_spectral_launch_params_.camera_properties.frame_buffer_color.DevicePointer();
+  input_layer[0].width = camera_spectral_launch_params_.camera_properties.target_frame.size.x;
+  input_layer[0].height = camera_spectral_launch_params_.camera_properties.target_frame.size.y;
+  input_layer[0].rowStrideInBytes =
+      camera_spectral_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
+  input_layer[0].pixelStrideInBytes = sizeof(glm::vec4);
+  input_layer[0].format = OPTIX_PIXEL_FORMAT_FLOAT4;
+
+  input_layer[1].data = camera_spectral_launch_params_.camera_properties.frame_buffer_albedo.DevicePointer();
+  input_layer[1].width = camera_spectral_launch_params_.camera_properties.target_frame.size.x;
+  input_layer[1].height = camera_spectral_launch_params_.camera_properties.target_frame.size.y;
+  input_layer[1].rowStrideInBytes =
+      camera_spectral_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
+  input_layer[1].pixelStrideInBytes = sizeof(glm::vec4);
+  input_layer[1].format = OPTIX_PIXEL_FORMAT_FLOAT4;
+
+  input_layer[2].data = camera_spectral_launch_params_.camera_properties.frame_buffer_normal.DevicePointer();
+  input_layer[2].width = camera_spectral_launch_params_.camera_properties.target_frame.size.x;
+  input_layer[2].height = camera_spectral_launch_params_.camera_properties.target_frame.size.y;
+  input_layer[2].rowStrideInBytes =
+      camera_spectral_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
+  input_layer[2].pixelStrideInBytes = sizeof(glm::vec4);
+  input_layer[2].format = OPTIX_PIXEL_FORMAT_FLOAT4;
+
+  switch (camera_spectral_launch_params_.camera_properties.output_type) {
+    case OutputType::Color: {
+#if ENABLE_OPTIX_DENOISER
+      if (camera_properties.denoiser_strength == 0.0f) {
+        CUDA_CHECK(MemcpyToArray(
+            output_array, 0, 0, (void *)camera_spectral_launch_params_.camera_properties.target_frame.color_buffer,
+            sizeof(glm::vec4) * camera_spectral_launch_params_.camera_properties.target_frame.size.x *
+                camera_spectral_launch_params_.camera_properties.target_frame.size.y,
+            cudaMemcpyDeviceToDevice));
+      } else {
+        OptixImage2D output_layer;
+        output_layer.data = camera_spectral_launch_params_.camera_properties.denoised_buffer.DevicePointer();
+        output_layer.width = camera_spectral_launch_params_.camera_properties.target_frame.size.x;
+        output_layer.height = camera_spectral_launch_params_.camera_properties.target_frame.size.y;
+        output_layer.rowStrideInBytes =
+            camera_spectral_launch_params_.camera_properties.target_frame.size.x * sizeof(glm::vec4);
+        output_layer.pixelStrideInBytes = sizeof(glm::vec4);
+        output_layer.format = OPTIX_PIXEL_FORMAT_FLOAT4;
+
+        OptixDenoiserParams denoiserParams;
+        camera_spectral_launch_params_.camera_properties.denoiser_intensity.Resize(sizeof(float));
+        if (camera_spectral_launch_params_.camera_properties.denoiser_intensity.size_in_bytes != sizeof(float))
+          camera_spectral_launch_params_.camera_properties.denoiser_intensity.Resize(sizeof(float));
+        denoiserParams.hdrIntensity =
+            camera_spectral_launch_params_.camera_properties.denoiser_intensity.DevicePointer();
+        if (camera_spectral_launch_params_.camera_properties.accumulate &&
+            camera_spectral_launch_params_.camera_properties.target_frame.frame_id > 1)
+          denoiserParams.blendFactor =
+              (1.0f - camera_properties.denoiser_strength) /
+              camera_spectral_launch_params_.camera_properties.target_frame.frame_id;
+        else
+          denoiserParams.blendFactor = (1.0f - camera_properties.denoiser_strength);
+
+        OPTIX_CHECK(optixDenoiserComputeIntensity(
+            camera_spectral_launch_params_.camera_properties.denoiser,
+            nullptr, &input_layer[0],
+            camera_spectral_launch_params_.camera_properties.denoiser_intensity.DevicePointer(),
+            camera_spectral_launch_params_.camera_properties.denoiser_scratch.DevicePointer(),
+            camera_spectral_launch_params_.camera_properties.denoiser_scratch.size_in_bytes));
+
+        OptixDenoiserLayer denoiser_layer = {};
+        denoiser_layer.input = input_layer[0];
+        denoiser_layer.output = output_layer;
+
+        OptixDenoiserGuideLayer denoiser_guide_layer = {};
+        denoiser_guide_layer.albedo = input_layer[1];
+        denoiser_guide_layer.normal = input_layer[2];
+
+        OPTIX_CHECK(optixDenoiserInvoke(
+            camera_spectral_launch_params_.camera_properties.denoiser,
+            0, &denoiserParams,
+            camera_spectral_launch_params_.camera_properties.denoiser_state.DevicePointer(),
+            camera_spectral_launch_params_.camera_properties.denoiser_state.size_in_bytes, &denoiser_guide_layer,
+            &denoiser_layer, 1,
+            0,
+            0, camera_spectral_launch_params_.camera_properties.denoiser_scratch.DevicePointer(),
+            camera_spectral_launch_params_.camera_properties.denoiser_scratch.size_in_bytes));
+        CUDA_CHECK(MemcpyToArray(
+            output_array, 0, 0, (void *)output_layer.data,
+            sizeof(glm::vec4) * camera_spectral_launch_params_.camera_properties.target_frame.size.x *
+                camera_spectral_launch_params_.camera_properties.target_frame.size.y,
+            cudaMemcpyDeviceToDevice));
+      }
+#else
+      CUDA_CHECK(MemcpyToArray(
+          output_array, 0, 0, (void *)camera_spectral_launch_params_.camera_properties.target_frame.color_buffer,
+          sizeof(glm::vec4) * camera_spectral_launch_params_.camera_properties.target_frame.size.x *
+              camera_spectral_launch_params_.camera_properties.target_frame.size.y,
+          cudaMemcpyDeviceToDevice));
+#endif
+    } break;
+    case OutputType::Normal: {
+      CUDA_CHECK(MemcpyToArray(
+          output_array, 0, 0, (void *)camera_spectral_launch_params_.camera_properties.target_frame.normal_buffer,
+          sizeof(glm::vec4) * camera_spectral_launch_params_.camera_properties.target_frame.size.x *
+              camera_spectral_launch_params_.camera_properties.target_frame.size.y,
+          cudaMemcpyDeviceToDevice));
+    } break;
+    case OutputType::Albedo: {
+      CUDA_CHECK(MemcpyToArray(
+          output_array, 0, 0, (void *)camera_spectral_launch_params_.camera_properties.target_frame.albedo_buffer,
+          sizeof(glm::vec4) * camera_spectral_launch_params_.camera_properties.target_frame.size.x *
+              camera_spectral_launch_params_.camera_properties.target_frame.size.y,
+          cudaMemcpyDeviceToDevice));
+    } break;
+    case OutputType::Depth: {
+      CUDA_CHECK(MemcpyToArray(
+          output_array, 0, 0, (void *)camera_spectral_launch_params_.camera_properties.target_frame.albedo_buffer,
+          sizeof(glm::vec4) * camera_spectral_launch_params_.camera_properties.target_frame.size.x *
+              camera_spectral_launch_params_.camera_properties.target_frame.size.y,
+          cudaMemcpyDeviceToDevice));
+    } break;
+  }
+#pragma endregion
+  return true;
+}
+
 void OptiXRayTracer::EstimateIllumination(const size_t &size, const EnvironmentProperties &environment_properties,
                                           const RayProperties &ray_properties, const CudaBuffer &light_probes,
                                           const unsigned seed, const float push_normal_distance) {
@@ -491,6 +661,41 @@ void OptiXRayTracer::EstimateIllumination(const size_t &size, const EnvironmentP
 #pragma endregion
 }
 
+void OptiXRayTracer::EstimateIlluminationSpectral(const size_t &size,
+                                                  const EnvironmentProperties &environment_properties,
+                                                  const RayProperties &ray_properties,
+                                                  const CudaBuffer &light_probes, const unsigned seed,
+                                                  const float push_normal_distance) {
+  if (!has_acceleration_structure_)
+    return;
+  if (size == 0) {
+    std::cout << "Error: Lightprobe is empty" << std::endl;
+    return;
+  }
+  BuildSbt();
+
+  illumination_estimation_spectral_launch_params_.ray_tracer_properties.environment = environment_properties;
+  illumination_estimation_spectral_launch_params_.ray_tracer_properties.ray_properties = ray_properties;
+#pragma region Upload parameters
+  illumination_estimation_spectral_launch_params_.seed = seed;
+  illumination_estimation_spectral_launch_params_.push_normal_distance = push_normal_distance;
+  illumination_estimation_spectral_launch_params_.size = size;
+  illumination_estimation_spectral_launch_params_.ray_tracer_properties.environment = environment_properties;
+  illumination_estimation_spectral_launch_params_.ray_tracer_properties.ray_properties = ray_properties;
+  illumination_estimation_spectral_launch_params_.light_probes =
+      reinterpret_cast<IlluminationSampler<glm::vec3> *>(light_probes.DevicePointer());
+  illumination_estimation_spectral_pipeline_.launch_params_buffer.Upload(
+      &illumination_estimation_spectral_launch_params_, 1);
+#pragma endregion
+#pragma region Launch rays from light probes
+  OPTIX_CHECK(optixLaunch(illumination_estimation_spectral_pipeline_.pipeline, stream_,
+                          illumination_estimation_spectral_pipeline_.launch_params_buffer.DevicePointer(),
+                          illumination_estimation_spectral_pipeline_.launch_params_buffer.size_in_bytes,
+                          &illumination_estimation_spectral_pipeline_.sbt, size, 1, 1));
+  CUDA_SYNC_CHECK();
+#pragma endregion
+}
+
 void OptiXRayTracer::ScanPointCloud(const size_t &size, const EnvironmentProperties &environment_properties,
                                     const CudaBuffer &samples) {
   if (!has_acceleration_structure_)
@@ -520,6 +725,7 @@ void OptiXRayTracer::ScanPointCloud(const size_t &size, const EnvironmentPropert
 
 OptiXRayTracer::OptiXRayTracer() {
   camera_rendering_launch_params_.camera_properties.target_frame.frame_id = 0;
+  camera_spectral_launch_params_.camera_properties.target_frame.frame_id = 0;
 #ifndef NDEBUG
   EVOENGINE_LOG("Optix: creating optix context...");
 #endif
@@ -588,17 +794,24 @@ void OptiXRayTracer::CreateContext() {
 
 extern "C" char camera_rendering_ptx[];
 extern "C" char illumination_estimation_ptx[];
+extern "C" char camera_spectral_ptx[];
+extern "C" char illumination_estimation_spectral_ptx[];
 extern "C" char point_cloud_scanning_ptx[];
 
 void OptiXRayTracer::CreateModules() {
   CreateModule(camera_rendering_pipeline_, camera_rendering_ptx, "cameraRenderingLaunchParams");
   CreateModule(illumination_estimation_pipeline_, illumination_estimation_ptx, "illuminationEstimationLaunchParams");
+  CreateModule(camera_spectral_pipeline_, camera_spectral_ptx, "cameraSpectralLaunchParams");
+  CreateModule(illumination_estimation_spectral_pipeline_, illumination_estimation_spectral_ptx,
+               "illuminationEstimationSpectralLaunchParams");
   CreateModule(point_cloud_scanning_pipeline_, point_cloud_scanning_ptx, "pointCloudScanningLaunchParams");
 }
 
 void OptiXRayTracer::CreateRayGenPrograms() {
   CreateRayGenProgram(camera_rendering_pipeline_, "__raygen__CR");
   CreateRayGenProgram(illumination_estimation_pipeline_, "__raygen__IE");
+  CreateRayGenProgram(camera_spectral_pipeline_, "__raygen__CS");
+  CreateRayGenProgram(illumination_estimation_spectral_pipeline_, "__raygen__IES");
   CreateRayGenProgram(point_cloud_scanning_pipeline_, "__raygen__PCS");
 }
 
@@ -627,6 +840,53 @@ void OptiXRayTracer::CreateMissPrograms() {
     pg_desc.miss.entryFunctionName = "__miss__CR_SS";
     OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
                                         &camera_rendering_pipeline_.miss_program_groups[RayType::SpacialSampling]));
+#ifndef NDEBUG
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+#endif
+  }
+  {
+    char log[2048];
+    size_t sizeof_log = sizeof(log);
+
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    pg_desc.miss.module = camera_spectral_pipeline_.module;
+
+    pg_desc.miss.entryFunctionName = "__miss__CS_R";
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+                                        &camera_spectral_pipeline_.miss_program_groups[RayType::Radiance]));
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+
+    pg_desc.miss.entryFunctionName = "__miss__CS_SS";
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+                                        &camera_spectral_pipeline_.miss_program_groups[RayType::SpacialSampling]));
+#ifndef NDEBUG
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+#endif
+  }
+  {
+    char log[2048];
+    size_t sizeof_log = sizeof(log);
+
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_MISS;
+    pg_desc.miss.module = illumination_estimation_spectral_pipeline_.module;
+
+    pg_desc.miss.entryFunctionName = "__miss__IES_R";
+    OPTIX_CHECK(optixProgramGroupCreate(optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+                                        &illumination_estimation_spectral_pipeline_.miss_program_groups[RayType::Radiance]));
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+
+    pg_desc.miss.entryFunctionName = "__miss__IES_SS";
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_.miss_program_groups[RayType::SpacialSampling]));
 #ifndef NDEBUG
     if (sizeof_log > 1)
       std::cout << log << std::endl;
@@ -759,6 +1019,136 @@ void OptiXRayTracer::CreateHitGroupPrograms() {
     OPTIX_CHECK(optixProgramGroupCreate(
         optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
         &camera_rendering_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
+
+#ifndef NDEBUG
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+#endif
+  }
+  {
+    char log[2048];
+    size_t sizeof_log = sizeof(log);
+
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    pg_desc.hitgroup.moduleCH = camera_spectral_pipeline_.module;
+    pg_desc.hitgroup.moduleAH = camera_spectral_pipeline_.module;
+
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__CS_R";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__CS_R";
+    pg_desc.hitgroup.entryFunctionNameIS = 0;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Triangle]));
+
+    pg_desc.hitgroup.moduleIS = camera_spectral_pipeline_.linear_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Linear]));
+
+    pg_desc.hitgroup.moduleIS = camera_spectral_pipeline_.quadratic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::QuadraticBSpline]));
+
+    pg_desc.hitgroup.moduleIS = camera_spectral_pipeline_.cubic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
+
+#ifndef NDEBUG
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+#endif
+
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__CS_SS";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__CS_SS";
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Triangle]));
+
+    pg_desc.hitgroup.moduleIS = camera_spectral_pipeline_.linear_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Linear]));
+
+    pg_desc.hitgroup.moduleIS = camera_spectral_pipeline_.quadratic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::QuadraticBSpline]));
+
+    pg_desc.hitgroup.moduleIS = camera_spectral_pipeline_.cubic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &camera_spectral_pipeline_.hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
+
+#ifndef NDEBUG
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+#endif
+  }
+  {
+    char log[2048];
+    size_t sizeof_log = sizeof(log);
+
+    OptixProgramGroupOptions pg_options = {};
+    OptixProgramGroupDesc pg_desc = {};
+    pg_desc.kind = OPTIX_PROGRAM_GROUP_KIND_HITGROUP;
+    pg_desc.hitgroup.moduleCH = illumination_estimation_spectral_pipeline_.module;
+    pg_desc.hitgroup.moduleAH = illumination_estimation_spectral_pipeline_.module;
+
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__IES_R";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__IES_R";
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Triangle]));
+
+    pg_desc.hitgroup.moduleIS = illumination_estimation_spectral_pipeline_.linear_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::Linear]));
+
+    pg_desc.hitgroup.moduleIS = illumination_estimation_spectral_pipeline_.quadratic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_
+             .hit_group_program_groups[RayType::Radiance][PrimitiveType::QuadraticBSpline]));
+
+    pg_desc.hitgroup.moduleIS = illumination_estimation_spectral_pipeline_.cubic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_.hit_group_program_groups[RayType::Radiance][PrimitiveType::CubicBSpline]));
+
+#ifndef NDEBUG
+    if (sizeof_log > 1)
+      std::cout << log << std::endl;
+#endif
+
+    pg_desc.hitgroup.entryFunctionNameCH = "__closesthit__IES_SS";
+    pg_desc.hitgroup.entryFunctionNameAH = "__anyhit__IES_SS";
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_
+             .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Triangle]));
+
+    pg_desc.hitgroup.moduleIS = illumination_estimation_spectral_pipeline_.linear_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_
+             .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::Linear]));
+
+    pg_desc.hitgroup.moduleIS = illumination_estimation_spectral_pipeline_.quadratic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_
+             .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::QuadraticBSpline]));
+
+    pg_desc.hitgroup.moduleIS = illumination_estimation_spectral_pipeline_.cubic_curve_module;
+    OPTIX_CHECK(optixProgramGroupCreate(
+        optix_device_context_, &pg_desc, 1, &pg_options, log, &sizeof_log,
+        &illumination_estimation_spectral_pipeline_
+             .hit_group_program_groups[RayType::SpacialSampling][PrimitiveType::CubicBSpline]));
 
 #ifndef NDEBUG
     if (sizeof_log > 1)
@@ -1362,7 +1752,9 @@ void OptiXRayTracer::BuildIas() {
   device_temp_buffer_ias.Free();
 
   camera_rendering_launch_params_.traversable = i_as_handle;
+  camera_spectral_launch_params_.traversable = i_as_handle;
   illumination_estimation_launch_params_.traversable = i_as_handle;
+  illumination_estimation_spectral_launch_params_.traversable = i_as_handle;
   point_cloud_scanning_launch_params_.traversable = i_as_handle;
   has_acceleration_structure_ = true;
   scene_modified = true;
@@ -1370,7 +1762,9 @@ void OptiXRayTracer::BuildIas() {
 
 void OptiXRayTracer::AssemblePipelines() {
   AssemblePipeline(camera_rendering_pipeline_);
+  AssemblePipeline(camera_spectral_pipeline_);
   AssemblePipeline(illumination_estimation_pipeline_);
+  AssemblePipeline(illumination_estimation_spectral_pipeline_);
   AssemblePipeline(point_cloud_scanning_pipeline_);
 }
 
@@ -1619,6 +2013,88 @@ void OptiXRayTracer::BuildSbt() {
         illumination_estimation_pipeline_.hit_group_records_buffer.DevicePointer();
     illumination_estimation_pipeline_.sbt.hitgroupRecordStrideInBytes = sizeof(IlluminationEstimationRayHitRecord);
     illumination_estimation_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hit_group_records.size());
+  }
+  {
+    std::vector<CameraSpectralRayGenRecord> raygen_records;
+    CameraSpectralRayGenRecord rec;
+    OPTIX_CHECK(optixSbtRecordPackHeader(camera_spectral_pipeline_.ray_gen_program_groups, &rec));
+    rec.data = nullptr;
+    raygen_records.push_back(rec);
+    camera_spectral_pipeline_.ray_gen_records_buffer.Upload(raygen_records);
+    camera_spectral_pipeline_.sbt.raygenRecord = camera_spectral_pipeline_.ray_gen_records_buffer.DevicePointer();
+
+    std::vector<CameraSpectralRayMissRecord> miss_records;
+    for (auto &i : camera_spectral_pipeline_.miss_program_groups) {
+      CameraSpectralRayMissRecord miss_record;
+      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &miss_record));
+      miss_record.data = nullptr;
+      miss_records.push_back(miss_record);
+    }
+    camera_spectral_pipeline_.miss_records_buffer.Upload(miss_records);
+    camera_spectral_pipeline_.sbt.missRecordBase = camera_spectral_pipeline_.miss_records_buffer.DevicePointer();
+    camera_spectral_pipeline_.sbt.missRecordStrideInBytes = sizeof(CameraSpectralRayMissRecord);
+    camera_spectral_pipeline_.sbt.missRecordCount = static_cast<int>(miss_records.size());
+
+    std::vector<CameraSpectralRayHitRecord> hit_group_records;
+    for (auto &instance_pair : instances) {
+      for (int ray_id = 0; ray_id < static_cast<int>(RayType::RayTypeCount); ray_id++) {
+        auto &collection = camera_spectral_pipeline_.hit_group_program_groups[static_cast<RayType>(ray_id)];
+        auto &geometry = geometries[instance_pair.second.geometry_map_key];
+        auto group = collection[geometry.geometry_type];
+        CameraSpectralRayHitRecord hit_record;
+        hit_record.data = shader_binding_tables[instance_pair.first];
+        OPTIX_CHECK(optixSbtRecordPackHeader(group, &hit_record));
+        hit_group_records.push_back(hit_record);
+      }
+    }
+    camera_spectral_pipeline_.hit_group_records_buffer.Upload(hit_group_records);
+    camera_spectral_pipeline_.sbt.hitgroupRecordBase = camera_spectral_pipeline_.hit_group_records_buffer.DevicePointer();
+    camera_spectral_pipeline_.sbt.hitgroupRecordStrideInBytes = sizeof(CameraSpectralRayHitRecord);
+    camera_spectral_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hit_group_records.size());
+  }
+  {
+    std::vector<IlluminationEstimationSpectralRayGenRecord> raygen_records;
+    IlluminationEstimationSpectralRayGenRecord rec;
+    OPTIX_CHECK(optixSbtRecordPackHeader(illumination_estimation_spectral_pipeline_.ray_gen_program_groups, &rec));
+    rec.data = nullptr;
+    raygen_records.push_back(rec);
+    illumination_estimation_spectral_pipeline_.ray_gen_records_buffer.Upload(raygen_records);
+    illumination_estimation_spectral_pipeline_.sbt.raygenRecord =
+        illumination_estimation_spectral_pipeline_.ray_gen_records_buffer.DevicePointer();
+
+    std::vector<IlluminationEstimationSpectralRayMissRecord> miss_records;
+    for (auto &i : illumination_estimation_spectral_pipeline_.miss_program_groups) {
+      IlluminationEstimationSpectralRayMissRecord miss_record;
+      OPTIX_CHECK(optixSbtRecordPackHeader(i.second, &miss_record));
+      miss_record.data = nullptr;
+      miss_records.push_back(miss_record);
+    }
+    illumination_estimation_spectral_pipeline_.miss_records_buffer.Upload(miss_records);
+    illumination_estimation_spectral_pipeline_.sbt.missRecordBase =
+        illumination_estimation_spectral_pipeline_.miss_records_buffer.DevicePointer();
+    illumination_estimation_spectral_pipeline_.sbt.missRecordStrideInBytes =
+        sizeof(IlluminationEstimationSpectralRayMissRecord);
+    illumination_estimation_spectral_pipeline_.sbt.missRecordCount = static_cast<int>(miss_records.size());
+
+    std::vector<IlluminationEstimationSpectralRayHitRecord> hit_group_records;
+    for (auto &instance_pair : instances) {
+      for (int ray_id = 0; ray_id < static_cast<int>(RayType::RayTypeCount); ray_id++) {
+        auto &collection =
+            illumination_estimation_spectral_pipeline_.hit_group_program_groups[static_cast<RayType>(ray_id)];
+        auto &geometry = geometries[instance_pair.second.geometry_map_key];
+        auto group = collection[geometry.geometry_type];
+        IlluminationEstimationSpectralRayHitRecord hit_record;
+        hit_record.data = shader_binding_tables[instance_pair.first];
+        OPTIX_CHECK(optixSbtRecordPackHeader(group, &hit_record));
+        hit_group_records.push_back(hit_record);
+      }
+    }
+    illumination_estimation_spectral_pipeline_.hit_group_records_buffer.Upload(hit_group_records);
+    illumination_estimation_spectral_pipeline_.sbt.hitgroupRecordBase =
+        illumination_estimation_spectral_pipeline_.hit_group_records_buffer.DevicePointer();
+    illumination_estimation_spectral_pipeline_.sbt.hitgroupRecordStrideInBytes =
+        sizeof(IlluminationEstimationSpectralRayHitRecord);
+    illumination_estimation_spectral_pipeline_.sbt.hitgroupRecordCount = static_cast<int>(hit_group_records.size());
   }
 
   {

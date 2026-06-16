@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BSDF.cuh"
 #include "RayTracerUtilities.cuh"
 
 namespace evo_engine {
