@@ -28,6 +28,54 @@ namespace evo_engine {
 
 class ProjectContentBrowserPanel;
 
+struct EditorFloatingWindowLayout {
+  enum class Anchor { UpperLeft, UpperRight, LowerLeft, LowerRight };
+  Anchor anchor = Anchor::UpperLeft;
+  glm::vec2 size = {0.0f, 0.0f};
+  glm::vec2 margin = {0.0f, 0.0f};
+};
+
+struct EditorDockLayoutSettings {
+  float left_fraction = 0.22f;
+  float right_fraction = 0.28f;
+  float bottom_fraction = 0.30f;
+  std::optional<float> camera_fraction;
+};
+
+struct EditorPanelVisibilitySettings {
+  std::optional<bool> scene;
+  std::optional<bool> camera;
+  std::optional<bool> scene_camera_debug;
+  std::optional<bool> scene_info;
+  std::optional<bool> camera_info;
+  std::optional<bool> entity_explorer;
+  std::optional<bool> entity_inspector;
+  std::optional<bool> console;
+  std::optional<bool> project;
+  std::optional<bool> resources;
+  std::optional<bool> runtime_package_manager;
+};
+
+struct EditorRuntimePackageManagerLayoutSettings {
+  EditorFloatingWindowLayout floating_window;
+  float list_width_fraction = 0.36f;
+  float list_width_min = 260.0f;
+  float list_width_max = 420.0f;
+};
+
+struct EditorProjectBrowserLayoutSettings {
+  std::optional<float> hierarchy_width;
+  std::optional<std::filesystem::path> reveal_folder;
+};
+
+struct EditorLayoutSettings {
+  EditorPanelVisibilitySettings panels;
+  std::optional<EditorDockLayoutSettings> dock_layout;
+  std::optional<EditorFloatingWindowLayout> asset_inspector_window;
+  std::optional<EditorRuntimePackageManagerLayoutSettings> runtime_package_manager;
+  std::optional<EditorProjectBrowserLayoutSettings> project_browser;
+};
+
 /**
  * @brief Enumeration of console message types.
  */
@@ -825,6 +873,7 @@ class EditorLayer : public ILayer {
    * @param editor_layer Shared pointer to the active EditorLayer.
    */
   void DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& editor_layer);
+  void RequestEditorLayout(const EditorLayoutSettings& settings);
 
  private:
   ImGuiID dock_space_id;
@@ -895,6 +944,7 @@ class EditorLayer : public ILayer {
   EditorPanelManager editor_panel_manager_;
   std::shared_ptr<ProjectContentBrowserPanel> project_content_browser_panel_;
   bool dock_layout_reset_pending_ = false;
+  std::optional<EditorLayoutSettings> custom_layout_settings_;
 
   bool runtime_package_manager_scanned_ = false;                   /**< Whether package manifests were scanned. */
   std::unordered_set<std::string> selected_runtime_package_names_; /**< Selected runtime packages for bulk loading. */

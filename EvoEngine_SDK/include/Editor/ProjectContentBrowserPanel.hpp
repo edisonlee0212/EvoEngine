@@ -4,6 +4,7 @@
 #include "IHandle.hpp"
 
 #include <array>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,6 +17,8 @@ class ProjectContentBrowserPanel final : public EditorPanel {
  public:
   void Draw(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void RevealAsset(const Handle& asset_handle);
+  void RevealFolder(const std::filesystem::path& assets_relative_path);
+  void SetHierarchyWidth(float width);
 
  private:
   enum class SelectedItemType { None, Folder, File };

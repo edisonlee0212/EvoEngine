@@ -5,8 +5,10 @@ build/
 # Local branch task notes for coding agents
 tasks/
 
-#Docs
-docs/
+# Docs
+docs/*
+!docs/
+!docs/*.md
 
 #3rdParty
 3rdParty
