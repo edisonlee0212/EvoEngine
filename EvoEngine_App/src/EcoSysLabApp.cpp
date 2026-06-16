@@ -3,6 +3,7 @@
 //
 #include <Application.hpp>
 
+#include "AppBootstrap.hpp"
 #include "ClassRegistry.hpp"
 #include "PathUtils.hpp"
 #include "PostProcessingStack.hpp"
@@ -10,15 +11,12 @@
 
 #include "ProjectManager.hpp"
 
-#include "EditorLayer.hpp"
-#include "ImGuiLayer.hpp"
-#include "RenderLayer.hpp"
-#include "WindowLayer.hpp"
 using namespace evo_engine;
 void EngineSetup();
 
-int main() {
+int main(const int argc, char** argv) {
   Application application;
+  const auto application_mode = ParseApplicationModeArguments(argc, argv);
   auto resource_folder_path = path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
   if (resource_folder_path.empty()) {
     resource_folder_path = path_utils::NormalizeAbsolutePath("Resources");
@@ -55,21 +53,20 @@ int main() {
 
   EngineSetup();
 
-  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
-  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
-  ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
-  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+  PushStandardApplicationLayers(application_mode);
 
 #ifdef PHYSX_PHYSICS_SERVICE
   ApplicationContext::Get().PushLayer<PhysicsLayer>();
 #endif
   ApplicationInitializationSettings application_configs;
+  application_configs.application_mode = application_mode;
   application_configs.application_name = "EcoSysLab";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "EcoSysLabProject" / "test.eveproj");
   application_configs.enable_runtime_packages = true;
   application_configs.use_custom_title_bar = true;
   application_configs.startup_runtime_packages = {"EcoSysLab"};
+  ApplyApplicationModeDefaults(application_configs);
   ApplicationContext::Get().Initialize(application_configs);
 
 #ifdef PHYSX_PHYSICS_SERVICE
@@ -77,15 +74,16 @@ int main() {
 #endif
   // adjust default camera speed
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  editor_layer->velocity = 2.f;
-  auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
-  camera_settings.use_clear_color = true;
-  camera_settings.clear_color = glm::vec4(1.f);
-  camera_settings.background_intensity = 3.f;
-  const auto post_processing_stack =
-      editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
-  post_processing_stack->enable_bloom = false;
-  auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (editor_layer) {
+    editor_layer->velocity = 2.f;
+    auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
+    camera_settings.use_clear_color = true;
+    camera_settings.clear_color = glm::vec4(1.f);
+    camera_settings.background_intensity = 3.f;
+    const auto post_processing_stack =
+        editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
+    post_processing_stack->enable_bloom = false;
+  }
 #pragma region Engine Loop
   ApplicationContext::Get().Start();
   ApplicationContext::Get().Run();

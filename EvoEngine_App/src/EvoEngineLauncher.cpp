@@ -1,3 +1,4 @@
+#include "AppBootstrap.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "EditorTheme.hpp"
@@ -18,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <unordered_map>
 #include <vector>
@@ -244,7 +246,8 @@ std::filesystem::path EditorExecutablePath() {
 #endif
 }
 
-bool LaunchEditorProcess(const std::filesystem::path& project_path, std::string& error) {
+bool LaunchEditorProcess(const std::filesystem::path& project_path, const ApplicationMode application_mode,
+                         std::string& error) {
   const auto editor_path = EditorExecutablePath();
   if (!std::filesystem::exists(editor_path)) {
     error = "Could not find EvoEngineEditor next to EvoEngineLauncher.";
@@ -252,8 +255,10 @@ bool LaunchEditorProcess(const std::filesystem::path& project_path, std::string&
   }
 
 #ifdef EVOENGINE_WINDOWS
-  std::wstring command_line =
-      L"\"" + editor_path.wstring() + L"\" --project \"" + std::filesystem::absolute(project_path).wstring() + L"\"";
+  const auto mode_argument = GetApplicationModeArgument(application_mode);
+  const std::wstring wide_mode_argument(mode_argument, mode_argument + std::strlen(mode_argument));
+  std::wstring command_line = L"\"" + editor_path.wstring() + L"\" --project \"" +
+                              std::filesystem::absolute(project_path).wstring() + L"\" " + wide_mode_argument;
   STARTUPINFOW startup_info{};
   startup_info.cb = sizeof(startup_info);
   PROCESS_INFORMATION process_info{};
@@ -267,8 +272,9 @@ bool LaunchEditorProcess(const std::filesystem::path& project_path, std::string&
   CloseHandle(process_info.hThread);
   return true;
 #else
-  const auto command =
-      "\"" + editor_path.string() + "\" --project \"" + std::filesystem::absolute(project_path).string() + "\" &";
+  const auto command = "\"" + editor_path.string() + "\" --project \"" +
+                       std::filesystem::absolute(project_path).string() + "\" " +
+                       GetApplicationModeArgument(application_mode) + " &";
   if (std::system(command.c_str()) != 0) {
     error = "Failed to launch EvoEngineEditor.";
     return false;
@@ -308,6 +314,10 @@ class LauncherLayer final : public ILayer {
     LoadRecentProjects();
     AppendRecentProjectCountTestLog();
     AppendPackageAvailabilityTestLog();
+    if (const char* launch_mode = std::getenv("EVOENGINE_LAUNCHER_TEST_APPLICATION_MODE")) {
+      selected_launch_mode_ = ParseApplicationModeName(launch_mode);
+    }
+    AppendLaunchModeTestLog();
     AppendTestLog("mode:hub");
     if (const char* open_project = std::getenv("EVOENGINE_LAUNCHER_TEST_OPEN_PROJECT")) {
       pending_test_open_project_ = open_project;
@@ -339,6 +349,7 @@ class LauncherLayer final : public ILayer {
   std::vector<AvailablePackageInfo> available_packages_;
   std::vector<std::string> selected_startup_runtime_packages_;
   launcher::PackageAvailability package_availability_;
+  ApplicationMode selected_launch_mode_ = ApplicationMode::Editor;
   std::unordered_map<std::string, std::shared_ptr<Texture2D>> title_bar_icons_;
   bool dock_layout_dirty_ = true;
   ImGuiID dock_space_id_ = 0;
@@ -528,6 +539,8 @@ class LauncherLayer final : public ILayer {
     if (!launch_error_.empty()) {
       ImGui::TextColored(ColorError(), "%s", launch_error_.c_str());
     }
+    DrawLaunchModeSelector(std::min(content_width, 320.0f));
+    ImGui::Spacing();
     ImGui::PushID("RecentOpenProject");
     FileUtils::OpenFile(
         "Open Project", "Project", {".eveproj"},
@@ -565,6 +578,36 @@ class LauncherLayer final : public ILayer {
       }
     }
     ImGui::EndChild();
+  }
+
+  void DrawLaunchModeSelector(const float width) {
+    ImGui::TextUnformatted("Start Mode");
+    ImGui::SetNextItemWidth(width);
+    if (ImGui::BeginCombo("##StartMode", GetApplicationModeName(selected_launch_mode_))) {
+      for (const auto mode : {ApplicationMode::Editor, ApplicationMode::Player, ApplicationMode::Headless}) {
+        const bool selected = selected_launch_mode_ == mode;
+        if (ImGui::Selectable(GetApplicationModeName(mode), selected)) {
+          selected_launch_mode_ = mode;
+          launch_error_.clear();
+          AppendLaunchModeTestLog();
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+    switch (selected_launch_mode_) {
+      case ApplicationMode::Editor:
+        ImGui::TextColored(ColorTextMuted(), "Open with editor UI and tooling.");
+        break;
+      case ApplicationMode::Player:
+        ImGui::TextColored(ColorTextMuted(), "Run the project scene without editor UI.");
+        break;
+      case ApplicationMode::Headless:
+        ImGui::TextColored(ColorTextMuted(), "Run without a window for automation/service use.");
+        break;
+    }
   }
 
   bool DrawRecentProjectRow(const size_t index, const std::filesystem::path& path, const float row_width) {
@@ -767,7 +810,7 @@ class LauncherLayer final : public ILayer {
     }
 
     std::string error;
-    if (!LaunchEditorProcess(project_path, error)) {
+    if (!LaunchEditorProcess(project_path, selected_launch_mode_, error)) {
       launch_error_ = error;
       return;
     }
@@ -807,6 +850,10 @@ class LauncherLayer final : public ILayer {
 
   void AppendRecentProjectCountTestLog() const {
     AppendTestLog("recent-count:" + std::to_string(recent_project_paths_.size()));
+  }
+
+  void AppendLaunchModeTestLog() const {
+    AppendTestLog("launch-mode:" + std::string(GetApplicationModeName(selected_launch_mode_)));
   }
 
   void AddRecentProject(const std::filesystem::path& path) {

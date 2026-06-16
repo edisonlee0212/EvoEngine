@@ -8,16 +8,12 @@
 #include <array>
 #include <filesystem>
 
+#include "AppBootstrap.hpp"
 #include "ClassRegistry.hpp"
 #include "PathUtils.hpp"
 #include "Times.hpp"
 
 #include "ProjectManager.hpp"
-
-#include "EditorLayer.hpp"
-#include "ImGuiLayer.hpp"
-#include "RenderLayer.hpp"
-#include "WindowLayer.hpp"
 
 using namespace evo_engine;
 
@@ -49,17 +45,16 @@ std::filesystem::path ResolveDefaultLSystemProjectPath(const std::filesystem::pa
 
 }  // namespace
 
-int main() {
+int main(const int argc, char** argv) {
   Application application;
+  const auto application_mode = ParseApplicationModeArguments(argc, argv);
   const auto resource_folder_path = FindResourceFolder();
   const auto lsystem_project_path = ResolveDefaultLSystemProjectPath(resource_folder_path);
 
-  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
-  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
-  ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
-  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+  PushStandardApplicationLayers(application_mode);
 
   ApplicationInitializationSettings application_configs;
+  application_configs.application_mode = application_mode;
   application_configs.application_name = "LSystem";
   application_configs.project_path = lsystem_project_path;
   application_configs.enable_runtime_packages = true;
@@ -67,6 +62,7 @@ int main() {
   // Keep LSystem first while also loading DigitalAgriculture so copied
   // default-scene components deserialize with maximal compatibility.
   application_configs.startup_runtime_packages = {"LSystem", "DigitalAgriculture"};
+  ApplyApplicationModeDefaults(application_configs);
   ApplicationContext::Get().Initialize(application_configs);
 
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();

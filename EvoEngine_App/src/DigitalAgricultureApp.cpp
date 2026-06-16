@@ -7,21 +7,19 @@
 #  include <CUDAModule.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
+#include "AppBootstrap.hpp"
 #include "ClassRegistry.hpp"
 #include "PathUtils.hpp"
 #include "Times.hpp"
 
 #include "ProjectManager.hpp"
 
-#include "EditorLayer.hpp"
-#include "ImGuiLayer.hpp"
-#include "RenderLayer.hpp"
-#include "WindowLayer.hpp"
 using namespace evo_engine;
 void EngineSetup();
 
-int main() {
+int main(const int argc, char** argv) {
   Application application;
+  const auto application_mode = ParseApplicationModeArguments(argc, argv);
   auto resource_folder_path = path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
   if (resource_folder_path.empty()) {
     resource_folder_path = path_utils::NormalizeAbsolutePath("Resources");
@@ -58,33 +56,31 @@ int main() {
 
   EngineSetup();
 
-  ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
+  if (application_mode != ApplicationMode::Headless) {
+    ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
 #ifdef CUDA_MODULE_SERVICE
-  ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
+    ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
 #endif
-  ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
-  ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
-  ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+    PushWindowAndUiLayers(application_mode);
+  }
 
   ApplicationInitializationSettings application_configs;
+  application_configs.application_mode = application_mode;
   application_configs.application_name = "DigitalAgriculture";
   application_configs.project_path =
       std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
   application_configs.enable_runtime_packages = true;
   application_configs.use_custom_title_bar = true;
   application_configs.startup_runtime_packages = {"DigitalAgriculture"};
+  ApplyApplicationModeDefaults(application_configs);
   ApplicationContext::Get().Initialize(application_configs);
-
-#ifdef CUDA_MODULE_SERVICE
-
-  auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
-#endif
 
   // adjust default camera speed
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  editor_layer->velocity = 2.f;
-  editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (editor_layer) {
+    editor_layer->velocity = 2.f;
+    editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
+  }
 #pragma region Engine Loop
   ApplicationContext::Get().Start();
   ApplicationContext::Get().Run();

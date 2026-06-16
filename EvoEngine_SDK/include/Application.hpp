@@ -87,6 +87,7 @@ class Application final {
   void PreUpdateInternal();  /**< Perform internal pre-update tasks. */
   void UpdateInternal();     /**< Perform internal update tasks. */
   void LateUpdateInternal(); /**< Perform internal late-update tasks. */
+  void TryStartPendingPlayerAutoplay();
   void ExecuteEndOfLoopActions();
 
   std::vector<std::shared_ptr<ILayer>> layers_; /**< List of all layers added to the application. */
@@ -102,6 +103,7 @@ class Application final {
       post_attach_scene_functions_; /**< Functions called after a scene is attached. */
 
   ExecutionOrder execution_order = ExecutionOrder::NotPlaying; /**< Current execution status of the application. */
+  bool pending_player_autoplay_ = false; /**< Whether player mode should enter play once a start scene is attached. */
 
  public:
   [[nodiscard]] Serialization& GetSerialization();

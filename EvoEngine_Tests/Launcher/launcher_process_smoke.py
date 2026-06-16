@@ -69,6 +69,28 @@ def main() -> int:
             finally:
                 kill_process(editor)
 
+        def editor_player_mode_opens_existing_project() -> None:
+            editor = subprocess.Popen([str(args.editor), "--project", str(project_path), "--player"],
+                                      cwd=args.editor.parent)
+            try:
+                wait_for_window(editor, "Player project", timeout=20)
+            finally:
+                kill_process(editor)
+
+        def editor_headless_mode_initializes_project() -> None:
+            with tempfile.TemporaryDirectory(prefix="EvoEngineLauncherHeadlessSmoke_") as temp_dir:
+                metadata_only_project = write_metadata_only_project(Path(temp_dir))
+                editor = subprocess.Popen([str(args.editor), "--project", str(metadata_only_project), "--headless"],
+                                          cwd=args.editor.parent)
+                try:
+                    wait_until(
+                        "headless metadata-only project start_scene_handle",
+                        lambda: has_start_scene_handle(metadata_only_project),
+                        timeout=20,
+                    )
+                finally:
+                    kill_process(editor)
+
         def editor_creates_metadata_only_start_scene() -> None:
             with tempfile.TemporaryDirectory(prefix="EvoEngineLauncherProcessSmoke_") as temp_dir:
                 metadata_only_project = write_metadata_only_project(Path(temp_dir))
@@ -98,6 +120,8 @@ def main() -> int:
 
         run_subtest("EditorWithoutProject.SpawnsLauncher", editor_without_project_spawns_launcher)
         run_subtest("EditorWithProject.OpensWindow", editor_opens_existing_project)
+        run_subtest("EditorPlayerMode.OpensWindow", editor_player_mode_opens_existing_project)
+        run_subtest("EditorHeadlessMode.InitializesProject", editor_headless_mode_initializes_project)
         run_subtest("MetadataOnlyProject.PersistsStartScene", editor_creates_metadata_only_start_scene)
         run_subtest("LauncherOpenProjectHook.SpawnsEditor", launcher_open_project_hook_spawns_editor)
         return 0
