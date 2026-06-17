@@ -1,10 +1,8 @@
+#include "AppBootstrap.hpp"
 #include "Application.hpp"
 #include "EditorLayer.hpp"
-#include "ImGuiLayer.hpp"
 #include "PathUtils.hpp"
 #include "ProjectManager.hpp"
-#include "RenderLayer.hpp"
-#include "WindowLayer.hpp"
 
 #include <optional>
 #include <stdexcept>
@@ -19,22 +17,29 @@
 using namespace evo_engine;
 
 namespace {
-std::optional<std::filesystem::path> ParseProjectPath(const int argc, char** argv) {
+struct EditorCommandLine {
   std::optional<std::filesystem::path> project_path;
+  ApplicationMode application_mode = ApplicationMode::Editor;
+};
+
+EditorCommandLine ParseCommandLine(const int argc, char** argv) {
+  EditorCommandLine command_line;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
     const std::string argument = argv[arg_index] ? argv[arg_index] : "";
     if (argument == "--project" || argument == "-p") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires a project path.");
       }
-      project_path = std::filesystem::absolute(argv[++arg_index]);
-    } else if (!project_path) {
-      project_path = std::filesystem::absolute(argument);
+      command_line.project_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (ConsumeApplicationModeArgument(argc, argv, arg_index, command_line.application_mode)) {
+      continue;
+    } else if (!command_line.project_path) {
+      command_line.project_path = std::filesystem::absolute(argument);
     } else {
       throw std::invalid_argument("Unknown EvoEngineEditor argument: " + argument);
     }
   }
-  return project_path;
+  return command_line;
 }
 
 std::filesystem::path CurrentExecutablePath() {
@@ -89,7 +94,8 @@ int main(const int argc, char** argv) {
   Application application;
   bool initialized = false;
   try {
-    const auto project_path = ParseProjectPath(argc, argv);
+    const auto command_line = ParseCommandLine(argc, argv);
+    const auto& project_path = command_line.project_path;
     if (!project_path) {
       std::string error;
       if (!LaunchLauncherProcess(error)) {
@@ -103,18 +109,17 @@ int main(const int argc, char** argv) {
       return 1;
     }
 
-    ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
-    ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
-    ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
-    ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+    PushStandardApplicationLayers(command_line.application_mode);
 
     ApplicationInitializationSettings application_info{};
+    application_info.application_mode = command_line.application_mode;
     const auto launch_metadata = ProjectManager::LoadProjectLaunchMetadata(*project_path);
     application_info.application_name = launch_metadata.application_name;
     application_info.project_path = *project_path;
     application_info.use_custom_title_bar = true;
     application_info.startup_runtime_packages = launch_metadata.startup_runtime_packages;
     application_info.enable_runtime_packages = !application_info.startup_runtime_packages.empty();
+    ApplyApplicationModeDefaults(application_info);
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

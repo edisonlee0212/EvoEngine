@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include "AppBootstrap.hpp"
 #include "LauncherUtils.hpp"
 
 #include <chrono>
@@ -78,6 +79,18 @@ TEST(LauncherUtils, BuildsProjectMetadataFromSelectedPackages) {
   EXPECT_EQ(metadata.application_name, "NewProject");
   EXPECT_EQ(metadata.preferred_editor, "EvoEngineEditor");
   EXPECT_EQ(metadata.startup_runtime_packages, selected_packages);
+}
+
+TEST(LauncherUtils, ApplicationModeNamesAndArgumentsAreStable) {
+  EXPECT_EQ(ParseApplicationModeName("Editor"), ApplicationMode::Editor);
+  EXPECT_EQ(ParseApplicationModeName("player"), ApplicationMode::Player);
+  EXPECT_EQ(ParseApplicationModeName("Headless"), ApplicationMode::Headless);
+  EXPECT_STREQ(GetApplicationModeName(ApplicationMode::Editor), "Editor");
+  EXPECT_STREQ(GetApplicationModeName(ApplicationMode::Player), "Player");
+  EXPECT_STREQ(GetApplicationModeName(ApplicationMode::Headless), "Headless");
+  EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Editor), "--editor");
+  EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Player), "--player");
+  EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Headless), "--headless");
 }
 
 TEST(LauncherUtils, ValidatesProjectNamesAndCreatePaths) {

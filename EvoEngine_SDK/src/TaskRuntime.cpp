@@ -1,5 +1,7 @@
 #include "TaskRuntime.hpp"
 
+#include "Profiler.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -135,6 +137,7 @@ void TaskRuntime::Initialize(const TaskRuntimeSettings& settings) {
   completed_task_size_ = 0;
   failed_task_size_ = 0;
   main_thread_id_ = std::this_thread::get_id();
+  Profiler::GetInstance().RegisterThread("MainThread");
   StartExecutor(worker_executor_, std::max<size_t>(1, settings.worker_thread_size), "Worker");
   StartExecutor(asset_io_executor_, settings.asset_io_thread_size, "AssetIo");
   StartExecutor(gpu_executor_, settings.gpu_thread_size, "Gpu");
@@ -432,7 +435,9 @@ void TaskRuntime::StartExecutor(ExecutorState& executor, const size_t thread_siz
   executor.name = name;
   executor.stopping = false;
   for (size_t i = 0; i < thread_size; ++i) {
-    executor.threads.emplace_back(std::make_unique<std::thread>([this, &executor]() {
+    const auto thread_name = name + "-" + std::to_string(i);
+    executor.threads.emplace_back(std::make_unique<std::thread>([this, &executor, thread_name]() {
+      Profiler::GetInstance().RegisterThread(thread_name);
       ExecutorLoop(executor);
     }));
   }
@@ -575,7 +580,10 @@ void TaskRuntime::RunTask(const TaskHandle& handle, const TaskExecutorType execu
   const auto previous_executor = g_current_executor;
   g_current_task_runtime = this;
   g_current_executor = executor;
+  const std::string task_name =
+      options.debug_name.empty() ? std::string(ExecutorName(executor)) + " Task" : options.debug_name;
   try {
+    const ProfilerScope profiler_scope(task_name, "Task");
     if (!cancellation_token.IsCancellationRequested() && function) {
       function();
     }

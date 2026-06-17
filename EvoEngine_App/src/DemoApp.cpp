@@ -1,3 +1,4 @@
+#include "AppBootstrap.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
@@ -30,6 +31,7 @@ enum class DemoAppRunMode { Normal, SmokeTest, EditorScreenshot };
 
 struct DemoAppRuntimeConfig {
   DemoAppRunMode mode = DemoAppRunMode::Normal;
+  ApplicationMode application_mode = ApplicationMode::Editor;
   DemoSetup demo_setup = DemoSetup::Rendering;
   size_t frames_after_play = 100;
   size_t warmup_frames = 30;
@@ -42,18 +44,36 @@ struct DemoAppRuntimeConfig {
   std::filesystem::path done_file;
 };
 
-std::optional<std::filesystem::path> FindRunConfigPath(const int argc, char** argv) {
+struct DemoAppCommandLine {
+  std::optional<std::filesystem::path> run_config_path;
+  std::optional<ApplicationMode> application_mode;
+};
+
+DemoAppCommandLine ParseCommandLine(const int argc, char** argv) {
+  DemoAppCommandLine command_line;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
     const std::string argument = argv[arg_index] ? argv[arg_index] : "";
     if (argument == "--run-config") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--run-config requires a path.");
       }
-      return std::filesystem::absolute(argv[arg_index + 1]);
+      command_line.run_config_path = std::filesystem::absolute(argv[++arg_index]);
+    } else {
+      auto mode = command_line.application_mode.value_or(ApplicationMode::Editor);
+      if (!ConsumeApplicationModeArgument(argc, argv, arg_index, mode)) {
+        throw std::invalid_argument("Unknown DemoApp argument: " + argument);
+      }
+      command_line.application_mode = mode;
     }
-    throw std::invalid_argument("Unknown DemoApp argument: " + argument);
   }
+  return command_line;
+}
 
+std::optional<std::filesystem::path> FindRunConfigPath(const DemoAppCommandLine& command_line, const int argc,
+                                                       char** argv) {
+  if (command_line.run_config_path) {
+    return command_line.run_config_path;
+  }
   std::vector<std::filesystem::path> candidates;
   if (argc > 0 && argv[0]) {
     candidates.emplace_back(std::filesystem::absolute(argv[0]).parent_path() / "DemoApp.run.yaml");
@@ -99,6 +119,9 @@ DemoAppRuntimeConfig LoadRunConfig(const std::filesystem::path& path) {
       throw std::invalid_argument("Unknown mode value: " + mode_name);
     }
   }
+  if (const auto application_mode = root["application_mode"]) {
+    config.application_mode = ParseApplicationModeName(application_mode.as<std::string>());
+  }
   if (const auto demo_setup = root["demo_setup"]) {
     config.demo_setup = ParseDemoSetup(demo_setup.as<std::string>());
   }
@@ -143,7 +166,8 @@ int FailSmokeTest(Application& application, const std::string& reason) {
 
 int RunSmokeTest(const DemoAppRuntimeConfig& config) {
   auto& application = ApplicationContext::Get();
-  application.Start(false);
+  const bool expect_player_autoplay = config.application_mode == ApplicationMode::Player;
+  application.Start(expect_player_autoplay);
 
   size_t load_frame_count = 0;
   while (!ProjectManager::IsProjectIdle()) {
@@ -164,9 +188,15 @@ int RunSmokeTest(const DemoAppRuntimeConfig& config) {
   }
 
   const auto loaded_frame = Platform::GetFrameCount();
-  application.Play();
-  if (!application.IsPlaying()) {
-    return FailSmokeTest(application, "application did not enter play mode");
+  if (expect_player_autoplay) {
+    if (!application.IsPlaying()) {
+      return FailSmokeTest(application, "player mode did not enter play mode automatically");
+    }
+  } else {
+    application.Play();
+    if (!application.IsPlaying()) {
+      return FailSmokeTest(application, "application did not enter play mode");
+    }
   }
 
   const auto play_start_frame = Platform::GetFrameCount();
@@ -426,27 +456,35 @@ int main(const int argc, char** argv) {
   bool initialized = false;
   bool automated_run = false;
   try {
-    const auto run_config_path = FindRunConfigPath(argc, argv);
+    const auto command_line = ParseCommandLine(argc, argv);
+    const auto run_config_path = FindRunConfigPath(command_line, argc, argv);
     std::optional<DemoAppRuntimeConfig> runtime_config;
     if (run_config_path) {
       runtime_config = LoadRunConfig(*run_config_path);
     }
+    if (runtime_config && command_line.application_mode) {
+      runtime_config->application_mode = *command_line.application_mode;
+    }
     const auto demo_setup = runtime_config ? runtime_config->demo_setup : DemoSetup::Rendering;
+    auto application_mode = command_line.application_mode.value_or(ApplicationMode::Editor);
+    if (runtime_config) {
+      application_mode = runtime_config->mode == DemoAppRunMode::EditorScreenshot ? ApplicationMode::Editor
+                                                                                  : runtime_config->application_mode;
+    }
 
-    ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
-    ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
-    ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
-    ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
+    PushStandardApplicationLayers(application_mode);
 #ifdef PHYSX_PHYSICS_SERVICE
     ApplicationContext::Get().PushLayer<PhysicsLayer>();
 #endif
 
     ApplicationInitializationSettings application_info;
     SetupDemoScene(demo_setup, application_info);
+    application_info.application_mode = application_mode;
     if (runtime_config && runtime_config->mode == DemoAppRunMode::EditorScreenshot) {
       application_info.default_window_size = {runtime_config->screenshot_width, runtime_config->screenshot_height};
     }
     application_info.use_custom_title_bar = true;
+    ApplyApplicationModeDefaults(application_info);
 
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;

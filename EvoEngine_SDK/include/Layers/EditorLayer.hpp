@@ -10,6 +10,7 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "PrivateComponentRef.hpp"
+#include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
@@ -53,6 +54,7 @@ struct EditorPanelVisibilitySettings {
   std::optional<bool> console;
   std::optional<bool> project;
   std::optional<bool> resources;
+  std::optional<bool> profiler;
   std::optional<bool> runtime_package_manager;
 };
 
@@ -320,6 +322,7 @@ class EditorLayer : public ILayer {
   bool show_entity_explorer_window = true;  /**< Indicates whether the entity explorer window is visible. */
   bool show_entity_inspector_window = true; /**< Indicates whether the entity inspector window is visible. */
   bool show_package_manager_window = false; /**< Indicates whether the runtime package manager window is visible. */
+  bool show_profiler_window = false;        /**< Indicates whether the profiler window is visible. */
   bool main_camera_focus_override = false;  /**< Indicates if the main camera focus has been overridden. */
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
@@ -905,6 +908,7 @@ class EditorLayer : public ILayer {
   void DrawConsoleWindow();
   void DrawAssetInspectorWindows();
   void DrawRuntimePackageManagerWindow();
+  void DrawProfilerWindow();
   void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
   void DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene);
   void DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
@@ -934,6 +938,14 @@ class EditorLayer : public ILayer {
 
   Handle scene_camera_handle_ = 0;                          /**< Handle to the scene camera. */
   std::unordered_map<Handle, EditorCamera> editor_cameras_; /**< Map of handles to editor cameras. */
+
+  bool profiler_panel_paused_ = false;
+  bool profiler_pause_on_next_frame_ = false;
+  int profiler_history_length_ = 240;
+  int profiler_selected_frame_index_ = -1;
+  uint64_t profiler_cached_latest_frame_index_ = 0;
+  std::vector<ProfilerFrameStats> profiler_panel_frames_;
+  std::string profiler_export_status_;
 
   std::vector<GizmoMeshTask> gizmo_mesh_tasks_;                    /**< List of tasks for gizmo meshes. */
   std::vector<GizmoInstancedMeshTask> gizmo_instanced_mesh_tasks_; /**< List of tasks for instanced gizmo meshes. */

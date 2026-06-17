@@ -30,6 +30,7 @@
 #include "Prefab.hpp"
 #include "PrivateComponentRef.hpp"
 #include "ProceduralNoise.hpp"
+#include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "ReflectionProbe.hpp"
 #include "RenderLayer.hpp"
@@ -1232,6 +1233,7 @@ Application::Application()
       times_(std::make_unique<Times>()),
       transform_graph_(std::make_unique<TransformGraph>()) {
   ApplicationContext::Set(this);
+  Profiler::GetInstance().RegisterThread("MainThread");
 }
 
 Application::~Application() {
@@ -1309,6 +1311,7 @@ TransformGraph& Application::GetTransformGraph() {
 
 void Application::PreUpdateInternal() {
   ApplicationContextScope application_scope(*this);
+  const ProfilerScope profile_scope("Application::PreUpdate", "Frame");
   auto& times = GetTimes();
   const auto now = std::chrono::system_clock::now();
   const std::chrono::duration<double> delta_time = now - times.last_update_time_;
@@ -1338,7 +1341,9 @@ void Application::PreUpdateInternal() {
   run_asset_tasks();
   ProjectManager::PreUpdate();
   run_asset_tasks();
+  TryStartPendingPlayerAutoplay();
   if (this->active_scene_) {
+    const ProfilerScope scene_scope("Application::ScenePreUpdate", "Scene");
     TransformGraph::CalculateTransformGraphs(this->active_scene_);
     for (const auto& i : this->external_pre_update_functions_)
       i();
@@ -1347,11 +1352,14 @@ void Application::PreUpdateInternal() {
     }
   }
 
-  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
-    const auto layer = this->layers_[layer_index];
-    layer->PreUpdate();
-    if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
-      ++layer_index;
+  {
+    const ProfilerScope layers_scope("Application::LayerPreUpdate", "Layer");
+    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+      const auto layer = this->layers_[layer_index];
+      layer->PreUpdate();
+      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+        ++layer_index;
+      }
     }
   }
   if (times.steps_ == 0) {
@@ -1389,6 +1397,7 @@ void Application::PreUpdateInternal() {
 
 void Application::UpdateInternal() {
   ApplicationContextScope application_scope(*this);
+  const ProfilerScope profile_scope("Application::Update", "Frame");
   if (this->execution_status_ == ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application uninitialized!")
     return;
@@ -1398,22 +1407,27 @@ void Application::UpdateInternal() {
 
   this->execution_order = ExecutionOrder::Update;
   if (this->active_scene_) {
+    const ProfilerScope scene_scope("Application::SceneUpdate", "Scene");
     if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
       this->active_scene_->Update();
     }
   }
 
-  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
-    const auto layer = this->layers_[layer_index];
-    layer->Update();
-    if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
-      ++layer_index;
+  {
+    const ProfilerScope layers_scope("Application::LayerUpdate", "Layer");
+    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+      const auto layer = this->layers_[layer_index];
+      layer->Update();
+      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+        ++layer_index;
+      }
     }
   }
   for (const auto& i : this->external_update_functions_)
     i();
 
   if (const auto render_layer = GetLayer<RenderLayer>()) {
+    const ProfilerScope render_scope("Application::PrepareRendering", "Render");
     render_layer->PrepareForRendering();
     render_layer->ClearAllEditorCameras();
     render_layer->ClearAllCameras();
@@ -1422,6 +1436,7 @@ void Application::UpdateInternal() {
 
 void Application::LateUpdateInternal() {
   ApplicationContextScope application_scope(*this);
+  const ProfilerScope profile_scope("Application::LateUpdate", "Frame");
   if (this->execution_status_ == ExecutionStatus::Uninitialized) {
     EVOENGINE_ERROR("Application uninitialized!")
     return;
@@ -1446,16 +1461,19 @@ void Application::LateUpdateInternal() {
     this->execution_order = ExecutionOrder::LateUpdate;
 
     if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
+      const ProfilerScope scene_scope("Application::SceneLateUpdate", "Scene");
       this->active_scene_->LateUpdate();
     }
 
     if (render_layer) {
+      const ProfilerScope render_scope("Application::RenderSubmission", "Render");
       render_layer->RenderAll();
       render_layer->RenderGizmos();
     }
   }
 
   if (window_layer) {
+    const ProfilerScope window_scope("Application::WindowRender", "Render");
     window_layer->Render();
   }
   if (render_layer) {
@@ -1642,8 +1660,10 @@ void Application::Start(const bool autoplay) {
   auto& times = GetTimes();
   times.start_time_ = std::chrono::system_clock::now();
   times.steps_ = times.frames_ = 0;
-  if (const auto editor_layer = GetLayer<EditorLayer>(); !editor_layer && autoplay)
-    Play();
+  const bool runtime_autoplay_mode = initialization_settings.application_mode == ApplicationMode::Player ||
+                                     initialization_settings.application_mode == ApplicationMode::Headless;
+  pending_player_autoplay_ = autoplay && runtime_autoplay_mode && !GetLayer<EditorLayer>();
+  TryStartPendingPlayerAutoplay();
 }
 
 void Application::Run() {
@@ -1654,6 +1674,8 @@ void Application::Run() {
 bool Application::Loop() {
   const ApplicationContextScope application_scope(*this);
   if (this->execution_status_ != ExecutionStatus::OnDestroy) {
+    const ProfilerFrameScope profiler_frame_scope;
+    const ProfilerScope profiler_scope("Application::Loop", "Frame");
     PreUpdateInternal();
     UpdateInternal();
     LateUpdateInternal();
@@ -1686,6 +1708,7 @@ void Application::ExecuteEndOfLoopActions() {
 void Application::Terminate() {
   ApplicationContextScope application_scope(*this);
   this->execution_status_ = ExecutionStatus::OnDestroy;
+  pending_player_autoplay_ = false;
   const bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
   for (auto i = this->layers_.rbegin(); i != this->layers_.rend(); ++i) {
     (*i)->OnDestroy();
@@ -1757,6 +1780,7 @@ bool Application::RemoveLayersOwnedByPackage(const std::string& package_name) {
 
 void Application::Attach(const std::shared_ptr<Scene>& scene) {
   ApplicationContextScope application_scope(*this);
+  const ProfilerScope profiler_scope("Application::AttachScene", "Scene Sync");
   if (this->execution_status_ == ExecutionStatus::Playing) {
     EVOENGINE_ERROR("Stop Application to attach scene")
   }
@@ -1768,6 +1792,16 @@ void Application::Attach(const std::shared_ptr<Scene>& scene) {
   for (const auto& layer : this->layers_) {
     layer->scene_ = scene;
   }
+  TryStartPendingPlayerAutoplay();
+}
+
+void Application::TryStartPendingPlayerAutoplay() {
+  if (!pending_player_autoplay_ || !active_scene_ || execution_status_ != ExecutionStatus::NotPlaying ||
+      !ProjectManager::IsProjectIdle()) {
+    return;
+  }
+  pending_player_autoplay_ = false;
+  Play();
 }
 
 void Application::Play() {

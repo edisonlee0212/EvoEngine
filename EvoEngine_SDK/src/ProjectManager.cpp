@@ -2,6 +2,7 @@
 #include "Application.hpp"
 #include "EditorLayer.hpp"
 #include "PathUtils.hpp"
+#include "Profiler.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
 #include "WindowLayer.hpp"
@@ -336,6 +337,7 @@ void ProjectManager::SetupDefaultScene() {
   if (ArmSceneLoadingPopupBeforeSetup()) {
     return;
   }
+  const ProfilerScope profiler_scope("ProjectManager::SetupDefaultScene", "Scene Load");
   auto& project_manager = GetInstance();
   project_manager.loading_status_ = "Loading start scene...";
   const auto setup_start = LoadingClock::now();
@@ -373,6 +375,7 @@ void ProjectManager::SetupDefaultScene() {
       LogLoadingDuration("Scene post-load actions", post_load_start);
       project_manager.loading_status_ = "Synchronizing scene transforms...";
       const auto transform_start = LoadingClock::now();
+      const ProfilerScope transform_scope("ProjectManager::SceneTransformSync", "Scene Sync");
       TransformGraph::CalculateTransformGraphs(scene);
       LogLoadingDuration("Scene transform graph sync", transform_start);
     }
@@ -400,6 +403,7 @@ void ProjectManager::SetupDefaultScene() {
       LogLoadingDuration("New-scene actions", customizer_start);
       project_manager.loading_status_ = "Synchronizing scene transforms...";
       const auto transform_start = LoadingClock::now();
+      const ProfilerScope transform_scope("ProjectManager::SceneTransformSync", "Scene Sync");
       TransformGraph::CalculateTransformGraphs(scene);
       LogLoadingDuration("Scene transform graph sync", transform_start);
     }
@@ -529,6 +533,7 @@ ProjectLaunchMetadata ProjectManager::GetProjectLaunchMetadata() {
 }
 
 void ProjectManager::LoadAllPendingAssets() {
+  const ProfilerScope profiler_scope("ProjectManager::LoadAllPendingAssets", "Asset Load");
   auto& project_manager = GetInstance();
   if (project_manager.pending_assets.empty()) {
     return;
@@ -567,6 +572,7 @@ void ProjectManager::LoadAllPendingAssets() {
   }
 
   const auto blocking_load_start = LoadingClock::now();
+  const ProfilerScope blocking_load_scope("ProjectManager::BlockingProjectAssetLoad", "Asset Load");
   for (const auto& handle : blocking_handles) {
     AssetManager::GetAssetImpl(handle);
   }
@@ -630,6 +636,7 @@ bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
 }
 
 void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
+  const ProfilerScope profiler_scope("ProjectManager::GetOrCreateProject", "Project");
   auto& project_manager = GetInstance();
   auto project_absolute_path = std::filesystem::absolute(path);
   if (std::filesystem::is_directory(project_absolute_path)) {
@@ -710,6 +717,7 @@ void ProjectManager::SetActionAfterNewScene(const std::function<void(const std::
 }
 
 void ProjectManager::ScanAssets() {
+  const ProfilerScope profiler_scope("ProjectManager::ScanAssets", "Asset Load");
   auto& project_manager = GetInstance();
   project_manager.loading_status_ = "Scanning assets...";
   const auto scan_start = LoadingClock::now();

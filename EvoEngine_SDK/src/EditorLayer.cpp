@@ -22,6 +22,7 @@
 #include "Serialization.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
+#include "Utilities.hpp"
 #include "WindowLayer.hpp"
 
 #include "imgui_internal.h"
@@ -31,6 +32,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <filesystem>
 #include <functional>
 #include <unordered_map>
 
@@ -93,6 +95,23 @@ bool CurrentTitleBarAccent(ImU32& accent) {
       return false;
   }
   return false;
+}
+
+ImU32 ProfilerCategoryColor(const std::string& category) {
+  const auto hash = std::hash<std::string>{}(category);
+  const float hue = static_cast<float>(hash % 360) / 360.0f;
+  float r = 0.0f;
+  float g = 0.0f;
+  float b = 0.0f;
+  ImGui::ColorConvertHSVtoRGB(hue, 0.55f, 0.90f, r, g, b);
+  return ImGui::GetColorU32(ImVec4(r, g, b, 0.85f));
+}
+
+std::filesystem::path DefaultProfilerTracePath() {
+  if (ProjectManager::HasProject()) {
+    return ProjectManager::GetProjectPath().parent_path() / "ProfilerTrace.json";
+  }
+  return std::filesystem::current_path() / "ProfilerTrace.json";
 }
 
 bool TextContainsCaseInsensitive(const std::string& text, const std::string& query) {
@@ -1171,6 +1190,9 @@ void EditorLayer::RegisterEditorPanels() {
                  [this](const std::shared_ptr<EditorLayer>&) {
                    DrawRuntimePackageManagerWindow();
                  });
+  register_panel("profiler", "Profiler", show_profiler_window, [this](const std::shared_ptr<EditorLayer>&) {
+    DrawProfilerWindow();
+  });
   register_panel("resources", "Resources", Resources::GetInstance().show_resources_,
                  [](const std::shared_ptr<EditorLayer>& editor_layer) {
                    Resources::Draw(editor_layer);
@@ -1490,11 +1512,17 @@ void EditorLayer::DrawConsoleWindow() {
     ImGui::SameLine();
     ImGui::Checkbox("Error", &enable_console_errors_);
     ImGui::SameLine();
+    std::vector<ConsoleMessage> console_messages;
     if (ImGui::Button("Clear all")) {
+      std::lock_guard lock(console_message_mutex_);
       console_messages_.clear();
     }
+    {
+      std::lock_guard lock(console_message_mutex_);
+      console_messages = console_messages_;
+    }
     int i = 0;
-    for (auto msg = console_messages_.rbegin(); msg != console_messages_.rend(); ++msg) {
+    for (auto msg = console_messages.rbegin(); msg != console_messages.rend(); ++msg) {
       if (i > 999)
         break;
       i++;
@@ -1963,6 +1991,234 @@ void EditorLayer::DrawRuntimePackageManagerWindow() {
   ImGui::End();
 }
 
+void EditorLayer::DrawProfilerWindow() {
+  if (!show_profiler_window) {
+    return;
+  }
+
+  auto& profiler = Profiler::GetInstance();
+  bool profiler_open = show_profiler_window;
+  if (!ImGui::Begin("Profiler", &profiler_open)) {
+    show_profiler_window = profiler_open;
+    ImGui::End();
+    return;
+  }
+  show_profiler_window = profiler_open;
+
+  bool capture_enabled = profiler.IsEnabled();
+  if (ImGui::Checkbox("Capture", &capture_enabled)) {
+    profiler.SetEnabled(capture_enabled);
+  }
+  ImGui::SameLine();
+  if (ImGui::Button(profiler_panel_paused_ ? "Resume" : "Pause")) {
+    profiler_panel_paused_ = !profiler_panel_paused_;
+  }
+  ImGui::SameLine();
+  ImGui::Checkbox("Pause on next frame", &profiler_pause_on_next_frame_);
+  ImGui::SameLine();
+  if (ImGui::Button("Clear")) {
+    profiler.ClearFrameHistory();
+    profiler_panel_frames_.clear();
+    profiler_selected_frame_index_ = -1;
+    profiler_cached_latest_frame_index_ = 0;
+  }
+
+  if (ImGui::SliderInt("History", &profiler_history_length_, 30, 2000)) {
+    profiler.SetMaxFrameHistory(static_cast<size_t>(profiler_history_length_));
+  }
+
+  if (!profiler_panel_paused_) {
+    auto frames = profiler.GetFrameStatsHistorySnapshot();
+    if (!frames.empty()) {
+      const auto latest_frame_index = frames.back().frame_index;
+      profiler_panel_frames_ = std::move(frames);
+      if (profiler_selected_frame_index_ < 0 ||
+          profiler_selected_frame_index_ >= static_cast<int>(profiler_panel_frames_.size())) {
+        profiler_selected_frame_index_ = static_cast<int>(profiler_panel_frames_.size()) - 1;
+      }
+      if (profiler_pause_on_next_frame_ && latest_frame_index != profiler_cached_latest_frame_index_) {
+        profiler_panel_paused_ = true;
+        profiler_pause_on_next_frame_ = false;
+        profiler_selected_frame_index_ = static_cast<int>(profiler_panel_frames_.size()) - 1;
+      }
+      profiler_cached_latest_frame_index_ = latest_frame_index;
+    }
+  }
+
+  if (profiler_panel_frames_.empty()) {
+    ImGui::TextUnformatted("No profiler frames captured.");
+    ImGui::End();
+    return;
+  }
+
+  const auto export_frames = profiler.GetFrameHistorySnapshot();
+  if (ImGui::Button("Quick Export Trace")) {
+    std::string error;
+    const auto export_path = DefaultProfilerTracePath();
+    if (ExportProfilerChromeTrace(export_path, export_frames, &error)) {
+      profiler_export_status_ = "Exported " + export_path.string();
+    } else {
+      profiler_export_status_ = "Export failed: " + error;
+    }
+  }
+  ImGui::SameLine();
+  FileUtils::SaveFile(
+      "Export Trace...", "Chrome Trace JSON", {".json"},
+      [export_frames, this](const std::filesystem::path& path) {
+        std::string error;
+        if (ExportProfilerChromeTrace(path, export_frames, &error)) {
+          profiler_export_status_ = "Exported " + path.string();
+        } else {
+          profiler_export_status_ = "Export failed: " + error;
+        }
+      },
+      false);
+  if (!profiler_export_status_.empty()) {
+    ImGui::TextWrapped("%s", profiler_export_status_.c_str());
+  }
+
+  std::vector<float> frame_times;
+  frame_times.reserve(profiler_panel_frames_.size());
+  float max_frame_time = 16.0f;
+  for (const auto& frame : profiler_panel_frames_) {
+    const float frame_time = static_cast<float>(frame.duration_ms);
+    frame_times.emplace_back(frame_time);
+    max_frame_time = std::max(max_frame_time, frame_time);
+  }
+  ImGui::PlotLines("Frame Time", frame_times.data(), static_cast<int>(frame_times.size()), 0, nullptr, 0.0f,
+                   max_frame_time, ImVec2(0.0f, 80.0f));
+
+  if (ImGui::BeginChild("ProfilerFrameList", ImVec2(0.0f, 84.0f), true)) {
+    for (int i = 0; i < static_cast<int>(profiler_panel_frames_.size()); ++i) {
+      const auto& frame = profiler_panel_frames_[i];
+      ImGui::PushID(i);
+      const bool selected = profiler_selected_frame_index_ == i;
+      if (ImGui::Selectable(("Frame " + std::to_string(frame.frame_index)).c_str(), selected, 0,
+                            ImVec2(120.0f, 0.0f))) {
+        profiler_selected_frame_index_ = i;
+        profiler_panel_paused_ = true;
+      }
+      ImGui::SameLine();
+      ImGui::Text("%.2f ms", frame.duration_ms);
+      if (i + 1 < static_cast<int>(profiler_panel_frames_.size())) {
+        ImGui::SameLine();
+      }
+      ImGui::PopID();
+    }
+  }
+  ImGui::EndChild();
+
+  profiler_selected_frame_index_ =
+      std::clamp(profiler_selected_frame_index_, 0, static_cast<int>(profiler_panel_frames_.size()) - 1);
+  const auto& selected_frame = profiler_panel_frames_[profiler_selected_frame_index_];
+  ImGui::Text("Frame %llu  %.2f ms  %u events  total scope %.2f ms",
+              static_cast<unsigned long long>(selected_frame.frame_index), selected_frame.duration_ms,
+              selected_frame.event_count, selected_frame.total_event_ms);
+
+  if (ImGui::BeginChild("ProfilerTimeline", ImVec2(0.0f, 220.0f), true, ImGuiWindowFlags_HorizontalScrollbar)) {
+    const float timeline_width = std::max(1.0f, ImGui::GetContentRegionAvail().x - 160.0f);
+    const float row_height = 24.0f;
+    const float scale = timeline_width / std::max(0.001f, static_cast<float>(selected_frame.duration_ms));
+    auto* draw_list = ImGui::GetWindowDrawList();
+    for (const auto& lane : selected_frame.thread_lanes) {
+      const auto row_origin = ImGui::GetCursorScreenPos();
+      ImGui::Text("%s", lane.thread_name.c_str());
+      const float timeline_x = row_origin.x + 150.0f;
+      const float timeline_y = row_origin.y;
+      draw_list->AddRectFilled(ImVec2(timeline_x, timeline_y), ImVec2(timeline_x + timeline_width, timeline_y + 18.0f),
+                               ImGui::GetColorU32(ImGuiCol_FrameBg), 3.0f);
+      for (const auto& event : lane.events) {
+        const float event_x = timeline_x + static_cast<float>(event.start_ms) * scale;
+        const float event_width = std::max(1.0f, static_cast<float>(event.duration_ms) * scale);
+        const float event_y = timeline_y + 2.0f + static_cast<float>(event.depth % 3) * 4.0f;
+        draw_list->AddRectFilled(ImVec2(event_x, event_y), ImVec2(event_x + event_width, event_y + 12.0f),
+                                 ProfilerCategoryColor(event.category), 2.0f);
+      }
+      ImGui::Dummy(ImVec2(timeline_width + 160.0f, row_height));
+    }
+  }
+  ImGui::EndChild();
+
+  if (ImGui::BeginTable("ProfilerTotals", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted("Categories");
+    if (ImGui::BeginTable("ProfilerCategoryTotals", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+      ImGui::TableSetupColumn("Category");
+      ImGui::TableSetupColumn("Count");
+      ImGui::TableSetupColumn("Total");
+      ImGui::TableSetupColumn("Max");
+      ImGui::TableHeadersRow();
+      for (const auto& total : selected_frame.category_totals) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(total.category.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%u", total.count);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f", total.total_ms);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f", total.max_ms);
+      }
+      ImGui::EndTable();
+    }
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted("Events");
+    if (ImGui::BeginTable("ProfilerEventTotals", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
+      ImGui::TableSetupColumn("Name");
+      ImGui::TableSetupColumn("Category");
+      ImGui::TableSetupColumn("Count");
+      ImGui::TableSetupColumn("Total");
+      ImGui::TableHeadersRow();
+      for (const auto& total : selected_frame.named_event_totals) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(total.name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(total.category.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%u", total.count);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f", total.total_ms);
+      }
+      ImGui::EndTable();
+    }
+    ImGui::EndTable();
+  }
+
+  if (ImGui::BeginTable(
+          "ProfilerEvents", 6,
+          ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+          ImVec2(0.0f, 260.0f))) {
+    ImGui::TableSetupColumn("Thread");
+    ImGui::TableSetupColumn("Name");
+    ImGui::TableSetupColumn("Category");
+    ImGui::TableSetupColumn("Start");
+    ImGui::TableSetupColumn("Duration");
+    ImGui::TableSetupColumn("Depth");
+    ImGui::TableHeadersRow();
+    for (const auto& lane : selected_frame.thread_lanes) {
+      for (const auto& event : lane.events) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(lane.thread_name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(event.name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(event.category.c_str());
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f", event.start_ms);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.2f", event.duration_ms);
+        ImGui::TableNextColumn();
+        ImGui::Text("%u", event.depth);
+      }
+    }
+    ImGui::EndTable();
+  }
+
+  ImGui::End();
+}
+
 void EditorLayer::PollRuntimePackageBuildJobs() {
   bool refresh_packages = false;
   for (auto& [package_name, job] : runtime_package_build_jobs_) {
@@ -2061,6 +2317,7 @@ void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& ed
   ImGui::Checkbox("Entity Inspector", &show_entity_inspector_window);
   ImGui::Checkbox("Console", &show_console_window);
   ImGui::Checkbox("Runtime Packages", &show_package_manager_window);
+  ImGui::Checkbox("Profiler", &show_profiler_window);
 
   if (ImGui::TreeNode("Scene camera settings")) {
     ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
@@ -2530,6 +2787,7 @@ void EditorLayer::DrawMainMenuItems(const bool title_bar_style) {
       ImGui::EndMenu();
     }
     ImGui::Separator();
+    panel_menu_item("Profiler", show_profiler_window);
     draw_layer_inspection_menu();
     end_menu();
   }
@@ -2642,6 +2900,7 @@ void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
   apply_visibility(settings.panels.console, show_console_window);
   apply_visibility(settings.panels.project, ProjectManager::GetInstance().show_project_window);
   apply_visibility(settings.panels.resources, Resources::GetInstance().show_resources_);
+  apply_visibility(settings.panels.profiler, show_profiler_window);
   apply_visibility(settings.panels.runtime_package_manager, show_package_manager_window);
 
   if (project_content_browser_panel_ && settings.project_browser) {

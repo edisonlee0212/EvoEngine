@@ -6,6 +6,7 @@
 #include "FileManager.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
+#include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
 #include "Texture2D.hpp"
@@ -495,6 +496,7 @@ size_t AssetManager::ExecuteMainThreadAssetTasks(const size_t max_task_size) {
 
 size_t AssetManager::ExecuteMainThreadAssetTasksWithinBudget(const size_t max_task_size,
                                                              const std::chrono::milliseconds max_duration) {
+  const ProfilerScope profiler_scope("AssetManager::ExecuteMainThreadAssetTasks", "Asset Finalize");
   size_t executed_task_size = 0;
   const auto budget_start = std::chrono::steady_clock::now();
   while (max_task_size == 0 || executed_task_size < max_task_size) {
@@ -515,6 +517,8 @@ size_t AssetManager::ExecuteMainThreadAssetTasksWithinBudget(const size_t max_ta
     }
     if (task.action) {
       const auto task_start = std::chrono::steady_clock::now();
+      const ProfilerScope task_scope(task.label.empty() ? "AssetManager::MainThreadAssetTask" : task.label,
+                                     "Asset Finalize");
       task.action();
       const auto task_duration =
           std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - task_start);
@@ -528,6 +532,7 @@ size_t AssetManager::ExecuteMainThreadAssetTasksWithinBudget(const size_t max_ta
 }
 
 std::shared_ptr<IAsset> AssetManager::LoadAssetImpl(const Handle& asset_handle) {
+  const ProfilerScope profiler_scope("AssetManager::LoadAsset", "Asset Load");
   auto& asset_manager = GetInstance();
   {
     std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
@@ -590,6 +595,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
     const auto context_future = context_promise->get_future().share();
     ScheduleMainThreadAssetTaskImpl(
         [asset_handle, context_promise]() {
+          const ProfilerScope profiler_scope("AssetManager::CreateAssetObject", "Asset Finalize");
           try {
             auto& asset_manager = GetInstance();
             {
@@ -650,6 +656,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
 
     if (context.staged) {
       UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::LoadingCpu, "Loading CPU payload.");
+      const ProfilerScope payload_scope("AssetManager::LoadStagedPayload", "Asset Load");
       auto payload = Serialization::LoadStagedAssetPayload(*context.asset, context.absolute_path);
       if (!payload) {
         throw std::runtime_error("Failed to build staged asset payload.");
@@ -657,6 +664,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
       UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for asset finalization.");
       ScheduleMainThreadAssetTaskImpl(
           [asset_handle, context = std::move(context), promise, payload = std::move(payload)]() {
+            const ProfilerScope profiler_scope("AssetManager::FinalizeStagedAsset", "Asset Finalize");
             try {
               if (!Serialization::ApplyStagedAssetPayload(*context.asset, context.absolute_path, payload)) {
                 throw std::runtime_error("Failed to apply staged asset load payload.");
@@ -684,6 +692,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
                 const auto gpu_ready_handle = Jobs::Run(
                     *pending_handles, gpu_ready_options,
                     [asset_handle, promise, publish_loaded_asset, pending_handles]() {
+                      const ProfilerScope profiler_scope("AssetManager::WaitForAssetGpuReady", "Asset Finalize");
                       try {
                         for (const auto& handle : *pending_handles) {
                           Jobs::Wait(handle);
@@ -724,6 +733,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
     UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for legacy asset load.");
     ScheduleMainThreadAssetTaskImpl(
         [asset_handle, context = std::move(context), promise]() {
+          const ProfilerScope profiler_scope("AssetManager::FinalizeLegacyAsset", "Asset Finalize");
           try {
             if (context.path_exists) {
               context.asset->Load();

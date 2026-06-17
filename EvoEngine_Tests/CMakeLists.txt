@@ -17,6 +17,7 @@ file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT
 
 add_executable(EvoEngine_Tests
 	Core/TaskRuntimeTest.cpp
+	Core/ProfilerTest.cpp
 	Core/AssetManagerTest.cpp
 	Core/DemoSceneTest.cpp
 	Core/FileManagerTest.cpp
@@ -60,6 +61,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER TaskRuntime.*
 	PROPERTIES LABELS "core,jobs"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER Profiler.*
+	PROPERTIES LABELS "core,profiler,jobs"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
@@ -121,6 +127,17 @@ if(TARGET DemoApp)
 	set(EVOENGINE_DEMOAPP_SMOKE_TEST_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/DemoAppSmokeTest.run.yaml")
 	file(WRITE "${EVOENGINE_DEMOAPP_SMOKE_TEST_CONFIG}"
 "mode: smoke_test
+application_mode: Editor
+demo_setup: Rendering
+frames_after_play: 100
+max_load_frames: 30000
+max_play_frames: 1000
+exit_on_complete: true
+")
+	set(EVOENGINE_DEMOAPP_PLAYER_SMOKE_TEST_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/DemoAppPlayerSmokeTest.run.yaml")
+	file(WRITE "${EVOENGINE_DEMOAPP_PLAYER_SMOKE_TEST_CONFIG}"
+"mode: smoke_test
+application_mode: Player
 demo_setup: Rendering
 frames_after_play: 100
 max_load_frames: 30000
@@ -135,6 +152,15 @@ exit_on_complete: true
 		PROPERTIES
 		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DemoApp>"
 		LABELS "render,gpu,app"
+		TIMEOUT 240
+		)
+	add_test(NAME DemoApp.PlayerModePlayLoadedScene100Frames
+		COMMAND $<TARGET_FILE:DemoApp> --run-config "${EVOENGINE_DEMOAPP_PLAYER_SMOKE_TEST_CONFIG}"
+		)
+	set_tests_properties(DemoApp.PlayerModePlayLoadedScene100Frames
+		PROPERTIES
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DemoApp>"
+		LABELS "render,gpu,app,player"
 		TIMEOUT 240
 		)
 endif()
