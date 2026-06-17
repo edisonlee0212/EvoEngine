@@ -6,6 +6,7 @@
 #include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,12 +24,14 @@ class ProjectContentBrowserPanel final : public EditorPanel {
  private:
   enum class SelectedItemType { None, Folder, File };
 
-  void FolderHierarchyHelper(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Folder>& folder);
+  void FolderHierarchyHelper(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Folder>& folder,
+                             const std::shared_ptr<Folder>& reveal_folder);
   void DrawToolbar(const std::shared_ptr<Folder>& current_folder);
   void DrawBreadcrumbs(const std::shared_ptr<Folder>& current_folder);
   void DrawSearchResults(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Folder>& root_folder,
                          bool& updated);
   void NavigateToFolder(const std::shared_ptr<Folder>& folder, bool add_history = true);
+  void RequestHierarchyReveal(const std::shared_ptr<Folder>& folder);
   void NavigateHistory(int offset);
   void SyncNavigationHistory(const std::shared_ptr<Folder>& current_folder);
 
@@ -47,6 +50,7 @@ class ProjectContentBrowserPanel final : public EditorPanel {
   float thumbnail_padding_ = 8.0f;
   float hierarchy_width_ = 200.0f;
   float content_width_ = 200.0f;
+  std::optional<Handle> hierarchy_reveal_target_;
   SelectedItemType selected_item_type_ = SelectedItemType::None;
   Handle selected_item_handle_ = 0;
   bool show_extension_ = false;
