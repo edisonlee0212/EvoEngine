@@ -11,6 +11,7 @@
 #include "Particles.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
+#include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
@@ -996,6 +997,7 @@ void RenderLayer::ClearAllCameras() const {
 }
 
 void RenderLayer::PrepareForRendering() {
+  const ProfilerScope profiler_scope("RenderLayer::PrepareForRendering", "Render");
   const auto scene = GetScene();
   PrepareSceneForRendering(scene);
 }
@@ -1004,6 +1006,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
                                            const bool update_editor_selection, const bool update_ray_tracing) {
   if (!scene)
     return;
+  const ProfilerScope profiler_scope("RenderLayer::PrepareSceneForRendering", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   auto& graphics = Platform::GetInstance();
   graphics.prim_count[current_frame_index] = 0;
@@ -1078,6 +1081,7 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
 }
 
 void RenderLayer::RenderAll() {
+  const ProfilerScope profiler_scope("RenderLayer::RenderAll", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   PreparePointAndSpotLightShadowMap();
@@ -1592,6 +1596,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
 
 bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index,
                                               const bool include_editor_cameras, const bool update_editor_selection) {
+  const ProfilerScope profiler_scope("RenderLayer::UpdateRenderInstanceStorage", "Render");
   auto lod_center = glm::vec3(0.f);
   float lod_max_distance = FLT_MAX;
   bool lod_set = false;
@@ -1772,6 +1777,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
 }
 void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera,
                                  const bool immediate) const {
+  const ProfilerScope profiler_scope("RenderLayer::RenderToCamera", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
@@ -2193,6 +2199,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 
 void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
                                            const std::shared_ptr<Camera>& camera) const {
+  const ProfilerScope profiler_scope("RenderLayer::RenderToCameraRayTracing", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
@@ -2225,6 +2232,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
 }
 
 void RenderLayer::PreUpdate() {
+  const ProfilerScope profiler_scope("RenderLayer::PreUpdate", "Render");
   const auto scene = GetScene();
   if (!scene)
     return;

@@ -144,6 +144,11 @@ constexpr float kTitleBarButtonSize = 14.0f;
 constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
 constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
 constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
+constexpr std::array<ApplicationMode, 2> kLauncherApplicationModes = {ApplicationMode::Editor, ApplicationMode::Player};
+
+ApplicationMode NormalizeLauncherApplicationMode(const ApplicationMode mode) {
+  return mode == ApplicationMode::Player ? ApplicationMode::Player : ApplicationMode::Editor;
+}
 
 ImU32 MultiplyColor(const ImU32 color, const float multiplier) {
   ImVec4 value = ImGui::ColorConvertU32ToFloat4(color);
@@ -315,7 +320,7 @@ class LauncherLayer final : public ILayer {
     AppendRecentProjectCountTestLog();
     AppendPackageAvailabilityTestLog();
     if (const char* launch_mode = std::getenv("EVOENGINE_LAUNCHER_TEST_APPLICATION_MODE")) {
-      selected_launch_mode_ = ParseApplicationModeName(launch_mode);
+      selected_launch_mode_ = NormalizeLauncherApplicationMode(ParseApplicationModeName(launch_mode));
     }
     AppendLaunchModeTestLog();
     AppendTestLog("mode:hub");
@@ -581,10 +586,11 @@ class LauncherLayer final : public ILayer {
   }
 
   void DrawLaunchModeSelector(const float width) {
+    selected_launch_mode_ = NormalizeLauncherApplicationMode(selected_launch_mode_);
     ImGui::TextUnformatted("Start Mode");
     ImGui::SetNextItemWidth(width);
     if (ImGui::BeginCombo("##StartMode", GetApplicationModeName(selected_launch_mode_))) {
-      for (const auto mode : {ApplicationMode::Editor, ApplicationMode::Player, ApplicationMode::Headless}) {
+      for (const auto mode : kLauncherApplicationModes) {
         const bool selected = selected_launch_mode_ == mode;
         if (ImGui::Selectable(GetApplicationModeName(mode), selected)) {
           selected_launch_mode_ = mode;
@@ -605,7 +611,6 @@ class LauncherLayer final : public ILayer {
         ImGui::TextColored(ColorTextMuted(), "Run the project scene without editor UI.");
         break;
       case ApplicationMode::Headless:
-        ImGui::TextColored(ColorTextMuted(), "Run without a window for automation/service use.");
         break;
     }
   }

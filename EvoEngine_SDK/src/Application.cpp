@@ -1343,6 +1343,7 @@ void Application::PreUpdateInternal() {
   run_asset_tasks();
   TryStartPendingPlayerAutoplay();
   if (this->active_scene_) {
+    const ProfilerScope scene_scope("Application::ScenePreUpdate", "Scene");
     TransformGraph::CalculateTransformGraphs(this->active_scene_);
     for (const auto& i : this->external_pre_update_functions_)
       i();
@@ -1351,11 +1352,14 @@ void Application::PreUpdateInternal() {
     }
   }
 
-  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
-    const auto layer = this->layers_[layer_index];
-    layer->PreUpdate();
-    if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
-      ++layer_index;
+  {
+    const ProfilerScope layers_scope("Application::LayerPreUpdate", "Layer");
+    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+      const auto layer = this->layers_[layer_index];
+      layer->PreUpdate();
+      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+        ++layer_index;
+      }
     }
   }
   if (times.steps_ == 0) {
@@ -1403,22 +1407,27 @@ void Application::UpdateInternal() {
 
   this->execution_order = ExecutionOrder::Update;
   if (this->active_scene_) {
+    const ProfilerScope scene_scope("Application::SceneUpdate", "Scene");
     if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
       this->active_scene_->Update();
     }
   }
 
-  for (size_t layer_index = 0; layer_index < this->layers_.size();) {
-    const auto layer = this->layers_[layer_index];
-    layer->Update();
-    if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
-      ++layer_index;
+  {
+    const ProfilerScope layers_scope("Application::LayerUpdate", "Layer");
+    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+      const auto layer = this->layers_[layer_index];
+      layer->Update();
+      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+        ++layer_index;
+      }
     }
   }
   for (const auto& i : this->external_update_functions_)
     i();
 
   if (const auto render_layer = GetLayer<RenderLayer>()) {
+    const ProfilerScope render_scope("Application::PrepareRendering", "Render");
     render_layer->PrepareForRendering();
     render_layer->ClearAllEditorCameras();
     render_layer->ClearAllCameras();
@@ -1452,16 +1461,19 @@ void Application::LateUpdateInternal() {
     this->execution_order = ExecutionOrder::LateUpdate;
 
     if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
+      const ProfilerScope scene_scope("Application::SceneLateUpdate", "Scene");
       this->active_scene_->LateUpdate();
     }
 
     if (render_layer) {
+      const ProfilerScope render_scope("Application::RenderSubmission", "Render");
       render_layer->RenderAll();
       render_layer->RenderGizmos();
     }
   }
 
   if (window_layer) {
+    const ProfilerScope window_scope("Application::WindowRender", "Render");
     window_layer->Render();
   }
   if (render_layer) {
@@ -1768,6 +1780,7 @@ bool Application::RemoveLayersOwnedByPackage(const std::string& package_name) {
 
 void Application::Attach(const std::shared_ptr<Scene>& scene) {
   ApplicationContextScope application_scope(*this);
+  const ProfilerScope profiler_scope("Application::AttachScene", "Scene Sync");
   if (this->execution_status_ == ExecutionStatus::Playing) {
     EVOENGINE_ERROR("Stop Application to attach scene")
   }
