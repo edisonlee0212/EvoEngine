@@ -521,54 +521,6 @@ std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>
   return std::nullopt;
 }
 
-void SorghumDescriptor::ExtractTraits() const {
-  auto sorghum_trait = AssetManager::CreateTemporaryAsset<SorghumTraitDescriptor>();
-  auto internode_lengths = CalculateInterNodeLengths();
-  for (auto leaf : leaves) {
-    SorghumLeafTrait leaf_trait;
-    leaf_trait.leaf_index = leaf.index;
-
-    // internode below the leaf
-    leaf_trait.internode_length = internode_lengths[leaf.index];
-
-    // the widest width along the leaf
-    leaf_trait.leaf_width = CalculateLeafWidth(leaf.index);  
-
-    // the length along the leaf
-    leaf_trait.leaf_length = CalculateLeafLength(leaf.index); 
-
-    // total area on the leaf
-    leaf_trait.leaf_area = CalculateLeafArea(leaf.index);
-
-    sorghum_trait->leaf_traits.emplace_back(leaf_trait);
-  }
-
-  // stem length
-  sorghum_trait->stem_length = 0;
-
-
-  std::filesystem::path resource_folder_path("../../../../../Resources");
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../../Resources";
-  }
-  if (!std::filesystem::exists(resource_folder_path)) {
-    resource_folder_path = "../Resources";
-  }
-  resource_folder_path = std::filesystem::absolute(resource_folder_path);
-  auto output_path = resource_folder_path / "output.yml";
-  std::cout << "extract traits to " << output_path << std::endl;
-  YAML::Emitter out;
-  sorghum_trait->Serialize(out);
-  std::ofstream output_file(output_path.string());
-  output_file << out.c_str();
-  output_file.flush();
-}
 
 float SorghumDescriptor::CalculateLeafArea(int leaf_index) const {
 

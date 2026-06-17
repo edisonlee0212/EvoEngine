@@ -398,7 +398,7 @@ bool SorghumFieldGrid::CalculateAndExportFieldIlluminationTest() {
 #endif
 }
 
-bool SorghumFieldGrid::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumFieldGrid::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   if (editor_layer->DragAndDropButton<SorghumField>(sorghum_field_asset, "SorghumField"))
@@ -442,32 +442,6 @@ bool SorghumFieldGrid::OnInspect(const std::shared_ptr<EditorLayer>& editor_laye
   ImGui::Text("%s", ("Radiant flux: " + std::to_string(glm::length(illumination_stats.average_flux))).c_str());
 
   return changed;
-}
-
-void SorghumFieldGrid::Serialize(YAML::Emitter& out) const {
-  sorghum_field_asset.Save("sorghum_field_asset", out);
-  out << YAML::Key << "rows" << YAML::Value << rows;
-  out << YAML::Key << "columns" << YAML::Value << columns;
-  out << YAML::Key << "row_spacing" << YAML::Value << row_spacing;
-  out << YAML::Key << "column_spacing" << YAML::Value << column_spacing;
-  out << YAML::Key << "row_spacing_std" << YAML::Value << row_spacing_std;
-  out << YAML::Key << "column_spacing_std" << YAML::Value << column_spacing_std;
-  out << YAML::Key << "sorghum_size" << YAML::Value << sorghum_size;
-  out << YAML::Key << "size_limit" << YAML::Value << size_limit;
-  out << YAML::Key << "base_seed" << YAML::Value << base_seed;
-}
-
-void SorghumFieldGrid::Deserialize(const YAML::Node& in) {
-  sorghum_field_asset.Load("sorghum_field_asset", in);
-  if (in["rows"]) rows = in["rows"].as<int>();
-  if (in["columns"]) columns = in["columns"].as<int>();
-  if (in["row_spacing"]) row_spacing = in["row_spacing"].as<float>();
-  if (in["column_spacing"]) column_spacing = in["column_spacing"].as<float>();
-  if (in["row_spacing_std"]) row_spacing_std = in["row_spacing_std"].as<float>();
-  if (in["column_spacing_std"]) column_spacing_std = in["column_spacing_std"].as<float>();
-  if (in["sorghum_size"]) sorghum_size = in["sorghum_size"].as<float>();
-  if (in["size_limit"]) size_limit = in["size_limit"].as<int>();
-  if (in["base_seed"]) base_seed = in["base_seed"].as<uint32_t>();
 }
 
 void SorghumFieldGrid::CollectAssetRef(std::vector<AssetRef>& list) {

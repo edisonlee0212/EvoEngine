@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if (MSVC)
-	add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/FS>)
+	add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/FS> $<$<COMPILE_LANGUAGE:CXX>:/bigobj>)
 endif()
 
 include(GNUInstallDirs)

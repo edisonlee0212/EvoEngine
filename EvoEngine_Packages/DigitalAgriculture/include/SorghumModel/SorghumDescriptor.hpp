@@ -150,7 +150,6 @@ class SorghumDescriptor : public IAsset {
       const std::filesystem::path& yaml_path);
 
 
-  void ExtractTraits() const;
 
 private:
   float CalculateLeafArea(int leaf_index) const;

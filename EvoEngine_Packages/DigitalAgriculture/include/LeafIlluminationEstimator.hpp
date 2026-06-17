@@ -28,11 +28,9 @@ class LeafIlluminationEstimator : public evo_engine::IPrivateComponent {
  public:
   void PrepareLightProbeGroup();
   void SampleLightProbeGroup(const evo_engine::RayProperties& ray_properties, int seed, float push_normal_distance);
-  bool OnInspect(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer);
   const evo_engine::LightProbeGroup& PeekProbes() const;
   const std::vector<LeafIlluminationInfo>& PeekLeafIlluminationInfos() const;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
 
   evo_engine::LightProbeGroup GetLightProbeGroup() const {
     return light_probe_group_;

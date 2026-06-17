@@ -661,8 +661,8 @@ void GantryPointCloudScanner::SavePointCloud(const std::filesystem::path& save_p
   cube_file.write(ostream, true);
 }
 
-bool GantryPointCloudScanner::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return IPrivateComponent::OnInspect(editor_layer);
+bool GantryPointCloudScanner::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
+  return false;
 }
 
 void GantryPointCloudScanner::OnDestroy() {

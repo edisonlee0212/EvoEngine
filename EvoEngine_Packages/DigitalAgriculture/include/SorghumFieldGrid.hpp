@@ -32,10 +32,8 @@ class SorghumFieldGrid final : public IPrivateComponent {
   void CalculateIlluminationForField();
   bool CalculateAndExportFieldIlluminationTest();
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
-  void CollectAssetRef(std::vector<AssetRef>& list) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
+  void CollectAssetRef(std::vector<AssetRef>& list);
 };
 
 }  // namespace digital_agriculture_package

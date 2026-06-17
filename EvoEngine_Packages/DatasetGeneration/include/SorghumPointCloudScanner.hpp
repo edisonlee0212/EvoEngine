@@ -86,12 +86,12 @@ class GantryPointCloudScanner : public IPrivateComponent {
                       const std::vector<int>& leaf_indices, const std::vector<int>& instance_indices,
                       const std::vector<int>& type_indices) const;
 
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   void OnDestroy() override;
 
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
   
   void CaptureLabeledMeshes(const std::vector<Entity>& targets, const std::vector<std::vector<int>>& label_lists,
                             const std::filesystem::path& save_path,

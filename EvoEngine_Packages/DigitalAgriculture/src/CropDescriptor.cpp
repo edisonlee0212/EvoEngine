@@ -106,7 +106,7 @@ void CropDescriptor::OnCreate() {
   max_stem_reserve_fraction = 0.3f;
 }
 
-bool CropDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool CropDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
   static AssetRef import_sg;
@@ -132,40 +132,40 @@ bool CropDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
 
   if (ImGui::TreeNodeEx("Leaf Geometry (per-rank)")) {
-    changed |= max_leaf_length.OnInspect("Max leaf length");
-    changed |= max_leaf_width.OnInspect("Max leaf width");
-    changed |= leaf_sheath_length.OnInspect("Sheath length");
+    changed |= max_leaf_length.Draw("Max leaf length");
+    changed |= max_leaf_width.Draw("Max leaf width");
+    changed |= leaf_sheath_length.Draw("Sheath length");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Leaf Shape (per-rank)")) {
-    changed |= leaf_roll_angle.OnInspect("Roll angle");
-    changed |= leaf_branching_angle.OnInspect("Branching angle");
-    changed |= leaf_curling.OnInspect("Curling");
-    changed |= leaf_bending.OnInspect("Bending");
-    changed |= leaf_bending_acceleration.OnInspect("Bending acceleration");
-    changed |= leaf_bending_smoothness.OnInspect("Bending smoothness");
-    changed |= leaf_waviness.OnInspect("Waviness");
-    changed |= leaf_waviness_frequency.OnInspect("Waviness frequency");
+    changed |= leaf_roll_angle.Draw("Roll angle");
+    changed |= leaf_branching_angle.Draw("Branching angle");
+    changed |= leaf_curling.Draw("Curling");
+    changed |= leaf_bending.Draw("Bending");
+    changed |= leaf_bending_acceleration.Draw("Bending acceleration");
+    changed |= leaf_bending_smoothness.Draw("Bending smoothness");
+    changed |= leaf_waviness.Draw("Waviness");
+    changed |= leaf_waviness_frequency.Draw("Waviness frequency");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Internode Geometry (per-rank)")) {
-    changed |= max_internode_length.OnInspect("Max internode length");
-    changed |= max_internode_diameter.OnInspect("Max internode diameter");
+    changed |= max_internode_length.Draw("Max internode length");
+    changed |= max_internode_diameter.Draw("Max internode diameter");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Stem")) {
-    changed |= stem_tilt_angle.OnInspect("Stem tilt angle");
+    changed |= stem_tilt_angle.Draw("Stem tilt angle");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Shape Curves")) {
-    changed |= width_along_stem.OnInspect("Width along stem");
-    changed |= width_along_leaf.OnInspect("Width along leaf");
-    changed |= curling_along_leaf.OnInspect("Curling along leaf");
-    changed |= waviness_along_leaf.OnInspect("Waviness along leaf");
+    changed |= width_along_stem.Draw("Width along stem");
+    changed |= width_along_leaf.Draw("Width along leaf");
+    changed |= curling_along_leaf.Draw("Curling along leaf");
+    changed |= waviness_along_leaf.Draw("Waviness along leaf");
     ImGui::TreePop();
   }
 
@@ -176,84 +176,6 @@ bool CropDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
   }
 
   return changed;
-}
-
-void CropDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "base_temperature" << YAML::Value << base_temperature;
-  out << YAML::Key << "plastochron_gdd" << YAML::Value << plastochron_gdd;
-  out << YAML::Key << "final_leaf_number" << YAML::Value << final_leaf_number;
-  out << YAML::Key << "stem_elongation_gdd" << YAML::Value << stem_elongation_gdd;
-  out << YAML::Key << "flowering_gdd" << YAML::Value << flowering_gdd;
-  out << YAML::Key << "grain_filling_gdd" << YAML::Value << grain_filling_gdd;
-  out << YAML::Key << "maturity_gdd" << YAML::Value << maturity_gdd;
-  out << YAML::Key << "leaf_growth_duration_gdd" << YAML::Value << leaf_growth_duration_gdd;
-  out << YAML::Key << "senescence_onset_gdd" << YAML::Value << senescence_onset_gdd;
-
-  max_leaf_length.Save("max_leaf_length", out);
-  max_leaf_width.Save("max_leaf_width", out);
-  leaf_sheath_length.Save("leaf_sheath_length", out);
-  leaf_roll_angle.Save("leaf_roll_angle", out);
-  leaf_branching_angle.Save("leaf_branching_angle", out);
-  leaf_curling.Save("leaf_curling", out);
-  leaf_bending.Save("leaf_bending", out);
-  leaf_bending_acceleration.Save("leaf_bending_acceleration", out);
-  leaf_bending_smoothness.Save("leaf_bending_smoothness", out);
-  leaf_waviness.Save("leaf_waviness", out);
-  leaf_waviness_frequency.Save("leaf_waviness_frequency", out);
-  max_internode_length.Save("max_internode_length", out);
-  max_internode_diameter.Save("max_internode_diameter", out);
-  stem_tilt_angle.Save("stem_tilt_angle", out);
-
-  width_along_stem.Save("width_along_stem", out);
-  width_along_leaf.Save("width_along_leaf", out);
-  curling_along_leaf.Save("curling_along_leaf", out);
-  waviness_along_leaf.Save("waviness_along_leaf", out);
-
-  panicle_size.Save("panicle_size", out);
-  panicle_seed_amount.Save("panicle_seed_amount", out);
-  panicle_seed_radius.Save("panicle_seed_radius", out);
-
-  out << YAML::Key << "specific_leaf_area" << YAML::Value << specific_leaf_area;
-  out << YAML::Key << "max_stem_reserve_fraction" << YAML::Value << max_stem_reserve_fraction;
-}
-
-void CropDescriptor::Deserialize(const YAML::Node& in) {
-  if (in["base_temperature"]) base_temperature = in["base_temperature"].as<float>();
-  if (in["plastochron_gdd"]) plastochron_gdd = in["plastochron_gdd"].as<float>();
-  if (in["final_leaf_number"]) final_leaf_number = in["final_leaf_number"].as<int>();
-  if (in["stem_elongation_gdd"]) stem_elongation_gdd = in["stem_elongation_gdd"].as<float>();
-  if (in["flowering_gdd"]) flowering_gdd = in["flowering_gdd"].as<float>();
-  if (in["grain_filling_gdd"]) grain_filling_gdd = in["grain_filling_gdd"].as<float>();
-  if (in["maturity_gdd"]) maturity_gdd = in["maturity_gdd"].as<float>();
-  if (in["leaf_growth_duration_gdd"]) leaf_growth_duration_gdd = in["leaf_growth_duration_gdd"].as<float>();
-  if (in["senescence_onset_gdd"]) senescence_onset_gdd = in["senescence_onset_gdd"].as<float>();
-
-  max_leaf_length.Load("max_leaf_length", in);
-  max_leaf_width.Load("max_leaf_width", in);
-  leaf_sheath_length.Load("leaf_sheath_length", in);
-  leaf_roll_angle.Load("leaf_roll_angle", in);
-  leaf_branching_angle.Load("leaf_branching_angle", in);
-  leaf_curling.Load("leaf_curling", in);
-  leaf_bending.Load("leaf_bending", in);
-  leaf_bending_acceleration.Load("leaf_bending_acceleration", in);
-  leaf_bending_smoothness.Load("leaf_bending_smoothness", in);
-  leaf_waviness.Load("leaf_waviness", in);
-  leaf_waviness_frequency.Load("leaf_waviness_frequency", in);
-  max_internode_length.Load("max_internode_length", in);
-  max_internode_diameter.Load("max_internode_diameter", in);
-  stem_tilt_angle.Load("stem_tilt_angle", in);
-
-  width_along_stem.Load("width_along_stem", in);
-  width_along_leaf.Load("width_along_leaf", in);
-  curling_along_leaf.Load("curling_along_leaf", in);
-  waviness_along_leaf.Load("waviness_along_leaf", in);
-
-  panicle_size.Load("panicle_size", in);
-  panicle_seed_amount.Load("panicle_seed_amount", in);
-  panicle_seed_radius.Load("panicle_seed_radius", in);
-
-  if (in["specific_leaf_area"]) specific_leaf_area = in["specific_leaf_area"].as<float>();
-  if (in["max_stem_reserve_fraction"]) max_stem_reserve_fraction = in["max_stem_reserve_fraction"].as<float>();
 }
 
 void CropDescriptor::InitFromSorghumGenerator(const SorghumGenerator& sg) {

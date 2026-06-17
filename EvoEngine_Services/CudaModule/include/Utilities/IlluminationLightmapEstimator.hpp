@@ -17,11 +17,11 @@ class IlluminationLightmapEstimator : public IPrivateComponent {
   void SampleLightProbeGroup(const RayProperties& ray_properties, int seed, float push_normal_distance);
   void ApplyLightmapToVertices(float exposure = 1.0f, bool tone_mapping = true) const;
   void ExportLightmappedObj(const std::filesystem::path& path, float exposure = 1.0f, bool tone_mapping = true) const;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   const LightProbeGroup& PeekProbes() const;
   const std::vector<glm::vec3>& PeekLightmap() const;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
 
   LightProbeGroup GetLightProbeGroup() const {
     return light_probe_group_;

@@ -804,8 +804,8 @@ void RayTracerLayer::SceneCameraSpectrumWindow() {
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
           ImGui::PushItemWidth(100);
           ImGui::DragFloat("Resolution multiplier", &resolution_multiplier, 0.01f, 0.1f, 1.0f);
-          scene_camera->camera_properties_.OnInspect();
-          scene_camera->ray_properties.OnInspect();
+          scene_camera->camera_properties_.DrawGui();
+          scene_camera->ray_properties.DrawGui();
           ImGui::PopItemWidth();
         }
         ImGui::EndChild();

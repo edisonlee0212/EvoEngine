@@ -341,10 +341,13 @@ bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorg
   auto& sorghum_growth_stages = sorghum.sorghum_growth_stages;
   auto& sorghum_state = sorghum.sorghum_state;
   auto& sorghum_descriptor = sorghum.sorghum_descriptor;
+#ifdef ECOSYSLAB_PACKAGE
+  auto& crop_descriptor = sorghum.crop_descriptor;
+#endif
   bool changed = false;
-  const auto scene = GetScene();
-  const auto owner = GetOwner();
-  ImGui::Text("Leaf count: %u", PeekLeafCount(*this));
+  const auto scene = sorghum.GetScene();
+  const auto owner = sorghum.GetOwner();
+  ImGui::Text("Leaf count: %u", PeekLeafCount(sorghum));
   ImGui::Text("Plant bounding box height: %.6f", CalculateGeneratedGeometryHeight(scene, owner));
   if (editor_layer->DragAndDropButton<SorghumGenerator>(sorghum_generator, "SorghumGenerator"))
     changed = true;
@@ -363,9 +366,8 @@ bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorg
   if (ImGui::Button("Form meshes")) {
     sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
   }
-  if (ImGui::Button("Extract traits")) {
+  if (ImGui::Button("Extract traits(not implemented)")) {
     const auto sorghum_descriptor_ptr = sorghum_descriptor.Get<SorghumDescriptor>();
-    sorghum_descriptor_ptr->ExtractTraits();
   }
 
 #ifdef ECOSYSLAB_PACKAGE
@@ -377,16 +379,16 @@ bool digital_agriculture_package::InspectSorghum(InspectorContext& context, Sorg
       // Grow the model every frame while dragging (cheap) so the text readouts update,
       // but only regenerate geometry on mouse-release to avoid 300→5 fps drops.
       if (ImGui::SliderFloat("Target GDD", &target_gdd, 0.0f, cd->maturity_gdd * 1.2f)) {
-        GrowCropToGdd(target_gdd, daily_temp);
+        sorghum.GrowCropToGdd(target_gdd, daily_temp);
       }
       if (ImGui::IsItemDeactivatedAfterEdit()) {
         sorghum_descriptor.Clear();
-        GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
+        sorghum.GenerateGeometryEntities(SorghumMeshGeneratorSettings{});
       }
-      if (crop_shoot_model.IsInitialized()) {
-        ImGui::Text("Phytomers: %d / %d", crop_shoot_model.GetPhytomerCount(), cd->final_leaf_number);
-        ImGui::Text("Plant height: %.3f m", crop_shoot_model.PeekSkeleton().data.plant_height);
-        ImGui::Text("Total leaf area: %.4f m2", crop_shoot_model.PeekSkeleton().data.total_leaf_area);
+      if (sorghum.crop_shoot_model.IsInitialized()) {
+        ImGui::Text("Phytomers: %d / %d", sorghum.crop_shoot_model.GetPhytomerCount(), cd->final_leaf_number);
+        ImGui::Text("Plant height: %.3f m", sorghum.crop_shoot_model.PeekSkeleton().data.plant_height);
+        ImGui::Text("Total leaf area: %.4f m2", sorghum.crop_shoot_model.PeekSkeleton().data.total_leaf_area);
       }
       ImGui::TreePop();
     }

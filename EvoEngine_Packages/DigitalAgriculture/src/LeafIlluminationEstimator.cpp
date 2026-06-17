@@ -53,10 +53,10 @@ void RegenerateSeparatedLeafMeshes(const std::shared_ptr<Scene>& scene, const En
 }
 }  // namespace
 
-bool LeafIlluminationEstimator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool LeafIlluminationEstimator::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto owner = GetOwner();
-  light_probe_group_.OnInspect();
+  light_probe_group_.DrawGui();
   static int seed = 0;
   static float push_normal_distance = 0.001f;
   static RayProperties ray_properties;
@@ -203,10 +203,4 @@ void LeafIlluminationEstimator::PrepareLightProbeGroup() {
   }
 }
 
-void LeafIlluminationEstimator::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "leaf_count" << YAML::Value << leaf_illumination_infos_.size();
-}
-
-void LeafIlluminationEstimator::Deserialize(const YAML::Node& in) {
-}
 #endif

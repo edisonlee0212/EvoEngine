@@ -19,7 +19,7 @@ public:
   * @param editor_layer Shared pointer to the editor layer.
   * @return True if content is not modified, false otherwise.
   */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer);
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
   * @brief Serializes the stem descriptor to YAML.
@@ -54,19 +54,6 @@ class SorghumTraitDescriptor : public IAsset {
    * @param editor_layer Editor layer reference.
    * @return True if the asset's content is not modified, otherwise false.
    */
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-
-
-  /**
-   * @brief Serializes the state to a YAML emitter.
-   * @param out The YAML emitter to serialize to.
-   */
-  void Serialize(YAML::Emitter& out) const override;
-
-  /**
-   * @brief Deserializes the state from a YAML node.
-   * @param in The YAML node to deserialize from.
-   */
-  void Deserialize(const YAML::Node& in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace digital_agriculture_package

@@ -125,11 +125,11 @@ void ExportDescendentsObj(const std::shared_ptr<Scene>& scene, const Entity& own
 }
 }  // namespace
 
-bool IlluminationLightmapEstimator::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool IlluminationLightmapEstimator::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto scene = GetScene();
   const auto owner = GetOwner();
-  light_probe_group_.OnInspect();
+  light_probe_group_.DrawGui();
   static int seed = 0;
   static float push_normal_distance = 0.001f;
   static float color_exposure = 1.0f;

@@ -237,13 +237,13 @@ bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context,
 #endif
   ImGui::Separator();
   DrawSorghumMeshGeneratorSettingsGui(sorghum_mesh_generator_settings);
-  ImGui::Checkbox("Auto increase crop Target GDD (Ctrl+F)", &auto_increase_crop_target_gdd_);
-  ImGui::DragFloat("Crop Target GDD increase speed", &crop_target_gdd_increase_speed_, 1.0f, 0.0f, 5000.0f,
+  ImGui::Checkbox("Auto increase crop Target GDD (Ctrl+F)", &layer.auto_increase_crop_target_gdd_);
+  ImGui::DragFloat("Crop Target GDD increase speed", &layer.crop_target_gdd_increase_speed_, 1.0f, 0.0f, 5000.0f,
                    "%.2f gdd/s");
-  crop_target_gdd_increase_speed_ = glm::max(0.0f, crop_target_gdd_increase_speed_);
-  ImGui::DragFloat("Crop growth daily temperature (C)", &crop_growth_daily_temperature_, 0.5f, 0.0f, 45.0f);
-  ImGui::DragFloat("Mesh rebuild interval (s)", &mesh_regen_interval_, 0.01f, 0.0f, 1.0f, "%.2f");
-  mesh_regen_interval_ = glm::max(0.0f, mesh_regen_interval_);
+  layer.crop_target_gdd_increase_speed_ = glm::max(0.0f, layer.crop_target_gdd_increase_speed_);
+  ImGui::DragFloat("Crop growth daily temperature (C)", &layer.crop_growth_daily_temperature_, 0.5f, 0.0f, 45.0f);
+  ImGui::DragFloat("Mesh rebuild interval (s)", &layer.mesh_regen_interval_, 0.01f, 0.0f, 1.0f, "%.2f");
+  layer.mesh_regen_interval_ = glm::max(0.0f, layer.mesh_regen_interval_);
 
   if (ImGui::Button("Generate mesh for all sorghums")) {
     layer.GenerateMeshForAllSorghums(sorghum_mesh_generator_settings);

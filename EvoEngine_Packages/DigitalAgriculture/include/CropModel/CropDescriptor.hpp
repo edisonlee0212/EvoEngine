@@ -110,9 +110,7 @@ class CropDescriptor : public IAsset {
   // IAsset interface
   // ------------------------------------------------------------------
   void OnCreate() override;
-  bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Serialize(YAML::Emitter& out) const override;
-  void Deserialize(const YAML::Node& in) override;
+  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   // ------------------------------------------------------------------
   // Import from SorghumGenerator

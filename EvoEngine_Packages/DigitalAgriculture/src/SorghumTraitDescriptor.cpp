@@ -11,7 +11,7 @@
 using namespace digital_agriculture_package;
 
 
-bool SorghumLeafTrait::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumLeafTrait::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
     if (ImGui::TreeNode("traits")) {
@@ -49,7 +49,7 @@ void SorghumLeafTrait::Deserialize(const YAML::Node& in) {
     internode_length = in["internode_length"].as<float>();
 }
 
-bool SorghumTraitDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+bool SorghumTraitDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNodeEx((std::string("Stem")).c_str())) {
     ImGui::Text("stem length: (%.2f)", stem_length);
@@ -64,7 +64,7 @@ bool SorghumTraitDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& edito
       if (ImGui::TreeNode(
               ("Leaf No." + std::to_string(leaf.leaf_index + 1))
                   .c_str())) {
-        if (leaf.OnInspect(editor_layer))
+        if (leaf.DrawGui(editor_layer))
           changed = true;
         ImGui::TreePop();
       }
@@ -74,37 +74,4 @@ bool SorghumTraitDescriptor::OnInspect(const std::shared_ptr<EditorLayer>& edito
 
   return changed;
 }
-
-
-void SorghumTraitDescriptor::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "stem_length" << YAML::Value << stem_length;
-  out << YAML::Key << "leaf_count" << YAML::Value << leaf_traits.size();
-  if (!leaf_traits.empty()) {
-    out << YAML::Key << "leaves" << YAML::Value << YAML::BeginSeq;
-    for (auto& i : leaf_traits) {
-      out << YAML::BeginMap;
-      i.Serialize(out);
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-  }
-}
-
-void SorghumTraitDescriptor::Deserialize(const YAML::Node& in) {
-
-  if (in["stem_length"])
-    stem_length = in["stem_length"].as<float>();
-
-
-
-  if (in["leaves"]) {
-    for (const auto& i : in["leaves"]) {
-      SorghumLeafTrait leaf_trait{};
-      leaf_trait.Deserialize(i);
-      leaf_traits.push_back(leaf_trait);
-    }
-  }
-}
-
-
 
