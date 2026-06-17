@@ -104,11 +104,82 @@ void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMeta
   if (start_scene_handle) {
     out << YAML::Key << "start_scene_handle" << YAML::Value << *start_scene_handle;
   }
+  if (const auto application = ApplicationContext::TryGet()) {
+    if (const auto editor_layer = application->GetLayer<EditorLayer>()) {
+      out << YAML::Key << "EditorLayer" << YAML::Value << YAML::BeginMap;
+      editor_layer->Serialize(out);
+      out << YAML::EndMap;
+    }
+  }
   out << YAML::EndMap;
 
   std::ofstream file_out(path.string());
   file_out << out.c_str();
   file_out.flush();
+}
+
+void ApplyProjectEditorState(const std::filesystem::path& path) {
+  const auto application = ApplicationContext::TryGet();
+  if (!application) {
+    return;
+  }
+  const auto editor_layer = application->GetLayer<EditorLayer>();
+  if (!editor_layer) {
+    return;
+  }
+  if (path.empty() || !std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
+    editor_layer->Deserialize(YAML::Node());
+    return;
+  }
+  try {
+    const auto in = YAML::LoadFile(path.string());
+    if (const auto editor_state = in["EditorLayer"]) {
+      editor_layer->Deserialize(editor_state);
+    } else {
+      editor_layer->Deserialize(YAML::Node());
+    }
+  } catch (const std::exception& error) {
+    EVOENGINE_ERROR("Failed to read project editor state: " + std::string(error.what()))
+    editor_layer->Deserialize(YAML::Node());
+  }
+}
+
+std::filesystem::path NormalizePathForContainment(const std::filesystem::path& path) {
+  std::error_code error;
+  auto normalized = std::filesystem::weakly_canonical(path, error);
+  if (error) {
+    normalized = std::filesystem::absolute(path, error);
+  }
+  if (error) {
+    normalized = path;
+  }
+  return normalized.lexically_normal();
+}
+
+bool PathElementEquals(const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  auto lhs_string = lhs.string();
+  auto rhs_string = rhs.string();
+  std::transform(lhs_string.begin(), lhs_string.end(), lhs_string.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  std::transform(rhs_string.begin(), rhs_string.end(), rhs_string.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return lhs_string == rhs_string;
+#else
+  return lhs == rhs;
+#endif
+}
+
+bool IsSamePathOrChildPath(const std::filesystem::path& path, const std::filesystem::path& parent) {
+  auto path_iterator = path.begin();
+  for (auto parent_iterator = parent.begin(); parent_iterator != parent.end(); ++parent_iterator, ++path_iterator) {
+    if (path_iterator == path.end() || !PathElementEquals(*path_iterator, *parent_iterator)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void MergeApplicationLaunchMetadata(ProjectLaunchMetadata& metadata) {
@@ -358,11 +429,11 @@ void ProjectManager::SetupDefaultScene() {
       if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
         scene = std::dynamic_pointer_cast<Scene>(temp);
         SetStartScene(scene);
-        SaveProject();
         LogLoadingDuration("Start scene asset load", scene_load_start);
         project_manager.loading_status_ = "Attaching start scene...";
         const auto attach_start = LoadingClock::now();
         ApplicationContext::Get().Attach(scene);
+        ApplyProjectEditorState(project_absolute_path);
         LogLoadingDuration("Start scene attach", attach_start);
         found_scene = true;
       }
@@ -394,6 +465,7 @@ void ProjectManager::SetupDefaultScene() {
     project_manager.loading_status_ = "Attaching start scene...";
     const auto attach_start = LoadingClock::now();
     ApplicationContext::Get().Attach(scene);
+    ApplyProjectEditorState(project_absolute_path);
     LogLoadingDuration("Start scene attach", attach_start);
 
     if (project_manager.new_scene_customizer_.has_value()) {
@@ -585,6 +657,13 @@ void ProjectManager::LoadAllPendingAssets() {
 
 void ProjectManager::SaveProject() {
   const auto& project_manager = GetInstance();
+  if (project_manager.project_path_.empty() || !project_manager.start_scene_) {
+    return;
+  }
+  if (const auto active_scene = ApplicationContext::Get().GetActiveScene();
+      active_scene && !active_scene->IsTemporary()) {
+    active_scene->Save();
+  }
   WriteProjectFile(project_manager.project_path_, project_manager.project_launch_metadata_,
                    static_cast<uint64_t>(project_manager.start_scene_->GetHandle()));
 }

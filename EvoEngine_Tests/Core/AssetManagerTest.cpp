@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "AssetManager.hpp"
+#include "EditorLayer.hpp"
 #include "IAsset.hpp"
 #include "Jobs.hpp"
 #include "PackageManager.hpp"
@@ -790,6 +791,95 @@ TEST(ProjectManager, SaveProjectPersistsLaunchMetadata) {
   EXPECT_EQ(metadata.application_name, "Metadata Test");
   ASSERT_EQ(metadata.startup_runtime_packages.size(), 1);
   EXPECT_EQ(metadata.startup_runtime_packages[0], "MissingPackageForMetadataTest");
+}
+
+TEST(ProjectManager, ExistingProjectLoadDoesNotRewriteProjectManifestBeforeSave) {
+  TempProject project;
+  {
+    Application app;
+    ApplicationContextScope scope(app);
+    app.Initialize(TestApplicationSettings(project));
+    const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+    ASSERT_TRUE(scene->SetPathAndSave("Existing Scene.evescene"));
+    ProjectManager::SetStartScene(scene);
+    ProjectManager::SaveProject();
+    app.Terminate();
+  }
+
+  {
+    std::ofstream project_file(project.ProjectPath(), std::ios::app);
+    project_file << "\nlegacy_marker: keep\n";
+  }
+
+  Application app;
+  ApplicationContextScope scope(app);
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_start_scene = true;
+
+  ASSERT_NO_THROW(app.Initialize(settings));
+
+  const auto project_yaml = YAML::LoadFile(project.ProjectPath().string());
+  ASSERT_TRUE(project_yaml["legacy_marker"]);
+  EXPECT_EQ(project_yaml["legacy_marker"].as<std::string>(), "keep");
+}
+
+TEST(EditorLayer, MissingEditorStateKeepsDefaultsAndRequestsDefaultLayout) {
+  EditorLayer editor_layer;
+
+  editor_layer.Deserialize(YAML::Node());
+
+  EXPECT_TRUE(editor_layer.show_scene_window);
+  EXPECT_TRUE(editor_layer.show_camera_window);
+  EXPECT_FLOAT_EQ(editor_layer.velocity, 10.0f);
+  EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.1f);
+  EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
+}
+
+TEST(EditorLayer, PartialEditorStateChangesOnlyPresentFields) {
+  EditorLayer editor_layer;
+
+  editor_layer.Deserialize(YAML::Load(R"(
+show_scene_window: false
+velocity: 3.5
+)"));
+
+  EXPECT_FALSE(editor_layer.show_scene_window);
+  EXPECT_TRUE(editor_layer.show_camera_window);
+  EXPECT_FLOAT_EQ(editor_layer.velocity, 3.5f);
+  EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.1f);
+  EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
+}
+
+TEST(EditorLayer, MissingEmptyOrNonDockingImGuiIniRequestsDefaultLayout) {
+  EditorLayer missing_layout;
+  missing_layout.Deserialize(YAML::Load("{show_scene_window: true}"));
+  EXPECT_TRUE(missing_layout.DefaultEditorLayoutPending());
+
+  EditorLayer empty_layout;
+  empty_layout.Deserialize(YAML::Load("{ImGuiIni: ''}"));
+  EXPECT_TRUE(empty_layout.DefaultEditorLayoutPending());
+
+  EditorLayer non_docking_layout;
+  non_docking_layout.Deserialize(YAML::Load(R"(
+ImGuiIni: |
+  [Window][Scene]
+  Pos=0,0
+)"));
+  EXPECT_TRUE(non_docking_layout.DefaultEditorLayoutPending());
+}
+
+TEST(EditorLayer, ValidDockingImGuiIniDefersRestoreWithoutDefaultLayout) {
+  EditorLayer editor_layer;
+  editor_layer.Deserialize(YAML::Node());
+  ASSERT_TRUE(editor_layer.DefaultEditorLayoutPending());
+
+  editor_layer.Deserialize(YAML::Load(R"(
+ImGuiIni: |
+  [Docking][Data]
+  DockSpace ID=0x00000001 Window=0x00000002
+)"));
+
+  EXPECT_FALSE(editor_layer.DefaultEditorLayoutPending());
 }
 
 TEST(PackageManager, ReportsManifestLibraryAvailability) {

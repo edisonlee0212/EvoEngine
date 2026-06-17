@@ -204,6 +204,8 @@ class EditorLayer : public ILayer {
 
   [[nodiscard]] bool SceneCameraWindowFocused() const; /**< Checks if the Scene Camera window is focused. */
   [[nodiscard]] bool MainCameraWindowFocused() const;  /**< Checks if the Main Camera window is focused. */
+  [[nodiscard]] bool SceneCameraWindowHovered() const; /**< Checks if the Scene Camera window is hovered. */
+  [[nodiscard]] bool MainCameraWindowHovered() const;  /**< Checks if the Main Camera window is hovered. */
 
   bool enable_view_gizmos = false;  /**< Indicates if view gizmos are enabled. */
   bool enable_gizmos = true;        /**< Indicates if gizmos are enabled. */
@@ -839,6 +841,10 @@ class EditorLayer : public ILayer {
    */
   [[nodiscard]] bool IsGizmosUsing() const;
 
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
+  [[nodiscard]] bool DefaultEditorLayoutPending() const;
+
  private:
   struct AssetInspectorWindow {
     std::shared_ptr<IAsset> asset;
@@ -853,6 +859,7 @@ class EditorLayer : public ILayer {
    */
   void LoadIcons();
   void RegisterEditorPanels();
+  void ApplyPendingImGuiIniSettings();
 
   /**
    * @brief Called during the creation of the EditorLayer.
@@ -1022,7 +1029,11 @@ class EditorLayer : public ILayer {
   bool local_scale_selected_ = false;             /**< Indicates if the local scale is selected. */
 
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
+  bool scene_camera_window_hovered_ = false; /**< Indicates if the scene camera window is hovered. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */
+  bool main_camera_window_hovered_ = false;  /**< Indicates if the main camera window is hovered. */
+  bool orbit_focus_initialized_ = false;
+  glm::vec3 orbit_focus_point_ = glm::vec3(0.0f);
 
 #pragma region Registrations
 
@@ -1070,6 +1081,9 @@ class EditorLayer : public ILayer {
   glm::vec2 mouse_camera_window_position_; /**< Mouse position in the camera window. */
 
   float main_camera_resolution_multiplier_ = 1.0f; /**< Multiplier for main camera resolution. */
+  std::string pending_imgui_ini_settings_;
+  bool has_pending_imgui_ini_settings_ = false;
+  mutable bool editor_layout_dirty_ = false;
 };
 
 #pragma region ImGui Helpers
