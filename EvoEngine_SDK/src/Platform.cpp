@@ -139,6 +139,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       ImGui::CreateContext();
       ImNodes::CreateContext();
       ImGuiIO& io = ImGui::GetIO();
+      io.IniFilename = nullptr;
       if (ApplicationContext::Get().GetApplicationInfo().enable_docking) {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
       }
