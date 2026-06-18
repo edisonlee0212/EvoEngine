@@ -225,6 +225,7 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
         if (!current_focused_folder) {
           current_focused_folder = project_manager.assets_folder_;
           project_manager.current_focused_folder_ = current_focused_folder;
+          RequestHierarchyReveal(current_focused_folder);
         }
         SyncNavigationHistory(current_focused_folder);
         if (ImGui::BeginDragDropTarget()) {
@@ -250,7 +251,10 @@ void ProjectContentBrowserPanel::Draw(const std::shared_ptr<EditorLayer>& editor
         h = avail.y;
         ImGui::Splitter(true, 8.0, hierarchy_width_, content_width_, 32.0f, cell_size + 8.0f, h);
         ImGui::BeginChild("1", ImVec2(hierarchy_width_, h), true);
-        FolderHierarchyHelper(editor_layer, project_manager.assets_folder_);
+        const auto reveal_folder =
+            hierarchy_reveal_target_ ? FileManager::GetFolder(*hierarchy_reveal_target_) : nullptr;
+        FolderHierarchyHelper(editor_layer, project_manager.assets_folder_, reveal_folder);
+        hierarchy_reveal_target_.reset();
         ImGui::EndChild();
 
         ImGui::SameLine();
@@ -621,6 +625,7 @@ void ProjectContentBrowserPanel::NavigateToFolder(const std::shared_ptr<Folder>&
 
   auto& project_manager = ProjectManager::GetInstance();
   project_manager.current_focused_folder_ = folder;
+  RequestHierarchyReveal(folder);
   selected_item_type_ = SelectedItemType::None;
   selected_item_handle_ = 0;
   if (!add_history) {
@@ -637,6 +642,12 @@ void ProjectContentBrowserPanel::NavigateToFolder(const std::shared_ptr<Folder>&
   }
   folder_history_.emplace_back(handle);
   folder_history_index_ = folder_history_.size() - 1;
+}
+
+void ProjectContentBrowserPanel::RequestHierarchyReveal(const std::shared_ptr<Folder>& folder) {
+  if (folder) {
+    hierarchy_reveal_target_ = folder->GetHandle();
+  }
 }
 
 void ProjectContentBrowserPanel::NavigateHistory(const int offset) {
@@ -710,16 +721,18 @@ bool ProjectContentBrowserPanel::TextContainsCaseInsensitive(const std::string& 
 }
 
 void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<EditorLayer>& editor_layer,
-                                                       const std::shared_ptr<Folder>& folder) {
+                                                       const std::shared_ptr<Folder>& folder,
+                                                       const std::shared_ptr<Folder>& reveal_folder) {
   auto& project_manager = ProjectManager::GetInstance();
   auto focus_folder = project_manager.current_focused_folder_.lock();
-  if (focus_folder && folder->IsSelfOrAncestor(focus_folder->GetHandle())) {
+  const bool reveal_path = reveal_folder && reveal_folder->IsSelfOrAncestor(folder->GetHandle());
+  if (reveal_path) {
     ImGui::SetNextItemOpen(true, ImGuiCond_Always);
   }
   const bool opened = ImGui::TreeNodeEx(
       folder->name_.c_str(), ImGuiTreeNodeFlags_OpenOnArrow |
                                  (folder == focus_folder ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None));
-  if (folder == focus_folder) {
+  if (folder == reveal_folder) {
     ImGui::SetScrollHereY(0.35f);
   }
   if (ImGui::BeginDragDropTarget()) {
@@ -769,7 +782,7 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
   }
   if (opened) {
     for (const auto& i : folder->children_) {
-      FolderHierarchyHelper(editor_layer, i.second);
+      FolderHierarchyHelper(editor_layer, i.second, reveal_folder);
     }
     for (const auto& i : folder->files) {
       if (ImGui::TreeNodeEx((i.second->GetAssetFileName() + i.second->GetAssetExtension()).c_str(),
