@@ -843,6 +843,8 @@ class EditorLayer : public ILayer {
 
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
+  void DeserializeLayout(const YAML::Node& in);
+  void DeserializeSceneState(const YAML::Node& in);
   [[nodiscard]] bool DefaultEditorLayoutPending() const;
 
  private:

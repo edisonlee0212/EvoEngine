@@ -30,6 +30,10 @@ function(evoengine_configure_runtime_package target_name)
 			INSTALL_RPATH "$ORIGIN")
 	endif()
 
+	if (DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
+		evoengine_deploy_target_runtime(${target_name} "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Packages")
+	endif()
+
 	foreach(resource_dir IN LISTS PACKAGE_RESOURCES)
 		if (EXISTS "${resource_dir}")
 			get_filename_component(resource_folder_name "${resource_dir}" NAME)
@@ -38,6 +42,12 @@ function(evoengine_configure_runtime_package target_name)
 					COMMAND ${CMAKE_COMMAND} -E copy_directory
 						"${resource_dir}" "$<TARGET_FILE_DIR:${target_name}>/.."
 					VERBATIM)
+				if (DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
+					add_custom_command(TARGET ${target_name} POST_BUILD
+						COMMAND ${CMAKE_COMMAND} -E copy_directory
+							"${resource_dir}" "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}"
+						VERBATIM)
+				endif()
 				install(DIRECTORY "${resource_dir}/"
 					DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 			else()
@@ -45,6 +55,12 @@ function(evoengine_configure_runtime_package target_name)
 					COMMAND ${CMAKE_COMMAND} -E copy_directory
 						"${resource_dir}" "$<TARGET_FILE_DIR:${target_name}>/../${resource_folder_name}"
 					VERBATIM)
+				if (DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
+					add_custom_command(TARGET ${target_name} POST_BUILD
+						COMMAND ${CMAKE_COMMAND} -E copy_directory
+							"${resource_dir}" "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/${resource_folder_name}"
+						VERBATIM)
+				endif()
 				install(DIRECTORY "${resource_dir}/"
 					DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/${resource_folder_name}")
 			endif()
@@ -141,6 +157,15 @@ function(evoengine_generate_runtime_package_manifest package_name target_name pa
 			"-DDEPENDENCIES=${dependencies_encoded}"
 			-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineWritePackageManifest.cmake"
 		VERBATIM)
+	if (DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
+		add_custom_command(TARGET ${target_name} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E make_directory "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Packages"
+			COMMAND ${CMAKE_COMMAND}
+				"-DSOURCE=$<TARGET_FILE_DIR:${target_name}>/${package_name}.evepackage"
+				"-DDESTINATION=${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Packages"
+				-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyIfExists.cmake"
+			VERBATIM)
+	endif()
 	install(FILES "$<TARGET_FILE_DIR:${target_name}>/${package_name}.evepackage"
 		DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Packages"
 		OPTIONAL)

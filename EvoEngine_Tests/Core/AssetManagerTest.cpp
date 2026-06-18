@@ -882,6 +882,28 @@ ImGuiIni: |
   EXPECT_FALSE(editor_layer.DefaultEditorLayoutPending());
 }
 
+TEST(EditorLayer, SceneStateDeserializeDoesNotModifyLayoutState) {
+  EditorLayer editor_layer;
+  editor_layer.DeserializeLayout(YAML::Load(R"(
+show_scene_window: false
+ImGuiIni: |
+  [Docking][Data]
+  DockSpace ID=0x00000001 Window=0x00000002
+)"));
+  ASSERT_FALSE(editor_layer.show_scene_window);
+  ASSERT_FALSE(editor_layer.DefaultEditorLayoutPending());
+
+  editor_layer.DeserializeSceneState(YAML::Load(R"(
+show_scene_window: true
+ImGuiIni: |
+  [Window][Scene]
+  Pos=0,0
+)"));
+
+  EXPECT_FALSE(editor_layer.show_scene_window);
+  EXPECT_FALSE(editor_layer.DefaultEditorLayoutPending());
+}
+
 TEST(PackageManager, ReportsManifestLibraryAvailability) {
   TempPackageDirectory package_directory;
   package_directory.WritePackageManifest("AvailablePackage", "AvailablePackage.dll", true);

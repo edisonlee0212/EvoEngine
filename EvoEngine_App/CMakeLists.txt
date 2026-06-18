@@ -19,9 +19,14 @@ set(EVOENGINE_APP_RESOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
+evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_INSTALL_RUNTIME_DIR})
+evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_INSTALL_RUNTIME_DIR})
 add_custom_command(TARGET AppResourceCopy POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy 
+			COMMAND ${CMAKE_COMMAND} -E copy
 			${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini ${EVOENGINE_APP_BUILD_RUNTIME_DIR} VERBATIM)
+add_custom_command(TARGET AppResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy
+			${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini ${EVOENGINE_APP_INSTALL_RUNTIME_DIR} VERBATIM)
 
 set_property(TARGET AppResourceCopy PROPERTY FOLDER PostBuildActions)
 
@@ -124,6 +129,7 @@ function(register_evoengine_app app_name default_enable)
 			endif ()
 
 			add_dependencies(${app_name} AppResourceCopy)
+			evoengine_deploy_target_runtime(${app_name} "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}")
 			install(TARGETS ${app_name}
 				RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 			evoengine_install_target_pdb(${app_name} "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")

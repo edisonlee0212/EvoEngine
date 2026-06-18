@@ -22,6 +22,8 @@ Use these files to keep a brief, current record of planned work, active work, an
 
 Record the current branch at the top of `tasks/todo.md` as `# Branch: <branch-name>`. Before reusing an existing `./tasks` directory, compare that branch name with `git branch --show-current`. If `tasks/todo.md` names a different branch, remove the local `./tasks` directory and recreate fresh `todo.md`, `in-progress.md`, and `done.md` files for the current branch. If no branch is recorded yet and the tasks clearly belong to the current branch, add the branch line instead of deleting them.
 
+For each non-trivial task, establish brief milestones before implementation and record them in `tasks/todo.md`. Keep milestones outcome-oriented and update `tasks/in-progress.md` and `tasks/done.md` as work moves forward. For very small tasks, one milestone is enough; avoid over-planning when the change is obvious.
+
 ## Implementation
 
 **Write minimal, simple code:**

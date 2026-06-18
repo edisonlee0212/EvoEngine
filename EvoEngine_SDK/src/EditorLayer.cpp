@@ -1204,7 +1204,7 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
   }
 }
 
-void EditorLayer::Deserialize(const YAML::Node& in) {
+void EditorLayer::DeserializeLayout(const YAML::Node& in) {
   if (!in || !in.IsMap()) {
     RequestDefaultEditorLayout();
     return;
@@ -1277,6 +1277,30 @@ void EditorLayer::Deserialize(const YAML::Node& in) {
     }
   }
 
+  if (const auto node = in["ImGuiIni"]) {
+    ReadYamlValue(in, "ImGuiIni", pending_imgui_ini_settings_);
+    has_pending_imgui_ini_settings_ = HasUsableImGuiDockLayout(pending_imgui_ini_settings_);
+    if (!has_pending_imgui_ini_settings_) {
+      pending_imgui_ini_settings_.clear();
+      RequestDefaultEditorLayout();
+    } else {
+      dock_layout_reset_pending_ = false;
+    }
+  } else {
+    RequestDefaultEditorLayout();
+  }
+}
+
+void EditorLayer::Deserialize(const YAML::Node& in) {
+  DeserializeLayout(in);
+  DeserializeSceneState(in);
+}
+
+void EditorLayer::DeserializeSceneState(const YAML::Node& in) {
+  if (!in || !in.IsMap()) {
+    return;
+  }
+
   if (const auto node = in["selected_entity"]) {
     uint64_t handle = 0;
     ReadYamlValue(in, "selected_entity", handle);
@@ -1311,19 +1335,6 @@ void EditorLayer::Deserialize(const YAML::Node& in) {
         OpenAssetInspector(asset);
       }
     }
-  }
-
-  if (const auto node = in["ImGuiIni"]) {
-    ReadYamlValue(in, "ImGuiIni", pending_imgui_ini_settings_);
-    has_pending_imgui_ini_settings_ = HasUsableImGuiDockLayout(pending_imgui_ini_settings_);
-    if (!has_pending_imgui_ini_settings_) {
-      pending_imgui_ini_settings_.clear();
-      RequestDefaultEditorLayout();
-    } else {
-      dock_layout_reset_pending_ = false;
-    }
-  } else {
-    RequestDefaultEditorLayout();
   }
 }
 

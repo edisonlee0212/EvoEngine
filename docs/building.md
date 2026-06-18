@@ -92,7 +92,7 @@ out/install/vs2026-x64/python/
 
 The `bin` folder contains installed app executables plus runtime libraries, PDBs when available, and resources. Runtime package libraries install under `bin/Packages`. The `python` folder contains installed Python extension modules, Python scripts, and the runtime library/resource payload needed for imports and scripted workflows.
 
-Post-build steps also copy engine resources, Service resources, runtime libraries, PDBs when available, runtime packages, and `imgui.ini` beside build-tree binaries for fast local development.
+Post-build steps also copy engine resources, Service resources, runtime libraries, PDBs when available, runtime packages, and `imgui.ini` beside build-tree binaries for fast local development. Targeted app and runtime package builds also refresh `out/install/vs2026-x64/bin`, so this install-bin folder is the stable local runtime location for manual testing even when you build individual targets instead of the full install preset.
 
 ## VSCode On Windows
 

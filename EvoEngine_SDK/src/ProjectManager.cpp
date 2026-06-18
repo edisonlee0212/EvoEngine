@@ -22,6 +22,8 @@ constexpr const char* kDefaultEditorName = "EvoEngineEditor";
 constexpr const char* kDefaultApplicationName = "EvoEngine Editor";
 using LoadingClock = std::chrono::steady_clock;
 
+enum class ProjectEditorStateApplyMode { Full, LayoutOnly, SceneStateOnly };
+
 int64_t ElapsedMilliseconds(const LoadingClock::time_point start) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(LoadingClock::now() - start).count();
 }
@@ -118,7 +120,8 @@ void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMeta
   file_out.flush();
 }
 
-void ApplyProjectEditorState(const std::filesystem::path& path) {
+void ApplyProjectEditorState(const std::filesystem::path& path,
+                             const ProjectEditorStateApplyMode mode = ProjectEditorStateApplyMode::Full) {
   const auto application = ApplicationContext::TryGet();
   if (!application) {
     return;
@@ -127,20 +130,33 @@ void ApplyProjectEditorState(const std::filesystem::path& path) {
   if (!editor_layer) {
     return;
   }
+  const auto apply = [&](const YAML::Node& editor_state) {
+    switch (mode) {
+      case ProjectEditorStateApplyMode::LayoutOnly:
+        editor_layer->DeserializeLayout(editor_state);
+        return;
+      case ProjectEditorStateApplyMode::SceneStateOnly:
+        editor_layer->DeserializeSceneState(editor_state);
+        return;
+      case ProjectEditorStateApplyMode::Full:
+        editor_layer->Deserialize(editor_state);
+        return;
+    }
+  };
   if (path.empty() || !std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
-    editor_layer->Deserialize(YAML::Node());
+    apply(YAML::Node());
     return;
   }
   try {
     const auto in = YAML::LoadFile(path.string());
     if (const auto editor_state = in["EditorLayer"]) {
-      editor_layer->Deserialize(editor_state);
+      apply(editor_state);
     } else {
-      editor_layer->Deserialize(YAML::Node());
+      apply(YAML::Node());
     }
   } catch (const std::exception& error) {
     EVOENGINE_ERROR("Failed to read project editor state: " + std::string(error.what()))
-    editor_layer->Deserialize(YAML::Node());
+    apply(YAML::Node());
   }
 }
 
@@ -433,7 +449,7 @@ void ProjectManager::SetupDefaultScene() {
         project_manager.loading_status_ = "Attaching start scene...";
         const auto attach_start = LoadingClock::now();
         ApplicationContext::Get().Attach(scene);
-        ApplyProjectEditorState(project_absolute_path);
+        ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::SceneStateOnly);
         LogLoadingDuration("Start scene attach", attach_start);
         found_scene = true;
       }
@@ -465,7 +481,7 @@ void ProjectManager::SetupDefaultScene() {
     project_manager.loading_status_ = "Attaching start scene...";
     const auto attach_start = LoadingClock::now();
     ApplicationContext::Get().Attach(scene);
-    ApplyProjectEditorState(project_absolute_path);
+    ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::SceneStateOnly);
     LogLoadingDuration("Start scene attach", attach_start);
 
     if (project_manager.new_scene_customizer_.has_value()) {
@@ -741,6 +757,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   AssetManager::Clear();
   FileManager::Clear();
   ApplicationContext::Get().Reset();
+  ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::LayoutOnly);
 
   auto& file_manager = FileManager::GetInstance();
   project_manager.current_focused_folder_ = project_manager.assets_folder_ = std::make_shared<Folder>();

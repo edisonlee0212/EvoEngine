@@ -163,6 +163,37 @@ function(evoengine_install_target_pdb target_name dst_dir)
 	endif()
 endfunction()
 
+function(evoengine_resolve_install_destination out_var install_destination)
+	if (IS_ABSOLUTE "${install_destination}")
+		set(resolved "${install_destination}")
+	elseif (IS_ABSOLUTE "${CMAKE_INSTALL_PREFIX}")
+		set(resolved "${CMAKE_INSTALL_PREFIX}/${install_destination}")
+	else()
+		get_filename_component(resolved "${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_PREFIX}/${install_destination}" ABSOLUTE)
+	endif()
+	file(TO_CMAKE_PATH "${resolved}" resolved)
+	set(${out_var} "${resolved}" PARENT_SCOPE)
+endfunction()
+
+evoengine_resolve_install_destination(EVOENGINE_APP_INSTALL_RUNTIME_DIR "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+
+function(evoengine_deploy_runtime_file dst_target source_path dst_dir)
+	add_custom_command(TARGET ${dst_target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E make_directory "${dst_dir}"
+		COMMAND ${CMAKE_COMMAND}
+			"-DSOURCE=${source_path}"
+			"-DDESTINATION=${dst_dir}"
+			-P ${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyIfExists.cmake
+		VERBATIM)
+endfunction()
+
+function(evoengine_deploy_target_runtime target_name dst_dir)
+	evoengine_deploy_runtime_file(${target_name} "$<TARGET_FILE:${target_name}>" "${dst_dir}")
+	if (MSVC AND EVOENGINE_INSTALL_PDBS)
+		evoengine_deploy_runtime_file(${target_name} "$<TARGET_PDB_FILE:${target_name}>" "${dst_dir}")
+	endif()
+endfunction()
+
 # ------------------------------------------------------------------
 # EvoEngine - Runtime Packages
 # ------------------------------------------------------------------
