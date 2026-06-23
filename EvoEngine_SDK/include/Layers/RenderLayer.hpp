@@ -171,6 +171,8 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] static float CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons);
   [[nodiscard]] static float CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons,
                                                            uint32_t warmup_frame_index);
+  [[nodiscard]] static float CalculateDdgiUpdateBrightnessThreshold(const DdgiSettings& settings,
+                                                                    uint32_t update_reasons);
   [[nodiscard]] static std::string FormatDdgiUpdateReasons(uint32_t reasons);
   [[nodiscard]] static float CalculateDdgiVolumeBlendWeight(const glm::vec3& probe_coordinate,
                                                             const glm::ivec3& probe_counts,

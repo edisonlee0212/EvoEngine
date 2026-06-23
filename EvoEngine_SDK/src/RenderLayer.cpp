@@ -505,7 +505,8 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
 
 DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(
     const RenderLayer::DdgiSettings& settings, const RenderLayer::DdgiProbeUpdateWindow& update_window,
-    const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source, const float history_hysteresis) {
+    const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source, const float history_hysteresis,
+    const float brightness_threshold) {
   const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings, total_probe_count);
   const auto probe_count = glm::max(1u, glm::min(layout.probe_count, update_window.probe_count));
   const auto history_weight = glm::clamp(history_hysteresis, 0.0f, 1.0f);
@@ -527,7 +528,7 @@ DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(
   push_constant.probe_blend_parameters = {glm::clamp(source.random_ray_backface_threshold, 0.0f, 1.0f),
                                           glm::clamp(source.fixed_ray_backface_threshold, 0.0f, 1.0f),
                                           glm::max(settings.runtime.distance_exponent, 0.0f),
-                                          glm::clamp(settings.runtime.brightness_threshold, 0.0f, 1.0f)};
+                                          glm::max(brightness_threshold, 0.0f)};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
   push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
   push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
@@ -879,6 +880,17 @@ float RenderLayer::CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, c
   }
   const auto denominator = static_cast<float>(glm::max(warmup_frame_count - 1u, 1u));
   return hysteresis * (static_cast<float>(warmup_frame_index) / denominator);
+}
+
+float RenderLayer::CalculateDdgiUpdateBrightnessThreshold(const DdgiSettings& settings, const uint32_t update_reasons) {
+  const auto brightness_threshold = glm::clamp(settings.runtime.brightness_threshold, 0.0f, 1.0f);
+  if (settings.runtime.warmup_frames <= 0) {
+    return brightness_threshold;
+  }
+  if ((update_reasons & (DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonWarmup)) == 0u) {
+    return brightness_threshold;
+  }
+  return (std::numeric_limits<float>::max)();
 }
 
 std::string RenderLayer::FormatDdgiUpdateReasons(const uint32_t reasons) {
@@ -2506,11 +2518,14 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   const auto skip_inactive_probe_trace = ddgi_ray_source.enable_probe_classification;
   const auto ddgi_update_hysteresis =
       CalculateDdgiUpdateHysteresis(ddgi_settings, ddgi_last_probe_update_reasons_, ddgi_probe_warmup_frame_index_);
+  const auto ddgi_update_brightness_threshold =
+      CalculateDdgiUpdateBrightnessThreshold(ddgi_settings, ddgi_last_probe_update_reasons_);
   ddgi_frame_probe_update_hysteresis_ = ddgi_update_hysteresis;
   ddgi_frame_ray_push_constant_ = CreateDdgiProbeRayTracingPushConstant(ddgi_settings, ddgi_ray_source,
                                                                         ddgi_update_window, skip_inactive_probe_trace);
-  ddgi_frame_probe_update_push_constant_ = CreateDdgiProbeAtlasUpdatePushConstant(
-      ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, ddgi_update_hysteresis);
+  ddgi_frame_probe_update_push_constant_ =
+      CreateDdgiProbeAtlasUpdatePushConstant(ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source,
+                                             ddgi_update_hysteresis, ddgi_update_brightness_threshold);
   ddgi_frame_probe_relocation_reset_push_constant_ = CreateDdgiProbeRelocationPushConstant(
       ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, true);
   ddgi_frame_probe_relocation_update_push_constant_ = CreateDdgiProbeRelocationPushConstant(
