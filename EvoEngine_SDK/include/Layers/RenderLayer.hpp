@@ -452,6 +452,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_layout_;
+  std::shared_ptr<DescriptorSetLayout> ray_tracing_camera_output_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_point_cloud_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_output_layout_;
   std::shared_ptr<DescriptorSetLayout> particle_instanced_data_layout_;

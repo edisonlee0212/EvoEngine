@@ -31,25 +31,45 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
     if (!render_texture || !parameters.pipeline || !parameters.per_frame_descriptor_set ||
-        !parameters.ray_tracing_descriptor_set || !render_texture->GetStorageDescriptorSet()) {
+        !parameters.ray_tracing_descriptor_set || !parameters.output_descriptor_set_layout ||
+        !parameters.transient_resources) {
       return;
     }
     Platform::EverythingBarrier(vk_command_buffer);
     ApplyGraphResourceBarriers(vk_command_buffer, context);
     Platform::EverythingBarrier(vk_command_buffer);
+    const auto* hit_distance_binding = context.GetResourceBinding(RenderResourceNames::camera_ray_hit_distance);
+    if (!hit_distance_binding || !hit_distance_binding->image) {
+      ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
+      return;
+    }
+    const auto hit_distance_view = CreateGraphImageMipView(hit_distance_binding->image, 0);
+    if (!hit_distance_view) {
+      ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
+      return;
+    }
+    parameters.transient_resources->RetainImageView(hit_distance_view);
+    const auto output_descriptor_set = std::make_shared<DescriptorSet>(parameters.output_descriptor_set_layout);
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = render_texture->GetColorImageView()->GetVkImageView();
+    output_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = hit_distance_view->GetVkImageView();
+    output_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                            parameters.ray_tracing_descriptor_set->GetVkDescriptorSet());
-    parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                           render_texture->GetStorageDescriptorSet()->GetVkDescriptorSet());
+    parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
     push_constant.frame_id = parameters.frame_id;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     parameters.pipeline->Trace(vk_command_buffer, render_texture->GetExtent().width, render_texture->GetExtent().height,
                                1);
+    parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     Platform::EverythingBarrier(vk_command_buffer);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
   });

@@ -27,7 +27,8 @@ VolumetricCloudsPushConstant CreatePushConstant(const VolumetricCloudsPass::Para
                                                settings.phase_anisotropy, max_distance};
   push_constant.camera_frame_steps = {parameters.camera_index, static_cast<int>(parameters.frame_index),
                                       settings.primary_step_count, settings.light_step_count};
-  push_constant.flags = {settings.enabled ? 1 : 0, settings.debug_visualization ? 1 : 0, settings.debug_mode, 0};
+  push_constant.flags = {settings.enabled ? 1 : 0, settings.debug_visualization ? 1 : 0, settings.debug_mode,
+                         parameters.input_is_ray_hit_distance ? 1 : 0};
   return push_constant;
 }
 
@@ -65,7 +66,7 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
         parameters.descriptor_set_layout && parameters.transient_resources && parameters.camera &&
         parameters.camera->GetRenderTexture()) {
       const auto render_texture = parameters.camera->GetRenderTexture();
-      const auto* depth_binding = context.GetResourceBinding(RenderResourceNames::camera_depth);
+      const auto* depth_binding = context.GetResourceBinding(parameters.input_resource_name);
       const auto* color_binding = context.GetResourceBinding(RenderResourceNames::camera_color);
       const auto* accumulation_binding =
           context.GetResourceBinding(RenderResourceNames::camera_volumetric_cloud_accumulation);
@@ -73,6 +74,15 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           context.GetResourceBinding(RenderResourceNames::camera_volumetric_cloud_transmittance);
       if (depth_binding && depth_binding->image && color_binding && color_binding->image && accumulation_binding &&
           accumulation_binding->image && transmittance_binding && transmittance_binding->image) {
+        std::shared_ptr<ImageView> ray_hit_distance_view;
+        if (parameters.input_is_ray_hit_distance) {
+          ray_hit_distance_view = CreateGraphImageMipView(depth_binding->image, 0);
+          if (!ray_hit_distance_view) {
+            ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+            return;
+          }
+          parameters.transient_resources->RetainImageView(ray_hit_distance_view);
+        }
         const auto accumulation_view = CreateGraphImageMipView(accumulation_binding->image, 0);
         const auto transmittance_view = CreateGraphImageMipView(transmittance_binding->image, 0);
         if (accumulation_view && transmittance_view) {
@@ -82,7 +92,9 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
           VkDescriptorImageInfo image_info{};
           image_info.imageLayout = depth_binding->image->GetLayout();
-          image_info.imageView = render_texture->GetDepthImageView()->GetVkImageView();
+          image_info.imageView = parameters.input_is_ray_hit_distance
+                                     ? ray_hit_distance_view->GetVkImageView()
+                                     : render_texture->GetDepthImageView()->GetVkImageView();
           image_info.sampler = render_texture->GetDepthSampler()->GetVkSampler();
           descriptor_set->UpdateImageDescriptorBinding(0, image_info);
 

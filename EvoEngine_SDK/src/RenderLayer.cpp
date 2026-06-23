@@ -1177,6 +1177,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     ray_tracing_layout_->Initialize();
   }
+  if (!ray_tracing_camera_output_layout_) {
+    ray_tracing_camera_output_layout_ = std::make_shared<DescriptorSetLayout>();
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ray_tracing_camera_output_layout_->Initialize();
+  }
   if (!ray_tracing_point_cloud_layout_) {
     ray_tracing_point_cloud_layout_ = std::make_shared<DescriptorSetLayout>();
     ray_tracing_point_cloud_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -2185,7 +2193,7 @@ void RenderLayer::OnCreate() {
                                 Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/Camera.rchit");
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(render_texture_storage_layout_);
+    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_camera_output_layout_);
     auto& push_constant_range = ray_tracing_camera_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RayTracingCameraPushConstant);
     push_constant_range.offset = 0;
@@ -4095,6 +4103,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
     const auto record_commands = [](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
       Platform::RecordCommandsMainQueue(action);
     };
+    RenderGraphTransientResourceStore* active_camera_transient_resources = nullptr;
     RenderGraph camera_render_graph;
     AddDefaultRayTracingCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
@@ -4106,15 +4115,22 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
     camera_render_graph.AddPass(
         RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
           RayTracingCameraPass::Execute(
-              context,
-              {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
-               ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_, record_commands});
+              context, {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
+                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
+                        record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
         });
     if (volumetric_clouds_enabled) {
-      camera_render_graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
-                                  [&](const RenderGraphExecutionContext& context) {
-                                    VolumetricCloudsPass::Execute(context, {camera, record_commands});
-                                  });
+      camera_render_graph.AddPass(
+          VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
+          [&](const RenderGraphExecutionContext& context) {
+            const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
+            VolumetricCloudsPass::Execute(
+                context,
+                {camera, record_commands, volumetric_clouds_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                 volumetric_clouds_layout_, active_camera_transient_resources,
+                 scene->environment.volumetric_cloud_settings, camera_index, camera->frame_count_, time_seconds,
+                 camera->camera_settings.far_distance, RenderResourceNames::camera_ray_hit_distance, true});
+          });
     }
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid ray tracing camera render graph.")
@@ -4123,6 +4139,7 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
     auto camera_render_graph_resources = CreateCameraRenderGraphResourceRegistry(
         per_frame_descriptor_sets_[current_frame_index], ray_tracing_descriptor_sets_[current_frame_index], camera);
     auto& camera_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+    active_camera_transient_resources = &camera_transient_resources;
     camera_transient_resources.Allocate(camera_render_graph.GetResources(), camera_render_graph_plan);
     camera_transient_resources.Bind(camera_render_graph_resources);
     camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);

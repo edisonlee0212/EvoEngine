@@ -44,6 +44,9 @@ vec3 EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(in int camera_index, in vec2 tex_coord) {
 
 float EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(in int camera_index, in vec2 tex_coord, in vec3 ray_origin,
                                          in vec3 ray_direction, in float max_distance) {
+  if (flags.w != 0) {
+    return clamp(texture(inDepth, tex_coord).r, 0.0f, max_distance);
+  }
   float ndc_depth = texture(inDepth, tex_coord).r;
   if (ndc_depth >= 0.999999f) {
     return max_distance;

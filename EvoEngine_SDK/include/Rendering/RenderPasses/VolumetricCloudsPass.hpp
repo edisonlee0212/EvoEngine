@@ -34,6 +34,8 @@ class VolumetricCloudsPass final {
     uint32_t frame_index = 0;
     float time_seconds = 0.0f;
     float max_distance = 0.0f;
+    const char* input_resource_name = RenderResourceNames::camera_depth;
+    bool input_is_ray_hit_distance = false;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateRasterDescriptor(const char* dependency);

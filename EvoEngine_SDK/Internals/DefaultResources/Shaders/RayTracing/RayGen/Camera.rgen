@@ -6,6 +6,7 @@
 #include "CameraRayTracingPayload.glsl"
 
 layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
+layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image;
 
 layout(push_constant) uniform EE_CAMERA_CONSTANTS {
   uint EE_CAMERA_INDEX;
@@ -24,6 +25,7 @@ void main()
 
 	vec3 result_color = vec3(0, 0, 0);
 	const uint sample_size = camera.sample_size;
+	float primary_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
 
 
 	[[unroll]]
@@ -42,8 +44,13 @@ void main()
 
 		hit_value.type = 0;
 		hit_value.hit_count = 0;
+		hit_value.initial_position = vec3(0.0f);
+		hit_value.initial_normal = vec3(0.0f);
 		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, camera_start.xyz, 0, sample_direction, 1e20f, 0);
 		result_color += hit_value.color;
+		if (hit_value.hit_count > 0) {
+			primary_hit_distance = min(primary_hit_distance, distance(hit_value.initial_position, sample_origin));
+		}
 	}
 
 	result_color /= sample_size;
@@ -52,4 +59,5 @@ void main()
 
 	result_color = pow(result_color, vec3(1.f / camera.gamma));
 	imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(result_color.x, result_color.y, result_color.z, 1));
+	imageStore(ray_hit_distance_image, ivec2(gl_LaunchIDEXT.xy), vec4(primary_hit_distance));
 }

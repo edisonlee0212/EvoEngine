@@ -6,6 +6,7 @@
 namespace evo_engine {
 class Camera;
 class DescriptorSet;
+class DescriptorSetLayout;
 class RayTracingPipeline;
 
 class RayTracingCameraPass final {
@@ -20,6 +21,8 @@ class RayTracingCameraPass final {
     int camera_index = -1;
     uint32_t frame_id = 0;
     RecordCommands record_commands;
+    std::shared_ptr<DescriptorSetLayout> output_descriptor_set_layout;
+    RenderGraphTransientResourceStore* transient_resources = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
