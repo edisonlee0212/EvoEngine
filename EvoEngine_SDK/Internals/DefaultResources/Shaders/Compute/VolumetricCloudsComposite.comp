@@ -1,0 +1,104 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "PerFrame.glsl"
+#include "VolumetricClouds.glsl"
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 1, binding = 0) uniform sampler2D inDepth;
+layout(set = 1, binding = 1, rgba32f) uniform image2D inOutColor;
+layout(set = 1, binding = 4) uniform sampler2D inCloudAccumulation;
+layout(set = 1, binding = 5) uniform sampler2D inCloudTransmittance;
+
+layout(push_constant) uniform EE_VOLUMETRIC_CLOUD_CONSTANTS {
+  vec4 altitudeCoverageDensity;
+  vec4 windTime;
+  vec4 lightingPhaseMaxDistance;
+  ivec4 cameraFrameSteps;
+  ivec4 flags;
+};
+
+vec3 EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(in int camera_index, in vec2 tex_coord) {
+  vec3 camera_position = EE_CAMERA_POSITION(camera_index);
+  vec3 far_world = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, 1.0f);
+  return normalize(far_world - camera_position);
+}
+
+float EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(in int camera_index, in vec2 tex_coord, in vec3 ray_origin,
+                                         in vec3 ray_direction, in float max_distance) {
+  if (flags.w != 0) {
+    return clamp(texture(inDepth, tex_coord).r, 0.0f, max_distance);
+  }
+  float ndc_depth = texture(inDepth, tex_coord).r;
+  if (ndc_depth >= 0.999999f) {
+    return max_distance;
+  }
+  vec3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, ndc_depth);
+  return clamp(dot(world_position - ray_origin, ray_direction), 0.0f, max_distance);
+}
+
+ivec2 EE_VOLUMETRIC_CLOUD_DEPTH_AWARE_TEXEL(in int camera_index, in vec2 tex_coord, in vec3 ray_origin,
+                                            in vec3 ray_direction, in float max_distance) {
+  ivec2 cloud_resolution = textureSize(inCloudAccumulation, 0);
+  vec2 cloud_pixel = tex_coord * vec2(cloud_resolution) - vec2(0.5f);
+  ivec2 base_pixel = ivec2(floor(cloud_pixel));
+  float target_distance =
+      EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(camera_index, tex_coord, ray_origin, ray_direction, max_distance);
+
+  ivec2 best_pixel = clamp(base_pixel, ivec2(0), cloud_resolution - ivec2(1));
+  float best_error = 3.402823466e+38f;
+  for (int y = 0; y <= 1; ++y) {
+    for (int x = 0; x <= 1; ++x) {
+      ivec2 candidate = clamp(base_pixel + ivec2(x, y), ivec2(0), cloud_resolution - ivec2(1));
+      vec2 candidate_tex_coord = (vec2(candidate) + vec2(0.5f)) / vec2(cloud_resolution);
+      vec3 candidate_ray_direction = EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(camera_index, candidate_tex_coord);
+      float candidate_distance = EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(camera_index, candidate_tex_coord, ray_origin,
+                                                                    candidate_ray_direction, max_distance);
+      float candidate_error = abs(candidate_distance - target_distance);
+      if (candidate_error < best_error) {
+        best_error = candidate_error;
+        best_pixel = candidate;
+      }
+    }
+  }
+  return best_pixel;
+}
+
+vec4 EE_VOLUMETRIC_CLOUD_COMPOSITE_DEBUG(in vec3 scene_color, in vec3 cloud_radiance, in float transmittance,
+                                         in float march_distance, in float max_distance) {
+  int debug_mode = flags.y != 0 ? flags.z : 0;
+  if (debug_mode == 1) {
+    return vec4(vec3(1.0f - transmittance), 1.0f);
+  }
+  if (debug_mode == 2) {
+    return vec4(vec3(transmittance), 1.0f);
+  }
+  if (debug_mode == 3) {
+    return vec4(vec3(EE_VOLUMETRIC_CLOUD_Saturate(march_distance / max(max_distance, 1.0f))), 1.0f);
+  }
+  return vec4(cloud_radiance + scene_color * transmittance, 1.0f);
+}
+
+void main() {
+  ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 resolution = imageSize(inOutColor);
+  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
+    return;
+  }
+
+  vec2 tex_coord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
+  int camera_index = cameraFrameSteps.x;
+  vec3 ray_origin = EE_CAMERA_POSITION(camera_index);
+  vec3 ray_direction = EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(camera_index, tex_coord);
+  float max_distance = max(lightingPhaseMaxDistance.w, 0.0f);
+  ivec2 cloud_pixel =
+      EE_VOLUMETRIC_CLOUD_DEPTH_AWARE_TEXEL(camera_index, tex_coord, ray_origin, ray_direction, max_distance);
+
+  vec4 scene_color = imageLoad(inOutColor, pixel);
+  vec4 cloud_accumulation = texelFetch(inCloudAccumulation, cloud_pixel, 0);
+  float cloud_transmittance = texelFetch(inCloudTransmittance, cloud_pixel, 0).r;
+  vec4 output_color = EE_VOLUMETRIC_CLOUD_COMPOSITE_DEBUG(scene_color.rgb, cloud_accumulation.rgb,
+                                                          cloud_transmittance, cloud_accumulation.a, max_distance);
+  output_color.a = scene_color.a;
+  imageStore(inOutColor, pixel, output_color);
+}

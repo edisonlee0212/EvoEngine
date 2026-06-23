@@ -729,6 +729,7 @@ class RenderLayer final : public ILayer {
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
+  std::shared_ptr<ComputePipeline> volumetric_clouds_composite_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_update_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;

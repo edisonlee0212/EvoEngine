@@ -6,7 +6,6 @@
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 1, binding = 0) uniform sampler2D inDepth;
-layout(set = 1, binding = 1, rgba32f) uniform image2D inOutColor;
 layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D outCloudAccumulation;
 layout(set = 1, binding = 3, r16f) uniform writeonly image2D outCloudTransmittance;
 
@@ -68,7 +67,7 @@ void EE_VOLUMETRIC_CLOUD_SUN_LIGHT(out vec3 sun_direction, out vec3 sun_radiance
 
 void main() {
   ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-  ivec2 resolution = imageSize(inOutColor);
+  ivec2 resolution = imageSize(outCloudAccumulation);
   if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
     return;
   }
@@ -91,11 +90,6 @@ void main() {
       EE_BUILD_VOLUMETRIC_CLOUD_SETTINGS(), ray_origin, ray_direction, max_distance, scene_distance, sun_direction,
       sun_radiance, ambient_radiance, windTime.w, jitter.x);
 
-  vec4 scene_color = imageLoad(inOutColor, pixel);
-  vec4 output_color = EE_VOLUMETRIC_CLOUD_Debug(scene_color.rgb, cloud, max(max_distance, 1.0f),
-                                                flags.y != 0 ? flags.z : 0);
-  output_color.a = scene_color.a;
-  imageStore(inOutColor, pixel, output_color);
-  imageStore(outCloudAccumulation, pixel, vec4(cloud.radiance, 1.0f - cloud.transmittance));
+  imageStore(outCloudAccumulation, pixel, vec4(cloud.radiance, cloud.march_distance));
   imageStore(outCloudTransmittance, pixel, vec4(cloud.transmittance));
 }

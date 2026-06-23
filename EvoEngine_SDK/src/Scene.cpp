@@ -241,6 +241,7 @@ void SerializeVolumetricCloudSettings(YAML::Emitter& out, const VolumetricCloudS
   out << YAML::Key << "wind_speed" << YAML::Value << settings.wind_speed;
   out << YAML::Key << "primary_step_count" << YAML::Value << settings.primary_step_count;
   out << YAML::Key << "light_step_count" << YAML::Value << settings.light_step_count;
+  out << YAML::Key << "resolution_divisor" << YAML::Value << settings.resolution_divisor;
   out << YAML::Key << "lighting_intensity" << YAML::Value << settings.lighting_intensity;
   out << YAML::Key << "ambient_lighting_strength" << YAML::Value << settings.ambient_lighting_strength;
   out << YAML::Key << "phase_anisotropy" << YAML::Value << settings.phase_anisotropy;
@@ -268,6 +269,8 @@ void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSet
     settings.primary_step_count = in["primary_step_count"].as<int>();
   if (in["light_step_count"])
     settings.light_step_count = in["light_step_count"].as<int>();
+  if (in["resolution_divisor"])
+    settings.resolution_divisor = in["resolution_divisor"].as<int>();
   if (in["lighting_intensity"])
     settings.lighting_intensity = in["lighting_intensity"].as<float>();
   if (in["ambient_lighting_strength"])

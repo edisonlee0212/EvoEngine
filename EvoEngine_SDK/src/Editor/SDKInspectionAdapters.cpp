@@ -1239,6 +1239,12 @@ bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
     modified = true;
   if (ImGui::DragInt("Light steps", &settings.light_step_count, 1.0f, 1, 128))
     modified = true;
+  int resolution_mode = settings.resolution_divisor == 4 ? 2 : (settings.resolution_divisor == 2 ? 1 : 0);
+  const char* resolution_modes[] = {"Full", "Half", "Quarter"};
+  if (ImGui::Combo("Cloud resolution", &resolution_mode, resolution_modes, IM_ARRAYSIZE(resolution_modes))) {
+    settings.resolution_divisor = resolution_mode == 2 ? 4 : (resolution_mode == 1 ? 2 : 1);
+    modified = true;
+  }
   if (ImGui::DragFloat("Lighting intensity", &settings.lighting_intensity, 0.01f, 0.0f, 100.0f, "%.3f"))
     modified = true;
   if (ImGui::DragFloat("Ambient lighting", &settings.ambient_lighting_strength, 0.01f, 0.0f, 10.0f, "%.3f"))

@@ -34,6 +34,7 @@ TEST(VolumetricCloudSettings, DefaultsAreDisabledAndAuthoringFriendly) {
   EXPECT_FLOAT_EQ(settings.wind_speed, 25.0f);
   EXPECT_EQ(settings.primary_step_count, 64);
   EXPECT_EQ(settings.light_step_count, 8);
+  EXPECT_EQ(settings.resolution_divisor, 1);
   EXPECT_FLOAT_EQ(settings.lighting_intensity, 1.0f);
   EXPECT_FLOAT_EQ(settings.ambient_lighting_strength, 0.2f);
   EXPECT_FLOAT_EQ(settings.phase_anisotropy, 0.65f);
@@ -51,6 +52,7 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   settings.wind_speed = -1.0f;
   settings.primary_step_count = 0;
   settings.light_step_count = 4096;
+  settings.resolution_divisor = 3;
   settings.lighting_intensity = 200.0f;
   settings.ambient_lighting_strength = -1.0f;
   settings.phase_anisotropy = 2.0f;
@@ -66,6 +68,7 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   EXPECT_FLOAT_EQ(settings.wind_speed, 0.0f);
   EXPECT_EQ(settings.primary_step_count, 1);
   EXPECT_EQ(settings.light_step_count, 128);
+  EXPECT_EQ(settings.resolution_divisor, 4);
   EXPECT_FLOAT_EQ(settings.lighting_intensity, 100.0f);
   EXPECT_FLOAT_EQ(settings.ambient_lighting_strength, 0.0f);
   EXPECT_FLOAT_EQ(settings.phase_anisotropy, 0.99f);
@@ -85,6 +88,7 @@ volumetric_cloud_settings:
   wind_speed: 45.0
   primary_step_count: 96
   light_step_count: 12
+  resolution_divisor: 4
   lighting_intensity: 1.4
   ambient_lighting_strength: 0.35
   phase_anisotropy: 0.4
@@ -102,6 +106,7 @@ volumetric_cloud_settings:
   EXPECT_FLOAT_EQ(settings.wind_speed, 45.0f);
   EXPECT_EQ(settings.primary_step_count, 96);
   EXPECT_EQ(settings.light_step_count, 12);
+  EXPECT_EQ(settings.resolution_divisor, 4);
   EXPECT_FLOAT_EQ(settings.lighting_intensity, 1.4f);
   EXPECT_FLOAT_EQ(settings.ambient_lighting_strength, 0.35f);
   EXPECT_FLOAT_EQ(settings.phase_anisotropy, 0.4f);
@@ -119,6 +124,7 @@ environment_gamma: 2.0
   EXPECT_FALSE(restored.volumetric_cloud_settings.enabled);
   EXPECT_FLOAT_EQ(restored.volumetric_cloud_settings.coverage, 0.45f);
   EXPECT_EQ(restored.volumetric_cloud_settings.primary_step_count, 64);
+  EXPECT_EQ(restored.volumetric_cloud_settings.resolution_divisor, 1);
 }
 
 TEST(VolumetricCloudSettings, CloudSettingsStaySeparateFromDdgiSettings) {
@@ -136,6 +142,8 @@ TEST(VolumetricCloudSettings, CloudSettingsStaySeparateFromDdgiSettings) {
   EXPECT_NE(scene_source.find("SerializeVolumetricCloudSettings"), std::string::npos);
   EXPECT_NE(scene_source.find("DeserializeVolumetricCloudSettings"), std::string::npos);
   EXPECT_NE(scene_source.find("\"primary_step_count\" << YAML::Value << settings.primary_step_count"),
+            std::string::npos);
+  EXPECT_NE(scene_source.find("\"resolution_divisor\" << YAML::Value << settings.resolution_divisor"),
             std::string::npos);
   EXPECT_NE(scene_source.find("\"lighting_intensity\" << YAML::Value << settings.lighting_intensity"),
             std::string::npos);

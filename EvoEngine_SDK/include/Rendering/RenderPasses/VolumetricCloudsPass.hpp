@@ -26,6 +26,7 @@ class VolumetricCloudsPass final {
     std::shared_ptr<Camera> camera;
     RecordCommands record_commands;
     std::shared_ptr<ComputePipeline> pipeline;
+    std::shared_ptr<ComputePipeline> composite_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;

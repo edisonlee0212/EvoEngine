@@ -62,7 +62,8 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     ApplyGraphResourceBarriers(vk_command_buffer, context);
-    if (parameters.pipeline && parameters.pipeline->Initialized() && parameters.per_frame_descriptor_set &&
+    if (parameters.pipeline && parameters.pipeline->Initialized() && parameters.composite_pipeline &&
+        parameters.composite_pipeline->Initialized() && parameters.per_frame_descriptor_set &&
         parameters.descriptor_set_layout && parameters.transient_resources && parameters.camera &&
         parameters.camera->GetRenderTexture()) {
       const auto render_texture = parameters.camera->GetRenderTexture();
@@ -107,14 +108,32 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           image_info.imageView = transmittance_view->GetVkImageView();
           descriptor_set->UpdateImageDescriptorBinding(3, image_info);
 
+          image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+          image_info.imageView = accumulation_view->GetVkImageView();
+          image_info.sampler = render_texture->GetColorSampler()->GetVkSampler();
+          descriptor_set->UpdateImageDescriptorBinding(4, image_info);
+          image_info.imageView = transmittance_view->GetVkImageView();
+          descriptor_set->UpdateImageDescriptorBinding(5, image_info);
+
+          const auto push_constant = CreatePushConstant(parameters);
+          const auto cloud_extent = accumulation_binding->image->GetExtent();
           parameters.pipeline->Bind(vk_command_buffer);
           parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                  parameters.per_frame_descriptor_set->GetVkDescriptorSet());
           parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
-          parameters.pipeline->PushConstant(vk_command_buffer, 0, CreatePushConstant(parameters));
+          parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(cloud_extent.width, 16),
+                                        Platform::DivUp(cloud_extent.height, 16));
+          Platform::EverythingBarrier(vk_command_buffer);
+
           const auto extent = color_binding->image->GetExtent();
-          parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(extent.width, 16),
-                                        Platform::DivUp(extent.height, 16));
+          parameters.composite_pipeline->Bind(vk_command_buffer);
+          parameters.composite_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                           parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+          parameters.composite_pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
+          parameters.composite_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          parameters.composite_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(extent.width, 16),
+                                                  Platform::DivUp(extent.height, 16));
           parameters.transient_resources->RetainDescriptorSet(descriptor_set);
           Platform::EverythingBarrier(vk_command_buffer);
         }

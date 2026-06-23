@@ -330,5 +330,5 @@ void AddDefaultRasterCameraResources(RenderGraph& graph);
 void AddDefaultRayTracingCameraResources(RenderGraph& graph);
 void AddAdvancedFrameResources(RenderGraph& graph);
 void AddAdvancedCameraResources(RenderGraph& graph);
-void AddVolumetricCloudCameraResources(RenderGraph& graph);
+void AddVolumetricCloudCameraResources(RenderGraph& graph, uint32_t resolution_divisor = 1);
 }  // namespace evo_engine

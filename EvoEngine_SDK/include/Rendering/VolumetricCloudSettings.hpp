@@ -12,6 +12,7 @@ struct VolumetricCloudSettings {
   float wind_speed = 25.0f;
   int primary_step_count = 64;
   int light_step_count = 8;
+  int resolution_divisor = 1;
   float lighting_intensity = 1.0f;
   float ambient_lighting_strength = 0.2f;
   float phase_anisotropy = 0.65f;
@@ -33,6 +34,13 @@ struct VolumetricCloudSettings {
     wind_speed = glm::clamp(wind_speed, 0.0f, 10000.0f);
     primary_step_count = glm::clamp(primary_step_count, 1, 512);
     light_step_count = glm::clamp(light_step_count, 1, 128);
+    if (resolution_divisor <= 1) {
+      resolution_divisor = 1;
+    } else if (resolution_divisor <= 2) {
+      resolution_divisor = 2;
+    } else {
+      resolution_divisor = 4;
+    }
     lighting_intensity = glm::clamp(lighting_intensity, 0.0f, 100.0f);
     ambient_lighting_strength = glm::clamp(ambient_lighting_strength, 0.0f, 10.0f);
     phase_anisotropy = glm::clamp(phase_anisotropy, -0.99f, 0.99f);

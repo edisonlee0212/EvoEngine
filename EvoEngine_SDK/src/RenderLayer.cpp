@@ -1248,6 +1248,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                      0);
     volumetric_clouds_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
                                                      0);
+    volumetric_clouds_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    volumetric_clouds_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
     volumetric_clouds_layout_->Initialize();
   }
   if (!ddgi_probe_update_layout_) {
@@ -1410,6 +1414,19 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     volumetric_clouds_pipeline_->Initialize();
+  }
+  if (!volumetric_clouds_composite_pipeline_) {
+    volumetric_clouds_composite_pipeline_ = std::make_shared<ComputePipeline>();
+    volumetric_clouds_composite_pipeline_->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/VolumetricCloudsComposite.comp");
+    volumetric_clouds_composite_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    volumetric_clouds_composite_pipeline_->descriptor_set_layouts.emplace_back(volumetric_clouds_layout_);
+    auto& push_constant_range = volumetric_clouds_composite_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(VolumetricCloudsPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    volumetric_clouds_composite_pipeline_->Initialize();
   }
   if (!ddgi_probe_update_pipeline_) {
     ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
@@ -3808,7 +3825,12 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
   const auto scene = GetScene();
-  const bool volumetric_clouds_enabled = scene && scene->environment.volumetric_cloud_settings.enabled;
+  VolumetricCloudSettings volumetric_cloud_settings{};
+  if (scene) {
+    volumetric_cloud_settings = scene->environment.volumetric_cloud_settings;
+    volumetric_cloud_settings.ClampSettings();
+  }
+  const bool volumetric_clouds_enabled = volumetric_cloud_settings.enabled;
   const auto& ddgi_settings = GetDdgiSettings();
   const auto render_info_probe_counts =
       glm::ivec3(glm::max(current_render_instances->render_info_block.ddgi_probe_counts, glm::vec4(1.0f)));
@@ -3876,7 +3898,8 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
     if (volumetric_clouds_enabled) {
-      AddVolumetricCloudCameraResources(camera_render_graph);
+      AddVolumetricCloudCameraResources(camera_render_graph,
+                                        static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
     }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
     if (ddgi_probe_visualization_enabled) {
@@ -4003,9 +4026,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
           [&](const RenderGraphExecutionContext& context) {
             const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
             VolumetricCloudsPass::Execute(
-                context, {camera, record_commands, volumetric_clouds_pipeline_,
+                context, {camera, record_commands, volumetric_clouds_pipeline_, volumetric_clouds_composite_pipeline_,
                           per_frame_descriptor_sets_[current_frame_index], volumetric_clouds_layout_,
-                          active_camera_transient_resources, scene->environment.volumetric_cloud_settings, camera_index,
+                          active_camera_transient_resources, volumetric_cloud_settings, camera_index,
                           static_cast<uint32_t>(glm::max(0.0f, std::floor(time_seconds * 60.0f))), time_seconds,
                           camera->camera_settings.far_distance});
           });
@@ -4099,7 +4122,12 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
 
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     const auto scene = GetScene();
-    const bool volumetric_clouds_enabled = scene && scene->environment.volumetric_cloud_settings.enabled;
+    VolumetricCloudSettings volumetric_cloud_settings{};
+    if (scene) {
+      volumetric_cloud_settings = scene->environment.volumetric_cloud_settings;
+      volumetric_cloud_settings.ClampSettings();
+    }
+    const bool volumetric_clouds_enabled = volumetric_cloud_settings.enabled;
     const auto record_commands = [](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
       Platform::RecordCommandsMainQueue(action);
     };
@@ -4109,7 +4137,8 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
     if (volumetric_clouds_enabled) {
-      AddVolumetricCloudCameraResources(camera_render_graph);
+      AddVolumetricCloudCameraResources(camera_render_graph,
+                                        static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
     }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
     camera_render_graph.AddPass(
@@ -4125,11 +4154,11 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
           [&](const RenderGraphExecutionContext& context) {
             const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
             VolumetricCloudsPass::Execute(
-                context,
-                {camera, record_commands, volumetric_clouds_pipeline_, per_frame_descriptor_sets_[current_frame_index],
-                 volumetric_clouds_layout_, active_camera_transient_resources,
-                 scene->environment.volumetric_cloud_settings, camera_index, camera->frame_count_, time_seconds,
-                 camera->camera_settings.far_distance, RenderResourceNames::camera_ray_hit_distance, true});
+                context, {camera, record_commands, volumetric_clouds_pipeline_, volumetric_clouds_composite_pipeline_,
+                          per_frame_descriptor_sets_[current_frame_index], volumetric_clouds_layout_,
+                          active_camera_transient_resources, volumetric_cloud_settings, camera_index,
+                          camera->frame_count_, time_seconds, camera->camera_settings.far_distance,
+                          RenderResourceNames::camera_ray_hit_distance, true});
           });
     }
     if (!camera_render_graph.Validate()) {

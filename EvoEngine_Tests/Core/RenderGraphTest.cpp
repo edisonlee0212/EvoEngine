@@ -1648,7 +1648,7 @@ TEST(RenderGraph, DefaultCameraResourcesRegisterCurrentRenderTargets) {
 
 TEST(RenderGraph, VolumetricCloudResourcesRegisterCameraRelativeAccumulationTargets) {
   RenderGraph graph;
-  AddVolumetricCloudCameraResources(graph);
+  AddVolumetricCloudCameraResources(graph, 2);
 
   const auto& resources = graph.GetResources();
   const auto accumulation =
@@ -1664,6 +1664,8 @@ TEST(RenderGraph, VolumetricCloudResourcesRegisterCameraRelativeAccumulationTarg
   EXPECT_EQ(accumulation->type, RenderResourceType::Image);
   EXPECT_EQ(accumulation->lifetime, RenderResourceLifetime::Camera);
   EXPECT_EQ(accumulation->dimensions.size_mode, RenderResourceSizeMode::CameraRelative);
+  EXPECT_EQ(accumulation->dimensions.width, 2u);
+  EXPECT_EQ(accumulation->dimensions.height, 2u);
   EXPECT_EQ(accumulation->format_name, "RGBA16F");
   EXPECT_TRUE(accumulation->managed_by_graph);
 
@@ -1671,8 +1673,16 @@ TEST(RenderGraph, VolumetricCloudResourcesRegisterCameraRelativeAccumulationTarg
   EXPECT_EQ(transmittance->type, RenderResourceType::Image);
   EXPECT_EQ(transmittance->lifetime, RenderResourceLifetime::Camera);
   EXPECT_EQ(transmittance->dimensions.size_mode, RenderResourceSizeMode::CameraRelative);
+  EXPECT_EQ(transmittance->dimensions.width, 2u);
+  EXPECT_EQ(transmittance->dimensions.height, 2u);
   EXPECT_EQ(transmittance->format_name, "R16F");
   EXPECT_TRUE(transmittance->managed_by_graph);
+
+  const auto plan = graph.Compile({0, 0, 1280, 720});
+  ASSERT_TRUE(plan.valid);
+  const auto accumulation_index = std::distance(resources.begin(), accumulation);
+  EXPECT_EQ(plan.resources[accumulation_index].resolved_dimensions.width, 640u);
+  EXPECT_EQ(plan.resources[accumulation_index].resolved_dimensions.height, 360u);
 }
 
 TEST(RenderGraph, VolumetricCloudRasterPassRunsBetweenDeferredLightingAndPostProcessing) {
