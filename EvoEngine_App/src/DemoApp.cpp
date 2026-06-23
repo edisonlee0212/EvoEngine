@@ -1545,6 +1545,60 @@ int ValidateRenderingDemoDdgiIdleSteadyState(Application& application, const Dem
   return ValidateRenderingDemoDdgiState(application, config);
 }
 
+int ValidateRenderingDemoCloudSettingsDoNotRefreshDdgi(Application& application, const DemoAppRuntimeConfig& config) {
+  if (config.demo_setup != DemoSetup::Rendering) {
+    return 0;
+  }
+  const auto scene = application.GetActiveScene();
+  if (!scene) {
+    return FailSmokeTest(application, "active scene is missing for cloud/DDGI validation");
+  }
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  if (!render_layer) {
+    return FailSmokeTest(application, "render layer is missing for cloud/DDGI validation");
+  }
+
+  const auto original_cloud_settings = scene->environment.volumetric_cloud_settings;
+  auto restore_cloud_settings = MakeScopeExit([&]() {
+    scene->environment.volumetric_cloud_settings = original_cloud_settings;
+  });
+  auto require_steady_ddgi = [&](const char* failure_reason) {
+    if (!application.Loop()) {
+      return FailSmokeTest(application, failure_reason);
+    }
+    if (render_layer->GetDdgiLastProbeUpdateReasons() != RenderLayer::DdgiUpdateReasonSteadyState) {
+      return FailSmokeTest(application, "DDGI reported a scene refresh after cloud settings changed");
+    }
+    return 0;
+  };
+
+  auto cloud_settings = original_cloud_settings;
+  cloud_settings.enabled = true;
+  cloud_settings.coverage = 0.65f;
+  cloud_settings.density = 0.5f;
+  cloud_settings.resolution_divisor = 2;
+  cloud_settings.ClampSettings();
+  scene->environment.volumetric_cloud_settings = cloud_settings;
+  if (const auto result = require_steady_ddgi("application ended before cloud enable validation completed");
+      result != 0) {
+    return result;
+  }
+
+  scene->environment.volumetric_cloud_settings.coverage = 0.25f;
+  scene->environment.volumetric_cloud_settings.wind_speed = 80.0f;
+  if (const auto result = require_steady_ddgi("application ended before cloud mutation validation completed");
+      result != 0) {
+    return result;
+  }
+
+  restore_cloud_settings.Run();
+  if (const auto result = require_steady_ddgi("application ended before cloud restore validation completed");
+      result != 0) {
+    return result;
+  }
+  return ValidateRenderingDemoDdgiState(application, config);
+}
+
 void ApplyReadmeScreenshotEditorSetup(const DemoAppRuntimeConfig* config = nullptr);
 
 int RunSmokeTest(const DemoAppRuntimeConfig& config) {
@@ -1663,6 +1717,10 @@ int RunSmokeTest(const DemoAppRuntimeConfig& config) {
       return validation_result;
     }
     if (const auto validation_result = ValidateRenderingDemoDdgiIdleSteadyState(application, config);
+        validation_result != 0) {
+      return validation_result;
+    }
+    if (const auto validation_result = ValidateRenderingDemoCloudSettingsDoNotRefreshDdgi(application, config);
         validation_result != 0) {
       return validation_result;
     }

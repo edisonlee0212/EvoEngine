@@ -1685,6 +1685,32 @@ TEST(RenderGraph, VolumetricCloudResourcesRegisterCameraRelativeAccumulationTarg
   EXPECT_EQ(plan.resources[accumulation_index].resolved_dimensions.height, 360u);
 }
 
+TEST(RenderGraph, VolumetricCloudRasterAndRayTracingDescriptorsUseSharedCameraPass) {
+  const auto raster_descriptor = VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera);
+  const auto ray_descriptor = VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera);
+
+  EXPECT_EQ(raster_descriptor.name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(ray_descriptor.name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(raster_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(ray_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(raster_descriptor.scope, RenderPassScope::Camera);
+  EXPECT_EQ(ray_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(raster_descriptor.dependencies.size(), 1);
+  ASSERT_EQ(ray_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(raster_descriptor.dependencies[0], RenderPassNames::deferred_camera);
+  EXPECT_EQ(ray_descriptor.dependencies[0], RenderPassNames::ray_tracing_camera);
+
+  ASSERT_EQ(raster_descriptor.resources.size(), ray_descriptor.resources.size());
+  EXPECT_EQ(raster_descriptor.resources[0].resource_name, RenderResourceNames::camera_depth);
+  EXPECT_EQ(ray_descriptor.resources[0].resource_name, RenderResourceNames::camera_ray_hit_distance);
+  for (size_t resource_index = 1; resource_index < raster_descriptor.resources.size(); ++resource_index) {
+    EXPECT_EQ(raster_descriptor.resources[resource_index].resource_name,
+              ray_descriptor.resources[resource_index].resource_name);
+    EXPECT_EQ(raster_descriptor.resources[resource_index].usage, ray_descriptor.resources[resource_index].usage);
+    EXPECT_EQ(raster_descriptor.resources[resource_index].state, ray_descriptor.resources[resource_index].state);
+  }
+}
+
 TEST(RenderGraph, VolumetricCloudRasterPassRunsBetweenDeferredLightingAndPostProcessing) {
   RenderGraph graph;
   AddDefaultRasterCameraResources(graph);

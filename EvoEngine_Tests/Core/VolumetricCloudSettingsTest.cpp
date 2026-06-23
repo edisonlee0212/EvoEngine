@@ -20,6 +20,20 @@ std::string ReadTextFile(const std::filesystem::path& path) {
   EXPECT_TRUE(file.good()) << path.string();
   return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
+
+std::string ExtractBetween(const std::string& source, const std::string& begin, const std::string& end) {
+  const auto begin_index = source.find(begin);
+  EXPECT_NE(begin_index, std::string::npos);
+  if (begin_index == std::string::npos) {
+    return {};
+  }
+  const auto end_index = source.find(end, begin_index);
+  EXPECT_NE(end_index, std::string::npos);
+  if (end_index == std::string::npos) {
+    return {};
+  }
+  return source.substr(begin_index, end_index - begin_index);
+}
 }  // namespace
 
 TEST(VolumetricCloudSettings, DefaultsAreDisabledAndAuthoringFriendly) {
@@ -150,4 +164,26 @@ TEST(VolumetricCloudSettings, CloudSettingsStaySeparateFromDdgiSettings) {
   EXPECT_NE(scene_source.find("settings.ClampSettings();"), std::string::npos);
   EXPECT_EQ(ddgi_settings_source.find("cloud"), std::string::npos);
   EXPECT_EQ(ddgi_volume_source.find("cloud"), std::string::npos);
+}
+
+TEST(VolumetricCloudSettings, CloudSettingsDoNotFeedDdgiSceneChangeTriggers) {
+  const auto render_layer_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
+  ASSERT_FALSE(render_layer_source.empty());
+
+  const auto trigger_block =
+      ExtractBetween(render_layer_source, "ddgi_scene_change_triggers_ =", "const bool render_instance_updated");
+  ASSERT_FALSE(trigger_block.empty());
+
+  EXPECT_NE(trigger_block.find("active_light_keys != ddgi_previous_active_light_keys_"), std::string::npos);
+  EXPECT_NE(trigger_block.find("current_render_instances->environment_info_block != "
+                               "ddgi_previous_environment_info_block_"),
+            std::string::npos);
+  EXPECT_NE(trigger_block.find("light_signatures != ddgi_previous_light_signatures_"), std::string::npos);
+  EXPECT_NE(trigger_block.find("geometry_signatures != ddgi_previous_geometry_signatures_"), std::string::npos);
+  EXPECT_NE(trigger_block.find("geometry_storage_version"), std::string::npos);
+  EXPECT_NE(trigger_block.find("texture_storage_version"), std::string::npos);
+  EXPECT_EQ(trigger_block.find("volumetric_cloud_settings"), std::string::npos);
+  EXPECT_EQ(trigger_block.find("VolumetricCloudSettings"), std::string::npos);
+  EXPECT_EQ(trigger_block.find("cloud"), std::string::npos);
 }
