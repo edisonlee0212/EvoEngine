@@ -23,7 +23,7 @@ struct DdgiSettings {
     bool pause_updates = false;
     bool reset_probe_history = false;
     int ray_count = 256;
-    int warmup_frames = 16;
+    int warmup_frames = 8;
     int reset_conditions = DdgiResetConditionSourceChange | DdgiResetConditionManualReset |
                            DdgiResetConditionResourceChange | DdgiResetConditionLightEnableChange |
                            DdgiResetConditionScrollClear;

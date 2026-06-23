@@ -55,7 +55,7 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_FLOAT_EQ(environment.ddgi_settings.runtime.max_ray_distance, 1e27f);
   EXPECT_FLOAT_EQ(environment.ddgi_settings.runtime.visibility_moment_bias, 0.02f);
   EXPECT_FLOAT_EQ(environment.ddgi_settings.runtime.indirect_intensity, 1.0f);
-  EXPECT_EQ(environment.ddgi_settings.runtime.warmup_frames, 16);
+  EXPECT_EQ(environment.ddgi_settings.runtime.warmup_frames, 8);
   EXPECT_EQ(environment.ddgi_settings.runtime.reset_conditions,
             DdgiResetConditionSourceChange | DdgiResetConditionManualReset | DdgiResetConditionResourceChange |
                 DdgiResetConditionLightEnableChange | DdgiResetConditionScrollClear);
@@ -280,7 +280,7 @@ ddgi_settings:
     ray_count: 64
 )"));
 
-  EXPECT_EQ(restored.ddgi_settings.runtime.warmup_frames, 16);
+  EXPECT_EQ(restored.ddgi_settings.runtime.warmup_frames, 8);
   EXPECT_EQ(restored.ddgi_settings.runtime.reset_conditions,
             DdgiResetConditionSourceChange | DdgiResetConditionManualReset | DdgiResetConditionResourceChange |
                 DdgiResetConditionLightEnableChange | DdgiResetConditionScrollClear);
@@ -762,7 +762,7 @@ TEST(DdgiVolume, DdgiWarmupRuntimeSettingUsesGlobalDdgiSettingsOnly) {
   ASSERT_FALSE(scene_source.empty());
   ASSERT_FALSE(inspector_source.empty());
 
-  EXPECT_NE(settings_source.find("int warmup_frames = 16;"), std::string::npos);
+  EXPECT_NE(settings_source.find("int warmup_frames = 8;"), std::string::npos);
   EXPECT_EQ(volume_source.find("warmup_frames"), std::string::npos);
   EXPECT_NE(scene_source.find("\"warmup_frames\""), std::string::npos);
   EXPECT_NE(inspector_source.find("runtime.warmup_frames = glm::clamp(runtime.warmup_frames, 0, 4096);"),
@@ -1001,16 +1001,16 @@ TEST(DdgiVolume, RenderLayerUsesVanillaDdgiUpdateHysteresis) {
                       settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 0),
                   0.0f);
   EXPECT_NEAR(RenderLayer::CalculateDdgiUpdateHysteresis(
-                  settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 8),
-              0.97f * (8.0f / 15.0f), 0.0001f);
+                  settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 4),
+              0.97f * (4.0f / 7.0f), 0.0001f);
   EXPECT_FLOAT_EQ(RenderLayer::CalculateDdgiUpdateHysteresis(
-                      settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 15),
+                      settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 7),
                   0.97f);
   EXPECT_FLOAT_EQ(RenderLayer::CalculateDdgiUpdateHysteresis(
-                      settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 16),
+                      settings, RenderLayer::DdgiUpdateReasonSteadyState | RenderLayer::DdgiUpdateReasonWarmup, 8),
                   0.97f);
   EXPECT_FLOAT_EQ(RenderLayer::CalculateDdgiUpdateHysteresis(
-                      settings, RenderLayer::DdgiUpdateReasonSource | RenderLayer::DdgiUpdateReasonWarmup, 8),
+                      settings, RenderLayer::DdgiUpdateReasonSource | RenderLayer::DdgiUpdateReasonWarmup, 4),
                   0.0f);
 
   settings.runtime.warmup_frames = 0;
