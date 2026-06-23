@@ -1,6 +1,7 @@
 
 #pragma once
 #include "Bound.hpp"
+#include "DdgiSettings.hpp"
 #include "Entities.hpp"
 #include "Entity.hpp"
 #include "EntityMetadata.hpp"
@@ -271,6 +272,9 @@ class Scene final : public IAsset {
 
     /// The type of environment to render.
     EnvironmentType environment_type = EnvironmentType::EnvironmentalMap;
+
+    /// Scene-owned global DDGI runtime, defaults, storage, and debug settings.
+    DdgiSettings ddgi_settings{};
 
     /**
      * @brief Serializes the environment's data to a YAML emitter.

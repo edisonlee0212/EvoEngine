@@ -40,6 +40,41 @@ const std::set<std::filesystem::path>& Platform::GetRegisteredShaderIncludePaths
   return shader_include_paths_;
 }
 
+bool Platform::QueueFamilySelection::HasDedicatedComputeFamily() const {
+  return graphics_and_compute_family.has_value() && compute_family.has_value() &&
+         graphics_and_compute_family.value() != compute_family.value();
+}
+
+bool Platform::QueueFamilySelection::IsComplete(const bool require_present) const {
+  return graphics_and_compute_family.has_value() && compute_family.has_value() &&
+         (!require_present || present_family.has_value());
+}
+
+Platform::QueueFamilySelection Platform::SelectQueueFamilies(const std::vector<QueueFamilySupport>& queue_families) {
+  QueueFamilySelection selection;
+  for (uint32_t i = 0; i < queue_families.size(); i++) {
+    const auto& queue_family = queue_families[i];
+    if (queue_family.queue_count == 0) {
+      continue;
+    }
+    const bool supports_graphics = (queue_family.queue_flags & VK_QUEUE_GRAPHICS_BIT) != 0;
+    const bool supports_compute = (queue_family.queue_flags & VK_QUEUE_COMPUTE_BIT) != 0;
+    if (!selection.graphics_and_compute_family.has_value() && supports_graphics && supports_compute) {
+      selection.graphics_and_compute_family = i;
+    }
+    if (!selection.compute_family.has_value() && supports_compute && !supports_graphics) {
+      selection.compute_family = i;
+    }
+    if (!selection.present_family.has_value() && queue_family.present_support) {
+      selection.present_family = i;
+    }
+  }
+  if (!selection.compute_family.has_value()) {
+    selection.compute_family = selection.graphics_and_compute_family;
+  }
+  return selection;
+}
+
 void Platform::Initialize(const ApplicationInitializationSettings& application_initialization_settings) {
   auto& graphics = GetInstance();
 #pragma region volk
@@ -69,9 +104,17 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
     pool_info.queueFamilyIndex =
         graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
     graphics.command_pool_ = std::make_unique<CommandPool>(pool_info);
+    if (graphics.selected_physical_device->queue_family_indices.HasDedicatedComputeFamily()) {
+      pool_info.queueFamilyIndex = graphics.selected_physical_device->queue_family_indices.compute_family.value();
+      graphics.compute_command_pool_ = std::make_unique<CommandPool>(pool_info);
+    } else {
+      graphics.compute_command_pool_.reset();
+    }
 #pragma endregion
     graphics.used_command_buffer_size_ = 0;
     graphics.command_buffer_pool_.resize(graphics.max_frame_in_flight_);
+    graphics.used_compute_command_buffer_size_ = 0;
+    graphics.compute_command_buffer_pool_.resize(graphics.max_frame_in_flight_);
     graphics.CreateSwapChainSyncObjects();
 
     constexpr VkDescriptorPoolSize render_layer_descriptor_pool_sizes[] = {
@@ -85,7 +128,8 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, Constants::initial_descriptor_pool_max_size},
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, Constants::initial_descriptor_pool_max_size},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, Constants::initial_descriptor_pool_max_size},
-        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, Constants::initial_descriptor_pool_max_size}};
+        {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, Constants::initial_descriptor_pool_max_size},
+        {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, Constants::initial_descriptor_pool_max_size}};
 
     VkDescriptorPoolCreateInfo render_layer_descriptor_pool_info{};
     render_layer_descriptor_pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -139,7 +183,6 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       ImGui::CreateContext();
       ImNodes::CreateContext();
       ImGuiIO& io = ImGui::GetIO();
-      io.IniFilename = nullptr;
       if (ApplicationContext::Get().GetApplicationInfo().enable_docking) {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
       }
@@ -301,6 +344,10 @@ void SelectStageFlagsAccessMask(const VkImageLayout image_layout, VkAccessFlags&
       mask = VK_ACCESS_TRANSFER_WRITE_BIT;
       stage_flags = VK_PIPELINE_STAGE_TRANSFER_BIT;
     } break;
+    case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL: {
+      mask = VK_ACCESS_TRANSFER_READ_BIT;
+      stage_flags = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } break;
     case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: {
       mask = VK_ACCESS_SHADER_READ_BIT;
       stage_flags = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
@@ -355,6 +402,24 @@ void Platform::RecordCommandsMainQueue(const std::function<void(VkCommandBuffer 
   const auto& vk_command_buffer = graphics.command_buffer_pool_[current_frame_index][vk_command_buffer_index];
   if (vk_command_buffer->Record(action)) {
     graphics.used_command_buffer_size_++;
+  }
+}
+
+void Platform::RecordCommandsComputeQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+  auto& graphics = GetInstance();
+  if (!graphics.compute_queue_ || !graphics.compute_command_pool_) {
+    RecordCommandsMainQueue(action);
+    return;
+  }
+  const unsigned vk_command_buffer_index = graphics.used_compute_command_buffer_size_;
+  const auto current_frame_index = graphics.current_frame_index_;
+  if (vk_command_buffer_index >= graphics.compute_command_buffer_pool_[current_frame_index].size()) {
+    graphics.compute_command_buffer_pool_[current_frame_index].emplace_back(
+        std::make_shared<CommandBuffer>(graphics.compute_command_pool_->GetVkCommandPool()));
+  }
+  const auto& vk_command_buffer = graphics.compute_command_buffer_pool_[current_frame_index][vk_command_buffer_index];
+  if (vk_command_buffer->Record(action)) {
+    graphics.used_compute_command_buffer_size_++;
   }
 }
 
@@ -422,13 +487,14 @@ void Platform::DrainGpuResourceWork() {
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
                                   const VkFormat image_format, const uint32_t layer_count,
                                   const VkImageLayout old_layout, const VkImageLayout new_layout,
-                                  const uint32_t mip_levels) {
+                                  const uint32_t mip_levels, const uint32_t src_queue_family_index,
+                                  const uint32_t dst_queue_family_index, const bool release_barrier) {
   VkImageMemoryBarrier barrier{};
   barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
   barrier.oldLayout = old_layout;
   barrier.newLayout = new_layout;
-  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.srcQueueFamilyIndex = src_queue_family_index;
+  barrier.dstQueueFamilyIndex = dst_queue_family_index;
   barrier.image = target_image;
   if (image_format == Constants::texture_2d || image_format == Constants::render_texture_color ||
       image_format == Constants::g_buffer_color) {
@@ -452,6 +518,15 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
 
   SelectStageFlagsAccessMask(old_layout, barrier.srcAccessMask, source_stage);
   SelectStageFlagsAccessMask(new_layout, barrier.dstAccessMask, destination_stage);
+  if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED || dst_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+    if (release_barrier) {
+      barrier.dstAccessMask = 0;
+      destination_stage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    } else {
+      barrier.srcAccessMask = 0;
+      source_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    }
+  }
 
   vkCmdPipelineBarrier(vk_command_buffer, source_stage, destination_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
@@ -524,6 +599,30 @@ uint32_t Platform::GetGraphicsAndComputeQueueFamilyIndex() {
   return graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
 }
 
+uint32_t Platform::GetComputeQueueFamilyIndex() {
+  const auto& graphics = GetInstance();
+  if (!graphics.selected_physical_device ||
+      !graphics.selected_physical_device->queue_family_indices.compute_family.has_value()) {
+    throw std::runtime_error("Compute queue family is unavailable.");
+  }
+  return graphics.selected_physical_device->queue_family_indices.compute_family.value();
+}
+
+bool Platform::HasDedicatedComputeQueue() {
+  const auto& graphics = GetInstance();
+  return graphics.selected_physical_device &&
+         graphics.selected_physical_device->queue_family_indices.HasDedicatedComputeFamily();
+}
+
+std::vector<uint32_t> Platform::GetGraphicsComputeQueueFamilyIndices() {
+  std::vector<uint32_t> queue_family_indices{GetGraphicsAndComputeQueueFamilyIndex()};
+  const auto compute_queue_family_index = GetComputeQueueFamilyIndex();
+  if (compute_queue_family_index != queue_family_indices.front()) {
+    queue_family_indices.emplace_back(compute_queue_family_index);
+  }
+  return queue_family_indices;
+}
+
 uint32_t Platform::GetCurrentFrameIndex() {
   const auto& graphics = GetInstance();
   return graphics.current_frame_index_;
@@ -539,9 +638,22 @@ VkCommandPool Platform::GetVkCommandPool() {
   return graphics.command_pool_->GetVkCommandPool();
 }
 
+VkCommandPool Platform::GetComputeVkCommandPool() {
+  const auto& graphics = GetInstance();
+  if (graphics.compute_command_pool_) {
+    return graphics.compute_command_pool_->GetVkCommandPool();
+  }
+  return graphics.command_pool_->GetVkCommandPool();
+}
+
 const std::unique_ptr<CommandQueue>& Platform::GetMainQueue() {
   const auto& graphics = GetInstance();
   return graphics.main_queue_;
+}
+
+CommandQueue* Platform::TryGetDedicatedComputeQueue() {
+  const auto& graphics = GetInstance();
+  return graphics.compute_queue_.get();
 }
 
 const std::unique_ptr<CommandQueue>& Platform::GetImmediateSubmitQueue() {
@@ -629,6 +741,8 @@ uint32_t Platform::PhysicalDevice::FindMemoryType(uint32_t type_filter, VkMemory
 
 bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required_extension_names) const {
   if (!queue_family_indices.graphics_and_compute_family.has_value())
+    return false;
+  if (!queue_family_indices.compute_family.has_value())
     return false;
   bool support_check = true;
   for (const auto& i : required_extension_names) {
@@ -891,6 +1005,14 @@ void Platform::SelectPhysicalDevice() {
     throw std::runtime_error("Failed to find a suitable GPU!");
   }
 #pragma endregion
+  capabilities_.support_async_compute = selected_physical_device->queue_family_indices.HasDedicatedComputeFamily();
+#ifndef NDEBUG
+  if (capabilities_.support_async_compute) {
+    EVOENGINE_LOG("Target device supports a dedicated compute queue family!");
+  } else {
+    EVOENGINE_LOG("Target device uses the graphics queue family for compute work.");
+  }
+#endif
 
   if (capabilities_.support_mesh_shader &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
@@ -944,7 +1066,12 @@ void Platform::SelectPhysicalDevice() {
 }
 
 bool Platform::PhysicalDevice::QueueFamilyIndices::IsComplete() const {
-  return graphics_and_compute_family.has_value() && present_family.has_value();
+  return graphics_and_compute_family.has_value() && compute_family.has_value() && present_family.has_value();
+}
+
+bool Platform::PhysicalDevice::QueueFamilyIndices::HasDedicatedComputeFamily() const {
+  return graphics_and_compute_family.has_value() && compute_family.has_value() &&
+         graphics_and_compute_family.value() != compute_family.value();
 }
 
 void Platform::PhysicalDevice::QueryInformation() {
@@ -989,24 +1116,22 @@ void Platform::PhysicalDevice::QueryInformation() {
 
   std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
   vkGetPhysicalDeviceQueueFamilyProperties(vk_physical_device, &queue_family_count, queue_families.data());
+  std::vector<QueueFamilySupport> queue_family_supports;
+  queue_family_supports.reserve(queue_families.size());
   const auto& graphics = GetInstance();
-  int i = 0;
+  uint32_t i = 0;
   for (const auto& queue_family : queue_families) {
-    if ((queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) && (queue_family.queueFlags & VK_QUEUE_COMPUTE_BIT)) {
-      queue_family_indices.graphics_and_compute_family = i;
-    }
     VkBool32 present_support = false;
     if (window_layer) {
       vkGetPhysicalDeviceSurfaceSupportKHR(vk_physical_device, i, graphics.vk_surface_, &present_support);
-      if (present_support) {
-        queue_family_indices.present_family = i;
-      }
     }
-    if (queue_family_indices.IsComplete()) {
-      break;
-    }
+    queue_family_supports.push_back({queue_family.queueFlags, present_support == VK_TRUE, queue_family.queueCount});
     i++;
   }
+  const auto selected_queue_families = SelectQueueFamilies(queue_family_supports);
+  queue_family_indices.graphics_and_compute_family = selected_queue_families.graphics_and_compute_family;
+  queue_family_indices.compute_family = selected_queue_families.compute_family;
+  queue_family_indices.present_family = selected_queue_families.present_family;
 
   if (window_layer)
     QuerySwapChainSupport();
@@ -1206,51 +1331,48 @@ void Platform::CreateLogicalDevice() {
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 #pragma region Queues requirement
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-  std::map<uint32_t, std::pair<uint32_t, std::vector<float>>> unique_queue_families;
+  std::map<uint32_t, std::vector<float>> unique_queue_families;
+  const auto add_queue_request = [&](const uint32_t queue_family_index, const float priority) {
+    unique_queue_families[queue_family_index].emplace_back(priority);
+  };
   if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
-    if (unique_queue_families.find(
-            selected_physical_device->queue_family_indices.graphics_and_compute_family.value()) ==
-        unique_queue_families.end()) {
-      unique_queue_families[selected_physical_device->queue_family_indices.graphics_and_compute_family.value()] =
-          std::make_pair(0, std::vector<float>());
-    }
-    unique_queue_families[selected_physical_device->queue_family_indices.graphics_and_compute_family.value()].first +=
-        2;
-    unique_queue_families[selected_physical_device->queue_family_indices.graphics_and_compute_family.value()]
-        .second.emplace_back(1.f);
-    unique_queue_families[selected_physical_device->queue_family_indices.graphics_and_compute_family.value()]
-        .second.emplace_back(0.f);
+    const auto graphics_family = selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+    add_queue_request(graphics_family, 1.f);
+    add_queue_request(graphics_family, 0.f);
+#else
+    add_queue_request(graphics_family, 0.f);
+#endif
+  }
+  if (selected_physical_device->queue_family_indices.compute_family.has_value() &&
+      selected_physical_device->queue_family_indices.compute_family !=
+          selected_physical_device->queue_family_indices.graphics_and_compute_family) {
+    add_queue_request(selected_physical_device->queue_family_indices.compute_family.value(), 0.f);
   }
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
-    if (unique_queue_families.find(selected_physical_device->queue_family_indices.present_family.value()) ==
-        unique_queue_families.end()) {
-      unique_queue_families[selected_physical_device->queue_family_indices.present_family.value()] =
-          std::make_pair(0, std::vector<float>());
+    const auto present_family = selected_physical_device->queue_family_indices.present_family.value();
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+    if (present_family == selected_physical_device->queue_family_indices.graphics_and_compute_family.value()) {
+      add_queue_request(present_family, 0.f);
+    } else if (present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
+      add_queue_request(present_family, 0.f);
     }
-    unique_queue_families[selected_physical_device->queue_family_indices.present_family.value()].first += 1;
-    unique_queue_families[selected_physical_device->queue_family_indices.present_family.value()].second.emplace_back(
-        0.f);
+#else
+    if (present_family != selected_physical_device->queue_family_indices.graphics_and_compute_family.value() &&
+        present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
+      add_queue_request(present_family, 0.f);
+    }
+#endif
   }
 
   for (auto& queue_family : unique_queue_families) {
     VkDeviceQueueCreateInfo queue_create_info{};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_create_info.queueFamilyIndex = queue_family.first;
-    queue_create_info.queueCount = queue_family.second.first;
-    queue_create_info.pQueuePriorities = queue_family.second.second.data();
+    queue_create_info.queueCount = static_cast<uint32_t>(queue_family.second.size());
+    queue_create_info.pQueuePriorities = queue_family.second.data();
     queue_create_infos.push_back(queue_create_info);
   }
-#else
-  std::vector<float> priorities = {0.0f};
-  VkDeviceQueueCreateInfo queue_create_info{};
-  queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-  queue_create_info.queueFamilyIndex =
-      selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
-  queue_create_info.queueCount = 1;
-  queue_create_info.pQueuePriorities = priorities.data();
-  queue_create_infos.push_back(queue_create_info);
-#endif
 
   device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
   device_create_info.pQueueCreateInfos = queue_create_infos.data();
@@ -1279,6 +1401,13 @@ void Platform::CreateLogicalDevice() {
     vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 1,
                      &main_queue_->vk_queue_);
   }
+  if (selected_physical_device->queue_family_indices.HasDedicatedComputeFamily()) {
+    compute_queue_ = std::make_unique<CommandQueue>();
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.compute_family.value(), 0,
+                     &compute_queue_->vk_queue_);
+  } else {
+    compute_queue_.reset();
+  }
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     present_queue_ = std::make_unique<CommandQueue>();
     if (selected_physical_device->queue_family_indices.graphics_and_compute_family.value() !=
@@ -1298,6 +1427,13 @@ void Platform::CreateLogicalDevice() {
                      &immediate_submit_queue_->vk_queue_);
     vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 0,
                      &main_queue_->vk_queue_);
+  }
+  if (selected_physical_device->queue_family_indices.HasDedicatedComputeFamily()) {
+    compute_queue_ = std::make_unique<CommandQueue>();
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.compute_family.value(), 0,
+                     &compute_queue_->vk_queue_);
+  } else {
+    compute_queue_.reset();
   }
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     present_queue_ = std::make_unique<CommandQueue>();
@@ -1331,6 +1467,36 @@ void Platform::EverythingBarrier(const VkCommandBuffer vk_command_buffer) {
   vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
 }
 
+void Platform::BufferMemoryBarrier(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                   const uint32_t src_queue_family_index, const uint32_t dst_queue_family_index,
+                                   const bool release_barrier) {
+  VkBufferMemoryBarrier2 buffer_barrier{};
+  buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+  buffer_barrier.srcStageMask = buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+  buffer_barrier.srcAccessMask = buffer_barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+  buffer_barrier.srcQueueFamilyIndex = src_queue_family_index;
+  buffer_barrier.dstQueueFamilyIndex = dst_queue_family_index;
+  buffer_barrier.buffer = buffer.GetVkBuffer();
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = VK_WHOLE_SIZE;
+  if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED || dst_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
+    if (release_barrier) {
+      buffer_barrier.dstStageMask = 0;
+      buffer_barrier.dstAccessMask = 0;
+    } else {
+      buffer_barrier.srcStageMask = 0;
+      buffer_barrier.srcAccessMask = 0;
+    }
+  }
+
+  VkDependencyInfo dependency_info{};
+  dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+
+  vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
+}
+
 void Platform::SetupVmaAllocator() {
 #pragma region VMA
   VmaVulkanFunctions vulkan_functions{};
@@ -1349,7 +1515,7 @@ void Platform::SetupVmaAllocator() {
   std::vector<VkExternalMemoryHandleTypeFlagsKHR> handle_types;
   handle_types.resize(graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount);
   for (int i = 0; i < graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount; i++) {
-    if (graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypes[i].propertyFlags |
+    if (graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypes[i].propertyFlags &
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
 #  ifdef _WIN64
       handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
@@ -1533,7 +1699,7 @@ void Platform::CreateSwapChain() {
    * In that case you may use a value like VK_IMAGE_USAGE_TRANSFER_DST_BIT instead and use a memory operation to
    * transfer the rendered image to a swap chain image.
    */
-  swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
   uint32_t queue_family_indices[] = {
       graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value(),
@@ -1570,6 +1736,11 @@ void Platform::CreateSwapChain() {
   for (int i = 0; i < max_frame_in_flight_; i++) {
     image_available_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
   }
+  render_finished_semaphores_.clear();
+  render_finished_semaphores_.reserve(swapchain_->GetAllVkImages().size());
+  for (size_t i = 0; i < swapchain_->GetAllVkImages().size(); i++) {
+    render_finished_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
+  }
 
   swapchain_version_++;
 }
@@ -1580,10 +1751,10 @@ void Platform::CreateSwapChainSyncObjects() {
   VkFenceCreateInfo fence_create_info{};
   fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-  render_finished_semaphores_.clear();
+  compute_finished_semaphores_.clear();
   in_flight_fences_.clear();
   for (int i = 0; i < max_frame_in_flight_; i++) {
-    render_finished_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
+    compute_finished_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
     in_flight_fences_.emplace_back(std::make_unique<Fence>(fence_create_info));
   }
 }
@@ -1606,6 +1777,7 @@ void Platform::OnDestroy() {
 
   graphics.immediate_submit_queue_.reset();
   graphics.main_queue_.reset();
+  graphics.compute_queue_.reset();
   graphics.present_queue_.reset();
 
   graphics.required_layers_.clear();
@@ -1621,11 +1793,16 @@ void Platform::OnDestroy() {
   graphics.frame_count = 0;
 
   graphics.used_command_buffer_size_ = 0;
+  graphics.render_texture_present_pipeline.reset();
   graphics.descriptor_pool_.reset();
   graphics.command_buffer_pool_.clear();
+  graphics.used_compute_command_buffer_size_ = 0;
+  graphics.compute_command_buffer_pool_.clear();
+  graphics.compute_command_pool_.reset();
   graphics.command_pool_.reset();
   graphics.image_available_semaphores_.clear();
   graphics.render_finished_semaphores_.clear();
+  graphics.compute_finished_semaphores_.clear();
   graphics.in_flight_fences_.clear();
   graphics.current_frame_index_ = 0;
   graphics.next_image_index_ = 0;
@@ -1665,7 +1842,12 @@ void Platform::ResetCommandBuffers() {
     if (command_buffer->status_ == CommandBufferStatus::Recorded)
       command_buffer->Reset();
   }
+  for (const auto& command_buffer : compute_command_buffer_pool_[current_frame_index_]) {
+    if (command_buffer->status_ == CommandBufferStatus::Recorded)
+      command_buffer->Reset();
+  }
   used_command_buffer_size_ = 0;
+  used_compute_command_buffer_size_ = 0;
 }
 
 #pragma endregion
@@ -1737,11 +1919,21 @@ void Platform::LateUpdate() {
   if (window_layer) {
     wait_semaphores.emplace_back(graphics.image_available_semaphores_[graphics.current_frame_index_],
                                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-    signal_semaphores.emplace_back(graphics.render_finished_semaphores_[graphics.current_frame_index_]);
+    signal_semaphores.emplace_back(graphics.render_finished_semaphores_[graphics.next_image_index_]);
   }
-  graphics.main_queue_->Submit(graphics.command_buffer_pool_[graphics.current_frame_index_], 0,
+  const auto submitted_frame_index = graphics.current_frame_index_;
+  if (graphics.compute_queue_ && graphics.used_compute_command_buffer_size_ > 0) {
+    const auto& compute_command_buffers = graphics.compute_command_buffer_pool_[submitted_frame_index];
+    std::vector<std::shared_ptr<CommandBuffer>> submitted_compute_command_buffers(
+        compute_command_buffers.begin(), compute_command_buffers.begin() + graphics.used_compute_command_buffer_size_);
+    graphics.compute_queue_->Submit(submitted_compute_command_buffers, {},
+                                    {graphics.compute_finished_semaphores_[submitted_frame_index]});
+    wait_semaphores.emplace_back(graphics.compute_finished_semaphores_[submitted_frame_index],
+                                 VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+  }
+  graphics.main_queue_->Submit(graphics.command_buffer_pool_[submitted_frame_index], 0,
                                graphics.used_command_buffer_size_, wait_semaphores, signal_semaphores,
-                               graphics.in_flight_fences_[graphics.current_frame_index_]);
+                               graphics.in_flight_fences_[submitted_frame_index]);
   if (window_layer) {
     std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
     targets.emplace_back(graphics.swapchain_, graphics.next_image_index_);
@@ -1749,8 +1941,7 @@ void Platform::LateUpdate() {
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
 
-  CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
-  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
+  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[submitted_frame_index]->GetVkFence()};
   CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {

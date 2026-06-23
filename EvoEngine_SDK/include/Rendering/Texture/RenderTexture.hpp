@@ -187,6 +187,12 @@ class RenderTexture {
   [[maybe_unused]] bool Save(const std::filesystem::path& path) const;
 
   /**
+   * @brief Downloads the render texture color attachment as RGBA float pixels.
+   * @param dst Destination pixel array, resized to width * height.
+   */
+  void GetRgbaChannelData(std::vector<glm::vec4>& dst) const;
+
+  /**
    * @brief Stores the render texture contents as a PNG file.
    * @param path Path to save the PNG file to.
    * @param resize_x Optional width to resize the texture to (-1 for no resizing).

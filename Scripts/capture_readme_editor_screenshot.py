@@ -4,13 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
-from ctypes import wintypes
 import subprocess
-import sys
 import textwrap
 import threading
-import time
 from pathlib import Path
 
 
@@ -27,6 +23,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
     parser.add_argument("--config", default="RelWithDebInfo")
     parser.add_argument("--output", type=Path, help="capture output path")
+    parser.add_argument("--demo-setup", default="Rendering", choices=("Rendering", "CornellBox", "ThinWall"))
+    parser.add_argument("--inspect-render-layer", action="store_true", help="open the RenderLayer inspection window")
+    parser.add_argument("--ddgi-atlas-preview", action="store_true", help="enable DDGI atlas preview/readout controls")
+    parser.add_argument("--ddgi-ray-overlay", action="store_true", help="enable selected DDGI probe ray overlay")
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--timeout", type=float, default=180.0)
@@ -54,19 +54,32 @@ def yaml_path(path: Path) -> str:
     return path.resolve().as_posix()
 
 
-def write_run_config(path: Path, ready_file: Path, done_file: Path, width: int, height: int, warmup_frames: int) -> None:
+def write_run_config(
+    path: Path,
+    output: Path,
+    demo_setup: str,
+    inspect_render_layer: bool,
+    ddgi_atlas_preview: bool,
+    ddgi_ray_overlay: bool,
+    width: int,
+    height: int,
+    warmup_frames: int,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         textwrap.dedent(
             f"""\
             mode: editor_screenshot
-            demo_setup: Rendering
+            demo_setup: {demo_setup}
             screenshot_width: {width}
             screenshot_height: {height}
+            inspect_render_layer: {str(inspect_render_layer or ddgi_atlas_preview or ddgi_ray_overlay).lower()}
+            ddgi_atlas_preview: {str(ddgi_atlas_preview).lower()}
+            ddgi_ray_overlay: {str(ddgi_ray_overlay).lower()}
             warmup_frames: {warmup_frames}
             max_load_frames: 30000
-            ready_file: "{yaml_path(ready_file)}"
-            done_file: "{yaml_path(done_file)}"
+            exit_on_complete: true
+            screenshot_file: "{yaml_path(output)}"
             """
         ),
         encoding="utf-8",
@@ -86,108 +99,7 @@ def read_process_output(process: subprocess.Popen[str], lines: list[str]) -> thr
     return thread
 
 
-def wait_for_file(path: Path, process: subprocess.Popen[str], timeout: float) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if path.exists():
-            return
-        if process.poll() is not None:
-            raise RuntimeError(f"DemoApp exited before creating {path}")
-        time.sleep(0.1)
-    raise TimeoutError(f"Timed out waiting for {path}")
-
-
-def find_main_window(process_id: int, timeout: float):
-    user32 = ctypes.windll.user32
-    user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
-    user32.EnumWindows.restype = wintypes.BOOL
-    user32.IsWindowVisible.argtypes = [wintypes.HWND]
-    user32.IsWindowVisible.restype = wintypes.BOOL
-    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-    user32.GetWindowTextLengthW.restype = ctypes.c_int
-    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-    user32.GetWindowTextW.restype = ctypes.c_int
-
-    windows: list[tuple[int, str]] = []
-
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def callback(hwnd, _):
-        window_process_id = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_process_id))
-        if window_process_id.value == process_id and user32.IsWindowVisible(hwnd):
-            title_length = user32.GetWindowTextLengthW(hwnd)
-            title = ctypes.create_unicode_buffer(title_length + 1)
-            user32.GetWindowTextW(hwnd, title, title_length + 1)
-            windows.append((int(hwnd), title.value))
-        return True
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        windows.clear()
-        user32.EnumWindows(callback, 0)
-        if windows:
-            return next((hwnd for hwnd, title in windows if title), windows[0][0])
-        time.sleep(0.1)
-    raise TimeoutError(f"Timed out finding DemoApp window for pid {process_id}")
-
-
-def work_area_origin() -> tuple[int, int]:
-    user32 = ctypes.windll.user32
-
-    class Rect(ctypes.Structure):
-        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-    rect = Rect()
-    if user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
-        return rect.left, rect.top
-    return 0, 0
-
-
-def position_window(hwnd, width: int, height: int) -> tuple[int, int, int, int]:
-    user32 = ctypes.windll.user32
-    user32.SetProcessDPIAware()
-    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-    user32.SetWindowPos.argtypes = [
-        wintypes.HWND,
-        wintypes.HWND,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_int,
-        ctypes.c_uint,
-    ]
-    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-    x, y = work_area_origin()
-    user32.ShowWindow(wintypes.HWND(hwnd), 9)
-    user32.SetWindowPos(wintypes.HWND(hwnd), wintypes.HWND(-1), x, y, width, height, 0x0040)
-    user32.SetForegroundWindow(wintypes.HWND(hwnd))
-    time.sleep(1.0)
-    return x, y, width, height
-
-
-def capture_region(output_path: Path, x: int, y: int, width: int, height: int) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    script = textwrap.dedent(
-        f"""
-        Add-Type -AssemblyName System.Drawing
-        $bitmap = New-Object System.Drawing.Bitmap {width}, {height}
-        $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-        $graphics.CopyFromScreen({x}, {y}, 0, 0, $bitmap.Size)
-        $bitmap.Save('{str(output_path.resolve()).replace("'", "''")}', [System.Drawing.Imaging.ImageFormat]::Png)
-        $graphics.Dispose()
-        $bitmap.Dispose()
-        """
-    )
-    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], check=True)
-
-
 def main() -> int:
-    if sys.platform != "win32":
-        print("README editor screenshot capture is Windows-only because it captures a visible desktop window.")
-        return 0
-
     args = parse_args()
     root = repo_root()
     output = root / (README_IMAGE if args.apply else args.output or DEFAULT_ARTIFACT)
@@ -198,16 +110,23 @@ def main() -> int:
 
     app_path = demo_app_path(root, build_dir, args.config)
     run_dir = root / "out/readme-screenshots/run"
-    ready_file = run_dir / "ready.txt"
-    done_file = run_dir / "done.txt"
     run_config = run_dir / "DemoApp.editor-screenshot.yaml"
-    for marker in (ready_file, done_file):
-        marker.unlink(missing_ok=True)
-    write_run_config(run_config, ready_file, done_file, args.width, args.height, args.warmup_frames)
+    output.unlink(missing_ok=True)
+    write_run_config(
+        run_config,
+        output,
+        args.demo_setup,
+        args.inspect_render_layer,
+        args.ddgi_atlas_preview,
+        args.ddgi_ray_overlay,
+        args.width,
+        args.height,
+        args.warmup_frames,
+    )
 
     process = subprocess.Popen(
         [str(app_path), "--run-config", str(run_config)],
-        cwd=root,
+        cwd=app_path.parent,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -215,14 +134,11 @@ def main() -> int:
     output_lines: list[str] = []
     read_process_output(process, output_lines)
     try:
-        wait_for_file(ready_file, process, args.timeout)
-        hwnd = find_main_window(process.pid, 15.0)
-        x, y, width, height = position_window(hwnd, args.width, args.height)
-        capture_region(output, x, y, width, height)
-        done_file.write_text("done\n", encoding="utf-8")
-        exit_code = process.wait(timeout=30.0)
+        exit_code = process.wait(timeout=args.timeout)
         if exit_code != 0:
             raise RuntimeError(f"DemoApp exited with code {exit_code}")
+        if not output.exists() or output.stat().st_size == 0:
+            raise RuntimeError(f"DemoApp did not create {output}")
     except Exception:
         process.terminate()
         try:

@@ -107,7 +107,7 @@ function(register_evoengine_app app_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Services}
 				)
-			if (${app_name} STREQUAL "DemoApp")
+			if (${app_name} STREQUAL "DemoApp" OR ${app_name} STREQUAL "DDGIApp")
 				target_link_libraries(${app_name}
 					PRIVATE
 					EvoEngine_DemoScene
@@ -143,6 +143,7 @@ register_evoengine_app(EvoEngineEditor ON)
 register_evoengine_app(EvoEngineLauncher ON)
 
 register_evoengine_app(DemoApp ON)
+register_evoengine_app(DDGIApp ON)
 register_evoengine_app(EcoSysLabApp ON)
 register_evoengine_app(DigitalAgricultureApp ON)
 register_evoengine_app(LSystemApp ON)

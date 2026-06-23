@@ -1,18 +1,39 @@
 #include "RenderLayer.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "ComputePipeline.hpp"
+#include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
+#include "GraphicsResources.hpp"
 #include "Jobs.hpp"
 #include "LodGroup.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
 #include "Platform.hpp"
+#include "PointCloudSample.hpp"
 #include "PostProcessingStack.hpp"
 #include "Profiler.hpp"
 #include "ProjectManager.hpp"
+#include "RenderGraph.hpp"
+#include "RenderPasses/DdgiAtlasPreparePass.hpp"
+#include "RenderPasses/DdgiPassUtilities.hpp"
+#include "RenderPasses/DdgiProbeClassificationPass.hpp"
+#include "RenderPasses/DdgiProbeRayVisualizationPass.hpp"
+#include "RenderPasses/DdgiProbeRelocationPass.hpp"
+#include "RenderPasses/DdgiProbeUpdatePass.hpp"
+#include "RenderPasses/DdgiProbeVariabilityPass.hpp"
+#include "RenderPasses/DdgiProbeVisualizationPass.hpp"
+#include "RenderPasses/DdgiRayDiagnosticsPass.hpp"
+#include "RenderPasses/DeferredGeometryPass.hpp"
+#include "RenderPasses/DeferredLightingPass.hpp"
+#include "RenderPasses/DepthPyramidPass.hpp"
+#include "RenderPasses/DirectionalLightShadowPass.hpp"
+#include "RenderPasses/PostProcessingPass.hpp"
+#include "RenderPasses/RayTracingCameraPass.hpp"
+#include "RenderPasses/RenderPassUtilities.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -20,7 +41,901 @@
 #include "TextureStorage.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <functional>
+#include <numeric>
 using namespace evo_engine;
+
+namespace {
+using DdgiPerformanceClock = std::chrono::steady_clock;
+constexpr uint32_t kDdgiProbeVariabilityStableSampleCount = 16;
+constexpr int kDdgiProbeScrollClearXBit = 1 << 0;
+constexpr int kDdgiProbeScrollClearYBit = 1 << 1;
+constexpr int kDdgiProbeScrollClearZBit = 1 << 2;
+constexpr int kDdgiProbeScrollPositiveXBit = 1 << 3;
+constexpr int kDdgiProbeScrollPositiveYBit = 1 << 4;
+constexpr int kDdgiProbeScrollPositiveZBit = 1 << 5;
+
+float DdgiElapsedMilliseconds(const DdgiPerformanceClock::time_point start) {
+  return std::chrono::duration<float, std::milli>(DdgiPerformanceClock::now() - start).count();
+}
+
+uint32_t HashDdgiProbeRayRotationSeed(uint32_t value) {
+  value ^= value >> 16u;
+  value *= 0x7feb352du;
+  value ^= value >> 15u;
+  value *= 0x846ca68bu;
+  value ^= value >> 16u;
+  return value;
+}
+
+float DdgiProbeRayRotationUnitFloat(const uint32_t seed) {
+  return static_cast<float>(HashDdgiProbeRayRotationSeed(seed) >> 8u) * (1.0f / 16777216.0f);
+}
+
+glm::vec4 CreateDdgiProbeRayRotationQuaternion(const uint32_t frame_index, const uint32_t volume_index) {
+  constexpr float two_pi = 6.28318530718f;
+  const auto seed = frame_index ^ (volume_index * 0x9e3779b9u);
+  const float u1 = DdgiProbeRayRotationUnitFloat(seed ^ 0x68bc21ebu);
+  const float u2 = DdgiProbeRayRotationUnitFloat(seed ^ 0x02e5be93u);
+  const float u3 = DdgiProbeRayRotationUnitFloat(seed ^ 0x967a889bu);
+  const float r1 = std::sqrt(glm::max(0.0f, 1.0f - u1));
+  const float r2 = std::sqrt(glm::max(0.0f, u1));
+  return {r1 * std::sin(two_pi * u2), r1 * std::cos(two_pi * u2), r2 * std::sin(two_pi * u3),
+          r2 * std::cos(two_pi * u3)};
+}
+
+float ReadDdgiProbeVariabilityAverage(const std::shared_ptr<Buffer>& buffer) {
+  if (!buffer || buffer->GetSize() < sizeof(glm::vec2)) {
+    return 0.0f;
+  }
+  glm::vec2 result(0.0f);
+  buffer->Download(result);
+  return std::isfinite(result.x) ? glm::max(result.x, 0.0f) : 0.0f;
+}
+
+void AddExternalRenderResources(RenderGraph& graph, const std::vector<RenderResourceDescriptor>& descriptors) {
+  for (const auto& descriptor : descriptors) {
+    graph.AddResource(descriptor);
+  }
+}
+
+void ImportMissingPassResources(RenderGraph& graph, const RenderPassDescriptor& descriptor) {
+  for (const auto& resource : descriptor.resources) {
+    if (!graph.HasResource(resource.resource_name)) {
+      graph.AddResource({resource.resource_name, RenderResourceType::External, RenderResourceLifetime::Imported});
+    }
+  }
+}
+
+RenderGraphCompileContext CreateFrameRenderGraphCompileContext() {
+  RenderGraphCompileContext context;
+  if (Platform::Initialized()) {
+    if (const auto& swapchain = Platform::GetSwapchain()) {
+      const auto extent = swapchain->GetImageExtent();
+      context.frame_width = extent.width;
+      context.frame_height = extent.height;
+    }
+  }
+  return context;
+}
+
+RenderGraphCompileContext CreateCameraRenderGraphCompileContext(const std::shared_ptr<Camera>& camera) {
+  auto context = CreateFrameRenderGraphCompileContext();
+  if (camera) {
+    const auto size = camera->GetSize();
+    context.camera_width = size.x;
+    context.camera_height = size.y;
+  }
+  return context;
+}
+
+RenderGraphResourceRegistry CreateFrameRenderGraphResourceRegistry(
+    const std::shared_ptr<DescriptorSet>& per_frame_descriptor_set) {
+  RenderGraphResourceRegistry registry;
+  registry.BindDescriptorSet(RenderResourceNames::frame_per_frame_descriptor_set, per_frame_descriptor_set);
+  return registry;
+}
+
+RenderGraphResourceRegistry CreateCameraRenderGraphResourceRegistry(
+    const std::shared_ptr<DescriptorSet>& per_frame_descriptor_set,
+    const std::shared_ptr<DescriptorSet>& ray_tracing_descriptor_set, const std::shared_ptr<Camera>& camera) {
+  auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_set);
+  if (ray_tracing_descriptor_set) {
+    registry.BindDescriptorSet(RenderResourceNames::frame_ray_tracing_descriptor_set, ray_tracing_descriptor_set);
+  }
+  if (camera) {
+    registry.BindDescriptorSet(RenderResourceNames::camera_g_buffer, camera->GetGBufferDescriptorSet());
+    if (const auto& render_texture = camera->GetRenderTexture()) {
+      registry.BindRenderTexture(RenderResourceNames::camera_color, render_texture);
+      registry.BindImage(RenderResourceNames::camera_color, render_texture->GetColorImage());
+      registry.BindImage(RenderResourceNames::camera_depth, render_texture->GetDepthImage());
+    }
+  }
+  return registry;
+}
+
+bool ShouldUseDdgiFrameResources(const RenderLayer::DdgiSettings& settings) {
+  return settings.runtime.enabled ||
+         (settings.debug.enabled &&
+          (settings.debug.show_atlas_preview || settings.debug.show_irradiance || settings.debug.show_visibility ||
+           settings.debug.show_rays || settings.debug.visualize_probe_illumination));
+}
+
+bool ShouldTraceDdgiProbeRays(const RenderLayer::DdgiSettings& settings) {
+  return !settings.runtime.pause_updates &&
+         (settings.runtime.enabled || (settings.debug.enabled && settings.debug.show_rays));
+}
+
+bool ShouldRenderDdgiProbeVisualization(const RenderLayer::DdgiSettings& settings) {
+  return settings.debug.enabled && settings.debug.visualize_probe_illumination &&
+         settings.debug.visualize_probe_positions;
+}
+
+uint32_t GetDdgiProbeVisualizationMode(const RenderLayer::DdgiSettings& settings) {
+  return static_cast<uint32_t>(glm::clamp(settings.debug.probe_visualization_mode, 0, 3));
+}
+
+glm::ivec3 ClampDdgiProbeCounts(const glm::ivec3& value) {
+  return {glm::clamp(value.x, 1, 256), glm::clamp(value.y, 1, 256), glm::clamp(value.z, 1, 256)};
+}
+
+glm::ivec3 WrapDdgiProbeGrid(const glm::ivec3& probe_grid, const glm::ivec3& probe_counts) {
+  const auto safe_counts = glm::max(probe_counts, glm::ivec3(1));
+  return (probe_grid % safe_counts + safe_counts) % safe_counts;
+}
+
+uint32_t GetDdgiProbeIndexFromGrid(const glm::ivec3& probe_grid, const glm::ivec3& probe_counts) {
+  const auto safe_counts = glm::max(probe_counts, glm::ivec3(1));
+  const auto wrapped_grid = WrapDdgiProbeGrid(probe_grid, safe_counts);
+  return static_cast<uint32_t>(wrapped_grid.x + wrapped_grid.y * safe_counts.x +
+                               wrapped_grid.z * safe_counts.x * safe_counts.y);
+}
+
+uint32_t GetScrolledDdgiProbeIndex(const glm::uvec3& logical_probe_grid, const glm::ivec3& probe_scroll_offset,
+                                   const glm::ivec3& probe_counts) {
+  return GetDdgiProbeIndexFromGrid(glm::ivec3(logical_probe_grid) + probe_scroll_offset, probe_counts);
+}
+
+glm::vec3 ClampDdgiProbeSpacing(const glm::vec3& value) {
+  return glm::clamp(value, glm::vec3(0.05f), glm::vec3(10000.0f));
+}
+
+RenderResourceDescriptor CreateDdgiImageResourceDescriptor(const std::string& name,
+                                                           const RenderLayer::DdgiAtlasLayout& layout,
+                                                           const std::string& format_name) {
+  return {name,
+          RenderResourceType::Image,
+          RenderResourceLifetime::Frame,
+          {RenderResourceSizeMode::Absolute, layout.resolution.x, layout.resolution.y, 1, 1, 1},
+          format_name,
+          1,
+          1,
+          true};
+}
+
+RenderResourceDescriptor CreateDdgiImageResourceDescriptor(const std::string& name, const glm::uvec2 extent,
+                                                           const std::string& format_name) {
+  return {name,
+          RenderResourceType::Image,
+          RenderResourceLifetime::Frame,
+          {RenderResourceSizeMode::Absolute, glm::max(extent.x, 1u), glm::max(extent.y, 1u), 1, 1, 1},
+          format_name,
+          1,
+          1,
+          true};
+}
+
+RenderResourceDescriptor CreateDdgiImportedImageResourceDescriptor(const std::string& name,
+                                                                   const RenderLayer::DdgiAtlasLayout& layout,
+                                                                   const std::string& format_name) {
+  auto descriptor = CreateDdgiImageResourceDescriptor(name, layout, format_name);
+  descriptor.lifetime = RenderResourceLifetime::Persistent;
+  descriptor.managed_by_graph = false;
+  return descriptor;
+}
+
+std::shared_ptr<Image> CreateDdgiAtlasImage(const RenderLayer::DdgiAtlasLayout& layout, const VkFormat format) {
+  if (!Platform::Initialized() || layout.resolution.x == 0 || layout.resolution.y == 0) {
+    return {};
+  }
+  const uint32_t queue_family_indices[2] = {Platform::GetGraphicsAndComputeQueueFamilyIndex(),
+                                            Platform::GetComputeQueueFamilyIndex()};
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.extent = {layout.resolution.x, layout.resolution.y, 1};
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = format;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  if (queue_family_indices[0] != queue_family_indices[1]) {
+    image_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+    image_info.queueFamilyIndexCount = 2;
+    image_info.pQueueFamilyIndices = queue_family_indices;
+  } else {
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  }
+  return std::make_shared<Image>(image_info);
+}
+
+std::shared_ptr<Sampler> CreateDdgiAtlasSampler() {
+  if (!Platform::Initialized()) {
+    return {};
+  }
+  VkSamplerCreateInfo sampler_info{};
+  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_info.magFilter = VK_FILTER_LINEAR;
+  sampler_info.minFilter = VK_FILTER_LINEAR;
+  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+  sampler_info.unnormalizedCoordinates = VK_FALSE;
+  sampler_info.compareEnable = VK_FALSE;
+  sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+  sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  sampler_info.minLod = 0.0f;
+  sampler_info.maxLod = 0.0f;
+  return std::make_shared<Sampler>(sampler_info);
+}
+
+bool HasDdgiAtlasImageLayout(const std::shared_ptr<Image>& image, const RenderLayer::DdgiAtlasLayout& layout,
+                             const VkFormat format) {
+  if (!image || image->GetFormat() != format) {
+    return false;
+  }
+  const auto extent = image->GetExtent();
+  return extent.width == layout.resolution.x && extent.height == layout.resolution.y && extent.depth == 1;
+}
+
+struct DdgiProbeRayDiagnosticSource {
+  glm::ivec3 probe_counts = {1, 1, 1};
+  glm::vec3 first_probe = glm::vec3(0.0f);
+  glm::vec3 probe_step_x = glm::vec3(0.0f);
+  glm::vec3 probe_step_y = glm::vec3(0.0f);
+  glm::vec3 probe_step_z = glm::vec3(0.0f);
+  uint32_t enabled_volume_count = 0;
+  uint32_t selected_volume_index = 0;
+  float relocation_distance = 0.0f;
+  float random_ray_backface_threshold = 0.1f;
+  float fixed_ray_backface_threshold = 0.25f;
+  float probe_variability_threshold = 0.05f;
+  int probe_variability_min_samples = 128;
+  int movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
+  glm::ivec3 probe_scroll_offset = glm::ivec3(0);
+  glm::ivec3 probe_scroll_clear = glm::ivec3(0);
+  glm::ivec3 probe_scroll_directions = glm::ivec3(1);
+  bool enable_probe_relocation = false;
+  bool enable_probe_classification = false;
+  bool enable_probe_variability = true;
+  bool enable_probe_variability_gating = false;
+};
+
+struct DdgiVolumeCandidate {
+  std::shared_ptr<DdgiVolume> volume{};
+  Entity owner{};
+  glm::mat4 transform = glm::mat4(1.0f);
+};
+
+glm::vec3 TransformPoint(const glm::mat4& transform, const glm::vec3& point) {
+  return glm::vec3(transform * glm::vec4(point, 1.0f));
+}
+
+glm::vec3 TransformVector(const glm::mat4& transform, const glm::vec3& vector) {
+  return glm::vec3(transform * glm::vec4(vector, 0.0f));
+}
+
+float AxisCoordinate(const glm::vec3& delta, const glm::vec3& axis) {
+  const auto axis_length_squared = glm::dot(axis, axis);
+  return axis_length_squared > 1e-6f ? glm::dot(delta, axis) / axis_length_squared : 0.0f;
+}
+
+glm::ivec3 CalculateDdgiProbeScrollDelta(const glm::vec3& first_probe_delta, const glm::vec3& probe_step_x,
+                                         const glm::vec3& probe_step_y, const glm::vec3& probe_step_z) {
+  const auto abs_floor = [](const float value) {
+    return value >= 0.0f ? static_cast<int>(std::floor(value)) : static_cast<int>(std::ceil(value));
+  };
+  return {abs_floor(AxisCoordinate(first_probe_delta, probe_step_x)),
+          abs_floor(AxisCoordinate(first_probe_delta, probe_step_y)),
+          abs_floor(AxisCoordinate(first_probe_delta, probe_step_z))};
+}
+
+glm::vec3 CalculateDdgiEffectiveFirstProbe(const glm::vec3& base_first_probe, const glm::vec3& probe_step_x,
+                                           const glm::vec3& probe_step_y, const glm::vec3& probe_step_z,
+                                           const glm::ivec3& probe_scroll_offset) {
+  return base_first_probe + probe_step_x * static_cast<float>(probe_scroll_offset.x) +
+         probe_step_y * static_cast<float>(probe_scroll_offset.y) +
+         probe_step_z * static_cast<float>(probe_scroll_offset.z);
+}
+
+void ResetDdgiProbeScrollOrigin(glm::vec3& base_first_probe, glm::ivec3& probe_scroll_offset,
+                                const glm::ivec3& probe_scroll_directions, const glm::ivec3& probe_counts,
+                                const glm::vec3& probe_step_x, const glm::vec3& probe_step_y,
+                                const glm::vec3& probe_step_z) {
+  const auto counts = ClampDdgiProbeCounts(probe_counts);
+  const glm::vec3 probe_steps[3] = {probe_step_x, probe_step_y, probe_step_z};
+  for (int axis = 0; axis < 3; ++axis) {
+    if (probe_scroll_offset[axis] != 0 && probe_scroll_offset[axis] % counts[axis] == 0) {
+      base_first_probe += probe_steps[axis] * static_cast<float>(counts[axis] * probe_scroll_directions[axis]);
+      probe_scroll_offset[axis] = 0;
+    }
+  }
+}
+
+int PackDdgiProbeScrollFlags(const glm::ivec3& probe_scroll_clear, const glm::ivec3& probe_scroll_directions) {
+  int flags = 0;
+  flags |= probe_scroll_clear.x != 0 ? kDdgiProbeScrollClearXBit : 0;
+  flags |= probe_scroll_clear.y != 0 ? kDdgiProbeScrollClearYBit : 0;
+  flags |= probe_scroll_clear.z != 0 ? kDdgiProbeScrollClearZBit : 0;
+  flags |= probe_scroll_directions.x > 0 ? kDdgiProbeScrollPositiveXBit : 0;
+  flags |= probe_scroll_directions.y > 0 ? kDdgiProbeScrollPositiveYBit : 0;
+  flags |= probe_scroll_directions.z > 0 ? kDdgiProbeScrollPositiveZBit : 0;
+  return flags;
+}
+
+glm::ivec4 CreateDdgiProbeScrollPushConstant(const DdgiProbeRayDiagnosticSource& source) {
+  return {source.probe_scroll_offset,
+          PackDdgiProbeScrollFlags(source.probe_scroll_clear, source.probe_scroll_directions)};
+}
+
+DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromSettings(const RenderLayer::DdgiSettings& settings) {
+  DdgiProbeRayDiagnosticSource source;
+  source.probe_counts = ClampDdgiProbeCounts(settings.volume_defaults.probe_counts);
+  const auto spacing = ClampDdgiProbeSpacing(settings.volume_defaults.probe_spacing);
+  source.first_probe =
+      settings.volume_defaults.volume_origin - glm::vec3(source.probe_counts - glm::ivec3(1)) * spacing * 0.5f;
+  source.probe_step_x = {spacing.x, 0.0f, 0.0f};
+  source.probe_step_y = {0.0f, spacing.y, 0.0f};
+  source.probe_step_z = {0.0f, 0.0f, spacing.z};
+  source.relocation_distance = glm::max(settings.volume_defaults.relocation_distance, 0.0f);
+  source.random_ray_backface_threshold = glm::clamp(settings.volume_defaults.random_ray_backface_threshold, 0.0f, 1.0f);
+  source.fixed_ray_backface_threshold = glm::clamp(settings.volume_defaults.fixed_ray_backface_threshold, 0.0f, 1.0f);
+  source.probe_variability_threshold = glm::clamp(settings.volume_defaults.probe_variability_threshold, 0.0f, 10.0f);
+  source.probe_variability_min_samples = glm::clamp(settings.volume_defaults.probe_variability_min_samples, 0, 4096);
+  source.movement_type =
+      glm::clamp(settings.volume_defaults.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
+                 static_cast<int>(DdgiVolumeMovementType::Scrolling));
+  source.enable_probe_relocation = settings.volume_defaults.enable_probe_relocation;
+  source.enable_probe_classification = settings.volume_defaults.enable_probe_classification;
+  source.enable_probe_variability = settings.volume_defaults.enable_probe_variability;
+  source.enable_probe_variability_gating = settings.volume_defaults.enable_probe_variability_gating;
+  return source;
+}
+
+DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromVolume(const DdgiVolume& volume,
+                                                                          const glm::mat4& transform) {
+  DdgiProbeRayDiagnosticSource source;
+  source.probe_counts = ClampDdgiProbeCounts(volume.probe_counts);
+  const auto first_probe = volume.GetProbeLocalPosition({0, 0, 0});
+  const auto spacing = ClampDdgiProbeSpacing(volume.probe_spacing);
+  source.first_probe = TransformPoint(transform, first_probe);
+  source.probe_step_x = TransformVector(transform, {spacing.x, 0.0f, 0.0f});
+  source.probe_step_y = TransformVector(transform, {0.0f, spacing.y, 0.0f});
+  source.probe_step_z = TransformVector(transform, {0.0f, 0.0f, spacing.z});
+  source.relocation_distance = glm::max(volume.relocation_distance, 0.0f);
+  source.random_ray_backface_threshold = glm::clamp(volume.random_ray_backface_threshold, 0.0f, 1.0f);
+  source.fixed_ray_backface_threshold = glm::clamp(volume.fixed_ray_backface_threshold, 0.0f, 1.0f);
+  source.probe_variability_threshold = glm::clamp(volume.probe_variability_threshold, 0.0f, 10.0f);
+  source.probe_variability_min_samples = glm::clamp(volume.probe_variability_min_samples, 0, 4096);
+  source.movement_type = glm::clamp(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
+                                    static_cast<int>(DdgiVolumeMovementType::Scrolling));
+  source.enable_probe_relocation = volume.enable_probe_relocation;
+  source.enable_probe_classification = volume.enable_probe_classification;
+  source.enable_probe_variability = volume.enable_probe_variability;
+  source.enable_probe_variability_gating = volume.enable_probe_variability_gating;
+  return source;
+}
+
+std::vector<DdgiVolumeCandidate> CollectDdgiVolumeCandidates(const std::shared_ptr<Scene>& scene,
+                                                             const RenderLayer::DdgiSettings& settings) {
+  (void)settings;
+  std::vector<DdgiVolumeCandidate> candidates;
+  if (!scene) {
+    return candidates;
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<DdgiVolume>()) {
+    candidates.reserve(owners->size());
+    for (const auto& owner : *owners) {
+      if (!scene->IsEntityEnabled(owner)) {
+        continue;
+      }
+      const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(owner).lock();
+      if (volume && volume->IsEnabled()) {
+        candidates.push_back({volume, owner, scene->GetDataComponent<GlobalTransform>(owner).value});
+      }
+    }
+  }
+  std::stable_sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
+    return lhs.owner.GetIndex() < rhs.owner.GetIndex();
+  });
+  return candidates;
+}
+
+DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSource(const std::shared_ptr<Scene>& scene,
+                                                                const RenderLayer::DdgiSettings& settings) {
+  const auto candidates = CollectDdgiVolumeCandidates(scene, settings);
+  if (candidates.empty()) {
+    return CreateDdgiProbeRayDiagnosticSourceFromSettings(settings);
+  }
+
+  constexpr size_t selected_index = 0;
+  const auto& candidate = candidates[selected_index];
+  auto source = CreateDdgiProbeRayDiagnosticSourceFromVolume(*candidate.volume, candidate.transform);
+  source.enabled_volume_count = static_cast<uint32_t>(candidates.size());
+  source.selected_volume_index = static_cast<uint32_t>(selected_index);
+  return source;
+}
+
+float CalculateDdgiEffectiveMaxRayDistance(const RenderLayer::DdgiSettings& settings,
+                                           const DdgiProbeRayDiagnosticSource& source) {
+  (void)source;
+  return glm::max(settings.runtime.max_ray_distance, 0.05f);
+}
+
+DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
+    const RenderLayer::DdgiSettings& settings, const DdgiProbeRayDiagnosticSource& source,
+    const RenderLayer::DdgiProbeUpdateWindow& update_window, const bool skip_inactive_probe_trace) {
+  DdgiProbeRayTracingPushConstant push_constant;
+  const auto frame_index = static_cast<uint32_t>(Platform::GetFrameCount() & 0x00ffffffu);
+  const auto ray_rotation = CreateDdgiProbeRayRotationQuaternion(frame_index, source.selected_volume_index);
+  push_constant.first_probe = glm::vec4(source.first_probe, ray_rotation.x);
+  push_constant.probe_step_x = glm::vec4(source.probe_step_x, ray_rotation.y);
+  push_constant.probe_step_y = glm::vec4(source.probe_step_y, ray_rotation.z);
+  push_constant.probe_step_z = glm::vec4(source.probe_step_z, ray_rotation.w);
+  push_constant.probe_counts_and_ray_count = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)),
+                                                        static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1)));
+  push_constant.probe_offset_and_update_count = {update_window.start_probe_index,
+                                                 glm::max(update_window.probe_count, 1u),
+                                                 skip_inactive_probe_trace ? 1u : 0u, 0u};
+  push_constant.trace_parameters = {
+      CalculateDdgiEffectiveMaxRayDistance(settings, source), glm::max(settings.runtime.normal_bias, 0.001f),
+      source.enable_probe_relocation || source.enable_probe_classification ? 1.0f : 0.0f, 0.0f};
+  push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
+  return push_constant;
+}
+
+DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(
+    const RenderLayer::DdgiSettings& settings, const RenderLayer::DdgiProbeUpdateWindow& update_window,
+    const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source, const float history_hysteresis) {
+  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings, total_probe_count);
+  const auto probe_count = glm::max(1u, glm::min(layout.probe_count, update_window.probe_count));
+  const auto history_weight = glm::clamp(history_hysteresis, 0.0f, 1.0f);
+  DdgiProbeAtlasUpdatePushConstant push_constant;
+  push_constant.probe_count_ray_count_and_tile_sizes = {
+      probe_count, static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1)),
+      layout.irradiance_atlas.tile_resolution, layout.visibility_atlas.tile_resolution};
+  push_constant.atlas_columns_and_rows = {layout.irradiance_atlas.columns, layout.irradiance_atlas.rows,
+                                          layout.visibility_atlas.columns, layout.visibility_atlas.rows};
+  push_constant.probe_offset_and_total_count = {update_window.start_probe_index, glm::max(total_probe_count, 1u), 0u,
+                                                0u};
+  push_constant.probe_counts = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)), 0u);
+  push_constant.update_parameters = {CalculateDdgiEffectiveMaxRayDistance(settings, source), history_weight,
+                                     glm::max(settings.runtime.visibility_moment_bias, 0.0f),
+                                     glm::max(settings.runtime.irradiance_gamma, 1.0f)};
+  push_constant.probe_state_parameters = {
+      glm::max(source.relocation_distance, 0.0f), source.enable_probe_relocation ? 1.0f : 0.0f,
+      source.enable_probe_classification ? 1.0f : 0.0f, glm::clamp(settings.runtime.irradiance_threshold, 0.0f, 1.0f)};
+  push_constant.probe_blend_parameters = {glm::clamp(source.random_ray_backface_threshold, 0.0f, 1.0f),
+                                          glm::clamp(source.fixed_ray_backface_threshold, 0.0f, 1.0f),
+                                          glm::max(settings.runtime.distance_exponent, 0.0f),
+                                          glm::clamp(settings.runtime.brightness_threshold, 0.0f, 1.0f)};
+  push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
+  push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
+  push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
+  push_constant.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
+  return push_constant;
+}
+
+DdgiProbeRelocationPushConstant CreateDdgiProbeRelocationPushConstant(
+    const RenderLayer::DdgiSettings& settings, const RenderLayer::DdgiProbeUpdateWindow& update_window,
+    const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source, const bool reset_offsets) {
+  DdgiProbeRelocationPushConstant push_constant;
+  push_constant.probe_count_ray_count_and_flags = {reset_offsets ? total_probe_count : update_window.probe_count,
+                                                   static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1)),
+                                                   glm::max(total_probe_count, 1u), reset_offsets ? 1u : 0u};
+  push_constant.probe_counts = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)), 0u);
+  push_constant.relocation_parameters = {glm::max(source.relocation_distance, 0.0f),
+                                         glm::clamp(source.fixed_ray_backface_threshold, 0.0f, 1.0f), 0.0f, 0.0f};
+  push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
+  push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
+  push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
+  push_constant.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
+  return push_constant;
+}
+
+DdgiProbeClassificationPushConstant CreateDdgiProbeClassificationPushConstant(
+    const RenderLayer::DdgiSettings& settings, const RenderLayer::DdgiProbeUpdateWindow& update_window,
+    const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source, const bool reset_classification) {
+  DdgiProbeClassificationPushConstant push_constant;
+  push_constant.probe_count_ray_count_and_flags = {reset_classification ? total_probe_count : update_window.probe_count,
+                                                   static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1)),
+                                                   glm::max(total_probe_count, 1u), reset_classification ? 1u : 0u};
+  push_constant.probe_counts = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)), 0u);
+  push_constant.classification_parameters = {glm::clamp(source.fixed_ray_backface_threshold, 0.0f, 1.0f), 0.0f, 0.0f,
+                                             0.0f};
+  push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
+  push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
+  push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
+  push_constant.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
+  return push_constant;
+}
+
+void BindDdgiFallbackLightingDescriptors(const std::shared_ptr<DescriptorSet>& lighting_descriptor_set,
+                                         const std::shared_ptr<Buffer>& fallback_probe_state_buffer) {
+  if (!lighting_descriptor_set) {
+    return;
+  }
+  const auto image_info = CreateDdgiFallbackImageInfo();
+  if (!IsValidDescriptorImageInfo(image_info) || !fallback_probe_state_buffer) {
+    return;
+  }
+  lighting_descriptor_set->UpdateImageDescriptorBinding(17, image_info);
+  lighting_descriptor_set->UpdateImageDescriptorBinding(18, image_info);
+  lighting_descriptor_set->UpdateBufferDescriptorBinding(19, fallback_probe_state_buffer);
+}
+
+bool BindDdgiAtlasLightingDescriptors(const RenderGraphResourceRegistry& registry,
+                                      RenderGraphTransientResourceStore& transient_resources,
+                                      const std::shared_ptr<DescriptorSet>& lighting_descriptor_set,
+                                      const std::shared_ptr<Sampler>& atlas_sampler,
+                                      const std::shared_ptr<Buffer>& fallback_probe_state_buffer) {
+  if (!lighting_descriptor_set || !fallback_probe_state_buffer) {
+    return false;
+  }
+  const auto fallback_info = CreateDdgiFallbackImageInfo();
+  if (!IsValidDescriptorImageInfo(fallback_info)) {
+    return false;
+  }
+  const auto* state_binding = registry.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
+  const auto* irradiance_binding = registry.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
+  const auto* visibility_binding = registry.GetResourceBinding(RenderResourceNames::frame_ddgi_visibility_atlas);
+  if (!irradiance_binding || !irradiance_binding->image || !visibility_binding || !visibility_binding->image) {
+    return false;
+  }
+  const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
+  const auto visibility_view = CreateGraphImageMipView(visibility_binding->image, 0);
+  if (!irradiance_view || !visibility_view) {
+    return false;
+  }
+  transient_resources.RetainImageView(irradiance_view);
+  transient_resources.RetainImageView(visibility_view);
+
+  VkDescriptorImageInfo image_info{};
+  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  image_info.sampler = atlas_sampler ? atlas_sampler->GetVkSampler() : fallback_info.sampler;
+  image_info.imageView = irradiance_view->GetVkImageView();
+  lighting_descriptor_set->UpdateImageDescriptorBinding(17, image_info);
+  image_info.imageView = visibility_view->GetVkImageView();
+  lighting_descriptor_set->UpdateImageDescriptorBinding(18, image_info);
+  lighting_descriptor_set->UpdateBufferDescriptorBinding(
+      19, state_binding && state_binding->buffer ? state_binding->buffer : fallback_probe_state_buffer);
+  return true;
+}
+
+void ApplyDdgiRenderInfo(RenderInstanceStorage::RenderInfoBlock& render_info, const RenderLayer::DdgiSettings& settings,
+                         const DdgiProbeRayDiagnosticSource& source,
+                         const DdgiProbeRayTracingPushConstant& ray_push_constant,
+                         const DdgiProbeAtlasUpdatePushConstant& update_push_constant) {
+  render_info.ddgi_indirect_intensity = glm::max(settings.runtime.indirect_intensity, 0.0f);
+  render_info.ddgi_first_probe = glm::vec4(source.first_probe, 0.0f);
+  render_info.ddgi_probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
+  render_info.ddgi_probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
+  render_info.ddgi_probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
+  render_info.ddgi_probe_counts =
+      glm::vec4(glm::vec3(ray_push_constant.probe_counts_and_ray_count), update_push_constant.update_parameters.w);
+  render_info.ddgi_probe_scroll_offset = glm::vec4(
+      static_cast<float>(source.probe_scroll_offset.x), static_cast<float>(source.probe_scroll_offset.y),
+      static_cast<float>(source.probe_scroll_offset.z),
+      static_cast<float>(PackDdgiProbeScrollFlags(source.probe_scroll_clear, source.probe_scroll_directions)));
+  render_info.ddgi_atlas_parameters = glm::vec4(
+      update_push_constant.probe_count_ray_count_and_tile_sizes.z, update_push_constant.atlas_columns_and_rows.x,
+      update_push_constant.probe_count_ray_count_and_tile_sizes.w, update_push_constant.atlas_columns_and_rows.z);
+  render_info.ddgi_volume_parameters =
+      glm::vec4(0.0f, update_push_constant.update_parameters.z, ray_push_constant.trace_parameters.y,
+                glm::max(settings.runtime.view_bias, 0.0f));
+  render_info.ddgi_sampling_parameters = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+}
+
+void PreserveDdgiRenderInfo(RenderInstanceStorage::RenderInfoBlock& render_info,
+                            const RenderInstanceStorage::RenderInfoBlock& previous_render_info) {
+  render_info.ddgi_indirect_intensity = previous_render_info.ddgi_indirect_intensity;
+  render_info.ddgi_first_probe = previous_render_info.ddgi_first_probe;
+  render_info.ddgi_probe_step_x = previous_render_info.ddgi_probe_step_x;
+  render_info.ddgi_probe_step_y = previous_render_info.ddgi_probe_step_y;
+  render_info.ddgi_probe_step_z = previous_render_info.ddgi_probe_step_z;
+  render_info.ddgi_probe_counts = previous_render_info.ddgi_probe_counts;
+  render_info.ddgi_probe_scroll_offset = previous_render_info.ddgi_probe_scroll_offset;
+  render_info.ddgi_atlas_parameters = previous_render_info.ddgi_atlas_parameters;
+  render_info.ddgi_volume_parameters = previous_render_info.ddgi_volume_parameters;
+  render_info.ddgi_sampling_parameters = previous_render_info.ddgi_sampling_parameters;
+}
+
+uint64_t MakeDdgiLightKey(const uint32_t type_index, const Entity& owner) {
+  return (static_cast<uint64_t>(type_index) << 56u) | (static_cast<uint64_t>(owner.GetVersion()) << 32u) |
+         static_cast<uint64_t>(owner.GetIndex());
+}
+
+template <typename LightComponent>
+void CollectDdgiActiveLightKeys(const std::shared_ptr<Scene>& scene, const uint32_t type_index,
+                                std::vector<uint64_t>& keys) {
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LightComponent>()) {
+    for (const auto& owner : *owners) {
+      if (!scene->IsEntityEnabled(owner)) {
+        continue;
+      }
+      const auto light = scene->GetOrSetPrivateComponent<LightComponent>(owner).lock();
+      if (light && light->IsEnabled()) {
+        keys.push_back(MakeDdgiLightKey(type_index, owner));
+      }
+    }
+  }
+}
+
+std::vector<uint64_t> CollectDdgiActiveLightKeys(const std::shared_ptr<Scene>& scene) {
+  std::vector<uint64_t> keys;
+  if (!scene) {
+    return keys;
+  }
+  CollectDdgiActiveLightKeys<DirectionalLight>(scene, 1u, keys);
+  CollectDdgiActiveLightKeys<PointLight>(scene, 2u, keys);
+  CollectDdgiActiveLightKeys<SpotLight>(scene, 3u, keys);
+  std::sort(keys.begin(), keys.end());
+  return keys;
+}
+
+bool DdgiResetConditionEnabled(const RenderLayer::DdgiSettings& settings, const int condition) {
+  return (settings.runtime.reset_conditions & condition) != 0;
+}
+
+RenderResourceDescriptor CreateDdgiBufferResourceDescriptor(const std::string& name, const uint64_t byte_size) {
+  return {name, RenderResourceType::Buffer, RenderResourceLifetime::Frame, {}, {}, 1, 1, true, byte_size};
+}
+
+RenderResourceDescriptor CreateDdgiImportedBufferResourceDescriptor(const std::string& name, const uint64_t byte_size) {
+  return {name, RenderResourceType::Buffer, RenderResourceLifetime::Persistent, {}, {}, 1, 1, false, byte_size};
+}
+
+std::shared_ptr<Buffer> CreateDdgiProbeStateBuffer(const uint64_t byte_size) {
+  if (byte_size == 0 || !Platform::Initialized()) {
+    return {};
+  }
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = byte_size;
+  buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                             VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+  return std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+}
+
+std::shared_ptr<Buffer> CreateDdgiFallbackProbeStateBuffer() {
+  auto buffer = CreateDdgiProbeStateBuffer(sizeof(glm::vec4));
+  if (buffer) {
+    const std::vector<glm::vec4> zero_state(1, glm::vec4(0.0f));
+    buffer->UploadVector(zero_state);
+  }
+  return buffer;
+}
+
+void AddDdgiFrameResources(RenderGraph& graph, const RenderLayer::DdgiFrameResourceLayout& layout) {
+  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_metadata,
+                                                               layout.probe_metadata_byte_size));
+  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_state,
+                                                               layout.probe_state_byte_size));
+  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_update_indices,
+                                                               layout.probe_update_index_byte_size));
+  graph.AddResource(
+      CreateDdgiBufferResourceDescriptor(RenderResourceNames::frame_ddgi_ray_output, layout.ray_output_byte_size));
+  graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_irradiance_atlas,
+                                                              layout.irradiance_atlas, "RGBA16F"));
+  graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_visibility_atlas,
+                                                              layout.visibility_atlas, "RG16F"));
+  graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_variability_atlas,
+                                                              layout.variability_atlas, "R16F"));
+  graph.AddResource(CreateDdgiImageResourceDescriptor(RenderResourceNames::frame_ddgi_variability_reduction_a,
+                                                      layout.variability_reduction_extent, "RG32F"));
+  graph.AddResource(CreateDdgiImageResourceDescriptor(RenderResourceNames::frame_ddgi_variability_reduction_b,
+                                                      layout.variability_reduction_extent, "RG32F"));
+}
+
+void AddDdgiProbeVisualizationFrameResources(RenderGraph& graph, const RenderLayer::DdgiFrameResourceLayout& layout) {
+  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_metadata,
+                                                               layout.probe_metadata_byte_size));
+  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_state,
+                                                               layout.probe_state_byte_size));
+  graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_irradiance_atlas,
+                                                              layout.irradiance_atlas, "RGBA16F"));
+  graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_visibility_atlas,
+                                                              layout.visibility_atlas, "RG16F"));
+}
+
+void AddDdgiProbeRayVisualizationFrameResources(RenderGraph& graph,
+                                                const RenderLayer::DdgiFrameResourceLayout& layout) {
+  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_ray_output,
+                                                               layout.ray_output_byte_size));
+}
+
+void AddDdgiRayTracingFrameResources(RenderGraph& graph) {
+  graph.AddResource({RenderResourceNames::frame_ray_tracing_descriptor_set, RenderResourceType::DescriptorSet,
+                     RenderResourceLifetime::Frame});
+  graph.AddResource(
+      {RenderResourceNames::scene_mesh_tlas, RenderResourceType::AccelerationStructure, RenderResourceLifetime::Frame});
+}
+
+}  // namespace
+
+uint32_t RenderLayer::GetDdgiProbeCount(const glm::ivec3& probe_counts) {
+  const auto counts = glm::ivec3(glm::clamp(probe_counts.x, 1, 256), glm::clamp(probe_counts.y, 1, 256),
+                                 glm::clamp(probe_counts.z, 1, 256));
+  return static_cast<uint32_t>(counts.x) * static_cast<uint32_t>(counts.y) * static_cast<uint32_t>(counts.z);
+}
+
+uint32_t RenderLayer::GetDdgiAllocatedProbeCount(const DdgiSettings& settings) {
+  return GetDdgiAllocatedProbeCount(settings, GetDdgiProbeCount(settings.volume_defaults.probe_counts));
+}
+
+uint32_t RenderLayer::GetDdgiAllocatedProbeCount(const DdgiSettings& settings, const uint32_t probe_count) {
+  const auto max_probe_count = static_cast<uint32_t>(glm::max(settings.storage.max_probe_count, 1));
+  return glm::min(glm::max(probe_count, 1u), max_probe_count);
+}
+
+glm::uvec3 RenderLayer::GetDdgiProbeGridIndex(const glm::ivec3& probe_counts, const uint32_t probe_index) {
+  const auto counts = glm::ivec3(glm::clamp(probe_counts.x, 1, 256), glm::clamp(probe_counts.y, 1, 256),
+                                 glm::clamp(probe_counts.z, 1, 256));
+  const auto x_count = static_cast<uint32_t>(counts.x);
+  const auto y_count = static_cast<uint32_t>(counts.y);
+  const auto safe_index = glm::min(probe_index, GetDdgiProbeCount(counts) - 1u);
+  return {safe_index % x_count, (safe_index / x_count) % y_count, safe_index / (x_count * y_count)};
+}
+
+RenderLayer::DdgiAtlasLayout RenderLayer::CalculateDdgiAtlasLayout(const uint32_t probe_count,
+                                                                   const uint32_t tile_resolution,
+                                                                   const uint32_t preferred_columns) {
+  DdgiAtlasLayout layout;
+  layout.probe_count = glm::max(1u, probe_count);
+  layout.tile_resolution = glm::max(1u, tile_resolution);
+  layout.columns = glm::min(layout.probe_count, glm::max(1u, preferred_columns));
+  layout.rows = (layout.probe_count + layout.columns - 1u) / layout.columns;
+  const auto tile_stride = layout.tile_resolution + 2u;
+  layout.resolution = {layout.columns * tile_stride, layout.rows * tile_stride};
+  return layout;
+}
+
+RenderLayer::DdgiProbeDebugCoordinates RenderLayer::CalculateDdgiProbeDebugCoordinates(const DdgiSettings& settings,
+                                                                                       const uint32_t tile_resolution) {
+  DdgiProbeDebugCoordinates coordinates;
+  const auto probe_count = GetDdgiAllocatedProbeCount(settings);
+  coordinates.probe_index =
+      glm::min(static_cast<uint32_t>(glm::max(settings.debug.selected_probe_index, 0)), probe_count - 1u);
+  coordinates.grid_index = GetDdgiProbeGridIndex(settings.volume_defaults.probe_counts, coordinates.probe_index);
+  coordinates.atlas_layout =
+      CalculateDdgiAtlasLayout(probe_count, tile_resolution, glm::max(settings.storage.atlas_probe_columns, 1));
+  const auto tile_stride = coordinates.atlas_layout.tile_resolution + 2u;
+  coordinates.atlas_tile_offset = {(coordinates.probe_index % coordinates.atlas_layout.columns) * tile_stride,
+                                   (coordinates.probe_index / coordinates.atlas_layout.columns) * tile_stride};
+  return coordinates;
+}
+
+RenderLayer::DdgiFrameResourceLayout RenderLayer::CalculateDdgiFrameResourceLayout(const DdgiSettings& settings) {
+  return CalculateDdgiFrameResourceLayout(settings, GetDdgiProbeCount(settings.volume_defaults.probe_counts));
+}
+
+RenderLayer::DdgiFrameResourceLayout RenderLayer::CalculateDdgiFrameResourceLayout(const DdgiSettings& settings,
+                                                                                   const uint32_t probe_count) {
+  DdgiFrameResourceLayout layout;
+  layout.probe_count = GetDdgiAllocatedProbeCount(settings, probe_count);
+  layout.irradiance_atlas = CalculateDdgiAtlasLayout(
+      layout.probe_count, static_cast<uint32_t>(glm::max(settings.storage.irradiance_tile_resolution, 1)),
+      static_cast<uint32_t>(glm::max(settings.storage.atlas_probe_columns, 1)));
+  layout.visibility_atlas = CalculateDdgiAtlasLayout(
+      layout.probe_count, static_cast<uint32_t>(glm::max(settings.storage.visibility_tile_resolution, 1)),
+      static_cast<uint32_t>(glm::max(settings.storage.atlas_probe_columns, 1)));
+  layout.variability_atlas = layout.irradiance_atlas;
+  layout.variability_atlas.resolution = {layout.variability_atlas.columns * layout.variability_atlas.tile_resolution,
+                                         layout.variability_atlas.rows * layout.variability_atlas.tile_resolution};
+  layout.variability_reduction_extent = {glm::max(1u, (layout.variability_atlas.resolution.x + 15u) / 16u),
+                                         glm::max(1u, (layout.variability_atlas.resolution.y + 15u) / 16u)};
+  layout.probe_metadata_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4) * 3ull;
+  layout.probe_state_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4);
+  layout.probe_update_index_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(uint32_t);
+  layout.ray_output_byte_size = static_cast<uint64_t>(layout.probe_count) *
+                                static_cast<uint64_t>(glm::max(settings.runtime.ray_count, 1)) *
+                                sizeof(PointCloudSample);
+  layout.variability_atlas_byte_size = static_cast<uint64_t>(layout.variability_atlas.resolution.x) *
+                                       static_cast<uint64_t>(layout.variability_atlas.resolution.y) * sizeof(uint16_t);
+  layout.variability_reduction_byte_size = static_cast<uint64_t>(layout.variability_reduction_extent.x) *
+                                           static_cast<uint64_t>(layout.variability_reduction_extent.y) *
+                                           sizeof(glm::vec2);
+  layout.variability_readback_byte_size = sizeof(glm::vec2);
+  return layout;
+}
+
+float RenderLayer::CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons) {
+  return CalculateDdgiUpdateHysteresis(settings, update_reasons, (std::numeric_limits<uint32_t>::max)());
+}
+
+float RenderLayer::CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons,
+                                                 const uint32_t warmup_frame_index) {
+  if ((update_reasons & (DdgiUpdateReasonSource | DdgiUpdateReasonManualReset)) != 0u) {
+    return 0.0f;
+  }
+  const auto hysteresis = glm::clamp(settings.runtime.hysteresis, 0.0f, 1.0f);
+  const auto warmup_frame_count = static_cast<uint32_t>(glm::max(settings.runtime.warmup_frames, 0));
+  if ((update_reasons & DdgiUpdateReasonWarmup) == 0u || warmup_frame_count == 0u ||
+      warmup_frame_index >= warmup_frame_count) {
+    return hysteresis;
+  }
+  const auto denominator = static_cast<float>(glm::max(warmup_frame_count - 1u, 1u));
+  return hysteresis * (static_cast<float>(warmup_frame_index) / denominator);
+}
+
+std::string RenderLayer::FormatDdgiUpdateReasons(const uint32_t reasons) {
+  if (reasons == DdgiUpdateReasonNone) {
+    return "None";
+  }
+  std::string result;
+  const auto append_reason = [&](const uint32_t reason, const char* label) {
+    if ((reasons & reason) == 0u) {
+      return;
+    }
+    if (!result.empty()) {
+      result += ", ";
+    }
+    result += label;
+  };
+  append_reason(DdgiUpdateReasonSource, "DDGI source");
+  append_reason(DdgiUpdateReasonManualReset, "Manual reset");
+  append_reason(DdgiUpdateReasonSteadyState, "Steady state");
+  append_reason(DdgiUpdateReasonConverged, "Converged");
+  append_reason(DdgiUpdateReasonWarmup, "Warm up");
+  return result.empty() ? "Unknown" : result;
+}
+
+float RenderLayer::CalculateDdgiVolumeBlendWeight(const glm::vec3& probe_coordinate, const glm::ivec3& probe_counts,
+                                                  const glm::vec3& probe_step_lengths) {
+  const auto counts = ClampDdgiProbeCounts(probe_counts);
+  const auto max_probe_coordinate = glm::vec3(counts - glm::ivec3(1));
+  const auto inside_volume = !glm::any(glm::lessThan(probe_coordinate, glm::vec3(0.0f))) &&
+                             !glm::any(glm::greaterThan(probe_coordinate, max_probe_coordinate));
+  if (inside_volume) {
+    return 1.0f;
+  }
+
+  const auto step_lengths = glm::max(probe_step_lengths, glm::vec3(0.0001f));
+  const auto lower_distance = glm::max(-probe_coordinate * step_lengths, glm::vec3(0.0f));
+  const auto upper_distance = glm::max((probe_coordinate - max_probe_coordinate) * step_lengths, glm::vec3(0.0f));
+  const auto outside_distance = glm::max(lower_distance, upper_distance);
+  const auto axis_weight =
+      glm::vec3(1.0f) - glm::clamp(outside_distance / step_lengths, glm::vec3(0.0f), glm::vec3(1.0f));
+  return axis_weight.x * axis_weight.y * axis_weight.z;
+}
+
+std::vector<RenderLayer::DdgiVolumeRuntimeInfo> RenderLayer::CollectDdgiVolumeRuntimeInfos(
+    const std::shared_ptr<Scene>& scene, const DdgiSettings& settings) {
+  const auto candidates = CollectDdgiVolumeCandidates(scene, settings);
+  std::vector<DdgiVolumeRuntimeInfo> infos;
+  infos.reserve(candidates.size());
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    auto& info = infos.emplace_back();
+    info.sorted_index = static_cast<uint32_t>(i);
+    info.owner_index = candidates[i].owner.GetIndex();
+    info.probe_counts = ClampDdgiProbeCounts(candidates[i].volume->probe_counts);
+    info.probe_count = candidates[i].volume->GetProbeAmount();
+  }
+  return infos;
+}
 
 const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetPerFrameDescriptorSetLayout() const {
   return per_frame_layout_;
@@ -66,8 +981,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     const ApplicationInitializationSettings& application_initialization_settings) {
   if (!render_texture_present_layout_) {
     render_texture_present_layout_ = std::make_shared<DescriptorSetLayout>();
-    render_texture_present_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                          VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    render_texture_present_layout_->PushDescriptorBinding(
+        0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     render_texture_present_layout_->Initialize();
   }
   if (!per_frame_layout_) {
@@ -83,13 +998,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     per_frame_layout_->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(
         9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+            VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
     per_frame_layout_->PushDescriptorBinding(
         10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
-            VK_SHADER_STAGE_MISS_BIT_KHR,
+        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         application_initialization_settings.graphics_settings.max_cubemap_resource_size);
     per_frame_layout_->Initialize();
@@ -110,6 +1026,11 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                             0);
     lighting_layout_->PushDescriptorBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
                                             0);
+    lighting_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            0);
+    lighting_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+                                            0);
+    lighting_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     lighting_layout_->Initialize();
   }
   if (!ray_tracing_layout_) {
@@ -131,6 +1052,20 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                            VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_point_cloud_layout_->Initialize();
   }
+  if (!ddgi_probe_ray_output_layout_) {
+    ddgi_probe_ray_output_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->Initialize();
+  }
   if (!particle_instanced_data_layout_) {
     particle_instanced_data_layout_ = std::make_shared<DescriptorSetLayout>();
     particle_instanced_data_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL,
@@ -145,17 +1080,90 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   if (!camera_g_buffer_layout_) {
     camera_g_buffer_layout_ = std::make_shared<DescriptorSetLayout>();
     camera_g_buffer_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->Initialize();
   }
   if (!render_texture_storage_layout_) {
     render_texture_storage_layout_ = std::make_shared<DescriptorSetLayout>();
     render_texture_storage_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_ALL, 0);
     render_texture_storage_layout_->Initialize();
+  }
+  if (!depth_pyramid_layout_) {
+    depth_pyramid_layout_ = std::make_shared<DescriptorSetLayout>();
+    depth_pyramid_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                 VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    depth_pyramid_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    depth_pyramid_layout_->Initialize();
+  }
+  if (!ddgi_probe_update_layout_) {
+    ddgi_probe_update_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_update_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->Initialize();
+  }
+  if (!ddgi_probe_relocation_layout_) {
+    ddgi_probe_relocation_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_relocation_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_relocation_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_relocation_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_relocation_layout_->Initialize();
+  }
+  if (!ddgi_probe_classification_layout_) {
+    ddgi_probe_classification_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_classification_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_classification_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_classification_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_classification_layout_->Initialize();
+  }
+  if (!ddgi_probe_variability_layout_) {
+    ddgi_probe_variability_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_variability_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                          VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_variability_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                          VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_variability_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                          VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_variability_layout_->Initialize();
+  }
+  if (!ddgi_probe_visualization_layout_) {
+    ddgi_probe_visualization_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(
+        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    ddgi_probe_visualization_layout_->Initialize();
+  }
+  if (!ddgi_probe_ray_visualization_layout_) {
+    ddgi_probe_ray_visualization_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_ray_visualization_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                VK_SHADER_STAGE_VERTEX_BIT, 0);
+    ddgi_probe_ray_visualization_layout_->Initialize();
   }
 }
 
@@ -188,8 +1196,118 @@ void RenderLayer::ForwardRenderingAllCameras(
   forward_rendering_external_functions.emplace_back(func);
 }
 
+void RenderLayer::RegisterRenderResource(RenderResourceDescriptor descriptor) {
+  external_render_resource_descriptors.emplace_back(std::move(descriptor));
+}
+
+void RenderLayer::RegisterFrameRenderPass(RenderPassDescriptor descriptor,
+                                          std::function<uint32_t(VkCommandBuffer vk_command_buffer)>&& func) {
+  descriptor.scope = RenderPassScope::Frame;
+  frame_render_pass_external_functions.push_back({std::move(descriptor), std::move(func), {}});
+}
+
+void RenderLayer::RegisterFrameRenderPass(
+    RenderPassDescriptor descriptor,
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context)>&& func) {
+  descriptor.scope = RenderPassScope::Frame;
+  frame_render_pass_external_functions.push_back({std::move(descriptor), {}, std::move(func)});
+}
+
+void RenderLayer::RegisterCameraRenderPass(
+    RenderPassDescriptor descriptor,
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                           const ForwardRenderingView& forward_rendering_view)>&& func) {
+  descriptor.scope = RenderPassScope::Camera;
+  camera_render_pass_external_functions.push_back({std::move(descriptor), std::move(func), {}});
+}
+
+void RenderLayer::RegisterCameraRenderPass(
+    RenderPassDescriptor descriptor,
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                           const ForwardRenderingView& forward_rendering_view,
+                           const RenderGraphExecutionContext& context)>&& func) {
+  descriptor.scope = RenderPassScope::Camera;
+  camera_render_pass_external_functions.push_back({std::move(descriptor), {}, std::move(func)});
+}
+
 void RenderLayer::OnCreate() {
   enable_inspection = false;
+  if (!ddgi_atlas_sampler_) {
+    ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
+  }
+  if (!depth_pyramid_pipeline_) {
+    depth_pyramid_pipeline_ = std::make_shared<ComputePipeline>();
+    depth_pyramid_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DepthPyramid.comp");
+    depth_pyramid_pipeline_->descriptor_set_layouts.emplace_back(depth_pyramid_layout_);
+    auto& push_constant_range = depth_pyramid_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(glm::uvec4);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    depth_pyramid_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_update_pipeline_) {
+    ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_update_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.comp");
+    ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
+    auto& push_constant_range = ddgi_probe_update_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeAtlasUpdatePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_update_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_relocation_pipeline_) {
+    ddgi_probe_relocation_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_relocation_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeRelocation.comp");
+    ddgi_probe_relocation_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_relocation_layout_);
+    auto& push_constant_range = ddgi_probe_relocation_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeRelocationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_relocation_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_classification_pipeline_) {
+    ddgi_probe_classification_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_classification_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeClassification.comp");
+    ddgi_probe_classification_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_classification_layout_);
+    auto& push_constant_range = ddgi_probe_classification_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeClassificationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_classification_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_variability_reduce_pipeline_) {
+    ddgi_probe_variability_reduce_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_variability_reduce_pipeline_->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityReduce.comp");
+    ddgi_probe_variability_reduce_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_variability_layout_);
+    auto& push_constant_range = ddgi_probe_variability_reduce_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeVariabilityPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_variability_reduce_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_variability_extra_reduce_pipeline_) {
+    ddgi_probe_variability_extra_reduce_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_variability_extra_reduce_pipeline_->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityExtraReduce.comp");
+    ddgi_probe_variability_extra_reduce_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_variability_layout_);
+    auto& push_constant_range = ddgi_probe_variability_extra_reduce_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeVariabilityPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_variability_extra_reduce_pipeline_->Initialize();
+  }
 #pragma region Graphics Pipelines
   if (!point_light_shadow_pipeline_normal) {
     point_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
@@ -757,6 +1875,48 @@ void RenderLayer::OnCreate() {
 
     gizmos_instanced_colored->Initialize();
   }
+  if (!ddgi_probe_visualization_pipeline_) {
+    ddgi_probe_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
+    ddgi_probe_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeVisualization.vert");
+    ddgi_probe_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.frag");
+    ddgi_probe_visualization_pipeline_->geometry_type = GeometryType::Mesh;
+    ddgi_probe_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    ddgi_probe_visualization_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    ddgi_probe_visualization_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    ddgi_probe_visualization_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_visualization_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_visualization_layout_);
+    auto& push_constant_range = ddgi_probe_visualization_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeVisualizationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    ddgi_probe_visualization_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_ray_visualization_pipeline_) {
+    ddgi_probe_ray_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
+    ddgi_probe_ray_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeRayVisualization.vert");
+    ddgi_probe_ray_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeRayVisualization.frag");
+    ddgi_probe_ray_visualization_pipeline_->geometry_type = GeometryType::Mesh;
+    ddgi_probe_ray_visualization_pipeline_->vertex_input_enabled = false;
+    ddgi_probe_ray_visualization_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    ddgi_probe_ray_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    ddgi_probe_ray_visualization_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    ddgi_probe_ray_visualization_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    ddgi_probe_ray_visualization_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_ray_visualization_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_visualization_layout_);
+    auto& push_constant_range = ddgi_probe_ray_visualization_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeRayVisualizationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    ddgi_probe_ray_visualization_pipeline_->Initialize();
+  }
 #ifdef EVOENGINE_WINDOWS
   if (!gizmos_strands) {
     gizmos_strands = std::make_shared<GraphicsPipeline>();
@@ -854,6 +2014,8 @@ void RenderLayer::OnCreate() {
 #endif
 #pragma endregion
 #pragma region Ray Tracing Pipelines
+  constexpr auto ray_tracing_push_constant_stages =
+      VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
   if (Platform::RayTracingEnabled() && !ray_tracing_camera_pipeline) {
     ray_tracing_camera_pipeline = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera_pipeline->raygen_shader =
@@ -871,7 +2033,7 @@ void RenderLayer::OnCreate() {
     auto& push_constant_range = ray_tracing_camera_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RayTracingCameraPushConstant);
     push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    push_constant_range.stageFlags = ray_tracing_push_constant_stages;
     ray_tracing_camera_pipeline->Initialize();
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
@@ -891,8 +2053,28 @@ void RenderLayer::OnCreate() {
     auto& push_constant_range = ray_tracing_point_cloud_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RayTracingPointCloudPushConstant);
     push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    push_constant_range.stageFlags = ray_tracing_push_constant_stages;
     ray_tracing_point_cloud_pipeline->Initialize();
+  }
+  if (Platform::RayTracingEnabled() && !ddgi_probe_ray_diagnostic_pipeline_) {
+    ddgi_probe_ray_diagnostic_pipeline_ = std::make_shared<RayTracingPipeline>();
+    ddgi_probe_ray_diagnostic_pipeline_->raygen_shader = Shader::CreateTemporary(
+        ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.rgen");
+    ddgi_probe_ray_diagnostic_pipeline_->miss_shader = Shader::CreateTemporary(
+        ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeDiagnostics.rmiss");
+    ddgi_probe_ray_diagnostic_pipeline_->closest_hit_shader = Shader::CreateTemporary(
+        ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit");
+    ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
+    ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_output_layout_);
+    auto& push_constant_range = ddgi_probe_ray_diagnostic_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeRayTracingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = ray_tracing_push_constant_stages;
+    ddgi_probe_ray_diagnostic_pipeline_->Initialize();
   }
 #pragma endregion
 
@@ -973,6 +2155,66 @@ void RenderLayer::ClearAllEditorCameras() const {
   });
 }
 
+RenderLayer::DdgiSettings& RenderLayer::GetDdgiSettings() {
+  const auto scene = GetScene();
+  return scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
+}
+
+const RenderLayer::DdgiSettings& RenderLayer::GetDdgiSettings() const {
+  const auto scene = GetScene();
+  return scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
+}
+
+glm::ivec3 RenderLayer::GetDdgiProbeScrollOffset() const {
+  return ddgi_probe_scroll_offset_;
+}
+
+glm::ivec3 RenderLayer::GetDdgiLastProbeScrollDelta() const {
+  return ddgi_last_probe_scroll_delta_;
+}
+
+uint32_t RenderLayer::GetDdgiPendingProbeUpdateCount() const {
+  return ddgi_pending_probe_update_count_;
+}
+
+RenderLayer::DdgiProbeUpdateStats RenderLayer::GetDdgiLastProbeUpdateStats() const {
+  if (ddgi_frame_probe_update_indices_.empty()) {
+    return {};
+  }
+  return {static_cast<uint32_t>(ddgi_frame_probe_update_indices_.size()), ddgi_frame_probe_update_indices_.front(),
+          ddgi_frame_probe_update_indices_.back()};
+}
+
+RenderLayer::DdgiPerformanceStats RenderLayer::GetDdgiLastPerformanceStats() const {
+  return ddgi_last_performance_stats_;
+}
+
+uint32_t RenderLayer::GetDdgiLastProbeUpdateReasons() const {
+  return ddgi_last_probe_update_reasons_;
+}
+
+std::string RenderLayer::GetDdgiLastProbeUpdateReasonText() const {
+  return FormatDdgiUpdateReasons(ddgi_last_probe_update_reasons_);
+}
+
+RenderLayer::DdgiProbeDebugDataView RenderLayer::GetDdgiProbeDebugData(const bool refresh_readback) const {
+  if (refresh_readback && ddgi_probe_metadata_readback_buffer_ && ddgi_probe_debug_metadata_byte_size_ != 0 &&
+      ddgi_probe_metadata_readback_buffer_->GetSize() >= ddgi_probe_debug_metadata_byte_size_) {
+    ddgi_probe_metadata_readback_buffer_->DownloadVector(
+        ddgi_probe_debug_metadata_, static_cast<size_t>(ddgi_probe_debug_metadata_byte_size_ / sizeof(glm::vec4)));
+  }
+  if (refresh_readback && ddgi_probe_debug_ray_samples_available_ && ddgi_probe_ray_readback_buffer_ &&
+      ddgi_probe_debug_ray_sample_count_ != 0u &&
+      ddgi_probe_ray_readback_buffer_->GetSize() >=
+          static_cast<uint64_t>(ddgi_probe_debug_ray_sample_count_) * sizeof(PointCloudSample)) {
+    ddgi_probe_ray_readback_buffer_->DownloadVector(ddgi_probe_debug_ray_samples_, ddgi_probe_debug_ray_sample_count_);
+  }
+  return {&ddgi_probe_debug_metadata_,        &ddgi_probe_debug_update_ages_,
+          &ddgi_probe_debug_ray_samples_,     ddgi_probe_debug_metadata_probe_count_,
+          ddgi_probe_debug_ray_probe_index_,  ddgi_probe_debug_ray_physical_probe_index_,
+          ddgi_probe_debug_ray_sample_count_, ddgi_probe_debug_ray_samples_available_};
+}
+
 void RenderLayer::ClearAllCameras() const {
   const auto scene = GetScene();
   if (!scene)
@@ -1015,10 +2257,15 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   if (update_editor_selection) {
     ApplyAnimators();
   }
-  UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras, update_editor_selection);
+  if (GeometryStorage::HasPendingUploads()) {
+    GeometryStorage::WaitForPendingUploads();
+  }
+  const bool render_instance_updated =
+      UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras, update_editor_selection);
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
 
-  if (update_ray_tracing && Platform::RayTracingEnabled()) {
+  const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayTracingEnabled();
+  if (update_ray_tracing_resources) {
     current_render_instances->UpdateTopLevelAccelerationStructure(scene);
 
     if (current_render_instances->mesh_top_level_acceleration_structure) {
@@ -1030,6 +2277,350 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
           2, current_render_instances->mesh_top_level_acceleration_structure);
     }
   }
+  PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_inputs_changed_);
+  current_render_instances->Upload();
+}
+
+void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
+                                        const std::shared_ptr<RenderInstanceStorage>& render_instances,
+                                        const bool ddgi_scene_inputs_changed) {
+  auto& ddgi_settings = GetDdgiSettings();
+  ddgi_frame_trace_probe_rays_ = false;
+  ddgi_frame_ray_push_constant_ = {};
+  ddgi_frame_probe_update_push_constant_ = {};
+  ddgi_frame_probe_relocation_reset_push_constant_ = {};
+  ddgi_frame_probe_relocation_update_push_constant_ = {};
+  ddgi_frame_probe_classification_reset_push_constant_ = {};
+  ddgi_frame_probe_classification_update_push_constant_ = {};
+  ddgi_clear_probe_atlas_this_frame_ = false;
+  ddgi_frame_probe_relocation_reset_ = false;
+  ddgi_frame_probe_relocation_enabled_ = false;
+  ddgi_frame_probe_classification_reset_ = false;
+  ddgi_frame_probe_classification_enabled_ = false;
+  ddgi_frame_probe_variability_enabled_ = false;
+  ddgi_frame_probe_warmup_frame_index_ = 0;
+  ddgi_frame_probe_warmup_frame_count_ = 0;
+  ddgi_frame_probe_warmup_active_ = false;
+  ddgi_frame_probe_update_hysteresis_ = 0.0f;
+  ddgi_last_probe_update_reasons_ = DdgiUpdateReasonNone;
+  ddgi_frame_selected_probe_ray_local_index_ = (std::numeric_limits<uint32_t>::max)();
+  ddgi_frame_selected_probe_ray_sample_count_ = 0;
+  ddgi_probe_debug_ray_samples_available_ = false;
+  if (!render_instances) {
+    return;
+  }
+
+  render_instances->render_info_block.ddgi_indirect_intensity = 0.0f;
+  auto ddgi_ray_source = CreateDdgiProbeRayDiagnosticSource(scene, ddgi_settings);
+  const auto source_probe_count = RenderLayer::GetDdgiProbeCount(ddgi_ray_source.probe_counts);
+  const auto ddgi_total_probe_count = RenderLayer::GetDdgiAllocatedProbeCount(ddgi_settings, source_probe_count);
+  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(ddgi_settings, ddgi_total_probe_count);
+  ddgi_frame_resource_layout_ = layout;
+  bool ddgi_resource_changed = false;
+  if (ShouldUseDdgiFrameResources(ddgi_settings)) {
+    if (!ddgi_probe_metadata_buffer_ || ddgi_probe_metadata_buffer_->GetSize() != layout.probe_metadata_byte_size) {
+      ddgi_probe_metadata_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_metadata_byte_size);
+      ddgi_clear_probe_atlas_this_frame_ = true;
+      ddgi_resource_changed = true;
+    }
+    if (!HasDdgiAtlasImageLayout(ddgi_irradiance_atlas_, layout.irradiance_atlas, VK_FORMAT_R16G16B16A16_SFLOAT)) {
+      ddgi_irradiance_atlas_ = CreateDdgiAtlasImage(layout.irradiance_atlas, VK_FORMAT_R16G16B16A16_SFLOAT);
+      ddgi_clear_probe_atlas_this_frame_ = true;
+      ddgi_resource_changed = true;
+    }
+    if (!HasDdgiAtlasImageLayout(ddgi_visibility_atlas_, layout.visibility_atlas, VK_FORMAT_R16G16_SFLOAT)) {
+      ddgi_visibility_atlas_ = CreateDdgiAtlasImage(layout.visibility_atlas, VK_FORMAT_R16G16_SFLOAT);
+      ddgi_clear_probe_atlas_this_frame_ = true;
+      ddgi_resource_changed = true;
+    }
+    if (!HasDdgiAtlasImageLayout(ddgi_variability_atlas_, layout.variability_atlas, VK_FORMAT_R16_SFLOAT)) {
+      ddgi_variability_atlas_ = CreateDdgiAtlasImage(layout.variability_atlas, VK_FORMAT_R16_SFLOAT);
+      ddgi_clear_probe_atlas_this_frame_ = true;
+      ddgi_resource_changed = true;
+    }
+    if (!ddgi_variability_readback_buffer_ ||
+        ddgi_variability_readback_buffer_->GetSize() != layout.variability_readback_byte_size) {
+      ddgi_variability_readback_buffer_ = std::make_shared<Buffer>(layout.variability_readback_byte_size, true);
+      ddgi_resource_changed = true;
+    }
+  }
+  if (!ShouldTraceDdgiProbeRays(ddgi_settings) || !Platform::RayTracingEnabled() ||
+      !render_instances->mesh_top_level_acceleration_structure) {
+    return;
+  }
+
+  const auto ray_count = static_cast<uint32_t>(glm::max(ddgi_settings.runtime.ray_count, 1));
+  const auto effective_max_ray_distance = CalculateDdgiEffectiveMaxRayDistance(ddgi_settings, ddgi_ray_source);
+  const glm::vec4 trace_parameters{
+      effective_max_ray_distance, glm::max(ddgi_settings.runtime.normal_bias, 0.001f),
+      ddgi_ray_source.enable_probe_relocation || ddgi_ray_source.enable_probe_classification ? 1.0f : 0.0f, 0.0f};
+  const glm::vec4 update_parameters{effective_max_ray_distance,
+                                    glm::clamp(ddgi_settings.runtime.hysteresis, 0.0f, 1.0f),
+                                    glm::max(ddgi_settings.runtime.visibility_moment_bias, 0.0f),
+                                    glm::max(ddgi_settings.runtime.irradiance_gamma, 1.0f)};
+  const glm::vec4 probe_state_parameters{glm::max(ddgi_ray_source.relocation_distance, 0.0f),
+                                         ddgi_ray_source.enable_probe_relocation ? 1.0f : 0.0f,
+                                         ddgi_ray_source.enable_probe_classification ? 1.0f : 0.0f,
+                                         glm::clamp(ddgi_settings.runtime.irradiance_threshold, 0.0f, 1.0f)};
+  const glm::vec4 probe_blend_parameters{glm::clamp(ddgi_ray_source.random_ray_backface_threshold, 0.0f, 1.0f),
+                                         glm::clamp(ddgi_ray_source.fixed_ray_backface_threshold, 0.0f, 1.0f),
+                                         glm::max(ddgi_settings.runtime.distance_exponent, 0.0f),
+                                         glm::clamp(ddgi_settings.runtime.brightness_threshold, 0.0f, 1.0f)};
+  const auto ddgi_ray_source_common_changed =
+      !ddgi_has_previous_ray_source_ || ddgi_previous_probe_counts_ != ddgi_ray_source.probe_counts ||
+      ddgi_previous_probe_step_x_ != ddgi_ray_source.probe_step_x ||
+      ddgi_previous_probe_step_y_ != ddgi_ray_source.probe_step_y ||
+      ddgi_previous_probe_step_z_ != ddgi_ray_source.probe_step_z || ddgi_previous_ray_count_ != ray_count ||
+      ddgi_previous_trace_parameters_ != trace_parameters || ddgi_previous_update_parameters_ != update_parameters ||
+      ddgi_previous_probe_state_parameters_ != probe_state_parameters ||
+      ddgi_previous_probe_blend_parameters_ != probe_blend_parameters ||
+      ddgi_previous_movement_type_ != ddgi_ray_source.movement_type;
+  const auto first_probe_changed =
+      ddgi_has_previous_ray_source_ && ddgi_previous_first_probe_ != ddgi_ray_source.first_probe;
+  const auto ddgi_scrolling_enabled =
+      ddgi_ray_source.movement_type == static_cast<int>(DdgiVolumeMovementType::Scrolling);
+  bool ddgi_ray_source_changed = ddgi_ray_source_common_changed;
+  const auto reset_probe_history = ddgi_settings.runtime.reset_probe_history;
+  ddgi_probe_scroll_clear_ = glm::ivec3(0);
+  ddgi_last_probe_scroll_delta_ = glm::ivec3(0);
+  if (ddgi_ray_source_common_changed) {
+    ddgi_has_previous_ray_source_ = true;
+    ddgi_probe_scroll_base_first_probe_ = ddgi_ray_source.first_probe;
+    ddgi_probe_scroll_offset_ = glm::ivec3(0);
+    ddgi_probe_scroll_directions_ = glm::ivec3(1);
+    ddgi_previous_probe_counts_ = ddgi_ray_source.probe_counts;
+    ddgi_previous_first_probe_ = ddgi_ray_source.first_probe;
+    ddgi_previous_probe_step_x_ = ddgi_ray_source.probe_step_x;
+    ddgi_previous_probe_step_y_ = ddgi_ray_source.probe_step_y;
+    ddgi_previous_probe_step_z_ = ddgi_ray_source.probe_step_z;
+    ddgi_previous_ray_count_ = ray_count;
+    ddgi_previous_trace_parameters_ = trace_parameters;
+    ddgi_previous_update_parameters_ = update_parameters;
+    ddgi_previous_probe_state_parameters_ = probe_state_parameters;
+    ddgi_previous_probe_blend_parameters_ = probe_blend_parameters;
+    ddgi_previous_movement_type_ = ddgi_ray_source.movement_type;
+  } else if (first_probe_changed) {
+    if (ddgi_scrolling_enabled) {
+      ResetDdgiProbeScrollOrigin(ddgi_probe_scroll_base_first_probe_, ddgi_probe_scroll_offset_,
+                                 ddgi_probe_scroll_directions_, ddgi_ray_source.probe_counts,
+                                 ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
+                                 ddgi_ray_source.probe_step_z);
+      const auto effective_first_probe = CalculateDdgiEffectiveFirstProbe(
+          ddgi_probe_scroll_base_first_probe_, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
+          ddgi_ray_source.probe_step_z, ddgi_probe_scroll_offset_);
+      const auto first_probe_delta = ddgi_ray_source.first_probe - effective_first_probe;
+      ddgi_probe_scroll_directions_ = {
+          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_x) >= 0.0f ? 1 : -1,
+          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_y) >= 0.0f ? 1 : -1,
+          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_z) >= 0.0f ? 1 : -1};
+      ddgi_last_probe_scroll_delta_ = CalculateDdgiProbeScrollDelta(
+          first_probe_delta, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
+      if (ddgi_last_probe_scroll_delta_.x != 0) {
+        ddgi_probe_scroll_offset_.x += ddgi_last_probe_scroll_delta_.x;
+        ddgi_probe_scroll_clear_.x = 1;
+      }
+      if (ddgi_last_probe_scroll_delta_.y != 0) {
+        ddgi_probe_scroll_offset_.y += ddgi_last_probe_scroll_delta_.y;
+        ddgi_probe_scroll_clear_.y = 1;
+      }
+      if (ddgi_last_probe_scroll_delta_.z != 0) {
+        ddgi_probe_scroll_offset_.z += ddgi_last_probe_scroll_delta_.z;
+        ddgi_probe_scroll_clear_.z = 1;
+      }
+      ddgi_previous_first_probe_ = ddgi_ray_source.first_probe;
+    } else {
+      ddgi_ray_source_changed = true;
+      ddgi_probe_scroll_base_first_probe_ = ddgi_ray_source.first_probe;
+      ddgi_probe_scroll_offset_ = glm::ivec3(0);
+      ddgi_probe_scroll_directions_ = glm::ivec3(1);
+      ddgi_previous_first_probe_ = ddgi_ray_source.first_probe;
+    }
+  }
+  if (ddgi_scrolling_enabled) {
+    ddgi_ray_source.first_probe = CalculateDdgiEffectiveFirstProbe(
+        ddgi_probe_scroll_base_first_probe_, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
+        ddgi_ray_source.probe_step_z, ddgi_probe_scroll_offset_);
+  }
+  ddgi_ray_source.probe_scroll_offset = ddgi_probe_scroll_offset_;
+  ddgi_ray_source.probe_scroll_clear = ddgi_probe_scroll_clear_;
+  ddgi_ray_source.probe_scroll_directions = ddgi_probe_scroll_directions_;
+  const bool ddgi_scroll_clear_this_frame =
+      ddgi_probe_scroll_clear_.x != 0 || ddgi_probe_scroll_clear_.y != 0 || ddgi_probe_scroll_clear_.z != 0;
+  uint32_t full_refresh_reasons = DdgiUpdateReasonNone;
+  if (ddgi_ray_source_changed) {
+    full_refresh_reasons |= DdgiUpdateReasonSource;
+  }
+  if (reset_probe_history) {
+    full_refresh_reasons |= DdgiUpdateReasonManualReset;
+  }
+  ddgi_last_probe_update_reasons_ =
+      full_refresh_reasons == DdgiUpdateReasonNone ? DdgiUpdateReasonSteadyState : full_refresh_reasons;
+  ddgi_settings.runtime.reset_probe_history = false;
+  ddgi_pending_probe_update_indices_.clear();
+  ddgi_pending_probe_update_cursor_ = 0;
+  ddgi_pending_probe_update_count_ = 0;
+  ddgi_clear_probe_atlas_this_frame_ =
+      ddgi_clear_probe_atlas_this_frame_ || ddgi_ray_source_changed || reset_probe_history;
+  const auto probe_variability_enabled = ddgi_ray_source.enable_probe_variability;
+  if (probe_variability_enabled && ddgi_probe_variability_sample_count_ != 0u) {
+    ddgi_probe_variability_average_ = ReadDdgiProbeVariabilityAverage(ddgi_variability_readback_buffer_);
+  }
+  const auto reset_ddgi_convergence_state =
+      (ddgi_ray_source_changed && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionSourceChange)) ||
+      (reset_probe_history && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionManualReset)) ||
+      (ddgi_resource_changed && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionResourceChange)) ||
+      (ddgi_scene_inputs_changed && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionLightEnableChange)) ||
+      (ddgi_scroll_clear_this_frame && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionScrollClear));
+  if (!probe_variability_enabled || reset_ddgi_convergence_state) {
+    ddgi_probe_variability_sample_count_ = 0;
+    ddgi_probe_variability_stable_sample_count_ = 0;
+    ddgi_probe_variability_average_ = 0.0f;
+    ddgi_probe_variability_converged_ = false;
+  }
+  if (reset_ddgi_convergence_state) {
+    ddgi_probe_warmup_frame_index_ = 0;
+  }
+  ddgi_frame_probe_warmup_frame_count_ = static_cast<uint32_t>(glm::max(ddgi_settings.runtime.warmup_frames, 0));
+  ddgi_frame_probe_warmup_frame_index_ = ddgi_probe_warmup_frame_index_;
+  ddgi_frame_probe_warmup_active_ = ddgi_frame_probe_warmup_frame_count_ != 0u &&
+                                    ddgi_probe_warmup_frame_index_ < ddgi_frame_probe_warmup_frame_count_;
+  if (ddgi_frame_probe_warmup_active_ && full_refresh_reasons == DdgiUpdateReasonNone) {
+    ddgi_last_probe_update_reasons_ |= DdgiUpdateReasonWarmup;
+  }
+
+  DdgiProbeUpdateWindow ddgi_update_window;
+  ddgi_update_window.start_probe_index = 0;
+  ddgi_update_window.probe_count = ddgi_total_probe_count;
+  ddgi_update_window.next_start_probe_index = 0;
+  ddgi_update_window.remaining_probe_count = 0;
+  bool reset_probe_state = ddgi_ray_source_changed || reset_probe_history || !ddgi_probe_state_buffer_ ||
+                           ddgi_probe_state_buffer_->GetSize() != layout.probe_state_byte_size;
+  if (reset_probe_state) {
+    ddgi_probe_state_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_state_byte_size);
+    if (ddgi_probe_state_buffer_) {
+      const std::vector<glm::vec4> zero_state(layout.probe_count, glm::vec4(0.0f));
+      ddgi_probe_state_buffer_->UploadVector(zero_state);
+    }
+  }
+
+  const auto skip_inactive_probe_trace = ddgi_ray_source.enable_probe_classification;
+  const auto ddgi_update_hysteresis =
+      CalculateDdgiUpdateHysteresis(ddgi_settings, ddgi_last_probe_update_reasons_, ddgi_probe_warmup_frame_index_);
+  ddgi_frame_probe_update_hysteresis_ = ddgi_update_hysteresis;
+  ddgi_frame_ray_push_constant_ = CreateDdgiProbeRayTracingPushConstant(ddgi_settings, ddgi_ray_source,
+                                                                        ddgi_update_window, skip_inactive_probe_trace);
+  ddgi_frame_probe_update_push_constant_ = CreateDdgiProbeAtlasUpdatePushConstant(
+      ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, ddgi_update_hysteresis);
+  ddgi_frame_probe_relocation_reset_push_constant_ = CreateDdgiProbeRelocationPushConstant(
+      ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, true);
+  ddgi_frame_probe_relocation_update_push_constant_ = CreateDdgiProbeRelocationPushConstant(
+      ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, false);
+  ddgi_frame_probe_classification_reset_push_constant_ = CreateDdgiProbeClassificationPushConstant(
+      ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, true);
+  ddgi_frame_probe_classification_update_push_constant_ = CreateDdgiProbeClassificationPushConstant(
+      ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source, false);
+  ApplyDdgiRenderInfo(render_instances->render_info_block, ddgi_settings, ddgi_ray_source,
+                      ddgi_frame_ray_push_constant_, ddgi_frame_probe_update_push_constant_);
+
+  const auto has_pending_refresh_work = ddgi_pending_probe_update_count_ != 0u || ddgi_clear_probe_atlas_this_frame_;
+  const auto probe_variability_gating_enabled =
+      probe_variability_enabled && ddgi_ray_source.enable_probe_variability_gating;
+  const auto probe_variability_min_samples =
+      static_cast<uint32_t>(glm::max(ddgi_ray_source.probe_variability_min_samples, 0));
+  const auto probe_variability_warmup_complete = ddgi_probe_variability_sample_count_ > probe_variability_min_samples;
+  const auto probe_variability_below_threshold =
+      ddgi_probe_variability_average_ < ddgi_ray_source.probe_variability_threshold;
+  if (!probe_variability_gating_enabled || reset_ddgi_convergence_state || has_pending_refresh_work ||
+      ddgi_frame_probe_warmup_active_ || !probe_variability_warmup_complete || !probe_variability_below_threshold) {
+    ddgi_probe_variability_stable_sample_count_ = 0;
+  } else {
+    ddgi_probe_variability_stable_sample_count_ =
+        glm::min(ddgi_probe_variability_stable_sample_count_ + 1u, kDdgiProbeVariabilityStableSampleCount);
+  }
+  ddgi_probe_variability_converged_ =
+      probe_variability_gating_enabled && !reset_ddgi_convergence_state && !has_pending_refresh_work &&
+      !ddgi_frame_probe_warmup_active_ && probe_variability_warmup_complete &&
+      ddgi_probe_variability_stable_sample_count_ >= kDdgiProbeVariabilityStableSampleCount;
+  if (ddgi_probe_variability_converged_) {
+    ddgi_last_probe_update_reasons_ = DdgiUpdateReasonConverged;
+    ddgi_frame_probe_update_indices_.clear();
+    ddgi_next_probe_update_index_ = 0u;
+    ddgi_active_probe_update_reasons_ = DdgiUpdateReasonNone;
+    return;
+  }
+
+  ddgi_frame_probe_update_indices_.clear();
+  ddgi_frame_probe_update_indices_.resize(ddgi_total_probe_count);
+  std::iota(ddgi_frame_probe_update_indices_.begin(), ddgi_frame_probe_update_indices_.end(), 0u);
+  ddgi_next_probe_update_index_ = 0u;
+  ddgi_active_probe_update_reasons_ = DdgiUpdateReasonNone;
+  if (!ddgi_probe_update_index_buffer_ ||
+      ddgi_probe_update_index_buffer_->GetSize() != layout.probe_update_index_byte_size) {
+    ddgi_probe_update_index_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_update_index_byte_size);
+  }
+  if (!ddgi_probe_update_index_buffer_ || ddgi_frame_probe_update_indices_.empty()) {
+    return;
+  }
+  ddgi_probe_update_index_buffer_->UploadVector(ddgi_frame_probe_update_indices_);
+  if (ddgi_settings.debug.enabled && ddgi_settings.debug.visualize_probe_state) {
+    if (!ddgi_probe_metadata_readback_buffer_ ||
+        ddgi_probe_metadata_readback_buffer_->GetSize() != layout.probe_metadata_byte_size) {
+      ddgi_probe_metadata_readback_buffer_ = std::make_shared<Buffer>(layout.probe_metadata_byte_size, true);
+      ddgi_probe_debug_metadata_.assign(static_cast<size_t>(layout.probe_count) * 3ull, glm::vec4(0.0f));
+      ddgi_probe_debug_metadata_byte_size_ = layout.probe_metadata_byte_size;
+    }
+    ddgi_probe_debug_metadata_probe_count_ = ddgi_total_probe_count;
+    if (ddgi_probe_debug_update_ages_.size() != ddgi_total_probe_count) {
+      ddgi_probe_debug_update_ages_.assign(ddgi_total_probe_count, static_cast<float>(ddgi_total_probe_count));
+    }
+    for (auto& update_age : ddgi_probe_debug_update_ages_) {
+      update_age = glm::min(update_age + 1.0f, 65535.0f);
+    }
+    for (const auto probe_index : ddgi_frame_probe_update_indices_) {
+      if (probe_index < ddgi_probe_debug_update_ages_.size()) {
+        ddgi_probe_debug_update_ages_[probe_index] = 0.0f;
+      }
+    }
+  }
+  if (ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays) {
+    const auto selected_logical_probe =
+        glm::min(static_cast<uint32_t>(glm::max(ddgi_settings.debug.selected_probe_index, 0)), source_probe_count - 1u);
+    const auto selected_probe_grid =
+        RenderLayer::GetDdgiProbeGridIndex(ddgi_ray_source.probe_counts, selected_logical_probe);
+    const auto selected_physical_probe =
+        GetScrolledDdgiProbeIndex(selected_probe_grid, ddgi_probe_scroll_offset_, ddgi_ray_source.probe_counts);
+    const auto selected_update_iter = std::find(ddgi_frame_probe_update_indices_.begin(),
+                                                ddgi_frame_probe_update_indices_.end(), selected_logical_probe);
+    const auto selected_ray_byte_size =
+        static_cast<uint64_t>(ray_count) * static_cast<uint64_t>(sizeof(PointCloudSample));
+    if (selected_update_iter != ddgi_frame_probe_update_indices_.end() && selected_ray_byte_size != 0u) {
+      if (!ddgi_probe_ray_readback_buffer_ || ddgi_probe_ray_readback_buffer_->GetSize() != selected_ray_byte_size) {
+        ddgi_probe_ray_readback_buffer_ = std::make_shared<Buffer>(selected_ray_byte_size, true);
+        ddgi_probe_debug_ray_samples_.assign(ray_count, {});
+      }
+      ddgi_frame_selected_probe_ray_local_index_ =
+          static_cast<uint32_t>(std::distance(ddgi_frame_probe_update_indices_.begin(), selected_update_iter));
+      ddgi_frame_selected_probe_ray_sample_count_ = ray_count;
+      ddgi_probe_debug_ray_probe_index_ = selected_logical_probe;
+      ddgi_probe_debug_ray_physical_probe_index_ = selected_physical_probe;
+      ddgi_probe_debug_ray_sample_count_ = ray_count;
+      ddgi_probe_debug_ray_samples_available_ = true;
+    }
+  }
+
+  if (probe_variability_enabled) {
+    ddgi_frame_probe_variability_enabled_ = true;
+    ddgi_probe_variability_sample_count_++;
+  }
+  if (ddgi_frame_probe_warmup_active_) {
+    ddgi_probe_warmup_frame_index_ =
+        glm::min(ddgi_probe_warmup_frame_index_ + 1u, ddgi_frame_probe_warmup_frame_count_);
+  }
+  ddgi_frame_probe_relocation_reset_ = reset_probe_state;
+  ddgi_frame_probe_relocation_enabled_ = ddgi_ray_source.enable_probe_relocation;
+  ddgi_frame_probe_classification_reset_ = reset_probe_state;
+  ddgi_frame_probe_classification_enabled_ = ddgi_ray_source.enable_probe_classification;
+  ddgi_frame_trace_probe_rays_ = true;
 }
 
 void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
@@ -1084,6 +2675,209 @@ void RenderLayer::RenderAll() {
   const ProfilerScope profiler_scope("RenderLayer::RenderAll", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
+  const auto& ddgi_settings = GetDdgiSettings();
+  auto& platform = Platform::GetInstance();
+  render_graph_transient_resource_stores_.clear();
+  if (!ddgi_fallback_probe_state_buffer_) {
+    ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer();
+  }
+  BindDdgiFallbackLightingDescriptors(lighting_ ? lighting_->lighting_descriptor_set : nullptr,
+                                      ddgi_fallback_probe_state_buffer_);
+  ddgi_frame_ray_output_visualization_buffer_.reset();
+  ddgi_last_performance_stats_ = {};
+  ddgi_last_performance_stats_.storage_probe_count = ddgi_frame_resource_layout_.probe_count;
+  ddgi_last_performance_stats_.updated_probe_count = static_cast<uint32_t>(ddgi_frame_probe_update_indices_.size());
+  ddgi_last_performance_stats_.pending_probe_count = ddgi_pending_probe_update_count_;
+  ddgi_last_performance_stats_.selected_ray_sample_count = ddgi_frame_selected_probe_ray_sample_count_;
+  ddgi_last_performance_stats_.probe_metadata_byte_size = ddgi_frame_resource_layout_.probe_metadata_byte_size;
+  ddgi_last_performance_stats_.probe_state_byte_size = ddgi_frame_resource_layout_.probe_state_byte_size;
+  ddgi_last_performance_stats_.ray_output_byte_size = ddgi_frame_resource_layout_.ray_output_byte_size;
+  ddgi_last_performance_stats_.variability_atlas_byte_size = ddgi_frame_resource_layout_.variability_atlas_byte_size;
+  ddgi_last_performance_stats_.variability_reduction_byte_size =
+      ddgi_frame_resource_layout_.variability_reduction_byte_size;
+  ddgi_last_performance_stats_.irradiance_atlas_extent = ddgi_frame_resource_layout_.irradiance_atlas.resolution;
+  ddgi_last_performance_stats_.visibility_atlas_extent = ddgi_frame_resource_layout_.visibility_atlas.resolution;
+  ddgi_last_performance_stats_.variability_atlas_extent = ddgi_frame_resource_layout_.variability_atlas.resolution;
+  ddgi_last_performance_stats_.variability_reduction_extent = ddgi_frame_resource_layout_.variability_reduction_extent;
+  ddgi_last_performance_stats_.probe_variability_average = ddgi_probe_variability_average_;
+  ddgi_last_performance_stats_.probe_variability_sample_count = ddgi_probe_variability_sample_count_;
+  ddgi_last_performance_stats_.probe_variability_stable_sample_count = ddgi_probe_variability_stable_sample_count_;
+  ddgi_last_performance_stats_.probe_variability_required_stable_sample_count = kDdgiProbeVariabilityStableSampleCount;
+  ddgi_last_performance_stats_.probe_variability_converged = ddgi_probe_variability_converged_;
+  ddgi_last_performance_stats_.probe_warmup_frame_index = ddgi_frame_probe_warmup_frame_index_;
+  ddgi_last_performance_stats_.probe_warmup_frame_count = ddgi_frame_probe_warmup_frame_count_;
+  ddgi_last_performance_stats_.probe_warmup_active = ddgi_frame_probe_warmup_active_;
+  ddgi_last_performance_stats_.probe_update_hysteresis = ddgi_frame_probe_update_hysteresis_;
+  const auto ddgi_perf_probe_counts =
+      glm::ivec3(glm::max(current_render_instances->render_info_block.ddgi_probe_counts, glm::vec4(1.0f)));
+  ddgi_last_performance_stats_.active_probe_count =
+      glm::min(GetDdgiProbeCount(ddgi_perf_probe_counts), ddgi_frame_resource_layout_.probe_count);
+  if (ddgi_frame_trace_probe_rays_) {
+    ddgi_last_performance_stats_.ray_count = static_cast<uint32_t>(glm::max(ddgi_settings.runtime.ray_count, 1));
+    ddgi_last_performance_stats_.ray_sample_count =
+        ddgi_last_performance_stats_.updated_probe_count * ddgi_last_performance_stats_.ray_count;
+  }
+  RenderGraph frame_render_graph;
+  RenderGraphTransientResourceStore* active_frame_transient_resources = nullptr;
+  AddDefaultFrameResources(frame_render_graph);
+  AddAdvancedFrameResources(frame_render_graph);
+  const auto use_ddgi_frame_resources = ShouldUseDdgiFrameResources(ddgi_settings);
+  if (use_ddgi_frame_resources) {
+    const auto clear_ddgi_probe_atlas = ddgi_clear_probe_atlas_this_frame_;
+    AddDdgiFrameResources(frame_render_graph, ddgi_frame_resource_layout_);
+    frame_render_graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(),
+                               [&, clear_ddgi_probe_atlas](const RenderGraphExecutionContext& context) {
+                                 DdgiAtlasPreparePass::Execute(
+                                     context,
+                                     {clear_ddgi_probe_atlas, &ddgi_last_performance_stats_.atlas_prepare_record_ms});
+                               });
+  }
+  const auto trace_ddgi_probe_rays = ddgi_frame_trace_probe_rays_;
+  const auto reset_ddgi_probe_relocation = ddgi_frame_probe_relocation_reset_;
+  const auto relocate_ddgi_probes = ddgi_frame_probe_relocation_enabled_;
+  const auto reset_ddgi_probe_classification = ddgi_frame_probe_classification_reset_;
+  const auto classify_ddgi_probes = ddgi_frame_probe_classification_enabled_;
+  const auto reduce_ddgi_probe_variability = ddgi_frame_probe_variability_enabled_;
+  const auto ddgi_ray_push_constant = ddgi_frame_ray_push_constant_;
+  const auto ddgi_probe_update_push_constant = ddgi_frame_probe_update_push_constant_;
+  const auto ddgi_probe_relocation_reset_push_constant = ddgi_frame_probe_relocation_reset_push_constant_;
+  const auto ddgi_probe_relocation_update_push_constant = ddgi_frame_probe_relocation_update_push_constant_;
+  const auto ddgi_probe_classification_reset_push_constant = ddgi_frame_probe_classification_reset_push_constant_;
+  const auto ddgi_probe_classification_update_push_constant = ddgi_frame_probe_classification_update_push_constant_;
+  const DdgiProbeVariabilityPass::DdgiAtlasLayout ddgi_probe_variability_layout{
+      ddgi_frame_resource_layout_.probe_count, ddgi_frame_resource_layout_.variability_atlas.tile_resolution,
+      ddgi_frame_resource_layout_.variability_atlas.columns, ddgi_frame_resource_layout_.variability_atlas.resolution,
+      ddgi_frame_resource_layout_.variability_reduction_extent};
+  const auto ddgi_probe_metadata_readback_buffer =
+      ddgi_settings.debug.enabled && ddgi_settings.debug.visualize_probe_state ? ddgi_probe_metadata_readback_buffer_
+                                                                               : nullptr;
+  const auto ddgi_probe_ray_readback_buffer =
+      ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays && ddgi_probe_debug_ray_samples_available_
+          ? ddgi_probe_ray_readback_buffer_
+          : nullptr;
+  if (trace_ddgi_probe_rays) {
+    AddDdgiRayTracingFrameResources(frame_render_graph);
+    frame_render_graph.AddPass(
+        DdgiRayDiagnosticsPass::CreateDescriptor(),
+        [&, ddgi_ray_push_constant](const RenderGraphExecutionContext& context) {
+          DdgiRayDiagnosticsPass::Execute(
+              context, {ddgi_probe_ray_diagnostic_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                        ray_tracing_descriptor_sets_[current_frame_index], ddgi_probe_ray_output_layout_,
+                        active_frame_transient_resources, ddgi_atlas_sampler_, ddgi_ray_push_constant,
+                        &ddgi_last_performance_stats_.ray_diagnostics_record_ms});
+        });
+    frame_render_graph.AddPass(
+        DdgiProbeUpdatePass::CreateDescriptor(),
+        [&, ddgi_probe_update_push_constant](const RenderGraphExecutionContext& context) {
+          DdgiProbeUpdatePass::Execute(
+              context,
+              {ddgi_probe_update_pipeline_, per_frame_descriptor_sets_[current_frame_index], ddgi_probe_update_layout_,
+               active_frame_transient_resources, ddgi_probe_update_push_constant, ddgi_probe_metadata_readback_buffer,
+               ddgi_probe_ray_readback_buffer, ddgi_frame_selected_probe_ray_local_index_,
+               ddgi_frame_selected_probe_ray_sample_count_, &ddgi_last_performance_stats_.probe_update_record_ms});
+        });
+    if (reset_ddgi_probe_relocation || relocate_ddgi_probes) {
+      frame_render_graph.AddPass(
+          DdgiProbeRelocationPass::CreateDescriptor(),
+          [&, ddgi_probe_relocation_reset_push_constant, ddgi_probe_relocation_update_push_constant,
+           reset_ddgi_probe_relocation, relocate_ddgi_probes](const RenderGraphExecutionContext& context) {
+            DdgiProbeRelocationPass::Execute(
+                context, {ddgi_probe_relocation_pipeline_, ddgi_probe_relocation_layout_,
+                          active_frame_transient_resources, ddgi_probe_relocation_reset_push_constant,
+                          ddgi_probe_relocation_update_push_constant, reset_ddgi_probe_relocation, relocate_ddgi_probes,
+                          &ddgi_last_performance_stats_.probe_relocation_record_ms});
+          });
+    }
+    if (reset_ddgi_probe_classification || classify_ddgi_probes) {
+      frame_render_graph.AddPass(
+          DdgiProbeClassificationPass::CreateDescriptor(),
+          [&, ddgi_probe_classification_reset_push_constant, ddgi_probe_classification_update_push_constant,
+           reset_ddgi_probe_classification, classify_ddgi_probes](const RenderGraphExecutionContext& context) {
+            DdgiProbeClassificationPass::Execute(
+                context, {ddgi_probe_classification_pipeline_, ddgi_probe_classification_layout_,
+                          active_frame_transient_resources, ddgi_probe_classification_reset_push_constant,
+                          ddgi_probe_classification_update_push_constant, reset_ddgi_probe_classification,
+                          classify_ddgi_probes, &ddgi_last_performance_stats_.probe_classification_record_ms});
+          });
+    }
+    if (reduce_ddgi_probe_variability) {
+      frame_render_graph.AddPass(
+          DdgiProbeVariabilityPass::CreateDescriptor(),
+          [&, ddgi_probe_variability_layout](const RenderGraphExecutionContext& context) {
+            DdgiProbeVariabilityPass::Execute(
+                context,
+                {ddgi_probe_variability_reduce_pipeline_, ddgi_probe_variability_extra_reduce_pipeline_,
+                 ddgi_probe_variability_layout_, active_frame_transient_resources, ddgi_probe_variability_layout,
+                 ddgi_variability_readback_buffer_, &ddgi_last_performance_stats_.probe_variability_record_ms});
+          });
+    }
+  }
+  AddExternalRenderResources(frame_render_graph, external_render_resource_descriptors);
+  for (const auto& external_pass : frame_render_pass_external_functions) {
+    ImportMissingPassResources(frame_render_graph, external_pass.descriptor);
+    frame_render_graph.AddPass(
+        external_pass.descriptor, [&, external_pass](const RenderGraphExecutionContext& context) {
+          Platform::RecordCommandsMainQueue([&, external_pass](VkCommandBuffer vk_command_buffer) {
+            uint32_t prim_count = 0;
+            if (external_pass.context_func) {
+              ApplyGraphResourceBarriers(vk_command_buffer, context);
+              prim_count = external_pass.context_func(vk_command_buffer, context);
+              ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+            } else if (external_pass.func) {
+              prim_count = external_pass.func(vk_command_buffer);
+            }
+            if (count_shadow_rendering_draw_calls) {
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
+            }
+          });
+        });
+  }
+  if (!frame_render_graph.Validate()) {
+    EVOENGINE_ERROR("Invalid frame render graph.")
+  }
+  const auto frame_render_graph_plan = frame_render_graph.Compile(CreateFrameRenderGraphCompileContext());
+  auto frame_render_graph_resources =
+      CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
+  if (use_ddgi_frame_resources) {
+    frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_metadata,
+                                            ddgi_probe_metadata_buffer_);
+    frame_render_graph_resources.BindBuffer(
+        RenderResourceNames::frame_ddgi_probe_state,
+        ddgi_probe_state_buffer_ ? ddgi_probe_state_buffer_ : ddgi_fallback_probe_state_buffer_);
+    frame_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_irradiance_atlas, ddgi_irradiance_atlas_);
+    frame_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_visibility_atlas, ddgi_visibility_atlas_);
+    frame_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_variability_atlas, ddgi_variability_atlas_);
+  }
+  if (trace_ddgi_probe_rays) {
+    frame_render_graph_resources.BindDescriptorSet(RenderResourceNames::frame_ray_tracing_descriptor_set,
+                                                   ray_tracing_descriptor_sets_[current_frame_index]);
+    frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_state, ddgi_probe_state_buffer_);
+    frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_update_indices,
+                                            ddgi_probe_update_index_buffer_);
+  }
+  auto& frame_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+  active_frame_transient_resources = &frame_transient_resources;
+  frame_transient_resources.Allocate(frame_render_graph.GetResources(), frame_render_graph_plan);
+  frame_transient_resources.Bind(frame_render_graph_resources);
+  const auto ddgi_frame_graph_timer = DdgiPerformanceClock::now();
+  frame_render_graph.Execute(frame_render_graph_plan, frame_render_graph_resources);
+  ddgi_last_performance_stats_.frame_graph_execute_ms = DdgiElapsedMilliseconds(ddgi_frame_graph_timer);
+  if (use_ddgi_frame_resources) {
+    BindDdgiAtlasLightingDescriptors(frame_render_graph_resources, frame_transient_resources,
+                                     lighting_ ? lighting_->lighting_descriptor_set : nullptr, ddgi_atlas_sampler_,
+                                     ddgi_fallback_probe_state_buffer_);
+  }
+  if (trace_ddgi_probe_rays) {
+    if (ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays) {
+      if (const auto* ray_output_binding =
+              frame_render_graph_resources.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_output);
+          ray_output_binding && ray_output_binding->buffer) {
+        ddgi_frame_ray_output_visualization_buffer_ = ray_output_binding->buffer;
+      }
+    }
+  }
+  active_frame_transient_resources = nullptr;
   PreparePointAndSpotLightShadowMap();
   for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
     camera->rendered_ = false;
@@ -1092,13 +2886,6 @@ void RenderLayer::RenderAll() {
     }
   }
 
-  point_light_shadow_map_external_functions.clear();
-  spot_light_shadow_map_external_functions.clear();
-  directional_light_shadow_map_external_functions.clear();
-
-  deferred_rendering_external_functions.clear();
-  forward_rendering_external_functions.clear();
-
   if (Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
     for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
       if (camera->require_rendering_) {
@@ -1106,6 +2893,15 @@ void RenderLayer::RenderAll() {
       }
     }
   }
+
+  external_render_resource_descriptors.clear();
+  frame_render_pass_external_functions.clear();
+  point_light_shadow_map_external_functions.clear();
+  spot_light_shadow_map_external_functions.clear();
+  directional_light_shadow_map_external_functions.clear();
+  deferred_rendering_external_functions.clear();
+  forward_rendering_external_functions.clear();
+  camera_render_pass_external_functions.clear();
 }
 
 void RenderLayer::RenderGizmos() const {
@@ -1620,13 +3416,16 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   need_fade_ = false;
   const auto current_render_instances = render_instances_list_[current_frame_index];
   current_render_instances->BuildFromScene(render_settings, scene, world_bound, include_editor_cameras);
-  const bool render_instance_updated =
-      *current_render_instances !=
-      *render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
-                              Platform::GetMaxFramesInFlight()];
-  // if (render_instance_updated) {
-  current_render_instances->Upload();
-  //}
+  const auto previous_render_instances =
+      render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
+                             Platform::GetMaxFramesInFlight()];
+  const auto current_render_info = current_render_instances->render_info_block;
+  PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
+  auto active_light_keys = CollectDdgiActiveLightKeys(scene);
+  ddgi_scene_inputs_changed_ = active_light_keys != ddgi_previous_active_light_keys_;
+  ddgi_previous_active_light_keys_ = std::move(active_light_keys);
+  const bool render_instance_updated = *current_render_instances != *previous_render_instances;
+  PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);
   if (update_editor_selection) {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
       if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
@@ -1781,6 +3580,56 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
+  const auto& ddgi_settings = GetDdgiSettings();
+  const auto render_info_probe_counts =
+      glm::ivec3(glm::max(current_render_instances->render_info_block.ddgi_probe_counts, glm::vec4(1.0f)));
+  const auto ddgi_visualization_probe_count =
+      glm::min(GetDdgiProbeCount(render_info_probe_counts), ddgi_frame_resource_layout_.probe_count);
+  const bool ddgi_probe_visualization_enabled =
+      is_scene_camera && ShouldRenderDdgiProbeVisualization(ddgi_settings) && ddgi_probe_metadata_buffer_ &&
+      ddgi_probe_metadata_buffer_->GetSize() >= ddgi_frame_resource_layout_.probe_metadata_byte_size &&
+      ddgi_probe_state_buffer_ &&
+      ddgi_probe_state_buffer_->GetSize() >= ddgi_frame_resource_layout_.probe_state_byte_size &&
+      ddgi_irradiance_atlas_ && ddgi_visibility_atlas_ && ddgi_visualization_probe_count != 0u;
+  DdgiProbeVisualizationPushConstant ddgi_probe_visualization_push_constant;
+  ddgi_probe_visualization_push_constant.camera_probe_selected_mode = {
+      static_cast<uint32_t>(glm::max(camera_index, 0)), ddgi_visualization_probe_count,
+      glm::min(static_cast<uint32_t>(glm::max(ddgi_settings.debug.selected_probe_index, 0)),
+               ddgi_visualization_probe_count > 0u ? ddgi_visualization_probe_count - 1u : 0u),
+      GetDdgiProbeVisualizationMode(ddgi_settings)};
+  ddgi_probe_visualization_push_constant.radius_intensity_alpha_selected_scale = {
+      glm::max(ddgi_settings.debug.probe_visualization_radius, 0.001f) *
+          glm::max(ddgi_settings.debug.visualization_scale, 0.01f),
+      glm::max(ddgi_settings.debug.probe_visualization_intensity, 0.0f),
+      glm::clamp(ddgi_settings.debug.probe_visualization_alpha, 0.0f, 1.0f),
+      ddgi_settings.debug.visualize_selected_probe
+          ? glm::max(ddgi_settings.debug.selected_probe_visualization_scale, 1.0f)
+          : 1.0f};
+  const bool ddgi_probe_visualization_depth_test = ddgi_settings.debug.probe_visualization_depth_mode == 0;
+  const auto selected_ray_local_probe_index = ddgi_frame_selected_probe_ray_local_index_;
+  const auto selected_ray_sample_count = ddgi_frame_selected_probe_ray_sample_count_;
+  const auto selected_ray_byte_size =
+      static_cast<uint64_t>(selected_ray_sample_count) * static_cast<uint64_t>(sizeof(PointCloudSample));
+  const auto selected_ray_src_offset =
+      selected_ray_local_probe_index == (std::numeric_limits<uint32_t>::max)()
+          ? 0ull
+          : static_cast<uint64_t>(selected_ray_local_probe_index) * selected_ray_byte_size;
+  const bool ddgi_probe_ray_visualization_enabled =
+      is_scene_camera && ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays &&
+      ddgi_frame_ray_output_visualization_buffer_ && selected_ray_sample_count != 0u &&
+      selected_ray_local_probe_index != (std::numeric_limits<uint32_t>::max)() &&
+      ddgi_frame_ray_output_visualization_buffer_->GetSize() >= selected_ray_src_offset + selected_ray_byte_size;
+  const auto ray_visualization_miss_distance = ddgi_frame_ray_push_constant_.trace_parameters.x > 0.0f
+                                                   ? ddgi_frame_ray_push_constant_.trace_parameters.x
+                                                   : ddgi_settings.runtime.max_ray_distance;
+  DdgiProbeRayVisualizationPushConstant ddgi_probe_ray_visualization_push_constant;
+  ddgi_probe_ray_visualization_push_constant.camera_selected_probe_ray_count_flags = {
+      static_cast<uint32_t>(glm::max(camera_index, 0)), selected_ray_local_probe_index, selected_ray_sample_count, 0u};
+  ddgi_probe_ray_visualization_push_constant.miss_distance_alpha_padding = {
+      glm::max(ray_visualization_miss_distance, 0.001f),
+      glm::clamp(ddgi_settings.debug.probe_visualization_alpha, 0.0f, 1.0f), 0.0f, 0.0f};
   const auto record_commands = [&](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
     if (immediate) {
       Platform::ImmediateSubmit(action);
@@ -1793,405 +3642,204 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
 
     const bool count_draw_calls = count_shadow_rendering_draw_calls;
     const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
-#pragma region Directional Light Shadows
-    const auto& directional_light_shadow_pipeline =
-        use_mesh_shader ? directional_light_shadow_pipeline_mesh_shader : directional_light_shadow_pipeline_normal;
     auto& platform = Platform::GetInstance();
-    record_commands([&](const VkCommandBuffer vk_command_buffer) {
-#pragma region Viewport and scissor
-      VkRect2D render_area;
-      render_area.offset = {0, 0};
-      render_area.extent.width = lighting_->directional_light_shadow_map_->GetExtent().width;
-      render_area.extent.height = lighting_->directional_light_shadow_map_->GetExtent().height;
-#pragma endregion
-      lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      for (int split = 0; split < 4; split++) {
-        const auto depth_attachment = lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(
-            split, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = 0;
-        render_info.pColorAttachments = nullptr;
-        render_info.pDepthAttachment = &depth_attachment;
-        Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
-          if (use_mesh_shader) {
-            directional_light_shadow_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          }
-          for (int i = 0; i < current_render_instances->render_info_block.directional_light_size; i++) {
-            const auto& directional_light_info_block =
-                current_render_instances
-                    ->directional_light_info_blocks_[camera_index * graphics_settings.max_directional_light_size + i];
-            const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline) {
-              target_pipeline->states.ResetAllStates(0);
-              target_pipeline->Bind(vk_command_buffer);
-              target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                 per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-              target_pipeline->states.SetViewportScissor(directional_light_info_block.viewport);
-            };
-            GeometryStorage::BindVertices(vk_command_buffer);
-            {
-              prepare_graphics_pipeline(directional_light_shadow_pipeline);
-              if (enable_indirect_rendering && !current_render_instances->deferred_render_instances->Empty()) {
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
-                push_constant.light_split_index = split;
-                push_constant.instance_index = 0;
-                directional_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                directional_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
-                if (count_draw_calls)
-                  platform.draw_call[current_frame_index]++;
-                if (count_draw_calls)
-                  platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
-                if (use_mesh_shader) {
-                  Platform::DrawMeshTasksIndirect(
-                      vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
-                      current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
-                      sizeof(VkDrawMeshTasksIndirectCommandEXT));
-                } else {
-                  Platform::DrawIndexedIndirect(vk_command_buffer,
-                                                *current_render_instances->mesh_draw_indexed_indirect_commands_buffer,
-                                                0, current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                                                sizeof(VkDrawIndexedIndirectCommand));
-                }
-              } else {
-                current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                    [&](const auto& render_instance) {
-                      if (!render_instance->cast_shadow)
-                        return;
-                      RenderInstancePushConstant push_constant;
-                      push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
-                      push_constant.light_split_index = split;
-                      push_constant.instance_index = render_instance->instance_index;
-                      const auto prim_count =
-                          render_instance->Render(vk_command_buffer, push_constant, directional_light_shadow_pipeline);
-                      if (count_draw_calls) {
-                        platform.draw_call[current_frame_index]++;
-                        platform.prim_count[current_frame_index] += prim_count;
-                      }
-                    });
+    RenderGraphTransientResourceStore* active_camera_transient_resources = nullptr;
+    RenderGraph camera_render_graph;
+    AddDefaultRasterCameraResources(camera_render_graph);
+    AddAdvancedFrameResources(camera_render_graph);
+    AddAdvancedCameraResources(camera_render_graph);
+    AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
+    if (ddgi_probe_visualization_enabled) {
+      AddDdgiProbeVisualizationFrameResources(camera_render_graph, ddgi_frame_resource_layout_);
+    }
+    if (ddgi_probe_ray_visualization_enabled) {
+      AddDdgiProbeRayVisualizationFrameResources(camera_render_graph, ddgi_frame_resource_layout_);
+    }
+
+    camera_render_graph.AddPass(
+        DirectionalLightShadowPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+          const auto& directional_light_shadow_pipeline = use_mesh_shader
+                                                              ? directional_light_shadow_pipeline_mesh_shader
+                                                              : directional_light_shadow_pipeline_normal;
+          const auto shadow_extent = lighting_->directional_light_shadow_map_->GetExtent();
+          DirectionalLightShadowPass::Execute(
+              context,
+              {current_render_instances,
+               directional_light_shadow_pipeline,
+               instanced_directional_light_shadow_pipeline,
+               skinned_directional_light_shadow_pipeline,
+               strands_directional_light_shadow_pipeline,
+               per_frame_descriptor_sets_[current_frame_index],
+               meshlet_descriptor_sets_[current_frame_index],
+               camera_index,
+               static_cast<int>(graphics_settings.max_directional_light_size),
+               current_frame_index,
+               {shadow_extent.width, shadow_extent.height},
+               use_mesh_shader,
+               enable_indirect_rendering,
+               count_draw_calls,
+               [&](const uint32_t split, const VkAttachmentLoadOp load_op, const VkAttachmentStoreOp store_op) {
+                 return lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(split, load_op, store_op);
+               },
+               [&](const VkCommandBuffer vk_command_buffer, const int light_index, const int split_index,
+                   const glm::ivec4& viewport) {
+                 for (const auto& func : directional_light_shadow_map_external_functions) {
+                   const auto prim_count = func(vk_command_buffer, {light_index, split_index, viewport});
+                   if (count_draw_calls) {
+                     platform.draw_call[current_frame_index]++;
+                     platform.prim_count[current_frame_index] += prim_count;
+                   }
+                 }
+               },
+               record_commands});
+        });
+    camera_render_graph.AddPass(
+        DeferredGeometryPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+          const auto& deferred_prepass_pipeline =
+              use_mesh_shader ? deferred_prepass_pipeline_mesh : deferred_prepass_pipeline_normal;
+          DeferredGeometryPass::Execute(
+              context,
+              {camera, current_render_instances, deferred_prepass_pipeline, instanced_deferred_prepass_pipeline,
+               skinned_deferred_prepass_pipeline, strands_deferred_prepass_pipeline,
+               per_frame_descriptor_sets_[current_frame_index], meshlet_descriptor_sets_[current_frame_index],
+               camera_index, current_frame_index, use_mesh_shader, enable_indirect_rendering, count_draw_calls,
+               wire_frame,
+               [&](const VkCommandBuffer vk_command_buffer,
+                   const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {
+                 for (const auto& func : deferred_rendering_external_functions) {
+                   const auto prim_count = func(vk_command_buffer, color_attachment_infos, {camera_index, viewport});
+                   if (count_draw_calls) {
+                     platform.draw_call[current_frame_index]++;
+                     platform.prim_count[current_frame_index] += prim_count;
+                   }
+                 }
+               },
+               record_commands});
+        });
+    camera_render_graph.AddPass(DepthPyramidPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+      DepthPyramidPass::Execute(context, {camera, depth_pyramid_pipeline_, depth_pyramid_layout_,
+                                          active_camera_transient_resources, record_commands});
+    });
+    camera_render_graph.AddPass(
+        DeferredLightingPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+          const bool fade_selection = need_fade_ && editor_layer && editor_layer->highlight_selection_;
+          const int selection_alpha = editor_layer ? editor_layer->selection_alpha_ : 0;
+          const auto& deferred_lighting_pipeline =
+              is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
+          DeferredLightingPass::Execute(
+              context,
+              {camera, deferred_lighting_pipeline, per_frame_descriptor_sets_[current_frame_index],
+               lighting_ ? lighting_->lighting_descriptor_set : nullptr, camera_index, fade_selection, selection_alpha,
+               [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
+                 for (const auto& func : forward_rendering_external_functions) {
+                   const auto prim_count = func(vk_command_buffer, camera, {camera_index, viewport});
+                   if (count_draw_calls) {
+                     platform.draw_call[current_frame_index]++;
+                     platform.prim_count[current_frame_index] += prim_count;
+                   }
+                 }
+               },
+               record_commands});
+        });
+    for (const auto& external_pass : camera_render_pass_external_functions) {
+      ImportMissingPassResources(camera_render_graph, external_pass.descriptor);
+      camera_render_graph.AddPass(
+          external_pass.descriptor, [&, external_pass](const RenderGraphExecutionContext& context) {
+            record_commands([&, external_pass](VkCommandBuffer vk_command_buffer) {
+              glm::ivec4 view_port;
+              view_port.x = 0;
+              view_port.y = 0;
+              view_port.z = camera->GetSize().x;
+              view_port.w = camera->GetSize().y;
+              uint32_t prim_count = 0;
+              if (external_pass.context_func) {
+                ApplyGraphResourceBarriers(vk_command_buffer, context);
+                prim_count = external_pass.context_func(vk_command_buffer, camera, {camera_index, view_port}, context);
+                ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+              } else if (external_pass.func) {
+                prim_count = external_pass.func(vk_command_buffer, camera, {camera_index, view_port});
               }
-            }
-            {
-              prepare_graphics_pipeline(instanced_directional_light_shadow_pipeline);
-              current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-                  [&](const auto& render_instance) {
-                    if (!render_instance->cast_shadow)
-                      return;
-                    RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
-                    push_constant.light_split_index = split;
-                    push_constant.instance_index = render_instance->instance_index;
-                    const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
-                                                                    instanced_directional_light_shadow_pipeline);
-                    if (count_draw_calls) {
-                      platform.draw_call[current_frame_index]++;
-                      platform.prim_count[current_frame_index] += prim_count;
-                    }
-                  });
-            }
-            GeometryStorage::BindSkinnedVertices(vk_command_buffer);
-            {
-              prepare_graphics_pipeline(skinned_directional_light_shadow_pipeline);
-              current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-                  [&](const auto& render_instance) {
-                    if (!render_instance->cast_shadow)
-                      return;
-                    RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
-                    push_constant.light_split_index = split;
-                    push_constant.instance_index = render_instance->instance_index;
-                    const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
-                                                                    skinned_directional_light_shadow_pipeline);
-                    if (count_draw_calls) {
-                      platform.draw_call[current_frame_index]++;
-                      platform.prim_count[current_frame_index] += prim_count;
-                    }
-                  });
-            }
-#ifdef EVOENGINE_WINDOWS
-            GeometryStorage::BindStrandPoints(vk_command_buffer);
-            {
-              prepare_graphics_pipeline(strands_directional_light_shadow_pipeline);
-              current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-                  [&](const auto& render_instance) {
-                    if (!render_instance->cast_shadow)
-                      return;
-                    RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = camera_index * graphics_settings.max_directional_light_size + i;
-                    push_constant.light_split_index = split;
-                    push_constant.instance_index = render_instance->instance_index;
-                    const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
-                                                                    strands_directional_light_shadow_pipeline);
-                    if (count_draw_calls) {
-                      platform.draw_call[current_frame_index]++;
-                      platform.prim_count[current_frame_index] += prim_count;
-                    }
-                  });
-            }
-#endif
-            for (const auto& func : directional_light_shadow_map_external_functions) {
-              const auto prim_count = func(
-                  vk_command_buffer, {i, split, current_render_instances->directional_light_info_blocks_[i].viewport});
               if (count_draw_calls) {
                 platform.draw_call[current_frame_index]++;
                 platform.prim_count[current_frame_index] += prim_count;
               }
-            }
-          }
-        });
-      }
-    });
-
-#pragma endregion
-    const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-    bool is_scene_camera = false;
-    bool need_fade = false;
-    if (editor_layer) {
-      if (camera.get() == editor_layer->GetSceneCamera().get())
-        is_scene_camera = true;
-      if (need_fade_ && editor_layer->highlight_selection_)
-        need_fade = true;
+            });
+          });
     }
-
-    record_commands([&](VkCommandBuffer vk_command_buffer) {
-#pragma region Viewport and scissor
-      VkRect2D render_area;
-      render_area.offset = {0, 0};
-      render_area.extent.width = camera->GetSize().x;
-      render_area.extent.height = camera->GetSize().y;
-      glm::ivec4 view_port;
-      view_port.x = 0;
-      view_port.y = 0;
-      view_port.z = camera->GetSize().x;
-      view_port.w = camera->GetSize().y;
-
-      camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      camera->render_texture_->GetDepthImage()->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-
-      VkRenderingInfo geometry_pass_render_info{};
-      geometry_pass_render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-      geometry_pass_render_info.renderArea = render_area;
-      geometry_pass_render_info.layerCount = 1;
-#pragma endregion
-#pragma region Deferred Rendering
-#pragma region Geometry pass
-
-      const auto geometry_pass_depth_attachment =
-          camera->render_texture_->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
-      geometry_pass_render_info.pDepthAttachment = &geometry_pass_depth_attachment;
-      std::vector<VkRenderingAttachmentInfo> geometry_pass_color_attachment_infos;
-      camera->AppendGBufferColorAttachmentInfos(geometry_pass_color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                VK_ATTACHMENT_STORE_OP_STORE);
-      geometry_pass_render_info.colorAttachmentCount = geometry_pass_color_attachment_infos.size();
-      geometry_pass_render_info.pColorAttachments = geometry_pass_color_attachment_infos.data();
-      Platform::RecordRenderCommands(geometry_pass_render_info, vk_command_buffer, [&]() {
-        GeometryStorage::BindVertices(vk_command_buffer);
-        {
-          const auto& deferred_prepass_pipeline =
-              use_mesh_shader ? deferred_prepass_pipeline_mesh : deferred_prepass_pipeline_normal;
-          deferred_prepass_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          deferred_prepass_pipeline->states.SetViewportScissor(view_port);
-          deferred_prepass_pipeline->states.polygon_mode = wire_frame ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-          deferred_prepass_pipeline->Bind(vk_command_buffer);
-          deferred_prepass_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          if (use_mesh_shader) {
-            deferred_prepass_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          }
-          if (enable_indirect_rendering && !current_render_instances->deferred_render_instances->Empty()) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = camera_index;
-            push_constant.instance_index = 0;
-            deferred_prepass_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            deferred_prepass_pipeline->states.ApplyAllStates(vk_command_buffer);
-            if (count_draw_calls)
+    if (ddgi_probe_visualization_enabled) {
+      camera_render_graph.AddPass(
+          DdgiProbeVisualizationPass::CreateDescriptor(),
+          [&, ddgi_probe_visualization_push_constant](const RenderGraphExecutionContext& context) {
+            DdgiProbeVisualizationPass::Execute(
+                context, {ddgi_probe_visualization_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          ddgi_probe_visualization_layout_, active_camera_transient_resources, ddgi_atlas_sampler_,
+                          camera, static_cast<uint32_t>(glm::max(camera_index, 0)), ddgi_visualization_probe_count,
+                          ddgi_probe_visualization_depth_test, ddgi_probe_visualization_push_constant,
+                          &ddgi_last_performance_stats_.probe_visualization_record_ms, record_commands});
+            ddgi_last_performance_stats_.visualized_probe_count += ddgi_visualization_probe_count;
+            if (count_draw_calls) {
               platform.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
-            if (use_mesh_shader) {
-              Platform::DrawMeshTasksIndirect(
-                  vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
-                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
-                  sizeof(VkDrawMeshTasksIndirectCommandEXT));
-            } else {
-              Platform::DrawIndexedIndirect(vk_command_buffer,
-                                            *current_render_instances->mesh_draw_indexed_indirect_commands_buffer, 0,
-                                            current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                                            sizeof(VkDrawIndexedIndirectCommand));
+              platform.prim_count[current_frame_index] += ddgi_visualization_probe_count;
             }
-          } else {
-            current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                [&](const auto& render_instance) {
-                  RenderInstancePushConstant push_constant;
-                  push_constant.camera_index = camera_index;
-                  push_constant.instance_index = render_instance->instance_index;
-                  deferred_prepass_pipeline->states.polygon_mode =
-                      wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
-                  deferred_prepass_pipeline->states.cull_mode = render_instance->cull_mode;
-                  deferred_prepass_pipeline->states.line_width = render_instance->line_width;
-                  const auto prim_count =
-                      render_instance->Render(vk_command_buffer, push_constant, deferred_prepass_pipeline);
-                  if (count_draw_calls) {
-                    platform.draw_call[current_frame_index]++;
-                    platform.prim_count[current_frame_index] += prim_count;
-                  }
-                });
-          }
-        }
-        {
-          instanced_deferred_prepass_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          instanced_deferred_prepass_pipeline->states.SetViewportScissor(view_port);
-          instanced_deferred_prepass_pipeline->Bind(vk_command_buffer);
-          instanced_deferred_prepass_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-              [&](const auto& render_instance) {
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index;
-                push_constant.instance_index = render_instance->instance_index;
-                instanced_deferred_prepass_pipeline->states.polygon_mode =
-                    wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
-                instanced_deferred_prepass_pipeline->states.cull_mode = render_instance->cull_mode;
-                instanced_deferred_prepass_pipeline->states.line_width = render_instance->line_width;
-                const auto prim_count =
-                    render_instance->Render(vk_command_buffer, push_constant, instanced_deferred_prepass_pipeline);
-                if (count_draw_calls) {
-                  platform.draw_call[current_frame_index]++;
-                  platform.prim_count[current_frame_index] += prim_count;
-                }
-              });
-        }
-        GeometryStorage::BindSkinnedVertices(vk_command_buffer);
-        {
-          skinned_deferred_prepass_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          skinned_deferred_prepass_pipeline->states.SetViewportScissor(view_port);
-          skinned_deferred_prepass_pipeline->Bind(vk_command_buffer);
-          skinned_deferred_prepass_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-              [&](const auto& render_instance) {
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index;
-                push_constant.instance_index = render_instance->instance_index;
-                skinned_deferred_prepass_pipeline->states.polygon_mode =
-                    wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
-                skinned_deferred_prepass_pipeline->states.cull_mode = render_instance->cull_mode;
-                skinned_deferred_prepass_pipeline->states.line_width = render_instance->line_width;
-                const auto prim_count =
-                    render_instance->Render(vk_command_buffer, push_constant, skinned_deferred_prepass_pipeline);
-                if (count_draw_calls) {
-                  platform.draw_call[current_frame_index]++;
-                  platform.prim_count[current_frame_index] += prim_count;
-                }
-              });
-        }
-#ifdef EVOENGINE_WINDOWS
-        GeometryStorage::BindStrandPoints(vk_command_buffer);
-        {
-          strands_deferred_prepass_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          strands_deferred_prepass_pipeline->states.SetViewportScissor(view_port);
-          strands_deferred_prepass_pipeline->Bind(vk_command_buffer);
-          strands_deferred_prepass_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-              [&](const auto& render_instance) {
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = camera_index;
-                push_constant.instance_index = render_instance->instance_index;
-                strands_deferred_prepass_pipeline->states.polygon_mode =
-                    wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
-                strands_deferred_prepass_pipeline->states.cull_mode = render_instance->cull_mode;
-                strands_deferred_prepass_pipeline->states.line_width = render_instance->line_width;
-                const auto prim_count =
-                    render_instance->Render(vk_command_buffer, push_constant, strands_deferred_prepass_pipeline);
-                if (count_draw_calls) {
-                  platform.draw_call[current_frame_index]++;
-                  platform.prim_count[current_frame_index] += prim_count;
-                }
-              });
-        }
-#endif
-#pragma region External Deferred Rendering
-        for (const auto& func : deferred_rendering_external_functions) {
-          const auto prim_count =
-              func(vk_command_buffer, geometry_pass_color_attachment_infos, {camera_index, view_port});
-          if (count_draw_calls) {
-            platform.draw_call[current_frame_index]++;
-            platform.prim_count[current_frame_index] += prim_count;
-          }
-        }
-
-#pragma endregion
-      });
-
-#pragma endregion
-#pragma region Lighting pass
-      GeometryStorage::BindVertices(vk_command_buffer);
-      {
-        camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        camera->render_texture_->GetDepthImage()->TransitImageLayout(vk_command_buffer,
-                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-        camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                               VK_ATTACHMENT_STORE_OP_STORE);
-        VkRenderingInfo render_info{};
-        render_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        render_info.renderArea = render_area;
-        render_info.layerCount = 1;
-        render_info.colorAttachmentCount = color_attachment_infos.size();
-        render_info.pColorAttachments = color_attachment_infos.data();
-        render_info.pDepthAttachment = VK_NULL_HANDLE;
-        lighting_->directional_light_shadow_map_->TransitImageLayout(vk_command_buffer,
-                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        const auto& deferred_lighting_pipeline =
-            is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
-        Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
-          deferred_lighting_pipeline->states.ResetAllStates(color_attachment_infos.size());
-          deferred_lighting_pipeline->states.depth_test = false;
-          deferred_lighting_pipeline->states.SetViewportScissor(view_port);
-
-          deferred_lighting_pipeline->Bind(vk_command_buffer);
-          deferred_lighting_pipeline->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          deferred_lighting_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                        camera->g_buffer_descriptor_set_->GetVkDescriptorSet());
-          deferred_lighting_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                        lighting_->lighting_descriptor_set->GetVkDescriptorSet());
-          RenderInstancePushConstant push_constant;
-          push_constant.camera_index = camera_index;
-          push_constant.light_split_index = need_fade ? glm::max(128, 256 - editor_layer->selection_alpha_) : 256;
-          push_constant.instance_index = need_fade ? 1 : 0;
-          deferred_lighting_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
-          mesh->DrawIndexed(vk_command_buffer, deferred_lighting_pipeline->states, 1);
-        });
-      }
-#pragma endregion
-#pragma endregion
-
-#pragma region External Forward Rendering
-      for (const auto& func : forward_rendering_external_functions) {
-        const auto prim_count = func(vk_command_buffer, camera, {camera_index, view_port});
-        if (count_draw_calls) {
-          platform.draw_call[current_frame_index]++;
-          platform.prim_count[current_frame_index] += prim_count;
-        }
-      }
-#pragma endregion
-    });
-
-    // Post-processing
-    if (!immediate) {
-      if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
-        post_processing_stack->Process(camera);
-      }
+          });
     }
+    if (ddgi_probe_ray_visualization_enabled) {
+      const auto* dependency = ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
+                                                                : RenderPassNames::deferred_camera;
+      camera_render_graph.AddPass(
+          DdgiProbeRayVisualizationPass::CreateDescriptor(dependency),
+          [&, ddgi_probe_ray_visualization_push_constant](const RenderGraphExecutionContext& context) {
+            DdgiProbeRayVisualizationPass::Execute(
+                context, {ddgi_probe_ray_visualization_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          ddgi_probe_ray_visualization_layout_, active_camera_transient_resources, camera,
+                          static_cast<uint32_t>(glm::max(camera_index, 0)), ddgi_probe_visualization_depth_test,
+                          ddgi_probe_ray_visualization_push_constant,
+                          &ddgi_last_performance_stats_.probe_ray_visualization_record_ms, record_commands});
+            if (count_draw_calls) {
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += selected_ray_sample_count;
+            }
+          });
+    }
+    const auto* ddgi_debug_post_processing_dependency =
+        ddgi_probe_ray_visualization_enabled
+            ? RenderPassNames::ddgi_probe_ray_visualization
+            : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
+                                                : RenderPassNames::deferred_camera);
+    camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
+                                [&](const RenderGraphExecutionContext& context) {
+                                  PostProcessingPass::Execute(context, {camera, immediate});
+                                });
+    if (!camera_render_graph.Validate()) {
+      EVOENGINE_ERROR("Invalid camera render graph.")
+    }
+    const auto camera_render_graph_plan = camera_render_graph.Compile(CreateCameraRenderGraphCompileContext(camera));
+    auto camera_render_graph_resources =
+        CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+    if (camera) {
+      camera_render_graph_resources.BindImages(RenderResourceNames::camera_g_buffer,
+                                               {camera->g_buffer_normal_, camera->g_buffer_material_});
+    }
+    if (lighting_ && lighting_->directional_light_shadow_map_) {
+      camera_render_graph_resources.BindImage(RenderResourceNames::lighting_directional_shadow_map,
+                                              lighting_->directional_light_shadow_map_);
+    }
+    if (ddgi_probe_visualization_enabled) {
+      camera_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_metadata,
+                                               ddgi_probe_metadata_buffer_);
+      camera_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_state, ddgi_probe_state_buffer_);
+      camera_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_irradiance_atlas, ddgi_irradiance_atlas_);
+      camera_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_visibility_atlas, ddgi_visibility_atlas_);
+    }
+    if (ddgi_probe_ray_visualization_enabled) {
+      camera_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_ray_output,
+                                               ddgi_frame_ray_output_visualization_buffer_);
+    }
+    auto& camera_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+    active_camera_transient_resources = &camera_transient_resources;
+    camera_transient_resources.Allocate(camera_render_graph.GetResources(), camera_render_graph_plan);
+    camera_transient_resources.Bind(camera_render_graph_resources);
+    camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);
     camera->rendered_ = true;
     camera->require_rendering_ = false;
   }
@@ -2203,28 +3851,32 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
-  const auto scene = ApplicationContext::Get().GetActiveScene();
 
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-      Platform::EverythingBarrier(vk_command_buffer);
-      camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-      Platform::EverythingBarrier(vk_command_buffer);
-      ray_tracing_camera_pipeline->Bind(vk_command_buffer);
-      ray_tracing_camera_pipeline->BindDescriptorSet(
-          vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-      ray_tracing_camera_pipeline->BindDescriptorSet(
-          vk_command_buffer, 1, ray_tracing_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-      ray_tracing_camera_pipeline->BindDescriptorSet(
-          vk_command_buffer, 2, camera->GetRenderTexture()->storage_descriptor_set_->GetVkDescriptorSet());
-      RayTracingCameraPushConstant push_constant;
-      push_constant.camera_index = camera_index;
-      push_constant.frame_id = camera->frame_count_;
-      ray_tracing_camera_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      ray_tracing_camera_pipeline->Trace(vk_command_buffer, camera->render_texture_->GetExtent().width,
-                                         camera->render_texture_->GetExtent().height, 1);
-      Platform::EverythingBarrier(vk_command_buffer);
-    });
+    RenderGraph camera_render_graph;
+    AddDefaultRayTracingCameraResources(camera_render_graph);
+    AddAdvancedFrameResources(camera_render_graph);
+    AddAdvancedCameraResources(camera_render_graph);
+    AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
+    camera_render_graph.AddPass(
+        RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+          RayTracingCameraPass::Execute(
+              context, {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
+                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
+                        [](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+                          Platform::RecordCommandsMainQueue(action);
+                        }});
+        });
+    if (!camera_render_graph.Validate()) {
+      EVOENGINE_ERROR("Invalid ray tracing camera render graph.")
+    }
+    const auto camera_render_graph_plan = camera_render_graph.Compile(CreateCameraRenderGraphCompileContext(camera));
+    auto camera_render_graph_resources = CreateCameraRenderGraphResourceRegistry(
+        per_frame_descriptor_sets_[current_frame_index], ray_tracing_descriptor_sets_[current_frame_index], camera);
+    auto& camera_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+    camera_transient_resources.Allocate(camera_render_graph.GetResources(), camera_render_graph_plan);
+    camera_transient_resources.Bind(camera_render_graph_resources);
+    camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);
     camera->rendered_ = true;
     camera->require_rendering_ = false;
     camera->frame_count_++;

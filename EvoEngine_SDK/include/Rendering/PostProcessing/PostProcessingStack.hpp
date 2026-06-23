@@ -3,6 +3,9 @@
 #include "GraphicsPipeline.hpp"
 #include "IAsset.hpp"
 #include "RenderTexture.hpp"
+
+#include <functional>
+
 namespace evo_engine {
 class ToneMapping;
 class ScreenSpaceReflection;
@@ -18,7 +21,7 @@ class PostProcessingStack : public IAsset {
   bool BuildNextPipeline();
 
   mutable std::shared_ptr<DescriptorSetLayout> blur_layout;
-  mutable std::shared_ptr<GraphicsPipeline> blur_pipeline;
+  mutable std::shared_ptr<ComputePipeline> blur_pipeline;
 
   std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
   std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
@@ -32,7 +35,8 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<RenderTexture> swap_texture;
 
   void OnCreate() override;
-  void Process(const std::shared_ptr<Camera>& target_camera);
+  void Process(const std::shared_ptr<Camera>& target_camera,
+               const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
   std::shared_ptr<ScreenSpaceAmbientOcclusion> screen_space_ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
   std::shared_ptr<ScreenSpaceReflection> screen_space_reflection{};
@@ -56,7 +60,7 @@ class IPostProcessing {
 class ScreenSpaceAmbientOcclusion : public IPostProcessing {
  public:
   std::shared_ptr<DescriptorSetLayout> blur_layout;
-  std::shared_ptr<GraphicsPipeline> blur_pipeline;
+  std::shared_ptr<ComputePipeline> blur_pipeline;
 
   std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
   std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
@@ -70,8 +74,6 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
   float avoid_distance = 1.f;
   std::shared_ptr<DescriptorSetLayout> combine_layout;
   std::shared_ptr<DescriptorSet> combine_descriptor_set;
-  std::shared_ptr<GraphicsPipeline> geometry_pipeline;
-  std::shared_ptr<GraphicsPipeline> combine_pipeline;
   /**
    * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
    */
@@ -89,6 +91,10 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
     float factor;
     float intensity;
   };
+  std::shared_ptr<DescriptorSetLayout> geometry_output_layout;
+  std::shared_ptr<DescriptorSet> geometry_output_descriptor_set;
+  std::shared_ptr<ComputePipeline> geometry_pipeline;
+  std::shared_ptr<ComputePipeline> combine_pipeline;
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
@@ -115,9 +121,11 @@ class ScreenSpaceReflection : public IPostProcessing {
   };
 
   std::shared_ptr<DescriptorSetLayout> combine_layout;
-  std::shared_ptr<GraphicsPipeline> reflect_pipeline;
-  std::shared_ptr<GraphicsPipeline> combine_pipeline;
+  std::shared_ptr<DescriptorSetLayout> reflect_output_layout;
+  std::shared_ptr<ComputePipeline> reflect_pipeline;
+  std::shared_ptr<ComputePipeline> combine_pipeline;
   std::shared_ptr<DescriptorSet> combine_descriptor_set;  // SSR_COMBINE: 0, 1
+  std::shared_ptr<DescriptorSet> reflect_output_descriptor_set;
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
@@ -129,10 +137,12 @@ class Bloom : public IPostProcessing {
  public:
   std::shared_ptr<DescriptorSetLayout> mix_layout;
   std::shared_ptr<DescriptorSet> mix_descriptor_set;
+  std::shared_ptr<DescriptorSetLayout> copy_layout;
+  std::shared_ptr<DescriptorSet> copy_descriptor_set;
 
   std::shared_ptr<DescriptorSetLayout> sampling_layout;
-  std::shared_ptr<GraphicsPipeline> downsampling_pipeline;
-  std::shared_ptr<GraphicsPipeline> upsampling_pipeline;
+  std::shared_ptr<ComputePipeline> downsampling_pipeline;
+  std::shared_ptr<ComputePipeline> upsampling_pipeline;
 
   struct DownsamplingPushConstant {
     glm::vec2 source_resolution;
@@ -141,15 +151,21 @@ class Bloom : public IPostProcessing {
   };
 
   struct UpsamplingPushConstant {
-    float filter_radius;
+    glm::uvec2 target_resolution = glm::uvec2(1);
+    float filter_radius = 0.001f;
+    float padding = 0.0f;
+  };
+
+  struct ComputePushConstant {
+    glm::uvec2 resolution = glm::uvec2(1);
   };
 
   float filter_radius = 0.001f;
   int bloom_chain_length = 2;
   std::vector<std::shared_ptr<DescriptorSet>> downsampling_descriptor_set;
   std::vector<std::shared_ptr<DescriptorSet>> upsampling_descriptor_set;
-  std::shared_ptr<GraphicsPipeline> copy_pipeline;
-  std::shared_ptr<GraphicsPipeline> mix_pipeline;
+  std::shared_ptr<ComputePipeline> copy_pipeline;
+  std::shared_ptr<ComputePipeline> mix_pipeline;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
   void Serialize(YAML::Emitter& out) const;

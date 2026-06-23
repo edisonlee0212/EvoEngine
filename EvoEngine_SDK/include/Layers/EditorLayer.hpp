@@ -56,6 +56,7 @@ struct EditorPanelVisibilitySettings {
   std::optional<bool> resources;
   std::optional<bool> profiler;
   std::optional<bool> runtime_package_manager;
+  std::optional<bool> render_layer_inspection;
 };
 
 struct EditorRuntimePackageManagerLayoutSettings {
@@ -141,6 +142,22 @@ struct EditorCamera {
   std::shared_ptr<Camera> camera; /**< Shared pointer to the camera entity. */
 };
 
+struct EditorCameraControlKeyBindings {
+  int rotate_mouse_button = GLFW_MOUSE_BUTTON_RIGHT;
+  int move_forward_key = GLFW_KEY_W;
+  int move_backward_key = GLFW_KEY_S;
+  int move_left_key = GLFW_KEY_A;
+  int move_right_key = GLFW_KEY_D;
+  int move_up_key = GLFW_KEY_LEFT_SHIFT;
+  int move_down_key = GLFW_KEY_LEFT_CONTROL;
+};
+
+struct EditorCameraFreeFlyState {
+  bool was_dragging = false;
+  float previous_mouse_x = 0.0f;
+  float previous_mouse_y = 0.0f;
+};
+
 /**
  * @brief Structure representing a gizmo mesh task.
  */
@@ -204,8 +221,6 @@ class EditorLayer : public ILayer {
 
   [[nodiscard]] bool SceneCameraWindowFocused() const; /**< Checks if the Scene Camera window is focused. */
   [[nodiscard]] bool MainCameraWindowFocused() const;  /**< Checks if the Main Camera window is focused. */
-  [[nodiscard]] bool SceneCameraWindowHovered() const; /**< Checks if the Scene Camera window is hovered. */
-  [[nodiscard]] bool MainCameraWindowHovered() const;  /**< Checks if the Main Camera window is hovered. */
 
   bool enable_view_gizmos = false;  /**< Indicates if view gizmos are enabled. */
   bool enable_gizmos = true;        /**< Indicates if gizmos are enabled. */
@@ -242,6 +257,10 @@ class EditorLayer : public ILayer {
   [[nodiscard]] glm::vec2 GetMouseSceneCameraPosition() const;
 
   [[nodiscard]] static Input::KeyActionType GetKey(int key); /**< Gets the key action type for a given key. */
+
+  bool ApplyEditorCameraFreeFlyControl(const Handle& camera_handle, EditorCameraFreeFlyState& state,
+                                       const glm::vec2& mouse_position, const glm::vec2& viewport_size,
+                                       bool window_focused);
 
   [[nodiscard]] std::shared_ptr<Camera> GetSceneCamera(); /**< Retrieves the scene camera. */
 
@@ -328,9 +347,10 @@ class EditorLayer : public ILayer {
   bool main_camera_focus_override = false;  /**< Indicates if the main camera focus has been overridden. */
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
-  int selected_hierarchy_display_mode = 1;     /**< Selected display mode for the entity hierarchy. */
-  float velocity = 10.0f;                      /**< Velocity for camera movement. */
-  float sensitivity = 0.1f;                    /**< Sensitivity for camera controls. */
+  int selected_hierarchy_display_mode = 1; /**< Selected display mode for the entity hierarchy. */
+  float velocity = 10.0f;                  /**< Velocity for camera movement. */
+  float sensitivity = 0.1f;                /**< Sensitivity for camera controls. */
+  EditorCameraControlKeyBindings editor_camera_control_key_bindings;
   bool apply_transform_to_main_camera = false; /**< Indicates whether transformations apply to the main camera. */
   bool lock_camera = false;                    /**< Indicates whether the camera is locked. */
 
@@ -845,7 +865,9 @@ class EditorLayer : public ILayer {
   void Deserialize(const YAML::Node& in);
   void DeserializeLayout(const YAML::Node& in);
   void DeserializeSceneState(const YAML::Node& in);
+  [[nodiscard]] static bool HasUsableImGuiDockLayout(const std::string& ini_settings);
   [[nodiscard]] bool DefaultEditorLayoutPending() const;
+  void RequestDefaultEditorLayout();
 
  private:
   struct AssetInspectorWindow {
@@ -861,7 +883,6 @@ class EditorLayer : public ILayer {
    */
   void LoadIcons();
   void RegisterEditorPanels();
-  void ApplyPendingImGuiIniSettings();
 
   /**
    * @brief Called during the creation of the EditorLayer.
@@ -905,7 +926,6 @@ class EditorLayer : public ILayer {
   bool DrawPlayControls();
   void DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
   void DrawProjectLoadingPopup();
-  void RequestDefaultEditorLayout();
 
   void UpdateCameraTransition();
   void PrepareFrameState();
@@ -966,6 +986,11 @@ class EditorLayer : public ILayer {
   std::shared_ptr<ProjectContentBrowserPanel> project_content_browser_panel_;
   bool dock_layout_reset_pending_ = false;
   std::optional<EditorLayoutSettings> custom_layout_settings_;
+  bool asset_inspector_window_layout_pending_ = false;
+  bool runtime_package_manager_layout_pending_ = false;
+  std::string pending_imgui_ini_settings_;
+  bool has_pending_imgui_ini_settings_ = false;
+  mutable bool editor_layout_dirty_ = false;
 
   bool runtime_package_manager_scanned_ = false;                   /**< Whether package manifests were scanned. */
   std::unordered_set<std::string> selected_runtime_package_names_; /**< Selected runtime packages for bulk loading. */
@@ -1031,11 +1056,7 @@ class EditorLayer : public ILayer {
   bool local_scale_selected_ = false;             /**< Indicates if the local scale is selected. */
 
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
-  bool scene_camera_window_hovered_ = false; /**< Indicates if the scene camera window is hovered. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */
-  bool main_camera_window_hovered_ = false;  /**< Indicates if the main camera window is hovered. */
-  bool orbit_focus_initialized_ = false;
-  glm::vec3 orbit_focus_point_ = glm::vec3(0.0f);
 
 #pragma region Registrations
 
@@ -1081,11 +1102,9 @@ class EditorLayer : public ILayer {
 
   glm::vec2 mouse_scene_window_position_;  /**< Mouse position in the scene window. */
   glm::vec2 mouse_camera_window_position_; /**< Mouse position in the camera window. */
+  EditorCameraFreeFlyState scene_camera_free_fly_state_;
 
   float main_camera_resolution_multiplier_ = 1.0f; /**< Multiplier for main camera resolution. */
-  std::string pending_imgui_ini_settings_;
-  bool has_pending_imgui_ini_settings_ = false;
-  mutable bool editor_layout_dirty_ = false;
 };
 
 #pragma region ImGui Helpers

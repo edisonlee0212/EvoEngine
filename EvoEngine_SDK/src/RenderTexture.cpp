@@ -396,44 +396,48 @@ bool RenderTexture::Save(const std::filesystem::path& path) const {
   return true;
 }
 
+void RenderTexture::GetRgbaChannelData(std::vector<glm::vec4>& dst) const {
+  assert(color_);
+  const auto resolution_x = color_image_->GetExtent().width;
+  const auto resolution_y = color_image_->GetExtent().height;
+  dst.resize(resolution_x * resolution_y);
+  Buffer image_buffer(sizeof(glm::vec4) * resolution_x * resolution_y);
+  image_buffer.CopyFromImage(*color_image_);
+  image_buffer.DownloadVector(dst, resolution_x * resolution_y);
+}
+
 void RenderTexture::StoreToPng(const std::filesystem::path& path, int resize_x, int resize_y,
                                unsigned compression_level) const {
   assert(color_);
   stbi_write_png_compression_level = compression_level;
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
-  constexpr size_t store_channels = 4;
-  const size_t channels = 4;
-  std::vector<float> dst;
-  dst.resize(resolution_x * resolution_y * channels);
-  // Retrieve image data here.
-  Buffer image_buffer(sizeof(glm::vec4) * resolution_x * resolution_y);
-  image_buffer.CopyFromImage(*color_image_);
-  image_buffer.DownloadVector(dst, resolution_x * resolution_y * channels);
+  std::vector<glm::vec4> dst;
+  GetRgbaChannelData(dst);
   std::vector<uint8_t> pixels;
   if (resize_x > 0 && resize_y > 0 && (resize_x != resolution_x || resize_y != resolution_y)) {
+    constexpr size_t store_channels = 4;
     std::vector<float> res;
     res.resize(resize_x * resize_y * store_channels);
-    stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0,
+    stbir_resize_float_linear(&dst.front().x, resolution_x, resolution_y, 0, res.data(), resize_x, resize_y, 0,
                               static_cast<stbir_pixel_layout>(store_channels));
     pixels.resize(resize_x * resize_y * store_channels);
     for (int i = 0; i < resize_x * resize_y; i++) {
-      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * res[i * channels]), 0, 255);
-      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * res[i * channels + 1]), 0, 255);
-      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * res[i * channels + 2]), 0, 255);
-      if (store_channels == 4)
-        pixels[i * store_channels + 3] = 255;
+      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * res[i * store_channels]), 0, 255);
+      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * res[i * store_channels + 1]), 0, 255);
+      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * res[i * store_channels + 2]), 0, 255);
+      pixels[i * store_channels + 3] = 255;
     }
     stbi_flip_vertically_on_write(true);
     stbi_write_png(path.string().c_str(), resize_x, resize_y, store_channels, pixels.data(), 0);
   } else {
-    pixels.resize(resolution_x * resolution_y * channels);
+    constexpr size_t store_channels = 4;
+    pixels.resize(resolution_x * resolution_y * store_channels);
     for (int i = 0; i < resolution_x * resolution_y; i++) {
-      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * dst[i * channels]), 0, 255);
-      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * dst[i * channels + 1]), 0, 255);
-      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * dst[i * channels + 2]), 0, 255);
-      if (store_channels == 4)
-        pixels[i * store_channels + 3] = 255;
+      pixels[i * store_channels] = glm::clamp<int>(int(255.9f * dst[i].x), 0, 255);
+      pixels[i * store_channels + 1] = glm::clamp<int>(int(255.9f * dst[i].y), 0, 255);
+      pixels[i * store_channels + 2] = glm::clamp<int>(int(255.9f * dst[i].z), 0, 255);
+      pixels[i * store_channels + 3] = 255;
     }
     stbi_flip_vertically_on_write(true);
     stbi_write_png(path.string().c_str(), resolution_x, resolution_y, store_channels, pixels.data(), 0);

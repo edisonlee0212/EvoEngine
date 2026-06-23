@@ -1,10 +1,13 @@
 
 #pragma once
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <optional>
 #include "ILayer.hpp"
 
 namespace evo_engine {
+class Buffer;
 
 /**
  * @class WindowLayer
@@ -54,6 +57,14 @@ class WindowLayer final : public ILayer {
   std::vector<glm::vec4> title_bar_drag_regions_;
   void* native_window_handle_ = nullptr;
   intptr_t default_window_proc_ = 0;
+  struct ScreenshotCapture {
+    std::filesystem::path path;
+    std::shared_ptr<Buffer> readback_buffer;
+    glm::uvec2 resolution = {0, 0};
+    bool bgr_format = false;
+    bool copy_recorded = false;
+  };
+  std::optional<ScreenshotCapture> screenshot_capture_;
 #pragma endregion
 
   /**
@@ -127,6 +138,10 @@ class WindowLayer final : public ILayer {
   void MinimizeWindow() const;
 
   void ToggleMaximized() const;
+
+  void RequestScreenshot(const std::filesystem::path& path);
+
+  bool StoreCompletedScreenshot(std::string& error);
 
   void SetCustomTitleBarDragRegion(const glm::vec4& region);
 

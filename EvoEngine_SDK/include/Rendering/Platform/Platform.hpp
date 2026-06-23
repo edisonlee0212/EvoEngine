@@ -35,6 +35,21 @@ class PlatformLifecycleTestAccess;
  */
 class Platform final {
  public:
+  struct QueueFamilySupport {
+    VkQueueFlags queue_flags = 0;
+    bool present_support = false;
+    uint32_t queue_count = 0;
+  };
+
+  struct QueueFamilySelection {
+    std::optional<uint32_t> graphics_and_compute_family{};
+    std::optional<uint32_t> compute_family{};
+    std::optional<uint32_t> present_family{};
+
+    [[nodiscard]] bool HasDedicatedComputeFamily() const;
+    [[nodiscard]] bool IsComplete(bool require_present) const;
+  };
+
   static Platform& GetInstance();
   ~Platform();
 
@@ -126,6 +141,7 @@ class Platform final {
      */
     struct QueueFamilyIndices {
       std::optional<uint32_t> graphics_and_compute_family{};
+      std::optional<uint32_t> compute_family{};
       std::optional<uint32_t> present_family{};
 
       /**
@@ -133,6 +149,7 @@ class Platform final {
        * @return True if both graphics and present families are specified.
        */
       [[nodiscard]] bool IsComplete() const;
+      [[nodiscard]] bool HasDedicatedComputeFamily() const;
     };
 
     /**
@@ -217,6 +234,9 @@ class Platform final {
   /// Queue used for primary rendering operations.
   std::unique_ptr<CommandQueue> main_queue_{};
 
+  /// Optional queue used for dedicated compute work when the device exposes an independent compute family.
+  std::unique_ptr<CommandQueue> compute_queue_{};
+
   /// Queue used for presenting frames to the screen.
   std::unique_ptr<CommandQueue> present_queue_{};
 
@@ -233,14 +253,16 @@ class Platform final {
 #pragma endregion
 
 #pragma region Internals
-  std::unique_ptr<CommandPool> command_pool_ = {};        ///< Command pool for Vulkan commands.
-  std::unique_ptr<DescriptorPool> descriptor_pool_ = {};  ///< Descriptor pool for Vulkan descriptors.
+  std::unique_ptr<CommandPool> command_pool_ = {};          ///< Command pool for Vulkan commands.
+  std::unique_ptr<CommandPool> compute_command_pool_ = {};  ///< Command pool for dedicated compute commands.
+  std::unique_ptr<DescriptorPool> descriptor_pool_ = {};    ///< Descriptor pool for Vulkan descriptors.
 
   int max_frame_in_flight_ = 2;  ///< Max number of frames in flight.
 
-  std::vector<std::shared_ptr<Semaphore>> image_available_semaphores_ = {};  ///< Semaphores for image availability.
-  std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};  ///< Semaphores for render finish.
-  std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};                ///< Fences for in-flight frames.
+  std::vector<std::shared_ptr<Semaphore>> image_available_semaphores_ = {};   ///< Semaphores for image availability.
+  std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};   ///< Semaphores for render finish.
+  std::vector<std::shared_ptr<Semaphore>> compute_finished_semaphores_ = {};  ///< Semaphores for compute finish.
+  std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};                 ///< Fences for in-flight frames.
 
   uint32_t current_frame_index_ = 0;  ///< Index of current frame being rendered.
 
@@ -311,6 +333,12 @@ class Platform final {
   /// Pool of command buffers categorized by usage.
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> command_buffer_pool_ = {};
 
+  /// Size of used dedicated compute command buffers.
+  int used_compute_command_buffer_size_ = 0;
+
+  /// Pool of command buffers allocated from the dedicated compute command pool.
+  std::vector<std::vector<std::shared_ptr<CommandBuffer>>> compute_command_buffer_pool_ = {};
+
   /// Map of named buffer synchronization actions.
   std::unordered_map<std::string, std::function<void()>> buffer_sync_actions{};
 
@@ -331,6 +359,7 @@ class Platform final {
     bool support_mesh_shader = true;
     bool support_ray_tracing = true;
     bool support_ray_tracing_validation = false;
+    bool support_async_compute = false;
     uint32_t subgroup_size = 1;
     uint32_t task_subgroup_count = 1;
     uint32_t task_work_group_invocations = 1;
@@ -349,6 +378,7 @@ class Platform final {
   [[nodiscard]] Capabilities& GetCapabilities();
   void RegisterShaderIncludePath(const std::filesystem::path& path);
   [[nodiscard]] const std::set<std::filesystem::path>& GetRegisteredShaderIncludePaths() const;
+  [[nodiscard]] static QueueFamilySelection SelectQueueFamilies(const std::vector<QueueFamilySupport>& queue_families);
 
   static bool RayTracingEnabled();
   static bool MeshShaderEnabled();
@@ -394,6 +424,13 @@ class Platform final {
    * @param action The action to record.
    */
   static void RecordCommandsMainQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
+
+  /**
+   * @brief Records commands for the dedicated compute queue, or the main queue when no dedicated queue is available.
+   *
+   * @param action The action to record.
+   */
+  static void RecordCommandsComputeQueue(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 
   /**
    * @brief Records render commands with specific rendering info.
@@ -536,6 +573,17 @@ class Platform final {
   static void EverythingBarrier(VkCommandBuffer vk_command_buffer);
 
   /**
+   * @brief Inserts a full pipeline memory barrier scoped to one buffer.
+   *
+   * @param vk_command_buffer Vulkan command buffer to record the barrier.
+   * @param buffer Buffer to synchronize.
+   */
+  static void BufferMemoryBarrier(VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                  uint32_t src_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+                                  uint32_t dst_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+                                  bool release_barrier = false);
+
+  /**
    * @brief Transits the layout of an image within a Vulkan command buffer.
    *
    * @param vk_command_buffer Vulkan command buffer to record the operation.
@@ -548,7 +596,9 @@ class Platform final {
    */
   static void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImage target_image, VkFormat image_format,
                                  uint32_t layer_count, VkImageLayout old_layout, VkImageLayout new_layout,
-                                 uint32_t mip_levels = 1);
+                                 uint32_t mip_levels = 1, uint32_t src_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+                                 uint32_t dst_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
+                                 bool release_barrier = false);
 
   /**
    * @brief Gets the global shader defines set during initialization.
@@ -642,6 +692,21 @@ class Platform final {
   static uint32_t GetGraphicsAndComputeQueueFamilyIndex();
 
   /**
+   * @brief Gets the selected compute queue family index.
+   */
+  static uint32_t GetComputeQueueFamilyIndex();
+
+  /**
+   * @brief Checks whether the selected device exposes an independent compute queue family.
+   */
+  static bool HasDedicatedComputeQueue();
+
+  /**
+   * @brief Gets unique queue families used by graphics and compute work.
+   */
+  static std::vector<uint32_t> GetGraphicsComputeQueueFamilyIndices();
+
+  /**
    * @brief Gets the index of the current frame being rendered.
    *
    * @return The current frame index.
@@ -663,11 +728,21 @@ class Platform final {
   static VkCommandPool GetVkCommandPool();
 
   /**
+   * @brief Gets the Vulkan command pool for compute commands, falling back to the graphics pool when queues are shared.
+   */
+  static VkCommandPool GetComputeVkCommandPool();
+
+  /**
    * @brief Gets the main command queue.
    *
    * @return A unique pointer to the main command queue.
    */
   static const std::unique_ptr<CommandQueue>& GetMainQueue();
+
+  /**
+   * @brief Gets the optional dedicated compute queue. Returns null when compute work shares the graphics queue.
+   */
+  static CommandQueue* TryGetDedicatedComputeQueue();
 
   /**
    * @brief Gets the immediate submit command queue.

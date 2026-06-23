@@ -13,7 +13,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True)
     parser.add_argument("--width", type=int, default=320)
     parser.add_argument("--height", type=int, default=240)
-    parser.add_argument("--warmup-frames", type=int, default=2)
+    parser.add_argument("--warmup-frames", type=int, default=60)
     return parser.parse_args()
 
 
@@ -45,6 +45,8 @@ def main() -> int:
     try:
         if not evoengine.RunDemoWindowless("Rendering", test_resources_root, True):
             raise RuntimeError("RunDemoWindowless failed")
+        if not evoengine.IsCurrentSceneDdgiEnabled():
+            raise RuntimeError("Rendering demo capture requires DDGI to be enabled")
         if not evoengine.CaptureCurrentScene(args.width, args.height, output, args.warmup_frames):
             raise RuntimeError("CaptureCurrentScene failed")
     finally:

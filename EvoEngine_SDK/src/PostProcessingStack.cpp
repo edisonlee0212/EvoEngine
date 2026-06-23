@@ -30,72 +30,37 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       !mix_pipeline || !mix_pipeline->Initialized())
     return;
 
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto mip_levels = post_processing_stack.result_texture->GetMipLevels();
   const auto base_extent = post_processing_stack.result_texture->GetColorImage()->GetExtent();
-  const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
+  const auto target_size = target_camera->GetSize();
+
+  {
+    VkDescriptorImageInfo image_info;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
+    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
+    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    image_info.imageView = post_processing_stack.result_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
+    copy_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+  }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-#pragma region Viewport and scissor
-    const auto target_size = target_camera->GetSize();
-    VkRect2D render_area;
-    render_area.offset = {0, 0};
-    render_area.extent.width = target_size.x;
-    render_area.extent.height = target_size.y;
-    VkViewport viewport;
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(target_size.x);
-    viewport.height = static_cast<float>(target_size.y);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor;
-    scissor.offset = {0, 0};
-    scissor.extent.width = target_size.x;
-    scissor.extent.height = target_size.y;
-#pragma endregion
-    GeometryStorage::BindVertices(vk_command_buffer);
-
-    std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-    VkRenderingInfo render_info2{};
-    render_info2.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    render_info2.renderArea = render_area;
-    render_info2.layerCount = 1;
-    render_info2.pDepthAttachment = VK_NULL_HANDLE;
-
-    // Input texture
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    // Attachments
     post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                                     VK_IMAGE_LAYOUT_GENERAL);
     post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                               VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.source_color_texture->AppendColorAttachmentInfos(
-        color_attachment_infos, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE);
-    post_processing_stack.result_texture->AppendColorAttachmentInfos(
-        color_attachment_infos, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE);
-    render_info2.colorAttachmentCount = color_attachment_infos.size();
-    render_info2.pColorAttachments = color_attachment_infos.data();
-
-    Platform::BeginRendering(vk_command_buffer, render_info2);
-    copy_pipeline->states.depth_test = false;
-    copy_pipeline->states.color_blend_attachment_states.clear();
-    copy_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
-    for (auto& i : copy_pipeline->states.color_blend_attachment_states) {
-      i.colorWriteMask =
-          VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-      i.blendEnable = VK_FALSE;
-    }
     copy_pipeline->Bind(vk_command_buffer);
-    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                     render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-    copy_pipeline->BindDescriptorSet(
-        vk_command_buffer, 1, target_camera->GetRenderTexture()->GetColorPresentDescriptorSet()->GetVkDescriptorSet());
-    copy_pipeline->states.view_port = viewport;
-    copy_pipeline->states.scissor = scissor;
-    mesh->DrawIndexed(vk_command_buffer, copy_pipeline->states, 1);
-    Platform::EndRendering(vk_command_buffer);
+    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
+    ComputePushConstant push_constant;
+    push_constant.resolution = target_size;
+    copy_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16), Platform::DivUp(target_size.y, 16));
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 
   downsampling_descriptor_set.clear();
@@ -113,52 +78,23 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       descriptor_image_info.imageLayout = post_processing_stack.result_texture->GetColorImage()->GetLayout();
       descriptor_image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
       current_descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
+      descriptor_image_info.imageView =
+          post_processing_stack.result_texture->GetColorImageView(target_mip_level)->GetVkImageView();
+      current_descriptor_set->UpdateImageDescriptorBinding(1, descriptor_image_info);
       const float mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, target_mip_level);
       const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, target_mip_level);
       if (mip_width < 1.f || mip_height < 1.f)
         continue;
       const auto mip_extent_width = static_cast<uint32_t>(mip_width);
       const auto mip_extent_height = static_cast<uint32_t>(mip_height);
-#pragma region Viewport and scissor
-      VkViewport viewport;
-      viewport.x = 0.0f;
-      viewport.y = 0.0f;
-      viewport.width = mip_width;
-      viewport.height = mip_height;
-      viewport.minDepth = 0.0f;
-      viewport.maxDepth = 1.0f;
-
-      VkRect2D scissor;
-      scissor.offset = {0, 0};
-      scissor.extent.width = mip_extent_width;
-      scissor.extent.height = mip_extent_height;
-      downsampling_pipeline->states.view_port = viewport;
-      downsampling_pipeline->states.scissor = scissor;
-#pragma endregion
-      GeometryStorage::BindVertices(vk_command_buffer);
-      post_processing_stack.result_texture->Render(
-          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE,
-          [&]() {
-            downsampling_pipeline->states.cull_mode = VK_CULL_MODE_NONE;
-            downsampling_pipeline->states.color_blend_attachment_states.clear();
-            downsampling_pipeline->states.color_blend_attachment_states.resize(1);
-            for (auto& i : downsampling_pipeline->states.color_blend_attachment_states) {
-              i.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-                                 VK_COLOR_COMPONENT_A_BIT;
-              i.blendEnable = VK_FALSE;
-            }
-            downsampling_pipeline->Bind(vk_command_buffer);
-            downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                     render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-            downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                     current_descriptor_set->GetVkDescriptorSet());
-            DownsamplingPushConstant push_constant;
-            push_constant.mip_level = target_mip_level - 1;
-            push_constant.source_resolution = {mip_width, mip_height};
-            downsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            mesh->DrawIndexed(vk_command_buffer, downsampling_pipeline->states, 1);
-          },
-          target_mip_level);
+      downsampling_pipeline->Bind(vk_command_buffer);
+      downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0, current_descriptor_set->GetVkDescriptorSet());
+      DownsamplingPushConstant push_constant;
+      push_constant.mip_level = target_mip_level - 1;
+      push_constant.source_resolution = {mip_width, mip_height};
+      downsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      downsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
+                                      Platform::DivUp(mip_extent_height, 16));
       Platform::EverythingBarrier(vk_command_buffer);
     }
   });
@@ -178,6 +114,9 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       descriptor_image_info.imageLayout = post_processing_stack.result_texture->GetColorImage()->GetLayout();
       descriptor_image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
       current_descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
+      descriptor_image_info.imageView =
+          post_processing_stack.result_texture->GetColorImageView(src_mip_level - 1)->GetVkImageView();
+      current_descriptor_set->UpdateImageDescriptorBinding(1, descriptor_image_info);
 
       const float prev_mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, src_mip_level);
       const float prev_mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, src_mip_level);
@@ -188,46 +127,14 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, src_mip_level - 1);
       const auto mip_extent_width = static_cast<uint32_t>(mip_width);
       const auto mip_extent_height = static_cast<uint32_t>(mip_height);
-
-#pragma region Viewport and scissor
-      VkViewport viewport;
-      viewport.x = 0.0f;
-      viewport.y = 0.0f;
-      viewport.width = mip_width;
-      viewport.height = mip_height;
-      viewport.minDepth = 0.0f;
-      viewport.maxDepth = 1.0f;
-
-      VkRect2D scissor;
-      scissor.offset = {0, 0};
-      scissor.extent.width = mip_extent_width;
-      scissor.extent.height = mip_extent_height;
-      upsampling_pipeline->states.view_port = viewport;
-      upsampling_pipeline->states.scissor = scissor;
-#pragma endregion
-      GeometryStorage::BindVertices(vk_command_buffer);
-      post_processing_stack.result_texture->Render(
-          vk_command_buffer, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE,
-          [&]() {
-            upsampling_pipeline->states.cull_mode = VK_CULL_MODE_NONE;
-            upsampling_pipeline->states.color_blend_attachment_states.clear();
-            upsampling_pipeline->states.color_blend_attachment_states.resize(1);
-            for (auto& i : upsampling_pipeline->states.color_blend_attachment_states) {
-              i.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-                                 VK_COLOR_COMPONENT_A_BIT;
-              i.blendEnable = VK_FALSE;
-            }
-            upsampling_pipeline->Bind(vk_command_buffer);
-            upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                   render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-            upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 1, current_descriptor_set->GetVkDescriptorSet());
-
-            UpsamplingPushConstant push_constant;
-            push_constant.filter_radius = filter_radius;
-            upsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            mesh->DrawIndexed(vk_command_buffer, upsampling_pipeline->states, 1);
-          },
-          src_mip_level - 1);
+      upsampling_pipeline->Bind(vk_command_buffer);
+      upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0, current_descriptor_set->GetVkDescriptorSet());
+      UpsamplingPushConstant push_constant;
+      push_constant.target_resolution = {mip_extent_width, mip_extent_height};
+      push_constant.filter_radius = filter_radius;
+      upsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      upsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
+                                    Platform::DivUp(mip_extent_height, 16));
       Platform::EverythingBarrier(vk_command_buffer);
     }
   });
@@ -241,103 +148,61 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     image_info.imageView = post_processing_stack.result_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
     mix_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
+    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
+    mix_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-#pragma region Viewport and scissor
-    const auto target_size = target_camera->GetSize();
-    VkRect2D render_area;
-    render_area.offset = {0, 0};
-    render_area.extent.width = target_size.x;
-    render_area.extent.height = target_size.y;
-    VkViewport viewport;
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(target_size.x);
-    viewport.height = static_cast<float>(target_size.y);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor;
-    scissor.offset = {0, 0};
-    scissor.extent.width = target_size.x;
-    scissor.extent.height = target_size.y;
-#pragma endregion
-    GeometryStorage::BindVertices(vk_command_buffer);
-
-    std::vector<VkRenderingAttachmentInfo> color_attachment_infos{};
-    VkRenderingInfo render_info2{};
-    render_info2.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    render_info2.renderArea = render_area;
-    render_info2.layerCount = 1;
-    render_info2.pDepthAttachment = VK_NULL_HANDLE;
-
-    // Input texture
-
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    // Attachments
     post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                                     VK_IMAGE_LAYOUT_GENERAL);
     post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                               VK_IMAGE_LAYOUT_GENERAL);
-
-    target_camera->GetRenderTexture()->AppendColorAttachmentInfos(
-        color_attachment_infos, VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE);
-    render_info2.colorAttachmentCount = color_attachment_infos.size();
-    render_info2.pColorAttachments = color_attachment_infos.data();
-    {
-      Platform::BeginRendering(vk_command_buffer, render_info2);
-      mix_pipeline->states.depth_test = false;
-      mix_pipeline->states.color_blend_attachment_states.clear();
-      mix_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
-      for (auto& i : mix_pipeline->states.color_blend_attachment_states) {
-        i.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        i.blendEnable = VK_FALSE;
-      }
-      mix_pipeline->Bind(vk_command_buffer);
-      mix_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                      render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-      mix_pipeline->BindDescriptorSet(vk_command_buffer, 1, mix_descriptor_set->GetVkDescriptorSet());
-      mix_pipeline->states.view_port = viewport;
-      mix_pipeline->states.scissor = scissor;
-      mesh->DrawIndexed(vk_command_buffer, mix_pipeline->states, 1);
-      Platform::EndRendering(vk_command_buffer);
-    }
+    mix_pipeline->Bind(vk_command_buffer);
+    mix_pipeline->BindDescriptorSet(vk_command_buffer, 0, mix_descriptor_set->GetVkDescriptorSet());
+    ComputePushConstant push_constant;
+    push_constant.resolution = target_size;
+    mix_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    mix_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16), Platform::DivUp(target_size.y, 16));
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 }
 
 void Bloom::BuildPipelines(const bool force_rebuild) {
   if (force_rebuild || !mix_layout) {
     mix_layout = std::make_shared<DescriptorSetLayout>();
-    mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    mix_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    mix_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    mix_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     mix_layout->Initialize();
   }
   if (force_rebuild || !mix_descriptor_set) {
     mix_descriptor_set = std::make_shared<DescriptorSet>(mix_layout);
   }
+  if (force_rebuild || !copy_layout) {
+    copy_layout = std::make_shared<DescriptorSetLayout>();
+    copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    copy_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    copy_layout->Initialize();
+  }
+  if (force_rebuild || !copy_descriptor_set) {
+    copy_descriptor_set = std::make_shared<DescriptorSet>(copy_layout);
+  }
   if (force_rebuild || !sampling_layout) {
     sampling_layout = std::make_shared<DescriptorSetLayout>();
-    sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
+    sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
                                            0);
+    sampling_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     sampling_layout->Initialize();
   }
   if (force_rebuild || !downsampling_pipeline) {
-    downsampling_pipeline = std::make_shared<GraphicsPipeline>();
-    downsampling_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-    downsampling_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.frag");
-
-    downsampling_pipeline->geometry_type = GeometryType::Mesh;
-    downsampling_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    downsampling_pipeline = std::make_shared<ComputePipeline>();
+    downsampling_pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomDownsampling.comp");
     downsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
-    downsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    downsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    downsampling_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
     auto& downsampling_push_constant_range = downsampling_pipeline->push_constant_ranges.emplace_back();
     downsampling_push_constant_range.size = sizeof(DownsamplingPushConstant);
     downsampling_push_constant_range.offset = 0;
@@ -345,20 +210,11 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
     downsampling_pipeline->Initialize();
   }
   if (force_rebuild || !upsampling_pipeline) {
-    upsampling_pipeline = std::make_shared<GraphicsPipeline>();
-    upsampling_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-    upsampling_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.frag");
-
-    upsampling_pipeline->geometry_type = GeometryType::Mesh;
-    upsampling_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    upsampling_pipeline = std::make_shared<ComputePipeline>();
+    upsampling_pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomUpsampling.comp");
     upsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
-    upsampling_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    upsampling_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    upsampling_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
     auto& upsampling_push_constant_range = upsampling_pipeline->push_constant_ranges.emplace_back();
     upsampling_push_constant_range.size = sizeof(UpsamplingPushConstant);
     upsampling_push_constant_range.offset = 0;
@@ -366,36 +222,27 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
     upsampling_pipeline->Initialize();
   }
   if (force_rebuild || !copy_pipeline) {
-    copy_pipeline = std::make_shared<GraphicsPipeline>();
-    copy_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-    copy_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomCopy.frag");
-    copy_pipeline->geometry_type = GeometryType::Mesh;
-    copy_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
-    copy_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
-    copy_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    copy_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    copy_pipeline->color_attachment_formats = {2, Platform::Constants::render_texture_color};
+    copy_pipeline = std::make_shared<ComputePipeline>();
+    copy_pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomCopy.comp");
+    copy_pipeline->descriptor_set_layouts.emplace_back(copy_layout);
+    auto& copy_push_constant_range = copy_pipeline->push_constant_ranges.emplace_back();
+    copy_push_constant_range.size = sizeof(ComputePushConstant);
+    copy_push_constant_range.offset = 0;
+    copy_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     copy_pipeline->Initialize();
   }
   if (force_rebuild || !mix_pipeline) {
-    mix_pipeline = std::make_shared<GraphicsPipeline>();
-    mix_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-    mix_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/PostProcessing/BloomMix.frag");
-    mix_pipeline->geometry_type = GeometryType::Mesh;
-    mix_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    mix_pipeline = std::make_shared<ComputePipeline>();
+    mix_pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomMix.comp");
     mix_pipeline->descriptor_set_layouts.emplace_back(mix_layout);
-    mix_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    mix_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    mix_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    auto& mix_push_constant_range = mix_pipeline->push_constant_ranges.emplace_back();
+    mix_push_constant_range.size = sizeof(ComputePushConstant);
+    mix_push_constant_range.offset = 0;
+    mix_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     mix_pipeline->Initialize();
   }
 }
@@ -417,7 +264,8 @@ void PostProcessingStack::Resize(const glm::uvec2& size) {
 void PostProcessingStack::OnCreate() {
   if (!blur_layout) {
     blur_layout = std::make_shared<DescriptorSetLayout>();
-    blur_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    blur_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    blur_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     blur_layout->Initialize();
   }
 
@@ -480,7 +328,8 @@ bool PostProcessingStack::BuildNextPipeline() {
   return false;
 }
 
-void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) {
+void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
+                                  const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process) {
   if (!target_camera) {
     return;
   }
@@ -494,6 +343,9 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
     image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
     blur_horizontal_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
+    blur_horizontal_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   {
     VkDescriptorImageInfo image_info;
@@ -501,6 +353,12 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera) 
     image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
     blur_vertical_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
+    blur_vertical_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  }
+  if (pre_process) {
+    Platform::RecordCommandsMainQueue(pre_process);
   }
 
   if (enable_screen_space_ambient_occlusion) {
@@ -524,17 +382,10 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
   };
   if (!blur_pipeline) {
-    blur_pipeline = std::make_shared<GraphicsPipeline>();
-    blur_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-    blur_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
-                                                          "Shaders/Graphics/Fragment/PostProcessing/Blur.frag");
-    blur_pipeline->geometry_type = GeometryType::Mesh;
+    blur_pipeline = std::make_shared<ComputePipeline>();
+    blur_pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/Blur.comp");
     blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);
-    blur_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    blur_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    blur_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
     auto& ssr_blur_pipeline_push_constant_range = blur_pipeline->push_constant_ranges.emplace_back();
     ssr_blur_pipeline_push_constant_range.size = sizeof(PushConstant);
     ssr_blur_pipeline_push_constant_range.offset = 0;
@@ -542,88 +393,23 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
     blur_pipeline->Initialize();
   }
 
-  const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
-
   PushConstant push_constant{};
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-#pragma region Viewport and scissor
-    VkRect2D render_area;
-    render_area.offset = {0, 0};
-    render_area.extent.width = size.x;
-    render_area.extent.height = size.y;
-    VkViewport viewport;
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(size.x);
-    viewport.height = static_cast<float>(size.y);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor;
-    scissor.offset = {0, 0};
-    scissor.extent.width = size.x;
-    scissor.extent.height = size.y;
-#pragma endregion
-    GeometryStorage::BindVertices(vk_command_buffer);
-    std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
-    color_attachment_infos.clear();
-    VkRenderingInfo render_info2{};
-    render_info2.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    render_info2.renderArea = render_area;
-    render_info2.layerCount = 1;
-    render_info2.pDepthAttachment = VK_NULL_HANDLE;
     result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 
-    swap_texture->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                             VK_ATTACHMENT_STORE_OP_STORE);
-    render_info2.colorAttachmentCount = color_attachment_infos.size();
-    render_info2.pColorAttachments = color_attachment_infos.data();
+    blur_pipeline->Bind(vk_command_buffer);
+    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_horizontal_descriptor_set->GetVkDescriptorSet());
+    push_constant.horizontal = true;
+    blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
+    Platform::EverythingBarrier(vk_command_buffer);
 
-    {
-      Platform::BeginRendering(vk_command_buffer, render_info2);
-      blur_pipeline->states.depth_test = false;
-      blur_pipeline->states.color_blend_attachment_states.clear();
-      blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
-      for (auto& i : blur_pipeline->states.color_blend_attachment_states) {
-        i.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        i.blendEnable = VK_FALSE;
-      }
-      blur_pipeline->Bind(vk_command_buffer);
-      blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_horizontal_descriptor_set->GetVkDescriptorSet());
-      blur_pipeline->states.view_port = viewport;
-      blur_pipeline->states.scissor = scissor;
-      push_constant.horizontal = true;
-      blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      mesh->DrawIndexed(vk_command_buffer, blur_pipeline->states, 1);
-      Platform::EndRendering(vk_command_buffer);
-    }
-
-    color_attachment_infos.clear();
-    result_texture->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                               VK_ATTACHMENT_STORE_OP_STORE);
-    render_info2.colorAttachmentCount = color_attachment_infos.size();
-    render_info2.pColorAttachments = color_attachment_infos.data();
-    {
-      Platform::BeginRendering(vk_command_buffer, render_info2);
-      blur_pipeline->states.depth_test = false;
-      blur_pipeline->states.color_blend_attachment_states.clear();
-      blur_pipeline->states.color_blend_attachment_states.resize(color_attachment_infos.size());
-      for (auto& i : blur_pipeline->states.color_blend_attachment_states) {
-        i.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        i.blendEnable = VK_FALSE;
-      }
-      blur_pipeline->Bind(vk_command_buffer);
-      blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_vertical_descriptor_set->GetVkDescriptorSet());
-      blur_pipeline->states.view_port = viewport;
-      blur_pipeline->states.scissor = scissor;
-      push_constant.horizontal = false;
-      blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      mesh->DrawIndexed(vk_command_buffer, blur_pipeline->states, 1);
-      Platform::EndRendering(vk_command_buffer);
-    }
+    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_vertical_descriptor_set->GetVkDescriptorSet());
+    push_constant.horizontal = false;
+    blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
+    Platform::EverythingBarrier(vk_command_buffer);
   });
 }

@@ -160,6 +160,36 @@ void ApplyProjectEditorState(const std::filesystem::path& path,
   }
 }
 
+bool ProjectStateHasUsableEditorDockLayout(const YAML::Node& in) {
+  const auto editor_state = in["EditorLayer"];
+  if (!editor_state || !editor_state.IsMap()) {
+    return false;
+  }
+  try {
+    const auto imgui_ini = editor_state["ImGuiIni"];
+    if (!imgui_ini || !imgui_ini.IsScalar()) {
+      return false;
+    }
+    return EditorLayer::HasUsableImGuiDockLayout(imgui_ini.as<std::string>());
+  } catch (const std::exception&) {
+    return false;
+  }
+}
+
+void RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(const YAML::Node& project_state) {
+  if (ProjectStateHasUsableEditorDockLayout(project_state)) {
+    return;
+  }
+  const auto application = ApplicationContext::TryGet();
+  if (!application) {
+    return;
+  }
+  const auto editor_layer = application->GetLayer<EditorLayer>();
+  if (editor_layer) {
+    editor_layer->RequestDefaultEditorLayout();
+  }
+}
+
 std::filesystem::path NormalizePathForContainment(const std::filesystem::path& path) {
   std::error_code error;
   auto normalized = std::filesystem::weakly_canonical(path, error);
@@ -439,6 +469,7 @@ void ProjectManager::SetupDefaultScene() {
     YAML::Node in = YAML::Load(string_stream.str());
     LogLoadingDuration("Project manifest read", project_file_read_start, project_absolute_path.filename().string());
     const uint64_t scene_handle = ReadStartSceneHandle(in);
+    RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(in);
     if (scene_handle != 0) {
       project_manager.loading_status_ = "Loading start scene asset...";
       const auto scene_load_start = LoadingClock::now();
@@ -466,6 +497,8 @@ void ProjectManager::SetupDefaultScene() {
       TransformGraph::CalculateTransformGraphs(scene);
       LogLoadingDuration("Scene transform graph sync", transform_start);
     }
+  } else {
+    RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(YAML::Node());
   }
   if (!found_scene) {
     project_manager.loading_status_ = "Creating start scene...";
@@ -673,13 +706,6 @@ void ProjectManager::LoadAllPendingAssets() {
 
 void ProjectManager::SaveProject() {
   const auto& project_manager = GetInstance();
-  if (project_manager.project_path_.empty() || !project_manager.start_scene_) {
-    return;
-  }
-  if (const auto active_scene = ApplicationContext::Get().GetActiveScene();
-      active_scene && !active_scene->IsTemporary()) {
-    active_scene->Save();
-  }
   WriteProjectFile(project_manager.project_path_, project_manager.project_launch_metadata_,
                    static_cast<uint64_t>(project_manager.start_scene_->GetHandle()));
 }

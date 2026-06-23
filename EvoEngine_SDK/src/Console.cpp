@@ -150,8 +150,9 @@ void Console::PushMessage(const ConsoleMessageType type, const std::string& msg)
     return;
   }
 
-  const double time = ApplicationContext::Get().GetTimes().Now();
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  const auto application = ApplicationContext::TryGet();
+  const double time = application ? application->GetTimes().Now() : 0.0;
+  const auto editor_layer = application ? application->GetLayer<EditorLayer>() : nullptr;
   std::lock_guard pending_lock(PendingConsoleMessageMutex());
   if (!editor_layer) {
     PendingConsoleMessages().push_back({type, msg, time});

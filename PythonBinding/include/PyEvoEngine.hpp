@@ -136,6 +136,11 @@ class PyEvoEngine {
   static bool CaptureCurrentScene(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
                                   int warmup_frames = 1);
   /**
+   * @brief Check whether the active scene is configured to render with DDGI.
+   * @return True when DDGI runtime is enabled, indirect rendering is enabled, and an enabled DDGI volume exists.
+   */
+  static bool IsCurrentSceneDdgiEnabled();
+  /**
    * @brief Start application with a project.
    * @param project_path The path to the target project to load.
    */

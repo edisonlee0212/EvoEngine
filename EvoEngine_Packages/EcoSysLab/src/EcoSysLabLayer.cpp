@@ -495,81 +495,23 @@ void EcoSysLabLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         ImGui::EndChild();
       }
       visualization_camera_mouse_position = glm::vec2(FLT_MAX, -FLT_MAX);
-      auto scene_camera_rotation = editor_layer->GetSceneCameraRotation();
-      auto scene_camera_position = editor_layer->GetSceneCameraPosition();
       if (ImGui::IsWindowFocused()) {
         visualization_camera_window_focused_ = true;
-        bool valid = true;
         auto mp = ImGui::GetMousePos();
         auto wp = ImGui::GetWindowPos();
         visualization_camera_mouse_position = glm::vec2(mp.x - wp.x, mp.y - wp.y);
-        if (valid) {
-          static bool is_dragging_previously = false;
-          bool mouse_drag = true;
-          if (visualization_camera_mouse_position.x < 0 || visualization_camera_mouse_position.y < 0 ||
-              visualization_camera_mouse_position.x > view_port_size.x ||
-              visualization_camera_mouse_position.y > view_port_size.y ||
-              EditorLayer::GetKey(GLFW_MOUSE_BUTTON_RIGHT) != Input::KeyActionType::Hold) {
-            mouse_drag = false;
-          }
-          static float prev_x = 0;
-          static float prev_y = 0;
-          if (mouse_drag && !is_dragging_previously) {
-            prev_x = visualization_camera_mouse_position.x;
-            prev_y = visualization_camera_mouse_position.y;
-          }
-          const float x_offset = visualization_camera_mouse_position.x - prev_x;
-          const float y_offset = visualization_camera_mouse_position.y - prev_y;
-          prev_x = visualization_camera_mouse_position.x;
-          prev_y = visualization_camera_mouse_position.y;
-          is_dragging_previously = mouse_drag;
-#pragma region Scene Camera Controller
-          if (mouse_drag && !editor_layer->lock_camera) {
-            glm::vec3 front = scene_camera_rotation * glm::vec3(0, 0, -1);
-            glm::vec3 right = scene_camera_rotation * glm::vec3(1, 0, 0);
-            if (EditorLayer::GetKey(GLFW_KEY_W) == Input::KeyActionType::Hold) {
-              scene_camera_position +=
-                  front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
-            }
-            if (EditorLayer::GetKey(GLFW_KEY_S) == Input::KeyActionType::Hold) {
-              scene_camera_position -=
-                  front * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
-            }
-            if (EditorLayer::GetKey(GLFW_KEY_A) == Input::KeyActionType::Hold) {
-              scene_camera_position -=
-                  right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
-            }
-            if (EditorLayer::GetKey(GLFW_KEY_D) == Input::KeyActionType::Hold) {
-              scene_camera_position +=
-                  right * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * editor_layer->velocity;
-            }
-            if (EditorLayer::GetKey(GLFW_KEY_LEFT_SHIFT) == Input::KeyActionType::Hold) {
-              scene_camera_position.y +=
-                  editor_layer->velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
-            }
-            if (EditorLayer::GetKey(GLFW_KEY_LEFT_CONTROL) == Input::KeyActionType::Hold) {
-              scene_camera_position.y -=
-                  editor_layer->velocity * static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
-            }
-            if (x_offset != 0.0f || y_offset != 0.0f) {
-              front = glm::rotate(front, glm::radians(-x_offset * editor_layer->sensitivity), glm::vec3(0, 1, 0));
-              const glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
-              if ((front.y < 0.99f && y_offset < 0.0f) || (front.y > -0.99f && y_offset > 0.0f)) {
-                front = glm::rotate(front, glm::radians(-y_offset * editor_layer->sensitivity), right);
-              }
-              const glm::vec3 up = glm::normalize(glm::cross(right, front));
-              scene_camera_rotation = glm::quatLookAt(front, up);
-            }
-            editor_layer->SetSceneCameraRotation(scene_camera_rotation);
-            editor_layer->SetSceneCameraPosition(scene_camera_position);
-          }
-#pragma endregion
-        }
       } else {
         visualization_camera_window_focused_ = false;
       }
-      editor_layer->RefEditorCameraRotation(visualization_camera_->GetHandle()) = scene_camera_rotation;
-      editor_layer->RefEditorCameraPosition(visualization_camera_->GetHandle()) = scene_camera_position;
+      if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+        editor_layer->ApplyEditorCameraFreeFlyControl(
+            scene_camera->GetHandle(), visualization_camera_free_fly_state_, visualization_camera_mouse_position,
+            {view_port_size.x, view_port_size.y}, visualization_camera_window_focused_);
+        editor_layer->RefEditorCameraRotation(visualization_camera_->GetHandle()) =
+            editor_layer->GetSceneCameraRotation();
+        editor_layer->RefEditorCameraPosition(visualization_camera_->GetHandle()) =
+            editor_layer->GetSceneCameraPosition();
+      }
     }
     ImGui::EndChild();
     auto* window = ImGui::FindWindowByName("Plant Visual");

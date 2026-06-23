@@ -46,12 +46,6 @@ class Input final {
 
   std::unordered_map<int, KeyActionType> pressed_keys_ = {}; /**< Stores the state of keys pressed. */
   glm::vec2 mouse_position_ = glm::vec2(0.0f);               /**< Stores the current mouse position. */
-  glm::vec2 saved_cursor_position_ = glm::vec2(0.0f);        /**< Cursor position to restore after capture. */
-  bool cursor_captured_ = false;                             /**< Indicates whether the cursor is hidden/locked. */
-  bool right_mouse_cursor_capture_ = false;                  /**< Right mouse requested cursor capture. */
-  bool middle_mouse_cursor_capture_ = false;                 /**< Middle mouse requested cursor capture. */
-  bool scene_camera_cursor_capture_ = false;                 /**< Scene viewport owns the current cursor capture. */
-  bool main_camera_cursor_capture_ = false; /**< Main camera viewport owns the current cursor capture. */
 
   /**
    * @brief Callback function to handle keyboard events.

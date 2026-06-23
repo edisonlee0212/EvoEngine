@@ -9,6 +9,7 @@
 #include "AssetRef.hpp"
 #include "Camera.hpp"
 #include "Cubemap.hpp"
+#include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
 #include "Input.hpp"
@@ -65,6 +66,13 @@ using namespace evo_engine;
 
 namespace {
 constexpr auto kMainThreadAssetTaskFrameBudget = std::chrono::milliseconds(2);
+
+glm::vec3 DeserializeDdgiProbeSpacing(const YAML::Node& in) {
+  if (in.IsSequence()) {
+    return in.as<glm::vec3>();
+  }
+  return glm::vec3(in.as<float>());
+}
 
 void AddUniqueStartupPackage(ApplicationInitializationSettings& settings, const std::string& package_name) {
   if (!package_name.empty() &&
@@ -1013,6 +1021,70 @@ void DeserializeDirectionalLight(const YAML::Node& in, DirectionalLight& light) 
   light.normal_offset = in["normal_offset"].as<float>();
 }
 
+void SerializeDdgiVolume(YAML::Emitter& out, const DdgiVolume& volume) {
+  out << YAML::Key << "probe_counts" << YAML::Value << volume.probe_counts;
+  out << YAML::Key << "probe_spacing" << YAML::Value << volume.probe_spacing;
+  out << YAML::Key << "volume_origin" << YAML::Value << volume.volume_origin;
+  out << YAML::Key << "movement_type" << YAML::Value << volume.movement_type;
+  out << YAML::Key << "enable_probe_relocation" << YAML::Value << volume.enable_probe_relocation;
+  out << YAML::Key << "enable_probe_classification" << YAML::Value << volume.enable_probe_classification;
+  out << YAML::Key << "enable_probe_variability" << YAML::Value << volume.enable_probe_variability;
+  out << YAML::Key << "enable_probe_variability_gating" << YAML::Value << volume.enable_probe_variability_gating;
+  out << YAML::Key << "relocation_distance" << YAML::Value << volume.relocation_distance;
+  out << YAML::Key << "random_ray_backface_threshold" << YAML::Value << volume.random_ray_backface_threshold;
+  out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << volume.fixed_ray_backface_threshold;
+  out << YAML::Key << "probe_variability_threshold" << YAML::Value << volume.probe_variability_threshold;
+  out << YAML::Key << "probe_variability_min_samples" << YAML::Value << volume.probe_variability_min_samples;
+  out << YAML::Key << "visualize_bounds" << YAML::Value << volume.visualize_bounds;
+  out << YAML::Key << "visualize_probe_positions" << YAML::Value << volume.visualize_probe_positions;
+  out << YAML::Key << "max_visualized_probes" << YAML::Value << volume.max_visualized_probes;
+  out << YAML::Key << "probe_visualization_size" << YAML::Value << volume.probe_visualization_size;
+}
+
+void DeserializeDdgiVolume(const YAML::Node& in, DdgiVolume& volume) {
+  if (in["probe_counts"])
+    volume.probe_counts = in["probe_counts"].as<glm::ivec3>();
+  if (in["probe_spacing"])
+    volume.probe_spacing = DeserializeDdgiProbeSpacing(in["probe_spacing"]);
+  if (in["volume_origin"])
+    volume.volume_origin = in["volume_origin"].as<glm::vec3>();
+  else if (in["probe_offset"])
+    volume.volume_origin =
+        in["probe_offset"].as<glm::vec3>() +
+        glm::vec3(glm::clamp(volume.probe_counts.x, 1, 256) - 1, glm::clamp(volume.probe_counts.y, 1, 256) - 1,
+                  glm::clamp(volume.probe_counts.z, 1, 256) - 1) *
+            (glm::clamp(volume.probe_spacing, glm::vec3(0.05f), glm::vec3(10000.0f)) * 0.5f);
+  if (in["movement_type"])
+    volume.movement_type = in["movement_type"].as<int>();
+  if (in["enable_probe_relocation"])
+    volume.enable_probe_relocation = in["enable_probe_relocation"].as<bool>();
+  if (in["enable_probe_classification"])
+    volume.enable_probe_classification = in["enable_probe_classification"].as<bool>();
+  if (in["enable_probe_variability"])
+    volume.enable_probe_variability = in["enable_probe_variability"].as<bool>();
+  if (in["enable_probe_variability_gating"])
+    volume.enable_probe_variability_gating = in["enable_probe_variability_gating"].as<bool>();
+  if (in["relocation_distance"])
+    volume.relocation_distance = in["relocation_distance"].as<float>();
+  if (in["random_ray_backface_threshold"])
+    volume.random_ray_backface_threshold = in["random_ray_backface_threshold"].as<float>();
+  if (in["fixed_ray_backface_threshold"])
+    volume.fixed_ray_backface_threshold = in["fixed_ray_backface_threshold"].as<float>();
+  if (in["probe_variability_threshold"])
+    volume.probe_variability_threshold = in["probe_variability_threshold"].as<float>();
+  if (in["probe_variability_min_samples"])
+    volume.probe_variability_min_samples = in["probe_variability_min_samples"].as<int>();
+  if (in["visualize_bounds"])
+    volume.visualize_bounds = in["visualize_bounds"].as<bool>();
+  if (in["visualize_probe_positions"])
+    volume.visualize_probe_positions = in["visualize_probe_positions"].as<bool>();
+  if (in["max_visualized_probes"])
+    volume.max_visualized_probes = in["max_visualized_probes"].as<int>();
+  if (in["probe_visualization_size"])
+    volume.probe_visualization_size = in["probe_visualization_size"].as<float>();
+  volume.ClampSettings();
+}
+
 void SerializePointCloudScanner(YAML::Emitter&, const PointCloudScanner&) {
 }
 
@@ -1203,6 +1275,7 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<PointLight>(SerializePointLight, DeserializePointLight, {}, "PointLight");
   Serialization::RegisterSerializationHandler<DirectionalLight>(SerializeDirectionalLight, DeserializeDirectionalLight,
                                                                 {}, "DirectionalLight");
+  Serialization::RegisterSerializationHandler<DdgiVolume>(SerializeDdgiVolume, DeserializeDdgiVolume, {}, "DdgiVolume");
   Serialization::RegisterSerializationHandler<PointCloudScanner>(SerializePointCloudScanner,
                                                                  DeserializePointCloudScanner, {}, "PointCloudScanner");
   Serialization::RegisterSerializationHandler<PlayerController>(SerializePlayerController, DeserializePlayerController,
@@ -1524,6 +1597,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterPrivateComponent<PointLight>("PointLight");
   RegisterPrivateComponent<SpotLight>("SpotLight");
   RegisterPrivateComponent<DirectionalLight>("DirectionalLight");
+  RegisterPrivateComponent<DdgiVolume>("DdgiVolume");
   RegisterPrivateComponent<WayPoints>("WayPoints");
   RegisterWayPointsHandlers();
   RegisterPrivateComponent<LodGroup>("LodGroup");

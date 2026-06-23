@@ -46,7 +46,8 @@ void main()
 	vec3 F0 = vec3(0.04f); 
 	F0 = mix(F0, albedo.xyz, metallic);
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
-	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0);
+	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0) +
+	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.xyz, normal, viewDir, fragPos);
 	vec3 outputColor = result + emission * normalize(albedo.xyz) + ambient * ao;
 
 	float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);

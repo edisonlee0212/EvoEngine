@@ -14,7 +14,7 @@ void GraphicsPipeline::Initialize() {
   }
   VkPipelineInputAssemblyStateCreateInfo input_assembly{};
   input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  input_assembly.topology = primitive_topology;
   input_assembly.primitiveRestartEnable = VK_FALSE;
   std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
   if (vertex_shader && vertex_shader->GetShaderType() == ShaderType::Vertex) {
@@ -141,12 +141,14 @@ void GraphicsPipeline::Initialize() {
 
   VkPipelineVertexInputStateCreateInfo vertex_input_info{};
   vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  auto& binding_description = IGeometry::GetVertexBindingDescriptions(geometry_type);
-  auto& attribute_descriptions = IGeometry::GetVertexAttributeDescriptions(geometry_type);
-  vertex_input_info.vertexBindingDescriptionCount = static_cast<uint32_t>(binding_description.size());
-  vertex_input_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_descriptions.size());
-  vertex_input_info.pVertexBindingDescriptions = binding_description.data();
-  vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions.data();
+  const auto* binding_description = &IGeometry::GetVertexBindingDescriptions(geometry_type);
+  const auto* attribute_descriptions = &IGeometry::GetVertexAttributeDescriptions(geometry_type);
+  if (vertex_input_enabled) {
+    vertex_input_info.vertexBindingDescriptionCount = static_cast<uint32_t>(binding_description->size());
+    vertex_input_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_descriptions->size());
+    vertex_input_info.pVertexBindingDescriptions = binding_description->data();
+    vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions->data();
+  }
 
   VkPipelineViewportStateCreateInfo viewport_state{};
   viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;

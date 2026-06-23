@@ -40,7 +40,7 @@ class TempDemoResources {
 };
 }  // namespace
 
-TEST(DemoScene, ClearGeneratedDemoProjectFilesPreservesMetadata) {
+TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadata) {
   TempDemoResources resources;
   resources.WriteFile("EvoEngine-DemoProjects/Rendering/Rendering.eveproj");
   resources.WriteFile("EvoEngine-DemoProjects/Rendering/Assets/New Scene.evescene");
@@ -56,12 +56,12 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesPreservesMetadata) {
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj"));
   EXPECT_FALSE(
       std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Assets/New Scene.evescene"));
+  EXPECT_FALSE(std::filesystem::exists(resources.RootPath() /
+                                       "EvoEngine-DemoProjects/Rendering/Assets/Texture.png.evefilemeta"));
+  EXPECT_FALSE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Assets/Folder.evefoldermeta"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.uescene"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.ueproj"));
-  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() /
-                                      "EvoEngine-DemoProjects/Rendering/Assets/Texture.png.evefilemeta"));
-  EXPECT_TRUE(
-      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Assets/Folder.evefoldermeta"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.umeta"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.ufmeta"));
 }

@@ -33,13 +33,21 @@ bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRen
     return true;
   if (polygon_mode != other.polygon_mode)
     return true;
+  if (ddgi_geometry.bottom_level_acceleration_structure != other.ddgi_geometry.bottom_level_acceleration_structure)
+    return true;
+  if (ddgi_geometry.triangle_offset != other.ddgi_geometry.triangle_offset)
+    return true;
   return false;
+}
+
+bool RenderInstanceStorage::ExternalRenderInstance::HasDdgiRayTracingGeometry() const {
+  return ddgi_geometry.IsValid();
 }
 
 void RenderInstanceStorage::ExternalRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
-  instance_info_block.triangle_offset = 0;
+  instance_info_block.triangle_offset = HasDdgiRayTracingGeometry() ? ddgi_geometry.triangle_offset : 0;
   instance_info_block.meshlet_index_offset = 0;
   instance_info_block.meshlet_size = 0;
   instance_info_block.info_index = entity_selected ? 1 : 0;
@@ -298,6 +306,15 @@ void RenderInstanceStorage::ExternalRenderInstanceCollection::ForEachRenderInsta
   }
 }
 
+bool RenderInstanceStorage::ExternalRenderInstanceCollection::HasDdgiRayTracingGeometry() const {
+  for (const auto& render_command : render_commands) {
+    if (render_command && render_command->HasDdgiRayTracingGeometry()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool RenderInstanceStorage::MeshRenderInstanceCollection::operator!=(const MeshRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
     return true;
@@ -437,6 +454,8 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
 
   if (seam_fix_ratio != other.seam_fix_ratio)
     return true;
+  if (ddgi_indirect_intensity != other.ddgi_indirect_intensity)
+    return true;
 
   if (strands_subdivision_x_factor != other.strands_subdivision_x_factor)
     return true;
@@ -457,6 +476,24 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
     return true;
 
   if (debug_visualization != other.debug_visualization)
+    return true;
+  if (ddgi_first_probe != other.ddgi_first_probe)
+    return true;
+  if (ddgi_probe_step_x != other.ddgi_probe_step_x)
+    return true;
+  if (ddgi_probe_step_y != other.ddgi_probe_step_y)
+    return true;
+  if (ddgi_probe_step_z != other.ddgi_probe_step_z)
+    return true;
+  if (ddgi_probe_counts != other.ddgi_probe_counts)
+    return true;
+  if (ddgi_probe_scroll_offset != other.ddgi_probe_scroll_offset)
+    return true;
+  if (ddgi_atlas_parameters != other.ddgi_atlas_parameters)
+    return true;
+  if (ddgi_volume_parameters != other.ddgi_volume_parameters)
+    return true;
+  if (ddgi_sampling_parameters != other.ddgi_sampling_parameters)
     return true;
 
   return false;
@@ -528,6 +565,7 @@ void RenderInstanceStorage::MaterialInfoBlock::Apply(const std::shared_ptr<Mater
     ao_texture_index = -1;
   }
   cast_shadow = true;
+  cull_mode = static_cast<int>(target_material->draw_settings.cull_mode);
   subsurface_color = {target_material->material_properties.subsurface_color, 0.0f};
   subsurface_radius = {target_material->material_properties.subsurface_radius, 0.0f};
   albedo_color_val = glm::vec4(
@@ -556,6 +594,8 @@ bool RenderInstanceStorage::MaterialInfoBlock::operator!=(const MaterialInfoBloc
   if (receive_shadow != other.receive_shadow)
     return true;
   if (enable_shadow != other.enable_shadow)
+    return true;
+  if (cull_mode != other.cull_mode)
     return true;
 
   if (albedo_color_val != other.albedo_color_val)
@@ -1390,6 +1430,13 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
 bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
                                                    const Handle& renderer_handle,
                                                    const std::shared_ptr<Material>& material, int* out_material_index) {
+  return RegisterRenderInstance(target_scene, entity, renderer_handle, material, {}, out_material_index);
+}
+
+bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
+                                                   const Handle& renderer_handle,
+                                                   const std::shared_ptr<Material>& material,
+                                                   const DdgiExternalGeometry& ddgi_geometry, int* out_material_index) {
   if (!material)
     return false;
   const auto gt = target_scene->GetDataComponent<GlobalTransform>(entity);
@@ -1403,8 +1450,8 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
   render_instance->renderer_handle = renderer_handle;
   render_instance->material = material;
   render_instance->cast_shadow = false;
-  // No need to update this render instance because we do not use this for ray tracer.
-  render_instance->geometry_version = 0;
+  render_instance->ddgi_geometry = ddgi_geometry;
+  render_instance->geometry_version = ddgi_geometry.IsValid() ? ddgi_geometry.geometry_version : 0;
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(entity);
@@ -1448,8 +1495,15 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  if (!deferred_render_instances->Empty()) {
-    mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
+  mesh_top_level_acceleration_structure.reset();
+  if (!deferred_render_instances->Empty() || !deferred_instanced_render_instances->Empty() ||
+      !forward_render_instances->Empty() || !forward_instanced_render_instances->Empty() ||
+      !transparent_render_instances->Empty() || !transparent_instanced_render_instances->Empty() ||
+      external_render_instances->HasDdgiRayTracingGeometry()) {
+    auto acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
+    if (acceleration_structure->GetVkAccelerationStructure() != VK_NULL_HANDLE) {
+      mesh_top_level_acceleration_structure = acceleration_structure;
+    }
   }
 }
 
