@@ -1,0 +1,98 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "PerFrame.glsl"
+#include "VolumetricClouds.glsl"
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 1, binding = 0) uniform sampler2D inDepth;
+layout(set = 1, binding = 1, rgba32f) uniform image2D inOutColor;
+layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D outCloudAccumulation;
+layout(set = 1, binding = 3, r16f) uniform writeonly image2D outCloudTransmittance;
+
+layout(push_constant) uniform EE_VOLUMETRIC_CLOUD_CONSTANTS {
+  vec4 altitudeCoverageDensity;
+  vec4 windTime;
+  vec4 lightingPhaseMaxDistance;
+  ivec4 cameraFrameSteps;
+  ivec4 flags;
+};
+
+VolumetricCloudSettingsGpu EE_BUILD_VOLUMETRIC_CLOUD_SETTINGS() {
+  VolumetricCloudSettingsGpu settings;
+  settings.enabled = flags.x;
+  settings.coverage = altitudeCoverageDensity.z;
+  settings.density = altitudeCoverageDensity.w;
+  settings.bottom_altitude = altitudeCoverageDensity.x;
+  settings.top_altitude = altitudeCoverageDensity.y;
+  settings.wind_direction = windTime.xy;
+  settings.wind_speed = windTime.z;
+  settings.primary_step_count = cameraFrameSteps.z;
+  settings.light_step_count = cameraFrameSteps.w;
+  settings.lighting_intensity = lightingPhaseMaxDistance.x;
+  settings.ambient_lighting_strength = lightingPhaseMaxDistance.y;
+  settings.phase_anisotropy = lightingPhaseMaxDistance.z;
+  settings.debug_mode = flags.y != 0 ? flags.z : 0;
+  return settings;
+}
+
+vec3 EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(in int camera_index, in vec2 tex_coord) {
+  vec3 camera_position = EE_CAMERA_POSITION(camera_index);
+  vec3 far_world = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, 1.0f);
+  return normalize(far_world - camera_position);
+}
+
+float EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(in int camera_index, in vec2 tex_coord, in vec3 ray_origin,
+                                         in vec3 ray_direction, in float max_distance) {
+  float ndc_depth = texture(inDepth, tex_coord).r;
+  if (ndc_depth >= 0.999999f) {
+    return max_distance;
+  }
+  vec3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, ndc_depth);
+  return clamp(dot(world_position - ray_origin, ray_direction), 0.0f, max_distance);
+}
+
+void EE_VOLUMETRIC_CLOUD_SUN_LIGHT(out vec3 sun_direction, out vec3 sun_radiance, out vec3 ambient_radiance) {
+  ambient_radiance = max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f)) * max(EE_ENVIRONMENT.light_intensity, 0.0f);
+  sun_direction = normalize(vec3(0.35f, 1.0f, 0.2f));
+  sun_radiance = max(ambient_radiance, vec3(1.0f));
+  if (EE_RENDER_INFO.directional_light_size > 0) {
+    DirectionalLight light = EE_DIRECTIONAL_LIGHTS[0];
+    sun_direction = normalize(-light.direction);
+    sun_radiance = max(light.diffuse.rgb, vec3(0.0f));
+  }
+}
+
+void main() {
+  ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 resolution = imageSize(inOutColor);
+  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
+    return;
+  }
+
+  vec2 tex_coord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
+  int camera_index = cameraFrameSteps.x;
+  vec3 ray_origin = EE_CAMERA_POSITION(camera_index);
+  vec3 ray_direction = EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(camera_index, tex_coord);
+  float max_distance = max(lightingPhaseMaxDistance.w, 0.0f);
+  float scene_distance =
+      EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(camera_index, tex_coord, ray_origin, ray_direction, max_distance);
+
+  vec3 sun_direction;
+  vec3 sun_radiance;
+  vec3 ambient_radiance;
+  EE_VOLUMETRIC_CLOUD_SUN_LIGHT(sun_direction, sun_radiance, ambient_radiance);
+
+  vec2 jitter = EE_VOLUMETRIC_CLOUD_TemporalJitter(pixel, uint(cameraFrameSteps.y));
+  VolumetricCloudMarchResult cloud = EE_VOLUMETRIC_CLOUD_March(
+      EE_BUILD_VOLUMETRIC_CLOUD_SETTINGS(), ray_origin, ray_direction, max_distance, scene_distance, sun_direction,
+      sun_radiance, ambient_radiance, windTime.w, jitter.x);
+
+  vec4 scene_color = imageLoad(inOutColor, pixel);
+  vec4 output_color = EE_VOLUMETRIC_CLOUD_Debug(scene_color.rgb, cloud, max(max_distance, 1.0f),
+                                                flags.y != 0 ? flags.z : 0);
+  output_color.a = scene_color.a;
+  imageStore(inOutColor, pixel, output_color);
+  imageStore(outCloudAccumulation, pixel, vec4(cloud.radiance, 1.0f - cloud.transmittance));
+  imageStore(outCloudTransmittance, pixel, vec4(cloud.transmittance));
+}

@@ -40,6 +40,7 @@
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
+#include "Times.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
 
@@ -1229,6 +1230,18 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     depth_pyramid_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     depth_pyramid_layout_->Initialize();
   }
+  if (!volumetric_clouds_layout_) {
+    volumetric_clouds_layout_ = std::make_shared<DescriptorSetLayout>();
+    volumetric_clouds_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    volumetric_clouds_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    volumetric_clouds_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    volumetric_clouds_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    volumetric_clouds_layout_->Initialize();
+  }
   if (!ddgi_probe_update_layout_) {
     ddgi_probe_update_layout_ = std::make_shared<DescriptorSetLayout>();
     ddgi_probe_update_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1376,6 +1389,19 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     depth_pyramid_pipeline_->Initialize();
+  }
+  if (!volumetric_clouds_pipeline_) {
+    volumetric_clouds_pipeline_ = std::make_shared<ComputePipeline>();
+    volumetric_clouds_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/VolumetricClouds.comp");
+    volumetric_clouds_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    volumetric_clouds_pipeline_->descriptor_set_layouts.emplace_back(volumetric_clouds_layout_);
+    auto& push_constant_range = volumetric_clouds_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(VolumetricCloudsPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    volumetric_clouds_pipeline_->Initialize();
   }
   if (!ddgi_probe_update_pipeline_) {
     ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
@@ -3964,10 +3990,17 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     }
     const char* cloud_post_processing_dependency = RenderPassNames::deferred_camera;
     if (volumetric_clouds_enabled) {
-      camera_render_graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
-                                  [&](const RenderGraphExecutionContext& context) {
-                                    VolumetricCloudsPass::Execute(context, {camera, record_commands});
-                                  });
+      camera_render_graph.AddPass(
+          VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
+          [&](const RenderGraphExecutionContext& context) {
+            const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
+            VolumetricCloudsPass::Execute(
+                context, {camera, record_commands, volumetric_clouds_pipeline_,
+                          per_frame_descriptor_sets_[current_frame_index], volumetric_clouds_layout_,
+                          active_camera_transient_resources, scene->environment.volumetric_cloud_settings, camera_index,
+                          static_cast<uint32_t>(glm::max(0.0f, std::floor(time_seconds * 60.0f))), time_seconds,
+                          camera->camera_settings.far_distance});
+          });
       cloud_post_processing_dependency = RenderPassNames::volumetric_clouds;
     }
     if (ddgi_probe_visualization_enabled) {

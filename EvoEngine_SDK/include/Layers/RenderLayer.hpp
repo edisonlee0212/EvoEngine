@@ -460,6 +460,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
   std::shared_ptr<DescriptorSetLayout> depth_pyramid_layout_;
+  std::shared_ptr<DescriptorSetLayout> volumetric_clouds_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_relocation_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_classification_layout_;
@@ -726,6 +727,7 @@ class RenderLayer final : public ILayer {
 #pragma endregion
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
+  std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_update_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
