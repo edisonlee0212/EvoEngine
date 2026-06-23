@@ -33,6 +33,10 @@
 #include <unordered_map>
 #include <vector>
 
+#ifndef TINYPLY_API
+#  define TINYPLY_API
+#endif
+
 namespace tinyply {
 enum class Type : uint8_t { INVALID, INT8, UINT8, INT16, UINT16, INT32, UINT32, FLOAT32, FLOAT64 };
 
@@ -109,7 +113,7 @@ struct PlyElement {
   std::vector<PlyProperty> properties;
 };
 
-struct PlyFile {
+struct TINYPLY_API PlyFile {
   struct PlyFileImpl;
   std::unique_ptr<PlyFileImpl> impl;
 

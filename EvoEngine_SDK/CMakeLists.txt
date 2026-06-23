@@ -21,7 +21,18 @@ add_library(EvoEngine_SDK
 	)
 
 if (WIN32 AND EVOENGINE_ENABLE_RUNTIME_PACKAGES)
-	set_target_properties(EvoEngine_SDK PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+	set(EVOENGINE_SDK_WINDOWS_EXPORTS_DEF
+		"${CMAKE_CURRENT_BINARY_DIR}/EvoEngine_SDK.dir/$<CONFIG>/EvoEngine_SDK.filtered.def")
+	add_custom_command(TARGET EvoEngine_SDK PRE_LINK
+		COMMAND ${CMAKE_COMMAND}
+			-E __create_def
+			"${EVOENGINE_SDK_WINDOWS_EXPORTS_DEF}"
+			"${CMAKE_CURRENT_BINARY_DIR}/EvoEngine_SDK.dir/$<CONFIG>/objects.txt"
+		COMMAND ${CMAKE_COMMAND}
+			"-DINPUT=${EVOENGINE_SDK_WINDOWS_EXPORTS_DEF}"
+			-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineFilterWindowsExports.cmake"
+		VERBATIM)
+	target_link_options(EvoEngine_SDK PRIVATE "/DEF:${EVOENGINE_SDK_WINDOWS_EXPORTS_DEF}")
 endif()
 
 set(EVOENGINE_SDK_INCLUDES
@@ -92,6 +103,12 @@ if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
 		EVOENGINE_SDK_EXPORTS
 		EVOENGINE_RUNTIME_PACKAGES
 		)
+	if (WIN32)
+		target_compile_definitions(EvoEngine_SDK PRIVATE
+			"IMGUI_API=__declspec(dllexport)"
+			"TINYPLY_API=__declspec(dllexport)"
+			)
+	endif()
 endif()
 
 if (WIN32)

@@ -201,6 +201,7 @@ struct RuntimePackageCMakeBuildRequest {
   std::string package_name;
   std::string target_name;
   std::filesystem::path build_dir;
+  std::filesystem::path cmake_build_dir;
   std::filesystem::path build_package_dir;
   std::filesystem::path runtime_package_dir;
   std::optional<std::string> config;
@@ -532,7 +533,8 @@ std::string QuoteCommandArgument(const std::string& value) {
 }
 
 std::string BuildCMakeCommandText(const RuntimePackageCMakeBuildRequest& request) {
-  auto command = "cmake --build " + QuoteCommandArgument(request.build_dir.string());
+  const auto build_dir = request.cmake_build_dir.empty() ? request.build_dir : request.cmake_build_dir;
+  auto command = "cmake --build " + QuoteCommandArgument(build_dir.string());
   if (request.config.has_value()) {
     command += " --config " + QuoteCommandArgument(*request.config);
   }
@@ -564,7 +566,8 @@ std::wstring QuoteWindowsCommandArgument(const std::wstring& value) {
   return quoted;
 }
 std::wstring BuildWindowsCMakeCommandLine(const RuntimePackageCMakeBuildRequest& request) {
-  auto command = L"cmake --build " + QuoteWindowsCommandArgument(request.build_dir.wstring());
+  const auto build_dir = request.cmake_build_dir.empty() ? request.build_dir : request.cmake_build_dir;
+  auto command = L"cmake --build " + QuoteWindowsCommandArgument(build_dir.wstring());
   if (request.config.has_value()) {
     command +=
         L" --config " + QuoteWindowsCommandArgument(std::wstring(request.config->begin(), request.config->end()));
@@ -588,7 +591,8 @@ std::string QuoteShellCommandArgument(const std::string& value) {
 }
 
 std::string BuildShellCMakeCommandLine(const RuntimePackageCMakeBuildRequest& request) {
-  auto command = "cmake --build " + QuoteShellCommandArgument(request.build_dir.string());
+  const auto build_dir = request.cmake_build_dir.empty() ? request.build_dir : request.cmake_build_dir;
+  auto command = "cmake --build " + QuoteShellCommandArgument(build_dir.string());
   if (request.config.has_value()) {
     command += " --config " + QuoteShellCommandArgument(*request.config);
   }
@@ -668,6 +672,11 @@ std::optional<RuntimePackageCMakeBuildRequest> CreateRuntimePackageBuildRequest(
   if (!std::filesystem::exists(request.build_dir / "CMakeCache.txt", ec)) {
     error = "CMakeCache.txt was not found in " + request.build_dir.string() + ".";
     return {};
+  }
+  request.cmake_build_dir = request.build_dir;
+  const auto package_project_dir = request.build_dir / "EvoEngine_Packages" / package_name;
+  if (std::filesystem::exists(package_project_dir / (request.target_name + ".vcxproj"), ec)) {
+    request.cmake_build_dir = package_project_dir;
   }
   return request;
 }
