@@ -16,6 +16,7 @@
 #include "PrivateComponentStorage.hpp"
 #include "ReflectionProbe.hpp"
 #include "Utilities.hpp"
+#include "VolumetricCloudSettings.hpp"
 
 namespace evo_engine {
 
@@ -275,6 +276,9 @@ class Scene final : public IAsset {
 
     /// Scene-owned global DDGI runtime, defaults, storage, and debug settings.
     DdgiSettings ddgi_settings{};
+
+    /// Scene-owned global volumetric cloud settings.
+    VolumetricCloudSettings volumetric_cloud_settings{};
 
     /**
      * @brief Serializes the environment's data to a YAML emitter.

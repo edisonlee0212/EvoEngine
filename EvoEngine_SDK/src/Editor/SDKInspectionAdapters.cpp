@@ -1218,6 +1218,44 @@ void InspectStrandsSettings(RenderSettings& render_settings) {
 #endif
 }
 
+bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
+  settings.ClampSettings();
+  bool modified = false;
+  if (ImGui::Checkbox("Enable volumetric clouds", &settings.enabled))
+    modified = true;
+  if (ImGui::DragFloat("Coverage", &settings.coverage, 0.001f, 0.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Density", &settings.density, 0.001f, 0.0f, 10.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Bottom altitude", &settings.bottom_altitude, 10.0f, 0.0f, 100000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat("Top altitude", &settings.top_altitude, 10.0f, 1.0f, 100000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat2("Wind direction", &settings.wind_direction.x, 0.001f, -1.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Wind speed", &settings.wind_speed, 0.1f, 0.0f, 10000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragInt("Primary steps", &settings.primary_step_count, 1.0f, 1, 512))
+    modified = true;
+  if (ImGui::DragInt("Light steps", &settings.light_step_count, 1.0f, 1, 128))
+    modified = true;
+  if (ImGui::DragFloat("Lighting intensity", &settings.lighting_intensity, 0.01f, 0.0f, 100.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Ambient lighting", &settings.ambient_lighting_strength, 0.01f, 0.0f, 10.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Phase anisotropy", &settings.phase_anisotropy, 0.001f, -0.99f, 0.99f, "%.3f"))
+    modified = true;
+  if (ImGui::Checkbox("Cloud debug", &settings.debug_visualization))
+    modified = true;
+  const char* debug_modes[] = {"Final", "Density", "Transmittance", "March depth"};
+  if (ImGui::Combo("Cloud debug mode", &settings.debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes)))
+    modified = true;
+  if (modified) {
+    settings.ClampSettings();
+  }
+  return modified;
+}
+
 void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   auto& runtime = settings.runtime;
   runtime.ray_count = glm::clamp(runtime.ray_count, 1, 4096);
@@ -1740,6 +1778,11 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       modified = true;
     if (ImGui::DragFloat("Environmental light gamma", &scene.environment.environment_gamma, 0.01f, 0.0f, 10.0f)) {
       modified = true;
+    }
+    if (ImGui::TreeNodeEx("Volumetric clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (InspectVolumetricCloudSettings(scene.environment.volumetric_cloud_settings))
+        modified = true;
+      ImGui::TreePop();
     }
     ImGui::TreePop();
   }

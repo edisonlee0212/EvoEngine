@@ -229,6 +229,57 @@ void DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings) {
       settings.debug.selected_probe_visualization_scale = debug["selected_probe_visualization_scale"].as<float>();
   }
 }
+
+void SerializeVolumetricCloudSettings(YAML::Emitter& out, const VolumetricCloudSettings& settings) {
+  out << YAML::BeginMap;
+  out << YAML::Key << "enabled" << YAML::Value << settings.enabled;
+  out << YAML::Key << "coverage" << YAML::Value << settings.coverage;
+  out << YAML::Key << "density" << YAML::Value << settings.density;
+  out << YAML::Key << "bottom_altitude" << YAML::Value << settings.bottom_altitude;
+  out << YAML::Key << "top_altitude" << YAML::Value << settings.top_altitude;
+  out << YAML::Key << "wind_direction" << YAML::Value << settings.wind_direction;
+  out << YAML::Key << "wind_speed" << YAML::Value << settings.wind_speed;
+  out << YAML::Key << "primary_step_count" << YAML::Value << settings.primary_step_count;
+  out << YAML::Key << "light_step_count" << YAML::Value << settings.light_step_count;
+  out << YAML::Key << "lighting_intensity" << YAML::Value << settings.lighting_intensity;
+  out << YAML::Key << "ambient_lighting_strength" << YAML::Value << settings.ambient_lighting_strength;
+  out << YAML::Key << "phase_anisotropy" << YAML::Value << settings.phase_anisotropy;
+  out << YAML::Key << "debug_visualization" << YAML::Value << settings.debug_visualization;
+  out << YAML::Key << "debug_mode" << YAML::Value << settings.debug_mode;
+  out << YAML::EndMap;
+}
+
+void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSettings& settings) {
+  if (in["enabled"])
+    settings.enabled = in["enabled"].as<bool>();
+  if (in["coverage"])
+    settings.coverage = in["coverage"].as<float>();
+  if (in["density"])
+    settings.density = in["density"].as<float>();
+  if (in["bottom_altitude"])
+    settings.bottom_altitude = in["bottom_altitude"].as<float>();
+  if (in["top_altitude"])
+    settings.top_altitude = in["top_altitude"].as<float>();
+  if (in["wind_direction"])
+    settings.wind_direction = in["wind_direction"].as<glm::vec2>();
+  if (in["wind_speed"])
+    settings.wind_speed = in["wind_speed"].as<float>();
+  if (in["primary_step_count"])
+    settings.primary_step_count = in["primary_step_count"].as<int>();
+  if (in["light_step_count"])
+    settings.light_step_count = in["light_step_count"].as<int>();
+  if (in["lighting_intensity"])
+    settings.lighting_intensity = in["lighting_intensity"].as<float>();
+  if (in["ambient_lighting_strength"])
+    settings.ambient_lighting_strength = in["ambient_lighting_strength"].as<float>();
+  if (in["phase_anisotropy"])
+    settings.phase_anisotropy = in["phase_anisotropy"].as<float>();
+  if (in["debug_visualization"])
+    settings.debug_visualization = in["debug_visualization"].as<bool>();
+  if (in["debug_mode"])
+    settings.debug_mode = in["debug_mode"].as<int>();
+  settings.ClampSettings();
+}
 }  // namespace
 
 Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version) {
@@ -1055,6 +1106,8 @@ void Scene::Environment::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "ambient_light_intensity" << YAML::Value << ambient_light_intensity;
   out << YAML::Key << "environment_type" << YAML::Value << static_cast<unsigned>(environment_type);
   environmental_map.Save("environmental_map", out);
+  out << YAML::Key << "volumetric_cloud_settings" << YAML::Value;
+  SerializeVolumetricCloudSettings(out, volumetric_cloud_settings);
   out << YAML::Key << "ddgi_settings" << YAML::Value;
   SerializeDdgiSettings(out, ddgi_settings);
 }
@@ -1068,6 +1121,8 @@ void Scene::Environment::Deserialize(const YAML::Node& in) {
   if (in["environment_type"])
     environment_type = static_cast<EnvironmentType>(in["environment_type"].as<unsigned>());
   environmental_map.Load("environmental_map", in);
+  if (in["volumetric_cloud_settings"])
+    DeserializeVolumetricCloudSettings(in["volumetric_cloud_settings"], volumetric_cloud_settings);
   if (in["ddgi_settings"])
     DeserializeDdgiSettings(in["ddgi_settings"], ddgi_settings);
 }
