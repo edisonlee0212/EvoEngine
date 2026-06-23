@@ -1,0 +1,406 @@
+#extension GL_ARB_shading_language_include : enable
+#include "PointCloudRayTracingPayload.glsl"
+#include "DDGI.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+struct DdgiProbeRaySample {
+  vec3 direction;
+  float padding0;
+  vec3 start;
+
+  uint hit_count;
+  uint64_t handle;
+  uint64_t padding1;
+
+  HitInfo hit_info;
+};
+
+layout(set = 1, binding = 0) readonly buffer EE_DDGI_PROBE_RAY_SAMPLE_BLOCK {
+  DdgiProbeRaySample EE_DDGI_PROBE_RAY_SAMPLES[];
+};
+
+layout(set = 1, binding = 1, rgba16f) uniform image2D EE_DDGI_IRRADIANCE_ATLAS;
+layout(set = 1, binding = 2, rg16f) uniform image2D EE_DDGI_VISIBILITY_ATLAS;
+layout(set = 1, binding = 3) buffer EE_DDGI_PROBE_METADATA_BLOCK {
+  vec4 EE_DDGI_PROBE_METADATA[];
+};
+layout(set = 1, binding = 4) readonly buffer EE_DDGI_PROBE_STATE_BLOCK {
+  vec4 EE_DDGI_PROBE_STATE[];
+};
+layout(set = 1, binding = 5) readonly buffer EE_DDGI_PROBE_UPDATE_INDEX_BLOCK {
+  uint EE_DDGI_PROBE_UPDATE_INDICES[];
+};
+layout(set = 1, binding = 6, r16f) uniform image2D EE_DDGI_PROBE_VARIABILITY_ATLAS;
+
+layout(push_constant) uniform EE_DDGI_PROBE_UPDATE_CONSTANTS {
+  uvec4 probe_count_ray_count_and_tile_sizes;
+  uvec4 atlas_columns_and_rows;
+  uvec4 probe_offset_and_total_count;
+  uvec4 probe_counts;
+  vec4 update_parameters;
+  vec4 probe_state_parameters;
+  vec4 probe_blend_parameters;
+  ivec4 probe_scroll_offset;
+  vec4 probe_step_x;
+  vec4 probe_step_y;
+  vec4 probe_step_z;
+};
+
+float EE_DDGI_DIRECTIONAL_WEIGHT(const vec3 ray_direction, const vec3 texel_direction) {
+  return max(dot(normalize(ray_direction), texel_direction), 0.0f);
+}
+
+bool EE_DDGI_RAY_BACKFACE_HIT(const DdgiProbeRaySample ray_sample) {
+  return ray_sample.hit_count != 0u && ray_sample.hit_info.color.a < 0.0f;
+}
+
+bool EE_DDGI_RAY_FRONTFACE_HIT(const DdgiProbeRaySample ray_sample) {
+  return ray_sample.hit_count != 0u && ray_sample.hit_info.color.a >= 0.0f;
+}
+
+float EE_DDGI_RAY_DISTANCE(const DdgiProbeRaySample ray_sample, const float max_ray_distance) {
+  if (ray_sample.hit_count == 0u) {
+    return max_ray_distance;
+  }
+  const float hit_distance = length(ray_sample.hit_info.position - ray_sample.start);
+  return EE_DDGI_RAY_BACKFACE_HIT(ray_sample) ? -hit_distance * 0.2f : hit_distance;
+}
+
+uvec2 EE_DDGI_BORDER_COPY_TEXEL(const uvec2 tile_origin, const uint tile_size, const uvec2 border_texel) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  uvec2 copy_texel = tile_origin;
+  const bool is_corner = (border_texel.x == 0u || border_texel.x == tile_stride - 1u) &&
+                         (border_texel.y == 0u || border_texel.y == tile_stride - 1u);
+  const bool is_row = border_texel.x > 0u && border_texel.x < tile_stride - 1u;
+  if (is_corner) {
+    copy_texel += uvec2(border_texel.x > 0u ? 1u : tile_size, border_texel.y > 0u ? 1u : tile_size);
+  } else if (is_row) {
+    copy_texel += uvec2((tile_stride - 1u) - border_texel.x,
+                        border_texel.y > 0u ? border_texel.y - 1u : border_texel.y + 1u);
+  } else {
+    copy_texel += uvec2(border_texel.x > 0u ? border_texel.x - 1u : border_texel.x + 1u,
+                        (tile_stride - 1u) - border_texel.y);
+  }
+  return copy_texel;
+}
+
+vec3 EE_DDGI_DIRECT_IRRADIANCE(const DdgiProbeRaySample ray_sample) {
+  if (EE_DDGI_RAY_BACKFACE_HIT(ray_sample)) {
+    return vec3(0.0f);
+  }
+  return max(ray_sample.hit_info.color.rgb, vec3(0.0f));
+}
+
+float EE_DDGI_MAX_COMPONENT(const vec3 value) {
+  return max(value.x, max(value.y, value.z));
+}
+
+float EE_DDGI_LUMINANCE(const vec3 value) {
+  return dot(value, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
+vec4 EE_DDGI_DIRECTIONAL_IRRADIANCE(const uint ray_offset, const uint first_blend_ray_index, const uint ray_count,
+                                     const vec3 texel_direction) {
+  vec3 irradiance = vec3(0.0f);
+  float weight_sum = 0.0f;
+  float hit_weight_sum = 0.0f;
+  uint backface_count = 0u;
+  const uint blend_ray_count = ray_count > first_blend_ray_index ? ray_count - first_blend_ray_index : 0u;
+  const uint max_backface_count =
+      max(1u, uint(float(blend_ray_count) * clamp(probe_blend_parameters.x, 0.0f, 1.0f)));
+  const float irradiance_gamma = max(update_parameters.w, 1.0f);
+  for (uint ray_index = first_blend_ray_index; ray_index < ray_count; ++ray_index) {
+    const DdgiProbeRaySample ray_sample = EE_DDGI_PROBE_RAY_SAMPLES[ray_offset + ray_index];
+    if (EE_DDGI_RAY_BACKFACE_HIT(ray_sample)) {
+      backface_count += 1u;
+      if (backface_count >= max_backface_count) {
+        return vec4(0.0f);
+      }
+      continue;
+    }
+    const float weight = EE_DDGI_DIRECTIONAL_WEIGHT(ray_sample.direction, texel_direction);
+    if (weight <= 0.0f) {
+      continue;
+    }
+    weight_sum += weight;
+    if (EE_DDGI_RAY_FRONTFACE_HIT(ray_sample)) {
+      hit_weight_sum += weight;
+    }
+    irradiance += EE_DDGI_DIRECT_IRRADIANCE(ray_sample) * weight;
+  }
+  const float epsilon = max(float(blend_ray_count), 1.0f) * 1e-9f;
+  irradiance *= 1.0f / (2.0f * max(weight_sum, epsilon));
+  irradiance = pow(min(max(irradiance, vec3(0.0f)), vec3(64.0f)), vec3(1.0f / irradiance_gamma));
+  return vec4(irradiance, 1.0f);
+}
+
+vec4 EE_DDGI_BLEND_IRRADIANCE_HISTORY(const vec4 current_irradiance, const vec4 history_irradiance,
+                                      const float history_weight) {
+  if (current_irradiance.a <= 0.0f) {
+    return history_irradiance;
+  }
+
+  float hysteresis = clamp(history_weight, 0.0f, 1.0f);
+  if (dot(history_irradiance.rgb, history_irradiance.rgb) == 0.0f) {
+    hysteresis = 0.0f;
+  }
+
+  vec3 delta = current_irradiance.rgb - history_irradiance.rgb;
+  if (EE_DDGI_MAX_COMPONENT(history_irradiance.rgb - current_irradiance.rgb) > probe_state_parameters.w) {
+    hysteresis = max(0.0f, hysteresis - 0.75f);
+  }
+  if (EE_DDGI_LUMINANCE(delta) > probe_blend_parameters.w) {
+    delta *= 0.25f;
+  }
+
+  const float min_darkening_step = 1.0f / 1024.0f;
+  vec3 lerp_delta = (1.0f - hysteresis) * delta;
+  if (EE_DDGI_MAX_COMPONENT(current_irradiance.rgb) < EE_DDGI_MAX_COMPONENT(history_irradiance.rgb)) {
+    lerp_delta = min(max(vec3(min_darkening_step), abs(lerp_delta)), abs(delta)) * sign(lerp_delta);
+  }
+  return vec4(history_irradiance.rgb + lerp_delta, current_irradiance.a);
+}
+
+float EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE() {
+  return max(length(vec3(length(probe_step_x.xyz), length(probe_step_y.xyz), length(probe_step_z.xyz))) * 1.5f,
+             0.001f);
+}
+
+vec2 EE_DDGI_DIRECTIONAL_VISIBILITY_MOMENTS(const uint ray_offset, const uint first_blend_ray_index,
+                                            const uint ray_count, const vec3 texel_direction) {
+  float weight_sum = 0.0f;
+  float first_moment = 0.0f;
+  float second_moment = 0.0f;
+  const float max_visibility_distance = EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE();
+  for (uint ray_index = first_blend_ray_index; ray_index < ray_count; ++ray_index) {
+    const DdgiProbeRaySample ray_sample = EE_DDGI_PROBE_RAY_SAMPLES[ray_offset + ray_index];
+    const float weight =
+        pow(EE_DDGI_DIRECTIONAL_WEIGHT(ray_sample.direction, texel_direction), max(probe_blend_parameters.z, 0.0f));
+    if (weight <= 0.0f) {
+      continue;
+    }
+    const float distance = min(abs(EE_DDGI_RAY_DISTANCE(ray_sample, max_visibility_distance)), max_visibility_distance);
+    weight_sum += weight;
+    first_moment += distance * weight;
+    second_moment += distance * distance * weight;
+  }
+  if (weight_sum <= 0.0f) {
+    return vec2(max_visibility_distance * 0.5f, max_visibility_distance * max_visibility_distance * 0.5f);
+  }
+  return vec2(first_moment, second_moment) * (1.0f / (2.0f * weight_sum));
+}
+
+void EE_DDGI_COPY_IRRADIANCE_BORDER_TEXELS(const uvec2 tile_origin, const uint tile_size) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  for (uint y = 0u; y < tile_stride; ++y) {
+    for (uint x = 0u; x < tile_stride; ++x) {
+      if (x > 0u && x < tile_stride - 1u && y > 0u && y < tile_stride - 1u) {
+        continue;
+      }
+      const ivec2 border_texel = ivec2(tile_origin + uvec2(x, y));
+      const ivec2 copy_texel = ivec2(EE_DDGI_BORDER_COPY_TEXEL(tile_origin, tile_size, uvec2(x, y)));
+      imageStore(EE_DDGI_IRRADIANCE_ATLAS, border_texel, imageLoad(EE_DDGI_IRRADIANCE_ATLAS, copy_texel));
+    }
+  }
+}
+
+void EE_DDGI_COPY_VISIBILITY_BORDER_TEXELS(const uvec2 tile_origin, const uint tile_size) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  for (uint y = 0u; y < tile_stride; ++y) {
+    for (uint x = 0u; x < tile_stride; ++x) {
+      if (x > 0u && x < tile_stride - 1u && y > 0u && y < tile_stride - 1u) {
+        continue;
+      }
+      const ivec2 border_texel = ivec2(tile_origin + uvec2(x, y));
+      const ivec2 copy_texel = ivec2(EE_DDGI_BORDER_COPY_TEXEL(tile_origin, tile_size, uvec2(x, y)));
+      imageStore(EE_DDGI_VISIBILITY_ATLAS, border_texel, imageLoad(EE_DDGI_VISIBILITY_ATLAS, copy_texel));
+    }
+  }
+}
+
+void EE_DDGI_CLEAR_IRRADIANCE_TILE(const uvec2 tile_origin, const uint tile_size) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  for (uint y = 0u; y < tile_stride; ++y) {
+    for (uint x = 0u; x < tile_stride; ++x) {
+      imageStore(EE_DDGI_IRRADIANCE_ATLAS, ivec2(tile_origin + uvec2(x, y)), vec4(0.0f));
+    }
+  }
+}
+
+void EE_DDGI_CLEAR_VISIBILITY_TILE(const uvec2 tile_origin, const uint tile_size) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  for (uint y = 0u; y < tile_stride; ++y) {
+    for (uint x = 0u; x < tile_stride; ++x) {
+      imageStore(EE_DDGI_VISIBILITY_ATLAS, ivec2(tile_origin + uvec2(x, y)), vec4(1.0f, 0.0f, 0.0f, 1.0f));
+    }
+  }
+}
+
+void EE_DDGI_CLEAR_VARIABILITY_TILE(const uvec2 tile_origin, const uint tile_size) {
+  for (uint y = 0u; y < tile_size; ++y) {
+    for (uint x = 0u; x < tile_size; ++x) {
+      imageStore(EE_DDGI_PROBE_VARIABILITY_ATLAS, ivec2(tile_origin + uvec2(x, y)), vec4(0.0f));
+    }
+  }
+}
+
+void main() {
+  const uint probe_index = gl_GlobalInvocationID.x;
+  const uint probe_count = max(probe_count_ray_count_and_tile_sizes.x, 1u);
+  if (probe_index >= probe_count) {
+    return;
+  }
+  const uint global_probe_index = EE_DDGI_PROBE_UPDATE_INDICES[probe_index];
+  if (global_probe_index >= max(probe_offset_and_total_count.y, 1u)) {
+    return;
+  }
+
+  const uvec3 total_probe_counts = max(probe_counts.xyz, uvec3(1u));
+  const uint probes_per_layer = total_probe_counts.x * total_probe_counts.y;
+  const uvec3 logical_probe_grid =
+      uvec3(global_probe_index % total_probe_counts.x, (global_probe_index / total_probe_counts.x) % total_probe_counts.y,
+            global_probe_index / probes_per_layer);
+  const uvec3 physical_probe_grid =
+      EE_DDGI_SCROLL_PROBE_GRID(logical_probe_grid, probe_scroll_offset.xyz, total_probe_counts);
+  const uint physical_probe_index = EE_DDGI_PROBE_INDEX(physical_probe_grid, total_probe_counts);
+  const uint ray_count = max(probe_count_ray_count_and_tile_sizes.y, 1u);
+  const uint irradiance_tile_size = max(probe_count_ray_count_and_tile_sizes.z, 1u);
+  const uint visibility_tile_size = max(probe_count_ray_count_and_tile_sizes.w, 1u);
+  const float max_ray_distance = max(update_parameters.x, 0.001f);
+  const float irradiance_gamma = max(update_parameters.w, 1.0f);
+  const float relocation_distance = max(probe_state_parameters.x, 0.0f);
+  const bool relocation_enabled = probe_state_parameters.y > 0.5f && relocation_distance > 0.0f;
+  const bool classification_enabled = probe_state_parameters.z > 0.5f;
+  const bool fixed_rays_enabled = relocation_enabled || classification_enabled;
+  const uint fixed_ray_count = EE_DDGI_FIXED_RAY_COUNT(ray_count, fixed_rays_enabled);
+  const uint first_blend_ray_index = fixed_rays_enabled ? fixed_ray_count : 0u;
+  const uint irradiance_columns = max(atlas_columns_and_rows.x, 1u);
+  const uint visibility_columns = max(atlas_columns_and_rows.z, 1u);
+  const uvec2 irradiance_tile_origin = uvec2(physical_probe_index % irradiance_columns,
+                                             physical_probe_index / irradiance_columns) *
+                                       EE_DDGI_ATLAS_TILE_STRIDE(irradiance_tile_size);
+  const uvec2 variability_tile_origin = uvec2(physical_probe_index % irradiance_columns,
+                                              physical_probe_index / irradiance_columns) *
+                                        irradiance_tile_size;
+  const uvec2 visibility_tile_origin = uvec2(physical_probe_index % visibility_columns,
+                                             physical_probe_index / visibility_columns) *
+                                       EE_DDGI_ATLAS_TILE_STRIDE(visibility_tile_size);
+  if (EE_DDGI_CLEAR_SCROLLED_PROBE(physical_probe_grid, probe_scroll_offset, total_probe_counts)) {
+    const uint metadata_offset = physical_probe_index * 3u;
+    EE_DDGI_PROBE_METADATA[metadata_offset] = vec4(0.0f);
+    EE_DDGI_PROBE_METADATA[metadata_offset + 1u] = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    EE_DDGI_PROBE_METADATA[metadata_offset + 2u] = vec4(0.0f);
+    EE_DDGI_CLEAR_IRRADIANCE_TILE(irradiance_tile_origin, irradiance_tile_size);
+    EE_DDGI_CLEAR_VISIBILITY_TILE(visibility_tile_origin, visibility_tile_size);
+    EE_DDGI_CLEAR_VARIABILITY_TILE(variability_tile_origin, irradiance_tile_size);
+    return;
+  }
+
+  vec3 irradiance = vec3(0.0f);
+  float hit_count = 0.0f;
+  float frontface_hit_count = 0.0f;
+  float backface_hit_count = 0.0f;
+  float average_distance = 0.0f;
+  const uint ray_offset = probe_index * ray_count;
+  for (uint ray_index = 0u; ray_index < ray_count; ++ray_index) {
+    const DdgiProbeRaySample ray_sample = EE_DDGI_PROBE_RAY_SAMPLES[ray_offset + ray_index];
+    if (EE_DDGI_IS_INACTIVE_PROBE_RAY(ray_sample.hit_count, ray_sample.hit_info.color.a)) {
+      continue;
+    }
+    if (ray_sample.hit_count == 0u) {
+      continue;
+    }
+    hit_count += 1.0f;
+    const bool backface_hit = EE_DDGI_RAY_BACKFACE_HIT(ray_sample);
+    const float signed_hit_distance = EE_DDGI_RAY_DISTANCE(ray_sample, max_ray_distance);
+    const float hit_distance = abs(signed_hit_distance);
+    if (backface_hit) {
+      backface_hit_count += 1.0f;
+    } else {
+      frontface_hit_count += 1.0f;
+      irradiance += EE_DDGI_DIRECT_IRRADIANCE(ray_sample);
+    }
+    average_distance += hit_distance;
+  }
+
+  const float hit_ratio = hit_count / float(ray_count);
+  const float backface_ratio = backface_hit_count / float(ray_count);
+  if (frontface_hit_count > 0.0f) {
+    irradiance /= frontface_hit_count;
+  }
+  if (hit_count > 0.0f) {
+    average_distance /= hit_count;
+  } else {
+    average_distance = max_ray_distance;
+  }
+  irradiance = pow(min(max(irradiance, vec3(0.0f)), vec3(64.0f)), vec3(1.0f / irradiance_gamma));
+  const vec4 previous_state = EE_DDGI_PROBE_STATE[physical_probe_index];
+  const float previous_inactive = clamp(previous_state.w, 0.0f, 1.0f);
+  const vec3 relocation_offset = previous_state.xyz;
+  if (previous_inactive > 0.5f) {
+    irradiance = vec3(0.0f);
+  }
+
+  const bool blend_previous_probe_state = previous_inactive <= 0.5f;
+  const float history_weight = blend_previous_probe_state ? clamp(update_parameters.y, 0.0f, 1.0f) : 0.0f;
+  const vec4 irradiance_value = vec4(irradiance, hit_ratio);
+  const vec4 visibility_value =
+      vec4(clamp(average_distance / max_ray_distance, 0.0f, 1.0f), backface_ratio,
+           relocation_distance > 0.0f ? clamp(length(relocation_offset) / relocation_distance, 0.0f, 1.0f) : 0.0f,
+           1.0f - previous_inactive);
+  const uint metadata_offset = physical_probe_index * 3u;
+  EE_DDGI_PROBE_METADATA[metadata_offset] = irradiance_value;
+  EE_DDGI_PROBE_METADATA[metadata_offset + 1u] = visibility_value;
+  EE_DDGI_PROBE_METADATA[metadata_offset + 2u] = vec4(relocation_offset, 1.0f - previous_inactive);
+
+  if (blend_previous_probe_state) {
+    for (uint y = 0u; y < irradiance_tile_size; ++y) {
+      for (uint x = 0u; x < irradiance_tile_size; ++x) {
+        const vec3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(uvec2(x, y), irradiance_tile_size);
+        vec4 directional_irradiance =
+            EE_DDGI_DIRECTIONAL_IRRADIANCE(ray_offset, first_blend_ray_index, ray_count, texel_direction);
+        const ivec2 atlas_texel = ivec2(irradiance_tile_origin + uvec2(1u + x, 1u + y));
+        const ivec2 variability_texel = ivec2(variability_tile_origin + uvec2(x, y));
+        vec4 history_irradiance = imageLoad(EE_DDGI_IRRADIANCE_ATLAS, atlas_texel);
+        if (directional_irradiance.a <= 0.0f) {
+          continue;
+        }
+        const vec3 irradiance_sample = directional_irradiance.rgb;
+        directional_irradiance =
+            EE_DDGI_BLEND_IRRADIANCE_HISTORY(directional_irradiance, history_irradiance, history_weight);
+        const vec3 irradiance_sigma2 =
+            (irradiance_sample - history_irradiance.rgb) * (irradiance_sample - directional_irradiance.rgb);
+        const float luminance_sigma2 = EE_DDGI_LUMINANCE(irradiance_sigma2);
+        const float mean_luminance = EE_DDGI_LUMINANCE(directional_irradiance.rgb);
+        const float coefficient_of_variation =
+            mean_luminance <= (1.0f / 1024.0f) ? 0.0f : sqrt(luminance_sigma2) / mean_luminance;
+        imageStore(EE_DDGI_IRRADIANCE_ATLAS, atlas_texel, directional_irradiance);
+        imageStore(EE_DDGI_PROBE_VARIABILITY_ATLAS, variability_texel,
+                   vec4(coefficient_of_variation, 0.0f, 0.0f, 0.0f));
+      }
+    }
+    memoryBarrierImage();
+    EE_DDGI_COPY_IRRADIANCE_BORDER_TEXELS(irradiance_tile_origin, irradiance_tile_size);
+
+    for (uint y = 0u; y < visibility_tile_size; ++y) {
+      for (uint x = 0u; x < visibility_tile_size; ++x) {
+        const vec3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(uvec2(x, y), visibility_tile_size);
+        const vec2 directional_visibility =
+            EE_DDGI_DIRECTIONAL_VISIBILITY_MOMENTS(ray_offset, first_blend_ray_index, ray_count, texel_direction);
+        const ivec2 atlas_texel = ivec2(visibility_tile_origin + uvec2(1u + x, 1u + y));
+        vec2 history_visibility = imageLoad(EE_DDGI_VISIBILITY_ATLAS, atlas_texel).rg;
+        const vec2 visibility_moments = mix(directional_visibility, history_visibility, history_weight);
+        imageStore(EE_DDGI_VISIBILITY_ATLAS, atlas_texel, vec4(visibility_moments, visibility_value.zw));
+      }
+    }
+    memoryBarrierImage();
+    EE_DDGI_COPY_VISIBILITY_BORDER_TEXELS(visibility_tile_origin, visibility_tile_size);
+  } else {
+    for (uint y = 0u; y < irradiance_tile_size; ++y) {
+      for (uint x = 0u; x < irradiance_tile_size; ++x) {
+        imageStore(EE_DDGI_PROBE_VARIABILITY_ATLAS, ivec2(variability_tile_origin + uvec2(x, y)), vec4(0.0f));
+      }
+    }
+  }
+}

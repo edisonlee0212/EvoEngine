@@ -4,6 +4,7 @@
 #include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
+#include "EditorLayer.hpp"
 #include "SimulationSettings.hpp"
 #include "Soil.hpp"
 #include "Strands.hpp"
@@ -386,6 +387,7 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<Camera> visualization_camera_;  ///< Camera used for visualization.
 
   bool visualization_camera_window_focused_ = false;  ///< Flag indicating if the visualization window is focused.
+  EditorCameraFreeFlyState visualization_camera_free_fly_state_;
 
   /**
    * @brief Updates the EcoSysLab layer.

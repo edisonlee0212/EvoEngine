@@ -1,0 +1,21 @@
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform EE_BLOOM_COPY_CONSTANTS {
+  uvec2 resolution;
+};
+
+layout(set = 0, binding = 0) uniform sampler2D inColor;
+layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D outSourceColor;
+layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D outResultColor;
+
+void main() {
+  uvec2 pixel = gl_GlobalInvocationID.xy;
+  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
+    return;
+  }
+
+  ivec2 texel = ivec2(pixel);
+  vec4 color = texelFetch(inColor, texel, 0);
+  imageStore(outSourceColor, texel, color);
+  imageStore(outResultColor, texel, vec4(max(vec3(0.00001f), color.xyz - vec3(1.0f)), 1.0f));
+}

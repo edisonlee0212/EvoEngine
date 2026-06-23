@@ -10,6 +10,31 @@
 
 using namespace evo_engine;
 
+namespace {
+class GeometryUploadScope {
+  bool& in_progress_;
+  bool active_ = false;
+
+ public:
+  explicit GeometryUploadScope(bool& in_progress) : in_progress_(in_progress) {
+    if (!in_progress_) {
+      in_progress_ = true;
+      active_ = true;
+    }
+  }
+
+  ~GeometryUploadScope() {
+    if (active_) {
+      in_progress_ = false;
+    }
+  }
+
+  [[nodiscard]] bool Active() const {
+    return active_;
+  }
+};
+}  // namespace
+
 void GeometryStorage::DirtyRange::Mark(const size_t range_begin, const size_t count) {
   if (count == 0) {
     return;
@@ -119,13 +144,14 @@ void GeometryStorage::WaitPendingUpload(PendingGeometryUpload& upload) {
 
 void GeometryStorage::ClearPendingUpload(PendingGeometryUpload& upload) {
   upload.active = false;
+  upload.scheduling = false;
   upload.handles.clear();
   upload.meshlet_commits.clear();
   upload.index_commits.clear();
 }
 
 bool GeometryStorage::CompletePendingUpload(PendingGeometryUpload& upload) {
-  if (!upload.active || !IsPendingUploadCompleted(upload)) {
+  if (upload.scheduling || !upload.active || !IsPendingUploadCompleted(upload)) {
     return false;
   }
   WaitPendingUpload(upload);
@@ -170,31 +196,38 @@ void GeometryStorage::ScheduleUploadGroup(bool& dirty, PendingGeometryUpload& pe
                                           std::initializer_list<DirtyBufferUpload> uploads,
                                           const std::vector<std::shared_ptr<RangeDescriptor>>& meshlet_descriptors,
                                           const std::vector<std::shared_ptr<RangeDescriptor>>& index_descriptors) {
-  if (!dirty || pending_upload.active) {
+  if (!dirty || pending_upload.active || pending_upload.scheduling) {
     return;
   }
 
+  pending_upload.scheduling = true;
   pending_upload.handles.clear();
   pending_upload.handles.reserve(uploads.size());
-  for (const auto& upload : uploads) {
-    pending_upload.handles.emplace_back(ScheduleDirtyBufferUpload(upload));
-    if (upload.dirty_range) {
-      upload.dirty_range->Clear();
+  try {
+    for (const auto& upload : uploads) {
+      pending_upload.handles.emplace_back(ScheduleDirtyBufferUpload(upload));
+      if (upload.dirty_range) {
+        upload.dirty_range->Clear();
+      }
     }
-  }
-  CaptureRangeCommits(meshlet_descriptors, pending_upload.meshlet_commits);
-  CaptureRangeCommits(index_descriptors, pending_upload.index_commits);
-  dirty = false;
+    CaptureRangeCommits(meshlet_descriptors, pending_upload.meshlet_commits);
+    CaptureRangeCommits(index_descriptors, pending_upload.index_commits);
+    dirty = false;
 
-  if (HasValidUploadHandle(pending_upload)) {
-    pending_upload.active = true;
-    return;
-  }
+    if (HasValidUploadHandle(pending_upload)) {
+      pending_upload.active = true;
+      pending_upload.scheduling = false;
+      return;
+    }
 
-  ApplyRangeCommits(pending_upload.meshlet_commits);
-  ApplyRangeCommits(pending_upload.index_commits);
-  ClearPendingUpload(pending_upload);
-  version_++;
+    ApplyRangeCommits(pending_upload.meshlet_commits);
+    ApplyRangeCommits(pending_upload.index_commits);
+    ClearPendingUpload(pending_upload);
+    version_++;
+  } catch (...) {
+    pending_upload.scheduling = false;
+    throw;
+  }
 }
 
 void GeometryStorage::SchedulePendingUploads() {
@@ -223,6 +256,10 @@ void GeometryStorage::SchedulePendingUploads() {
 }
 
 void GeometryStorage::UploadData() {
+  GeometryUploadScope upload_scope(upload_data_in_progress_);
+  if (!upload_scope.Active()) {
+    return;
+  }
   CompletePendingUploads();
   SchedulePendingUploads();
   CompletePendingUploads();
@@ -332,6 +369,10 @@ void GeometryStorage::WaitForPendingUploads() {
     return;
   }
   auto& storage = GetInstance();
+  GeometryUploadScope upload_scope(storage.upload_data_in_progress_);
+  if (!upload_scope.Active()) {
+    return;
+  }
   storage.CompletePendingUploads();
   storage.SchedulePendingUploads();
   WaitPendingUpload(storage.pending_mesh_upload_);

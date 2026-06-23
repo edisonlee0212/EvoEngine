@@ -1,0 +1,86 @@
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform EE_BLOOM_DOWNSAMPLING_CONSTANTS {
+  vec2 srcResolution;
+  int mipLevel;
+  int padding;
+};
+
+layout(set = 0, binding = 0) uniform sampler2D srcTexture;
+layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D outTexture;
+
+vec3 PowVec3(vec3 v, float p) {
+  return vec3(pow(v.x, p), pow(v.y, p), pow(v.z, p));
+}
+
+const float invGamma = 1.0 / 2.2;
+
+vec3 ToSRGB(vec3 v) {
+  return PowVec3(v, invGamma);
+}
+
+float sRGBToLuma(vec3 col) {
+  return dot(col, vec3(0.299f, 0.587f, 0.114f));
+}
+
+float KarisAverage(vec3 col) {
+  float luma = sRGBToLuma(ToSRGB(col)) * 0.25f;
+  return 1.0f / (1.0f + luma);
+}
+
+void main() {
+  uvec2 pixel = gl_GlobalInvocationID.xy;
+  uvec2 resolution = uvec2(srcResolution);
+  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
+    return;
+  }
+
+  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / srcResolution;
+  vec2 srcTexelSize = 1.0f / srcResolution;
+  float x = srcTexelSize.x;
+  float y = srcTexelSize.y;
+
+  vec3 a = texture(srcTexture, vec2(texCoord.x - 2 * x, texCoord.y + 2 * y)).rgb;
+  vec3 b = texture(srcTexture, vec2(texCoord.x, texCoord.y + 2 * y)).rgb;
+  vec3 c = texture(srcTexture, vec2(texCoord.x + 2 * x, texCoord.y + 2 * y)).rgb;
+
+  vec3 d = texture(srcTexture, vec2(texCoord.x - 2 * x, texCoord.y)).rgb;
+  vec3 e = texture(srcTexture, vec2(texCoord.x, texCoord.y)).rgb;
+  vec3 f = texture(srcTexture, vec2(texCoord.x + 2 * x, texCoord.y)).rgb;
+
+  vec3 g = texture(srcTexture, vec2(texCoord.x - 2 * x, texCoord.y - 2 * y)).rgb;
+  vec3 h = texture(srcTexture, vec2(texCoord.x, texCoord.y - 2 * y)).rgb;
+  vec3 i = texture(srcTexture, vec2(texCoord.x + 2 * x, texCoord.y - 2 * y)).rgb;
+
+  vec3 j = texture(srcTexture, vec2(texCoord.x - x, texCoord.y + y)).rgb;
+  vec3 k = texture(srcTexture, vec2(texCoord.x + x, texCoord.y + y)).rgb;
+  vec3 l = texture(srcTexture, vec2(texCoord.x - x, texCoord.y - y)).rgb;
+  vec3 m = texture(srcTexture, vec2(texCoord.x + x, texCoord.y - y)).rgb;
+
+  vec3 result = e * 0.125f;
+  result += (a + c + g + i) * 0.03125f;
+  result += (b + d + f + h) * 0.0625f;
+  result += (j + k + l + m) * 0.125f;
+
+  vec3 groups[5];
+  switch (mipLevel) {
+    case 0:
+      groups[0] = (a + b + d + e) * (0.125f / 4.0f);
+      groups[1] = (b + c + e + f) * (0.125f / 4.0f);
+      groups[2] = (d + e + g + h) * (0.125f / 4.0f);
+      groups[3] = (e + f + h + i) * (0.125f / 4.0f);
+      groups[4] = (j + k + l + m) * (0.5f / 4.0f);
+      groups[0] *= KarisAverage(groups[0]);
+      groups[1] *= KarisAverage(groups[1]);
+      groups[2] *= KarisAverage(groups[2]);
+      groups[3] *= KarisAverage(groups[3]);
+      groups[4] *= KarisAverage(groups[4]);
+      result = groups[0] + groups[1] + groups[2] + groups[3] + groups[4];
+      result = max(result, 0.0001f);
+      break;
+    default:
+      break;
+  }
+
+  imageStore(outTexture, ivec2(pixel), vec4(result, 1.0f));
+}

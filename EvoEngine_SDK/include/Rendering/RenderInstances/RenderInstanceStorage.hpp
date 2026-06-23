@@ -9,6 +9,10 @@
 
 namespace evo_engine {
 
+class BottomLevelAccelerationStructure;
+class DeferredGeometryPass;
+class DirectionalLightShadowPass;
+
 /**
  * @brief Struct containing various render settings for the engine.
  */
@@ -55,6 +59,66 @@ struct RayTracingPointCloudPushConstant {
   glm::vec4 clear_color;
 };
 
+struct DdgiProbeRayTracingPushConstant {
+  glm::vec4 first_probe = glm::vec4(0.0f);
+  glm::vec4 probe_step_x = glm::vec4(0.0f);
+  glm::vec4 probe_step_y = glm::vec4(0.0f);
+  glm::vec4 probe_step_z = glm::vec4(0.0f);
+  glm::uvec4 probe_counts_and_ray_count = glm::uvec4(1, 1, 1, 1);
+  glm::uvec4 probe_offset_and_update_count = glm::uvec4(0, 1, 0, 0);
+  glm::vec4 trace_parameters = glm::vec4(1e27f, 0.001f, 0.0f, 0.0f);
+  glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+};
+
+struct DdgiProbeAtlasUpdatePushConstant {
+  glm::uvec4 probe_count_ray_count_and_tile_sizes = glm::uvec4(1, 1, 1, 1);
+  glm::uvec4 atlas_columns_and_rows = glm::uvec4(1, 1, 1, 1);
+  glm::uvec4 probe_offset_and_total_count = glm::uvec4(0, 1, 0, 0);
+  glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
+  glm::vec4 update_parameters = glm::vec4(1e27f, 0.97f, 0.2f, 5.0f);
+  glm::vec4 probe_state_parameters = glm::vec4(0.0f);
+  glm::vec4 probe_blend_parameters = glm::vec4(0.1f, 0.25f, 50.0f, 0.10f);
+  glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+  glm::vec4 probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+  glm::vec4 probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+  glm::vec4 probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+};
+
+struct DdgiProbeVariabilityPushConstant {
+  glm::uvec4 input_output_extent = glm::uvec4(1, 1, 1, 1);
+  glm::uvec4 atlas_parameters = glm::uvec4(1, 1, 1, 0);
+};
+
+struct DdgiProbeRelocationPushConstant {
+  glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 1, 0);
+  glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
+  glm::vec4 relocation_parameters = glm::vec4(1.0f, 0.25f, 0.0f, 0.0f);
+  glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+  glm::vec4 probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+  glm::vec4 probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+  glm::vec4 probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+};
+
+struct DdgiProbeClassificationPushConstant {
+  glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 1, 0);
+  glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
+  glm::vec4 classification_parameters = glm::vec4(0.25f, 0.0f, 0.0f, 0.0f);
+  glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+  glm::vec4 probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+  glm::vec4 probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+  glm::vec4 probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+};
+
+struct DdgiExternalGeometry {
+  std::shared_ptr<BottomLevelAccelerationStructure> bottom_level_acceleration_structure{};
+  int32_t triangle_offset = -1;
+  uint32_t geometry_version = 0;
+
+  [[nodiscard]] bool IsValid() const {
+    return bottom_level_acceleration_structure && triangle_offset >= 0;
+  }
+};
+
 /**
  * @brief Enumeration for defining the type of render instance.
  */
@@ -77,7 +141,7 @@ class RenderInstanceStorage {
     alignas(4) int pcf_sample_amount = 32;   ///< PCF sampling amount.
     alignas(4) int debug_visualization = 0;  ///< Debug visualization flag.
     alignas(4) float seam_fix_ratio = 0.1f;  ///< Ratio for seam fixes.
-    alignas(4) float padding = 1.f;          ///< Padding to align struct properly.
+    alignas(4) float ddgi_indirect_intensity = 0.0f;
 
     alignas(4) float strands_subdivision_x_factor = 50.0f;  ///< X factor for strands subdivision.
     alignas(4) float strands_subdivision_y_factor = 50.0f;  ///< Y factor for strands subdivision.
@@ -88,6 +152,16 @@ class RenderInstanceStorage {
     alignas(4) int point_light_size = 0;        ///< Number of point lights.
     alignas(4) int spot_light_size = 0;         ///< Number of spot lights.
     alignas(4) int brdflut_texture_index = 0;   ///< Texture index for BRDF LUT.
+
+    glm::vec4 ddgi_first_probe = glm::vec4(0.0f);
+    glm::vec4 ddgi_probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+    glm::vec4 ddgi_probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+    glm::vec4 ddgi_probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+    glm::vec4 ddgi_probe_counts = glm::vec4(1.0f);
+    glm::vec4 ddgi_probe_scroll_offset = glm::vec4(0.0f);
+    glm::vec4 ddgi_atlas_parameters = glm::vec4(1.0f);
+    glm::vec4 ddgi_volume_parameters = glm::vec4(0.0f);
+    glm::vec4 ddgi_sampling_parameters = glm::vec4(1.0f);
 
     /**
      * @brief Applies the settings from the target RenderSettings.
@@ -157,6 +231,11 @@ class RenderInstanceStorage {
     alignas(4) int receive_shadow = true;  ///< Indicates if the material receives shadows.
     alignas(4) int enable_shadow = true;   ///< Indicates if shadows are enabled for the material.
 
+    alignas(4) int cull_mode = VK_CULL_MODE_NONE;  ///< Cull mode used by two-sided ray-hit shading.
+    alignas(4) int padding0 = 0;
+    alignas(4) int padding1 = 0;
+    alignas(4) int padding2 = 0;
+
     glm::vec4 albedo_color_val = glm::vec4(1.0f);                     ///< Albedo color value.
     glm::vec4 subsurface_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);   ///< Subsurface color.
     glm::vec4 subsurface_radius = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);  ///< Subsurface radius.
@@ -222,12 +301,16 @@ class RenderInstanceStorage {
    * @brief Struct for external render instance functionality.
    */
   struct ExternalRenderInstance : IRenderInstance {
+    DdgiExternalGeometry ddgi_geometry{};  ///< Optional standard-payload geometry for DDGI ray tracing.
+
     /**
      * @brief Compares two ExternalRenderInstance objects for inequality.
      * @param other The other ExternalRenderInstance object to compare.
      * @return True if the objects are not equal.
      */
     bool operator!=(const ExternalRenderInstance& other) const;
+
+    [[nodiscard]] bool HasDdgiRayTracingGeometry() const;
 
     /**
      * @brief Apply instance information to the given InstanceInfoBlock.
@@ -425,6 +508,8 @@ class RenderInstanceStorage {
      * @param action The action to apply.
      */
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+
+    [[nodiscard]] bool HasDdgiRayTracingGeometry() const;
   };
 
   /**
@@ -606,6 +691,10 @@ class RenderInstanceStorage {
   bool RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
                               const Handle& renderer_handle, const std::shared_ptr<Material>& material,
                               int* out_material_index = nullptr);
+
+  bool RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
+                              const Handle& renderer_handle, const std::shared_ptr<Material>& material,
+                              const DdgiExternalGeometry& ddgi_geometry, int* out_material_index = nullptr);
 
   /**
    * @brief Registers a material and returns its index.
@@ -804,6 +893,8 @@ class RenderInstanceStorage {
 
   friend class TopLevelAccelerationStructure;
   friend class RenderLayer;
+  friend class DeferredGeometryPass;
+  friend class DirectionalLightShadowPass;
   friend class CpuRayTracer;
   /**
    * @brief Collects entity renderers and calculates the world bounding box.

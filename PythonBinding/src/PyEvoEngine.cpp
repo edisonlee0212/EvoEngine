@@ -1,10 +1,12 @@
 #include "PyEvoEngine.hpp"
+#include "DdgiVolume.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
 #include "TextureStorage.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
 #endif
+#include <algorithm>
 using namespace py_evo_engine;
 namespace py = pybind11;
 
@@ -226,6 +228,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         py::arg("clear_generated_project_files") = true);
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
         py::arg("output_path"), py::arg("warmup_frames") = 1);
+  m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);
@@ -355,6 +358,29 @@ bool PyEvoEngine::RunDemoWindowless(const std::string& demo_setup_name,
   ApplicationContext::Get().Initialize(application_info);
   ApplicationContext::Get().Start();
   return true;
+}
+
+bool PyEvoEngine::IsCurrentSceneDdgiEnabled() {
+  auto& application = ApplicationContext::Get();
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  const auto scene = application.GetActiveScene();
+  if (!render_layer || !scene || !render_layer->enable_indirect_rendering) {
+    return false;
+  }
+
+  const auto& settings = scene->environment.ddgi_settings;
+  if (!settings.runtime.enabled || settings.runtime.pause_updates) {
+    return false;
+  }
+
+  const auto* volume_owners = scene->UnsafeGetPrivateComponentOwnersList<DdgiVolume>();
+  if (!volume_owners) {
+    return false;
+  }
+  return std::any_of(volume_owners->begin(), volume_owners->end(), [&](const Entity& owner) {
+    const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(owner).lock();
+    return volume && volume->IsEnabled() && volume->GetProbeAmount() > 0;
+  });
 }
 
 void PyEvoEngine::Run(const std::filesystem::path& project_path) {

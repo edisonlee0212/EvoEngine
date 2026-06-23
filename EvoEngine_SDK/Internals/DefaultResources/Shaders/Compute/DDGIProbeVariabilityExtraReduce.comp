@@ -1,0 +1,41 @@
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rg32f) uniform image2D EE_DDGI_VARIABILITY_REDUCTION_INPUT;
+layout(set = 0, binding = 1) readonly buffer EE_DDGI_PROBE_STATE_BLOCK {
+  vec4 EE_DDGI_PROBE_STATE[];
+};
+layout(set = 0, binding = 2, rg32f) uniform image2D EE_DDGI_VARIABILITY_REDUCTION_OUTPUT;
+
+layout(push_constant) uniform EE_DDGI_VARIABILITY_CONSTANTS {
+  uvec4 input_output_extent;
+  uvec4 atlas_parameters;
+};
+
+void main() {
+  const uvec2 output_coord = gl_GlobalInvocationID.xy;
+  const uvec2 output_extent = max(input_output_extent.zw, uvec2(1u));
+  if (any(greaterThanEqual(output_coord, output_extent))) {
+    return;
+  }
+
+  const uvec2 input_extent = max(input_output_extent.xy, uvec2(1u));
+  const uvec2 base_coord = output_coord * 16u;
+  float weighted_sum = 0.0f;
+  float weight_sum = 0.0f;
+  for (uint y = 0u; y < 16u; ++y) {
+    for (uint x = 0u; x < 16u; ++x) {
+      const uvec2 input_coord = base_coord + uvec2(x, y);
+      if (any(greaterThanEqual(input_coord, input_extent))) {
+        continue;
+      }
+      const vec2 sample_value = imageLoad(EE_DDGI_VARIABILITY_REDUCTION_INPUT, ivec2(input_coord)).rg;
+      weighted_sum += sample_value.r * sample_value.g;
+      weight_sum += sample_value.g;
+    }
+  }
+  const float average = weight_sum > 0.0f ? weighted_sum / weight_sum : 0.0f;
+  const float total_possible_weight = 16.0f * 16.0f;
+  const float normalized_weight = weight_sum / total_possible_weight;
+  imageStore(EE_DDGI_VARIABILITY_REDUCTION_OUTPUT, ivec2(output_coord),
+             vec4(average, normalized_weight, 0.0f, 0.0f));
+}

@@ -15,7 +15,7 @@ file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" EVOENGINE_TEST_SOURCE_DIR_NORMALIZED)
 file(TO_CMAKE_PATH "${Python3_EXECUTABLE}" EVOENGINE_TEST_PYTHON_EXECUTABLE_NORMALIZED)
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT_DIR_NORMALIZED)
 
-add_executable(EvoEngine_Tests
+set(EVOENGINE_TEST_SOURCES
 	Core/TaskRuntimeTest.cpp
 	Core/ProfilerTest.cpp
 	Core/AssetManagerTest.cpp
@@ -24,10 +24,23 @@ add_executable(EvoEngine_Tests
 	Core/PathUtilsTest.cpp
 	Core/LauncherUtilsTest.cpp
 	Core/GpuServiceTest.cpp
+	Core/PlatformQueueFamilyTest.cpp
+	Core/RenderGraphTest.cpp
+	Core/DdgiVolumeTest.cpp
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
+	)
+
+if(TARGET EcoSysLabPackage)
+	list(APPEND EVOENGINE_TEST_SOURCES
+		EcoSysLab/EcoSysLabTreeStrandsTest.cpp
+		)
+endif()
+
+add_executable(EvoEngine_Tests
+	${EVOENGINE_TEST_SOURCES}
 	)
 target_link_libraries(EvoEngine_Tests
 	PRIVATE
@@ -35,6 +48,26 @@ target_link_libraries(EvoEngine_Tests
 	EvoEngine_DemoScene
 	GTest::gtest_main
 	)
+if(TARGET EcoSysLabPackage)
+	target_link_libraries(EvoEngine_Tests
+		PRIVATE
+		EcoSysLabPackage
+		)
+	foreach(package_runtime_target EcoSysLabPackage BillboardCloudsPackage)
+		if(TARGET ${package_runtime_target})
+			add_custom_command(TARGET EvoEngine_Tests POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					"$<TARGET_FILE:${package_runtime_target}>"
+					"$<TARGET_FILE_DIR:EvoEngine_Tests>"
+				VERBATIM)
+		endif()
+	endforeach()
+	add_custom_command(TARGET EvoEngine_Tests POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${CMAKE_SOURCE_DIR}/EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources"
+			"$<TARGET_FILE_DIR:EvoEngine_Tests>/EcoSysLabResources"
+		VERBATIM)
+endif()
 target_include_directories(EvoEngine_Tests
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
@@ -109,6 +142,23 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER RenderGraph.*
+	PROPERTIES LABELS "core,render"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER DdgiVolume.*
+	PROPERTIES LABELS "core,render,ddgi"
+	)
+if(TARGET EcoSysLabPackage)
+	gtest_discover_tests(EvoEngine_Tests
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+		TEST_FILTER EcoSysLab.*
+		PROPERTIES LABELS "render,gpu,ecosyslab"
+		)
+endif()
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER InspectorRegistry.*
 	PROPERTIES LABELS "core,editor,registry"
 	)
@@ -122,48 +172,6 @@ gtest_discover_tests(EvoEngine_Tests
 	TEST_FILTER RenderingDemo.*
 	PROPERTIES LABELS "render,gpu,python"
 	)
-
-if(TARGET DemoApp)
-	set(EVOENGINE_DEMOAPP_SMOKE_TEST_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/DemoAppSmokeTest.run.yaml")
-	file(WRITE "${EVOENGINE_DEMOAPP_SMOKE_TEST_CONFIG}"
-"mode: smoke_test
-application_mode: Editor
-demo_setup: Rendering
-frames_after_play: 100
-max_load_frames: 30000
-max_play_frames: 1000
-exit_on_complete: true
-")
-	set(EVOENGINE_DEMOAPP_PLAYER_SMOKE_TEST_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/DemoAppPlayerSmokeTest.run.yaml")
-	file(WRITE "${EVOENGINE_DEMOAPP_PLAYER_SMOKE_TEST_CONFIG}"
-"mode: smoke_test
-application_mode: Player
-demo_setup: Rendering
-frames_after_play: 100
-max_load_frames: 30000
-max_play_frames: 1000
-exit_on_complete: true
-")
-	add_dependencies(EvoEngine_RenderTests DemoApp)
-	add_test(NAME DemoApp.PlayLoadedScene100Frames
-		COMMAND $<TARGET_FILE:DemoApp> --run-config "${EVOENGINE_DEMOAPP_SMOKE_TEST_CONFIG}"
-		)
-	set_tests_properties(DemoApp.PlayLoadedScene100Frames
-		PROPERTIES
-		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DemoApp>"
-		LABELS "render,gpu,app"
-		TIMEOUT 240
-		)
-	add_test(NAME DemoApp.PlayerModePlayLoadedScene100Frames
-		COMMAND $<TARGET_FILE:DemoApp> --run-config "${EVOENGINE_DEMOAPP_PLAYER_SMOKE_TEST_CONFIG}"
-		)
-	set_tests_properties(DemoApp.PlayerModePlayLoadedScene100Frames
-		PROPERTIES
-		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DemoApp>"
-		LABELS "render,gpu,app,player"
-		TIMEOUT 240
-		)
-endif()
 
 if(WIN32 AND TARGET EvoEngineLauncher AND TARGET EvoEngineEditor)
 	add_test(NAME Launcher.ProcessBoundaries

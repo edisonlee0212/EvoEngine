@@ -11,6 +11,11 @@
 
 using namespace evo_engine;
 
+namespace {
+constexpr uint32_t kDdgiRayMaskGeometry = 0x01u;
+constexpr uint32_t kDdgiRayMaskShadow = 0x02u;
+}  // namespace
+
 Fence::Fence(const VkFenceCreateInfo& vk_fence_create_info) {
   if (!Platform::Initialized())
     return;
@@ -466,6 +471,16 @@ void Image::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImageL
   layout_ = new_layout;
 }
 
+void Image::TransitImageLayout(const VkCommandBuffer vk_command_buffer, const VkImageLayout old_layout,
+                               const VkImageLayout new_layout, const uint32_t src_queue_family_index,
+                               const uint32_t dst_queue_family_index, const bool update_tracked_layout) {
+  Platform::TransitImageLayout(vk_command_buffer, vk_image_, format_, array_layers_, old_layout, new_layout,
+                               mip_levels_, src_queue_family_index, dst_queue_family_index, !update_tracked_layout);
+  if (update_tracked_layout) {
+    layout_ = new_layout;
+  }
+}
+
 const VmaAllocationInfo& Image::GetVmaAllocationInfo() const {
   return vma_allocation_info_;
 }
@@ -555,8 +570,9 @@ void Buffer::UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const
   if (required_size > state->size && dst_offset != 0) {
     throw std::runtime_error("Subrange buffer upload cannot grow the destination buffer.");
   }
-  if (required_size > state->size)
+  if (required_size > state->size) {
     ResizeOnGpuThread(state, required_size);
+  }
   if (state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
       state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
     void* mapping;
@@ -881,6 +897,24 @@ void Buffer::CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state, c
     copy_region.srcOffset = src_offset;
     copy_region.dstOffset = dst_offset;
     vkCmdCopyBuffer(vk_command_buffer, src_buffer, state->vk_buffer, 1, &copy_region);
+
+    VkBufferMemoryBarrier2 upload_barrier{};
+    upload_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+    upload_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    upload_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    upload_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    upload_barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+    upload_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    upload_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    upload_barrier.buffer = state->vk_buffer;
+    upload_barrier.offset = dst_offset;
+    upload_barrier.size = size;
+
+    VkDependencyInfo dependency_info{};
+    dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency_info.bufferMemoryBarrierCount = 1;
+    dependency_info.pBufferMemoryBarriers = &upload_barrier;
+    vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
   });
 }
 
@@ -1265,12 +1299,17 @@ CommandBufferStatus CommandBuffer::GetStatus() const {
   return status_;
 }
 
-CommandBuffer::CommandBuffer(const VkCommandBufferLevel& buffer_level) {
-  if (!Platform::Initialized())
+CommandBuffer::CommandBuffer(const VkCommandBufferLevel& buffer_level)
+    : CommandBuffer(Platform::Initialized() ? Platform::GetVkCommandPool() : VK_NULL_HANDLE, buffer_level) {
+}
+
+CommandBuffer::CommandBuffer(const VkCommandPool command_pool, const VkCommandBufferLevel& buffer_level) {
+  if (!Platform::Initialized() || command_pool == VK_NULL_HANDLE)
     return;
+  vk_command_pool_ = command_pool;
   VkCommandBufferAllocateInfo command_buffer_allocate_info = {};
   command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  command_buffer_allocate_info.commandPool = Platform::GetVkCommandPool();
+  command_buffer_allocate_info.commandPool = vk_command_pool_;
   command_buffer_allocate_info.level = buffer_level;
   command_buffer_allocate_info.commandBufferCount = 1;
   Platform::CheckVk(
@@ -1282,7 +1321,7 @@ CommandBuffer::~CommandBuffer() {
   if (!Platform::Initialized())
     return;
   if (vk_command_buffer_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
-    vkFreeCommandBuffers(Platform::GetVkDevice(), Platform::GetVkCommandPool(), 1, &vk_command_buffer_);
+    vkFreeCommandBuffers(Platform::GetVkDevice(), vk_command_pool_, 1, &vk_command_buffer_);
     vk_command_buffer_ = VK_NULL_HANDLE;
   }
   status_ = CommandBufferStatus::Invalid;
@@ -1517,6 +1556,7 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   buffer_create_info.size = triangles.size() * sizeof(glm::uvec3);
   index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   index_buffer->UploadVector(triangles);
+  buffer_create_info.size = sizeof(VkTransformMatrixKHR);
   transform_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   VkTransformMatrixKHR transform_matrix = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
   transform_buffer->Upload(transform_matrix);
@@ -1531,7 +1571,7 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   acceleration_structure_geometry.geometry.triangles.sType =
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
   acceleration_structure_geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-  acceleration_structure_geometry.geometry.triangles.maxVertex = vertices.size();
+  acceleration_structure_geometry.geometry.triangles.maxVertex = static_cast<uint32_t>(vertices.size() - 1);
   acceleration_structure_geometry.geometry.triangles.pNext = nullptr;
   acceleration_structure_geometry.geometry.triangles.vertexStride = sizeof(Vertex);
   acceleration_structure_geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
@@ -1633,20 +1673,69 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
-  render_instance_storage.deferred_render_instances->ForEachRenderInstance(
-      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+  const auto register_mesh_acceleration_instance =
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance,
+          const VkDeviceAddress bottom_level_acceleration_structure, const glm::mat4& model) {
         auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
-        const auto tt = glm::transpose(render_instance->model.value);
+        const auto tt = glm::transpose(model);
         memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(tt),
                sizeof(VkTransformMatrixKHR));
         acceleration_structure_instance.instanceCustomIndex = static_cast<uint32_t>(render_instance->instance_index);
-        acceleration_structure_instance.mask = 0xFF;
+        acceleration_structure_instance.mask =
+            kDdgiRayMaskGeometry | (render_instance->cast_shadow ? kDdgiRayMaskShadow : 0u);
         acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
         acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        acceleration_structure_instance.accelerationStructureReference =
-            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)
-                ->mesh->blas_->GetDeviceAddress();
-      });
+        acceleration_structure_instance.accelerationStructureReference = bottom_level_acceleration_structure;
+      };
+  const auto register_mesh_render_instance =
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto mesh_render_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
+        if (!mesh_render_instance || !mesh_render_instance->mesh || !mesh_render_instance->mesh->blas_) {
+          return;
+        }
+        register_mesh_acceleration_instance(render_instance, mesh_render_instance->mesh->blas_->GetDeviceAddress(),
+                                            render_instance->model.value);
+      };
+  const auto register_instanced_mesh_render_instance =
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto instanced_render_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
+        if (!instanced_render_instance || !instanced_render_instance->mesh || !instanced_render_instance->mesh->blas_ ||
+            !instanced_render_instance->particle_infos) {
+          return;
+        }
+        const auto bottom_level_acceleration_structure = instanced_render_instance->mesh->blas_->GetDeviceAddress();
+        for (const auto& particle_info : instanced_render_instance->particle_infos->PeekParticleInfoList()) {
+          register_mesh_acceleration_instance(render_instance, bottom_level_acceleration_structure,
+                                              render_instance->model.value * particle_info.instance_matrix.value);
+        }
+      };
+  const auto register_external_ddgi_render_instance =
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto external_render_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::ExternalRenderInstance>(render_instance);
+        if (!external_render_instance || !external_render_instance->HasDdgiRayTracingGeometry()) {
+          return;
+        }
+        register_mesh_acceleration_instance(
+            render_instance,
+            external_render_instance->ddgi_geometry.bottom_level_acceleration_structure->GetDeviceAddress(),
+            render_instance->model.value);
+      };
+  render_instance_storage.deferred_render_instances->ForEachRenderInstance(register_mesh_render_instance);
+  render_instance_storage.deferred_instanced_render_instances->ForEachRenderInstance(
+      register_instanced_mesh_render_instance);
+  render_instance_storage.forward_render_instances->ForEachRenderInstance(register_mesh_render_instance);
+  render_instance_storage.forward_instanced_render_instances->ForEachRenderInstance(
+      register_instanced_mesh_render_instance);
+  render_instance_storage.transparent_render_instances->ForEachRenderInstance(register_mesh_render_instance);
+  render_instance_storage.transparent_instanced_render_instances->ForEachRenderInstance(
+      register_instanced_mesh_render_instance);
+  render_instance_storage.external_render_instances->ForEachRenderInstance(register_external_ddgi_render_instance);
+  if (acceleration_structure_instances.empty()) {
+    return;
+  }
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;

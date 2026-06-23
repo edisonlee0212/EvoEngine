@@ -192,6 +192,8 @@ class Image final : public IGraphicsResource {
    * @param new_layout The new image layout.
    */
   void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout new_layout);
+  void TransitImageLayout(VkCommandBuffer vk_command_buffer, VkImageLayout old_layout, VkImageLayout new_layout,
+                          uint32_t src_queue_family_index, uint32_t dst_queue_family_index, bool update_tracked_layout);
 
   /**
    * @brief Copies data from a buffer to the image.
@@ -878,6 +880,7 @@ class CommandBuffer final : public IGraphicsResource {
 
   CommandBufferStatus status_ = CommandBufferStatus::Invalid; /**< Current status of the command buffer. */
   VkCommandBuffer vk_command_buffer_ = VK_NULL_HANDLE;        /**< Vulkan command buffer handle. */
+  VkCommandPool vk_command_pool_ = VK_NULL_HANDLE;            /**< Vulkan command pool that owns this buffer. */
 
  public:
   /**
@@ -891,6 +894,14 @@ class CommandBuffer final : public IGraphicsResource {
    * @param buffer_level Vulkan command buffer level. Defaults to primary level.
    */
   CommandBuffer(const VkCommandBufferLevel& buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+
+  /**
+   * @brief Constructs a CommandBuffer from a specific command pool.
+   * @param command_pool Vulkan command pool to allocate from.
+   * @param buffer_level Vulkan command buffer level.
+   */
+  explicit CommandBuffer(VkCommandPool command_pool,
+                         const VkCommandBufferLevel& buffer_level = VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
   /**
    * @brief Destructor for CommandBuffer.

@@ -392,6 +392,16 @@ GpuStagingBuffer GpuService::CreateStagingBuffer(const size_t size, const bool r
   buffer_create_info.size = staging_buffer.size;
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+#if ENABLE_EXTERNAL_MEMORY
+  VkExternalMemoryBufferCreateInfo external_memory_info{};
+  external_memory_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
+#  ifdef _WIN64
+  external_memory_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#  else
+  external_memory_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+#  endif
+  buffer_create_info.pNext = &external_memory_info;
+#endif
 
   VmaAllocationCreateInfo allocation_create_info{};
   allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;

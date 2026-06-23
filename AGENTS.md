@@ -48,6 +48,7 @@ For each non-trivial task, establish brief milestones before implementation and 
 - Grep for usages of any removed or renamed symbols to clean up dead references
 - Add unit tests for new logic when a test framework is available
 - Build the relevant executable target before manual testing app/editor behavior, and report the exact executable path used for the manual test.
+- Install all executable applications after finishing a task, unless the user explicitly says not to, and report the exact install command and result.
 
 ## GPT-Codex-5.3-Spark Subagent Workflow
 

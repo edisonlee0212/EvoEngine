@@ -1,0 +1,39 @@
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform EE_BLOOM_UPSAMPLING_CONSTANTS {
+  uvec2 targetResolution;
+  float filterRadius;
+  float padding;
+};
+
+layout(set = 0, binding = 0) uniform sampler2D srcTexture;
+layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D outTexture;
+
+void main() {
+  uvec2 pixel = gl_GlobalInvocationID.xy;
+  if (pixel.x >= targetResolution.x || pixel.y >= targetResolution.y) {
+    return;
+  }
+
+  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(targetResolution);
+  float x = filterRadius;
+  float y = filterRadius;
+
+  vec4 a = texture(srcTexture, vec2(texCoord.x - x, texCoord.y + y)).rgba;
+  vec4 b = texture(srcTexture, vec2(texCoord.x, texCoord.y + y)).rgba;
+  vec4 c = texture(srcTexture, vec2(texCoord.x + x, texCoord.y + y)).rgba;
+
+  vec4 d = texture(srcTexture, vec2(texCoord.x - x, texCoord.y)).rgba;
+  vec4 e = texture(srcTexture, vec2(texCoord.x, texCoord.y)).rgba;
+  vec4 f = texture(srcTexture, vec2(texCoord.x + x, texCoord.y)).rgba;
+
+  vec4 g = texture(srcTexture, vec2(texCoord.x - x, texCoord.y - y)).rgba;
+  vec4 h = texture(srcTexture, vec2(texCoord.x, texCoord.y - y)).rgba;
+  vec4 i = texture(srcTexture, vec2(texCoord.x + x, texCoord.y - y)).rgba;
+
+  vec4 upsample = e * 4.0f;
+  upsample += (b + d + f + h) * 2.0f;
+  upsample += a + c + g + i;
+  upsample *= 1.0f / 16.0f;
+  imageStore(outTexture, ivec2(pixel), upsample);
+}

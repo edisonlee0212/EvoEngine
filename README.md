@@ -9,7 +9,10 @@ EvoEngine is a C++17 research framework for interactive simulation, digital fore
 
 Windows is the primary development platform. Linux builds are supported for the core stack, while some Services and packages are Windows-only or require optional SDKs.
 
-![EvoEngine rendering demo](Resources/GitHub/RenderingDemo.png)
+![EvoEngine rendering demo with DDGI debug probes](Resources/GitHub/RenderingDemo.png)
+
+The rendering demo image is captured from `DemoApp` with DDGI enabled; the yellow probe debug overlay shows the active
+`DdgiVolume` used for probe placement and atlas debugging.
 
 ## Quick Start
 
@@ -63,6 +66,7 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | Build and install | [docs/building.md](docs/building.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
+| Rendering | [docs/rendering.md](docs/rendering.md) |
 | Projects, assets, and serialization | [docs/projects-assets-serialization.md](docs/projects-assets-serialization.md) |
 | Runtime packages | [docs/runtime-packages.md](docs/runtime-packages.md) |
 | Extending EvoEngine | [docs/extending-evoengine.md](docs/extending-evoengine.md) |
@@ -87,9 +91,9 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 ## Demo Gallery
 
-| Rendering | Ray Tracing |
+| Rendering with DDGI Probes | Ray Tracing |
 | --- | --- |
-| ![Rendering demo](Resources/GitHub/RenderingDemo.png) | ![Ray tracing demo](Resources/GitHub/RayTracingDemo.png) |
+| ![Rendering demo with DDGI debug probes](Resources/GitHub/RenderingDemo.png) | ![Ray tracing demo](Resources/GitHub/RayTracingDemo.png) |
 
 | Planet Terrain | Star Clusters |
 | --- | --- |

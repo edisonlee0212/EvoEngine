@@ -1,11 +1,17 @@
 
 #extension GL_EXT_control_flow_attributes : require
 
+#include "DDGI.glsl"
 #include "VogelDisk.glsl"
 
 layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArray EE_DIRECTIONAL_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 15) uniform sampler2DArray EE_POINT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 16) uniform sampler2D EE_SPOT_LIGHT_SM;
+layout(set = EE_PER_GROUP_SET, binding = 17) uniform sampler2D EE_DDGI_IRRADIANCE_ATLAS;
+layout(set = EE_PER_GROUP_SET, binding = 18) uniform sampler2D EE_DDGI_VISIBILITY_ATLAS;
+layout(set = EE_PER_GROUP_SET, binding = 19) readonly buffer EE_DDGI_PROBE_STATE_BLOCK {
+  vec4 EE_DDGI_PROBE_STATE[];
+};
 
 vec3 EE_SKY_COLOR(vec3 direction) {
 	Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
@@ -70,6 +76,113 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3 normal, float cameraFragDistance);
 float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
 float EE_FUNC_SPOT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
+
+vec3 EE_FUNC_CALCULATE_DDGI_DIFFUSE(vec3 albedo, vec3 normal, vec3 viewDir, vec3 fragPos) {
+  const float intensity = EE_RENDER_INFO.ddgi_indirect_intensity;
+  if (intensity <= 0.0f) {
+    return vec3(0.0f);
+  }
+
+  const uvec3 probe_counts = max(uvec3(EE_RENDER_INFO.ddgi_probe_counts.xyz), uvec3(1u));
+  const vec3 biased_frag_pos = EE_DDGI_SURFACE_BIASED_POSITION(
+      fragPos, normal, viewDir, EE_RENDER_INFO.ddgi_volume_parameters.z, EE_RENDER_INFO.ddgi_volume_parameters.w);
+  const vec3 volume_probe_coordinate =
+      EE_DDGI_PROBE_COORDINATE(fragPos, EE_RENDER_INFO.ddgi_first_probe.xyz,
+                               EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
+                               EE_RENDER_INFO.ddgi_probe_step_z.xyz);
+  const float volume_blend_weight =
+      EE_DDGI_VOLUME_BLEND_WEIGHT(volume_probe_coordinate, probe_counts, EE_RENDER_INFO.ddgi_probe_step_x.xyz,
+                                  EE_RENDER_INFO.ddgi_probe_step_y.xyz, EE_RENDER_INFO.ddgi_probe_step_z.xyz);
+  if (volume_blend_weight <= 0.0f) {
+    return vec3(0.0f);
+  }
+
+  const vec3 biased_probe_coordinate =
+      EE_DDGI_PROBE_COORDINATE(biased_frag_pos, EE_RENDER_INFO.ddgi_first_probe.xyz,
+                               EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
+                               EE_RENDER_INFO.ddgi_probe_step_z.xyz);
+
+  const uint irradiance_tile_size = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.x), 1u);
+  const uint irradiance_atlas_columns = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.y), 1u);
+  const uint visibility_tile_size = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.z), 1u);
+  const uint visibility_atlas_columns = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.w), 1u);
+  const vec2 irradiance_atlas_size = vec2(textureSize(EE_DDGI_IRRADIANCE_ATLAS, 0));
+  const vec2 visibility_atlas_size = vec2(textureSize(EE_DDGI_VISIBILITY_ATLAS, 0));
+  const ivec3 probe_scroll_offset = ivec3(round(EE_RENDER_INFO.ddgi_probe_scroll_offset.xyz));
+  const float irradiance_gamma = max(EE_RENDER_INFO.ddgi_probe_counts.w, 1.0f);
+  const float visibility_bias = max(EE_RENDER_INFO.ddgi_volume_parameters.y, 0.0f);
+  const vec3 max_probe_grid = vec3(probe_counts - uvec3(1u));
+  const vec3 base_probe_grid = clamp(floor(biased_probe_coordinate), vec3(0.0f), max_probe_grid);
+  const vec3 base_probe_world_position =
+      EE_DDGI_PROBE_WORLD_POSITION(base_probe_grid, EE_RENDER_INFO.ddgi_first_probe.xyz,
+                                   EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
+                                   EE_RENDER_INFO.ddgi_probe_step_z.xyz);
+  const vec3 base_probe_to_biased_position = biased_frag_pos - base_probe_world_position;
+  const vec3 probe_fraction =
+      clamp(vec3(EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, EE_RENDER_INFO.ddgi_probe_step_x.xyz),
+                 EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, EE_RENDER_INFO.ddgi_probe_step_y.xyz),
+                 EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, EE_RENDER_INFO.ddgi_probe_step_z.xyz)),
+            vec3(0.0f), vec3(1.0f));
+
+  vec3 diffuse = vec3(0.0f);
+  float weight_sum = 0.0f;
+  for (uint z = 0u; z < 2u; ++z) {
+    for (uint y = 0u; y < 2u; ++y) {
+      for (uint x = 0u; x < 2u; ++x) {
+        const uvec3 corner = uvec3(x, y, z);
+        const vec3 corner_weight = max(vec3(0.001f), mix(vec3(1.0f) - probe_fraction, probe_fraction, vec3(corner)));
+        const float trilinear_weight = corner_weight.x * corner_weight.y * corner_weight.z;
+
+        const vec3 probe_grid = clamp(base_probe_grid + vec3(corner), vec3(0.0f), max_probe_grid);
+        const uvec3 probe_index_3d = uvec3(probe_grid);
+        const uint probe_index = EE_DDGI_SCROLL_PROBE_INDEX(probe_index_3d, probe_scroll_offset, probe_counts);
+        const vec4 probe_state = EE_DDGI_PROBE_STATE[probe_index];
+        const float probe_active = 1.0f - clamp(probe_state.w, 0.0f, 1.0f);
+        if (probe_active <= 0.0f) {
+          continue;
+        }
+        const vec3 probe_position =
+            EE_DDGI_PROBE_WORLD_POSITION(probe_grid, EE_RENDER_INFO.ddgi_first_probe.xyz,
+                                         EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
+                                         EE_RENDER_INFO.ddgi_probe_step_z.xyz) +
+            probe_state.xyz;
+
+        const vec3 surface_to_probe = probe_position - fragPos;
+        const float probe_distance = length(surface_to_probe);
+        const vec3 biased_surface_to_probe = probe_position - biased_frag_pos;
+        const float biased_probe_distance = length(biased_surface_to_probe);
+        const vec3 surface_to_probe_direction = probe_distance > 0.001f ? surface_to_probe / probe_distance : normal;
+        const vec3 biased_surface_to_probe_direction =
+            biased_probe_distance > 0.001f ? biased_surface_to_probe / biased_probe_distance : normal;
+        const vec3 probe_to_surface = -biased_surface_to_probe_direction;
+        const vec2 irradiance_atlas_uv =
+            EE_DDGI_ATLAS_UV(probe_index, irradiance_atlas_columns, irradiance_tile_size, normal, irradiance_atlas_size);
+        const vec2 visibility_atlas_uv =
+            EE_DDGI_ATLAS_UV(probe_index, visibility_atlas_columns, visibility_tile_size, probe_to_surface,
+                             visibility_atlas_size);
+        const vec4 irradiance = texture(EE_DDGI_IRRADIANCE_ATLAS, irradiance_atlas_uv);
+        const vec4 visibility_sample = texture(EE_DDGI_VISIBILITY_ATLAS, visibility_atlas_uv);
+        const float wrap_shading = (dot(surface_to_probe_direction, normal) + 1.0f) * 0.5f;
+        float visibility_weight = wrap_shading * wrap_shading + 0.2f;
+        const float distance_visibility =
+            EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance, visibility_bias);
+        visibility_weight *= max(0.05f, distance_visibility);
+        visibility_weight = max(0.000001f, visibility_weight);
+        visibility_weight = EE_DDGI_CRUSH_LOW_WEIGHT(visibility_weight);
+        const float sample_weight = trilinear_weight * visibility_weight;
+        const vec3 decoded_irradiance = pow(max(irradiance.rgb, vec3(0.0f)), vec3(irradiance_gamma * 0.5f));
+        diffuse += decoded_irradiance * sample_weight;
+        weight_sum += sample_weight;
+      }
+    }
+  }
+  if (weight_sum <= 0.0f) {
+    return vec3(0.0f);
+  }
+  diffuse /= weight_sum;
+  diffuse *= diffuse * (2.0f * EE_DDGI_PI);
+  return albedo / EE_DDGI_PI * diffuse * intensity * volume_blend_weight;
+}
 
 vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0)
 {
@@ -428,4 +541,3 @@ float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance)
 	shadow /= sampleAmount;
 	return clamp(shadow, 0.0f, 1.0f);
 }
-

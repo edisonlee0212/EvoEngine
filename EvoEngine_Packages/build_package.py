@@ -92,6 +92,13 @@ def expand_binary_dir(binary_dir: str, preset_name: str) -> Path:
     return Path(expanded)
 
 
+def select_build_dir(binary_dir: Path, package: dict[str, str]) -> Path:
+    package_project = binary_dir / package["path"] / f"{package['target']}.vcxproj"
+    if package_project.exists():
+        return package_project.parent
+    return binary_dir
+
+
 def list_packages(packages: dict[str, dict[str, str]]) -> None:
     unique_packages = {entry["name"]: entry for entry in packages.values()}
     for name in sorted(unique_packages):
@@ -149,15 +156,17 @@ def main() -> int:
             "cmake",
             "--preset",
             preset_name,
+            "-DEVOENGINE_ENABLE_RUNTIME_PACKAGES=ON",
             f"-D{package['enable_variable']}=ON",
             *args.configure_arg,
         ]
         run_command(configure_command, args.dry_run)
 
+    build_dir = select_build_dir(binary_dir, package)
     build_command = [
         "cmake",
         "--build",
-        str(binary_dir),
+        str(build_dir),
         "--config",
         args.config,
         "--target",

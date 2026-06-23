@@ -43,8 +43,8 @@ cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target EvoEngineEdi
 Rebuild one runtime package:
 
 ```bat
-cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target EcoSysLabPackage
-cmake --build out/build/vs2026-x64 --config Debug --target DigitalAgriculturePackage
+python EvoEngine_Packages\build_package.py EcoSysLab --config RelWithDebInfo --skip-configure
+python EvoEngine_Packages\build_package.py DigitalAgriculture --config Debug --skip-configure
 ```
 
 ## Linux Requirements

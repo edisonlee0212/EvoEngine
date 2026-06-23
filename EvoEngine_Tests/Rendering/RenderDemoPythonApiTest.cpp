@@ -14,12 +14,12 @@
 #include <string>
 #include <vector>
 
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace {
 constexpr int kRenderWidth = 2560;
 constexpr int kRenderHeight = 1440;
+constexpr int kDdgiWarmupFrames = 1800;
 constexpr double kMinimumPsnr = 30.0;
 constexpr double kMinimumSsim = 0.95;
 constexpr char kBaselineFileName[] = "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png";
@@ -282,7 +282,7 @@ TEST(RenderingDemo, CapturesSceneThroughPythonApi) {
   command += " --test-resources-root " + Quote(test_resources_root);
   command += " --output " + Quote(output_path);
   command += " --width " + std::to_string(kRenderWidth) + " --height " + std::to_string(kRenderHeight);
-  command += " --warmup-frames 2";
+  command += " --warmup-frames " + std::to_string(kDdgiWarmupFrames);
 
 #ifdef _WIN32
   const std::string system_command = "\"" + command + "\"";

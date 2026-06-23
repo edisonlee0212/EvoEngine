@@ -4,12 +4,21 @@
 #include "IGeometry.hpp"
 #include "ILayer.hpp"
 
+#include "DdgiSettings.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
+#include "PointCloudSample.hpp"
+#include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
+
+#include <limits>
+#include <string>
+
 namespace evo_engine {
 struct ApplicationInitializationSettings;
+class ComputePipeline;
 class OffscreenPreviewRenderer;
+class Sampler;
 
 /**
  * \class RenderLayer
@@ -38,6 +47,139 @@ class RenderLayer final : public ILayer {
    */
   [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetPreviousRenderInstanceStorage() const;
 
+  using DdgiSettings = evo_engine::DdgiSettings;
+
+  struct DdgiAtlasLayout {
+    uint32_t probe_count = 1;
+    uint32_t tile_resolution = 1;
+    uint32_t columns = 1;
+    uint32_t rows = 1;
+    glm::uvec2 resolution = {1, 1};
+  };
+
+  struct DdgiProbeDebugCoordinates {
+    uint32_t probe_index = 0;
+    glm::uvec3 grid_index = {0, 0, 0};
+    glm::uvec2 atlas_tile_offset = {0, 0};
+    DdgiAtlasLayout atlas_layout{};
+  };
+
+  struct DdgiFrameResourceLayout {
+    uint32_t probe_count = 1;
+    DdgiAtlasLayout irradiance_atlas{};
+    DdgiAtlasLayout visibility_atlas{};
+    DdgiAtlasLayout variability_atlas{};
+    glm::uvec2 variability_reduction_extent = {1, 1};
+    uint64_t probe_metadata_byte_size = 0;
+    uint64_t probe_state_byte_size = 0;
+    uint64_t probe_update_index_byte_size = 0;
+    uint64_t ray_output_byte_size = 0;
+    uint64_t variability_atlas_byte_size = 0;
+    uint64_t variability_reduction_byte_size = 0;
+    uint64_t variability_readback_byte_size = 0;
+  };
+
+  struct DdgiProbeUpdateWindow {
+    uint32_t start_probe_index = 0;
+    uint32_t probe_count = 0;
+    uint32_t next_start_probe_index = 0;
+    uint32_t remaining_probe_count = 0;
+  };
+
+  struct DdgiProbeUpdateStats {
+    uint32_t probe_count = 0;
+    uint32_t first_probe_index = 0;
+    uint32_t last_probe_index = 0;
+  };
+
+  struct DdgiPerformanceStats {
+    uint32_t active_probe_count = 0;
+    uint32_t storage_probe_count = 0;
+    uint32_t updated_probe_count = 0;
+    uint32_t pending_probe_count = 0;
+    uint32_t ray_count = 0;
+    uint32_t ray_sample_count = 0;
+    uint32_t selected_ray_sample_count = 0;
+    uint32_t visualized_probe_count = 0;
+    uint64_t probe_metadata_byte_size = 0;
+    uint64_t probe_state_byte_size = 0;
+    uint64_t ray_output_byte_size = 0;
+    uint64_t variability_atlas_byte_size = 0;
+    uint64_t variability_reduction_byte_size = 0;
+    glm::uvec2 irradiance_atlas_extent = {0, 0};
+    glm::uvec2 visibility_atlas_extent = {0, 0};
+    glm::uvec2 variability_atlas_extent = {0, 0};
+    glm::uvec2 variability_reduction_extent = {0, 0};
+    float probe_variability_average = 0.0f;
+    uint32_t probe_variability_sample_count = 0;
+    uint32_t probe_variability_stable_sample_count = 0;
+    uint32_t probe_variability_required_stable_sample_count = 0;
+    bool probe_variability_converged = false;
+    uint32_t probe_warmup_frame_index = 0;
+    uint32_t probe_warmup_frame_count = 0;
+    bool probe_warmup_active = false;
+    float probe_update_hysteresis = 0.0f;
+    float atlas_prepare_record_ms = 0.0f;
+    float ray_diagnostics_record_ms = 0.0f;
+    float probe_update_record_ms = 0.0f;
+    float probe_relocation_record_ms = 0.0f;
+    float probe_classification_record_ms = 0.0f;
+    float probe_variability_record_ms = 0.0f;
+    float frame_graph_execute_ms = 0.0f;
+    float probe_visualization_record_ms = 0.0f;
+    float probe_ray_visualization_record_ms = 0.0f;
+  };
+
+  enum DdgiUpdateReason : uint32_t {
+    DdgiUpdateReasonNone = 0u,
+    DdgiUpdateReasonSource = 1u << 0u,
+    DdgiUpdateReasonManualReset = 1u << 1u,
+    DdgiUpdateReasonSteadyState = 1u << 2u,
+    DdgiUpdateReasonConverged = 1u << 3u,
+    DdgiUpdateReasonWarmup = 1u << 4u
+  };
+
+  struct DdgiVolumeRuntimeInfo {
+    uint32_t sorted_index = 0;
+    uint32_t owner_index = 0;
+    glm::ivec3 probe_counts = {1, 1, 1};
+    uint32_t probe_count = 1;
+  };
+
+  struct DdgiProbeDebugDataView {
+    const std::vector<glm::vec4>* metadata = nullptr;
+    const std::vector<float>* update_ages = nullptr;
+    const std::vector<PointCloudSample>* selected_ray_samples = nullptr;
+    uint32_t probe_count = 0;
+    uint32_t selected_ray_probe_index = 0;
+    uint32_t selected_ray_physical_probe_index = 0;
+    uint32_t selected_ray_sample_count = 0;
+    bool selected_ray_samples_available = false;
+  };
+
+  [[nodiscard]] static uint32_t GetDdgiProbeCount(const glm::ivec3& probe_counts);
+  [[nodiscard]] static uint32_t GetDdgiAllocatedProbeCount(const DdgiSettings& settings);
+  [[nodiscard]] static uint32_t GetDdgiAllocatedProbeCount(const DdgiSettings& settings, uint32_t probe_count);
+  [[nodiscard]] static glm::uvec3 GetDdgiProbeGridIndex(const glm::ivec3& probe_counts, uint32_t probe_index);
+  [[nodiscard]] static DdgiAtlasLayout CalculateDdgiAtlasLayout(uint32_t probe_count, uint32_t tile_resolution,
+                                                                uint32_t preferred_columns);
+  [[nodiscard]] static DdgiProbeDebugCoordinates CalculateDdgiProbeDebugCoordinates(const DdgiSettings& settings,
+                                                                                    uint32_t tile_resolution);
+  [[nodiscard]] static DdgiFrameResourceLayout CalculateDdgiFrameResourceLayout(const DdgiSettings& settings);
+  [[nodiscard]] static DdgiFrameResourceLayout CalculateDdgiFrameResourceLayout(const DdgiSettings& settings,
+                                                                                uint32_t probe_count);
+  [[nodiscard]] static float CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons);
+  [[nodiscard]] static float CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons,
+                                                           uint32_t warmup_frame_index);
+  [[nodiscard]] static float CalculateDdgiUpdateBrightnessThreshold(const DdgiSettings& settings,
+                                                                    uint32_t update_reasons);
+  [[nodiscard]] static std::string FormatDdgiUpdateReasons(uint32_t reasons);
+  [[nodiscard]] static float CalculateDdgiVolumeBlendWeight(const glm::vec3& probe_coordinate,
+                                                            const glm::ivec3& probe_counts,
+                                                            const glm::vec3& probe_step_lengths);
+  [[nodiscard]] static std::vector<DdgiVolumeRuntimeInfo> CollectDdgiVolumeRuntimeInfos(
+      const std::shared_ptr<Scene>& scene, const DdgiSettings& settings);
+
   /// Specifies whether wireframe rendering is enabled.
   bool wire_frame = false;
 
@@ -50,8 +192,24 @@ class RenderLayer final : public ILayer {
   /// Specifies whether indirect rendering is enabled.
   bool enable_indirect_rendering = true;
 
+  /// Forces the inspection window into a DDGI-first layout for automated visual captures.
+  bool force_ddgi_inspection_layout = false;
+  glm::vec2 forced_inspection_window_position = {420.0f, 78.0f};
+  glm::vec2 forced_inspection_window_size = {620.0f, 760.0f};
+
   /// Specifies the rendering settings.
   RenderSettings render_settings{};
+
+  [[nodiscard]] DdgiSettings& GetDdgiSettings();
+  [[nodiscard]] const DdgiSettings& GetDdgiSettings() const;
+  [[nodiscard]] glm::ivec3 GetDdgiProbeScrollOffset() const;
+  [[nodiscard]] glm::ivec3 GetDdgiLastProbeScrollDelta() const;
+  [[nodiscard]] uint32_t GetDdgiPendingProbeUpdateCount() const;
+  [[nodiscard]] DdgiProbeUpdateStats GetDdgiLastProbeUpdateStats() const;
+  [[nodiscard]] DdgiPerformanceStats GetDdgiLastPerformanceStats() const;
+  [[nodiscard]] uint32_t GetDdgiLastProbeUpdateReasons() const;
+  [[nodiscard]] std::string GetDdgiLastProbeUpdateReasonText() const;
+  [[nodiscard]] DdgiProbeDebugDataView GetDdgiProbeDebugData(bool refresh_readback) const;
 
   /**
    * \brief Draws a mesh.
@@ -162,6 +320,50 @@ class RenderLayer final : public ILayer {
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                              const ForwardRenderingView& forward_rendering_view)>&& func);
 
+  /**
+   * \brief Register a render graph resource descriptor for this frame.
+   * \param descriptor Resource metadata used by frame and camera graph passes.
+   */
+  void RegisterRenderResource(RenderResourceDescriptor descriptor);
+
+  /**
+   * \brief Register a per-frame render pass with explicit render graph metadata.
+   * \param descriptor Render graph pass descriptor for the custom frame pass.
+   * \param func Render function executed once per frame. Return primitive count.
+   */
+  void RegisterFrameRenderPass(RenderPassDescriptor descriptor,
+                               std::function<uint32_t(VkCommandBuffer vk_command_buffer)>&& func);
+
+  /**
+   * \brief Register a per-frame render pass with access to render graph execution metadata.
+   * \param descriptor Render graph pass descriptor for the custom frame pass.
+   * \param func Render function executed once per frame. Return primitive count.
+   */
+  void RegisterFrameRenderPass(
+      RenderPassDescriptor descriptor,
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context)>&& func);
+
+  /**
+   * \brief Register a per-frame camera render pass with explicit render graph metadata.
+   * \param descriptor Render graph pass descriptor for the custom camera pass.
+   * \param func Render function targeting each camera. Return primitive count.
+   */
+  void RegisterCameraRenderPass(
+      RenderPassDescriptor descriptor,
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                             const ForwardRenderingView& forward_rendering_view)>&& func);
+
+  /**
+   * \brief Register a per-frame camera render pass with access to render graph execution metadata.
+   * \param descriptor Render graph pass descriptor for the custom camera pass.
+   * \param func Render function targeting each camera. Return primitive count.
+   */
+  void RegisterCameraRenderPass(
+      RenderPassDescriptor descriptor,
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                             const ForwardRenderingView& forward_rendering_view,
+                             const RenderGraphExecutionContext& context)>&& func);
+
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetPerFrameDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetMeshletDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetLightingDescriptorSetLayout() const;
@@ -193,6 +395,46 @@ class RenderLayer final : public ILayer {
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                                      const ForwardRenderingView& forward_rendering_view)>>
       forward_rendering_external_functions;
+  struct FrameRenderPassExternalFunction {
+    RenderPassDescriptor descriptor;
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer)> func;
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context)> context_func;
+  };
+  struct CameraRenderPassExternalFunction {
+    RenderPassDescriptor descriptor;
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                           const ForwardRenderingView& forward_rendering_view)>
+        func;
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
+                           const ForwardRenderingView& forward_rendering_view,
+                           const RenderGraphExecutionContext& context)>
+        context_func;
+  };
+  std::vector<RenderResourceDescriptor> external_render_resource_descriptors;
+  std::vector<FrameRenderPassExternalFunction> frame_render_pass_external_functions;
+  std::vector<CameraRenderPassExternalFunction> camera_render_pass_external_functions;
+  mutable std::vector<RenderGraphTransientResourceStore> render_graph_transient_resource_stores_;
+  mutable std::shared_ptr<Buffer> ddgi_probe_metadata_buffer_;
+  mutable std::shared_ptr<Buffer> ddgi_probe_state_buffer_;
+  mutable std::shared_ptr<Buffer> ddgi_fallback_probe_state_buffer_;
+  mutable std::shared_ptr<Buffer> ddgi_probe_update_index_buffer_;
+  mutable std::shared_ptr<Image> ddgi_irradiance_atlas_;
+  mutable std::shared_ptr<Image> ddgi_visibility_atlas_;
+  mutable std::shared_ptr<Image> ddgi_variability_atlas_;
+  mutable std::shared_ptr<Sampler> ddgi_atlas_sampler_;
+  mutable std::shared_ptr<Buffer> ddgi_probe_metadata_readback_buffer_;
+  mutable std::shared_ptr<Buffer> ddgi_probe_ray_readback_buffer_;
+  mutable std::shared_ptr<Buffer> ddgi_variability_readback_buffer_;
+  mutable std::shared_ptr<Buffer> ddgi_frame_ray_output_visualization_buffer_;
+  mutable std::vector<glm::vec4> ddgi_probe_debug_metadata_;
+  mutable std::vector<float> ddgi_probe_debug_update_ages_;
+  mutable std::vector<PointCloudSample> ddgi_probe_debug_ray_samples_;
+  mutable uint64_t ddgi_probe_debug_metadata_byte_size_ = 0;
+  mutable uint32_t ddgi_probe_debug_metadata_probe_count_ = 0;
+  mutable uint32_t ddgi_probe_debug_ray_probe_index_ = 0;
+  mutable uint32_t ddgi_probe_debug_ray_physical_probe_index_ = 0;
+  mutable uint32_t ddgi_probe_debug_ray_sample_count_ = 0;
+  mutable bool ddgi_probe_debug_ray_samples_available_ = false;
   friend class Platform;
   friend class Resources;
   friend class Camera;
@@ -211,11 +453,19 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_point_cloud_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_output_layout_;
   std::shared_ptr<DescriptorSetLayout> particle_instanced_data_layout_;
   std::shared_ptr<DescriptorSetLayout> bone_matrices_layout_;
   std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
+  std::shared_ptr<DescriptorSetLayout> depth_pyramid_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_relocation_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_classification_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_variability_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_visualization_layout_;
+  std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
 
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
@@ -223,6 +473,66 @@ class RenderLayer final : public ILayer {
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
   bool need_fade_ = false;
+  uint32_t ddgi_active_probe_update_reasons_ = DdgiUpdateReasonNone;
+  uint32_t ddgi_last_probe_update_reasons_ = DdgiUpdateReasonNone;
+  bool ddgi_has_previous_ray_source_ = false;
+  bool ddgi_frame_trace_probe_rays_ = false;
+  bool ddgi_clear_probe_atlas_this_frame_ = false;
+  DdgiSettings fallback_ddgi_settings_{};
+  uint32_t ddgi_next_probe_update_index_ = 0;
+  uint32_t ddgi_pending_probe_update_count_ = 0;
+  glm::ivec3 ddgi_previous_probe_counts_ = {0, 0, 0};
+  glm::vec3 ddgi_previous_first_probe_ = glm::vec3(0.0f);
+  glm::vec3 ddgi_previous_probe_step_x_ = glm::vec3(0.0f);
+  glm::vec3 ddgi_previous_probe_step_y_ = glm::vec3(0.0f);
+  glm::vec3 ddgi_previous_probe_step_z_ = glm::vec3(0.0f);
+  glm::vec4 ddgi_previous_trace_parameters_ = glm::vec4(0.0f);
+  glm::vec4 ddgi_previous_update_parameters_ = glm::vec4(0.0f);
+  glm::vec4 ddgi_previous_probe_state_parameters_ = glm::vec4(0.0f);
+  glm::vec4 ddgi_previous_probe_blend_parameters_ = glm::vec4(0.0f);
+  int ddgi_previous_movement_type_ = static_cast<int>(DdgiVolumeMovementType::Default);
+  bool ddgi_has_previous_scene_inputs_ = false;
+  RenderInstanceStorage::EnvironmentInfoBlock ddgi_previous_environment_info_block_{};
+  std::vector<RenderInstanceStorage::MaterialInfoBlock> ddgi_previous_material_info_blocks_;
+  std::vector<uint64_t> ddgi_previous_active_light_keys_;
+  std::vector<uint64_t> ddgi_previous_light_signatures_;
+  std::vector<uint64_t> ddgi_previous_geometry_signatures_;
+  uint32_t ddgi_previous_geometry_storage_version_ = 0;
+  uint32_t ddgi_previous_texture_storage_version_ = 0;
+  glm::vec3 ddgi_probe_scroll_base_first_probe_ = glm::vec3(0.0f);
+  glm::ivec3 ddgi_probe_scroll_offset_ = glm::ivec3(0);
+  glm::ivec3 ddgi_probe_scroll_clear_ = glm::ivec3(0);
+  glm::ivec3 ddgi_probe_scroll_directions_ = glm::ivec3(1);
+  glm::ivec3 ddgi_last_probe_scroll_delta_ = glm::ivec3(0);
+  uint32_t ddgi_previous_ray_count_ = 0;
+  std::vector<uint32_t> ddgi_pending_probe_update_indices_;
+  uint32_t ddgi_pending_probe_update_cursor_ = 0;
+  std::vector<uint32_t> ddgi_frame_probe_update_indices_;
+  float ddgi_probe_variability_average_ = 0.0f;
+  uint32_t ddgi_probe_variability_sample_count_ = 0;
+  uint32_t ddgi_probe_variability_stable_sample_count_ = 0;
+  bool ddgi_probe_variability_converged_ = false;
+  uint32_t ddgi_probe_warmup_frame_index_ = 0;
+  uint32_t ddgi_frame_probe_warmup_frame_index_ = 0;
+  uint32_t ddgi_frame_probe_warmup_frame_count_ = 0;
+  bool ddgi_frame_probe_warmup_active_ = false;
+  float ddgi_frame_probe_update_hysteresis_ = 0.0f;
+  bool ddgi_frame_probe_relocation_reset_ = false;
+  bool ddgi_frame_probe_relocation_enabled_ = false;
+  bool ddgi_frame_probe_classification_reset_ = false;
+  bool ddgi_frame_probe_classification_enabled_ = false;
+  bool ddgi_frame_probe_variability_enabled_ = false;
+  int ddgi_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
+  uint32_t ddgi_frame_selected_probe_ray_local_index_ = (std::numeric_limits<uint32_t>::max)();
+  uint32_t ddgi_frame_selected_probe_ray_sample_count_ = 0;
+  DdgiFrameResourceLayout ddgi_frame_resource_layout_{};
+  mutable DdgiPerformanceStats ddgi_last_performance_stats_{};
+  DdgiProbeRayTracingPushConstant ddgi_frame_ray_push_constant_{};
+  DdgiProbeAtlasUpdatePushConstant ddgi_frame_probe_update_push_constant_{};
+  DdgiProbeRelocationPushConstant ddgi_frame_probe_relocation_reset_push_constant_{};
+  DdgiProbeRelocationPushConstant ddgi_frame_probe_relocation_update_push_constant_{};
+  DdgiProbeClassificationPushConstant ddgi_frame_probe_classification_reset_push_constant_{};
+  DdgiProbeClassificationPushConstant ddgi_frame_probe_classification_update_push_constant_{};
   std::unique_ptr<Lighting> lighting_;
   std::shared_ptr<Texture2D> environmental_brdf_lut_ = {};
   /**
@@ -278,6 +588,10 @@ class RenderLayer final : public ILayer {
   void PrepareForRendering();
   void PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, bool include_editor_cameras = true,
                                 bool update_editor_selection = true, bool update_ray_tracing = true);
+
+  void PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
+                             const std::shared_ptr<RenderInstanceStorage>& render_instances,
+                             int ddgi_scene_change_triggers);
   void RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
                                       const GlobalTransform& camera_global_transform,
                                       const std::shared_ptr<Camera>& camera);
@@ -398,6 +712,9 @@ class RenderLayer final : public ILayer {
   /// Graphics pipeline for rendering instanced gizmos.
   std::shared_ptr<GraphicsPipeline> gizmos_instanced_colored;
 
+  std::shared_ptr<GraphicsPipeline> ddgi_probe_visualization_pipeline_;
+  std::shared_ptr<GraphicsPipeline> ddgi_probe_ray_visualization_pipeline_;
+
   /// Graphics pipeline for rendering gizmos on hair strands.
   std::shared_ptr<GraphicsPipeline> gizmos_strands;
 
@@ -408,12 +725,20 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<GraphicsPipeline> gizmos_strands_vertex_colored;
 #pragma endregion
 
+  std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
+  std::shared_ptr<ComputePipeline> ddgi_probe_update_pipeline_;
+  std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
+  std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
+  std::shared_ptr<ComputePipeline> ddgi_probe_variability_reduce_pipeline_;
+  std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
+
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   friend class PointCloud;
   std::shared_ptr<RayTracingPipeline> ray_tracing_point_cloud_pipeline;
+  std::shared_ptr<RayTracingPipeline> ddgi_probe_ray_diagnostic_pipeline_;
 #pragma endregion
 };
 }  // namespace evo_engine

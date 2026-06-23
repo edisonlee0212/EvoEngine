@@ -8,7 +8,7 @@ struct RenderInfo {
   int shadow_sample_size;
   int debug_visualization;
   float shadow_seam_fix;
-  float padding;
+  float ddgi_indirect_intensity;
 
   float strand_subdivision_x;
   float strand_subdivision_y;
@@ -19,6 +19,16 @@ struct RenderInfo {
   int point_light_size;
   int spot_light_size;
   int brdf_lut_map_index;
+
+  vec4 ddgi_first_probe;
+  vec4 ddgi_probe_step_x;
+  vec4 ddgi_probe_step_y;
+  vec4 ddgi_probe_step_z;
+  vec4 ddgi_probe_counts;
+  vec4 ddgi_probe_scroll_offset;
+  vec4 ddgi_atlas_parameters;
+  vec4 ddgi_volume_parameters;
+  vec4 ddgi_sampling_parameters;
 };
 
 layout(set = EE_RENDER_INFO_BLOCK_SET, binding = EE_RENDER_INFO_BLOCK_BINDING) uniform EE_RENDER_INFO_BLOCK {

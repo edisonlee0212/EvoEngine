@@ -10,6 +10,11 @@ struct MaterialProperties {
   bool receive_shadow;
   bool enable_shadow;
 
+  int cull_mode;
+  int padding0;
+  int padding1;
+  int padding2;
+
   vec4 albedo;
   vec4 sss_c;
   vec4 sss_r;

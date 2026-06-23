@@ -549,6 +549,12 @@ ApplicationInitializationSettings TestApplicationSettings(const TempProject& pro
   settings.redirect_standard_streams_to_console = false;
   return settings;
 }
+
+std::shared_ptr<Camera> RegisterDefaultEditorSceneCamera(EditorLayer& editor_layer) {
+  auto camera = std::make_shared<Camera>();
+  editor_layer.RegisterEditorCamera(camera);
+  return camera;
+}
 }  // namespace
 
 TEST(ProjectManager, ReportsNoProjectBeforeProjectSelection) {
@@ -793,6 +799,49 @@ TEST(ProjectManager, SaveProjectPersistsLaunchMetadata) {
   EXPECT_EQ(metadata.startup_runtime_packages[0], "MissingPackageForMetadataTest");
 }
 
+TEST(ProjectManager, SaveProjectLaunchMetadataPersistsEditorLayerStateWhenPresent) {
+  TempProject project;
+  Application app;
+  ApplicationContextScope scope(app);
+  const auto editor_layer = app.PushLayer<EditorLayer>("Editor Layer");
+  ASSERT_TRUE(editor_layer);
+  RegisterDefaultEditorSceneCamera(*editor_layer);
+  editor_layer->velocity = 4.5f;
+  editor_layer->sensitivity = 0.25f;
+  editor_layer->SetSceneCameraPosition({1.0f, 2.0f, 3.0f});
+  editor_layer->SetSceneCameraRotation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+  editor_layer->editor_camera_control_key_bindings.rotate_mouse_button = GLFW_MOUSE_BUTTON_LEFT;
+  editor_layer->editor_camera_control_key_bindings.move_forward_key = GLFW_KEY_UP;
+  editor_layer->editor_camera_control_key_bindings.move_backward_key = GLFW_KEY_DOWN;
+  editor_layer->editor_camera_control_key_bindings.move_left_key = GLFW_KEY_LEFT;
+  editor_layer->editor_camera_control_key_bindings.move_right_key = GLFW_KEY_RIGHT;
+  editor_layer->editor_camera_control_key_bindings.move_up_key = GLFW_KEY_PAGE_UP;
+  editor_layer->editor_camera_control_key_bindings.move_down_key = GLFW_KEY_PAGE_DOWN;
+
+  ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), {});
+
+  const auto project_yaml = YAML::LoadFile(project.ProjectPath().string());
+  const auto editor_yaml = project_yaml["EditorLayer"];
+  ASSERT_TRUE(editor_yaml);
+  EXPECT_FLOAT_EQ(editor_yaml["velocity"].as<float>(), 4.5f);
+  EXPECT_FLOAT_EQ(editor_yaml["sensitivity"].as<float>(), 0.25f);
+  ASSERT_TRUE(editor_yaml["scene_camera_position"]);
+  EXPECT_FLOAT_EQ(editor_yaml["scene_camera_position"][0].as<float>(), 1.0f);
+  EXPECT_FLOAT_EQ(editor_yaml["scene_camera_position"][1].as<float>(), 2.0f);
+  EXPECT_FLOAT_EQ(editor_yaml["scene_camera_position"][2].as<float>(), 3.0f);
+  ASSERT_TRUE(editor_yaml["scene_camera_rotation"]);
+  EXPECT_FLOAT_EQ(editor_yaml["scene_camera_rotation"][3].as<float>(), 1.0f);
+  const auto key_bindings = editor_yaml["editor_camera_control_key_bindings"];
+  ASSERT_TRUE(key_bindings);
+  EXPECT_EQ(key_bindings["rotate_mouse_button"].as<int>(), GLFW_MOUSE_BUTTON_LEFT);
+  EXPECT_EQ(key_bindings["move_forward_key"].as<int>(), GLFW_KEY_UP);
+  EXPECT_EQ(key_bindings["move_backward_key"].as<int>(), GLFW_KEY_DOWN);
+  EXPECT_EQ(key_bindings["move_left_key"].as<int>(), GLFW_KEY_LEFT);
+  EXPECT_EQ(key_bindings["move_right_key"].as<int>(), GLFW_KEY_RIGHT);
+  EXPECT_EQ(key_bindings["move_up_key"].as<int>(), GLFW_KEY_PAGE_UP);
+  EXPECT_EQ(key_bindings["move_down_key"].as<int>(), GLFW_KEY_PAGE_DOWN);
+}
+
 TEST(ProjectManager, ExistingProjectLoadDoesNotRewriteProjectManifestBeforeSave) {
   TempProject project;
   {
@@ -832,6 +881,13 @@ TEST(EditorLayer, MissingEditorStateKeepsDefaultsAndRequestsDefaultLayout) {
   EXPECT_TRUE(editor_layer.show_camera_window);
   EXPECT_FLOAT_EQ(editor_layer.velocity, 10.0f);
   EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.1f);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_RIGHT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_W);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_backward_key, GLFW_KEY_S);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_left_key, GLFW_KEY_A);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_right_key, GLFW_KEY_D);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_up_key, GLFW_KEY_LEFT_SHIFT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_down_key, GLFW_KEY_LEFT_CONTROL);
   EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
 }
 
@@ -847,7 +903,48 @@ velocity: 3.5
   EXPECT_TRUE(editor_layer.show_camera_window);
   EXPECT_FLOAT_EQ(editor_layer.velocity, 3.5f);
   EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.1f);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_RIGHT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_W);
   EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
+}
+
+TEST(EditorLayer, DeserializesEditorCameraControlsAndSceneCameraPose) {
+  EditorLayer editor_layer;
+  RegisterDefaultEditorSceneCamera(editor_layer);
+
+  editor_layer.Deserialize(YAML::Load(R"(
+velocity: 2.5
+sensitivity: 0.35
+scene_camera_position: [4.0, 5.0, 6.0]
+scene_camera_rotation: [0.0, 0.0, 0.0, 1.0]
+editor_camera_control_key_bindings:
+  rotate_mouse_button: 0
+  move_forward_key: 265
+  move_backward_key: 264
+  move_left_key: 263
+  move_right_key: 262
+  move_up_key: 266
+  move_down_key: 267
+)"));
+
+  EXPECT_FLOAT_EQ(editor_layer.velocity, 2.5f);
+  EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.35f);
+  const auto position = editor_layer.GetSceneCameraPosition();
+  EXPECT_FLOAT_EQ(position.x, 4.0f);
+  EXPECT_FLOAT_EQ(position.y, 5.0f);
+  EXPECT_FLOAT_EQ(position.z, 6.0f);
+  const auto rotation = editor_layer.GetSceneCameraRotation();
+  EXPECT_FLOAT_EQ(rotation.x, 0.0f);
+  EXPECT_FLOAT_EQ(rotation.y, 0.0f);
+  EXPECT_FLOAT_EQ(rotation.z, 0.0f);
+  EXPECT_FLOAT_EQ(rotation.w, 1.0f);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_LEFT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_UP);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_backward_key, GLFW_KEY_DOWN);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_left_key, GLFW_KEY_LEFT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_right_key, GLFW_KEY_RIGHT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_up_key, GLFW_KEY_PAGE_UP);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_down_key, GLFW_KEY_PAGE_DOWN);
 }
 
 TEST(EditorLayer, MissingEmptyOrNonDockingImGuiIniRequestsDefaultLayout) {

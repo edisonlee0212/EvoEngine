@@ -2,6 +2,7 @@
 
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
+#include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
@@ -10,6 +11,7 @@
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "Times.hpp"
@@ -113,8 +115,243 @@ Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string
   capoeira_joints_material->material_properties.roughness = 0;
   capoeira_joints_material->material_properties.emission = 6;
   scene->SetParent(capoeira_entity, base_entity);
+  scene->SetEnable(capoeira_entity, false);
 
   return base_entity;
+}
+
+void ConfigureRenderingDemoDdgi(const std::shared_ptr<Scene>& scene) {
+  auto& settings = scene->environment.ddgi_settings;
+  settings.runtime.enabled = true;
+  settings.runtime.pause_updates = false;
+  settings.runtime.ray_count = 64;
+  settings.runtime.normal_bias = 0.02f;
+  settings.runtime.visibility_moment_bias = 0.02f;
+  settings.storage.max_probe_count = 8192;
+  settings.debug.enabled = true;
+  settings.debug.visualize_volume_bounds = true;
+  settings.debug.visualize_probe_positions = true;
+  settings.debug.visualize_selected_probe = true;
+  settings.debug.visualization_scale = 2.0f;
+
+  const auto ddgi_volume_entity = scene->CreateEntity("DDGI Probe Volume");
+  const auto ddgi_volume = scene->GetOrSetPrivateComponent<DdgiVolume>(ddgi_volume_entity).lock();
+  ddgi_volume->probe_counts = {10, 6, 16};
+  ddgi_volume->probe_spacing = glm::vec3(1.5f);
+  ddgi_volume->volume_origin = {0.0f, 3.0f, 3.0f};
+  ddgi_volume->relocation_distance = 0.25f;
+  ddgi_volume->enable_probe_relocation = true;
+  ddgi_volume->enable_probe_classification = false;
+  ddgi_volume->visualize_bounds = true;
+  ddgi_volume->visualize_probe_positions = true;
+  ddgi_volume->max_visualized_probes = 8192;
+  ddgi_volume->probe_visualization_size = 0.06f;
+  ddgi_volume->ClampSettings();
+
+  Transform ddgi_volume_transform;
+  ddgi_volume_transform.SetPosition(glm::vec3(0.0f, 0.0f, -6.0f));
+  scene->SetDataComponent(ddgi_volume_entity, ddgi_volume_transform);
+}
+
+std::shared_ptr<Material> CreateCornellMaterial(const glm::vec3& albedo, const float emission = 0.0f) {
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  material->material_properties.albedo_color = albedo;
+  material->material_properties.roughness = 0.85f;
+  material->material_properties.metallic = 0.0f;
+  material->material_properties.emission = emission;
+  return material;
+}
+
+Entity CreateCornellBox(const std::shared_ptr<Scene>& scene, const Entity parent, const std::string& name,
+                        const glm::vec3& position, const glm::vec3& scale, const std::shared_ptr<Material>& material) {
+  const auto entity = scene->CreateEntity(name);
+  const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+  mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
+  mesh_renderer->material = material;
+  Transform transform;
+  transform.SetPosition(position);
+  transform.SetScale(scale);
+  scene->SetDataComponent(entity, transform);
+  scene->SetParent(entity, parent);
+  return entity;
+}
+
+void ConfigureCornellBoxDdgi(const std::shared_ptr<Scene>& scene) {
+  auto& settings = scene->environment.ddgi_settings;
+  settings.runtime.enabled = true;
+  settings.runtime.pause_updates = false;
+  settings.runtime.ray_count = 256;
+  settings.runtime.normal_bias = 0.02f;
+  settings.runtime.visibility_moment_bias = 0.02f;
+  settings.runtime.indirect_intensity = 1.0f;
+  settings.storage.max_probe_count = 1024;
+  settings.debug.enabled = true;
+  settings.debug.visualize_volume_bounds = true;
+  settings.debug.visualize_probe_positions = true;
+  settings.debug.visualize_selected_probe = true;
+  settings.debug.visualization_scale = 2.0f;
+
+  const auto ddgi_volume_entity = scene->CreateEntity("DDGI Probe Volume");
+  const auto ddgi_volume = scene->GetOrSetPrivateComponent<DdgiVolume>(ddgi_volume_entity).lock();
+  ddgi_volume->probe_counts = {9, 9, 9};
+  ddgi_volume->probe_spacing = glm::vec3(0.3f);
+  ddgi_volume->volume_origin = {0.0f, 0.0f, 0.0f};
+  ddgi_volume->relocation_distance = 0.1f;
+  ddgi_volume->enable_probe_relocation = true;
+  ddgi_volume->enable_probe_classification = false;
+  ddgi_volume->visualize_bounds = true;
+  ddgi_volume->visualize_probe_positions = true;
+  ddgi_volume->max_visualized_probes = 512;
+  ddgi_volume->probe_visualization_size = 0.03f;
+  ddgi_volume->ClampSettings();
+
+  Transform ddgi_volume_transform;
+  ddgi_volume_transform.SetPosition(glm::vec3(0.0f, 0.0f, -3.0f));
+  scene->SetDataComponent(ddgi_volume_entity, ddgi_volume_transform);
+}
+
+void ConfigureCornellBoxScene(const std::shared_ptr<Scene>& scene) {
+  scene->environment.ambient_light_intensity = 0.0f;
+  if (const auto* directional_light_owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>()) {
+    for (const auto& owner : *directional_light_owners) {
+      if (const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock()) {
+        directional_light->SetEnabled(false);
+      }
+    }
+  }
+
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  main_camera->Resize({1920, 1080});
+  main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+  const auto main_camera_entity = main_camera->GetOwner();
+  Transform main_camera_transform;
+  main_camera_transform.SetPosition(glm::vec3(0.0f, 0.0f, 1.6f));
+  scene->SetDataComponent(main_camera_entity, main_camera_transform);
+  scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->SetSceneCameraPosition(glm::vec3(0.0f, 0.0f, 1.6f));
+  }
+
+  const auto base_entity = scene->CreateEntity("Cornell Box");
+  const auto white = CreateCornellMaterial(glm::vec3(0.78f));
+  const auto red = CreateCornellMaterial(glm::vec3(0.9f, 0.08f, 0.05f));
+  const auto green = CreateCornellMaterial(glm::vec3(0.05f, 0.65f, 0.12f));
+  const auto light_material = CreateCornellMaterial(glm::vec3(1.0f), 8.0f);
+
+  CreateCornellBox(scene, base_entity, "Floor", {0.0f, -1.0f, -3.0f}, {2.0f, 0.04f, 2.0f}, white);
+  CreateCornellBox(scene, base_entity, "Ceiling", {0.0f, 1.0f, -3.0f}, {2.0f, 0.04f, 2.0f}, white);
+  CreateCornellBox(scene, base_entity, "Back Wall", {0.0f, 0.0f, -4.0f}, {2.0f, 2.0f, 0.04f}, white);
+  CreateCornellBox(scene, base_entity, "Left Wall", {-1.0f, 0.0f, -3.0f}, {0.04f, 2.0f, 2.0f}, red);
+  CreateCornellBox(scene, base_entity, "Right Wall", {1.0f, 0.0f, -3.0f}, {0.04f, 2.0f, 2.0f}, green);
+  CreateCornellBox(scene, base_entity, "Tall Box", {0.42f, -0.48f, -3.24f}, {0.45f, 1.0f, 0.45f}, white);
+  CreateCornellBox(scene, base_entity, "Short Box", {-0.42f, -0.68f, -2.6f}, {0.55f, 0.62f, 0.55f}, white);
+  CreateCornellBox(scene, base_entity, "Ceiling Light Mesh", {0.0f, 0.94f, -3.0f}, {0.42f, 0.02f, 0.42f},
+                   light_material);
+
+  const auto light_entity = scene->CreateEntity("Cornell Ceiling Light");
+  const auto point_light = scene->GetOrSetPrivateComponent<PointLight>(light_entity).lock();
+  point_light->cast_shadow = true;
+  point_light->diffuse = glm::vec3(1.0f);
+  point_light->diffuse_brightness = 45.0f;
+  point_light->light_size = 0.08f;
+  point_light->constant = 1.0f;
+  point_light->linear = 0.08f;
+  point_light->quadratic = 0.02f;
+  Transform light_transform;
+  light_transform.SetPosition(glm::vec3(0.0f, 0.82f, -3.0f));
+  scene->SetDataComponent(light_entity, light_transform);
+  scene->SetParent(light_entity, base_entity);
+
+  ConfigureCornellBoxDdgi(scene);
+}
+
+void ConfigureThinWallDdgi(const std::shared_ptr<Scene>& scene) {
+  auto& settings = scene->environment.ddgi_settings;
+  settings.runtime.enabled = true;
+  settings.runtime.pause_updates = false;
+  settings.runtime.ray_count = 64;
+  settings.runtime.normal_bias = 0.015f;
+  settings.runtime.visibility_moment_bias = 0.02f;
+  settings.runtime.indirect_intensity = 1.0f;
+  settings.storage.max_probe_count = 1024;
+  settings.debug.enabled = true;
+  settings.debug.visualize_volume_bounds = true;
+  settings.debug.visualize_probe_positions = true;
+  settings.debug.visualize_selected_probe = true;
+  settings.debug.visualization_scale = 2.0f;
+
+  const auto ddgi_volume_entity = scene->CreateEntity("DDGI Probe Volume");
+  const auto ddgi_volume = scene->GetOrSetPrivateComponent<DdgiVolume>(ddgi_volume_entity).lock();
+  ddgi_volume->probe_counts = {8, 6, 8};
+  ddgi_volume->probe_spacing = glm::vec3(0.35f);
+  ddgi_volume->volume_origin = {0.0f, 0.0f, 0.0f};
+  ddgi_volume->relocation_distance = 0.25f;
+  ddgi_volume->enable_probe_relocation = true;
+  ddgi_volume->enable_probe_classification = false;
+  ddgi_volume->visualize_bounds = true;
+  ddgi_volume->visualize_probe_positions = true;
+  ddgi_volume->max_visualized_probes = 512;
+  ddgi_volume->probe_visualization_size = 0.03f;
+  ddgi_volume->ClampSettings();
+
+  Transform ddgi_volume_transform;
+  ddgi_volume_transform.SetPosition(glm::vec3(0.0f, 0.0f, -3.0f));
+  scene->SetDataComponent(ddgi_volume_entity, ddgi_volume_transform);
+}
+
+void ConfigureThinWallScene(const std::shared_ptr<Scene>& scene) {
+  scene->environment.ambient_light_intensity = 0.0f;
+  if (const auto* directional_light_owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>()) {
+    for (const auto& owner : *directional_light_owners) {
+      if (const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock()) {
+        directional_light->SetEnabled(false);
+      }
+    }
+  }
+
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  main_camera->Resize({1920, 1080});
+  main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+  const auto main_camera_entity = main_camera->GetOwner();
+  Transform main_camera_transform;
+  main_camera_transform.SetPosition(glm::vec3(0.0f, 0.0f, 0.9f));
+  scene->SetDataComponent(main_camera_entity, main_camera_transform);
+  scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->SetSceneCameraPosition(glm::vec3(0.0f, 0.0f, 0.9f));
+  }
+
+  const auto base_entity = scene->CreateEntity("Thin Wall DDGI Room");
+  const auto white = CreateCornellMaterial(glm::vec3(0.78f));
+  const auto warm = CreateCornellMaterial(glm::vec3(0.9f, 0.65f, 0.18f));
+  const auto cool = CreateCornellMaterial(glm::vec3(0.15f, 0.32f, 0.9f));
+  const auto blocker = CreateCornellMaterial(glm::vec3(0.82f));
+  const auto light_material = CreateCornellMaterial(glm::vec3(1.0f, 0.86f, 0.28f), 8.0f);
+
+  CreateCornellBox(scene, base_entity, "Floor", {0.0f, -1.0f, -3.0f}, {2.4f, 0.04f, 2.0f}, white);
+  CreateCornellBox(scene, base_entity, "Ceiling", {0.0f, 1.0f, -3.0f}, {2.4f, 0.04f, 2.0f}, white);
+  CreateCornellBox(scene, base_entity, "Back Wall", {0.0f, 0.0f, -4.0f}, {2.4f, 2.0f, 0.04f}, white);
+  CreateCornellBox(scene, base_entity, "Left Wall", {-1.2f, 0.0f, -3.0f}, {0.04f, 2.0f, 2.0f}, warm);
+  CreateCornellBox(scene, base_entity, "Right Wall", {1.2f, 0.0f, -3.0f}, {0.04f, 2.0f, 2.0f}, cool);
+  CreateCornellBox(scene, base_entity, "Thin Wall Blocker", {0.0f, 0.0f, -3.0f}, {0.035f, 1.85f, 1.85f}, blocker);
+  CreateCornellBox(scene, base_entity, "Thin Wall Light Marker", {-0.72f, 0.94f, -3.0f}, {0.18f, 0.02f, 0.18f},
+                   light_material);
+
+  const auto light_entity = scene->CreateEntity("Thin Wall Left Light");
+  const auto point_light = scene->GetOrSetPrivateComponent<PointLight>(light_entity).lock();
+  point_light->cast_shadow = true;
+  point_light->diffuse = glm::vec3(1.0f, 0.82f, 0.25f);
+  point_light->diffuse_brightness = 80.0f;
+  point_light->light_size = 0.04f;
+  point_light->constant = 1.0f;
+  point_light->linear = 0.08f;
+  point_light->quadratic = 0.02f;
+  Transform light_transform;
+  light_transform.SetPosition(glm::vec3(-0.72f, 0.72f, -3.0f));
+  scene->SetDataComponent(light_entity, light_transform);
+  scene->SetParent(light_entity, base_entity);
+
+  ConfigureThinWallDdgi(scene);
 }
 
 void RemoveGeneratedFiles(const std::filesystem::path& root, const std::unordered_set<std::string>& extensions) {
@@ -144,7 +381,8 @@ void evo_engine::ClearGeneratedDemoProjectFiles(const std::filesystem::path& res
     return;
   }
 
-  RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects", {".evescene", ".eveproj"});
+  RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects",
+                       {".evescene", ".eveproj", ".evefilemeta", ".evefoldermeta"});
   RemoveGeneratedFiles(resource_root, {".uescene", ".ueproj"});
 }
 
@@ -165,11 +403,12 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
     case DemoSetup::Rendering: {
       application_info.application_name = "Rendering Demo";
       application_info.project_path = resource_root / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj";
+      application_info.default_window_size = {1920, 1080};
       ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
-        scene->environment.ambient_light_intensity = 0.5f;
+        scene->environment.ambient_light_intensity = 0.0f;
 
         const auto main_camera = scene->main_camera.Get<Camera>();
-        main_camera->Resize({640, 480});
+        main_camera->Resize({1920, 1080});
         main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
         const auto main_camera_entity = main_camera->GetOwner();
         auto main_camera_transform = scene->GetDataComponent<Transform>(main_camera_entity);
@@ -185,18 +424,20 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
         Transform demo_transform;
         demo_transform.SetScale(glm::vec3(0.5f));
         scene->SetDataComponent(demo_scene, demo_transform);
+        ConfigureRenderingDemoDdgi(scene);
 
         const auto left_point_light_right_entity = scene->CreateEntity("Left Point Light");
         const auto point_light_right_renderer =
             scene->GetOrSetPrivateComponent<MeshRenderer>(left_point_light_right_entity).lock();
+        point_light_right_renderer->cast_shadow = false;
         const auto point_light_right_material = AssetManager::CreateTemporaryAsset<Material>();
         point_light_right_renderer->material.Set<Material>(point_light_right_material);
         point_light_right_material->material_properties.albedo_color = glm::vec3(1.0f, 0.8f, 0.0f);
-        point_light_right_material->material_properties.emission = 10.0f;
+        point_light_right_material->material_properties.emission = 2.0f;
         point_light_right_renderer->mesh = Resources::GetInstance().GetPrimitives().sphere;
         const auto point_light_right =
             scene->GetOrSetPrivateComponent<PointLight>(left_point_light_right_entity).lock();
-        point_light_right->diffuse_brightness = 100;
+        point_light_right->diffuse_brightness = 24.0f;
         point_light_right->light_size = 0.005f;
         point_light_right->constant = 2.5f;
         point_light_right->linear = 0.5f;
@@ -210,24 +451,59 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
 
         ApplicationContext::Get().RegisterUpdateFunction([=]() {
           static bool last_frame_playing = false;
-          if (!ApplicationContext::Get().IsPlaying()) {
-            last_frame_playing = ApplicationContext::Get().IsPlaying();
+          auto& application = ApplicationContext::Get();
+          const auto playing = application.IsPlaying();
+          if (!playing) {
+            last_frame_playing = false;
             return;
           }
-          const auto current_scene = ApplicationContext::Get().GetActiveScene();
+          const auto current_scene = application.GetActiveScene();
+          if (!current_scene) {
+            last_frame_playing = playing;
+            return;
+          }
+          auto moving_light_entity = left_point_light_right_entity;
+          if (!current_scene->IsEntityValid(moving_light_entity)) {
+            for (const auto& entity : current_scene->UnsafeGetAllEntities()) {
+              if (current_scene->IsEntityValid(entity) && current_scene->GetEntityName(entity) == "Left Point Light") {
+                moving_light_entity = entity;
+                break;
+              }
+            }
+          }
+          if (!current_scene->IsEntityValid(moving_light_entity)) {
+            last_frame_playing = playing;
+            return;
+          }
           static float start_time;
           if (!last_frame_playing)
-            start_time = ApplicationContext::Get().GetTimes().Now();
-          const float current_time = ApplicationContext::Get().GetTimes().Now() - start_time;
+            start_time = application.GetTimes().Now();
+          const float current_time = application.GetTimes().Now() - start_time;
           const float cos_time = glm::cos(current_time / 2.5f);
 
           Transform current_left_point_light_transform;
           current_left_point_light_transform.SetPosition(glm::vec3(3, 0, cos_time * 2.5f - 2.5f));
           current_left_point_light_transform.SetScale(glm::vec3(0.1f));
-          current_scene->SetDataComponent(left_point_light_right_entity, current_left_point_light_transform);
+          current_scene->SetDataComponent(moving_light_entity, current_left_point_light_transform);
 
-          last_frame_playing = ApplicationContext::Get().IsPlaying();
+          last_frame_playing = playing;
         });
+      });
+    } break;
+    case DemoSetup::CornellBox: {
+      application_info.application_name = "Cornell Box";
+      application_info.project_path = resource_root / "EvoEngine-DemoProjects/CornellBox/CornellBox.eveproj";
+      application_info.default_window_size = {1920, 1080};
+      ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
+        ConfigureCornellBoxScene(scene);
+      });
+    } break;
+    case DemoSetup::ThinWall: {
+      application_info.application_name = "Thin Wall DDGI";
+      application_info.project_path = resource_root / "EvoEngine-DemoProjects/ThinWall/ThinWall.eveproj";
+      application_info.default_window_size = {1920, 1080};
+      ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
+        ConfigureThinWallScene(scene);
       });
     } break;
     case DemoSetup::Universe:

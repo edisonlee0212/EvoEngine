@@ -20,6 +20,10 @@ function(evoengine_configure_runtime_package target_name)
 
 	if (WIN32)
 		set_target_properties(${target_name} PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+		target_sources(${target_name}
+			PRIVATE
+			${CMAKE_SOURCE_DIR}/EvoEngine_Packages/src/WindowsExportSymbols.cpp
+			)
 	elseif (APPLE)
 		set_target_properties(${target_name} PROPERTIES
 			BUILD_RPATH "@loader_path"

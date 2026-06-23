@@ -130,7 +130,8 @@ void main()
                                             metallic, roughness, F0);
     vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb,
                                                          normal, viewDir,
-                                                         metallic, roughness, F0);
+                                                         metallic, roughness, F0) +
+                   EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fragPos);
     vec3 color = direct + emission * normalize(albedo.rgb) + ambient * ao;
 
     // --------------------------------------------------------------------

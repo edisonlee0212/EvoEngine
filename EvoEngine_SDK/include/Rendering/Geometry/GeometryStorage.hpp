@@ -226,6 +226,7 @@ class GeometryStorage final {
 
   struct PendingGeometryUpload {
     bool active = false;
+    bool scheduling = false;
     std::vector<GpuWorkHandle> handles;
     std::vector<RangeCommit> meshlet_commits;
     std::vector<RangeCommit> index_commits;
@@ -322,6 +323,7 @@ class GeometryStorage final {
 
   std::vector<ParticleInfoListData> particle_info_list_data_list_;
   uint32_t version_ = 0;
+  bool upload_data_in_progress_ = false;
   bool initialized_ = false;
 
  public:

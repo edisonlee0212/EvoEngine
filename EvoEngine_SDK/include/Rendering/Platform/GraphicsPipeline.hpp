@@ -238,6 +238,8 @@ class GraphicsPipeline final : public IGraphicsResource {
   std::shared_ptr<Shader> mesh_shader;              ///< Mesh shader.
   std::shared_ptr<Shader> fragment_shader;          ///< Fragment shader.
   GeometryType geometry_type = GeometryType::Mesh;  ///< Type of geometry used by the pipeline.
+  bool vertex_input_enabled = true;
+  VkPrimitiveTopology primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
   uint32_t view_mask;                              ///< View mask used for multiview rendering.
   std::vector<VkFormat> color_attachment_formats;  ///< Formats for color attachments.

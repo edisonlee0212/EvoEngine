@@ -1,0 +1,84 @@
+#include "RenderPasses/DdgiAtlasPreparePass.hpp"
+
+#include "GraphicsResources.hpp"
+#include "Platform.hpp"
+#include "RenderPasses/RenderPassUtilities.hpp"
+
+#include <chrono>
+
+using namespace evo_engine;
+
+namespace {
+using Clock = std::chrono::steady_clock;
+
+float ElapsedMilliseconds(const Clock::time_point start) {
+  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
+}
+
+void FillGraphBuffer(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
+                     const char* resource_name, const uint32_t value) {
+  const auto* binding = context.GetResourceBinding(resource_name);
+  if (binding && binding->buffer && binding->buffer->GetSize() != 0) {
+    binding->buffer->Fill(vk_command_buffer, 0, binding->buffer->GetSize(), value);
+  }
+}
+
+void ClearGraphImage(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
+                     const char* resource_name, const VkClearColorValue& value) {
+  const auto* binding = context.GetResourceBinding(resource_name);
+  if (binding && binding->image) {
+    ClearGraphColorImage(vk_command_buffer, binding->image, value);
+  }
+}
+
+VkClearColorValue MakeClearColor(const float x, const float y, const float z, const float w) {
+  VkClearColorValue value{};
+  value.float32[0] = x;
+  value.float32[1] = y;
+  value.float32[2] = z;
+  value.float32[3] = w;
+  return value;
+}
+
+void RecordAtlasPrepare(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
+                        const bool clear_persistent_resources) {
+  ApplyGraphResourceBarriers(vk_command_buffer, context);
+  FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_ray_output, 0u);
+  if (clear_persistent_resources) {
+    FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_probe_metadata, 0u);
+    ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_irradiance_atlas,
+                    MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+    ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_visibility_atlas,
+                    MakeClearColor(1.0f, 0.0f, 0.0f, 1.0f));
+    ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_variability_atlas,
+                    MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+  }
+  ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+}
+}  // namespace
+
+RenderPassDescriptor DdgiAtlasPreparePass::CreateDescriptor() {
+  return {RenderPassNames::ddgi_atlas_prepare,
+          RenderPassQueue::Graphics,
+          RenderPassScope::Frame,
+          {{RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
+            RenderResourceState::TransferDestination},
+           {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Write,
+            RenderResourceState::TransferDestination},
+           {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
+            RenderResourceState::TransferDestination},
+           {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
+            RenderResourceState::TransferDestination},
+           {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
+            RenderResourceState::TransferDestination}}};
+}
+
+void DdgiAtlasPreparePass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    const auto timer = Clock::now();
+    RecordAtlasPrepare(vk_command_buffer, context, parameters.clear_persistent_resources);
+    if (parameters.record_time_ms) {
+      *parameters.record_time_ms += ElapsedMilliseconds(timer);
+    }
+  });
+}
