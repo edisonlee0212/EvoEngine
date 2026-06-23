@@ -5,16 +5,14 @@
 namespace evo_engine {
 enum class DdgiVolumeMovementType : int { Default = 0, Scrolling = 1 };
 
-enum DdgiResetCondition : int {
-  DdgiResetConditionNone = 0,
-  DdgiResetConditionSourceChange = 1 << 0,
-  DdgiResetConditionManualReset = 1 << 1,
-  DdgiResetConditionResourceChange = 1 << 2,
-  DdgiResetConditionLightEnableChange = 1 << 3,
-  DdgiResetConditionScrollClear = 1 << 4,
-  DdgiResetConditionAll = DdgiResetConditionSourceChange | DdgiResetConditionManualReset |
-                          DdgiResetConditionResourceChange | DdgiResetConditionLightEnableChange |
-                          DdgiResetConditionScrollClear
+enum DdgiVolumeTriggerCondition : int {
+  DdgiVolumeTriggerConditionNone = 0,
+  DdgiVolumeTriggerConditionLightEnableChanged = 1 << 0,
+  DdgiVolumeTriggerConditionLightingConditionChanged = 1 << 1,
+  DdgiVolumeTriggerConditionGeometryChanged = 1 << 2,
+  DdgiVolumeTriggerConditionAll = DdgiVolumeTriggerConditionLightEnableChanged |
+                                  DdgiVolumeTriggerConditionLightingConditionChanged |
+                                  DdgiVolumeTriggerConditionGeometryChanged
 };
 
 struct DdgiSettings {
@@ -24,9 +22,6 @@ struct DdgiSettings {
     bool reset_probe_history = false;
     int ray_count = 256;
     int warmup_frames = 16;
-    int reset_conditions = DdgiResetConditionSourceChange | DdgiResetConditionManualReset |
-                           DdgiResetConditionResourceChange | DdgiResetConditionLightEnableChange |
-                           DdgiResetConditionScrollClear;
     float hysteresis = 0.97f;
     float normal_bias = 0.1f;
     float view_bias = 0.1f;
@@ -40,19 +35,19 @@ struct DdgiSettings {
   };
 
   struct VolumeDefaults {
-    glm::ivec3 probe_counts = {16, 12, 28};
+    glm::ivec3 probe_counts = {10, 6, 16};
     glm::vec3 probe_spacing = glm::vec3(1.5f);
-    glm::vec3 volume_origin = {4.5f, 4.25f, 10.25f};
+    glm::vec3 volume_origin = {0.0f, 3.0f, 3.0f};
     int movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
-    bool enable_probe_relocation = false;
+    bool enable_probe_relocation = true;
     bool enable_probe_classification = false;
     bool enable_probe_variability = true;
-    bool enable_probe_variability_gating = false;
-    float relocation_distance = 1.0f;
+    bool enable_probe_variability_gating = true;
+    float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.05f;
-    int probe_variability_min_samples = 128;
+    float probe_variability_threshold = 0.2f;
+    int probe_variability_min_samples = 16;
   };
 
   struct StorageSettings {

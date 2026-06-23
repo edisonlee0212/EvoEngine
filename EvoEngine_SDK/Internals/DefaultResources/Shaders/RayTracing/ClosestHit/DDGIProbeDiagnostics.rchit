@@ -273,11 +273,14 @@ void main() {
   const vec3 albedo = max(material_properties.albedo.rgb, vec3(0.0f));
   const vec3 recursive_albedo = min(albedo, vec3(0.9f));
   const vec3 emissive_radiance = material_properties.emission * albedo;
+  const bool skip_recursive_ddgi = trace_parameters.w > 0.5f;
+  const vec3 recursive_irradiance =
+      skip_recursive_ddgi ? vec3(0.0f) : EE_DDGI_RECURSIVE_IRRADIANCE(recursive_albedo, world_normal, world_position);
   const vec3 frontface_radiance =
       backface_hit || fixed_probe_ray
           ? vec3(0.0f)
           : emissive_radiance + EE_DDGI_DIRECT_IRRADIANCE(albedo, world_normal, world_position) +
-                EE_DDGI_RECURSIVE_IRRADIANCE(recursive_albedo, world_normal, world_position);
+                recursive_irradiance;
   hit_value.hit_info.color = vec4(max(frontface_radiance, vec3(0.0f)), backface_hit ? -1.0f : 1.0f);
   hit_value.hit_info.tex_coord = tex_coord;
   hit_value.hit_info.vertex_info1 = gl_HitTEXT;

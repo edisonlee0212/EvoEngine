@@ -34,5 +34,8 @@ void main() {
     }
   }
   const float average = weight_sum > 0.0f ? weighted_sum / weight_sum : 0.0f;
-  imageStore(EE_DDGI_VARIABILITY_REDUCTION_OUTPUT, ivec2(output_coord), vec4(average, weight_sum, 0.0f, 0.0f));
+  const float total_possible_weight = 16.0f * 16.0f;
+  const float normalized_weight = weight_sum / total_possible_weight;
+  imageStore(EE_DDGI_VARIABILITY_REDUCTION_OUTPUT, ivec2(output_coord),
+             vec4(average, normalized_weight, 0.0f, 0.0f));
 }

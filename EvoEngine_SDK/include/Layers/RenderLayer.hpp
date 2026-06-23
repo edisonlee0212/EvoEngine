@@ -491,6 +491,14 @@ class RenderLayer final : public ILayer {
   glm::vec4 ddgi_previous_probe_state_parameters_ = glm::vec4(0.0f);
   glm::vec4 ddgi_previous_probe_blend_parameters_ = glm::vec4(0.0f);
   int ddgi_previous_movement_type_ = static_cast<int>(DdgiVolumeMovementType::Default);
+  bool ddgi_has_previous_scene_inputs_ = false;
+  RenderInstanceStorage::EnvironmentInfoBlock ddgi_previous_environment_info_block_{};
+  std::vector<RenderInstanceStorage::MaterialInfoBlock> ddgi_previous_material_info_blocks_;
+  std::vector<uint64_t> ddgi_previous_active_light_keys_;
+  std::vector<uint64_t> ddgi_previous_light_signatures_;
+  std::vector<uint64_t> ddgi_previous_geometry_signatures_;
+  uint32_t ddgi_previous_geometry_storage_version_ = 0;
+  uint32_t ddgi_previous_texture_storage_version_ = 0;
   glm::vec3 ddgi_probe_scroll_base_first_probe_ = glm::vec3(0.0f);
   glm::ivec3 ddgi_probe_scroll_offset_ = glm::ivec3(0);
   glm::ivec3 ddgi_probe_scroll_clear_ = glm::ivec3(0);
@@ -514,8 +522,7 @@ class RenderLayer final : public ILayer {
   bool ddgi_frame_probe_classification_reset_ = false;
   bool ddgi_frame_probe_classification_enabled_ = false;
   bool ddgi_frame_probe_variability_enabled_ = false;
-  bool ddgi_scene_inputs_changed_ = false;
-  std::vector<uint64_t> ddgi_previous_active_light_keys_;
+  int ddgi_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
   uint32_t ddgi_frame_selected_probe_ray_local_index_ = (std::numeric_limits<uint32_t>::max)();
   uint32_t ddgi_frame_selected_probe_ray_sample_count_ = 0;
   DdgiFrameResourceLayout ddgi_frame_resource_layout_{};
@@ -584,7 +591,7 @@ class RenderLayer final : public ILayer {
 
   void PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                              const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                             bool ddgi_scene_inputs_changed);
+                             int ddgi_scene_change_triggers);
   void RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
                                       const GlobalTransform& camera_global_transform,
                                       const std::shared_ptr<Camera>& camera);

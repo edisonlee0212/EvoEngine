@@ -35,7 +35,6 @@ void SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings) {
   out << YAML::Key << "pause_updates" << YAML::Value << settings.runtime.pause_updates;
   out << YAML::Key << "ray_count" << YAML::Value << settings.runtime.ray_count;
   out << YAML::Key << "warmup_frames" << YAML::Value << settings.runtime.warmup_frames;
-  out << YAML::Key << "reset_conditions" << YAML::Value << settings.runtime.reset_conditions;
   out << YAML::Key << "hysteresis" << YAML::Value << settings.runtime.hysteresis;
   out << YAML::Key << "normal_bias" << YAML::Value << settings.runtime.normal_bias;
   out << YAML::Key << "view_bias" << YAML::Value << settings.runtime.view_bias;
@@ -115,8 +114,6 @@ void DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings) {
       settings.runtime.ray_count = runtime["ray_count"].as<int>();
     if (runtime["warmup_frames"])
       settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
-    if (runtime["reset_conditions"])
-      settings.runtime.reset_conditions = runtime["reset_conditions"].as<int>();
     if (runtime["hysteresis"])
       settings.runtime.hysteresis = runtime["hysteresis"].as<float>();
     if (runtime["normal_bias"])

@@ -27,6 +27,8 @@ void DdgiVolume::ClampSettings() {
   fixed_ray_backface_threshold = glm::clamp(fixed_ray_backface_threshold, 0.0f, 1.0f);
   probe_variability_threshold = glm::clamp(probe_variability_threshold, 0.0f, 10.0f);
   probe_variability_min_samples = glm::clamp(probe_variability_min_samples, 0, 4096);
+  warmup_trigger_conditions &= DdgiVolumeTriggerConditionAll;
+  variability_reset_trigger_conditions &= DdgiVolumeTriggerConditionAll;
   max_visualized_probes = glm::clamp(max_visualized_probes, 1, 16777216);
   probe_visualization_size = glm::clamp(probe_visualization_size, 0.001f, 1000.0f);
 }

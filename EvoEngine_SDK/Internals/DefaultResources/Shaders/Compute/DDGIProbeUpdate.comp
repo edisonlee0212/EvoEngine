@@ -132,7 +132,7 @@ vec4 EE_DDGI_DIRECTIONAL_IRRADIANCE(const uint ray_offset, const uint first_blen
   const float epsilon = max(float(blend_ray_count), 1.0f) * 1e-9f;
   irradiance *= 1.0f / (2.0f * max(weight_sum, epsilon));
   irradiance = pow(min(max(irradiance, vec3(0.0f)), vec3(64.0f)), vec3(1.0f / irradiance_gamma));
-  return vec4(irradiance, weight_sum > epsilon ? 1.0f : 0.0f);
+  return vec4(irradiance, 1.0f);
 }
 
 vec4 EE_DDGI_BLEND_IRRADIANCE_HISTORY(const vec4 current_irradiance, const vec4 history_irradiance,
@@ -362,18 +362,19 @@ void main() {
             EE_DDGI_DIRECTIONAL_IRRADIANCE(ray_offset, first_blend_ray_index, ray_count, texel_direction);
         const ivec2 atlas_texel = ivec2(irradiance_tile_origin + uvec2(1u + x, 1u + y));
         const ivec2 variability_texel = ivec2(variability_tile_origin + uvec2(x, y));
-        const vec3 current_irradiance = directional_irradiance.rgb;
         vec4 history_irradiance = imageLoad(EE_DDGI_IRRADIANCE_ATLAS, atlas_texel);
+        if (directional_irradiance.a <= 0.0f) {
+          continue;
+        }
+        const vec3 irradiance_sample = directional_irradiance.rgb;
         directional_irradiance =
             EE_DDGI_BLEND_IRRADIANCE_HISTORY(directional_irradiance, history_irradiance, history_weight);
-        const vec3 variance = max((current_irradiance - history_irradiance.rgb) *
-                                      (current_irradiance - directional_irradiance.rgb),
-                                  vec3(0.0f));
-        const float mean_luminance = EE_DDGI_LUMINANCE(max(directional_irradiance.rgb, vec3(0.0f)));
+        const vec3 irradiance_sigma2 =
+            (irradiance_sample - history_irradiance.rgb) * (irradiance_sample - directional_irradiance.rgb);
+        const float luminance_sigma2 = EE_DDGI_LUMINANCE(irradiance_sigma2);
+        const float mean_luminance = EE_DDGI_LUMINANCE(directional_irradiance.rgb);
         const float coefficient_of_variation =
-            previous_inactive > 0.5f || mean_luminance <= (1.0f / 1024.0f)
-                ? 0.0f
-                : sqrt(max(EE_DDGI_LUMINANCE(variance), 0.0f)) / mean_luminance;
+            mean_luminance <= (1.0f / 1024.0f) ? 0.0f : sqrt(luminance_sigma2) / mean_luminance;
         imageStore(EE_DDGI_IRRADIANCE_ATLAS, atlas_texel, directional_irradiance);
         imageStore(EE_DDGI_PROBE_VARIABILITY_ATLAS, variability_texel,
                    vec4(coefficient_of_variation, 0.0f, 0.0f, 0.0f));

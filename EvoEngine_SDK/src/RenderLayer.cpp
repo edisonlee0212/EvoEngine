@@ -53,7 +53,7 @@ using namespace evo_engine;
 
 namespace {
 using DdgiPerformanceClock = std::chrono::steady_clock;
-constexpr uint32_t kDdgiProbeVariabilityStableSampleCount = 16;
+constexpr uint32_t kDdgiProbeVariabilityStableSampleCount = 1;
 constexpr int kDdgiProbeScrollClearXBit = 1 << 0;
 constexpr int kDdgiProbeScrollClearYBit = 1 << 1;
 constexpr int kDdgiProbeScrollClearZBit = 1 << 2;
@@ -308,8 +308,11 @@ struct DdgiProbeRayDiagnosticSource {
   float relocation_distance = 0.0f;
   float random_ray_backface_threshold = 0.1f;
   float fixed_ray_backface_threshold = 0.25f;
-  float probe_variability_threshold = 0.05f;
-  int probe_variability_min_samples = 128;
+  float probe_variability_threshold = 0.2f;
+  int probe_variability_min_samples = 16;
+  int warmup_trigger_conditions = DdgiVolumeTriggerConditionLightEnableChanged;
+  int variability_reset_trigger_conditions =
+      DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
   int movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
   glm::ivec3 probe_scroll_offset = glm::ivec3(0);
   glm::ivec3 probe_scroll_clear = glm::ivec3(0);
@@ -317,7 +320,7 @@ struct DdgiProbeRayDiagnosticSource {
   bool enable_probe_relocation = false;
   bool enable_probe_classification = false;
   bool enable_probe_variability = true;
-  bool enable_probe_variability_gating = false;
+  bool enable_probe_variability_gating = true;
 };
 
 struct DdgiVolumeCandidate {
@@ -426,6 +429,9 @@ DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromVolume(const 
   source.fixed_ray_backface_threshold = glm::clamp(volume.fixed_ray_backface_threshold, 0.0f, 1.0f);
   source.probe_variability_threshold = glm::clamp(volume.probe_variability_threshold, 0.0f, 10.0f);
   source.probe_variability_min_samples = glm::clamp(volume.probe_variability_min_samples, 0, 4096);
+  source.warmup_trigger_conditions = volume.warmup_trigger_conditions & DdgiVolumeTriggerConditionAll;
+  source.variability_reset_trigger_conditions =
+      volume.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll;
   source.movement_type = glm::clamp(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
                                     static_cast<int>(DdgiVolumeMovementType::Scrolling));
   source.enable_probe_relocation = volume.enable_probe_relocation;
@@ -483,7 +489,8 @@ float CalculateDdgiEffectiveMaxRayDistance(const RenderLayer::DdgiSettings& sett
 
 DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
     const RenderLayer::DdgiSettings& settings, const DdgiProbeRayDiagnosticSource& source,
-    const RenderLayer::DdgiProbeUpdateWindow& update_window, const bool skip_inactive_probe_trace) {
+    const RenderLayer::DdgiProbeUpdateWindow& update_window, const bool skip_inactive_probe_trace,
+    const bool skip_recursive_ddgi) {
   DdgiProbeRayTracingPushConstant push_constant;
   const auto frame_index = static_cast<uint32_t>(Platform::GetFrameCount() & 0x00ffffffu);
   const auto ray_rotation = CreateDdgiProbeRayRotationQuaternion(frame_index, source.selected_volume_index);
@@ -496,9 +503,10 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
   push_constant.probe_offset_and_update_count = {update_window.start_probe_index,
                                                  glm::max(update_window.probe_count, 1u),
                                                  skip_inactive_probe_trace ? 1u : 0u, 0u};
-  push_constant.trace_parameters = {
-      CalculateDdgiEffectiveMaxRayDistance(settings, source), glm::max(settings.runtime.normal_bias, 0.001f),
-      source.enable_probe_relocation || source.enable_probe_classification ? 1.0f : 0.0f, 0.0f};
+  push_constant.trace_parameters = {CalculateDdgiEffectiveMaxRayDistance(settings, source),
+                                    glm::max(settings.runtime.normal_bias, 0.001f),
+                                    source.enable_probe_relocation || source.enable_probe_classification ? 1.0f : 0.0f,
+                                    skip_recursive_ddgi ? 1.0f : 0.0f};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
   return push_constant;
 }
@@ -665,6 +673,75 @@ uint64_t MakeDdgiLightKey(const uint32_t type_index, const Entity& owner) {
          static_cast<uint64_t>(owner.GetIndex());
 }
 
+uint64_t MixDdgiSignature(const uint64_t seed, const uint64_t value) {
+  return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
+}
+
+uint64_t MixDdgiFloat(const uint64_t seed, const float value) {
+  return MixDdgiSignature(seed, static_cast<uint64_t>(glm::floatBitsToUint(value)));
+}
+
+uint64_t MixDdgiVec3(uint64_t seed, const glm::vec3& value) {
+  seed = MixDdgiFloat(seed, value.x);
+  seed = MixDdgiFloat(seed, value.y);
+  return MixDdgiFloat(seed, value.z);
+}
+
+uint64_t MixDdgiMat4(uint64_t seed, const glm::mat4& value) {
+  for (int column = 0; column < 4; ++column) {
+    for (int row = 0; row < 4; ++row) {
+      seed = MixDdgiFloat(seed, value[column][row]);
+    }
+  }
+  return seed;
+}
+
+uint64_t MakeDdgiLightSignatureBase(const std::shared_ptr<Scene>& scene, const uint32_t type_index,
+                                    const Entity& owner) {
+  return MixDdgiMat4(MakeDdgiLightKey(type_index, owner), scene->GetDataComponent<GlobalTransform>(owner).value);
+}
+
+uint64_t MakeDdgiLightSignature(const std::shared_ptr<Scene>& scene, const uint32_t type_index, const Entity& owner,
+                                const DirectionalLight& light) {
+  auto signature = MakeDdgiLightSignatureBase(scene, type_index, owner);
+  signature = MixDdgiSignature(signature, light.cast_shadow ? 1u : 0u);
+  signature = MixDdgiVec3(signature, light.diffuse);
+  signature = MixDdgiFloat(signature, light.diffuse_brightness);
+  signature = MixDdgiFloat(signature, light.bias);
+  signature = MixDdgiFloat(signature, light.normal_offset);
+  return MixDdgiFloat(signature, light.light_size);
+}
+
+uint64_t MakeDdgiLightSignature(const std::shared_ptr<Scene>& scene, const uint32_t type_index, const Entity& owner,
+                                const PointLight& light) {
+  auto signature = MakeDdgiLightSignatureBase(scene, type_index, owner);
+  signature = MixDdgiSignature(signature, light.cast_shadow ? 1u : 0u);
+  signature = MixDdgiFloat(signature, light.constant);
+  signature = MixDdgiFloat(signature, light.linear);
+  signature = MixDdgiFloat(signature, light.quadratic);
+  signature = MixDdgiFloat(signature, light.bias);
+  signature = MixDdgiVec3(signature, light.diffuse);
+  signature = MixDdgiFloat(signature, light.diffuse_brightness);
+  signature = MixDdgiFloat(signature, light.light_size);
+  return MixDdgiFloat(signature, light.shadow_distance);
+}
+
+uint64_t MakeDdgiLightSignature(const std::shared_ptr<Scene>& scene, const uint32_t type_index, const Entity& owner,
+                                const SpotLight& light) {
+  auto signature = MakeDdgiLightSignatureBase(scene, type_index, owner);
+  signature = MixDdgiSignature(signature, light.cast_shadow ? 1u : 0u);
+  signature = MixDdgiFloat(signature, light.inner_degrees);
+  signature = MixDdgiFloat(signature, light.outer_degrees);
+  signature = MixDdgiFloat(signature, light.constant);
+  signature = MixDdgiFloat(signature, light.linear);
+  signature = MixDdgiFloat(signature, light.quadratic);
+  signature = MixDdgiFloat(signature, light.bias);
+  signature = MixDdgiVec3(signature, light.diffuse);
+  signature = MixDdgiFloat(signature, light.diffuse_brightness);
+  signature = MixDdgiFloat(signature, light.light_size);
+  return MixDdgiFloat(signature, light.shadow_distance);
+}
+
 template <typename LightComponent>
 void CollectDdgiActiveLightKeys(const std::shared_ptr<Scene>& scene, const uint32_t type_index,
                                 std::vector<uint64_t>& keys) {
@@ -693,8 +770,53 @@ std::vector<uint64_t> CollectDdgiActiveLightKeys(const std::shared_ptr<Scene>& s
   return keys;
 }
 
-bool DdgiResetConditionEnabled(const RenderLayer::DdgiSettings& settings, const int condition) {
-  return (settings.runtime.reset_conditions & condition) != 0;
+template <typename LightComponent>
+void CollectDdgiLightSignatures(const std::shared_ptr<Scene>& scene, const uint32_t type_index,
+                                std::vector<uint64_t>& signatures) {
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LightComponent>()) {
+    for (const auto& owner : *owners) {
+      if (!scene->IsEntityEnabled(owner)) {
+        continue;
+      }
+      const auto light = scene->GetOrSetPrivateComponent<LightComponent>(owner).lock();
+      if (light && light->IsEnabled()) {
+        signatures.push_back(MakeDdgiLightSignature(scene, type_index, owner, *light));
+      }
+    }
+  }
+}
+
+std::vector<uint64_t> CollectDdgiLightSignatures(const std::shared_ptr<Scene>& scene) {
+  std::vector<uint64_t> signatures;
+  if (!scene) {
+    return signatures;
+  }
+  CollectDdgiLightSignatures<DirectionalLight>(scene, 1u, signatures);
+  CollectDdgiLightSignatures<PointLight>(scene, 2u, signatures);
+  CollectDdgiLightSignatures<SpotLight>(scene, 3u, signatures);
+  std::sort(signatures.begin(), signatures.end());
+  return signatures;
+}
+
+uint64_t MakeDdgiGeometrySignature(const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+  if (!render_instance) {
+    return 0;
+  }
+  auto signature = static_cast<uint64_t>(render_instance->command_type);
+  signature = MixDdgiSignature(signature, render_instance->owner.GetIndex());
+  signature = MixDdgiSignature(signature, render_instance->owner.GetVersion());
+  signature = MixDdgiSignature(signature, static_cast<uint64_t>(render_instance->entity_handle));
+  signature = MixDdgiSignature(signature, static_cast<uint64_t>(render_instance->material_index));
+  signature = MixDdgiSignature(signature, render_instance->cast_shadow ? 1u : 0u);
+  signature = MixDdgiSignature(signature, render_instance->material_version);
+  signature = MixDdgiSignature(signature, render_instance->geometry_version);
+  signature = MixDdgiSignature(signature, render_instance->cull_mode);
+  signature = MixDdgiSignature(signature, render_instance->polygon_mode);
+  return MixDdgiMat4(signature, render_instance->model.value);
+}
+
+bool DdgiTriggerConditionEnabled(const int conditions, const int condition) {
+  return (conditions & condition) != 0;
 }
 
 RenderResourceDescriptor CreateDdgiBufferResourceDescriptor(const std::string& name, const uint64_t byte_size) {
@@ -883,14 +1005,9 @@ float RenderLayer::CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, c
 }
 
 float RenderLayer::CalculateDdgiUpdateBrightnessThreshold(const DdgiSettings& settings, const uint32_t update_reasons) {
+  (void)update_reasons;
   const auto brightness_threshold = glm::clamp(settings.runtime.brightness_threshold, 0.0f, 1.0f);
-  if (settings.runtime.warmup_frames <= 0) {
-    return brightness_threshold;
-  }
-  if ((update_reasons & (DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonWarmup)) == 0u) {
-    return brightness_threshold;
-  }
-  return (std::numeric_limits<float>::max)();
+  return brightness_threshold;
 }
 
 std::string RenderLayer::FormatDdgiUpdateReasons(const uint32_t reasons) {
@@ -2289,13 +2406,13 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
           2, current_render_instances->mesh_top_level_acceleration_structure);
     }
   }
-  PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_inputs_changed_);
+  PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_change_triggers_);
   current_render_instances->Upload();
 }
 
 void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                                         const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                                        const bool ddgi_scene_inputs_changed) {
+                                        const int ddgi_scene_change_triggers) {
   auto& ddgi_settings = GetDdgiSettings();
   ddgi_frame_trace_probe_rays_ = false;
   ddgi_frame_ray_push_constant_ = {};
@@ -2477,25 +2594,30 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   if (probe_variability_enabled && ddgi_probe_variability_sample_count_ != 0u) {
     ddgi_probe_variability_average_ = ReadDdgiProbeVariabilityAverage(ddgi_variability_readback_buffer_);
   }
-  const auto reset_ddgi_convergence_state =
-      (ddgi_ray_source_changed && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionSourceChange)) ||
-      (reset_probe_history && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionManualReset)) ||
-      (ddgi_resource_changed && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionResourceChange)) ||
-      (ddgi_scene_inputs_changed && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionLightEnableChange)) ||
-      (ddgi_scroll_clear_this_frame && DdgiResetConditionEnabled(ddgi_settings, DdgiResetConditionScrollClear));
-  if (!probe_variability_enabled || reset_ddgi_convergence_state) {
+  const bool internal_ddgi_refresh =
+      ddgi_ray_source_changed || reset_probe_history || ddgi_resource_changed || ddgi_scroll_clear_this_frame;
+  const bool reset_ddgi_warmup_state =
+      internal_ddgi_refresh ||
+      DdgiTriggerConditionEnabled(ddgi_scene_change_triggers,
+                                  ddgi_ray_source.warmup_trigger_conditions & DdgiVolumeTriggerConditionAll);
+  const bool reset_ddgi_variability_state =
+      internal_ddgi_refresh ||
+      DdgiTriggerConditionEnabled(ddgi_scene_change_triggers,
+                                  ddgi_ray_source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll);
+  if (!probe_variability_enabled || reset_ddgi_variability_state) {
     ddgi_probe_variability_sample_count_ = 0;
     ddgi_probe_variability_stable_sample_count_ = 0;
     ddgi_probe_variability_average_ = 0.0f;
     ddgi_probe_variability_converged_ = false;
   }
-  if (reset_ddgi_convergence_state) {
+  if (reset_ddgi_warmup_state) {
     ddgi_probe_warmup_frame_index_ = 0;
   }
   ddgi_frame_probe_warmup_frame_count_ = static_cast<uint32_t>(glm::max(ddgi_settings.runtime.warmup_frames, 0));
   ddgi_frame_probe_warmup_frame_index_ = ddgi_probe_warmup_frame_index_;
   ddgi_frame_probe_warmup_active_ = ddgi_frame_probe_warmup_frame_count_ != 0u &&
                                     ddgi_probe_warmup_frame_index_ < ddgi_frame_probe_warmup_frame_count_;
+  const auto ddgi_first_warmup_frame = ddgi_frame_probe_warmup_active_ && ddgi_probe_warmup_frame_index_ == 0u;
   if (ddgi_frame_probe_warmup_active_ && full_refresh_reasons == DdgiUpdateReasonNone) {
     ddgi_last_probe_update_reasons_ |= DdgiUpdateReasonWarmup;
   }
@@ -2519,10 +2641,11 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   const auto ddgi_update_hysteresis =
       CalculateDdgiUpdateHysteresis(ddgi_settings, ddgi_last_probe_update_reasons_, ddgi_probe_warmup_frame_index_);
   const auto ddgi_update_brightness_threshold =
-      CalculateDdgiUpdateBrightnessThreshold(ddgi_settings, ddgi_last_probe_update_reasons_);
+      ddgi_first_warmup_frame ? (std::numeric_limits<float>::max)()
+                              : CalculateDdgiUpdateBrightnessThreshold(ddgi_settings, ddgi_last_probe_update_reasons_);
   ddgi_frame_probe_update_hysteresis_ = ddgi_update_hysteresis;
-  ddgi_frame_ray_push_constant_ = CreateDdgiProbeRayTracingPushConstant(ddgi_settings, ddgi_ray_source,
-                                                                        ddgi_update_window, skip_inactive_probe_trace);
+  ddgi_frame_ray_push_constant_ = CreateDdgiProbeRayTracingPushConstant(
+      ddgi_settings, ddgi_ray_source, ddgi_update_window, skip_inactive_probe_trace, ddgi_first_warmup_frame);
   ddgi_frame_probe_update_push_constant_ =
       CreateDdgiProbeAtlasUpdatePushConstant(ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source,
                                              ddgi_update_hysteresis, ddgi_update_brightness_threshold);
@@ -2542,20 +2665,15 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       probe_variability_enabled && ddgi_ray_source.enable_probe_variability_gating;
   const auto probe_variability_min_samples =
       static_cast<uint32_t>(glm::max(ddgi_ray_source.probe_variability_min_samples, 0));
-  const auto probe_variability_warmup_complete = ddgi_probe_variability_sample_count_ > probe_variability_min_samples;
+  const auto probe_variability_sample_count_complete =
+      ddgi_probe_variability_sample_count_ > probe_variability_min_samples;
   const auto probe_variability_below_threshold =
       ddgi_probe_variability_average_ < ddgi_ray_source.probe_variability_threshold;
-  if (!probe_variability_gating_enabled || reset_ddgi_convergence_state || has_pending_refresh_work ||
-      ddgi_frame_probe_warmup_active_ || !probe_variability_warmup_complete || !probe_variability_below_threshold) {
-    ddgi_probe_variability_stable_sample_count_ = 0;
-  } else {
-    ddgi_probe_variability_stable_sample_count_ =
-        glm::min(ddgi_probe_variability_stable_sample_count_ + 1u, kDdgiProbeVariabilityStableSampleCount);
-  }
-  ddgi_probe_variability_converged_ =
-      probe_variability_gating_enabled && !reset_ddgi_convergence_state && !has_pending_refresh_work &&
-      !ddgi_frame_probe_warmup_active_ && probe_variability_warmup_complete &&
-      ddgi_probe_variability_stable_sample_count_ >= kDdgiProbeVariabilityStableSampleCount;
+  ddgi_probe_variability_converged_ = probe_variability_gating_enabled && !reset_ddgi_variability_state &&
+                                      !has_pending_refresh_work && !ddgi_frame_probe_warmup_active_ &&
+                                      probe_variability_sample_count_complete && probe_variability_below_threshold;
+  ddgi_probe_variability_stable_sample_count_ =
+      ddgi_probe_variability_converged_ ? kDdgiProbeVariabilityStableSampleCount : 0u;
   if (ddgi_probe_variability_converged_) {
     ddgi_last_probe_update_reasons_ = DdgiUpdateReasonConverged;
     ddgi_frame_probe_update_indices_.clear();
@@ -3436,9 +3554,66 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
                              Platform::GetMaxFramesInFlight()];
   const auto current_render_info = current_render_instances->render_info_block;
   PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
+  const auto blocks_changed = [](const auto& current_blocks, const auto& previous_blocks) {
+    if (current_blocks.size() != previous_blocks.size()) {
+      return true;
+    }
+    for (size_t i = 0; i < current_blocks.size(); ++i) {
+      if (current_blocks[i] != previous_blocks[i]) {
+        return true;
+      }
+    }
+    return false;
+  };
   auto active_light_keys = CollectDdgiActiveLightKeys(scene);
-  ddgi_scene_inputs_changed_ = active_light_keys != ddgi_previous_active_light_keys_;
+  auto light_signatures = CollectDdgiLightSignatures(scene);
+  std::vector<uint64_t> geometry_signatures;
+  const auto collect_ddgi_geometry_signatures = [&](const auto& collection) {
+    if (!collection) {
+      return;
+    }
+    collection->ForEachRenderInstance([&](const auto& render_instance) {
+      geometry_signatures.push_back(MakeDdgiGeometrySignature(render_instance));
+    });
+  };
+  collect_ddgi_geometry_signatures(current_render_instances->deferred_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->deferred_skinned_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->deferred_instanced_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->deferred_strands_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->forward_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->forward_skinned_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->forward_instanced_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->forward_strands_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->transparent_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->transparent_skinned_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->transparent_instanced_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->transparent_strands_render_instances);
+  collect_ddgi_geometry_signatures(current_render_instances->external_render_instances);
+  std::sort(geometry_signatures.begin(), geometry_signatures.end());
+  ddgi_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
+  if (ddgi_has_previous_scene_inputs_) {
+    if (active_light_keys != ddgi_previous_active_light_keys_) {
+      ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightEnableChanged;
+    }
+    if (current_render_instances->environment_info_block != ddgi_previous_environment_info_block_ ||
+        light_signatures != ddgi_previous_light_signatures_) {
+      ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightingConditionChanged;
+    }
+    if (blocks_changed(current_render_instances->GetMaterialInfoBlocks(), ddgi_previous_material_info_blocks_) ||
+        geometry_signatures != ddgi_previous_geometry_signatures_ ||
+        current_render_instances->geometry_storage_version != ddgi_previous_geometry_storage_version_ ||
+        current_render_instances->texture_storage_version != ddgi_previous_texture_storage_version_) {
+      ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionGeometryChanged;
+    }
+  }
+  ddgi_has_previous_scene_inputs_ = true;
+  ddgi_previous_environment_info_block_ = current_render_instances->environment_info_block;
+  ddgi_previous_material_info_blocks_ = current_render_instances->GetMaterialInfoBlocks();
   ddgi_previous_active_light_keys_ = std::move(active_light_keys);
+  ddgi_previous_light_signatures_ = std::move(light_signatures);
+  ddgi_previous_geometry_signatures_ = std::move(geometry_signatures);
+  ddgi_previous_geometry_storage_version_ = current_render_instances->geometry_storage_version;
+  ddgi_previous_texture_storage_version_ = current_render_instances->texture_storage_version;
   const bool render_instance_updated = *current_render_instances != *previous_render_instances;
   PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);
   if (update_editor_selection) {

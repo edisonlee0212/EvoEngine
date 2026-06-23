@@ -1222,8 +1222,6 @@ void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   auto& runtime = settings.runtime;
   runtime.ray_count = glm::clamp(runtime.ray_count, 1, 4096);
   runtime.warmup_frames = glm::clamp(runtime.warmup_frames, 0, 4096);
-  runtime.reset_conditions = glm::clamp(runtime.reset_conditions, static_cast<int>(DdgiResetConditionNone),
-                                        static_cast<int>(DdgiResetConditionAll));
   runtime.hysteresis = glm::clamp(runtime.hysteresis, 0.0f, 1.0f);
   runtime.normal_bias = glm::clamp(runtime.normal_bias, 0.0f, 10.0f);
   runtime.view_bias = glm::clamp(runtime.view_bias, 0.0f, 10.0f);
@@ -1267,15 +1265,18 @@ void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   debug.selected_probe_visualization_scale = glm::clamp(debug.selected_probe_visualization_scale, 1.0f, 1000.0f);
 }
 
-void DrawDdgiResetConditionCheckbox(const char* label, int& reset_conditions, const int condition) {
-  bool enabled = (reset_conditions & condition) != 0;
+bool DrawDdgiVolumeTriggerConditionCheckbox(const char* label, int& trigger_conditions, const int condition) {
+  bool enabled = (trigger_conditions & condition) != 0;
   if (ImGui::Checkbox(label, &enabled)) {
     if (enabled) {
-      reset_conditions |= condition;
+      trigger_conditions |= condition;
     } else {
-      reset_conditions &= ~condition;
+      trigger_conditions &= ~condition;
     }
+    trigger_conditions &= DdgiVolumeTriggerConditionAll;
+    return true;
   }
+  return false;
 }
 
 void DrawDdgiAtlasReadout(const char* label, const RenderLayer::DdgiProbeDebugCoordinates& coordinates) {
@@ -1538,16 +1539,6 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
   if (ImGui::TreeNodeEx("Probe blending", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::DragFloat("Hysteresis", &runtime.hysteresis, 0.001f, 0.0f, 1.0f, "%.3f");
     ImGui::DragInt("Warm up frames", &runtime.warmup_frames, 1.0f, 0, 4096);
-    if (ImGui::TreeNode("Reset policy")) {
-      DrawDdgiResetConditionCheckbox("Source changes", runtime.reset_conditions, DdgiResetConditionSourceChange);
-      DrawDdgiResetConditionCheckbox("Manual reset", runtime.reset_conditions, DdgiResetConditionManualReset);
-      DrawDdgiResetConditionCheckbox("Resource/layout changes", runtime.reset_conditions,
-                                     DdgiResetConditionResourceChange);
-      DrawDdgiResetConditionCheckbox("Light enable/disable", runtime.reset_conditions,
-                                     DdgiResetConditionLightEnableChange);
-      DrawDdgiResetConditionCheckbox("Scroll clears", runtime.reset_conditions, DdgiResetConditionScrollClear);
-      ImGui::TreePop();
-    }
     ImGui::DragFloat("Distance exponent", &runtime.distance_exponent, 0.1f, 0.0f, 256.0f);
     ImGui::DragFloat("Irradiance gamma", &runtime.irradiance_gamma, 0.01f, 0.1f, 16.0f);
     ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f, "%.3f");
@@ -1567,25 +1558,6 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
     ImGui::Text("Ray samples: %llu",
                 static_cast<unsigned long long>(frame_layout.probe_count * static_cast<uint32_t>(runtime.ray_count)));
     ImGui::Text("Ray output bytes: %llu", static_cast<unsigned long long>(frame_layout.ray_output_byte_size));
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Probe volume defaults", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragInt3("Probe counts", &volume.probe_counts.x, 1.0f, 1, 256);
-    ImGui::DragFloat3("Probe spacing", &volume.probe_spacing.x, 0.05f, 0.05f, 10000.0f);
-    ImGui::DragFloat3("Volume origin", &volume.volume_origin.x, 0.1f);
-    const char* movement_types[] = {"Default", "Scrolling"};
-    ImGui::Combo("Movement type", &volume.movement_type, movement_types, IM_ARRAYSIZE(movement_types));
-    ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation);
-    ImGui::Checkbox("Probe classification", &volume.enable_probe_classification);
-    ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f);
-    ImGui::DragFloat("Random-ray backface threshold", &volume.random_ray_backface_threshold, 0.001f, 0.0f, 1.0f,
-                     "%.3f");
-    ImGui::DragFloat("Fixed-ray backface threshold", &volume.fixed_ray_backface_threshold, 0.001f, 0.0f, 1.0f, "%.3f");
-    ImGui::Checkbox("Probe variability", &volume.enable_probe_variability);
-    ImGui::Checkbox("Variability update gating", &volume.enable_probe_variability_gating);
-    ImGui::DragFloat("Variability threshold", &volume.probe_variability_threshold, 0.001f, 0.0f, 10.0f, "%.3f");
-    ImGui::DragInt("Variability min samples", &volume.probe_variability_min_samples, 1.0f, 0, 4096);
     ImGui::TreePop();
   }
 
@@ -2162,6 +2134,34 @@ bool InspectDdgiVolume(InspectorContext& context, DdgiVolume& volume) {
                          "%.3f"))
       changed = true;
     if (ImGui::DragInt("Variability min samples##DdgiVolume", &volume.probe_variability_min_samples, 1.0f, 0, 4096))
+      changed = true;
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Update triggers##DdgiVolume", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::TextUnformatted("Warm-up triggers");
+    if (DrawDdgiVolumeTriggerConditionCheckbox("Light enable/disable##DdgiVolumeWarmup",
+                                               volume.warmup_trigger_conditions,
+                                               DdgiVolumeTriggerConditionLightEnableChanged))
+      changed = true;
+    if (DrawDdgiVolumeTriggerConditionCheckbox("Lighting condition##DdgiVolumeWarmup", volume.warmup_trigger_conditions,
+                                               DdgiVolumeTriggerConditionLightingConditionChanged))
+      changed = true;
+    if (DrawDdgiVolumeTriggerConditionCheckbox("Geometry##DdgiVolumeWarmup", volume.warmup_trigger_conditions,
+                                               DdgiVolumeTriggerConditionGeometryChanged))
+      changed = true;
+    ImGui::TextUnformatted("Variability reset triggers");
+    if (DrawDdgiVolumeTriggerConditionCheckbox("Light enable/disable##DdgiVolumeVariability",
+                                               volume.variability_reset_trigger_conditions,
+                                               DdgiVolumeTriggerConditionLightEnableChanged))
+      changed = true;
+    if (DrawDdgiVolumeTriggerConditionCheckbox("Lighting condition##DdgiVolumeVariability",
+                                               volume.variability_reset_trigger_conditions,
+                                               DdgiVolumeTriggerConditionLightingConditionChanged))
+      changed = true;
+    if (DrawDdgiVolumeTriggerConditionCheckbox("Geometry##DdgiVolumeVariability",
+                                               volume.variability_reset_trigger_conditions,
+                                               DdgiVolumeTriggerConditionGeometryChanged))
       changed = true;
     ImGui::TreePop();
   }

@@ -1035,6 +1035,9 @@ void SerializeDdgiVolume(YAML::Emitter& out, const DdgiVolume& volume) {
   out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << volume.fixed_ray_backface_threshold;
   out << YAML::Key << "probe_variability_threshold" << YAML::Value << volume.probe_variability_threshold;
   out << YAML::Key << "probe_variability_min_samples" << YAML::Value << volume.probe_variability_min_samples;
+  out << YAML::Key << "warmup_trigger_conditions" << YAML::Value << volume.warmup_trigger_conditions;
+  out << YAML::Key << "variability_reset_trigger_conditions" << YAML::Value
+      << volume.variability_reset_trigger_conditions;
   out << YAML::Key << "visualize_bounds" << YAML::Value << volume.visualize_bounds;
   out << YAML::Key << "visualize_probe_positions" << YAML::Value << volume.visualize_probe_positions;
   out << YAML::Key << "max_visualized_probes" << YAML::Value << volume.max_visualized_probes;
@@ -1074,6 +1077,10 @@ void DeserializeDdgiVolume(const YAML::Node& in, DdgiVolume& volume) {
     volume.probe_variability_threshold = in["probe_variability_threshold"].as<float>();
   if (in["probe_variability_min_samples"])
     volume.probe_variability_min_samples = in["probe_variability_min_samples"].as<int>();
+  if (in["warmup_trigger_conditions"])
+    volume.warmup_trigger_conditions = in["warmup_trigger_conditions"].as<int>();
+  if (in["variability_reset_trigger_conditions"])
+    volume.variability_reset_trigger_conditions = in["variability_reset_trigger_conditions"].as<int>();
   if (in["visualize_bounds"])
     volume.visualize_bounds = in["visualize_bounds"].as<bool>();
   if (in["visualize_probe_positions"])
