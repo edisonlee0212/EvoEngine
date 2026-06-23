@@ -28,6 +28,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/RenderGraphTest.cpp
 	Core/DdgiVolumeTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
+	Core/VolumetricCloudShaderTest.cpp
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
@@ -154,6 +155,11 @@ gtest_discover_tests(EvoEngine_Tests
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER VolumetricCloudSettings.*
+	PROPERTIES LABELS "core,render,volumetric-cloud"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER VolumetricCloudShader.*
 	PROPERTIES LABELS "core,render,volumetric-cloud"
 	)
 if(TARGET EcoSysLabPackage)
