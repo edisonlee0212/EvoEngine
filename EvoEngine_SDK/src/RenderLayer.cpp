@@ -34,6 +34,7 @@
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
+#include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -3772,6 +3773,8 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
+  const auto scene = GetScene();
+  const bool volumetric_clouds_enabled = scene && scene->environment.volumetric_cloud_settings.enabled;
   const auto& ddgi_settings = GetDdgiSettings();
   const auto render_info_probe_counts =
       glm::ivec3(glm::max(current_render_instances->render_info_block.ddgi_probe_counts, glm::vec4(1.0f)));
@@ -3838,6 +3841,9 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     AddDefaultRasterCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
+    if (volumetric_clouds_enabled) {
+      AddVolumetricCloudCameraResources(camera_render_graph);
+    }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
     if (ddgi_probe_visualization_enabled) {
       AddDdgiProbeVisualizationFrameResources(camera_render_graph, ddgi_frame_resource_layout_);
@@ -3956,6 +3962,14 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
             });
           });
     }
+    const char* cloud_post_processing_dependency = RenderPassNames::deferred_camera;
+    if (volumetric_clouds_enabled) {
+      camera_render_graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    VolumetricCloudsPass::Execute(context, {camera, record_commands});
+                                  });
+      cloud_post_processing_dependency = RenderPassNames::volumetric_clouds;
+    }
     if (ddgi_probe_visualization_enabled) {
       camera_render_graph.AddPass(
           DdgiProbeVisualizationPass::CreateDescriptor(),
@@ -3975,7 +3989,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
     }
     if (ddgi_probe_ray_visualization_enabled) {
       const auto* dependency = ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
-                                                                : RenderPassNames::deferred_camera;
+                                                                : cloud_post_processing_dependency;
       camera_render_graph.AddPass(
           DdgiProbeRayVisualizationPass::CreateDescriptor(dependency),
           [&, ddgi_probe_ray_visualization_push_constant](const RenderGraphExecutionContext& context) {
@@ -3995,7 +4009,7 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
         ddgi_probe_ray_visualization_enabled
             ? RenderPassNames::ddgi_probe_ray_visualization
             : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
-                                                : RenderPassNames::deferred_camera);
+                                                : cloud_post_processing_dependency);
     camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
                                 [&](const RenderGraphExecutionContext& context) {
                                   PostProcessingPass::Execute(context, {camera, immediate});
@@ -4043,20 +4057,32 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
 
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+    const auto scene = GetScene();
+    const bool volumetric_clouds_enabled = scene && scene->environment.volumetric_cloud_settings.enabled;
+    const auto record_commands = [](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+      Platform::RecordCommandsMainQueue(action);
+    };
     RenderGraph camera_render_graph;
     AddDefaultRayTracingCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
+    if (volumetric_clouds_enabled) {
+      AddVolumetricCloudCameraResources(camera_render_graph);
+    }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
     camera_render_graph.AddPass(
         RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
           RayTracingCameraPass::Execute(
-              context, {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
-                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
-                        [](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
-                          Platform::RecordCommandsMainQueue(action);
-                        }});
+              context,
+              {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
+               ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_, record_commands});
         });
+    if (volumetric_clouds_enabled) {
+      camera_render_graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    VolumetricCloudsPass::Execute(context, {camera, record_commands});
+                                  });
+    }
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid ray tracing camera render graph.")
     }

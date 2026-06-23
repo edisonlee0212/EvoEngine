@@ -97,6 +97,9 @@ inline constexpr const char* camera_material_id = "Camera.MaterialId";
 inline constexpr const char* camera_depth_pyramid = "Camera.DepthPyramid";
 inline constexpr const char* camera_color_history = "Camera.ColorHistory";
 inline constexpr const char* camera_radiance_history = "Camera.RadianceHistory";
+inline constexpr const char* camera_ray_hit_distance = "Camera.RayHitDistance";
+inline constexpr const char* camera_volumetric_cloud_accumulation = "Camera.VolumetricCloudAccumulation";
+inline constexpr const char* camera_volumetric_cloud_transmittance = "Camera.VolumetricCloudTransmittance";
 inline constexpr const char* frame_visibility_buffer = "Frame.VisibilityBuffer";
 inline constexpr const char* frame_ddgi_probe_metadata = "Frame.DDGI.ProbeMetadata";
 inline constexpr const char* frame_ddgi_probe_state = "Frame.DDGI.ProbeState";
@@ -123,6 +126,7 @@ inline constexpr const char* directional_light_shadow = "DirectionalLightShadow"
 inline constexpr const char* deferred_geometry = "DeferredGeometry";
 inline constexpr const char* depth_pyramid = "DepthPyramid";
 inline constexpr const char* deferred_camera = "DeferredCamera";
+inline constexpr const char* volumetric_clouds = "VolumetricClouds";
 inline constexpr const char* post_processing = "PostProcessing";
 inline constexpr const char* ray_tracing_camera = "RayTracingCamera";
 }  // namespace RenderPassNames
@@ -326,4 +330,5 @@ void AddDefaultRasterCameraResources(RenderGraph& graph);
 void AddDefaultRayTracingCameraResources(RenderGraph& graph);
 void AddAdvancedFrameResources(RenderGraph& graph);
 void AddAdvancedCameraResources(RenderGraph& graph);
+void AddVolumetricCloudCameraResources(RenderGraph& graph);
 }  // namespace evo_engine

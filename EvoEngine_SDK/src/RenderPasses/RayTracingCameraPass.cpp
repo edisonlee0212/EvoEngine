@@ -19,6 +19,8 @@ RenderPassDescriptor RayTracingCameraPass::CreateDescriptor() {
        {RenderResourceNames::frame_ray_tracing_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
        {RenderResourceNames::scene_mesh_tlas, RenderResourceUsage::Read,
         RenderResourceState::AccelerationStructureRead},
+       {RenderResourceNames::camera_ray_hit_distance, RenderResourceUsage::Write,
+        RenderResourceState::StorageReadWrite},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}};
 }
 

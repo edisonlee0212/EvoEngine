@@ -91,6 +91,9 @@ VkFormat ToVkFormat(const std::string& format_name) {
   if (format_name == "RG32F") {
     return VK_FORMAT_R32G32_SFLOAT;
   }
+  if (format_name == "R32F") {
+    return VK_FORMAT_R32_SFLOAT;
+  }
   if (format_name == "R32U") {
     return VK_FORMAT_R32_UINT;
   }
@@ -997,6 +1000,14 @@ void evo_engine::AddDefaultRayTracingCameraResources(RenderGraph& graph) {
                      RenderResourceLifetime::Camera,
                      {RenderResourceSizeMode::CameraRelative},
                      "Color"});
+  graph.AddResource({RenderResourceNames::camera_ray_hit_distance,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "R32F",
+                     1,
+                     1,
+                     true});
 }
 
 void evo_engine::AddAdvancedFrameResources(RenderGraph& graph) {
@@ -1058,5 +1069,24 @@ void evo_engine::AddAdvancedCameraResources(RenderGraph& graph) {
                      "Radiance",
                      1,
                      2,
+                     true});
+}
+
+void evo_engine::AddVolumetricCloudCameraResources(RenderGraph& graph) {
+  graph.AddResource({RenderResourceNames::camera_volumetric_cloud_accumulation,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "RGBA16F",
+                     1,
+                     1,
+                     true});
+  graph.AddResource({RenderResourceNames::camera_volumetric_cloud_transmittance,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "R16F",
+                     1,
+                     1,
                      true});
 }
