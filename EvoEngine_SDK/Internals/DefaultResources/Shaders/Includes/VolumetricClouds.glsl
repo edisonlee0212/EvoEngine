@@ -99,6 +99,19 @@ float EE_VOLUMETRIC_CLOUD_HeightFraction(in VolumetricCloudSettingsGpu settings,
   return EE_VOLUMETRIC_CLOUD_Saturate((world_height - settings.bottom_altitude) / layer_thickness);
 }
 
+float EE_VOLUMETRIC_CLOUD_Remap(in float value, in float old_min, in float old_max, in float new_min,
+                                in float new_max) {
+  float denominator = max(old_max - old_min, 0.00001f);
+  return new_min + EE_VOLUMETRIC_CLOUD_Saturate((value - old_min) / denominator) * (new_max - new_min);
+}
+
+float EE_VOLUMETRIC_CLOUD_HeightProfile(in float height_fraction) {
+  float bottom_fade = EE_VOLUMETRIC_CLOUD_Saturate(height_fraction * 5.0f);
+  float upper_fade = EE_VOLUMETRIC_CLOUD_Saturate((1.0f - height_fraction) * 3.5f);
+  float body = mix(0.35f, 1.0f, EE_VOLUMETRIC_CLOUD_Saturate(height_fraction * 2.2f));
+  return bottom_fade * upper_fade * body;
+}
+
 vec3 EE_VOLUMETRIC_CLOUD_WindOffset(in VolumetricCloudSettingsGpu settings, in float time_seconds) {
   vec2 wind_direction = dot(settings.wind_direction, settings.wind_direction) > 0.0001f
                             ? normalize(settings.wind_direction)
@@ -127,13 +140,11 @@ float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, 
   }
 
   vec4 base_noise = EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise(settings, world_position, time_seconds);
-  vec4 detail_noise = EE_VOLUMETRIC_CLOUD_SampleDetailErosionNoise(settings, world_position, time_seconds);
-  float height_shape = EE_VOLUMETRIC_CLOUD_Saturate(height_fraction * 4.0f) *
-                       EE_VOLUMETRIC_CLOUD_Saturate((1.0f - height_fraction) * 3.0f);
+  float height_profile = EE_VOLUMETRIC_CLOUD_HeightProfile(height_fraction);
   float coverage_threshold = 1.0f - EE_VOLUMETRIC_CLOUD_Saturate(settings.coverage);
-  float detail_shape = dot(detail_noise, vec4(0.50f, 0.25f, 0.15f, 0.10f));
-  float cloud_shape = base_noise.r * 0.78f + detail_shape * 0.22f;
-  return EE_VOLUMETRIC_CLOUD_Saturate((cloud_shape - coverage_threshold) * max(settings.density, 0.0f) * height_shape);
+  float base_shape = dot(base_noise.rgb, vec3(0.60f, 0.25f, 0.15f));
+  float base_shape_density = EE_VOLUMETRIC_CLOUD_Remap(base_shape, coverage_threshold, 1.0f, 0.0f, 1.0f);
+  return EE_VOLUMETRIC_CLOUD_Saturate(base_shape_density * height_profile * max(settings.density, 0.0f));
 }
 
 VolumetricCloudRayInterval EE_VOLUMETRIC_CLOUD_IntersectLayer(in vec3 ray_origin, in vec3 ray_direction,

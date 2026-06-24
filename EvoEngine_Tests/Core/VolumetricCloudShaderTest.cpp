@@ -30,12 +30,18 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Composite"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Debug"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Remap"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_HeightProfile"), std::string::npos);
   EXPECT_NE(shader_source.find("uniform sampler3D EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
   EXPECT_NE(shader_source.find("uniform sampler3D EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleDetailErosionNoise"), std::string::npos);
   EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
   EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("base_shape_density"), std::string::npos);
+  EXPECT_NE(shader_source.find("height_profile"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Remap(base_shape, coverage_threshold"), std::string::npos);
+  EXPECT_EQ(shader_source.find("cloud_shape - coverage_threshold"), std::string::npos);
   EXPECT_NE(shader_source.find("base_noise_scale"), std::string::npos);
   EXPECT_NE(shader_source.find("detail_noise_scale"), std::string::npos);
   EXPECT_NE(shader_source.find("extinction_scale"), std::string::npos);
