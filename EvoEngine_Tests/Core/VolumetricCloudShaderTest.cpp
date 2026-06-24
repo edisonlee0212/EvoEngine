@@ -13,6 +13,16 @@ std::string ReadTextFile(const std::filesystem::path& path) {
   EXPECT_TRUE(file.good()) << path.string();
   return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
+
+size_t CountOccurrences(const std::string& source, const std::string& pattern) {
+  size_t count = 0;
+  size_t offset = 0;
+  while ((offset = source.find(pattern, offset)) != std::string::npos) {
+    ++count;
+    offset += pattern.size();
+  }
+  return count;
+}
 }  // namespace
 
 TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
@@ -196,4 +206,31 @@ TEST(VolumetricCloudShader, RayTracingCameraWritesHitDistanceForCloudPass) {
   ASSERT_FALSE(render_layer_source.empty());
   EXPECT_NE(render_layer_source.find("ray_tracing_camera_output_layout_"), std::string::npos);
   EXPECT_NE(render_layer_source.find("RenderResourceNames::camera_ray_hit_distance"), std::string::npos);
+}
+
+TEST(VolumetricCloudShader, RenderLayerSharesCloudPassBetweenRasterAndRayTracingCameras) {
+  const auto render_layer_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
+  const auto pass_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" /
+                                        "RenderPasses" / "VolumetricCloudsPass.cpp");
+  ASSERT_FALSE(render_layer_source.empty());
+  ASSERT_FALSE(pass_source.empty());
+
+  EXPECT_EQ(CountOccurrences(render_layer_source, "VolumetricCloudsPass::Execute("), 2u);
+  EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera)"),
+            std::string::npos);
+  EXPECT_NE(
+      render_layer_source.find("VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera)"),
+      std::string::npos);
+  EXPECT_NE(render_layer_source.find("active_camera_transient_resources, volumetric_cloud_settings, camera_index"),
+            std::string::npos);
+  EXPECT_NE(render_layer_source.find("RenderResourceNames::camera_ray_hit_distance, true"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("VolumetricCloudsRasterPass"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("VolumetricCloudsRayTracingPass"), std::string::npos);
+
+  EXPECT_NE(pass_source.find("GetCloudNoiseResources"), std::string::npos);
+  EXPECT_NE(pass_source.find("base_shape_view"), std::string::npos);
+  EXPECT_NE(pass_source.find("detail_erosion_view"), std::string::npos);
+  EXPECT_NE(pass_source.find("weather_coverage_view"), std::string::npos);
+  EXPECT_NE(pass_source.find("parameters.composite_pipeline"), std::string::npos);
 }

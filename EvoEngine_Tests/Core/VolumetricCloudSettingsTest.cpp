@@ -226,3 +226,15 @@ TEST(VolumetricCloudSettings, DemoAppSmokeChecksCloudDensityVariation) {
   EXPECT_NE(demo_app_source.find("visible_cloud_settings.debug_mode = 1"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volumetric cloud density debug output is spatially flat"), std::string::npos);
 }
+
+TEST(VolumetricCloudSettings, DemoAppSmokeKeepsCloudMutationsDdgiSteady) {
+  const auto demo_app_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App" / "src" / "DemoApp.cpp");
+  ASSERT_FALSE(demo_app_source.empty());
+
+  EXPECT_NE(demo_app_source.find("ValidateRenderingDemoCloudSettingsDoNotRefreshDdgi"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("DDGI reported a scene refresh after cloud settings changed"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("cloud_settings.enabled = true"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("scene->environment.volumetric_cloud_settings.wind_speed = 80.0f"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("RenderLayer::DdgiUpdateReasonSteadyState"), std::string::npos);
+}
