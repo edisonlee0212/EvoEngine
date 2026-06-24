@@ -1259,6 +1259,30 @@ bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
     modified = true;
   if (ImGui::DragFloat("Extinction scale", &settings.extinction_scale, 0.001f, 0.00001f, 1.0f, "%.5f"))
     modified = true;
+  if (ImGui::Checkbox("Spherical atmosphere", &settings.use_spherical_atmosphere))
+    modified = true;
+  if (ImGui::DragFloat("Atmosphere radius", &settings.atmosphere_radius, 10.0f, 10.0f, 10000000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat("Cloud type", &settings.cloud_type, 0.001f, 0.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Curl strength", &settings.curl_strength, 0.01f, 0.0f, 1000.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Coarse step fraction", &settings.coarse_step_fraction, 0.001f, 0.0001f, 1.0f, "%.4f"))
+    modified = true;
+  if (ImGui::DragFloat("Fine step scale", &settings.fine_step_scale, 0.001f, 0.01f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragInt("Empty-step fallback", &settings.empty_step_fallback_count, 1.0f, 1, 64))
+    modified = true;
+  if (ImGui::Checkbox("Temporal reprojection", &settings.enable_temporal_reprojection))
+    modified = true;
+  if (ImGui::DragFloat("Temporal blend", &settings.temporal_blend_factor, 0.001f, 0.0f, 0.98f, "%.3f"))
+    modified = true;
+  if (ImGui::Checkbox("Cloud shadows", &settings.enable_cloud_shadows))
+    modified = true;
+  if (ImGui::DragFloat("Cloud shadow strength", &settings.cloud_shadow_strength, 0.001f, 0.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragInt("Cloud shadow steps", &settings.cloud_shadow_step_count, 1.0f, 1, 64))
+    modified = true;
   if (ImGui::Checkbox("Cloud debug", &settings.debug_visualization))
     modified = true;
   const char* debug_modes[] = {"Final composite", "Final density",  "Transmittance",   "March depth",

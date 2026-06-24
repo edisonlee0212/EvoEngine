@@ -14,6 +14,8 @@ layout(push_constant) uniform EE_VOLUMETRIC_CLOUD_CONSTANTS {
   vec4 windTime;
   vec4 lightingPhaseMaxDistance;
   vec4 noiseExtinctionMarchDistance;
+  vec4 atmosphereCloudTypeCurl;
+  vec4 marchControl;
   ivec4 cameraFrameSteps;
   ivec4 flags;
 };
@@ -35,6 +37,17 @@ VolumetricCloudSettingsGpu EE_BUILD_VOLUMETRIC_CLOUD_SETTINGS() {
   settings.base_noise_scale = noiseExtinctionMarchDistance.x;
   settings.detail_noise_scale = noiseExtinctionMarchDistance.y;
   settings.extinction_scale = noiseExtinctionMarchDistance.z;
+  settings.max_march_distance = noiseExtinctionMarchDistance.w;
+  settings.use_spherical_atmosphere = atmosphereCloudTypeCurl.x > 0.5f ? 1 : 0;
+  settings.atmosphere_radius = atmosphereCloudTypeCurl.y;
+  settings.cloud_type = atmosphereCloudTypeCurl.z;
+  settings.curl_strength = atmosphereCloudTypeCurl.w;
+  settings.coarse_step_fraction = marchControl.x;
+  settings.fine_step_scale = marchControl.y;
+  settings.empty_step_fallback_count = int(round(marchControl.z));
+  settings.enable_cloud_shadows = (flags.w & 2) != 0 ? 1 : 0;
+  settings.cloud_shadow_strength = lightingPhaseMaxDistance.w;
+  settings.cloud_shadow_step_count = max(flags.w >> 2, 1);
   settings.debug_mode = flags.y != 0 ? flags.z : 0;
   return settings;
 }
@@ -47,7 +60,7 @@ vec3 EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(in int camera_index, in vec2 tex_coord) {
 
 float EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(in int camera_index, in vec2 tex_coord, in vec3 ray_origin,
                                          in vec3 ray_direction, in float max_distance) {
-  if (flags.w != 0) {
+  if ((flags.w & 1) != 0) {
     float hit_distance = texture(inDepth, tex_coord).r;
     float camera_far = EE_CAMERA_FAR(camera_index);
     if (hit_distance >= camera_far * 0.999f) {

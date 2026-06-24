@@ -6,6 +6,7 @@ struct Camera {
   mat4 inverse_projection;
   mat4 inverse_view;
   mat4 inverse_projection_view;
+  mat4 previous_projection_view;
   vec4 clear_color;
   float resolution_x;
   float resolution_y;

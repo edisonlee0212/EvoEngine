@@ -1,4 +1,5 @@
 #include "Camera.hpp"
+#include <unordered_map>
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
@@ -9,6 +10,10 @@
 #include "Serialization.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
+
+namespace {
+std::unordered_map<uint64_t, glm::mat4> previous_camera_projection_views;
+}
 
 glm::vec3 CameraInfoBlock::Project(const glm::vec3& position) const {
   return projection * view * glm::vec4(position, 1.0f);
@@ -207,6 +212,11 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
+  const auto previous_projection_view = previous_camera_projection_views.find(GetHandle().GetValue());
+  camera_info_block.previous_projection_view = previous_projection_view == previous_camera_projection_views.end()
+                                                   ? camera_info_block.projection_view
+                                                   : previous_projection_view->second;
+  previous_camera_projection_views[GetHandle().GetValue()] = camera_info_block.projection_view;
   camera_info_block.clear_color =
       glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
   camera_info_block.resolution = size_;

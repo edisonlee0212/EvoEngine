@@ -15,6 +15,8 @@ struct VolumetricCloudsPushConstant {
   glm::vec4 wind_time = glm::vec4(0.0f);
   glm::vec4 lighting_phase_max_distance = glm::vec4(0.0f);
   glm::vec4 noise_extinction_march_distance = glm::vec4(0.0f);
+  glm::vec4 atmosphere_cloud_type_curl = glm::vec4(0.0f);
+  glm::vec4 march_control = glm::vec4(0.0f);
   glm::ivec4 camera_frame_steps = glm::ivec4(0);
   glm::ivec4 flags = glm::ivec4(0);
 };

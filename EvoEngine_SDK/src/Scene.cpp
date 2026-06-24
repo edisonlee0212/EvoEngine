@@ -249,9 +249,52 @@ void SerializeVolumetricCloudSettings(YAML::Emitter& out, const VolumetricCloudS
   out << YAML::Key << "base_noise_scale" << YAML::Value << settings.base_noise_scale;
   out << YAML::Key << "detail_noise_scale" << YAML::Value << settings.detail_noise_scale;
   out << YAML::Key << "extinction_scale" << YAML::Value << settings.extinction_scale;
+  out << YAML::Key << "use_spherical_atmosphere" << YAML::Value << settings.use_spherical_atmosphere;
+  out << YAML::Key << "atmosphere_radius" << YAML::Value << settings.atmosphere_radius;
+  out << YAML::Key << "cloud_type" << YAML::Value << settings.cloud_type;
+  out << YAML::Key << "curl_strength" << YAML::Value << settings.curl_strength;
+  out << YAML::Key << "coarse_step_fraction" << YAML::Value << settings.coarse_step_fraction;
+  out << YAML::Key << "fine_step_scale" << YAML::Value << settings.fine_step_scale;
+  out << YAML::Key << "empty_step_fallback_count" << YAML::Value << settings.empty_step_fallback_count;
+  out << YAML::Key << "enable_temporal_reprojection" << YAML::Value << settings.enable_temporal_reprojection;
+  out << YAML::Key << "temporal_blend_factor" << YAML::Value << settings.temporal_blend_factor;
+  out << YAML::Key << "enable_cloud_shadows" << YAML::Value << settings.enable_cloud_shadows;
+  out << YAML::Key << "cloud_shadow_strength" << YAML::Value << settings.cloud_shadow_strength;
+  out << YAML::Key << "cloud_shadow_step_count" << YAML::Value << settings.cloud_shadow_step_count;
   out << YAML::Key << "debug_visualization" << YAML::Value << settings.debug_visualization;
   out << YAML::Key << "debug_mode" << YAML::Value << settings.debug_mode;
   out << YAML::EndMap;
+}
+
+bool AlmostEqual(const float left, const float right) {
+  return glm::abs(left - right) <= 0.0001f;
+}
+
+bool MatchesLegacyVolumetricCloudDefaults(const VolumetricCloudSettings& settings) {
+  const bool common_default = AlmostEqual(settings.wind_direction.x, 1.0f) &&
+                              AlmostEqual(settings.wind_direction.y, 0.0f) && settings.debug_mode == 0 &&
+                              !settings.debug_visualization;
+  const bool first_visible_default =
+      AlmostEqual(settings.coverage, 0.82f) && AlmostEqual(settings.density, 2.0f) &&
+      AlmostEqual(settings.bottom_altitude, 0.0f) && AlmostEqual(settings.top_altitude, 160.0f) &&
+      AlmostEqual(settings.max_march_distance, 600.0f) && AlmostEqual(settings.wind_speed, 25.0f) &&
+      settings.primary_step_count == 64 && settings.light_step_count == 8 && settings.resolution_divisor == 1 &&
+      AlmostEqual(settings.lighting_intensity, 1.6f) && AlmostEqual(settings.ambient_lighting_strength, 0.35f) &&
+      AlmostEqual(settings.phase_anisotropy, 0.65f) && AlmostEqual(settings.base_noise_scale, 0.035f) &&
+      AlmostEqual(settings.detail_noise_scale, 0.14f) && AlmostEqual(settings.extinction_scale, 0.035f);
+  const bool high_altitude_default =
+      AlmostEqual(settings.coverage, 0.65f) && AlmostEqual(settings.density, 1.0f) &&
+      AlmostEqual(settings.bottom_altitude, 80.0f) && AlmostEqual(settings.top_altitude, 550.0f) &&
+      AlmostEqual(settings.max_march_distance, 5000.0f) && AlmostEqual(settings.wind_speed, 25.0f) &&
+      settings.primary_step_count == 64 && settings.light_step_count == 8 && settings.resolution_divisor == 1 &&
+      AlmostEqual(settings.lighting_intensity, 1.0f) && AlmostEqual(settings.ambient_lighting_strength, 0.2f) &&
+      AlmostEqual(settings.phase_anisotropy, 0.65f) && AlmostEqual(settings.base_noise_scale, 0.012f) &&
+      AlmostEqual(settings.detail_noise_scale, 0.05f) && AlmostEqual(settings.extinction_scale, 0.01f);
+  return common_default && (first_visible_default || high_altitude_default);
+}
+
+void UpgradeLegacyVolumetricCloudDefaults(VolumetricCloudSettings& settings) {
+  settings = VolumetricCloudSettings{};
 }
 
 void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSettings& settings) {
@@ -289,11 +332,38 @@ void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSet
     settings.detail_noise_scale = in["detail_noise_scale"].as<float>();
   if (in["extinction_scale"])
     settings.extinction_scale = in["extinction_scale"].as<float>();
+  if (in["use_spherical_atmosphere"])
+    settings.use_spherical_atmosphere = in["use_spherical_atmosphere"].as<bool>();
+  if (in["atmosphere_radius"])
+    settings.atmosphere_radius = in["atmosphere_radius"].as<float>();
+  if (in["cloud_type"])
+    settings.cloud_type = in["cloud_type"].as<float>();
+  if (in["curl_strength"])
+    settings.curl_strength = in["curl_strength"].as<float>();
+  if (in["coarse_step_fraction"])
+    settings.coarse_step_fraction = in["coarse_step_fraction"].as<float>();
+  if (in["fine_step_scale"])
+    settings.fine_step_scale = in["fine_step_scale"].as<float>();
+  if (in["empty_step_fallback_count"])
+    settings.empty_step_fallback_count = in["empty_step_fallback_count"].as<int>();
+  if (in["enable_temporal_reprojection"])
+    settings.enable_temporal_reprojection = in["enable_temporal_reprojection"].as<bool>();
+  if (in["temporal_blend_factor"])
+    settings.temporal_blend_factor = in["temporal_blend_factor"].as<float>();
+  if (in["enable_cloud_shadows"])
+    settings.enable_cloud_shadows = in["enable_cloud_shadows"].as<bool>();
+  if (in["cloud_shadow_strength"])
+    settings.cloud_shadow_strength = in["cloud_shadow_strength"].as<float>();
+  if (in["cloud_shadow_step_count"])
+    settings.cloud_shadow_step_count = in["cloud_shadow_step_count"].as<int>();
   if (in["debug_visualization"])
     settings.debug_visualization = in["debug_visualization"].as<bool>();
   if (in["debug_mode"])
     settings.debug_mode = in["debug_mode"].as<int>();
   settings.ClampSettings();
+  if (MatchesLegacyVolumetricCloudDefaults(settings)) {
+    UpgradeLegacyVolumetricCloudDefaults(settings);
+  }
 }
 }  // namespace
 

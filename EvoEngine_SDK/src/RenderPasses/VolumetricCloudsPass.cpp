@@ -7,13 +7,21 @@
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "RenderTexture.hpp"
 
+#include <array>
+#include <unordered_map>
+
 using namespace evo_engine;
 
 namespace {
-constexpr uint32_t kCloudNoiseResolution = 32;
-constexpr uint32_t kCloudNoiseVoxelCount = kCloudNoiseResolution * kCloudNoiseResolution * kCloudNoiseResolution;
+constexpr uint32_t kCloudBaseShapeResolution = 64;
+constexpr uint32_t kCloudDetailErosionResolution = 32;
 constexpr uint32_t kCloudWeatherResolution = 128;
 constexpr uint32_t kCloudWeatherTexelCount = kCloudWeatherResolution * kCloudWeatherResolution;
+constexpr uint32_t kCloudCurlResolution = 128;
+constexpr uint32_t kCloudCurlTexelCount = kCloudCurlResolution * kCloudCurlResolution;
+constexpr int kInputIsRayHitDistanceFlag = 1 << 0;
+constexpr int kCloudShadowsEnabledFlag = 1 << 1;
+constexpr int kCloudShadowStepShift = 2;
 
 struct CloudNoiseResources {
   std::shared_ptr<Image> base_shape_image;
@@ -22,7 +30,19 @@ struct CloudNoiseResources {
   std::shared_ptr<ImageView> detail_erosion_view;
   std::shared_ptr<Image> weather_coverage_image;
   std::shared_ptr<ImageView> weather_coverage_view;
+  std::shared_ptr<Image> curl_noise_image;
+  std::shared_ptr<ImageView> curl_noise_view;
   std::shared_ptr<Sampler> sampler;
+};
+
+struct VolumetricCloudHistoryResources {
+  VkExtent3D extent{};
+  std::array<std::shared_ptr<Image>, 2> accumulation_images{};
+  std::array<std::shared_ptr<ImageView>, 2> accumulation_views{};
+  std::array<std::shared_ptr<Image>, 2> transmittance_images{};
+  std::array<std::shared_ptr<ImageView>, 2> transmittance_views{};
+  uint32_t frame_index = 0;
+  bool valid = false;
 };
 
 uint32_t HashNoiseCoordinate(uint32_t x, uint32_t y, uint32_t z, uint32_t seed) {
@@ -74,11 +94,11 @@ float WrappedValueNoise(const glm::vec3& position, const uint32_t period, const 
   return glm::mix(nxy0, nxy1, fade.z);
 }
 
-float WrappedValueFbm(glm::vec3 position, const uint32_t seed) {
+float WrappedValueFbm(glm::vec3 position, const uint32_t seed, const uint32_t base_period) {
   float value = 0.0f;
   float amplitude = 0.5f;
   float amplitude_sum = 0.0f;
-  uint32_t period = kCloudNoiseResolution;
+  uint32_t period = base_period;
   for (int octave_index = 0; octave_index < 5; ++octave_index) {
     value += WrappedValueNoise(position, period, seed + static_cast<uint32_t>(octave_index) * 31u) * amplitude;
     amplitude_sum += amplitude;
@@ -121,13 +141,13 @@ float WrappedWorleyNoise(const glm::vec3& position, const uint32_t period, const
 }
 
 std::vector<uint8_t> BuildBaseShapeNoiseBytes() {
-  std::vector<uint8_t> bytes(kCloudNoiseVoxelCount * 4u);
+  std::vector<uint8_t> bytes(kCloudBaseShapeResolution * kCloudBaseShapeResolution * kCloudBaseShapeResolution * 4u);
   size_t output_index = 0;
-  for (uint32_t z = 0; z < kCloudNoiseResolution; ++z) {
-    for (uint32_t y = 0; y < kCloudNoiseResolution; ++y) {
-      for (uint32_t x = 0; x < kCloudNoiseResolution; ++x) {
+  for (uint32_t z = 0; z < kCloudBaseShapeResolution; ++z) {
+    for (uint32_t y = 0; y < kCloudBaseShapeResolution; ++y) {
+      for (uint32_t x = 0; x < kCloudBaseShapeResolution; ++x) {
         const glm::vec3 position(x, y, z);
-        const float billow = WrappedValueFbm(position, 11u);
+        const float billow = WrappedValueFbm(position, 11u, kCloudBaseShapeResolution);
         const float cellular = 1.0f - WrappedWorleyNoise(position * 0.25f, 8u, 29u);
         const float low_frequency = WrappedValueNoise(position * 0.125f, 4u, 53u);
         const float shape = glm::clamp(billow * 0.55f + cellular * 0.35f + low_frequency * 0.10f, 0.0f, 1.0f);
@@ -142,16 +162,17 @@ std::vector<uint8_t> BuildBaseShapeNoiseBytes() {
 }
 
 std::vector<uint8_t> BuildDetailErosionNoiseBytes() {
-  std::vector<uint8_t> bytes(kCloudNoiseVoxelCount * 4u);
+  std::vector<uint8_t> bytes(kCloudDetailErosionResolution * kCloudDetailErosionResolution *
+                             kCloudDetailErosionResolution * 4u);
   size_t output_index = 0;
-  for (uint32_t z = 0; z < kCloudNoiseResolution; ++z) {
-    for (uint32_t y = 0; y < kCloudNoiseResolution; ++y) {
-      for (uint32_t x = 0; x < kCloudNoiseResolution; ++x) {
+  for (uint32_t z = 0; z < kCloudDetailErosionResolution; ++z) {
+    for (uint32_t y = 0; y < kCloudDetailErosionResolution; ++y) {
+      for (uint32_t x = 0; x < kCloudDetailErosionResolution; ++x) {
         const glm::vec3 position(x, y, z);
         const float fine_worley = WrappedWorleyNoise(position * 0.75f, 24u, 71u);
         const float medium_worley = WrappedWorleyNoise(position * 0.5f, 16u, 97u);
         const float coarse_worley = WrappedWorleyNoise(position * 0.25f, 8u, 131u);
-        const float detail = WrappedValueFbm(position * 2.0f, 163u);
+        const float detail = WrappedValueFbm(position * 2.0f, 163u, kCloudDetailErosionResolution);
         bytes[output_index++] = static_cast<uint8_t>(glm::round((1.0f - fine_worley) * 255.0f));
         bytes[output_index++] = static_cast<uint8_t>(glm::round((1.0f - medium_worley) * 255.0f));
         bytes[output_index++] = static_cast<uint8_t>(glm::round((1.0f - coarse_worley) * 255.0f));
@@ -168,12 +189,33 @@ std::vector<uint8_t> BuildWeatherCoverageNoiseBytes() {
   for (uint32_t y = 0; y < kCloudWeatherResolution; ++y) {
     for (uint32_t x = 0; x < kCloudWeatherResolution; ++x) {
       const glm::vec3 position(static_cast<float>(x) * 0.25f, static_cast<float>(y) * 0.25f, 19.0f);
-      const float coverage = WrappedValueFbm(position, 211u);
+      const float coverage = WrappedValueFbm(position, 211u, kCloudWeatherResolution);
       const float cloud_type = WrappedValueNoise(position * 0.125f + glm::vec3(7.0f, 0.0f, 13.0f), 16u, 241u);
       const float density_bias = WrappedValueNoise(position * 0.0625f + glm::vec3(0.0f, 5.0f, 23.0f), 8u, 277u);
       bytes[output_index++] = static_cast<uint8_t>(glm::round(coverage * 255.0f));
       bytes[output_index++] = static_cast<uint8_t>(glm::round(cloud_type * 255.0f));
       bytes[output_index++] = static_cast<uint8_t>(glm::round(density_bias * 255.0f));
+      bytes[output_index++] = 255u;
+    }
+  }
+  return bytes;
+}
+
+std::vector<uint8_t> BuildCurlNoiseBytes() {
+  std::vector<uint8_t> bytes(kCloudCurlTexelCount * 4u);
+  size_t output_index = 0;
+  for (uint32_t y = 0; y < kCloudCurlResolution; ++y) {
+    for (uint32_t x = 0; x < kCloudCurlResolution; ++x) {
+      const glm::vec3 position(static_cast<float>(x) * 0.25f, static_cast<float>(y) * 0.25f, 37.0f);
+      const float dx = WrappedValueFbm(position + glm::vec3(1.0f, 0.0f, 0.0f), 311u, kCloudCurlResolution) -
+                       WrappedValueFbm(position - glm::vec3(1.0f, 0.0f, 0.0f), 311u, kCloudCurlResolution);
+      const float dy = WrappedValueFbm(position + glm::vec3(0.0f, 1.0f, 0.0f), 311u, kCloudCurlResolution) -
+                       WrappedValueFbm(position - glm::vec3(0.0f, 1.0f, 0.0f), 311u, kCloudCurlResolution);
+      const glm::vec2 curl =
+          glm::length(glm::vec2(dy, -dx)) > 0.0001f ? glm::normalize(glm::vec2(dy, -dx)) : glm::vec2(0.0f);
+      bytes[output_index++] = static_cast<uint8_t>(glm::round((curl.x * 0.5f + 0.5f) * 255.0f));
+      bytes[output_index++] = 128u;
+      bytes[output_index++] = static_cast<uint8_t>(glm::round((curl.y * 0.5f + 0.5f) * 255.0f));
       bytes[output_index++] = 255u;
     }
   }
@@ -196,12 +238,32 @@ std::shared_ptr<Image> CreateCloudNoiseImage(const VkImageType image_type, const
   return std::make_shared<Image>(image_info);
 }
 
-std::shared_ptr<Image> CreateCloudNoiseVolumeImage() {
-  return CreateCloudNoiseImage(VK_IMAGE_TYPE_3D, {kCloudNoiseResolution, kCloudNoiseResolution, kCloudNoiseResolution});
+std::shared_ptr<Image> CreateCloudHistoryImage(const VkFormat format, const VkExtent3D extent) {
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.extent = extent;
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = format;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  return std::make_shared<Image>(image_info);
+}
+
+std::shared_ptr<Image> CreateCloudNoiseVolumeImage(const uint32_t resolution) {
+  return CreateCloudNoiseImage(VK_IMAGE_TYPE_3D, {resolution, resolution, resolution});
 }
 
 std::shared_ptr<Image> CreateCloudWeatherImage() {
   return CreateCloudNoiseImage(VK_IMAGE_TYPE_2D, {kCloudWeatherResolution, kCloudWeatherResolution, 1u});
+}
+
+std::shared_ptr<Image> CreateCloudCurlNoiseImage() {
+  return CreateCloudNoiseImage(VK_IMAGE_TYPE_2D, {kCloudCurlResolution, kCloudCurlResolution, 1u});
 }
 
 std::shared_ptr<ImageView> CreateCloudNoiseImageView(const std::shared_ptr<Image>& image,
@@ -224,6 +286,10 @@ std::shared_ptr<ImageView> CreateCloudNoiseVolumeImageView(const std::shared_ptr
 }
 
 std::shared_ptr<ImageView> CreateCloudWeatherImageView(const std::shared_ptr<Image>& image) {
+  return CreateCloudNoiseImageView(image, VK_IMAGE_VIEW_TYPE_2D);
+}
+
+std::shared_ptr<ImageView> CreateCloudCurlNoiseImageView(const std::shared_ptr<Image>& image) {
   return CreateCloudNoiseImageView(image, VK_IMAGE_VIEW_TYPE_2D);
 }
 
@@ -260,16 +326,41 @@ void UploadCloudNoiseImage(const std::shared_ptr<Image>& image, const std::vecto
 CloudNoiseResources& GetCloudNoiseResources() {
   static CloudNoiseResources resources;
   if (!resources.base_shape_image && Platform::Initialized()) {
-    resources.base_shape_image = CreateCloudNoiseVolumeImage();
-    resources.detail_erosion_image = CreateCloudNoiseVolumeImage();
+    resources.base_shape_image = CreateCloudNoiseVolumeImage(kCloudBaseShapeResolution);
+    resources.detail_erosion_image = CreateCloudNoiseVolumeImage(kCloudDetailErosionResolution);
     resources.weather_coverage_image = CreateCloudWeatherImage();
+    resources.curl_noise_image = CreateCloudCurlNoiseImage();
     UploadCloudNoiseImage(resources.base_shape_image, BuildBaseShapeNoiseBytes());
     UploadCloudNoiseImage(resources.detail_erosion_image, BuildDetailErosionNoiseBytes());
     UploadCloudNoiseImage(resources.weather_coverage_image, BuildWeatherCoverageNoiseBytes());
+    UploadCloudNoiseImage(resources.curl_noise_image, BuildCurlNoiseBytes());
     resources.base_shape_view = CreateCloudNoiseVolumeImageView(resources.base_shape_image);
     resources.detail_erosion_view = CreateCloudNoiseVolumeImageView(resources.detail_erosion_image);
     resources.weather_coverage_view = CreateCloudWeatherImageView(resources.weather_coverage_image);
+    resources.curl_noise_view = CreateCloudCurlNoiseImageView(resources.curl_noise_image);
     resources.sampler = CreateCloudNoiseSampler();
+  }
+  return resources;
+}
+
+VolumetricCloudHistoryResources& GetCloudHistoryResources(const uint64_t camera_handle, const VkExtent3D extent) {
+  static std::unordered_map<uint64_t, VolumetricCloudHistoryResources> history_resources;
+  auto& resources = history_resources[camera_handle];
+  if (resources.extent.width == extent.width && resources.extent.height == extent.height &&
+      resources.extent.depth == extent.depth && resources.accumulation_views[0] && resources.accumulation_views[1] &&
+      resources.transmittance_views[0] && resources.transmittance_views[1]) {
+    return resources;
+  }
+
+  resources = {};
+  resources.extent = extent;
+  for (size_t image_index = 0; image_index < resources.accumulation_images.size(); ++image_index) {
+    resources.accumulation_images[image_index] = CreateCloudHistoryImage(VK_FORMAT_R16G16B16A16_SFLOAT, extent);
+    resources.accumulation_views[image_index] =
+        CreateCloudNoiseImageView(resources.accumulation_images[image_index], VK_IMAGE_VIEW_TYPE_2D);
+    resources.transmittance_images[image_index] = CreateCloudHistoryImage(VK_FORMAT_R16_SFLOAT, extent);
+    resources.transmittance_views[image_index] =
+        CreateCloudNoiseImageView(resources.transmittance_images[image_index], VK_IMAGE_VIEW_TYPE_2D);
   }
   return resources;
 }
@@ -290,13 +381,21 @@ VolumetricCloudsPushConstant CreatePushConstant(const VolumetricCloudsPass::Para
                  ? parameters.max_distance
                  : (parameters.camera ? glm::max(parameters.camera->camera_settings.far_distance, 0.0f) : 0.0f));
   push_constant.lighting_phase_max_distance = {settings.lighting_intensity, settings.ambient_lighting_strength,
-                                               settings.phase_anisotropy, max_distance};
+                                               settings.phase_anisotropy, settings.cloud_shadow_strength};
   push_constant.noise_extinction_march_distance = {settings.base_noise_scale, settings.detail_noise_scale,
                                                    settings.extinction_scale, max_distance};
+  push_constant.atmosphere_cloud_type_curl = {settings.use_spherical_atmosphere ? 1.0f : 0.0f,
+                                              settings.atmosphere_radius, settings.cloud_type, settings.curl_strength};
+  push_constant.march_control = {settings.coarse_step_fraction, settings.fine_step_scale,
+                                 static_cast<float>(settings.empty_step_fallback_count),
+                                 settings.enable_temporal_reprojection ? settings.temporal_blend_factor : 0.0f};
   push_constant.camera_frame_steps = {parameters.camera_index, static_cast<int>(parameters.frame_index),
                                       settings.primary_step_count, settings.light_step_count};
+  int packed_flags = parameters.input_is_ray_hit_distance ? kInputIsRayHitDistanceFlag : 0;
+  packed_flags |= settings.enable_cloud_shadows ? kCloudShadowsEnabledFlag : 0;
+  packed_flags |= glm::clamp(settings.cloud_shadow_step_count, 1, 64) << kCloudShadowStepShift;
   push_constant.flags = {settings.enabled ? 1 : 0, settings.debug_visualization ? 1 : 0, settings.debug_mode,
-                         parameters.input_is_ray_hit_distance ? 1 : 0};
+                         packed_flags};
   return push_constant;
 }
 
@@ -330,7 +429,7 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
   }
   const auto& noise_resources = GetCloudNoiseResources();
   if (!noise_resources.base_shape_view || !noise_resources.detail_erosion_view ||
-      !noise_resources.weather_coverage_view || !noise_resources.sampler) {
+      !noise_resources.weather_coverage_view || !noise_resources.curl_noise_view || !noise_resources.sampler) {
     return;
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
@@ -362,6 +461,28 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
         if (accumulation_view && transmittance_view) {
           parameters.transient_resources->RetainImageView(accumulation_view);
           parameters.transient_resources->RetainImageView(transmittance_view);
+          auto& history_resources =
+              GetCloudHistoryResources(parameters.camera->GetHandle().GetValue(), color_binding->image->GetExtent());
+          const uint32_t previous_history_index = history_resources.frame_index % 2u;
+          const uint32_t output_history_index = 1u - previous_history_index;
+          const bool history_valid = history_resources.valid;
+          if (!history_resources.accumulation_views[previous_history_index] ||
+              !history_resources.transmittance_views[previous_history_index] ||
+              !history_resources.accumulation_views[output_history_index] ||
+              !history_resources.transmittance_views[output_history_index]) {
+            ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+            return;
+          }
+          for (const auto& image : history_resources.accumulation_images) {
+            if (image) {
+              image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+            }
+          }
+          for (const auto& image : history_resources.transmittance_images) {
+            if (image) {
+              image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+            }
+          }
 
           const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
           VkDescriptorImageInfo image_info{};
@@ -396,8 +517,25 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           descriptor_set->UpdateImageDescriptorBinding(7, image_info);
           image_info.imageView = noise_resources.weather_coverage_view->GetVkImageView();
           descriptor_set->UpdateImageDescriptorBinding(8, image_info);
+          image_info.imageView = noise_resources.curl_noise_view->GetVkImageView();
+          descriptor_set->UpdateImageDescriptorBinding(9, image_info);
 
-          const auto push_constant = CreatePushConstant(parameters);
+          auto push_constant = CreatePushConstant(parameters);
+          if (!history_valid) {
+            push_constant.march_control.w = 0.0f;
+          }
+          image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+          image_info.imageView = history_resources.accumulation_views[previous_history_index]->GetVkImageView();
+          image_info.sampler = render_texture->GetColorSampler()->GetVkSampler();
+          descriptor_set->UpdateImageDescriptorBinding(10, image_info);
+          image_info.imageView = history_resources.transmittance_views[previous_history_index]->GetVkImageView();
+          descriptor_set->UpdateImageDescriptorBinding(11, image_info);
+          image_info.sampler = VK_NULL_HANDLE;
+          image_info.imageView = history_resources.accumulation_views[output_history_index]->GetVkImageView();
+          descriptor_set->UpdateImageDescriptorBinding(12, image_info);
+          image_info.imageView = history_resources.transmittance_views[output_history_index]->GetVkImageView();
+          descriptor_set->UpdateImageDescriptorBinding(13, image_info);
+
           const auto cloud_extent = accumulation_binding->image->GetExtent();
           parameters.pipeline->Bind(vk_command_buffer);
           parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -417,6 +555,8 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.composite_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(extent.width, 16),
                                                   Platform::DivUp(extent.height, 16));
           parameters.transient_resources->RetainDescriptorSet(descriptor_set);
+          history_resources.valid = true;
+          history_resources.frame_index++;
           Platform::EverythingBarrier(vk_command_buffer);
         }
       }
