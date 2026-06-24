@@ -88,6 +88,33 @@ std::optional<uint64_t> ReadExistingStartSceneHandle(const std::filesystem::path
   return std::nullopt;
 }
 
+void WriteProjectLayerStates(YAML::Emitter& out) {
+  const auto application = ApplicationContext::TryGet();
+  if (!application) {
+    return;
+  }
+  bool any_layer_states = false;
+  for (const auto& layer : application->GetLayers()) {
+    if (!layer || !layer->SupportsProjectStateSerialization()) {
+      continue;
+    }
+    const auto layer_name = layer->GetLayerName();
+    if (layer_name.empty()) {
+      continue;
+    }
+    if (!any_layer_states) {
+      out << YAML::Key << "LayerStates" << YAML::Value << YAML::BeginMap;
+      any_layer_states = true;
+    }
+    out << YAML::Key << layer_name << YAML::Value << YAML::BeginMap;
+    layer->SerializeProjectState(out);
+    out << YAML::EndMap;
+  }
+  if (any_layer_states) {
+    out << YAML::EndMap;
+  }
+}
+
 void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMetadata& metadata,
                       const std::optional<uint64_t> start_scene_handle) {
   if (const auto directory = path.parent_path(); !directory.empty() && !std::filesystem::exists(directory)) {
@@ -113,11 +140,37 @@ void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMeta
       out << YAML::EndMap;
     }
   }
+  WriteProjectLayerStates(out);
   out << YAML::EndMap;
 
   std::ofstream file_out(path.string());
   file_out << out.c_str();
   file_out.flush();
+}
+
+void ApplyProjectLayerStates(const YAML::Node& layer_states) {
+  if (!layer_states || !layer_states.IsMap()) {
+    return;
+  }
+  const auto application = ApplicationContext::TryGet();
+  if (!application) {
+    return;
+  }
+  for (const auto& layer : application->GetLayers()) {
+    if (!layer || !layer->SupportsProjectStateSerialization()) {
+      continue;
+    }
+    const auto layer_name = layer->GetLayerName();
+    const auto layer_state = layer_states[layer_name];
+    if (!layer_state || !layer_state.IsMap()) {
+      continue;
+    }
+    try {
+      layer->DeserializeProjectState(layer_state);
+    } catch (const std::exception& error) {
+      EVOENGINE_ERROR("Failed to read project state for layer '" + layer_name + "': " + std::string(error.what()))
+    }
+  }
 }
 
 void ApplyProjectEditorState(const std::filesystem::path& path,
@@ -127,10 +180,10 @@ void ApplyProjectEditorState(const std::filesystem::path& path,
     return;
   }
   const auto editor_layer = application->GetLayer<EditorLayer>();
-  if (!editor_layer) {
-    return;
-  }
   const auto apply = [&](const YAML::Node& editor_state) {
+    if (!editor_layer) {
+      return;
+    }
     switch (mode) {
       case ProjectEditorStateApplyMode::LayoutOnly:
         editor_layer->DeserializeLayout(editor_state);
@@ -143,6 +196,8 @@ void ApplyProjectEditorState(const std::filesystem::path& path,
         return;
     }
   };
+  const bool apply_layer_states = mode == ProjectEditorStateApplyMode::Full ||
+                                  mode == ProjectEditorStateApplyMode::SceneStateOnly;
   if (path.empty() || !std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
     apply(YAML::Node());
     return;
@@ -153,6 +208,9 @@ void ApplyProjectEditorState(const std::filesystem::path& path,
       apply(editor_state);
     } else {
       apply(YAML::Node());
+    }
+    if (apply_layer_states) {
+      ApplyProjectLayerStates(in["LayerStates"]);
     }
   } catch (const std::exception& error) {
     EVOENGINE_ERROR("Failed to read project editor state: " + std::string(error.what()))
@@ -567,12 +625,15 @@ bool ProjectManager::IsProjectIdle() {
 
 ProjectState ProjectManager::GetProjectState() {
   const auto& project_manager = GetInstance();
+  const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
   if (!HasProject()) {
     return ProjectState::NoProject;
   }
 
   if (project_manager.new_project_path_.empty() && !project_manager.scan_assets_pending &&
-      project_manager.start_scene_) {
+      project_manager.pending_assets.empty() && !project_manager.project_asset_load_dispatched &&
+      project_manager.pending_asset_size == 0 && !asset_load_snapshot.Active() &&
+      (!ApplicationContext::Get().GetApplicationInfo().load_project_start_scene || project_manager.start_scene_)) {
     return ProjectState::Loaded;
   }
   return ProjectState::Loading;
@@ -776,6 +837,7 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     } else {
       project_manager.pending_assets.clear();
       project_manager.pending_asset_size = 0;
+      project_manager.project_asset_load_dispatched = false;
     }
     if (ApplicationContext::Get().GetApplicationInfo().load_project_start_scene) {
       SetupDefaultScene();

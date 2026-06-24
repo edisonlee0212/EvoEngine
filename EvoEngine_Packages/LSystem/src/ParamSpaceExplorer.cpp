@@ -534,7 +534,7 @@ void ParamSpaceExplorer::DrawParallelCoords(float width, float height, const std
       const float dy = mouse.y - dot.y;
       if (dx * dx + dy * dy < 100.0f) {
         char buf[32];
-        snprintf(buf, sizeof(buf), "%.4f", axes_[axis_idx].getter ? axes_[axis_idx].getter() : 0.0f);
+        snprintf(buf, sizeof(buf), "%.5f", axes_[axis_idx].getter ? axes_[axis_idx].getter() : 0.0f);
         dl->AddText(ImVec2(dot.x + 6.0f, dot.y - 8.0f), IM_COL32(255, 255, 255, 230), buf);
         // Also show full label as tooltip.
         ImGui::SetTooltip("%s: %s", axes_[axis_idx].label.c_str(), buf);
@@ -639,7 +639,7 @@ bool ParamSpaceExplorer::DrawGui() {
       ImGui::PushID(axis_idx);
       float val = axis.getter ? axis.getter() : 0.0f;
       const float step = std::max(0.0001f, (axis.max_val - axis.min_val) * 0.005f);
-      if (ImGui::DragFloat(axis.label.c_str(), &val, step, axis.min_val, axis.max_val, "%.4f")) {
+      if (ImGui::DragFloat(axis.label.c_str(), &val, step, axis.min_val, axis.max_val, "%.5f")) {
         if (axis.setter) {
           axis.setter(val);
         }

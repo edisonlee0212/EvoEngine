@@ -1595,7 +1595,7 @@ void Serialization::DeserializeVector(const std::string& name, std::vector<T>& t
   if (in[name]) {
     const auto& data = in[name].as<YAML::Binary>();
     target.resize(data.size() / sizeof(T));
-    std::memcpy(target.data(), data.data(), data.size());
+    std::memcpy(target.data(), data.data(), target.size() * sizeof(T));
   }
 }
 

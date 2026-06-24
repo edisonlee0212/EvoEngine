@@ -1,0 +1,456 @@
+max_branching_order:
+  mean: 0
+  deviation: 0
+plastochron_gdd:
+  mean: 18
+  deviation: 2
+max_phytomers_per_seasonal_growth:
+  mean: 33.5
+  deviation: 14.5
+branches_per_whorl:
+  mean: 1
+  deviation: 0
+whorl_dormancy_years:
+  mean: 1
+  deviation: 0
+branch_insertion_angle_deg:
+  mean: 60
+  deviation: 10
+branch_roll_phyllotaxis_deg:
+  mean: 137.5
+  deviation: 1
+internode_length_m:
+  mean: 0.002286
+  deviation: 0.000643
+leader_internode_thickness_m:
+  mean: 0.001
+  deviation: 0
+lateral_length_ratio:
+  mean: 0.55
+  deviation: 0.1
+lateral_thickness_ratio:
+  mean: 0.5
+  deviation: 0.08
+internode_age_exponent: 3.55
+material_profile_version: 1
+material_profile_source: derived_from_sam3_20pot
+material_profile_hash: 259e75647cd38d83
+biological_material_model_strength: 0
+biological_chlorophyll_scale: 1.25
+biological_carotenoid_gold_scale: 1.56
+biological_lignin_bark_scale: 1.43
+biological_senescence_bias: 0.5
+biological_cuticle_wax: 0
+biological_individual_variation: 0.99
+biological_facet_contrast: 0.99
+biological_tip_darkening_strength: 1
+biological_stem_age_browning_scale: 0.55
+young_needle_palette_rgba: [0.71901596, 0.95686275, 0.6191465, 1]
+older_needle_palette_rgba: [0.10928104, 0.81960785, 0.32655737, 1]
+dry_brown_needle_palette_rgba: [0.8093385, 0.6196404, 0.3779013, 1]
+main_stem_palette_rgba: [0.9377432, 0.79162055, 0.48529118, 1]
+mature_bark_stem_palette_rgba: [1, 0.9761843, 0.4435798, 1]
+node_sheath_brown_palette_rgba: [0.67704284, 0.39972273, 0.25026876, 1]
+fascicle_sheath_palette_rgba: [0.64591444, 0.35999644, 0.22116916, 1]
+needle_axial_color_curve:
+  min_value: 0
+  max_value: 1
+  curve:
+    tangent_: false
+    min_: [0, 0]
+    max_: [1, 1]
+    values_:
+      - [0, 0]
+      - [0.18, 0]
+      - [0.5, 0.5]
+      - [0.82, 0.85]
+      - [1, 1]
+needle_y_age_color_curve:
+  min_value: 0
+  max_value: 1
+  curve:
+    tangent_: false
+    min_: [0, 0]
+    max_: [1, 1]
+    values_:
+      - [0, 0]
+      - [1, 0]
+stem_age_gradient_curve:
+  min_value: 0
+  max_value: 1
+  curve:
+    tangent_: false
+    min_: [0, 0]
+    max_: [1, 1]
+    values_:
+      - [0, 0]
+      - [1, 1]
+needle_micro_variation: 0
+stem_micro_variation: 0
+young_needle_roughness: 0.898318
+old_needle_roughness: 0.973571
+young_needle_specular: 0.057414
+old_needle_specular: 0.008768
+stem_roughness: 0.982204
+stem_specular: 0.02
+node_browning_strength: 0
+sheath_browning_strength: 0.25
+node_browning_radius_norm: 0
+needle_twist_turns: 0.32197
+needle_edge_darkening: 0.58
+needle_tip_color_mix_start: 0.14936276
+needle_tip_color_exponent: 0.57226413
+needle_old_thinning_fraction: 0.25
+needle_min_strand_thickness_m: 0.0001064
+needle_axial_age_span: 0.14927769
+needle_axial_age_exponent: 2.0459368
+bare_zone_fraction:
+  mean: 0.3
+  deviation: 0.05
+needle_count_per_cluster:
+  mean: 2
+  deviation: 0
+needle_segment_count: 64
+fascicle_sheath_length_m:
+  mean: 0.003
+  deviation: 0.001
+fascicle_sheath_width_m:
+  mean: 0.0015
+  deviation: 0.00023
+needle_length_m:
+  mean: 0.083
+  deviation: 0.018
+needle_lifespan_years:
+  mean: 2.25
+  deviation: 0.25
+needle_browning_years:
+  mean: 0.5
+  deviation: 0.2
+needle_flush_delay_gdd:
+  mean: 0
+  deviation: 0
+internode_maturation_gdd:
+  mean: 770
+  deviation: 25
+needle_maturation_gdd:
+  mean: 650
+  deviation: 150
+needle_branching_angle_deg:
+  mean: 72
+  deviation: 30
+needle_branching_relax_gdd:
+  mean: 0
+  deviation: 0
+internode_length_maturity_curve:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0.03806025]
+        - [0.25, 0.1464466]
+        - [0.375, 0.3086583]
+        - [0.5, 0.5]
+        - [0.625, 0.6913417]
+        - [0.75, 0.8535534]
+        - [0.875, 0.9619398]
+        - [1, 1]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0.03806025]
+        - [0.25, 0.1464466]
+        - [0.375, 0.3086583]
+        - [0.5, 0.5]
+        - [0.625, 0.6913417]
+        - [0.75, 0.8535534]
+        - [0.875, 0.9619398]
+        - [1, 1]
+internode_width_maturity_curve:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0.03806025]
+        - [0.25, 0.1464466]
+        - [0.375, 0.3086583]
+        - [0.5, 0.5]
+        - [0.625, 0.6913417]
+        - [0.75, 0.8535534]
+        - [0.875, 0.9619398]
+        - [1, 1]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0.03806025]
+        - [0.25, 0.1464466]
+        - [0.375, 0.3086583]
+        - [0.5, 0.5]
+        - [0.625, 0.6913417]
+        - [0.75, 0.8535534]
+        - [0.875, 0.9619398]
+        - [1, 1]
+needle_length_maturity_curve:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0.03806025]
+        - [0.25, 0.1464466]
+        - [0.375, 0.3086583]
+        - [0.5, 0.5]
+        - [0.625, 0.6913417]
+        - [0.75, 0.8535534]
+        - [0.875, 0.9619398]
+        - [1, 1]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0.03806025]
+        - [0.25, 0.1464466]
+        - [0.375, 0.3086583]
+        - [0.5, 0.5]
+        - [0.625, 0.6913417]
+        - [0.75, 0.8535534]
+        - [0.875, 0.9619398]
+        - [1, 1]
+needle_cross_section_width_max_m:
+  mean: 0.002
+  deviation: 0
+needle_cross_section_thickness_max_m:
+  mean: 0.0015
+  deviation: 0
+needle_cross_section_width_profile:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0.791]
+        - [0.58850574, 0.67714286]
+        - [0.96633, 0.35714287]
+        - [0.999, 0.068571426]
+        - [1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [1, 0]
+needle_cross_section_thickness_profile:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0.858]
+        - [0.59555215, 0.64]
+        - [0.999, 0.3485711]
+        - [1, 0]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0]
+        - [0.25, 0]
+        - [0.375, 0]
+        - [0.5, 0]
+        - [0.625, 0]
+        - [0.75, 0]
+        - [0.875, 0]
+        - [1, 0]
+needle_cross_section_temporal_maturity_curve:
+  mean:
+    min_value: 0
+    max_value: 1
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 1]
+        - [1, 1]
+  deviation:
+    min_value: 0
+    max_value: 0
+    curve:
+      tangent_: false
+      min_: [0, 0]
+      max_: [1, 1]
+      values_:
+        - [0, 0]
+        - [0.125, 0]
+        - [0.25, 0]
+        - [0.375, 0]
+        - [0.5, 0]
+        - [0.625, 0]
+        - [0.75, 0]
+        - [0.875, 0]
+        - [1, 0]
+needle_order_length_attenuation: 0.12
+needle_order_radius_attenuation: 0.1
+needle_order_min_length_scale: 0.55
+needle_order_min_radius_scale: 0.6
+needle_intra_year_capacity_curve:
+  min_value: 0
+  max_value: 1
+  curve:
+    tangent_: false
+    min_: [0, 0]
+    max_: [1, 1]
+    values_:
+      - [0, 0.75]
+      - [0.125, 0.756]
+      - [0.25, 0.772]
+      - [0.375, 0.812]
+      - [0.5, 0.875]
+      - [0.625, 0.938]
+      - [0.75, 0.978]
+      - [0.875, 0.994]
+      - [1, 1]
+needle_year0_length_multiplier: 0.3
+needle_lignification_factor_year0: 2
+needle_stomatal_strip_density_year0: 0.35
+needle_basal_taper_ratio_year0: 0.82
+needle_fascicle_sheath_budget_gdd: 420
+needle_specularity_plasticity_year0: 0.25
+needle_bud_storage_vigor_strength: 0.35
+needle_bud_storage_completion_floor: 0.6
+needle_curvature_adaxial_bias:
+  mean: 0
+  deviation: 0
+needle_curvature_abaxial_bias:
+  mean: 0
+  deviation: 0
+needle_curvature_gradient_per_arclen:
+  mean: 0
+  deviation: 0
+needle_diameter_for_curvature_m:
+  mean: 0.0415
+  deviation: 0.0003
+needle_sinusoidal_amplitude_deg:
+  mean: 65.8
+  deviation: 10
+needle_sinusoidal_frequency_cycles:
+  mean: 0.75
+  deviation: 0.25
+needle_sinusoidal_phase_randomness_deg:
+  mean: 120
+  deviation: 40
+needle_young_modulus_baseline_Pa:
+  mean: 0
+  deviation: 0
+needle_lignification_maturation_years:
+  mean: 0
+  deviation: 0
+needle_density_kg_m3:
+  mean: 800
+  deviation: 0
+gravity_m_s2:
+  mean: 9.81
+  deviation: 0
+needle_per_needle_length_cv:
+  mean: 0
+  deviation: 0
+needle_per_needle_curvature_cv:
+  mean: 0.15
+  deviation: 0.03
+needle_per_needle_radius_cv:
+  mean: 0
+  deviation: 0
+needle_per_needle_modulus_cv:
+  mean: 0
+  deviation: 0
+needle_per_needle_density_cv:
+  mean: 0
+  deviation: 0
+needle_per_needle_wave_amplitude_cv:
+  mean: 0.45
+  deviation: 0
+needle_per_needle_wave_frequency_cv:
+  mean: 0.25
+  deviation: 0
+needle_per_needle_wave_phase_cv:
+  mean: 0.45
+  deviation: 0
+gravitropism_first_order:
+  mean: 0.0001
+  deviation: 0
+initial_orientation_yaw_deg:
+  mean: 0
+  deviation: 18
+target_gdd:
+  mean: 6000
+  deviation: 2000
+gdd_per_day:
+  mean: 10
+  deviation: 2
+internode_length_per_node_cv:
+  mean: 0.08
+  deviation: 0.01
+internode_thickness_per_node_cv:
+  mean: 0.05
+  deviation: 0.015
+branch_angle_per_node_sigma_deg:
+  mean: 6
+  deviation: 2
+roll_phyllotaxis_per_node_sigma_deg:
+  mean: 8
+  deviation: 3
+live_preview: true
+live_preview_rate_hz: 12
+live_preview_representative_only: false
+live_preview_cap_target_gdd: false
+live_preview_max_gdd: 3000
+live_preview_max_growth_steps: 64
+grid_rows: 2
+grid_cols: 2
+grid_spacing: 0.05
+triangle_side_length: 0.14

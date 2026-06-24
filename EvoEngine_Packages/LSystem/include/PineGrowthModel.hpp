@@ -34,25 +34,7 @@ class PineGrowthModel : public LSystemGrowthModelBase<PineGrowthModel, PineGraph
    */
   void Initialize(const ScotsPineDescriptor& descriptor, unsigned int seed,
                   const glm::vec3& root_position = glm::vec3(0), const glm::quat& root_rotation = kDefaultRootRotation,
-                  const ScotsPineDescriptor* post_repot_descriptor = nullptr, float repot_switch_gdd = -1.0f,
                   bool enable_needle_topology = true);
-
-  /**
-   * @brief Grow toward target GDD with optional one-time pre->post profile switch.
-   */
-  void GrowToGDDWithProfileSwitch(float target_gdd, uint32_t max_growth_steps = 0);
-
-  [[nodiscard]] bool IsPostRepotProfileActive() const {
-    return post_repot_profile_active_;
-  }
-
-  [[nodiscard]] bool HasPostRepotProfile() const {
-    return has_post_repot_profile_;
-  }
-
-  [[nodiscard]] float GetRepotSwitchGdd() const {
-    return repot_switch_gdd_;
-  }
 
   /// Enable or disable needle-cluster topology emission in Scots pine rules.
   /// When false, topology emits internodes only (stem-only mode).
@@ -91,15 +73,9 @@ class PineGrowthModel : public LSystemGrowthModelBase<PineGrowthModel, PineGraph
  private:
   void ApplyActiveSampledProfile(const SampledPineParams& profile_sampled);
   void RefreshEngineRulesForActiveProfile();
-  void ActivatePostRepotProfile();
 
   void RebuildStemLoadCacheIfNeeded();
 
-  SampledPineParams pre_repot_sampled_;
-  SampledPineParams post_repot_sampled_;
-  bool has_post_repot_profile_ = false;
-  bool post_repot_profile_active_ = false;
-  float repot_switch_gdd_ = -1.0f;
   bool needle_topology_enabled_ = true;
 
   int stem_load_cache_graph_version_ = -1;

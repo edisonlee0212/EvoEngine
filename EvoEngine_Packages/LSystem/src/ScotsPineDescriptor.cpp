@@ -8,11 +8,13 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <limits>
 #include "LSystemDescriptorDefaults.hpp"
 #include "LSystemInspectionAdapters.hpp"
 #include "LSystemSerializationAdapters.hpp"
 #include "ScotsPine.hpp"
+#include "ScotsPineTemporalGrowth.hpp"
 
 using namespace l_system_package;
 using namespace evo_engine;
@@ -29,32 +31,43 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 constexpr char kScotsPineDescriptorName[] = "ScotsPineDescriptor";
+constexpr char kScotsPineFloatFormat[] = "%.5f";
 
-const std::array<std::filesystem::path, 8> kScotsPineResourceCandidates = {
+const std::filesystem::path kScotsPinePackageDefaultsPath =
+    std::filesystem::path("EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+    "ScotsPineDescriptor_Default.spine";
+
+const std::array<std::filesystem::path, 10> kScotsPineResourceCandidates = {
+    std::filesystem::path("./EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("../../../../../EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("../../../../EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("./04_EvoEngine/EvoEngine_Packages/LSystem/Internals/") /
+        "LSystemResources/Defaults/ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"),
+    std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
     std::filesystem::path("./LSystemProjectAssets/Assets/New ScotsPineDescriptor.spine"),
     std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/New ScotsPineDescriptor.spine"),
     std::filesystem::path("./DigitalAgricultureProject/Assets/New ScotsPineDescriptor.spine"),
     std::filesystem::path("./04_EvoEngine/Resources/DigitalAgricultureProject/Assets/") /
-        "New ScotsPineDescriptor.spine",
-    std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"),
-    std::filesystem::path("./EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
-        "ScotsPineDescriptor_Default.spine",
-    std::filesystem::path("./EvoEngine_Plugins/LSystem/Internals/LSystemResources/Defaults/") /
-        "ScotsPineDescriptor_Default.spine",
-    std::filesystem::path("./04_EvoEngine/EvoEngine_Packages/LSystem/Internals/") /
-        "LSystemResources/Defaults/ScotsPineDescriptor_Default.spine"};
+        "New ScotsPineDescriptor.spine"};
 
 const std::array<std::filesystem::path, 3> kScotsPineProjectAssetCandidates = {
     std::filesystem::path("LSystemProjectAssets") / "Assets" / "New ScotsPineDescriptor.spine",
     std::filesystem::path("LSystem") / "New ScotsPineDescriptor.spine", "New ScotsPineDescriptor.spine"};
 
-const std::array<std::filesystem::path, 2> kScotsPineWritableTemplateCandidates = {
-    std::filesystem::path("./Resources/DigitalAgricultureProject/Assets/") / "New ScotsPineDescriptor.spine",
+const std::array<std::filesystem::path, 4> kScotsPineWritableDefaultsCandidates = {
     std::filesystem::path("./EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("../../../../../EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("../../../../EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
+        "ScotsPineDescriptor_Default.spine",
+    std::filesystem::path("./04_EvoEngine/EvoEngine_Packages/LSystem/Internals/LSystemResources/Defaults/") /
         "ScotsPineDescriptor_Default.spine"};
-
-const std::filesystem::path kScotsPineFallbackDefaultsPath =
-    std::filesystem::path("./LSystemResources/Defaults/ScotsPineDescriptor_Default.spine");
 
 void SetCurveToSinusoidalRange(evo_engine::Curve2D& curve, const float y0, const float y1,
                                const int sample_count = 17) {
@@ -124,6 +137,29 @@ void ConfigureNeedleCrossSectionTemporalMaturityDefaults(evo_engine::PlottedDist
   SetCurveLinear01(distribution.deviation.curve, 0.0f, 0.0f);
 }
 
+void ConfigureNeedleIntraYearCapacityDefaults(evo_engine::Plot2D<float>& plot) {
+  plot.min_value = 0.0f;
+  plot.max_value = 1.0f;
+  plot.curve.SetTangent(false);
+  auto& values = plot.curve.UnsafeGetValues();
+  values.clear();
+  values.emplace_back(0.0f, 0.75f);
+  values.emplace_back(0.125f, 0.756f);
+  values.emplace_back(0.25f, 0.772f);
+  values.emplace_back(0.375f, 0.812f);
+  values.emplace_back(0.5f, 0.875f);
+  values.emplace_back(0.625f, 0.938f);
+  values.emplace_back(0.75f, 0.978f);
+  values.emplace_back(0.875f, 0.994f);
+  values.emplace_back(1.0f, 1.0f);
+}
+
+void ConfigureMaterialModelCurveDefaults(evo_engine::Plot2D<float>& plot, const float y0, const float y1) {
+  plot.min_value = 0.0f;
+  plot.max_value = 1.0f;
+  SetCurveLinear01(plot.curve, y0, y1, 5);
+}
+
 void ConfigurePineMaturityDefaults(ScotsPineDescriptor& descriptor) {
   ConfigureMaturityDistributionDefaults(descriptor.internode_length_maturity_curve);
   ConfigureMaturityDistributionDefaults(descriptor.internode_width_maturity_curve);
@@ -131,6 +167,10 @@ void ConfigurePineMaturityDefaults(ScotsPineDescriptor& descriptor) {
   ConfigureNeedleCrossSectionProfileDefaults(descriptor.needle_cross_section_width_profile, 0.348f, 0.098f);
   ConfigureNeedleCrossSectionProfileDefaults(descriptor.needle_cross_section_thickness_profile, 0.5f, 0.184f);
   ConfigureNeedleCrossSectionTemporalMaturityDefaults(descriptor.needle_cross_section_temporal_maturity_curve);
+  ConfigureNeedleIntraYearCapacityDefaults(descriptor.needle_intra_year_capacity_curve);
+  ConfigureMaterialModelCurveDefaults(descriptor.needle_axial_color_curve, 0.0f, 1.0f);
+  ConfigureMaterialModelCurveDefaults(descriptor.needle_y_age_color_curve, 0.0f, 1.0f);
+  ConfigureMaterialModelCurveDefaults(descriptor.stem_age_gradient_curve, 0.0f, 1.0f);
 }
 
 double GetSteadyTimeSeconds() {
@@ -143,9 +183,80 @@ std::filesystem::path ResolveDefaultScotsPineDescriptorPath() {
 }
 
 std::filesystem::path ResolveWritableScotsPineDescriptorDefaultsPath() {
-  return descriptor_defaults::ResolveWritableDefaultsPath(
-      kScotsPineResourceCandidates, kScotsPineProjectAssetCandidates, kScotsPineWritableTemplateCandidates,
-      kScotsPineFallbackDefaultsPath);
+  for (const auto& candidate : kScotsPineWritableDefaultsCandidates) {
+    const auto absolute_candidate = std::filesystem::absolute(candidate);
+    const auto parent = absolute_candidate.parent_path();
+    if (parent.empty() || std::filesystem::exists(parent)) {
+      return absolute_candidate;
+    }
+  }
+  return std::filesystem::absolute(kScotsPinePackageDefaultsPath);
+}
+
+glm::vec4 ClampFiniteColor01(const glm::vec4& color, const glm::vec4& fallback) {
+  glm::vec4 result = color;
+  if (!std::isfinite(result.r) || !std::isfinite(result.g) || !std::isfinite(result.b) || !std::isfinite(result.a)) {
+    result = fallback;
+  }
+  result = glm::clamp(result, glm::vec4(0.0f), glm::vec4(1.0f));
+  result.a = 1.0f;
+  return result;
+}
+
+void ClampMaterialModel(ScotsPineDescriptor& descriptor) {
+  descriptor.material_profile_version = std::max(1, descriptor.material_profile_version);
+  descriptor.biological_material_model_strength =
+      std::clamp(descriptor.biological_material_model_strength, 0.0f, 1.0f);
+  descriptor.biological_chlorophyll_scale = std::clamp(descriptor.biological_chlorophyll_scale, 0.2f, 2.0f);
+  descriptor.biological_carotenoid_gold_scale =
+      std::clamp(descriptor.biological_carotenoid_gold_scale, 0.0f, 2.0f);
+  descriptor.biological_lignin_bark_scale = std::clamp(descriptor.biological_lignin_bark_scale, 0.0f, 2.0f);
+  descriptor.biological_senescence_bias = std::clamp(descriptor.biological_senescence_bias, -0.5f, 0.5f);
+  descriptor.biological_cuticle_wax = std::clamp(descriptor.biological_cuticle_wax, 0.0f, 1.0f);
+  descriptor.biological_individual_variation =
+      std::clamp(descriptor.biological_individual_variation, 0.0f, 1.0f);
+  descriptor.biological_facet_contrast = std::clamp(descriptor.biological_facet_contrast, 0.0f, 1.0f);
+  descriptor.biological_tip_darkening_strength =
+      std::clamp(descriptor.biological_tip_darkening_strength, 0.0f, 1.0f);
+  descriptor.biological_stem_age_browning_scale =
+      std::clamp(descriptor.biological_stem_age_browning_scale, 0.0f, 2.0f);
+  descriptor.young_needle_palette_rgba =
+      ClampFiniteColor01(descriptor.young_needle_palette_rgba, glm::vec4(0.0f, 0.7455683f, 0.051418442f, 1.0f));
+  descriptor.older_needle_palette_rgba =
+      ClampFiniteColor01(descriptor.older_needle_palette_rgba, glm::vec4(0.21606492f, 0.28904234f, 0.20766766f, 1.0f));
+  descriptor.dry_brown_needle_palette_rgba =
+      ClampFiniteColor01(descriptor.dry_brown_needle_palette_rgba, glm::vec4(0.77059436f, 0.5399785f, 0.0f, 1.0f));
+  descriptor.main_stem_palette_rgba =
+      ClampFiniteColor01(descriptor.main_stem_palette_rgba, glm::vec4(0.7861458f, 0.9165798f, 0.47310424f, 1.0f));
+  descriptor.mature_bark_stem_palette_rgba =
+      ClampFiniteColor01(descriptor.mature_bark_stem_palette_rgba, glm::vec4(0.7009804f, 0.45447198f, 0.18555366f, 1.0f));
+  descriptor.node_sheath_brown_palette_rgba =
+      ClampFiniteColor01(descriptor.node_sheath_brown_palette_rgba, glm::vec4(0.49f, 0.31f, 0.13f, 1.0f));
+  descriptor.fascicle_sheath_palette_rgba =
+      ClampFiniteColor01(descriptor.fascicle_sheath_palette_rgba, glm::vec4(0.42f, 0.34f, 0.24f, 1.0f));
+  auto clamp_plot = [](evo_engine::Plot2D<float>& plot) {
+    plot.min_value = std::clamp(plot.min_value, 0.0f, 1.0f);
+    plot.max_value = std::clamp(plot.max_value, 0.0f, 1.0f);
+    if (plot.max_value < plot.min_value) {
+      std::swap(plot.min_value, plot.max_value);
+    }
+  };
+  clamp_plot(descriptor.needle_axial_color_curve);
+  clamp_plot(descriptor.needle_y_age_color_curve);
+  clamp_plot(descriptor.stem_age_gradient_curve);
+  descriptor.needle_micro_variation = std::clamp(descriptor.needle_micro_variation, 0.0f, 0.25f);
+  descriptor.stem_micro_variation = std::clamp(descriptor.stem_micro_variation, 0.0f, 0.25f);
+  descriptor.young_needle_roughness = std::clamp(descriptor.young_needle_roughness, 0.02f, 1.0f);
+  descriptor.old_needle_roughness = std::clamp(descriptor.old_needle_roughness, 0.02f, 1.0f);
+  descriptor.young_needle_specular = std::clamp(descriptor.young_needle_specular, 0.0f, 1.0f);
+  descriptor.old_needle_specular = std::clamp(descriptor.old_needle_specular, 0.0f, 1.0f);
+  descriptor.stem_roughness = std::clamp(descriptor.stem_roughness, 0.02f, 1.0f);
+  descriptor.stem_specular = std::clamp(descriptor.stem_specular, 0.0f, 1.0f);
+  descriptor.node_browning_strength = std::clamp(descriptor.node_browning_strength, 0.0f, 1.0f);
+  descriptor.sheath_browning_strength = std::clamp(descriptor.sheath_browning_strength, 0.0f, 1.0f);
+  descriptor.node_browning_radius_norm = std::clamp(descriptor.node_browning_radius_norm, 0.0f, 1.0f);
+  descriptor.needle_twist_turns = std::clamp(descriptor.needle_twist_turns, -8.0f, 8.0f);
+  descriptor.needle_edge_darkening = std::clamp(descriptor.needle_edge_darkening, 0.0f, 0.75f);
 }
 
 void LoadSingleDistributionWithScalarFallback(const YAML::Node& in, const char* key,
@@ -163,22 +274,6 @@ void LoadSingleDistributionWithScalarFallback(const YAML::Node& in, const char* 
   }
 }
 
-/// Backward-compat loader for fields that were renamed from `*_gdd` (heat
-/// sum) to `*_years` (chronological) by the FSPM Rule of Ontogeny audit.
-/// If `legacy_key` exists in `in`, read its value (map-or-scalar) and
-/// divide both mean and deviation by `kPineGddPerYear` so the distribution
-/// lands in years on the renamed member. Called only when the new
-/// `*_years` key is absent.
-void LoadLegacyGddDistributionAsYears(const YAML::Node& in, const char* legacy_key,
-                                      evo_engine::SingleDistribution<float>& years_distribution) {
-  if (!in[legacy_key])
-    return;
-  evo_engine::SingleDistribution<float> tmp{};
-  LoadSingleDistributionWithScalarFallback(in, legacy_key, tmp);
-  years_distribution.mean = std::max(0.0f, tmp.mean) / kPineGddPerYear;
-  years_distribution.deviation = std::max(0.0f, tmp.deviation) / kPineGddPerYear;
-}
-
 float SampleTargetGddForSeed(const evo_engine::SingleDistribution<float>& distribution, const uint32_t seed) {
   std::mt19937 rng(seed);
   return std::max(0.0f, SampleDistribution(distribution, rng));
@@ -190,6 +285,35 @@ bool LoadScotsPineDescriptorDefaultsFromFile(ScotsPineDescriptor& descriptor, co
     return false;
   }
   DeserializeScotsPineDescriptor(defaults, descriptor);
+  return true;
+}
+
+std::string SerializeDescriptorMapToString(const ScotsPineDescriptor& descriptor) {
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeScotsPineDescriptor(out, descriptor);
+  out << YAML::EndMap;
+  return out.c_str() ? std::string(out.c_str()) : std::string{};
+}
+
+bool ValidateScotsPineDefaultsRoundTrip(const ScotsPineDescriptor& expected, const std::filesystem::path& file_path,
+                                        std::string* error_message) {
+  ScotsPineDescriptor loaded;
+  if (!LoadScotsPineDescriptorDefaultsFromFile(loaded, file_path)) {
+    if (error_message) {
+      *error_message = "Saved defaults could not be loaded from " + file_path.string();
+    }
+    return false;
+  }
+
+  const std::string expected_yaml = SerializeDescriptorMapToString(expected);
+  const std::string loaded_yaml = SerializeDescriptorMapToString(loaded);
+  if (expected_yaml != loaded_yaml) {
+    if (error_message) {
+      *error_message = "Saved defaults failed full descriptor round-trip validation at " + file_path.string();
+    }
+    return false;
+  }
   return true;
 }
 
@@ -212,6 +336,50 @@ ScotsPineDescriptor::ScotsPineDescriptor() {
 
 std::filesystem::path ScotsPineDescriptor::ResolveWritableDefaultsPath() const {
   return ResolveWritableScotsPineDescriptorDefaultsPath();
+}
+
+bool ScotsPineDescriptor::SaveCurrentAsDefaultSnapshot(std::string* error_message) const {
+  const auto defaults_path = ResolveWritableDefaultsPath();
+  if (defaults_path.empty()) {
+    if (error_message) {
+      *error_message = "ScotsPineDescriptor default snapshot path is empty.";
+    }
+    return false;
+  }
+
+  try {
+    const auto parent_path = defaults_path.parent_path();
+    if (!parent_path.empty() && !std::filesystem::exists(parent_path)) {
+      std::filesystem::create_directories(parent_path);
+    }
+    std::ofstream out(defaults_path, std::ios::trunc);
+    if (!out.is_open()) {
+      if (error_message) {
+        *error_message = "Failed to write " + defaults_path.string();
+      }
+      return false;
+    }
+    out << SerializeDescriptorMapToString(*this);
+    out.close();
+    if (!out) {
+      if (error_message) {
+        *error_message = "Failed to finish writing " + defaults_path.string();
+      }
+      return false;
+    }
+    if (!ValidateScotsPineDefaultsRoundTrip(*this, defaults_path, error_message)) {
+      return false;
+    }
+  } catch (const std::exception& e) {
+    if (error_message) {
+      *error_message = e.what();
+    }
+    EVOENGINE_ERROR("Failed to save ScotsPineDescriptor defaults snapshot: " + std::string(e.what()))
+    return false;
+  }
+
+  EVOENGINE_LOG("Saved ScotsPineDescriptor defaults snapshot to " + defaults_path.string())
+  return true;
 }
 
 // ===========================================================================
@@ -283,7 +451,9 @@ SampledPineParams ScotsPineDescriptor::Sample(std::mt19937& rng) const {
   out.max_phytomers_per_seasonal_growth =
       std::clamp(static_cast<int>(std::round(SampleDistribution(max_phytomers_per_seasonal_growth, rng))), 1, 1024);
 
-  out.branches_per_whorl = std::clamp(static_cast<int>(std::round(SampleDistribution(branches_per_whorl, rng))), 0, 12);
+  out.annual_whorl_probability = std::clamp(annual_whorl_probability.mean, 0.0f, 1.0f);
+  out.whorl_position_norm = std::clamp(whorl_position_norm.mean, 0.75f, 1.0f);
+  out.branches_per_whorl = std::clamp(static_cast<int>(std::round(SampleDistribution(branches_per_whorl, rng))), 1, 5);
   // Chronological (years). No GDD->years conversion.
   out.whorl_dormancy_years = std::max(0.0f, SampleDistribution(whorl_dormancy_years, rng));
   out.branch_insertion_angle_deg = std::clamp(SampleDistribution(branch_insertion_angle_deg, rng), -85.0f, 85.0f);
@@ -300,7 +470,9 @@ SampledPineParams ScotsPineDescriptor::Sample(std::mt19937& rng) const {
   out.bare_zone_fraction = std::clamp(SampleDistribution(bare_zone_fraction, rng), 0.0f, 0.95f);
   out.needle_count_per_cluster =
       std::clamp(static_cast<int>(std::round(SampleDistribution(needle_count_per_cluster, rng))), 1, 6);
-  out.needle_segment_count = std::clamp(needle_segment_count, 3, 128);
+  out.needle_segment_count = std::clamp(needle_segment_count, 1, 128);
+  out.fascicle_sheath_length_m = std::clamp(fascicle_sheath_length_m.mean, 0.0005f, 0.030f);
+  out.fascicle_sheath_width_m = std::clamp(fascicle_sheath_width_m.mean, 0.0002f, 0.010f);
   out.needle_length_m = std::clamp(SampleDistribution(needle_length_m, rng), 0.005f, 0.30f);
   // Chronological lifespan and browning (years). No GDD->years conversion.
   out.needle_lifespan_years = std::max(1, static_cast<int>(std::round(SampleDistribution(needle_lifespan_years, rng))));
@@ -314,51 +486,23 @@ SampledPineParams ScotsPineDescriptor::Sample(std::mt19937& rng) const {
   out.needle_order_radius_attenuation = std::clamp(needle_order_radius_attenuation, 0.0f, 1.0f);
   out.needle_order_min_length_scale = std::clamp(needle_order_min_length_scale, 0.10f, 1.0f);
   out.needle_order_min_radius_scale = std::clamp(needle_order_min_radius_scale, 0.10f, 1.0f);
-  out.needle_intra_year_base_ratio = std::clamp(needle_intra_year_base_ratio, 0.0f, 1.0f);
-  out.needle_intra_year_sigmoid_steepness = std::max(0.01f, needle_intra_year_sigmoid_steepness);
-  out.needle_intra_year_sigmoid_midpoint_fraction = std::clamp(needle_intra_year_sigmoid_midpoint_fraction, 0.0f, 1.0f);
-  out.needle_intra_year_late_decay_start_fraction = std::clamp(needle_intra_year_late_decay_start_fraction, 0.0f, 1.0f);
-  out.needle_intra_year_late_decay_end_scale = std::clamp(needle_intra_year_late_decay_end_scale, 0.0f, 2.0f);
-  out.needle_fascicular_start_year = std::clamp(needle_fascicular_start_year, 0, 16);
-  out.needle_year2plus_length_multiplier = std::max(0.0f, needle_year2plus_length_multiplier);
-  out.needle_year2plus_width_multiplier = std::max(0.0f, needle_year2plus_width_multiplier);
-  out.needle_year2plus_thickness_multiplier = std::max(0.0f, needle_year2plus_thickness_multiplier);
-  out.needle_lignification_factor_year1 = std::clamp(needle_lignification_factor_year1, 0.0f, 2.0f);
-  out.needle_lignification_factor_year2plus = std::clamp(needle_lignification_factor_year2plus, 0.0f, 2.0f);
-  out.needle_stomatal_strip_density_year1 = std::clamp(needle_stomatal_strip_density_year1, 0.0f, 1.0f);
-  out.needle_stomatal_strip_density_year2plus = std::clamp(needle_stomatal_strip_density_year2plus, 0.0f, 1.0f);
-  out.needle_basal_taper_ratio_year1 = std::clamp(needle_basal_taper_ratio_year1, 0.6f, 1.2f);
-  out.needle_basal_taper_ratio_year2plus = std::clamp(needle_basal_taper_ratio_year2plus, 0.6f, 1.2f);
+  out.needle_intra_year_capacity_curve = needle_intra_year_capacity_curve;
+  out.needle_intra_year_capacity_curve.min_value =
+      std::clamp(out.needle_intra_year_capacity_curve.min_value, 0.0f, 2.0f);
+  out.needle_intra_year_capacity_curve.max_value =
+      std::clamp(out.needle_intra_year_capacity_curve.max_value, 0.0f, 2.0f);
+  if (out.needle_intra_year_capacity_curve.max_value < out.needle_intra_year_capacity_curve.min_value) {
+    std::swap(out.needle_intra_year_capacity_curve.min_value, out.needle_intra_year_capacity_curve.max_value);
+  }
+  out.needle_year0_length_multiplier = std::max(0.0f, needle_year0_length_multiplier);
+  out.needle_lignification_factor_year0 = std::clamp(needle_lignification_factor_year0, 0.0f, 2.0f);
+  out.needle_stomatal_strip_density_year0 = std::clamp(needle_stomatal_strip_density_year0, 0.0f, 1.0f);
+  out.needle_basal_taper_ratio_year0 = std::clamp(needle_basal_taper_ratio_year0, 0.6f, 1.2f);
   out.needle_fascicle_sheath_budget_years = std::max(0.0f, needle_fascicle_sheath_budget_gdd / kPineGddPerYear);
-  out.needle_specularity_plasticity_year1 = std::clamp(needle_specularity_plasticity_year1, 0.0f, 1.0f);
-  out.needle_specularity_plasticity_year2plus = std::clamp(needle_specularity_plasticity_year2plus, 0.0f, 1.0f);
+  out.needle_specularity_plasticity_year0 = std::clamp(needle_specularity_plasticity_year0, 0.0f, 1.0f);
   out.needle_bud_storage_vigor_strength = std::clamp(needle_bud_storage_vigor_strength, 0.0f, 1.0f);
   out.needle_bud_storage_completion_floor = std::clamp(needle_bud_storage_completion_floor, 0.0f, 1.0f);
-  // Per-plant copy of the user-exposed needle radius cap. Bounded to a wide
-  // but sane envelope: 0 disables the cap entirely (uncapped needles), and 4x
-  // is well above what any realistic Scots pine needle would need relative
-  // to its parent shoot.
-  out.needle_radius_to_stem_thickness_max_ratio = std::clamp(needle_radius_to_stem_thickness_max_ratio, 0.0f, 4.0f);
-
   out.gravitropism_first_order = SampleDistribution(gravitropism_first_order, rng);
-
-  // Dynamic tropism array (mirrors MaizeTasselDescriptor logic).
-  for (const auto& entry : tropisms) {
-    const float usage_chance = std::clamp(entry.usage_chance_percent, 0.0f, 100.0f);
-    if (SampleUnit01(rng) * 100.0f > usage_chance) {
-      continue;
-    }
-    SampledTropism st;
-    const float dx = SampleDistribution(entry.direction_x, rng);
-    const float dy = SampleDistribution(entry.direction_y, rng);
-    const float dz = SampleDistribution(entry.direction_z, rng);
-    const glm::vec3 dir(dx, dy, dz);
-    const float len = glm::length(dir);
-    st.direction = (len > 0.001f) ? dir / len : glm::vec3(0.0f, -1.0f, 0.0f);
-    st.strength = SampleDistribution(entry.strength, rng);
-    st.order_response = entry.order_response;
-    out.tropisms.push_back(std::move(st));
-  }
 
   // Per-shoot stochastic noise.
   out.internode_length_per_node_cv = std::max(0.0f, SampleDistribution(internode_length_per_node_cv, rng));
@@ -405,12 +549,14 @@ SampledPineParams ScotsPineDescriptor::Sample(std::mt19937& rng) const {
 
   // ---- Per-emission distributions -----------------------------------------
   // Copy each distribution verbatim so production rules can resample at
-  // every consumption site (per phytomer / per whorl / per needle cluster).
+  // every consumption site (per phytomer / per whorl / per fascicle sheath).
   // No additional RNG draws here; the rule call sites will draw fresh from
   // their own per-node RNGs (see `MakeNodeRng` in LSystemRuleHelpers.hpp).
   out.distributions.max_branching_order = max_branching_order;
   out.distributions.plastochron_gdd = plastochron_gdd;
   out.distributions.max_phytomers_per_seasonal_growth = max_phytomers_per_seasonal_growth;
+  out.distributions.annual_whorl_probability = annual_whorl_probability;
+  out.distributions.whorl_position_norm = whorl_position_norm;
   out.distributions.branches_per_whorl = branches_per_whorl;
   out.distributions.whorl_dormancy_years = whorl_dormancy_years;
   out.distributions.branch_insertion_angle_deg = branch_insertion_angle_deg;
@@ -423,6 +569,8 @@ SampledPineParams ScotsPineDescriptor::Sample(std::mt19937& rng) const {
   out.distributions.internode_width_maturity_curve = internode_width_maturity_curve;
   out.distributions.bare_zone_fraction = bare_zone_fraction;
   out.distributions.needle_count_per_cluster = needle_count_per_cluster;
+  out.distributions.fascicle_sheath_length_m = fascicle_sheath_length_m;
+  out.distributions.fascicle_sheath_width_m = fascicle_sheath_width_m;
   out.distributions.needle_length_m = needle_length_m;
   out.distributions.needle_length_maturity_curve = needle_length_maturity_curve;
   out.distributions.needle_cross_section_width_max_m = needle_cross_section_width_max_m;
@@ -503,6 +651,43 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   show_item_hover_description("Create a new ScotsPine entity using this descriptor and select it in the scene.");
 
   ImGui::SameLine();
+  static std::string default_snapshot_status;
+  if (ImGui::Button("Set as New Descriptor Defaults")) {
+    default_snapshot_status.clear();
+    ImGui::OpenPopup("Confirm ScotsPine Defaults Snapshot");
+  }
+  show_item_hover_description("Overwrite the canonical ScotsPineDescriptor defaults used by newly created assets.");
+
+  if (ImGui::BeginPopupModal("Confirm ScotsPine Defaults Snapshot", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const auto defaults_path = ResolveWritableDefaultsPath();
+    const auto active_defaults_path = ResolveDefaultScotsPineDescriptorPath();
+    ImGui::TextWrapped("Overwrite the default snapshot used by future ScotsPineDescriptor assets?");
+    ImGui::Separator();
+    ImGui::TextWrapped("Save target: %s", defaults_path.string().c_str());
+    ImGui::TextWrapped("Active load target: %s", active_defaults_path.string().c_str());
+    if (!default_snapshot_status.empty()) {
+      ImGui::Separator();
+      ImGui::TextWrapped("%s", default_snapshot_status.c_str());
+    }
+
+    if (ImGui::Button("Confirm")) {
+      std::string error_message;
+      if (SaveCurrentAsDefaultSnapshot(&error_message)) {
+        default_snapshot_status = "Saved and round-trip validated defaults snapshot.";
+        ImGui::CloseCurrentPopup();
+      } else {
+        default_snapshot_status = error_message.empty() ? "Failed to save defaults snapshot." : error_message;
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) {
+      default_snapshot_status.clear();
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+
+  ImGui::SameLine();
   if (ImGui::Checkbox("Live Preview", &live_preview)) {
     editor_preferences_changed = true;
     if (!live_preview) {
@@ -513,7 +698,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
   show_item_hover_description("Regenerate matching pines while editing this descriptor.");
 
-  if (ImGui::DragFloat("Live Preview Rate (Hz)", &live_preview_rate_hz, 0.25f, 1.0f, 60.0f, "%.1f")) {
+  if (ImGui::DragFloat("Live Preview Rate (Hz)", &live_preview_rate_hz, 0.25f, 1.0f, 60.0f, kScotsPineFloatFormat)) {
     live_preview_rate_hz = std::clamp(live_preview_rate_hz, 1.0f, 60.0f);
     editor_preferences_changed = true;
   }
@@ -529,7 +714,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
   show_item_hover_description("Clamp preview simulation GDD so live updates stay fast on very mature trees.");
 
-  if (ImGui::DragFloat("Preview Max GDD", &live_preview_max_gdd, 50.0f, 0.0f, 100000.0f, "%.1f")) {
+  if (ImGui::DragFloat("Preview Max GDD", &live_preview_max_gdd, 50.0f, 0.0f, 100000.0f, kScotsPineFloatFormat)) {
     live_preview_max_gdd = std::max(0.0f, live_preview_max_gdd);
     editor_preferences_changed = true;
   }
@@ -563,7 +748,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
     show_item_hover_description("Number of rows for grid instantiation.");
     ImGui::DragInt("Cols", &grid_cols, 1, 1, 50);
     show_item_hover_description("Number of columns for grid instantiation.");
-    ImGui::DragFloat("Spacing", &grid_spacing, 0.1f, 0.5f, 50.0f);
+    ImGui::DragFloat("Spacing", &grid_spacing, 0.1f, 0.5f, 50.0f, kScotsPineFloatFormat);
     show_item_hover_description("World-space spacing between neighboring grid pines.");
 
     if (ImGui::Button("Instantiate Grid")) {
@@ -641,7 +826,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
 
   // -- Triangle instantiation --
   if (ImGui::TreeNodeEx("Triangle Instantiate")) {
-    ImGui::DragFloat("Side Length", &triangle_side_length, 0.1f);
+    ImGui::DragFloat("Side Length", &triangle_side_length, 0.1f, 0.0f, 0.0f, kScotsPineFloatFormat);
     show_item_hover_description(
         "World-space side length for an equilateral 3-pine triangle on the horizontal XZ plane.");
 
@@ -740,28 +925,16 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   ImGui::Separator();
 
   // -- Global development clock --
-  if (ImGui::TreeNodeEx("Global Development", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Core: Growth Timeline and Shoot Density", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= target_gdd.Draw("Target GDD", 1.0f,
                                "Distribution of target GDD used by Instantiate, Grid spawn, and Triangle spawn.");
     changed |= plastochron_gdd.Draw("Plastochron (GDD)", 10.0f,
                                     "Physiological time between consecutive phytomer events on an axis.");
     changed |= max_phytomers_per_seasonal_growth.Draw("Max Phytomers per Seasonal Growth", 0.5f,
-                                                      "Phytomers (internode + optional needle cluster) emitted "
+                                                      "Phytomers (internode + optional fascicle sheath) emitted "
                                                       "per active season before the apex pauses until next year.");
-
-    // -- Per-pine calendar / GDD-per-day fields --
-    // Consumed by LSystemLayer::SamplePineTemporalParameters() and applied
-    // in the per-pine update path. delta_gdd = sampled_gdd_per_day * delta_days
-    // where delta_days = chronological_days_per_second * dt.
     changed |= gdd_per_day.Draw("GDD per Day", 0.1f,
-                                "Per-pine thermal accumulation rate. Sampled per plant; multiplied by "
-                                "chronological day delta from LSystemLayer.");
-    changed |= growing_season_start_day.Draw(
-        "Growing Season Start Day", 1.0f,
-        "Per-pine active season start day-of-year (0-365). Sampled per plant; gates pine growth in LSystemLayer.");
-    changed |= growing_season_end_day.Draw(
-        "Growing Season End Day", 1.0f,
-        "Per-pine active season end day-of-year (0-365). Sampled per plant; gates pine growth in LSystemLayer.");
+                                "Per-pine thermal accumulation rate. Multiplied directly by chronological day delta.");
 
     auto clamp_nonnegative_distribution = [&](evo_engine::SingleDistribution<float>& distribution) {
       const float old_mean = distribution.mean;
@@ -773,25 +946,230 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
         changed = true;
       }
     };
-    auto clamp_integer_day_distribution = [&](evo_engine::SingleDistribution<float>& distribution) {
-      const float old_mean = distribution.mean;
-      const float old_deviation = distribution.deviation;
-      distribution.mean = std::clamp(distribution.mean, 0.0f, 365.0f);
-      distribution.deviation = std::max(0.0f, std::round(distribution.deviation));
-      if (std::abs(distribution.mean - old_mean) > 1.0e-6f ||
-          std::abs(distribution.deviation - old_deviation) > 1.0e-6f) {
-        changed = true;
-      }
-    };
     clamp_nonnegative_distribution(gdd_per_day);
-    clamp_integer_day_distribution(growing_season_start_day);
-    clamp_integer_day_distribution(growing_season_end_day);
 
     ImGui::TreePop();
   }
 
+  if (ImGui::TreeNodeEx("Parameter Sanity", ImGuiTreeNodeFlags_DefaultOpen)) {
+    constexpr float kCalendarDaysPerYear = 365.0f;
+    const float expected_gdd_per_year = std::max(0.0f, gdd_per_day.mean) * kCalendarDaysPerYear;
+    const float mean_plastochron_gdd = std::max(1.0e-4f, plastochron_gdd.mean);
+    const float active_day_phytomers_from_gdd =
+        std::max(0.0f, gdd_per_day.mean) / mean_plastochron_gdd;
+    const float effective_plastochron_days =
+        std::max(0.0f, gdd_per_day.mean) > 1.0e-6f ? mean_plastochron_gdd / std::max(0.0f, gdd_per_day.mean) : 0.0f;
+    const float expected_phytomers_per_year = std::max(0.0f, max_phytomers_per_seasonal_growth.mean);
+    const float expected_bare_phytomers =
+        std::round(std::clamp(bare_zone_fraction.mean, 0.0f, 0.95f) * expected_phytomers_per_year);
+    const float expected_fascicle_sheaths_per_year =
+        std::max(0.0f, expected_phytomers_per_year - expected_bare_phytomers);
+    const float expected_needles_per_year =
+        expected_fascicle_sheaths_per_year * std::max(0.0f, needle_count_per_cluster.mean);
+    const float expected_year0_needle_m =
+        std::max(0.0f, needle_length_m.mean) * std::max(0.0f, needle_year0_length_multiplier);
+    const float expected_later_needle_m = std::max(0.0f, needle_length_m.mean);
+    const float expected_seasonal_leader_m =
+        std::max(0.0f, internode_length_m.mean) * std::max(0.0f, max_phytomers_per_seasonal_growth.mean);
+    const float expected_two_season_leader_m = expected_seasonal_leader_m * 2.0f;
+    ImGui::Text("Expected active days/year: %.0f", kCalendarDaysPerYear);
+    ImGui::Text("Expected thermal budget/year: %.1f GDD", expected_gdd_per_year);
+    ImGui::Text("GDD-driven phytomers/active day: %.2f", active_day_phytomers_from_gdd);
+    ImGui::Text("Effective plastochron at mean GDD/day: %.2f days", effective_plastochron_days);
+    ImGui::Text("Expected phytomers/year: %.1f", expected_phytomers_per_year);
+    ImGui::Text("Expected bare phytomers/year: %.1f", expected_bare_phytomers);
+    ImGui::Text("Expected fascicle sheaths/year: %.1f", expected_fascicle_sheaths_per_year);
+    ImGui::Text("Expected visible needles/year: %.1f", expected_needles_per_year);
+    if (expected_fascicle_sheaths_per_year < 1.0f || expected_needles_per_year < 2.0f) {
+      ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.15f, 1.0f),
+                         "Warning: these parameters imply near-zero annual needle initiation.");
+    }
+    ImGui::Text("Mature needle length field: %.1f mm", needle_length_m.mean * 1000.0f);
+    ImGui::Text("Expected year-0 needle: %.1f mm", expected_year0_needle_m * 1000.0f);
+    ImGui::Text("Expected later-cohort needle: %.1f mm", expected_later_needle_m * 1000.0f);
+    ImGui::Text("Expected seasonal leader elongation: %.1f mm", expected_seasonal_leader_m * 1000.0f);
+    ImGui::Text("Expected two-season leader elongation: %.1f mm", expected_two_season_leader_m * 1000.0f);
+    ImGui::Text("Rendered stem diameter field: %.2f mm (cylinder radius uses half)",
+                leader_internode_thickness_m.mean * 1000.0f);
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Core: Biological Material Model", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::DragFloat("Biological Model Strength", &biological_material_model_strength, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      biological_material_model_strength = std::clamp(biological_material_model_strength, 0.0f, 1.0f);
+      changed = true;
+    }
+    show_item_hover_description("0 keeps direct palette/curve rendering. 1 lets the pigment and organ-position controls below drive color.");
+    if (ImGui::DragFloat("Chlorophyll / Live Green", &biological_chlorophyll_scale, 0.01f, 0.2f, 2.0f,
+                         kScotsPineFloatFormat)) {
+      biological_chlorophyll_scale = std::clamp(biological_chlorophyll_scale, 0.2f, 2.0f);
+      changed = true;
+    }
+    show_item_hover_description("Higher values make live needles greener; lower values reduce chlorophyll.");
+    if (ImGui::DragFloat("Carotenoid / Gold", &biological_carotenoid_gold_scale, 0.01f, 0.0f, 2.0f,
+                         kScotsPineFloatFormat)) {
+      biological_carotenoid_gold_scale = std::clamp(biological_carotenoid_gold_scale, 0.0f, 2.0f);
+      changed = true;
+    }
+    show_item_hover_description("Golden-yellow contribution in senescent or strongly lit old needles.");
+    if (ImGui::DragFloat("Lignin / Bark Brown", &biological_lignin_bark_scale, 0.01f, 0.0f, 2.0f,
+                         kScotsPineFloatFormat)) {
+      biological_lignin_bark_scale = std::clamp(biological_lignin_bark_scale, 0.0f, 2.0f);
+      changed = true;
+    }
+    show_item_hover_description("Brown bark/lignin contribution in older stems and nodes.");
+    if (ImGui::DragFloat("Senescence / Dryness Bias", &biological_senescence_bias, 0.01f, -0.5f, 0.5f,
+                         kScotsPineFloatFormat)) {
+      biological_senescence_bias = std::clamp(biological_senescence_bias, -0.5f, 0.5f);
+      changed = true;
+    }
+    show_item_hover_description("Signed bias: positive pushes needles toward older/drier color, negative keeps them younger.");
+    if (ImGui::DragFloat("Cuticle Wax", &biological_cuticle_wax, 0.01f, 0.0f, 1.0f, kScotsPineFloatFormat)) {
+      biological_cuticle_wax = std::clamp(biological_cuticle_wax, 0.0f, 1.0f);
+      changed = true;
+    }
+    show_item_hover_description("Pale/desaturated waxy lift on live needles.");
+    if (ImGui::DragFloat("Individual Variation", &biological_individual_variation, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      biological_individual_variation = std::clamp(biological_individual_variation, 0.0f, 1.0f);
+      changed = true;
+    }
+    show_item_hover_description("Extra deterministic needle/stem-to-needle/stem color variation.");
+    if (ImGui::DragFloat("Facet Contrast", &biological_facet_contrast, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      biological_facet_contrast = std::clamp(biological_facet_contrast, 0.0f, 1.0f);
+      changed = true;
+    }
+    show_item_hover_description("Increases faceted needle edge darkening and small specular differences.");
+    if (ImGui::DragFloat("Needle Tip Darkening", &biological_tip_darkening_strength, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      biological_tip_darkening_strength = std::clamp(biological_tip_darkening_strength, 0.0f, 1.0f);
+      changed = true;
+    }
+    show_item_hover_description("Extra live-needle darkening from mid needle toward the tip.");
+    if (ImGui::DragFloat("Stem Age Browning", &biological_stem_age_browning_scale, 0.01f, 0.0f, 2.0f,
+                         kScotsPineFloatFormat)) {
+      biological_stem_age_browning_scale = std::clamp(biological_stem_age_browning_scale, 0.0f, 2.0f);
+      changed = true;
+    }
+    show_item_hover_description("Scales how strongly stem age maps to mature bark brown.");
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Core: Material Model", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::ColorEdit4("Young Needle Palette", &young_needle_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Current-year green needle swatch derived from measured plant-tissue histograms.");
+    if (ImGui::ColorEdit4("Older Needle Palette", &older_needle_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Older/live needle swatch used by axial and age curves before dry browning.");
+    if (ImGui::ColorEdit4("Dry/Brown Needle Palette", &dry_brown_needle_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Senescent and dry needle swatch.");
+    if (ImGui::ColorEdit4("Main Stem Palette", &main_stem_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Young main-stem and branch internode swatch.");
+    if (ImGui::ColorEdit4("Mature/Bark Stem Palette", &mature_bark_stem_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Older stem and bark-like internode swatch.");
+    if (ImGui::ColorEdit4("Node/Sheath Browning", &node_sheath_brown_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Brown node, whorl, and fascicle-sheath swatch mixed near organ bases.");
+    if (ImGui::ColorEdit4("Fascicle Sheath Palette", &fascicle_sheath_palette_rgba.x)) {
+      changed = true;
+    }
+    show_item_hover_description("Base sheath cylinder swatch for pine needle fascicles.");
+
+    evo_engine::CurveDescriptorSettings material_curve_settings;
+    material_curve_settings.speed = 0.01f;
+    material_curve_settings.min_max_control = true;
+    material_curve_settings.m_tip = "0 = first palette endpoint, 1 = second palette endpoint.";
+    changed |= needle_axial_color_curve.Draw("Needle Axial Color Curve", material_curve_settings);
+    show_item_hover_description("Base-to-tip color blend along each needle.");
+    changed |= needle_y_age_color_curve.Draw("Needle Y/Age Color Curve", material_curve_settings);
+    show_item_hover_description("Cohort age/height blend from young/older needle palettes toward dry brown.");
+    changed |= stem_age_gradient_curve.Draw("Stem Age Gradient", material_curve_settings);
+    show_item_hover_description("Internode age blend from main-stem palette toward mature/bark palette.");
+
+    if (ImGui::DragFloat("Needle Micro Variation", &needle_micro_variation, 0.001f, 0.0f, 0.25f,
+                         kScotsPineFloatFormat)) {
+      needle_micro_variation = std::clamp(needle_micro_variation, 0.0f, 0.25f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Stem Micro Variation", &stem_micro_variation, 0.001f, 0.0f, 0.25f,
+                         kScotsPineFloatFormat)) {
+      stem_micro_variation = std::clamp(stem_micro_variation, 0.0f, 0.25f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Young Needle Roughness", &young_needle_roughness, 0.01f, 0.02f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      young_needle_roughness = std::clamp(young_needle_roughness, 0.02f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Old Needle Roughness", &old_needle_roughness, 0.01f, 0.02f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      old_needle_roughness = std::clamp(old_needle_roughness, 0.02f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Young Needle Specularity", &young_needle_specular, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      young_needle_specular = std::clamp(young_needle_specular, 0.0f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Old Needle Specularity", &old_needle_specular, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      old_needle_specular = std::clamp(old_needle_specular, 0.0f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Stem Roughness", &stem_roughness, 0.01f, 0.02f, 1.0f, kScotsPineFloatFormat)) {
+      stem_roughness = std::clamp(stem_roughness, 0.02f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Stem Specularity", &stem_specular, 0.01f, 0.0f, 1.0f, kScotsPineFloatFormat)) {
+      stem_specular = std::clamp(stem_specular, 0.0f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Node Browning Strength", &node_browning_strength, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      node_browning_strength = std::clamp(node_browning_strength, 0.0f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Sheath Browning Strength", &sheath_browning_strength, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      sheath_browning_strength = std::clamp(sheath_browning_strength, 0.0f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Node Browning Radius", &node_browning_radius_norm, 0.01f, 0.0f, 1.0f,
+                         kScotsPineFloatFormat)) {
+      node_browning_radius_norm = std::clamp(node_browning_radius_norm, 0.0f, 1.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Needle Twist (turns)", &needle_twist_turns, 0.01f, -8.0f, 8.0f,
+                         kScotsPineFloatFormat)) {
+      needle_twist_turns = std::clamp(needle_twist_turns, -8.0f, 8.0f);
+      changed = true;
+    }
+    if (ImGui::DragFloat("Needle Edge Darkening", &needle_edge_darkening, 0.01f, 0.0f, 0.75f,
+                         kScotsPineFloatFormat)) {
+      needle_edge_darkening = std::clamp(needle_edge_darkening, 0.0f, 0.75f);
+      changed = true;
+    }
+    ImGui::Text("Material profile: v%d %s", material_profile_version, material_profile_source.c_str());
+    if (!material_profile_hash.empty()) {
+      ImGui::Text("Profile hash: %s", material_profile_hash.c_str());
+    }
+    ImGui::TreePop();
+  }
+
   // -- Main stem geometry --
-  if (ImGui::TreeNodeEx("Main Stem (Leader Axis)", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Core: Stem Size and Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= internode_length_m.Draw("Phytomer Internode Length (m)", 0.001f,
                                        "Length of one phytomer's internode in metres.");
     changed |= leader_internode_thickness_m.Draw(
@@ -800,21 +1178,13 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
     changed |= initial_orientation_yaw_deg.Draw(
         "Initial Orientation Yaw (deg)", 1.0f,
         "Sampled once per plant and applied as root yaw around +Y. Set deviation > 0 for random initial orientation.");
-    if (ImGui::ColorEdit4("Main Stem Color", &main_stem_color_rgba.x)) {
-      changed = true;
-    }
-    show_item_hover_description("Young stem color used by stem and branch internodes in Shaded and ByType modes.");
-    if (ImGui::ColorEdit4("Main Stem Old Color", &main_stem_old_color_rgba.x)) {
-      changed = true;
-    }
-    show_item_hover_description("Old stem color reached as internodes approach descriptor max age.");
-    if (ImGui::DragFloat("Main Stem Age Exponent", &internode_age_exponent, 0.05f, 0.1f, 4.0f, "%.2f")) {
+    if (ImGui::DragFloat("Main Stem Age Exponent", &internode_age_exponent, 0.05f, 0.1f, 4.0f, kScotsPineFloatFormat)) {
       internode_age_exponent = std::clamp(internode_age_exponent, 0.1f, 4.0f);
       changed = true;
     }
     show_item_hover_description(
         "Response curve for stem aging color. 1 = linear, >1 delays browning, <1 accelerates it.");
-    ImGui::Text("Mean Radius (m): %.6f", std::max(0.0f, leader_internode_thickness_m.mean) * 0.5f);
+    ImGui::Text("Mean Radius (m): %.5f", std::max(0.0f, leader_internode_thickness_m.mean) * 0.5f);
     changed |= lateral_length_ratio.Draw("Lateral Length Ratio", 0.05f);
     show_item_hover_description("Lateral shoot length = leader_length * ratio^order.");
     changed |= lateral_thickness_ratio.Draw("Lateral Thickness Ratio", 0.05f);
@@ -823,9 +1193,13 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
 
   // -- Main stem branching --
-  if (ImGui::TreeNodeEx("Main Stem Branching (Whorl Buds)", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Core: Branching Structure", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= max_branching_order.Draw("Max Branching Order", 0.5f);
     show_item_hover_description("0 = leader only, 1 = primary laterals, 2 = secondary laterals.");
+    changed |= annual_whorl_probability.Draw("Annual Whorl Probability", 0.01f,
+                                             "Per-axis probability of one branch pseudo-whorl in a growth year.");
+    changed |= whorl_position_norm.Draw("Whorl Position In Annual Shoot", 0.01f,
+                                        "Normalized phytomer position for the annual terminal pseudo-whorl.");
     changed |= branches_per_whorl.Draw("Branches per Whorl", 0.5f);
     show_item_hover_description("Lateral count spawned at whorl bud activation.");
     changed |= whorl_dormancy_years.Draw("Whorl Dormancy (years)", 0.05f,
@@ -840,7 +1214,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
 
   // -- Maturity shape curves --
-  if (ImGui::TreeNodeEx("Maturity Shape Curves", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Advanced: Maturity Shape Curves")) {
     static int selected_maturity_variable = 0;
     constexpr const char* kMaturityVariables[] = {"Internode Length", "Internode Width", "Needle Length"};
 
@@ -893,7 +1267,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
 
   // -- Needles: Quick Shape Presets --
-  if (ImGui::TreeNodeEx("Needles - Quick Shape Presets", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Advanced: Needle Shape Presets")) {
     static const char* kShapePresets[] = {"(no change)",  "Straight", "Slight Curve",
                                           "Strong Curve", "Wavy",     "Drooping (gravity)"};
     static int s_selected_shape_preset = 0;
@@ -954,7 +1328,7 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
 
   // -- Needle cross-section controls --
-  if (ImGui::TreeNodeEx("Needle Cross Section", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Advanced: Needle Cross Section Profiles")) {
     auto clamp_nonnegative_distribution = [&](evo_engine::SingleDistribution<float>& distribution) {
       const float old_mean = distribution.mean;
       const float old_deviation = distribution.deviation;
@@ -990,26 +1364,26 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
 
         evo_engine::PlottedDistributionSettings profile_settings;
         profile_settings.tip =
-            "Base-to-tip multiplier profile for the selected cross-section axis. "
+            "Base-to-tip multiplier profile for the selected cross-section measure. "
             "x = normalized arc length from base (0) to tip (1).";
         profile_settings.mean_settings.m_tip =
-            "Mean multiplier profile in [0,4]. 1 keeps the max diameter; 0 collapses axis radius; "
+            "Mean multiplier profile in [0,4]. 1 keeps the max measure; 0 collapses it; "
             "values >1 enlarge it.";
         profile_settings.dev_settings.m_tip = "Variance (sigma) profile in [0,4] around the mean profile.";
         changed |= profile_distribution.Draw(profile_label, profile_settings);
         clamp_profile_distribution(profile_distribution, 4.0f);
 
-        ImGui::Text("Current mean max diameter: %.3f mm", std::max(0.0f, max_distribution.mean) * 1000.0f);
+        ImGui::Text("Current mean max measure: %.5f mm", std::max(0.0f, max_distribution.mean) * 1000.0f);
         ImGui::TreePop();
       }
     };
 
     inspect_axis("Width", needle_cross_section_width_max_m, needle_cross_section_width_profile,
-                 "Max Width Diameter (m)", "Width Profile (Base -> Tip)",
-                 "Maximum full width (major axis diameter) before profile multiplier.");
+                 "Adaxial Width Diameter (m)", "Width Profile (Base -> Tip)",
+                 "Flat adaxial chord width before profile multiplier.");
     inspect_axis("Thickness", needle_cross_section_thickness_max_m, needle_cross_section_thickness_profile,
-                 "Max Thickness Diameter (m)", "Thickness Profile (Base -> Tip)",
-                 "Maximum full thickness (minor axis diameter) before profile multiplier.");
+                 "Abaxial Thickness Radius (m)", "Thickness Profile (Base -> Tip)",
+                 "Convex abaxial radius/depth before profile multiplier.");
 
     evo_engine::PlottedDistributionSettings temporal_settings;
     temporal_settings.tip =
@@ -1026,17 +1400,24 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   }
 
   // -- Needles --
-  if (ImGui::TreeNodeEx("Needles (Layout and Lifecycle)", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Core: Needles and Appearance", ImGuiTreeNodeFlags_DefaultOpen)) {
     changed |= bare_zone_fraction.Draw(
         "Bare Zone Fraction", 0.01f,
         "Temporal fraction at the start of each year that emits internode-only phytomers [0, 0.95).");
-    changed |= needle_count_per_cluster.Draw("Needles per Cluster", 0.5f);
-    show_item_hover_description("Pinus sylvestris fascicle count (typically 2).");
-    if (ImGui::DragInt("Needle Segments", &needle_segment_count, 1.0f, 3, 128)) {
-      needle_segment_count = std::clamp(needle_segment_count, 3, 128);
+    changed |= needle_count_per_cluster.Draw("Needles per Fascicle Sheath", 0.5f);
+    show_item_hover_description("Pinus sylvestris needles per fascicle sheath (typically 2).");
+    if (ImGui::DragInt("Needle Segments", &needle_segment_count, 1.0f, 1, 128)) {
+      needle_segment_count = std::clamp(needle_segment_count, 1, 128);
       changed = true;
     }
-    show_item_hover_description("Longitudinal segments per needle centerline. Mesh stations = segments + 1.");
+    show_item_hover_description(
+        "Visible/logical longitudinal segments per needle. One segment is a straight strand from base to tip; the "
+        "renderer pads hidden cubic controls so the visible needle starts and ends at the logical endpoints.");
+    changed |= fascicle_sheath_length_m.Draw(
+        "Fascicle Sheath Length (m)", 0.0005f,
+        "Length of the persistent basal sheath cylinder that needles emerge from.");
+    changed |= fascicle_sheath_width_m.Draw(
+        "Fascicle Sheath Width (m)", 0.0001f, "Diameter of the persistent basal sheath cylinder.");
     changed |= needle_length_m.Draw("Needle Length (m)", 0.001f, "Length of needles in metres.");
     changed |= needle_lifespan_years.Draw("Needle Lifespan (years)", 0.1f,
                                           "Chronological years a needle stays alive post-maturity. Senescence "
@@ -1056,202 +1437,115 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
                                                "Converted using 1500 GDD/year, then applied against chronological "
                                                "age so relaxation continues during dormant season.");
     if (ImGui::DragFloat("Order Needle Length Attenuation", &needle_order_length_attenuation, 0.01f, 0.0f, 1.0f,
-                         "%.3f")) {
+                         kScotsPineFloatFormat)) {
       needle_order_length_attenuation = std::clamp(needle_order_length_attenuation, 0.0f, 1.0f);
       changed = true;
     }
     show_item_hover_description(
         "Linear per-order reduction applied to needle length: scale = max(min, 1 - attenuation*order).");
     if (ImGui::DragFloat("Order Needle Radius Attenuation", &needle_order_radius_attenuation, 0.01f, 0.0f, 1.0f,
-                         "%.3f")) {
+                         kScotsPineFloatFormat)) {
       needle_order_radius_attenuation = std::clamp(needle_order_radius_attenuation, 0.0f, 1.0f);
       changed = true;
     }
     show_item_hover_description(
         "Linear per-order reduction applied to needle thickness: scale = max(min, 1 - attenuation*order).");
     if (ImGui::DragFloat("Order Needle Length Min Scale", &needle_order_min_length_scale, 0.01f, 0.10f, 1.00f,
-                         "%.3f")) {
+                         kScotsPineFloatFormat)) {
       needle_order_min_length_scale = std::clamp(needle_order_min_length_scale, 0.10f, 1.00f);
       changed = true;
     }
     show_item_hover_description("Lower bound for branch-order needle length scaling.");
     if (ImGui::DragFloat("Order Needle Radius Min Scale", &needle_order_min_radius_scale, 0.01f, 0.10f, 1.00f,
-                         "%.3f")) {
+                         kScotsPineFloatFormat)) {
       needle_order_min_radius_scale = std::clamp(needle_order_min_radius_scale, 0.10f, 1.00f);
       changed = true;
     }
     show_item_hover_description("Lower bound for branch-order needle thickness scaling.");
-    if (ImGui::TreeNodeEx("Initiation Capacity Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (ImGui::DragFloat("Intra-Year Base Ratio", &needle_intra_year_base_ratio, 0.01f, 0.0f, 1.0f, "%.3f")) {
-        needle_intra_year_base_ratio = std::clamp(needle_intra_year_base_ratio, 0.0f, 1.0f);
+    if (ImGui::TreeNodeEx("Advanced: Initiation Capacity Mapping")) {
+      evo_engine::CurveDescriptorSettings capacity_curve_settings;
+      capacity_curve_settings.speed = 0.01f;
+      capacity_curve_settings.min_max_control = true;
+      capacity_curve_settings.m_tip =
+          "Mean multiplier applied to new needle length, width, and thickness by normalized seasonal phytomer index. "
+          "Default ramps from 75% early-season capacity to 100% late-season capacity.";
+      changed |= needle_intra_year_capacity_curve.Draw("Intra-Year Capacity Curve", capacity_curve_settings);
+      needle_intra_year_capacity_curve.min_value = std::clamp(needle_intra_year_capacity_curve.min_value, 0.0f, 2.0f);
+      needle_intra_year_capacity_curve.max_value = std::clamp(needle_intra_year_capacity_curve.max_value, 0.0f, 2.0f);
+      if (needle_intra_year_capacity_curve.max_value < needle_intra_year_capacity_curve.min_value) {
+        std::swap(needle_intra_year_capacity_curve.min_value, needle_intra_year_capacity_curve.max_value);
         changed = true;
       }
-      show_item_hover_description(
-          "Lower bound for early-phytomer capacity."
-          " Runtime applies L_actual = L_max * w_intra(i) * w_inter(year,vigor).");
+      show_item_hover_description("Runtime applies L_actual = L_max * curve(phytomer_index) * w_inter(year,vigor).");
 
-      if (ImGui::DragFloat("Intra-Year Sigmoid Steepness", &needle_intra_year_sigmoid_steepness, 0.10f, 0.01f, 32.0f,
-                           "%.3f")) {
-        needle_intra_year_sigmoid_steepness = std::max(0.01f, needle_intra_year_sigmoid_steepness);
+      if (ImGui::DragFloat("Year 0 Length Multiplier", &needle_year0_length_multiplier, 0.01f, 0.0f, 8.0f,
+                           kScotsPineFloatFormat)) {
+        needle_year0_length_multiplier = std::max(0.0f, needle_year0_length_multiplier);
         changed = true;
       }
-      show_item_hover_description("Steepness k of the intra-year sigmoid over normalized phytomer index.");
+      show_item_hover_description("Year-0 multiplier for needle target length. Later cohorts use 1.");
 
-      if (ImGui::DragFloat("Intra-Year Sigmoid Midpoint", &needle_intra_year_sigmoid_midpoint_fraction, 0.01f, 0.0f,
-                           1.0f, "%.3f")) {
-        needle_intra_year_sigmoid_midpoint_fraction =
-            std::clamp(needle_intra_year_sigmoid_midpoint_fraction, 0.0f, 1.0f);
+      if (ImGui::DragFloat("Year 0 Lignification Factor", &needle_lignification_factor_year0, 0.01f, 0.0f, 2.0f,
+                           kScotsPineFloatFormat)) {
+        needle_lignification_factor_year0 = std::clamp(needle_lignification_factor_year0, 0.0f, 2.0f);
         changed = true;
       }
-      show_item_hover_description("Normalized phytomer index where intra-year capacity reaches 50% ramp.");
+      show_item_hover_description("Scales visual maturation response for year-0 needle cohorts. Later cohorts use 1.");
 
-      if (ImGui::DragFloat("Late-Season Decay Start", &needle_intra_year_late_decay_start_fraction, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
-        needle_intra_year_late_decay_start_fraction =
-            std::clamp(needle_intra_year_late_decay_start_fraction, 0.0f, 1.0f);
+      if (ImGui::DragFloat("Year 0 Stomatal Strip Density", &needle_stomatal_strip_density_year0, 0.01f, 0.0f, 1.0f,
+                           kScotsPineFloatFormat)) {
+        needle_stomatal_strip_density_year0 = std::clamp(needle_stomatal_strip_density_year0, 0.0f, 1.0f);
         changed = true;
       }
-      show_item_hover_description("Normalized phytomer index where optional late-season decay begins.");
+      show_item_hover_description("Proxy density for procedural stomatal striping in year-0 cohorts. Later cohorts use 1.");
 
-      if (ImGui::DragFloat("Late-Season End Scale", &needle_intra_year_late_decay_end_scale, 0.01f, 0.0f, 2.0f,
-                           "%.3f")) {
-        needle_intra_year_late_decay_end_scale = std::clamp(needle_intra_year_late_decay_end_scale, 0.0f, 2.0f);
+      if (ImGui::DragFloat("Year 0 Basal Taper Ratio", &needle_basal_taper_ratio_year0, 0.01f, 0.6f, 1.2f,
+                           kScotsPineFloatFormat)) {
+        needle_basal_taper_ratio_year0 = std::clamp(needle_basal_taper_ratio_year0, 0.6f, 1.2f);
         changed = true;
       }
-      show_item_hover_description("Multiplier reached at the final phytomer if late-season decay is active.");
-
-      if (ImGui::DragInt("Fascicular Start Year", &needle_fascicular_start_year, 1.0f, 0, 16)) {
-        needle_fascicular_start_year = std::clamp(needle_fascicular_start_year, 0, 16);
-        changed = true;
-      }
-      show_item_hover_description(
-          "Year index where year2+ multipliers become active. 0 applies them from first-year shoots.");
-
-      if (ImGui::DragFloat("Year2+ Length Multiplier", &needle_year2plus_length_multiplier, 0.01f, 0.0f, 8.0f,
-                           "%.3f")) {
-        needle_year2plus_length_multiplier = std::max(0.0f, needle_year2plus_length_multiplier);
-        changed = true;
-      }
-      show_item_hover_description("Inter-year multiplier for needle target length.");
-
-      if (ImGui::DragFloat("Year2+ Width Multiplier", &needle_year2plus_width_multiplier, 0.01f, 0.0f, 8.0f, "%.3f")) {
-        needle_year2plus_width_multiplier = std::max(0.0f, needle_year2plus_width_multiplier);
-        changed = true;
-      }
-      show_item_hover_description("Inter-year multiplier for needle major-axis width.");
-
-      if (ImGui::DragFloat("Year2+ Thickness Multiplier", &needle_year2plus_thickness_multiplier, 0.01f, 0.0f, 8.0f,
-                           "%.3f")) {
-        needle_year2plus_thickness_multiplier = std::max(0.0f, needle_year2plus_thickness_multiplier);
-        changed = true;
-      }
-      show_item_hover_description("Inter-year multiplier for needle minor-axis thickness.");
-
-      if (ImGui::DragFloat("Year1 Lignification Factor", &needle_lignification_factor_year1, 0.01f, 0.0f, 2.0f,
-                           "%.3f")) {
-        needle_lignification_factor_year1 = std::clamp(needle_lignification_factor_year1, 0.0f, 2.0f);
-        changed = true;
-      }
-      show_item_hover_description("Scales visual maturation response for first-year needle cohorts.");
-
-      if (ImGui::DragFloat("Year2+ Lignification Factor", &needle_lignification_factor_year2plus, 0.01f, 0.0f, 2.0f,
-                           "%.3f")) {
-        needle_lignification_factor_year2plus = std::clamp(needle_lignification_factor_year2plus, 0.0f, 2.0f);
-        changed = true;
-      }
-      show_item_hover_description("Scales visual maturation response for year2+ needle cohorts.");
-
-      if (ImGui::DragFloat("Year1 Stomatal Strip Density", &needle_stomatal_strip_density_year1, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
-        needle_stomatal_strip_density_year1 = std::clamp(needle_stomatal_strip_density_year1, 0.0f, 1.0f);
-        changed = true;
-      }
-      show_item_hover_description("Proxy density for procedural stomatal striping in first-year cohorts.");
-
-      if (ImGui::DragFloat("Year2+ Stomatal Strip Density", &needle_stomatal_strip_density_year2plus, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
-        needle_stomatal_strip_density_year2plus = std::clamp(needle_stomatal_strip_density_year2plus, 0.0f, 1.0f);
-        changed = true;
-      }
-      show_item_hover_description("Proxy density for procedural stomatal striping in year2+ cohorts.");
-
-      if (ImGui::DragFloat("Year1 Basal Taper Ratio", &needle_basal_taper_ratio_year1, 0.01f, 0.6f, 1.2f, "%.3f")) {
-        needle_basal_taper_ratio_year1 = std::clamp(needle_basal_taper_ratio_year1, 0.6f, 1.2f);
-        changed = true;
-      }
-      show_item_hover_description("Needle-base radius multiplier for first-year cohorts. 1.0 disables base taper.");
-
-      if (ImGui::DragFloat("Year2+ Basal Taper Ratio", &needle_basal_taper_ratio_year2plus, 0.01f, 0.6f, 1.2f,
-                           "%.3f")) {
-        needle_basal_taper_ratio_year2plus = std::clamp(needle_basal_taper_ratio_year2plus, 0.6f, 1.2f);
-        changed = true;
-      }
-      show_item_hover_description("Needle-base radius multiplier for year2+ cohorts. 1.0 disables base taper.");
+      show_item_hover_description("Needle-base radius multiplier for year-0 cohorts. Later cohorts use 1.");
 
       if (ImGui::DragFloat("Fascicle Sheath Budget (GDD)", &needle_fascicle_sheath_budget_gdd, 10.0f, 0.0f, 5000.0f,
-                           "%.1f")) {
+                           kScotsPineFloatFormat)) {
         needle_fascicle_sheath_budget_gdd = std::max(0.0f, needle_fascicle_sheath_budget_gdd);
         changed = true;
       }
       show_item_hover_description("Characteristic thermal budget for sheath maturation near needle bases.");
 
-      if (ImGui::DragFloat("Year1 Specularity Plasticity", &needle_specularity_plasticity_year1, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
-        needle_specularity_plasticity_year1 = std::clamp(needle_specularity_plasticity_year1, 0.0f, 1.0f);
+      if (ImGui::DragFloat("Year 0 Specularity Plasticity", &needle_specularity_plasticity_year0, 0.01f, 0.0f, 1.0f,
+                           kScotsPineFloatFormat)) {
+        needle_specularity_plasticity_year0 = std::clamp(needle_specularity_plasticity_year0, 0.0f, 1.0f);
         changed = true;
       }
-      show_item_hover_description("How strongly first-year micro-variation tracks maturity cues.");
-
-      if (ImGui::DragFloat("Year2+ Specularity Plasticity", &needle_specularity_plasticity_year2plus, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
-        needle_specularity_plasticity_year2plus = std::clamp(needle_specularity_plasticity_year2plus, 0.0f, 1.0f);
-        changed = true;
-      }
-      show_item_hover_description("How strongly year2+ micro-variation tracks maturity cues.");
+      show_item_hover_description("How strongly year-0 micro-variation tracks maturity cues. Later cohorts use 1.");
 
       if (ImGui::DragFloat("Bud-Storage Vigor Strength", &needle_bud_storage_vigor_strength, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
+                           kScotsPineFloatFormat)) {
         needle_bud_storage_vigor_strength = std::clamp(needle_bud_storage_vigor_strength, 0.0f, 1.0f);
         changed = true;
       }
       show_item_hover_description("Blend factor from 1.0 to previous-season vigor proxy for inter-year capacity.");
 
       if (ImGui::DragFloat("Bud-Storage Completion Floor", &needle_bud_storage_completion_floor, 0.01f, 0.0f, 1.0f,
-                           "%.3f")) {
+                           kScotsPineFloatFormat)) {
         needle_bud_storage_completion_floor = std::clamp(needle_bud_storage_completion_floor, 0.0f, 1.0f);
         changed = true;
       }
       show_item_hover_description("Lower clamp applied to completion ratio before vigor carry-over.");
       ImGui::TreePop();
     }
-    if (ImGui::DragFloat("[deprecated] Needle Width Cap (unused)", &needle_radius_to_stem_thickness_max_ratio, 0.05f,
-                         0.0f, 4.0f, "%.3f")) {
-      needle_radius_to_stem_thickness_max_ratio = std::clamp(needle_radius_to_stem_thickness_max_ratio, 0.0f, 4.0f);
+    if (ImGui::DragFloat("Needle Old Thinning Fraction", &needle_old_thinning_fraction, 0.01f, 0.0f, 0.95f, kScotsPineFloatFormat)) {
+      needle_old_thinning_fraction = std::clamp(needle_old_thinning_fraction, 0.0f, 0.95f);
       changed = true;
     }
-    show_item_hover_description(
-        "Deprecated no-op. Needle width and thickness are uncapped and no "
-        "longer tied to stem thickness.");
-    if (ImGui::ColorEdit4("Needle Color", &needle_color_rgba.x)) {
+    show_item_hover_description("Fractional strand-radius reduction applied as needle segments reach old color.");
+    if (ImGui::DragFloat("Needle Min Strand Thickness M", &needle_min_strand_thickness_m, 0.00001f, 0.000001f,
+                         0.002f, kScotsPineFloatFormat)) {
+      needle_min_strand_thickness_m = std::clamp(needle_min_strand_thickness_m, 0.000001f, 0.002f);
       changed = true;
     }
-    show_item_hover_description("Young needle color used for newly flushed or low-age segments.");
-    if (ImGui::ColorEdit4("Needle Old Color", &needle_old_color_rgba.x)) {
-      changed = true;
-    }
-    show_item_hover_description("Old needle color reached by high-age or strongly senescent segments.");
-    if (ImGui::DragFloat("Needle Axial Age Span", &needle_axial_age_span, 0.01f, -1.0f, 1.0f, "%.3f")) {
-      needle_axial_age_span = std::clamp(needle_axial_age_span, -1.0f, 1.0f);
-      changed = true;
-    }
-    show_item_hover_description(
-        "Along-needle age shift. Positive biases older color toward tip; negative biases older color toward base.");
-    if (ImGui::DragFloat("Needle Axial Age Exponent", &needle_axial_age_exponent, 0.05f, 0.1f, 4.0f, "%.2f")) {
-      needle_axial_age_exponent = std::clamp(needle_axial_age_exponent, 0.1f, 4.0f);
-      changed = true;
-    }
-    show_item_hover_description(
-        "Shape of along-needle gradient response. 1 = linear, >1 concentrates changes near one end.");
+    show_item_hover_description("Minimum rendered radius for needle strand points.");
     ImGui::TreePop();
   }
 
@@ -1294,22 +1588,22 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
 
   if (ImGui::TreeNodeEx("Needle Per-Needle Variability")) {
     changed |= needle_per_needle_length_cv.Draw("Length CV", 0.01f,
-                                                "CV-style variation across needles within a cluster for length scale.");
+                                                "CV-style variation across needles within a fascicle sheath for length scale.");
     changed |= needle_per_needle_curvature_cv.Draw(
-        "Curvature CV", 0.01f, "CV-style variation across needles within a cluster for curvature-field magnitude.");
+        "Curvature CV", 0.01f, "CV-style variation across needles within a fascicle sheath for curvature-field magnitude.");
     changed |= needle_per_needle_radius_cv.Draw(
-        "Radius CV", 0.01f, "CV-style variation across needles within a cluster for cross-section axis scale.");
+        "Radius CV", 0.01f, "CV-style variation across needles within a fascicle sheath for cross-section axis scale.");
     changed |= needle_per_needle_modulus_cv.Draw(
         "Young's Modulus CV", 0.01f,
-        "CV-style variation across needles within a cluster for baseline Young's modulus.");
+        "CV-style variation across needles within a fascicle sheath for baseline Young's modulus.");
     changed |= needle_per_needle_density_cv.Draw(
-        "Density CV", 0.01f, "CV-style variation across needles within a cluster for tissue density.");
+        "Density CV", 0.01f, "CV-style variation across needles within a fascicle sheath for tissue density.");
     changed |= needle_per_needle_wave_amplitude_cv.Draw(
         "Wave Amplitude CV", 0.01f,
-        "CV-style variation across needles within a cluster for sinusoidal waviness amplitude.");
+        "CV-style variation across needles within a fascicle sheath for sinusoidal waviness amplitude.");
     changed |= needle_per_needle_wave_frequency_cv.Draw(
         "Wave Frequency CV", 0.01f,
-        "CV-style variation across needles within a cluster for sinusoidal waviness frequency.");
+        "CV-style variation across needles within a fascicle sheath for sinusoidal waviness frequency.");
     changed |= needle_per_needle_wave_phase_cv.Draw("Wave Phase CV", 0.01f,
                                                     "CV-style scaling of per-needle sinusoidal phase randomness.");
     ImGui::TreePop();
@@ -1336,73 +1630,12 @@ bool ScotsPineDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
     ImGui::TreePop();
   }
 
-  // ==============================================================================
-  // Deprecated controls (no runtime effect).
-  //
-  // These fields are sampled and serialized, but no consumer in the current
-  // pine growth path iterates them. They are kept declared per the workspace
-  // policy ("never remove unused code unless explicitly told to"). The foldout
-  // is collapsed by default so they stay out of the way.
-  // ==============================================================================
-  ImGui::Separator();
-  if (ImGui::TreeNodeEx("Deprecated (no runtime effect)")) {
-    ImGui::TextWrapped(
-        "The field(s) below are serialized and sampled but have no consumer"
-        " in the current pine growth path. Edits round-trip through YAML but"
-        " do not affect generated geometry.");
-
-    // -- Dynamic tropism array ([deprecated] for pine) --
-    // The pine-side tropisms vector is sampled into SampledPineParams::tropisms
-    // but no pine consumer iterates it. The Maize tassel side does iterate
-    // its analogous vector (MaizeTasselRules.hpp), so the type stays alive.
-    // The active stem tropism for pine is the scalar `gravitropism_first_order`
-    // in the "Tropism (Global)" group above.
-    if (ImGui::TreeNodeEx("Dynamic Tropisms  [deprecated]")) {
-      ImGui::TextWrapped(
-          "[deprecated] No pine consumer reads sampled.tropisms. Use"
-          " \"Tropism (Global)\" -> Main Stem Tropism instead.");
-      if (ImGui::Button("+ Add Tropism")) {
-        tropisms.emplace_back();
-        changed = true;
-      }
-      show_item_hover_description("Add a directional tropism entry. [deprecated] no runtime effect.");
-
-      int remove_index = -1;
-      for (size_t i = 0; i < tropisms.size(); ++i) {
-        ImGui::PushID(static_cast<int>(i));
-        const std::string label = "Tropism #" + std::to_string(i);
-        if (ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-          auto& entry = tropisms[i];
-          changed |= entry.direction_x.Draw("Direction X", 0.05f);
-          changed |= entry.direction_y.Draw("Direction Y", 0.05f);
-          changed |= entry.direction_z.Draw("Direction Z", 0.05f);
-          changed |= entry.strength.Draw("Strength", 0.05f);
-          if (ImGui::DragFloat("Usage Chance (%)", &entry.usage_chance_percent, 1.0f, 0.0f, 100.0f, "%.1f")) {
-            entry.usage_chance_percent = std::clamp(entry.usage_chance_percent, 0.0f, 100.0f);
-            changed = true;
-          }
-          changed |= entry.order_response.Draw("Order Response (vs branching order)");
-          if (ImGui::Button("Remove"))
-            remove_index = static_cast<int>(i);
-          ImGui::TreePop();
-        }
-        ImGui::PopID();
-      }
-      if (remove_index >= 0) {
-        tropisms.erase(tropisms.begin() + remove_index);
-        changed = true;
-      }
-      ImGui::TreePop();
-    }
-
-    ImGui::TreePop();
-  }
-
   if (editor_preferences_changed) {
     // Editor preferences are persisted via Serialize/Deserialize; they don't
     // mark the asset content "changed" for revision tracking.
   }
 
+  ClampMaterialModel(*this);
   return changed;
 }
 
@@ -1416,6 +1649,8 @@ void l_system_package::SerializeScotsPineDescriptor(YAML::Emitter& out, const Sc
   target.max_phytomers_per_seasonal_growth.Save("max_phytomers_per_seasonal_growth", out);
 
   // Whorl architecture.
+  target.annual_whorl_probability.Save("annual_whorl_probability", out);
+  target.whorl_position_norm.Save("whorl_position_norm", out);
   target.branches_per_whorl.Save("branches_per_whorl", out);
   target.whorl_dormancy_years.Save("whorl_dormancy_years", out);
   target.branch_insertion_angle_deg.Save("branch_insertion_angle_deg", out);
@@ -1424,18 +1659,65 @@ void l_system_package::SerializeScotsPineDescriptor(YAML::Emitter& out, const Sc
   // Phytomer dimensions.
   target.internode_length_m.Save("internode_length_m", out);
   target.leader_internode_thickness_m.Save("leader_internode_thickness_m", out);
-  // Alias for discoverability in .spine files.
-  target.leader_internode_thickness_m.Save("main_stem_width_m", out);
   target.lateral_length_ratio.Save("lateral_length_ratio", out);
   target.lateral_thickness_ratio.Save("lateral_thickness_ratio", out);
-  out << YAML::Key << "main_stem_color_rgba" << YAML::Value << target.main_stem_color_rgba;
-  out << YAML::Key << "main_stem_old_color_rgba" << YAML::Value << target.main_stem_old_color_rgba;
   out << YAML::Key << "internode_age_exponent" << YAML::Value << target.internode_age_exponent;
+
+  // Descriptor-native material model.
+  out << YAML::Key << "material_profile_version" << YAML::Value << target.material_profile_version;
+  out << YAML::Key << "material_profile_source" << YAML::Value << target.material_profile_source;
+  out << YAML::Key << "material_profile_hash" << YAML::Value << target.material_profile_hash;
+  out << YAML::Key << "biological_material_model_strength" << YAML::Value
+      << target.biological_material_model_strength;
+  out << YAML::Key << "biological_chlorophyll_scale" << YAML::Value << target.biological_chlorophyll_scale;
+  out << YAML::Key << "biological_carotenoid_gold_scale" << YAML::Value
+      << target.biological_carotenoid_gold_scale;
+  out << YAML::Key << "biological_lignin_bark_scale" << YAML::Value << target.biological_lignin_bark_scale;
+  out << YAML::Key << "biological_senescence_bias" << YAML::Value << target.biological_senescence_bias;
+  out << YAML::Key << "biological_cuticle_wax" << YAML::Value << target.biological_cuticle_wax;
+  out << YAML::Key << "biological_individual_variation" << YAML::Value
+      << target.biological_individual_variation;
+  out << YAML::Key << "biological_facet_contrast" << YAML::Value << target.biological_facet_contrast;
+  out << YAML::Key << "biological_tip_darkening_strength" << YAML::Value
+      << target.biological_tip_darkening_strength;
+  out << YAML::Key << "biological_stem_age_browning_scale" << YAML::Value
+      << target.biological_stem_age_browning_scale;
+  out << YAML::Key << "young_needle_palette_rgba" << YAML::Value << target.young_needle_palette_rgba;
+  out << YAML::Key << "older_needle_palette_rgba" << YAML::Value << target.older_needle_palette_rgba;
+  out << YAML::Key << "dry_brown_needle_palette_rgba" << YAML::Value << target.dry_brown_needle_palette_rgba;
+  out << YAML::Key << "main_stem_palette_rgba" << YAML::Value << target.main_stem_palette_rgba;
+  out << YAML::Key << "mature_bark_stem_palette_rgba" << YAML::Value << target.mature_bark_stem_palette_rgba;
+  out << YAML::Key << "node_sheath_brown_palette_rgba" << YAML::Value << target.node_sheath_brown_palette_rgba;
+  out << YAML::Key << "fascicle_sheath_palette_rgba" << YAML::Value << target.fascicle_sheath_palette_rgba;
+  target.needle_axial_color_curve.Save("needle_axial_color_curve", out);
+  target.needle_y_age_color_curve.Save("needle_y_age_color_curve", out);
+  target.stem_age_gradient_curve.Save("stem_age_gradient_curve", out);
+  out << YAML::Key << "needle_micro_variation" << YAML::Value << target.needle_micro_variation;
+  out << YAML::Key << "stem_micro_variation" << YAML::Value << target.stem_micro_variation;
+  out << YAML::Key << "young_needle_roughness" << YAML::Value << target.young_needle_roughness;
+  out << YAML::Key << "old_needle_roughness" << YAML::Value << target.old_needle_roughness;
+  out << YAML::Key << "young_needle_specular" << YAML::Value << target.young_needle_specular;
+  out << YAML::Key << "old_needle_specular" << YAML::Value << target.old_needle_specular;
+  out << YAML::Key << "stem_roughness" << YAML::Value << target.stem_roughness;
+  out << YAML::Key << "stem_specular" << YAML::Value << target.stem_specular;
+  out << YAML::Key << "node_browning_strength" << YAML::Value << target.node_browning_strength;
+  out << YAML::Key << "sheath_browning_strength" << YAML::Value << target.sheath_browning_strength;
+  out << YAML::Key << "node_browning_radius_norm" << YAML::Value << target.node_browning_radius_norm;
+  out << YAML::Key << "needle_twist_turns" << YAML::Value << target.needle_twist_turns;
+  out << YAML::Key << "needle_edge_darkening" << YAML::Value << target.needle_edge_darkening;
+  out << YAML::Key << "needle_tip_color_mix_start" << YAML::Value << target.needle_tip_color_mix_start;
+  out << YAML::Key << "needle_tip_color_exponent" << YAML::Value << target.needle_tip_color_exponent;
+  out << YAML::Key << "needle_old_thinning_fraction" << YAML::Value << target.needle_old_thinning_fraction;
+  out << YAML::Key << "needle_min_strand_thickness_m" << YAML::Value << target.needle_min_strand_thickness_m;
+  out << YAML::Key << "needle_axial_age_span" << YAML::Value << target.needle_axial_age_span;
+  out << YAML::Key << "needle_axial_age_exponent" << YAML::Value << target.needle_axial_age_exponent;
 
   // Needles.
   target.bare_zone_fraction.Save("bare_zone_fraction", out);
   target.needle_count_per_cluster.Save("needle_count_per_cluster", out);
   out << YAML::Key << "needle_segment_count" << YAML::Value << target.needle_segment_count;
+  target.fascicle_sheath_length_m.Save("fascicle_sheath_length_m", out);
+  target.fascicle_sheath_width_m.Save("fascicle_sheath_width_m", out);
   target.needle_length_m.Save("needle_length_m", out);
   target.needle_lifespan_years.Save("needle_lifespan_years", out);
   target.needle_browning_years.Save("needle_browning_years", out);
@@ -1456,43 +1738,18 @@ void l_system_package::SerializeScotsPineDescriptor(YAML::Emitter& out, const Sc
   out << YAML::Key << "needle_order_radius_attenuation" << YAML::Value << target.needle_order_radius_attenuation;
   out << YAML::Key << "needle_order_min_length_scale" << YAML::Value << target.needle_order_min_length_scale;
   out << YAML::Key << "needle_order_min_radius_scale" << YAML::Value << target.needle_order_min_radius_scale;
-  out << YAML::Key << "needle_intra_year_base_ratio" << YAML::Value << target.needle_intra_year_base_ratio;
-  out << YAML::Key << "needle_intra_year_sigmoid_steepness" << YAML::Value
-      << target.needle_intra_year_sigmoid_steepness;
-  out << YAML::Key << "needle_intra_year_sigmoid_midpoint_fraction" << YAML::Value
-      << target.needle_intra_year_sigmoid_midpoint_fraction;
-  out << YAML::Key << "needle_intra_year_late_decay_start_fraction" << YAML::Value
-      << target.needle_intra_year_late_decay_start_fraction;
-  out << YAML::Key << "needle_intra_year_late_decay_end_scale" << YAML::Value
-      << target.needle_intra_year_late_decay_end_scale;
-  out << YAML::Key << "needle_fascicular_start_year" << YAML::Value << target.needle_fascicular_start_year;
-  out << YAML::Key << "needle_year2plus_length_multiplier" << YAML::Value << target.needle_year2plus_length_multiplier;
-  out << YAML::Key << "needle_year2plus_width_multiplier" << YAML::Value << target.needle_year2plus_width_multiplier;
-  out << YAML::Key << "needle_year2plus_thickness_multiplier" << YAML::Value
-      << target.needle_year2plus_thickness_multiplier;
-  out << YAML::Key << "needle_lignification_factor_year1" << YAML::Value << target.needle_lignification_factor_year1;
-  out << YAML::Key << "needle_lignification_factor_year2plus" << YAML::Value
-      << target.needle_lignification_factor_year2plus;
-  out << YAML::Key << "needle_stomatal_strip_density_year1" << YAML::Value
-      << target.needle_stomatal_strip_density_year1;
-  out << YAML::Key << "needle_stomatal_strip_density_year2plus" << YAML::Value
-      << target.needle_stomatal_strip_density_year2plus;
-  out << YAML::Key << "needle_basal_taper_ratio_year1" << YAML::Value << target.needle_basal_taper_ratio_year1;
-  out << YAML::Key << "needle_basal_taper_ratio_year2plus" << YAML::Value << target.needle_basal_taper_ratio_year2plus;
+  target.needle_intra_year_capacity_curve.Save("needle_intra_year_capacity_curve", out);
+  out << YAML::Key << "needle_year0_length_multiplier" << YAML::Value << target.needle_year0_length_multiplier;
+  out << YAML::Key << "needle_lignification_factor_year0" << YAML::Value << target.needle_lignification_factor_year0;
+  out << YAML::Key << "needle_stomatal_strip_density_year0" << YAML::Value
+      << target.needle_stomatal_strip_density_year0;
+  out << YAML::Key << "needle_basal_taper_ratio_year0" << YAML::Value << target.needle_basal_taper_ratio_year0;
   out << YAML::Key << "needle_fascicle_sheath_budget_gdd" << YAML::Value << target.needle_fascicle_sheath_budget_gdd;
-  out << YAML::Key << "needle_specularity_plasticity_year1" << YAML::Value
-      << target.needle_specularity_plasticity_year1;
-  out << YAML::Key << "needle_specularity_plasticity_year2plus" << YAML::Value
-      << target.needle_specularity_plasticity_year2plus;
+  out << YAML::Key << "needle_specularity_plasticity_year0" << YAML::Value
+      << target.needle_specularity_plasticity_year0;
   out << YAML::Key << "needle_bud_storage_vigor_strength" << YAML::Value << target.needle_bud_storage_vigor_strength;
   out << YAML::Key << "needle_bud_storage_completion_floor" << YAML::Value
       << target.needle_bud_storage_completion_floor;
-  out << YAML::Key << "needle_radius_to_stem_thickness_max_ratio" << YAML::Value
-      << target.needle_radius_to_stem_thickness_max_ratio;
-  out << YAML::Key << "needle_color_rgba" << YAML::Value << target.needle_color_rgba;
-  out << YAML::Key << "needle_old_color_rgba" << YAML::Value << target.needle_old_color_rgba;
-  out << YAML::Key << "needle_axial_age_span" << YAML::Value << target.needle_axial_age_span;
-  out << YAML::Key << "needle_axial_age_exponent" << YAML::Value << target.needle_axial_age_exponent;
 
   // Needle curvature.
   target.needle_curvature_adaxial_bias.Save("needle_curvature_adaxial_bias", out);
@@ -1524,8 +1781,6 @@ void l_system_package::SerializeScotsPineDescriptor(YAML::Emitter& out, const Sc
   // Per-instance target.
   target.target_gdd.Save("target_gdd", out);
   target.gdd_per_day.Save("gdd_per_day", out);
-  target.growing_season_start_day.Save("growing_season_start_day", out);
-  target.growing_season_end_day.Save("growing_season_end_day", out);
 
   // Per-shoot stochastic noise.
   target.internode_length_per_node_cv.Save("internode_length_per_node_cv", out);
@@ -1545,29 +1800,10 @@ void l_system_package::SerializeScotsPineDescriptor(YAML::Emitter& out, const Sc
   out << YAML::Key << "grid_spacing" << YAML::Value << target.grid_spacing;
   out << YAML::Key << "triangle_side_length" << YAML::Value << target.triangle_side_length;
 
-  // Tropism array.
-  out << YAML::Key << "tropism_count" << YAML::Value << static_cast<int>(target.tropisms.size());
-  for (size_t i = 0; i < target.tropisms.size(); ++i) {
-    const std::string prefix = "tropism_" + std::to_string(i) + "_";
-    const auto& entry = target.tropisms[i];
-    entry.direction_x.Save(prefix + "dir_x", out);
-    entry.direction_y.Save(prefix + "dir_y", out);
-    entry.direction_z.Save(prefix + "dir_z", out);
-    entry.strength.Save(prefix + "strength", out);
-    out << YAML::Key << (prefix + "usage_chance_percent") << YAML::Value
-        << std::clamp(entry.usage_chance_percent, 0.0f, 100.0f);
-    entry.order_response.Save(prefix + "order_response", out);
-  }
 }
 
 // ===========================================================================
 // Deserialize
-//
-// Backward-compat policy:
-// - Legacy base/tip radius and simple taper keys are mapped into the new
-//   ellipsoid cross-section width/thickness controls when new keys are absent.
-// - Other older experimental keys remain ignored.
-// Missing keys retain inline member defaults.
 // ===========================================================================
 void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, ScotsPineDescriptor& target) {
   ConfigurePineMaturityDefaults(target);
@@ -1577,28 +1813,17 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
   LoadSingleDistributionWithScalarFallback(in, "max_phytomers_per_seasonal_growth",
                                            target.max_phytomers_per_seasonal_growth);
 
+  LoadSingleDistributionWithScalarFallback(in, "annual_whorl_probability", target.annual_whorl_probability);
+  LoadSingleDistributionWithScalarFallback(in, "whorl_position_norm", target.whorl_position_norm);
   LoadSingleDistributionWithScalarFallback(in, "branches_per_whorl", target.branches_per_whorl);
-  // Clock-rule fix: prefer years key; fall back to legacy GDD key with /1500.
-  if (in["whorl_dormancy_years"]) {
-    LoadSingleDistributionWithScalarFallback(in, "whorl_dormancy_years", target.whorl_dormancy_years);
-  } else {
-    LoadLegacyGddDistributionAsYears(in, "whorl_dormancy_gdd", target.whorl_dormancy_years);
-  }
+  LoadSingleDistributionWithScalarFallback(in, "whorl_dormancy_years", target.whorl_dormancy_years);
   LoadSingleDistributionWithScalarFallback(in, "branch_insertion_angle_deg", target.branch_insertion_angle_deg);
   LoadSingleDistributionWithScalarFallback(in, "branch_roll_phyllotaxis_deg", target.branch_roll_phyllotaxis_deg);
 
   LoadSingleDistributionWithScalarFallback(in, "internode_length_m", target.internode_length_m);
   LoadSingleDistributionWithScalarFallback(in, "leader_internode_thickness_m", target.leader_internode_thickness_m);
-  // Backward/forward alias support.
-  LoadSingleDistributionWithScalarFallback(in, "main_stem_width_m", target.leader_internode_thickness_m);
   LoadSingleDistributionWithScalarFallback(in, "lateral_length_ratio", target.lateral_length_ratio);
   LoadSingleDistributionWithScalarFallback(in, "lateral_thickness_ratio", target.lateral_thickness_ratio);
-  if (in["main_stem_color_rgba"]) {
-    target.main_stem_color_rgba = in["main_stem_color_rgba"].as<glm::vec4>();
-  }
-  if (in["main_stem_old_color_rgba"]) {
-    target.main_stem_old_color_rgba = in["main_stem_old_color_rgba"].as<glm::vec4>();
-  }
   if (in["internode_age_exponent"]) {
     target.internode_age_exponent = std::clamp(in["internode_age_exponent"].as<float>(), 0.1f, 4.0f);
   }
@@ -1606,27 +1831,18 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
   LoadSingleDistributionWithScalarFallback(in, "bare_zone_fraction", target.bare_zone_fraction);
   LoadSingleDistributionWithScalarFallback(in, "needle_count_per_cluster", target.needle_count_per_cluster);
   if (in["needle_segment_count"]) {
-    target.needle_segment_count = std::clamp(in["needle_segment_count"].as<int>(), 3, 128);
+    target.needle_segment_count = std::clamp(in["needle_segment_count"].as<int>(), 1, 128);
   }
+  LoadSingleDistributionWithScalarFallback(in, "fascicle_sheath_length_m", target.fascicle_sheath_length_m);
+  LoadSingleDistributionWithScalarFallback(in, "fascicle_sheath_width_m", target.fascicle_sheath_width_m);
   LoadSingleDistributionWithScalarFallback(in, "needle_length_m", target.needle_length_m);
-  // Clock-rule fix: prefer years keys; fall back to legacy GDD keys with /1500.
-  if (in["needle_lifespan_years"]) {
-    LoadSingleDistributionWithScalarFallback(in, "needle_lifespan_years", target.needle_lifespan_years);
-  } else {
-    LoadLegacyGddDistributionAsYears(in, "needle_lifespan_gdd", target.needle_lifespan_years);
-  }
-  if (in["needle_browning_years"]) {
-    LoadSingleDistributionWithScalarFallback(in, "needle_browning_years", target.needle_browning_years);
-  } else {
-    LoadLegacyGddDistributionAsYears(in, "needle_browning_gdd", target.needle_browning_years);
-  }
+  LoadSingleDistributionWithScalarFallback(in, "needle_lifespan_years", target.needle_lifespan_years);
+  LoadSingleDistributionWithScalarFallback(in, "needle_browning_years", target.needle_browning_years);
   LoadSingleDistributionWithScalarFallback(in, "needle_flush_delay_gdd", target.needle_flush_delay_gdd);
   LoadSingleDistributionWithScalarFallback(in, "internode_maturation_gdd", target.internode_maturation_gdd);
   LoadSingleDistributionWithScalarFallback(in, "needle_maturation_gdd", target.needle_maturation_gdd);
   LoadSingleDistributionWithScalarFallback(in, "needle_branching_angle_deg", target.needle_branching_angle_deg);
   LoadSingleDistributionWithScalarFallback(in, "needle_branching_relax_gdd", target.needle_branching_relax_gdd);
-  const bool has_new_cross_section_width_max = static_cast<bool>(in["needle_cross_section_width_max_m"]);
-  const bool has_new_cross_section_thickness_max = static_cast<bool>(in["needle_cross_section_thickness_max_m"]);
   const bool has_new_cross_section_width_profile = static_cast<bool>(in["needle_cross_section_width_profile"]);
   const bool has_new_cross_section_thickness_profile = static_cast<bool>(in["needle_cross_section_thickness_profile"]);
   target.internode_length_maturity_curve.Load("internode_length_maturity_curve", in);
@@ -1640,47 +1856,11 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
   target.needle_cross_section_thickness_profile.Load("needle_cross_section_thickness_profile", in);
   target.needle_cross_section_temporal_maturity_curve.Load("needle_cross_section_temporal_maturity_curve", in);
 
-  evo_engine::SingleDistribution<float> legacy_base_radius_m{0.0f};
-  evo_engine::SingleDistribution<float> legacy_tip_radius_m{0.0f};
-  const bool has_legacy_base_radius = static_cast<bool>(in["needle_base_radius_m"]);
-  const bool has_legacy_tip_radius = static_cast<bool>(in["needle_tip_radius_m"]);
-  if (has_legacy_base_radius) {
-    LoadSingleDistributionWithScalarFallback(in, "needle_base_radius_m", legacy_base_radius_m);
-  }
-  if (has_legacy_tip_radius) {
-    LoadSingleDistributionWithScalarFallback(in, "needle_tip_radius_m", legacy_tip_radius_m);
-  }
-
-  if ((!has_new_cross_section_width_max || !has_new_cross_section_thickness_max) &&
-      (has_legacy_base_radius || has_legacy_tip_radius)) {
-    const float legacy_width_max_mean_m = std::max(0.0f, legacy_base_radius_m.mean) * 2.0f;
-    const float legacy_width_max_dev_m = std::max(0.0f, legacy_base_radius_m.deviation) * 2.0f;
-    const float legacy_tip_diameter_mean_m = std::max(0.0f, legacy_tip_radius_m.mean) * 2.0f;
-    const float legacy_tip_diameter_dev_m = std::max(0.0f, legacy_tip_radius_m.deviation) * 2.0f;
-    if (!has_new_cross_section_width_max) {
-      target.needle_cross_section_width_max_m.mean = legacy_width_max_mean_m;
-      target.needle_cross_section_width_max_m.deviation = legacy_width_max_dev_m;
-    }
-    if (!has_new_cross_section_thickness_max) {
-      const float fallback_thickness_mean_m =
-          (legacy_tip_diameter_mean_m > 0.0f) ? legacy_tip_diameter_mean_m : legacy_width_max_mean_m;
-      const float fallback_thickness_dev_m =
-          (legacy_tip_diameter_dev_m > 0.0f) ? legacy_tip_diameter_dev_m : legacy_width_max_dev_m;
-      target.needle_cross_section_thickness_max_m.mean = fallback_thickness_mean_m;
-      target.needle_cross_section_thickness_max_m.deviation = fallback_thickness_dev_m;
-    }
-  }
-
-  float legacy_tip_taper_ratio = 0.36f;
-  if (in["needle_simple_tip_taper_ratio"]) {
-    legacy_tip_taper_ratio = std::clamp(in["needle_simple_tip_taper_ratio"].as<float>(), 0.0f, 1.0f);
-  }
   if (!has_new_cross_section_width_profile) {
-    ConfigureNeedleCrossSectionProfileDefaults(target.needle_cross_section_width_profile, 1.0f, legacy_tip_taper_ratio);
+    ConfigureNeedleCrossSectionProfileDefaults(target.needle_cross_section_width_profile, 1.0f, 0.36f);
   }
   if (!has_new_cross_section_thickness_profile) {
-    ConfigureNeedleCrossSectionProfileDefaults(target.needle_cross_section_thickness_profile, 1.0f,
-                                               legacy_tip_taper_ratio);
+    ConfigureNeedleCrossSectionProfileDefaults(target.needle_cross_section_thickness_profile, 1.0f, 0.36f);
   }
 
   target.needle_cross_section_width_max_m.mean = std::max(0.0f, target.needle_cross_section_width_max_m.mean);
@@ -1713,70 +1893,36 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
   if (in["needle_order_min_radius_scale"]) {
     target.needle_order_min_radius_scale = std::clamp(in["needle_order_min_radius_scale"].as<float>(), 0.10f, 1.00f);
   }
-  if (in["needle_intra_year_base_ratio"]) {
-    target.needle_intra_year_base_ratio = std::clamp(in["needle_intra_year_base_ratio"].as<float>(), 0.0f, 1.0f);
+  if (in["needle_intra_year_capacity_curve"]) {
+    target.needle_intra_year_capacity_curve.Load("needle_intra_year_capacity_curve", in);
   }
-  if (in["needle_intra_year_sigmoid_steepness"]) {
-    target.needle_intra_year_sigmoid_steepness = std::max(0.01f, in["needle_intra_year_sigmoid_steepness"].as<float>());
+  target.needle_intra_year_capacity_curve.min_value =
+      std::clamp(target.needle_intra_year_capacity_curve.min_value, 0.0f, 2.0f);
+  target.needle_intra_year_capacity_curve.max_value =
+      std::clamp(target.needle_intra_year_capacity_curve.max_value, 0.0f, 2.0f);
+  if (target.needle_intra_year_capacity_curve.max_value < target.needle_intra_year_capacity_curve.min_value) {
+    std::swap(target.needle_intra_year_capacity_curve.min_value, target.needle_intra_year_capacity_curve.max_value);
   }
-  if (in["needle_intra_year_sigmoid_midpoint_fraction"]) {
-    target.needle_intra_year_sigmoid_midpoint_fraction =
-        std::clamp(in["needle_intra_year_sigmoid_midpoint_fraction"].as<float>(), 0.0f, 1.0f);
+  if (in["needle_year0_length_multiplier"]) {
+    target.needle_year0_length_multiplier = std::max(0.0f, in["needle_year0_length_multiplier"].as<float>());
   }
-  if (in["needle_intra_year_late_decay_start_fraction"]) {
-    target.needle_intra_year_late_decay_start_fraction =
-        std::clamp(in["needle_intra_year_late_decay_start_fraction"].as<float>(), 0.0f, 1.0f);
+  if (in["needle_lignification_factor_year0"]) {
+    target.needle_lignification_factor_year0 =
+        std::clamp(in["needle_lignification_factor_year0"].as<float>(), 0.0f, 2.0f);
   }
-  if (in["needle_intra_year_late_decay_end_scale"]) {
-    target.needle_intra_year_late_decay_end_scale =
-        std::clamp(in["needle_intra_year_late_decay_end_scale"].as<float>(), 0.0f, 2.0f);
+  if (in["needle_stomatal_strip_density_year0"]) {
+    target.needle_stomatal_strip_density_year0 =
+        std::clamp(in["needle_stomatal_strip_density_year0"].as<float>(), 0.0f, 1.0f);
   }
-  if (in["needle_fascicular_start_year"]) {
-    target.needle_fascicular_start_year = std::clamp(in["needle_fascicular_start_year"].as<int>(), 0, 16);
-  }
-  if (in["needle_year2plus_length_multiplier"]) {
-    target.needle_year2plus_length_multiplier = std::max(0.0f, in["needle_year2plus_length_multiplier"].as<float>());
-  }
-  if (in["needle_year2plus_width_multiplier"]) {
-    target.needle_year2plus_width_multiplier = std::max(0.0f, in["needle_year2plus_width_multiplier"].as<float>());
-  }
-  if (in["needle_year2plus_thickness_multiplier"]) {
-    target.needle_year2plus_thickness_multiplier =
-        std::max(0.0f, in["needle_year2plus_thickness_multiplier"].as<float>());
-  }
-  if (in["needle_lignification_factor_year1"]) {
-    target.needle_lignification_factor_year1 =
-        std::clamp(in["needle_lignification_factor_year1"].as<float>(), 0.0f, 2.0f);
-  }
-  if (in["needle_lignification_factor_year2plus"]) {
-    target.needle_lignification_factor_year2plus =
-        std::clamp(in["needle_lignification_factor_year2plus"].as<float>(), 0.0f, 2.0f);
-  }
-  if (in["needle_stomatal_strip_density_year1"]) {
-    target.needle_stomatal_strip_density_year1 =
-        std::clamp(in["needle_stomatal_strip_density_year1"].as<float>(), 0.0f, 1.0f);
-  }
-  if (in["needle_stomatal_strip_density_year2plus"]) {
-    target.needle_stomatal_strip_density_year2plus =
-        std::clamp(in["needle_stomatal_strip_density_year2plus"].as<float>(), 0.0f, 1.0f);
-  }
-  if (in["needle_basal_taper_ratio_year1"]) {
-    target.needle_basal_taper_ratio_year1 = std::clamp(in["needle_basal_taper_ratio_year1"].as<float>(), 0.6f, 1.2f);
-  }
-  if (in["needle_basal_taper_ratio_year2plus"]) {
-    target.needle_basal_taper_ratio_year2plus =
-        std::clamp(in["needle_basal_taper_ratio_year2plus"].as<float>(), 0.6f, 1.2f);
+  if (in["needle_basal_taper_ratio_year0"]) {
+    target.needle_basal_taper_ratio_year0 = std::clamp(in["needle_basal_taper_ratio_year0"].as<float>(), 0.6f, 1.2f);
   }
   if (in["needle_fascicle_sheath_budget_gdd"]) {
     target.needle_fascicle_sheath_budget_gdd = std::max(0.0f, in["needle_fascicle_sheath_budget_gdd"].as<float>());
   }
-  if (in["needle_specularity_plasticity_year1"]) {
-    target.needle_specularity_plasticity_year1 =
-        std::clamp(in["needle_specularity_plasticity_year1"].as<float>(), 0.0f, 1.0f);
-  }
-  if (in["needle_specularity_plasticity_year2plus"]) {
-    target.needle_specularity_plasticity_year2plus =
-        std::clamp(in["needle_specularity_plasticity_year2plus"].as<float>(), 0.0f, 1.0f);
+  if (in["needle_specularity_plasticity_year0"]) {
+    target.needle_specularity_plasticity_year0 =
+        std::clamp(in["needle_specularity_plasticity_year0"].as<float>(), 0.0f, 1.0f);
   }
   if (in["needle_bud_storage_vigor_strength"]) {
     target.needle_bud_storage_vigor_strength =
@@ -1786,15 +1932,18 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
     target.needle_bud_storage_completion_floor =
         std::clamp(in["needle_bud_storage_completion_floor"].as<float>(), 0.0f, 1.0f);
   }
-  if (in["needle_radius_to_stem_thickness_max_ratio"]) {
-    target.needle_radius_to_stem_thickness_max_ratio =
-        std::clamp(in["needle_radius_to_stem_thickness_max_ratio"].as<float>(), 0.0f, 4.0f);
+  if (in["needle_tip_color_mix_start"]) {
+    target.needle_tip_color_mix_start = std::clamp(in["needle_tip_color_mix_start"].as<float>(), 0.0f, 1.0f);
   }
-  if (in["needle_color_rgba"]) {
-    target.needle_color_rgba = in["needle_color_rgba"].as<glm::vec4>();
+  if (in["needle_tip_color_exponent"]) {
+    target.needle_tip_color_exponent = std::clamp(in["needle_tip_color_exponent"].as<float>(), 0.1f, 6.0f);
   }
-  if (in["needle_old_color_rgba"]) {
-    target.needle_old_color_rgba = in["needle_old_color_rgba"].as<glm::vec4>();
+  if (in["needle_old_thinning_fraction"]) {
+    target.needle_old_thinning_fraction = std::clamp(in["needle_old_thinning_fraction"].as<float>(), 0.0f, 0.95f);
+  }
+  if (in["needle_min_strand_thickness_m"]) {
+    target.needle_min_strand_thickness_m =
+        std::clamp(in["needle_min_strand_thickness_m"].as<float>(), 0.000001f, 0.002f);
   }
   if (in["needle_axial_age_span"]) {
     target.needle_axial_age_span = std::clamp(in["needle_axial_age_span"].as<float>(), -1.0f, 1.0f);
@@ -1802,6 +1951,118 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
   if (in["needle_axial_age_exponent"]) {
     target.needle_axial_age_exponent = std::clamp(in["needle_axial_age_exponent"].as<float>(), 0.1f, 4.0f);
   }
+
+  if (in["material_profile_version"]) {
+    target.material_profile_version = std::max(1, in["material_profile_version"].as<int>());
+  }
+  if (in["material_profile_source"]) {
+    target.material_profile_source = in["material_profile_source"].as<std::string>();
+  }
+  if (in["material_profile_hash"]) {
+    target.material_profile_hash = in["material_profile_hash"].as<std::string>();
+  }
+  if (in["biological_material_model_strength"]) {
+    target.biological_material_model_strength = in["biological_material_model_strength"].as<float>();
+  }
+  if (in["biological_chlorophyll_scale"]) {
+    target.biological_chlorophyll_scale = in["biological_chlorophyll_scale"].as<float>();
+  }
+  if (in["biological_carotenoid_gold_scale"]) {
+    target.biological_carotenoid_gold_scale = in["biological_carotenoid_gold_scale"].as<float>();
+  }
+  if (in["biological_lignin_bark_scale"]) {
+    target.biological_lignin_bark_scale = in["biological_lignin_bark_scale"].as<float>();
+  }
+  if (in["biological_senescence_bias"]) {
+    target.biological_senescence_bias = in["biological_senescence_bias"].as<float>();
+  }
+  if (in["biological_cuticle_wax"]) {
+    target.biological_cuticle_wax = in["biological_cuticle_wax"].as<float>();
+  }
+  if (in["biological_individual_variation"]) {
+    target.biological_individual_variation = in["biological_individual_variation"].as<float>();
+  }
+  if (in["biological_facet_contrast"]) {
+    target.biological_facet_contrast = in["biological_facet_contrast"].as<float>();
+  }
+  if (in["biological_tip_darkening_strength"]) {
+    target.biological_tip_darkening_strength = in["biological_tip_darkening_strength"].as<float>();
+  }
+  if (in["biological_stem_age_browning_scale"]) {
+    target.biological_stem_age_browning_scale = in["biological_stem_age_browning_scale"].as<float>();
+  }
+  if (in["young_needle_palette_rgba"]) {
+    target.young_needle_palette_rgba = in["young_needle_palette_rgba"].as<glm::vec4>();
+  }
+  if (in["older_needle_palette_rgba"]) {
+    target.older_needle_palette_rgba = in["older_needle_palette_rgba"].as<glm::vec4>();
+  }
+  if (in["dry_brown_needle_palette_rgba"]) {
+    target.dry_brown_needle_palette_rgba = in["dry_brown_needle_palette_rgba"].as<glm::vec4>();
+  }
+  if (in["main_stem_palette_rgba"]) {
+    target.main_stem_palette_rgba = in["main_stem_palette_rgba"].as<glm::vec4>();
+  }
+  if (in["mature_bark_stem_palette_rgba"]) {
+    target.mature_bark_stem_palette_rgba = in["mature_bark_stem_palette_rgba"].as<glm::vec4>();
+  }
+  if (in["node_sheath_brown_palette_rgba"]) {
+    target.node_sheath_brown_palette_rgba = in["node_sheath_brown_palette_rgba"].as<glm::vec4>();
+  }
+  if (in["fascicle_sheath_palette_rgba"]) {
+    target.fascicle_sheath_palette_rgba = in["fascicle_sheath_palette_rgba"].as<glm::vec4>();
+  } else {
+    target.fascicle_sheath_palette_rgba = target.node_sheath_brown_palette_rgba;
+  }
+  if (in["needle_axial_color_curve"]) {
+    target.needle_axial_color_curve.Load("needle_axial_color_curve", in);
+  }
+  if (in["needle_y_age_color_curve"]) {
+    target.needle_y_age_color_curve.Load("needle_y_age_color_curve", in);
+  }
+  if (in["stem_age_gradient_curve"]) {
+    target.stem_age_gradient_curve.Load("stem_age_gradient_curve", in);
+  }
+  if (in["needle_micro_variation"]) {
+    target.needle_micro_variation = in["needle_micro_variation"].as<float>();
+  }
+  if (in["stem_micro_variation"]) {
+    target.stem_micro_variation = in["stem_micro_variation"].as<float>();
+  }
+  if (in["young_needle_roughness"]) {
+    target.young_needle_roughness = in["young_needle_roughness"].as<float>();
+  }
+  if (in["old_needle_roughness"]) {
+    target.old_needle_roughness = in["old_needle_roughness"].as<float>();
+  }
+  if (in["young_needle_specular"]) {
+    target.young_needle_specular = in["young_needle_specular"].as<float>();
+  }
+  if (in["old_needle_specular"]) {
+    target.old_needle_specular = in["old_needle_specular"].as<float>();
+  }
+  if (in["stem_roughness"]) {
+    target.stem_roughness = in["stem_roughness"].as<float>();
+  }
+  if (in["stem_specular"]) {
+    target.stem_specular = in["stem_specular"].as<float>();
+  }
+  if (in["node_browning_strength"]) {
+    target.node_browning_strength = in["node_browning_strength"].as<float>();
+  }
+  if (in["sheath_browning_strength"]) {
+    target.sheath_browning_strength = in["sheath_browning_strength"].as<float>();
+  }
+  if (in["node_browning_radius_norm"]) {
+    target.node_browning_radius_norm = in["node_browning_radius_norm"].as<float>();
+  }
+  if (in["needle_twist_turns"]) {
+    target.needle_twist_turns = in["needle_twist_turns"].as<float>();
+  }
+  if (in["needle_edge_darkening"]) {
+    target.needle_edge_darkening = in["needle_edge_darkening"].as<float>();
+  }
+  ClampMaterialModel(target);
 
   LoadSingleDistributionWithScalarFallback(in, "needle_curvature_adaxial_bias", target.needle_curvature_adaxial_bias);
   LoadSingleDistributionWithScalarFallback(in, "needle_curvature_abaxial_bias", target.needle_curvature_abaxial_bias);
@@ -1839,15 +2100,9 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
 
   LoadSingleDistributionWithScalarFallback(in, "target_gdd", target.target_gdd);
   LoadSingleDistributionWithScalarFallback(in, "gdd_per_day", target.gdd_per_day);
-  LoadSingleDistributionWithScalarFallback(in, "growing_season_start_day", target.growing_season_start_day);
-  LoadSingleDistributionWithScalarFallback(in, "growing_season_end_day", target.growing_season_end_day);
 
   target.gdd_per_day.mean = std::max(0.0f, target.gdd_per_day.mean);
   target.gdd_per_day.deviation = std::max(0.0f, target.gdd_per_day.deviation);
-  target.growing_season_start_day.mean = std::clamp(target.growing_season_start_day.mean, 0.0f, 365.0f);
-  target.growing_season_start_day.deviation = std::max(0.0f, std::round(target.growing_season_start_day.deviation));
-  target.growing_season_end_day.mean = std::clamp(target.growing_season_end_day.mean, 0.0f, 365.0f);
-  target.growing_season_end_day.deviation = std::max(0.0f, std::round(target.growing_season_end_day.deviation));
 
   LoadSingleDistributionWithScalarFallback(in, "internode_length_per_node_cv", target.internode_length_per_node_cv);
   LoadSingleDistributionWithScalarFallback(in, "internode_thickness_per_node_cv",
@@ -1878,24 +2133,6 @@ void l_system_package::DeserializeScotsPineDescriptor(const YAML::Node& in, Scot
   if (in["triangle_side_length"])
     target.triangle_side_length = in["triangle_side_length"].as<float>();
 
-  target.tropisms.clear();
-  if (in["tropism_count"]) {
-    const int count = std::max(0, in["tropism_count"].as<int>());
-    target.tropisms.reserve(count);
-    for (int i = 0; i < count; ++i) {
-      const std::string prefix = "tropism_" + std::to_string(i) + "_";
-      TropismEntry entry;
-      LoadSingleDistributionWithScalarFallback(in, (prefix + "dir_x").c_str(), entry.direction_x);
-      LoadSingleDistributionWithScalarFallback(in, (prefix + "dir_y").c_str(), entry.direction_y);
-      LoadSingleDistributionWithScalarFallback(in, (prefix + "dir_z").c_str(), entry.direction_z);
-      LoadSingleDistributionWithScalarFallback(in, (prefix + "strength").c_str(), entry.strength);
-      const std::string usage_key = prefix + "usage_chance_percent";
-      if (in[usage_key])
-        entry.usage_chance_percent = in[usage_key].as<float>();
-      entry.order_response.Load(prefix + "order_response", in);
-      target.tropisms.emplace_back(std::move(entry));
-    }
-  }
 }
 
 // ===========================================================================
@@ -1911,29 +2148,34 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
                      12.0f);
 
   // -- Whorl architecture --
-  explorer.AddSingle("branches_per_whorl", "BPW", d.branches_per_whorl, 0.0f, 10.0f, 5.0f);
+  explorer.AddSingle("annual_whorl_probability", "AWP", d.annual_whorl_probability, 0.0f, 1.0f, 0.22f);
+  explorer.AddSingle("whorl_position_norm", "WPN", d.whorl_position_norm, 0.75f, 1.0f, 0.92f);
+  explorer.AddSingle("branches_per_whorl", "BPW", d.branches_per_whorl, 1.0f, 5.0f, 2.0f);
   explorer.AddSingle("whorl_dormancy_years", "WDY", d.whorl_dormancy_years, 0.0f, 4.0f, 1.0f);
   explorer.AddSingle("branch_insertion_angle_deg", "BIA", d.branch_insertion_angle_deg, -85.0f, 85.0f, 60.0f);
   explorer.AddSingle("branch_roll_phyllotaxis_deg", "BRP", d.branch_roll_phyllotaxis_deg, 0.0f, 360.0f, 137.5f);
 
   // -- Phytomer dimensions --
   explorer.AddSingle("internode_length_m", "ILM", d.internode_length_m, 0.0001f, 0.500f, 0.012f);
-  explorer.AddSingle("main_stem_width_m", "MSW", d.leader_internode_thickness_m, 0.0001f, 0.0500f, 0.0030f);
+  explorer.AddSingle("leader_internode_thickness_m", "LIT", d.leader_internode_thickness_m, 0.0001f, 0.0500f,
+                     0.0030f);
   explorer.AddSingle("lateral_length_ratio", "LLR", d.lateral_length_ratio, 0.1f, 1.5f, 0.7f);
   explorer.AddSingle("lateral_thickness_ratio", "LTR", d.lateral_thickness_ratio, 0.1f, 1.5f, 0.6f);
 
   // -- Needles --
   explorer.AddSingle("bare_zone_fraction", "BZF", d.bare_zone_fraction, 0.0f, 0.95f, 0.0f);
   explorer.AddSingle("needle_count_per_cluster", "NCC", d.needle_count_per_cluster, 1.0f, 6.0f, 2.0f);
+  explorer.AddSingle("fascicle_sheath_length_m", "FSL", d.fascicle_sheath_length_m, 0.0005f, 0.030f, 0.006f);
+  explorer.AddSingle("fascicle_sheath_width_m", "FSW", d.fascicle_sheath_width_m, 0.0002f, 0.010f, 0.0012f);
   {
     auto* value_ptr = &d.needle_segment_count;
     explorer.AddAxis(
-        "needle_segment_count", "NSG", 3.0f, 128.0f,
+        "needle_segment_count", "NSG", 1.0f, 128.0f,
         [value_ptr]() {
           return static_cast<float>(*value_ptr);
         },
         [value_ptr](float value) {
-          *value_ptr = std::clamp(static_cast<int>(std::round(value)), 3, 128);
+          *value_ptr = std::clamp(static_cast<int>(std::round(value)), 1, 128);
         });
   }
   explorer.AddSingle("needle_length_m", "NLM", d.needle_length_m, 0.001f, 0.200f, 0.025f);
@@ -1942,7 +2184,7 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
   explorer.AddSingle("needle_flush_delay_gdd", "NFD", d.needle_flush_delay_gdd, 0.0f, 3000.0f, 0.0f);
   explorer.AddSingle("internode_maturation_gdd", "IMG", d.internode_maturation_gdd, 0.0f, 3000.0f, 60.0f);
   explorer.AddSingle("needle_maturation_gdd", "NMG", d.needle_maturation_gdd, 0.0f, 6000.0f, 120.0f);
-  explorer.AddSingle("needle_branching_angle_deg", "NBA", d.needle_branching_angle_deg, 0.0f, 89.5f, 72.0f);
+  explorer.AddSingle("needle_branching_angle_deg", "NBA", d.needle_branching_angle_deg, 0.0f, 179.5f, 72.0f);
   explorer.AddSingle("needle_branching_relax_gdd", "NRG", d.needle_branching_relax_gdd, 0.0f, 6000.0f, 220.0f);
   explorer.AddPlotted("internode_length_maturity_curve", "ILC", d.internode_length_maturity_curve);
   explorer.AddPlotted("internode_width_maturity_curve", "IWC", d.internode_width_maturity_curve);
@@ -1956,53 +2198,9 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
   explorer.AddPlotted("needle_cross_section_temporal_maturity_curve", "NTM",
                       d.needle_cross_section_temporal_maturity_curve);
   {
-    auto* value_ptr = &d.needle_intra_year_base_ratio;
+    auto* value_ptr = &d.needle_intra_year_capacity_curve.min_value;
     explorer.AddAxis(
-        "needle_intra_year_base_ratio", "NIB", 0.0f, 1.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.0f, 1.0f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_intra_year_sigmoid_steepness;
-    explorer.AddAxis(
-        "needle_intra_year_sigmoid_steepness", "NIS", 0.01f, 32.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::max(0.01f, value);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_intra_year_sigmoid_midpoint_fraction;
-    explorer.AddAxis(
-        "needle_intra_year_sigmoid_midpoint_fraction", "NIM", 0.0f, 1.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.0f, 1.0f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_intra_year_late_decay_start_fraction;
-    explorer.AddAxis(
-        "needle_intra_year_late_decay_start_fraction", "NDS", 0.0f, 1.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.0f, 1.0f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_intra_year_late_decay_end_scale;
-    explorer.AddAxis(
-        "needle_intra_year_late_decay_end_scale", "NDE", 0.0f, 2.0f,
+        "needle_intra_year_capacity_curve.min", "NICm", 0.0f, 2.0f,
         [value_ptr]() {
           return *value_ptr;
         },
@@ -2011,20 +2209,21 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
         });
   }
   {
-    auto* value_ptr = &d.needle_fascicular_start_year;
+    auto* value_ptr = &d.needle_intra_year_capacity_curve.max_value;
     explorer.AddAxis(
-        "needle_fascicular_start_year", "NFY", 0.0f, 16.0f,
+        "needle_intra_year_capacity_curve.max", "NICx", 0.0f, 2.0f,
         [value_ptr]() {
-          return static_cast<float>(*value_ptr);
+          return *value_ptr;
         },
         [value_ptr](float value) {
-          *value_ptr = std::clamp(static_cast<int>(std::round(value)), 0, 16);
+          *value_ptr = std::clamp(value, 0.0f, 2.0f);
         });
   }
+  explorer.AddCurve("needle_intra_year_capacity_curve.curve", "NIC", d.needle_intra_year_capacity_curve.curve);
   {
-    auto* value_ptr = &d.needle_year2plus_length_multiplier;
+    auto* value_ptr = &d.needle_year0_length_multiplier;
     explorer.AddAxis(
-        "needle_year2plus_length_multiplier", "N2L", 0.0f, 8.0f,
+        "needle_year0_length_multiplier", "N0L", 0.0f, 8.0f,
         [value_ptr]() {
           return *value_ptr;
         },
@@ -2033,31 +2232,9 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
         });
   }
   {
-    auto* value_ptr = &d.needle_year2plus_width_multiplier;
+    auto* value_ptr = &d.needle_lignification_factor_year0;
     explorer.AddAxis(
-        "needle_year2plus_width_multiplier", "N2W", 0.0f, 8.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::max(0.0f, value);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_year2plus_thickness_multiplier;
-    explorer.AddAxis(
-        "needle_year2plus_thickness_multiplier", "N2T", 0.0f, 8.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::max(0.0f, value);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_lignification_factor_year1;
-    explorer.AddAxis(
-        "needle_lignification_factor_year1", "NL1", 0.0f, 2.0f,
+        "needle_lignification_factor_year0", "NL0", 0.0f, 2.0f,
         [value_ptr]() {
           return *value_ptr;
         },
@@ -2066,20 +2243,9 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
         });
   }
   {
-    auto* value_ptr = &d.needle_lignification_factor_year2plus;
+    auto* value_ptr = &d.needle_stomatal_strip_density_year0;
     explorer.AddAxis(
-        "needle_lignification_factor_year2plus", "NL2", 0.0f, 2.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.0f, 2.0f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_stomatal_strip_density_year1;
-    explorer.AddAxis(
-        "needle_stomatal_strip_density_year1", "NS1", 0.0f, 1.0f,
+        "needle_stomatal_strip_density_year0", "NS0", 0.0f, 1.0f,
         [value_ptr]() {
           return *value_ptr;
         },
@@ -2088,31 +2254,9 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
         });
   }
   {
-    auto* value_ptr = &d.needle_stomatal_strip_density_year2plus;
+    auto* value_ptr = &d.needle_basal_taper_ratio_year0;
     explorer.AddAxis(
-        "needle_stomatal_strip_density_year2plus", "NS2", 0.0f, 1.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.0f, 1.0f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_basal_taper_ratio_year1;
-    explorer.AddAxis(
-        "needle_basal_taper_ratio_year1", "NB1", 0.6f, 1.2f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.6f, 1.2f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_basal_taper_ratio_year2plus;
-    explorer.AddAxis(
-        "needle_basal_taper_ratio_year2plus", "NB2", 0.6f, 1.2f,
+        "needle_basal_taper_ratio_year0", "NB0", 0.6f, 1.2f,
         [value_ptr]() {
           return *value_ptr;
         },
@@ -2132,20 +2276,9 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
         });
   }
   {
-    auto* value_ptr = &d.needle_specularity_plasticity_year1;
+    auto* value_ptr = &d.needle_specularity_plasticity_year0;
     explorer.AddAxis(
-        "needle_specularity_plasticity_year1", "NP1", 0.0f, 1.0f,
-        [value_ptr]() {
-          return *value_ptr;
-        },
-        [value_ptr](float value) {
-          *value_ptr = std::clamp(value, 0.0f, 1.0f);
-        });
-  }
-  {
-    auto* value_ptr = &d.needle_specularity_plasticity_year2plus;
-    explorer.AddAxis(
-        "needle_specularity_plasticity_year2plus", "NP2", 0.0f, 1.0f,
+        "needle_specularity_plasticity_year0", "NP0", 0.0f, 1.0f,
         [value_ptr]() {
           return *value_ptr;
         },
@@ -2192,20 +2325,6 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
   explorer.AddSingle("needle_young_modulus_baseline_Pa", "YMB", d.needle_young_modulus_baseline_Pa, 0.0f, 5e9f, 1e9f);
   explorer.AddSingle("needle_lignification_maturation_years", "LMY", d.needle_lignification_maturation_years, 0.0f,
                      5.0f, 1.0f);
-  // Width cap exposed as a sweepable axis. Default 0.45 = legacy behavior.
-  // Note: this is a plain scalar field; AddAxis is used so the explorer can
-  // read/write it directly without needing a SingleDistribution wrapper.
-  {
-    auto* ratio_ptr = &d.needle_radius_to_stem_thickness_max_ratio;
-    explorer.AddAxis(
-        "needle_radius_to_stem_thickness_max_ratio", "NRC", 0.0f, 4.0f,
-        [ratio_ptr]() {
-          return *ratio_ptr;
-        },
-        [ratio_ptr](float v) {
-          *ratio_ptr = std::clamp(v, 0.0f, 4.0f);
-        });
-  }
   explorer.AddSingle("needle_density_kg_m3", "NDK", d.needle_density_kg_m3, 0.0f, 2000.0f, 800.0f);
   explorer.AddSingle("gravity_m_s2", "GRV", d.gravity_m_s2, 0.0f, 25.0f, 9.81f);
   explorer.AddSingle("needle_per_needle_length_cv", "NLC", d.needle_per_needle_length_cv, 0.0f, 1.0f, 0.0f);
@@ -2226,8 +2345,6 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
   // -- Per-instance growth target --
   explorer.AddSingle("target_gdd", "TGD", d.target_gdd, 0.0f, 30000.0f, 6000.0f);
   explorer.AddSingle("gdd_per_day", "GPD", d.gdd_per_day, 0.0f, 50.0f, 2.0f);
-  explorer.AddSingle("growing_season_start_day", "GSS", d.growing_season_start_day, 0.0f, 365.0f, 60.0f);
-  explorer.AddSingle("growing_season_end_day", "GSE", d.growing_season_end_day, 0.0f, 365.0f, 334.0f);
 
   // -- Per-shoot stochastic noise --
   explorer.AddSingle("internode_length_per_node_cv", "ILC", d.internode_length_per_node_cv, 0.0f, 1.0f, 0.1f);
@@ -2236,27 +2353,4 @@ void ScotsPineDescriptor::RegisterExplorableAxes(ParamSpaceExplorer& explorer) {
   explorer.AddSingle("roll_phyllotaxis_per_node_sigma_deg", "RPS", d.roll_phyllotaxis_per_node_sigma_deg, 0.0f, 30.0f,
                      5.0f);
 
-  // -- Dynamic tropism dimensions --
-  for (size_t i = 0; i < d.tropisms.size(); i++) {
-    auto& tropism = d.tropisms[i];
-    const std::string p = "tropism[" + std::to_string(i) + "]";
-    const std::string s = "T" + std::to_string(i);
-
-    explorer.AddSingle(p + ".direction_x", s + "X", tropism.direction_x, -1.0f, 1.0f, 1.0f);
-    explorer.AddSingle(p + ".direction_y", s + "Y", tropism.direction_y, -1.0f, 1.0f, 1.0f);
-    explorer.AddSingle(p + ".direction_z", s + "Z", tropism.direction_z, -1.0f, 1.0f, 1.0f);
-    explorer.AddSingle(p + ".strength", s + "S", tropism.strength, -5.0f, 5.0f, 5.0f);
-
-    auto* tropism_ptr = &d.tropisms[i];
-    explorer.AddAxis(
-        p + ".usage_chance_percent", s + "U", 0.0f, 100.0f,
-        [tropism_ptr]() {
-          return tropism_ptr->usage_chance_percent;
-        },
-        [tropism_ptr](float v) {
-          tropism_ptr->usage_chance_percent = std::clamp(v, 0.0f, 100.0f);
-        });
-
-    explorer.AddPlotted(p + ".order_response", s + "O", tropism.order_response);
-  }
 }

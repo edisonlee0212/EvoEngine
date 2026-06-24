@@ -13,6 +13,7 @@ layout (location = 0) in VS_OUT {
 layout(set = EE_PER_PASS_SET, binding = 17) uniform sampler2D inDepth;
 layout(set = EE_PER_PASS_SET, binding = 18) uniform sampler2D inNormal;
 layout(set = EE_PER_PASS_SET, binding = 19) uniform sampler2D inMaterial;
+layout(set = EE_PER_PASS_SET, binding = 20) uniform sampler2D inAlbedo;
 
 layout (location = 0) out vec4 FragColor;
 
@@ -36,7 +37,7 @@ void main()
     vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
     vec3 skyColor       = EE_SKY_COLOR(fragPos - cameraPosition);
 
-    // Precompute texel offset once; used in both “sky” and “solid” paths
+    // Precompute texel offset once; used in both sky and solid paths
     vec2 texelSize  = vec2(textureSize(inMaterial, 0));
     vec2 texOffset  = 1.0 / texelSize;
 
@@ -86,7 +87,7 @@ void main()
 	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, materialTexCoord, vec4(materialProperties.metallic, 0, 0, 0)).r;
 	float emission = materialProperties.emission;
 	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, materialTexCoord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, materialTexCoord, materialProperties.albedo);
+	vec4 albedo = texture(inAlbedo, fs_in.TexCoord).rgba;
 
     // --------------------------------------------------------------------
     // Debug visualization (branchless override, but keeps default behavior)

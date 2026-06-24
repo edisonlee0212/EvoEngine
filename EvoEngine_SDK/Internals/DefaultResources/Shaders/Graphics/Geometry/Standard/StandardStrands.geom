@@ -4,7 +4,7 @@
 #include "Basic.glsl"
 
 layout(lines, invocations = 1) in;
-layout(triangle_strip, max_vertices = 68) out;
+layout(triangle_strip, max_vertices = 64) out;
 
 layout (location = 0) in TES_OUT {
 	vec3 FragPos;
@@ -12,6 +12,8 @@ layout (location = 0) in TES_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	float TexCoord;
+	vec4 Color;
+	vec4 ProfileProperties;
 } tes_in[];
 
 layout (location = 0) out VS_OUT {
@@ -23,8 +25,8 @@ layout (location = 0) out VS_OUT {
 
 const float PI2 = 6.28318531;
 
-layout(location = 5) in uint currentInstanceIndexIn[];
-layout(location = 5) out uint currentInstanceIndexOut;
+layout(location = 7) in flat uint currentInstanceIndexIn[];
+layout(location = 5) out flat uint currentInstanceIndexOut;
 
 void main(){
 	
@@ -32,6 +34,7 @@ void main(){
 	uint instanceIndex = currentInstanceIndexIn[0];
 	mat4 model = EE_INSTANCES[instanceIndex].model;
 	mat4 inverseModel = inverse(model);
+	bool vertexColorOnly = EE_MATERIAL_PROPERTIES[EE_INSTANCES[instanceIndex].material_index].sss_c.w > 0.5;
 	
 	for(int i = 0; i < tes_in.length() - 1; ++i)
 	{
@@ -50,44 +53,55 @@ void main(){
 
 		float thickS = tes_in[i].Thickness;
 		float thickT = tes_in[i + 1].Thickness;
-
+		vec4 profileS = tes_in[i].ProfileProperties;
+		vec4 profileT = tes_in[i + 1].ProfileProperties;
 		//Computing
-		vec3 v11 = normalize(vS);        
-		vec3 v12 = normalize(cross(vS, tS));
+		vec3 v11 = EE_SAFE_NORMALIZE(vS, vec3(0.0, 1.0, 0.0));
+		vec3 v12 = EE_STRANDS_SIDE_VECTOR(v11, tS);
 	 
-		vec3 v21 = normalize(vT);
-		vec3 v22 = normalize(cross(vT, tT)); 
+		vec3 v21 = EE_SAFE_NORMALIZE(vT, v11);
+		vec3 v22 = EE_STRANDS_SIDE_VECTOR(v21, tT);
 
-		int ringAmountS = EE_STRANDS_RING_SUBDIVISION(model, worldPosS, modelPosS, thickS);
-		int ringAmountT = EE_STRANDS_RING_SUBDIVISION(model, worldPosT, modelPosT, thickT);
-		int maxRingAmount = max(ringAmountS, ringAmountT);
+		float radiusS = EE_STRAND_PROFILE_EFFECTIVE_RADIUS(profileS, thickS);
+		float radiusT = EE_STRAND_PROFILE_EFFECTIVE_RADIUS(profileT, thickT);
+		int ringAmountS = EE_STRANDS_RING_SUBDIVISION(model, worldPosS, modelPosS, radiusS);
+		int ringAmountT = EE_STRANDS_RING_SUBDIVISION(model, worldPosT, modelPosT, radiusT);
+		int maxRingAmount = min(max(ringAmountS, ringAmountT), 31);
 		for(int k = 0; k <= maxRingAmount; k += 1)
 		{
 			
 			int tempIS = int(k * ringAmountS / maxRingAmount);
-			float angleS = PI2 / ringAmountS * tempIS;
+			float profileUS = 1.0 * tempIS / ringAmountS;
 
 			int tempIT = int(k * ringAmountT / maxRingAmount);
-			float angleT = PI2 / ringAmountT * tempIT;
+			float profileUT = 1.0 * tempIT / ringAmountT;
 
-			vec3 newPS = vec3(model * vec4(modelPosS.xyz + (v11 * sin(-angleS) + v12 * cos(-angleS)) * thickS, 1.0));
-			vec3 newPT = vec3(model * vec4(modelPosT.xyz + (v21 * sin(-angleT) + v22 * cos(-angleT)) * thickT, 1.0));
+			vec2 localOffsetS = EE_STRAND_PROFILE_OFFSET(profileS, thickS, profileUS);
+			vec2 localOffsetT = EE_STRAND_PROFILE_OFFSET(profileT, thickT, profileUT);
+			vec2 localNormalS = EE_STRAND_PROFILE_NORMAL(profileS, profileUS);
+			vec2 localNormalT = EE_STRAND_PROFILE_NORMAL(profileT, profileUT);
+			vec3 offsetS = v12 * localOffsetS.x + v11 * localOffsetS.y;
+			vec3 offsetT = v22 * localOffsetT.x + v21 * localOffsetT.y;
+			vec3 profileNormalS = EE_SAFE_NORMALIZE(v12 * localNormalS.x + v11 * localNormalS.y, v11);
+			vec3 profileNormalT = EE_SAFE_NORMALIZE(v22 * localNormalT.x + v21 * localNormalT.y, v21);
+			vec3 newPS = vec3(model * vec4(modelPosS.xyz + offsetS, 1.0));
+			vec3 newPT = vec3(model * vec4(modelPosT.xyz + offsetT, 1.0));
 
 			//Source Vertex
 			currentInstanceIndexOut = instanceIndex;
 			gs_out.FragPos = newPS;
-			gs_out.Normal = normalize(newPS - worldPosS);
-			gs_out.Tangent = tS;
-			gs_out.TexCoord = vec2(1.0 * tempIS / ringAmountS, tes_in[i].TexCoord);
+			gs_out.Normal = profileNormalS;
+			gs_out.Tangent = vertexColorOnly ? tes_in[i].Color.rgb : tS;
+			gs_out.TexCoord = vec2(profileUS, tes_in[i].TexCoord);
 			gl_Position = cameraProjectionView * vec4(newPS, 1);
 			EmitVertex();
 
 			//Target Vertex
 			currentInstanceIndexOut = instanceIndex;
 			gs_out.FragPos = newPT;
-			gs_out.Normal = normalize(newPT - worldPosT);
-			gs_out.Tangent = tT;
-			gs_out.TexCoord = vec2(1.0 * tempIT / ringAmountT, tes_in[i + 1].TexCoord);
+			gs_out.Normal = profileNormalT;
+			gs_out.Tangent = vertexColorOnly ? tes_in[i + 1].Color.rgb : tT;
+			gs_out.TexCoord = vec2(profileUT, tes_in[i + 1].TexCoord);
 			gl_Position = cameraProjectionView * vec4(newPT, 1);
 			EmitVertex();
 		}

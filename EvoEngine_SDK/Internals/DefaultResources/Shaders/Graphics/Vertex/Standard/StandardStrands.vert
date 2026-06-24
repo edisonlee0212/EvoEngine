@@ -11,6 +11,7 @@ layout (location = 1) in float inThickness;
 layout (location = 2) in vec3 inNormal;
 layout (location = 3) in float inTexCoord;
 layout (location = 4) in vec4 inColor;
+layout (location = 5) in vec4 inProfileProperties;
 
 
 layout(location = 0) out VS_OUT {
@@ -18,9 +19,11 @@ layout(location = 0) out VS_OUT {
 	float Thickness;
 	vec3 Normal;
 	float TexCoord;
+	vec4 Color;
+	vec4 ProfileProperties;
 } vs_out;
 
-layout(location = 5) out flat uint currentInstanceIndex;
+layout(location = 6) out flat uint currentInstanceIndex;
 
 void main()
 {
@@ -28,5 +31,7 @@ void main()
 	vs_out.FragPos = vec3(EE_INSTANCES[currentInstanceIndex].model * vec4(inPosition, 1.0));
 	vs_out.Thickness = inThickness;
 	vs_out.TexCoord = inTexCoord;
-	vs_out.Normal = vec3(EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(inNormal, 0.0));
+	vs_out.Normal = vec3(EE_INSTANCES[currentInstanceIndex].model * vec4(inNormal, 0.0));
+	vs_out.Color = clamp(inColor, vec4(0.0), vec4(1.0));
+	vs_out.ProfileProperties = inProfileProperties;
 }

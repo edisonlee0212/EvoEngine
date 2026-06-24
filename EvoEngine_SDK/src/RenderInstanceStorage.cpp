@@ -528,7 +528,8 @@ void RenderInstanceStorage::MaterialInfoBlock::Apply(const std::shared_ptr<Mater
     ao_texture_index = -1;
   }
   cast_shadow = true;
-  subsurface_color = {target_material->material_properties.subsurface_color, 0.0f};
+  subsurface_color = {target_material->material_properties.subsurface_color,
+                      target_material->vertex_color_only ? 1.0f : 0.0f};
   subsurface_radius = {target_material->material_properties.subsurface_radius, 0.0f};
   albedo_color_val = glm::vec4(
       target_material->material_properties.albedo_color,

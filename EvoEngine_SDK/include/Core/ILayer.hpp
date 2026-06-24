@@ -2,8 +2,15 @@
 #pragma once
 #include "Input.hpp"
 
+namespace YAML {
+class Emitter;
+class Node;
+}  // namespace YAML
+
 namespace evo_engine {
 class Application;
+struct Bound;
+struct Entity;
 
 /**
  * @class Scene
@@ -136,6 +143,28 @@ class ILayer {
    * @return A string representing the name of the layer.
    */
   [[nodiscard]] std::string GetLayerName() const;
+
+  [[nodiscard]] virtual bool SupportsProjectStateSerialization() const {
+    return false;
+  }
+
+  virtual void SerializeProjectState(YAML::Emitter&) const {
+  }
+
+  virtual void DeserializeProjectState(const YAML::Node&) {
+  }
+
+  [[nodiscard]] virtual bool SupportsLayerAutomationMode(const std::string&) const {
+    return false;
+  }
+
+  virtual int RunLayerAutomation(const YAML::Node&) {
+    return 1;
+  }
+
+  [[nodiscard]] virtual bool TryGetEntityEditorBound(const std::shared_ptr<Scene>&, const Entity&, Bound&) const {
+    return false;
+  }
 
   /**
    * @brief Indicates whether the layer enables editor inspection.

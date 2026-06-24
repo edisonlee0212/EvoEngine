@@ -16,7 +16,7 @@ class DistributionDefaults {
 
   struct SingleDistributionUiPreset {
     float speed = 0.01f;
-    const char* format = "%.3f";
+    const char* format = "%.5f";
     std::string tip;
   };
 

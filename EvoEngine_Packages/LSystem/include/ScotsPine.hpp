@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
+#include <iosfwd>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -24,27 +25,34 @@ class ScotsPineDescriptor;
  *   - Annual scheduling driven by `target_gdd` (growing degree-days), matching MaizeTassel.
  *   - Owns a PineGrowthModel that runs single-shot topology derivation
  *     (Phase 3 grammar - no per-frame growth animation yet).
- *   - Hybrid render path: internodes via `Particles`, aggregate needles via `MeshRenderer`.
+ *   - Render path: internodes via `Particles`, needles via `StrandsRenderer`.
  *
  * Geometry is emitted as two child entities:
- *   - "Pine Internodes" - instanced unit cylinders (one per PineInternode).
- *   - "Pine Needles" / "Pine Needles Geometry" - legacy markers or aggregate swept needle mesh.
+   *   - "Pine Internodes" - instanced unit cylinders (one per PineInternode).
+   *   - "Pine Fascicle Sheaths" - instanced short cylinders (one per PineNeedleSheath).
+   *   - "Pine Needles Strands" - strands payload generated from needle centerlines.
  */
 class ScotsPine final : public LSystemComponentBase<ScotsPine> {
  public:
   ScotsPine() = default;
   ScotsPine(const ScotsPine& other)
       : LSystemComponentBase<ScotsPine>(other),
-        post_repot_descriptor_ref(other.post_repot_descriptor_ref),
-        enable_repot_profile_switch(other.enable_repot_profile_switch),
-        repot_switch_gdd(other.repot_switch_gdd),
         growth_model(other.growth_model),
         last_grow_seconds(other.last_grow_seconds),
         last_rebuild_seconds(other.last_rebuild_seconds),
         last_node_count(other.last_node_count),
         last_internode_count(other.last_internode_count),
+        last_sheath_count(other.last_sheath_count),
         last_needle_count(other.last_needle_count),
         last_invalid_instance_count(other.last_invalid_instance_count),
+        last_render_snapshot_version(other.last_render_snapshot_version),
+        last_raytrace_internodes_ready(other.last_raytrace_internodes_ready),
+        last_raytrace_sheaths_ready(other.last_raytrace_sheaths_ready),
+        last_raytrace_needles_ready(other.last_raytrace_needles_ready),
+        last_raytrace_internode_instances(other.last_raytrace_internode_instances),
+        last_raytrace_sheath_instances(other.last_raytrace_sheath_instances),
+        last_raytrace_needle_segments(other.last_raytrace_needle_segments),
+        last_raytrace_needle_points(other.last_raytrace_needle_points),
         last_applied_internode_visual_radius_multiplier(other.last_applied_internode_visual_radius_multiplier),
         last_applied_render_needles_enabled(other.last_applied_render_needles_enabled),
         last_applied_leader_debug_color(other.last_applied_leader_debug_color),
@@ -57,16 +65,22 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
       return *this;
     }
     LSystemComponentBase<ScotsPine>::operator=(other);
-    post_repot_descriptor_ref = other.post_repot_descriptor_ref;
-    enable_repot_profile_switch = other.enable_repot_profile_switch;
-    repot_switch_gdd = other.repot_switch_gdd;
     growth_model = other.growth_model;
     last_grow_seconds = other.last_grow_seconds;
     last_rebuild_seconds = other.last_rebuild_seconds;
     last_node_count = other.last_node_count;
     last_internode_count = other.last_internode_count;
+    last_sheath_count = other.last_sheath_count;
     last_needle_count = other.last_needle_count;
     last_invalid_instance_count = other.last_invalid_instance_count;
+    last_render_snapshot_version = other.last_render_snapshot_version;
+    last_raytrace_internodes_ready = other.last_raytrace_internodes_ready;
+    last_raytrace_sheaths_ready = other.last_raytrace_sheaths_ready;
+    last_raytrace_needles_ready = other.last_raytrace_needles_ready;
+    last_raytrace_internode_instances = other.last_raytrace_internode_instances;
+    last_raytrace_sheath_instances = other.last_raytrace_sheath_instances;
+    last_raytrace_needle_segments = other.last_raytrace_needle_segments;
+    last_raytrace_needle_points = other.last_raytrace_needle_points;
     last_applied_internode_visual_radius_multiplier = other.last_applied_internode_visual_radius_multiplier;
     last_applied_render_needles_enabled = other.last_applied_render_needles_enabled;
     last_applied_leader_debug_color = other.last_applied_leader_debug_color;
@@ -80,11 +94,20 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
 
   static constexpr int kChannelInternodes = 0;
   static constexpr int kChannelNeedles = 1;
+  static constexpr int kChannelNeedleSheaths = 2;
 
   struct NeedleSkeletonLine {
+    int sheath_node_handle = -1;
     int cluster_node_handle = -1;
     int parent_node_handle = -1;
     int needle_index = -1;
+    int initiation_year_index = 0;
+    float age_years = 0.0f;
+    float length_m = 0.0f;
+    float target_length_m = 0.0f;
+    float maturation_years = 0.0f;
+    bool maturity_reached = false;
+    bool year0_cohort = false;
     std::vector<glm::vec3> points_world;
   };
 
@@ -96,16 +119,19 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
     NeedleLignification = 4,
     NeedleStripeProxy = 5,
     NeedleSheath = 6,
+    SyntheticOrganLabels = 7,
+  };
+
+  struct SeasonalColorTint {
+    bool enabled = false;
+    glm::vec4 color = glm::vec4(1.0f);
+    float strength = 0.0f;
   };
 
   static void SetGlobalColorMode(ColorMode mode);
   [[nodiscard]] static ColorMode GetGlobalColorMode();
-
-  /// Scanner-compatibility toggle. CPU-only path is the default for Pine,
-  /// so this currently has no effect; kept for API parity with MaizeTassel
-  /// to ease future GPU-pipeline integration.
-  static void SetForceCpuParticlesPath(bool force);
-  [[nodiscard]] static bool IsForceCpuParticlesPath();
+  static void SetGlobalSeasonalColorTint(const SeasonalColorTint& tint);
+  [[nodiscard]] static SeasonalColorTint GetGlobalSeasonalColorTint();
 
   /// Visualization-only multiplier applied to internode rendered cylinder
   /// half-thickness. Does NOT modify `node.info.thickness`, so exported
@@ -121,27 +147,12 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
   static void SetRenderNeedlesEnabled(bool enabled);
   [[nodiscard]] static bool IsRenderNeedlesEnabled();
 
-  /// Topology-generation knob. When false, Scots pine rules do not emit
-  /// PineNeedleCluster modules, so both CPU and GPU geometry paths are
-  /// stem-only by construction. Default true.
-  static void SetGenerateNeedleTopologyEnabled(bool enabled);
-  [[nodiscard]] static bool IsGenerateNeedleTopologyEnabled();
-
   /// Optional debug colour override for leader-axis (order==0) internodes.
   /// If alpha > 0, the override replaces the normal ColorMode tint on every
   /// leader internode instance, regardless of color mode. Default {0,0,0,0}
   /// (disabled). Visualization-only; does not affect exported assets.
   static void SetLeaderInternodeDebugColor(const glm::vec4& color);
   [[nodiscard]] static glm::vec4 GetLeaderInternodeDebugColor();
-
-  /// Optional post-repot descriptor used after the switch trigger is reached.
-  AssetRef post_repot_descriptor_ref;
-
-  /// Enables one-time pre->post descriptor switching in the growth model.
-  bool enable_repot_profile_switch = false;
-
-  /// Trigger GDD where post-repot profile becomes active.
-  float repot_switch_gdd = 6000.0f;
 
   /// Returns infancy GDD for reset.
   [[nodiscard]] float GetInfancyTargetGDD() const;
@@ -154,8 +165,17 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
   double last_rebuild_seconds = 0.0;
   uint32_t last_node_count = 0;
   uint32_t last_internode_count = 0;
+  uint32_t last_sheath_count = 0;
   uint32_t last_needle_count = 0;
   uint32_t last_invalid_instance_count = 0;
+  std::uint64_t last_render_snapshot_version = 0;
+  bool last_raytrace_internodes_ready = false;
+  bool last_raytrace_sheaths_ready = false;
+  bool last_raytrace_needles_ready = false;
+  uint32_t last_raytrace_internode_instances = 0;
+  uint32_t last_raytrace_sheath_instances = 0;
+  uint32_t last_raytrace_needle_segments = 0;
+  uint32_t last_raytrace_needle_points = 0;
 
   // Cache of visualization-only knobs that require geometry refresh even when
   // growth_model.last_growth_steps == 0 in loaded-scene workflows.
@@ -166,7 +186,8 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
 
   void GenerateGeometryEntities(bool uncapped_growth = false);
   void GeneratePreviewGeometryEntities(float preview_target_gdd, uint32_t preview_max_growth_steps);
-  void GrowToTargetGDD(bool uncapped_growth = false);
+  bool EnsureGrowthModelInitializedForGrowth();
+  void GrowToTargetGDD(bool uncapped_growth = false, bool rebuild_geometry = true);
   void SetSeasonalChronologicalMode(bool enable_independent_chronological_clock);
   bool AdvanceChronologicalAging(float delta_years);
   void RebuildGeometry();
@@ -178,6 +199,8 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
   void ExportNodeGraph(const std::filesystem::path& path);
   void ExportNeedleSkeleton(YAML::Emitter& out);
   void ExportNeedleSkeleton(const std::filesystem::path& path);
+  void WriteAnnotationSkeletonTreeJson(std::ostream& out, int tree_index);
+  void CollectAnnotationSkeletonPoints(std::vector<glm::vec3>& points);
 
   // Last generated needle centerlines in world space (runtime only).
   mutable std::vector<NeedleSkeletonLine> last_needle_skeleton_lines;

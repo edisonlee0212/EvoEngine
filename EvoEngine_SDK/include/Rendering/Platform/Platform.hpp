@@ -506,6 +506,9 @@ class Platform final {
     /// Material format for G-buffer.
     constexpr static VkFormat g_buffer_material = VK_FORMAT_R32G32B32A32_SFLOAT;
 
+    /// Albedo format for G-buffer.
+    constexpr static VkFormat g_buffer_albedo = VK_FORMAT_R8G8B8A8_UNORM;
+
     /// Format for shadow maps.
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
 

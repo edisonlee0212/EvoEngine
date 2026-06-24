@@ -9,12 +9,14 @@ layout (location = 0) in VS_OUT {
     vec3 FragPos;
 	float Thickness;
 	vec3 Normal;
+	vec4 ProfileProperties;
 } vs_in[];
 
 layout (location = 0) out TCS_OUT {
 	vec3 FragPos;
 	float Thickness;
 	vec3 Normal;
+	vec4 ProfileProperties;
 } tcs_out[];
 
 void main(){
@@ -26,4 +28,5 @@ void main(){
 	tcs_out[gl_InvocationID].FragPos = vs_in[gl_InvocationID].FragPos;
 	tcs_out[gl_InvocationID].Thickness = vs_in[gl_InvocationID].Thickness;
 	tcs_out[gl_InvocationID].Normal = vs_in[gl_InvocationID].Normal;
+	tcs_out[gl_InvocationID].ProfileProperties = vs_in[gl_InvocationID].ProfileProperties;
 }

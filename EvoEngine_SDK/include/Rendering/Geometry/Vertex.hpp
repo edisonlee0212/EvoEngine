@@ -48,11 +48,13 @@ struct SkinnedVertex {
  * and color.
  */
 struct StrandPoint {
-  glm::vec3 position = glm::vec3(0.0f); /**< The position of the strand point in 3D space. */
-  float thickness = 0.0f;               /**< The thickness of the strand at this point. */
-  glm::vec3 normal = glm::vec3(0.0f);   /**< The normal vector at the strand point. */
-  float tex_coord = 0.0f;               /**< The texture coordinate at the strand point. */
-  glm::vec4 color = glm::vec4(1.0f);    /**< The color at the strand point in RGBA format. */
+  glm::vec3 position = glm::vec3(0.0f);          /**< The position of the strand point in 3D space. */
+  float thickness = 0.0f;                        /**< The thickness of the strand at this point. */
+  glm::vec3 normal = glm::vec3(0.0f);            /**< The normal vector at the strand point. */
+  float tex_coord = 0.0f;                        /**< The texture coordinate at the strand point. */
+  glm::vec4 color = glm::vec4(1.0f);             /**< The color at the strand point in RGBA format. */
+  glm::vec4 material_properties =
+      glm::vec4(0.0f); /**< Strand profile payload: x=half-width, y=abaxial radius, z=profile kind, w=reserved. */
 };
 
 }  // namespace evo_engine

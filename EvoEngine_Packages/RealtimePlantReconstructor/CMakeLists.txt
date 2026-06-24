@@ -1,0 +1,29 @@
+set(REALTIME_PLANT_RECONSTRUCTOR_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+set(REALTIME_PLANT_RECONSTRUCTOR_INCLUDES
+	${REALTIME_PLANT_RECONSTRUCTOR_DIRECTORY}/include
+	)
+
+file(GLOB_RECURSE REALTIME_PLANT_RECONSTRUCTOR_HEADERS ${REALTIME_PLANT_RECONSTRUCTOR_DIRECTORY}/include/*.hpp)
+file(GLOB_RECURSE REALTIME_PLANT_RECONSTRUCTOR_SOURCES ${REALTIME_PLANT_RECONSTRUCTOR_DIRECTORY}/src/*.cpp)
+
+add_library(RealtimePlantReconstructorPackage
+	SHARED
+	${REALTIME_PLANT_RECONSTRUCTOR_HEADERS}
+	${REALTIME_PLANT_RECONSTRUCTOR_SOURCES}
+	)
+target_compile_definitions(RealtimePlantReconstructorPackage
+	PRIVATE
+	${EVOENGINE_SDK_DEFS}
+	)
+target_include_directories(RealtimePlantReconstructorPackage
+	PRIVATE
+	${EVOENGINE_INCLUDES}
+	${REALTIME_PLANT_RECONSTRUCTOR_INCLUDES}
+	)
+
+target_link_libraries(RealtimePlantReconstructorPackage
+	PRIVATE
+	EvoEngine_SDK
+	)
+evoengine_configure_runtime_package(RealtimePlantReconstructorPackage)

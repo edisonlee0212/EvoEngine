@@ -13,6 +13,7 @@ layout (location = 0) in VS_OUT {
 layout(set = EE_PER_PASS_SET, binding = 17) uniform sampler2D inDepth;
 layout(set = EE_PER_PASS_SET, binding = 18) uniform sampler2D inNormal;
 layout(set = EE_PER_PASS_SET, binding = 19) uniform sampler2D inMaterial;
+layout(set = EE_PER_PASS_SET, binding = 20) uniform sampler2D inAlbedo;
 
 layout (location = 0) out vec4 FragColor;
 
@@ -39,7 +40,7 @@ void main()
 	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, tex_coord, vec4(materialProperties.metallic, 0, 0, 0)).r;
 	float emission = materialProperties.emission;
 	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, tex_coord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
+	vec4 albedo = texture(inAlbedo, fs_in.TexCoord).rgba;
 
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;

@@ -1,0 +1,42 @@
+{
+  "description": "Fixed Scots pine color targets from the 2026-05-20 side-view palette extraction. Runtime calibration must not use masks_sideview_cropped_sam2; these measured means are copied from the historical calibration summary.",
+  "source_report": "E:/AlexC/02_Skellies/03_ConiferProject/multiview/results/scotspine_color_calibration/full_optimization_20260520/calibration_summary.json",
+  "source_palette_thresholds": "E:/AlexC/02_Skellies/03_ConiferProject/multiview/extract_sideview_needle_stem_palette.py",
+  "target_space": "srgb_0_255",
+  "targets": {
+    "later_needle_tip_dark_green": {
+      "source_class": "dark_green_tips",
+      "mean_rgb": [55.09655451030184, 73.70579634866586, 52.955252880860314],
+      "threshold_note": "H 70..165, S>=0.20, V<=0.42, G dominant"
+    },
+    "later_stem_and_needle_base_light_green": {
+      "source_class": "light_green_yellow_young",
+      "mean_rgb": [108.16256938937352, 118.44250594766059, 77.66613798572561],
+      "threshold_note": "H 50..105, S>=0.12, V>0.42, G near-dominant"
+    },
+    "dry_needle_brown_orange": {
+      "source_class": "light_orange_old_needles",
+      "mean_rgb": [131.5668449197861, 108.81818181818181, 79.02495543672015],
+      "threshold_note": "H 18..49, S>=0.18, V>0.45, R>=G>B"
+    },
+    "old_stem_brown": {
+      "source_class": "brown_old_stem",
+      "mean_rgb": [82.75057833859096, 67.56235541535226, 55.056361724500526],
+      "threshold_note": "H 8..40, S>=0.12, 0.10<V<=0.45, R>G>=B"
+    }
+  },
+  "synthetic_label_colors_rgb": {
+    "stem_year0": [255, 0, 0],
+    "stem_later": [0, 255, 0],
+    "needle_year0": [0, 0, 255],
+    "needle_later_base": [255, 255, 0],
+    "needle_later_tip": [255, 0, 255],
+    "fascicle_sheath": [0, 255, 255]
+  },
+  "class_counts": {
+    "dark_green_tips": 51981,
+    "light_green_yellow_young": 1261,
+    "light_orange_old_needles": 561,
+    "brown_old_stem": 4755
+  }
+}

@@ -162,6 +162,11 @@ class CallbackEditorPanel final : public EditorPanel {
   std::function<void(const std::shared_ptr<EditorLayer>&)> draw_;
 };
 
+bool ImGuiVulkanTextureRegistryReady() {
+  return ApplicationContext::Get().GetLayer<EditorLayer>() && ImGui::GetCurrentContext() &&
+         ImGui::GetIO().BackendRendererUserData;
+}
+
 struct RuntimePackageCMakeBuildRequest {
   std::string package_name;
   std::string target_name;
@@ -967,6 +972,14 @@ bool TryResolveVisibleOrbitCenter(const std::shared_ptr<Scene>& scene, const Ent
           renderer && renderer->IsEnabled()) {
         if (const auto strands = renderer->strands.Get<Strands>()) {
           AccumulateOrbitBound(strands->GetBound(), transform, weighted_sum, total_weight, &visible_bound);
+        }
+      }
+    }
+    if (const auto application = ApplicationContext::TryGet()) {
+      for (const auto& layer : application->GetLayers()) {
+        Bound layer_bound;
+        if (layer && layer->TryGetEntityEditorBound(scene, walker, layer_bound)) {
+          AccumulateOrbitBound(layer_bound, transform, weighted_sum, total_weight, &visible_bound);
         }
       }
     }
@@ -3664,19 +3677,7 @@ void EditorLayer::SceneCameraWindow() {
               scene_camera->camera_settings = CameraSettings();
               MoveCamera(default_scene_camera_rotation, default_scene_camera_position, 0.2f);
             } else if (has_selected_center) {
-              const auto frame_center = selected_orbit_center;
-              float radius = IsValid(selected_bound) ? glm::length(selected_bound.Size()) : 1.0f;
-              if (!std::isfinite(radius) || radius < 0.1f) {
-                radius = 0.1f;
-              }
-              const float aspect = glm::max(scene_camera->GetSizeRatio(), 0.001f);
-              const float half_fov_y = glm::max(0.001f, glm::radians(scene_camera->camera_settings.fov * 0.25f));
-              const float half_fov_x = glm::atan(glm::tan(half_fov_y) * aspect);
-              const float fit_distance = glm::max(radius / glm::tan(half_fov_y), radius / glm::tan(half_fov_x)) * 1.25f;
-              orbit_focus_point_ = frame_center;
-              orbit_focus_initialized_ = true;
-              MoveCamera(sceneCameraRotation, frame_center + sceneCameraRotation * glm::vec3(0, 0, 1) * fit_distance,
-                         0.2f);
+              FrameEntityInSceneCamera(selected_entity_, 0.2f);
             }
           }
         }
@@ -4010,13 +4011,59 @@ void EditorLayer::SetSceneCameraRotation(const glm::quat& target_rotation) {
   editor_cameras_.at(scene_camera_handle_).rotation = target_rotation;
 }
 
+bool EditorLayer::FrameEntityInSceneCamera(const Entity& entity, const float transition_time) {
+  const auto scene = GetScene();
+  if (!scene || !scene->IsEntityValid(entity)) {
+    return false;
+  }
+  auto& [scene_camera_rotation, scene_camera_position, scene_camera] = editor_cameras_.at(scene_camera_handle_);
+  if (!scene_camera) {
+    return false;
+  }
+  glm::vec3 resolved_center;
+  Bound selected_bound;
+  if (!TryResolveVisibleOrbitCenter(scene, entity, resolved_center, &selected_bound)) {
+    return false;
+  }
+  const auto frame_center = IsValid(selected_bound) ? selected_bound.Center() : resolved_center;
+
+  float radius = IsValid(selected_bound) ? glm::length(selected_bound.Size()) : 1.0f;
+  if (!std::isfinite(radius) || radius < 0.1f) {
+    radius = 0.1f;
+  }
+  const float aspect = glm::max(scene_camera->GetSizeRatio(), 0.001f);
+  const float half_fov_y = glm::max(0.001f, glm::radians(scene_camera->camera_settings.fov * 0.25f));
+  const float half_fov_x = glm::atan(glm::tan(half_fov_y) * aspect);
+  const float fit_distance = glm::max(radius / glm::tan(half_fov_y), radius / glm::tan(half_fov_x)) * 1.25f;
+  const auto target_position = frame_center + scene_camera_rotation * glm::vec3(0, 0, 1) * fit_distance;
+
+  orbit_focus_point_ = frame_center;
+  orbit_focus_initialized_ = true;
+  if (transition_time <= 0.0f) {
+    scene_camera_position = target_position;
+    lock_camera = false;
+  } else {
+    MoveCamera(scene_camera_rotation, target_position, transition_time);
+  }
+  return true;
+}
+
 void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sampler, const VkImageView image_view,
                                   const VkImageLayout image_layout) {
-  if (!ImGui::GetCurrentContext())
+  if (!ImGuiVulkanTextureRegistryReady()) {
+    target = 0;
     return;
-  if (target != 0)
-    ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(target));
+  }
+  RemoveTextureId(target);
   target = reinterpret_cast<ImTextureID>(ImGui_ImplVulkan_AddTexture(image_sampler, image_view, image_layout));
+}
+
+void EditorLayer::RemoveTextureId(ImTextureID& target) {
+  if (target == 0)
+    return;
+  if (ImGuiVulkanTextureRegistryReady())
+    ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(target));
+  target = 0;
 }
 
 Entity EditorLayer::GetSelectedEntity() const {

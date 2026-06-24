@@ -21,6 +21,7 @@ layout(location = 0) out VS_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	vec2 TexCoord;
+	vec4 Color;
 } vs_out;
 
 layout(location = 5) out flat uint currentInstanceIndex;
@@ -60,5 +61,6 @@ void main()
 	vs_out.Normal = N;
 	vs_out.Tangent = T;
 	vs_out.TexCoord = inTexCoord;
+	vs_out.Color = clamp(inColor, vec4(0.0), vec4(1.0));
 	gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(vs_out.FragPos, 1.0);
 }

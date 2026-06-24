@@ -117,7 +117,7 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
   }
 
   if (strands.empty()) {
-    strands.resize(5);
+    strands.resize(6);
     strands[0].binding = 0;
     strands[0].location = 0;
     strands[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -142,6 +142,11 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     strands[4].location = 4;
     strands[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     strands[4].offset = offsetof(StrandPoint, color);
+
+    strands[5].binding = 0;
+    strands[5].location = 5;
+    strands[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    strands[5].offset = offsetof(StrandPoint, material_properties);
   }
   switch (geometry_type) {
     case GeometryType::Mesh:

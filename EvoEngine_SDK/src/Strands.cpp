@@ -10,7 +10,53 @@
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Serialization.hpp"
+
+#include <cmath>
 using namespace evo_engine;
+
+namespace {
+struct LegacyStrandPoint {
+  glm::vec3 position = glm::vec3(0.0f);
+  float thickness = 0.0f;
+  glm::vec3 normal = glm::vec3(0.0f);
+  float tex_coord = 0.0f;
+  glm::vec4 color = glm::vec4(1.0f);
+};
+
+std::vector<StrandPoint> DecodeStrandPoints(const YAML::Binary& data, const size_t stored_stride) {
+  std::vector<StrandPoint> strand_points;
+  if (data.size() == 0) {
+    return strand_points;
+  }
+  const size_t stride = stored_stride != 0 ? stored_stride : sizeof(LegacyStrandPoint);
+  if (stride == sizeof(StrandPoint) && data.size() % sizeof(StrandPoint) == 0) {
+    strand_points.resize(data.size() / sizeof(StrandPoint));
+    std::memcpy(strand_points.data(), data.data(), strand_points.size() * sizeof(StrandPoint));
+    return strand_points;
+  }
+  if (stride == sizeof(LegacyStrandPoint) && data.size() % sizeof(LegacyStrandPoint) == 0) {
+    std::vector<LegacyStrandPoint> legacy_points(data.size() / sizeof(LegacyStrandPoint));
+    std::memcpy(legacy_points.data(), data.data(), legacy_points.size() * sizeof(LegacyStrandPoint));
+    strand_points.resize(legacy_points.size());
+    for (size_t i = 0; i < legacy_points.size(); ++i) {
+      strand_points[i].position = legacy_points[i].position;
+      strand_points[i].thickness = legacy_points[i].thickness;
+      strand_points[i].normal = legacy_points[i].normal;
+      strand_points[i].tex_coord = legacy_points[i].tex_coord;
+      strand_points[i].color = legacy_points[i].color;
+      strand_points[i].material_properties = glm::vec4(0.0f);
+    }
+    return strand_points;
+  }
+  if (data.size() % sizeof(StrandPoint) == 0) {
+    strand_points.resize(data.size() / sizeof(StrandPoint));
+    std::memcpy(strand_points.data(), data.data(), strand_points.size() * sizeof(StrandPoint));
+    return strand_points;
+  }
+  EVOENGINE_ERROR("Strands binary payload has incompatible strand point byte size: " + std::to_string(data.size()))
+  return strand_points;
+}
+}  // namespace
 
 void StrandPointAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
@@ -260,8 +306,8 @@ std::shared_ptr<StagedAssetLoadPayload> Strands::LoadStagedPayloadInternal(const
         std::memcpy(payload->segment_raw_indices.data(), segment_data.data(), segment_data.size());
 
         const auto& point_data = in["strand_points_"].as<YAML::Binary>();
-        payload->strand_points.resize(point_data.size() / sizeof(StrandPoint));
-        std::memcpy(payload->strand_points.data(), point_data.data(), point_data.size());
+        const size_t stride = in["strand_point_stride"] ? in["strand_point_stride"].as<size_t>() : 0;
+        payload->strand_points = DecodeStrandPoints(point_data, stride);
 
         payload->strand_point_attributes.tex_coord = true;
         payload->strand_point_attributes.color = true;
@@ -414,7 +460,16 @@ void Strands::SetSegments(const StrandPointAttributes& strand_point_attributes, 
     return;
   }
 
-  segment_raw_indices_ = segments;
+  segment_raw_indices_.clear();
+  segment_raw_indices_.reserve(segments.size());
+  for (const auto segment_start : segments) {
+    if (segment_start + 3 < points.size()) {
+      segment_raw_indices_.emplace_back(segment_start);
+    }
+  }
+  if (segment_raw_indices_.empty()) {
+    return;
+  }
   strand_points_ = points;
 
   PrepareStrands(strand_point_attributes);
@@ -433,8 +488,13 @@ void Strands::SetStrands(const StrandPointAttributes& strand_point_attributes, c
     const int start = *(strand);        // first vertex in first segment
     const int end = *(strand + 1) - 3;  // CurveDegree();  // second vertex of last segment
     for (int i = start; i < end; i++) {
-      segment_raw_indices_.emplace_back(i);
+      if (i >= 0 && static_cast<size_t>(i + 3) < points.size()) {
+        segment_raw_indices_.emplace_back(i);
+      }
     }
+  }
+  if (segment_raw_indices_.empty()) {
+    return;
   }
   strand_points_ = points;
   PrepareStrands(strand_point_attributes);
@@ -442,22 +502,34 @@ void Strands::SetStrands(const StrandPointAttributes& strand_point_attributes, c
 
 void Strands::RecalculateNormal() {
   glm::vec3 tangent, temp;
+  const auto safe_normal = [](const glm::vec3& value, const glm::vec3& fallback) {
+    if (std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && glm::length(value) > 1.0e-8f) {
+      return glm::normalize(value);
+    }
+    return fallback;
+  };
   for (const auto& indices : segments_) {
     CubicInterpolation(strand_points_[indices[0]].position, strand_points_[indices[1]].position,
                        strand_points_[indices[2]].position, strand_points_[indices[3]].position, temp, tangent, 0.0f);
-    strand_points_[indices[0]].normal = glm::vec3(tangent.y, tangent.z, tangent.x);
+    strand_points_[indices[0]].normal = safe_normal(glm::vec3(tangent.y, tangent.z, tangent.x), glm::vec3(0, 1, 0));
 
     CubicInterpolation(strand_points_[indices[0]].position, strand_points_[indices[1]].position,
                        strand_points_[indices[2]].position, strand_points_[indices[3]].position, temp, tangent, 0.25f);
-    strand_points_[indices[1]].normal = glm::cross(glm::cross(tangent, strand_points_[indices[0]].normal), tangent);
+    strand_points_[indices[1]].normal =
+        safe_normal(glm::cross(glm::cross(tangent, strand_points_[indices[0]].normal), tangent),
+                    strand_points_[indices[0]].normal);
 
     CubicInterpolation(strand_points_[indices[0]].position, strand_points_[indices[1]].position,
                        strand_points_[indices[2]].position, strand_points_[indices[3]].position, temp, tangent, 0.75f);
-    strand_points_[indices[2]].normal = glm::cross(glm::cross(tangent, strand_points_[indices[1]].normal), tangent);
+    strand_points_[indices[2]].normal =
+        safe_normal(glm::cross(glm::cross(tangent, strand_points_[indices[1]].normal), tangent),
+                    strand_points_[indices[1]].normal);
 
     CubicInterpolation(strand_points_[indices[0]].position, strand_points_[indices[1]].position,
                        strand_points_[indices[2]].position, strand_points_[indices[3]].position, temp, tangent, 1.0f);
-    strand_points_[indices[3]].normal = glm::cross(glm::cross(tangent, strand_points_[indices[2]].normal), tangent);
+    strand_points_[indices[3]].normal =
+        safe_normal(glm::cross(glm::cross(tangent, strand_points_[indices[2]].normal), tangent),
+                    strand_points_[indices[2]].normal);
   }
 }
 

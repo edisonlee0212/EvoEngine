@@ -348,13 +348,13 @@ bool SingleDistribution<T>::Draw(const std::string& name, const float speed, con
       ImGui::EndTooltip();
     }
     if (typeid(T).hash_code() == typeid(float).hash_code()) {
-      changed = ImGui::DragFloat("Mean", reinterpret_cast<float*>(&mean), speed);
+      changed = ImGui::DragFloat("Mean", reinterpret_cast<float*>(&mean), speed, 0.0f, 0.0f, "%.5f");
     } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-      changed = ImGui::DragFloat2("Mean", reinterpret_cast<float*>(&mean), speed);
+      changed = ImGui::DragFloat2("Mean", reinterpret_cast<float*>(&mean), speed, 0.0f, 0.0f, "%.5f");
     } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-      changed = ImGui::DragFloat3("Mean", reinterpret_cast<float*>(&mean), speed);
+      changed = ImGui::DragFloat3("Mean", reinterpret_cast<float*>(&mean), speed, 0.0f, 0.0f, "%.5f");
     }
-    if (ImGui::DragFloat("Deviation", &deviation, speed))
+    if (ImGui::DragFloat("Deviation", &deviation, speed, 0.0f, 0.0f, "%.5f"))
       changed = true;
     ImGui::TreePop();
   }
@@ -466,16 +466,22 @@ bool Plot2D<T>::Draw(const std::string& name, const CurveDescriptorSettings& set
     }
     if (settings.min_max_control) {
       if (typeid(T).hash_code() == typeid(float).hash_code()) {
-        changed = ImGui::DragFloat(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
+        changed = ImGui::DragFloat(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed, 0.0f,
+                                   0.0f, "%.5f");
+        if (ImGui::DragFloat(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed, 0.0f, 0.0f,
+                             "%.5f"))
           changed = true;
       } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-        changed = ImGui::DragFloat2(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat2(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
+        changed = ImGui::DragFloat2(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed, 0.0f,
+                                    0.0f, "%.5f");
+        if (ImGui::DragFloat2(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed, 0.0f, 0.0f,
+                              "%.5f"))
           changed = true;
       } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-        changed = ImGui::DragFloat3(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat3(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
+        changed = ImGui::DragFloat3(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed, 0.0f,
+                                    0.0f, "%.5f");
+        if (ImGui::DragFloat3(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed, 0.0f, 0.0f,
+                              "%.5f"))
           changed = true;
       }
     }

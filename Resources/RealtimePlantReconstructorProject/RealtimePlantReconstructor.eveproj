@@ -1,0 +1,5 @@
+application_name: RealtimePlantReconstructor
+preferred_editor: EvoEngineEditor
+startup_runtime_packages:
+  - RealtimePlantReconstructor
+start_scene_handle: 9245023604385173001

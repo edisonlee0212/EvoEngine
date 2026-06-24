@@ -1,0 +1,51 @@
+{
+  "schema": "scots_pine_raster_lighting_calibration.v0",
+  "created_utc": "2026-06-13T00:00:00Z",
+  "rendering_path": "rasterization",
+  "authority": "Resources/DigitalAgricultureProject/Assets/ScotsPineDataGenerator.evescene",
+  "source_measurements": {
+    "profile_bundle": "Resources/ScotsPineSynthetic/MaterialProfiles/derived_from_sam3_20pot",
+    "observations": "Resources/ScotsPineSynthetic/MaterialProfiles/derived_from_sam3_20pot/lighting_calibration/lighting_observations_v0.json",
+    "non_plant_background_rgb_median": [44, 77, 112],
+    "blue_facility_background_rgb_median": [44, 77, 112],
+    "dark_tray_or_pot_rgb_median": [35, 39, 44],
+    "bright_label_or_glare_rgb_median": [212, 222, 221]
+  },
+  "scene_applied": {
+    "environment": {
+      "background_color_linear_approx_rgb": [0.172549, 0.301961, 0.439216],
+      "environment_gamma": 2.2,
+      "ambient_light_intensity": 0.8,
+      "environment_type": "EnvironmentalMap"
+    },
+    "main_camera": {
+      "clear_color_rgb": [0.172549, 0.301961, 0.439216],
+      "near_distance": 0.01,
+      "far_distance": 50.0,
+      "fov_degrees": 43.114742,
+      "gamma": 2.2
+    },
+    "directional_light": {
+      "diffuse_rgb": [1.0, 0.96, 0.9],
+      "diffuse_brightness": 1.25,
+      "light_size": 0.35,
+      "bias": 0.02,
+      "normal_offset": 0.02
+    },
+    "synthetic_default_options": {
+      "ambient_light": 0.8,
+      "directional_light": 1.25
+    }
+  },
+  "intent": [
+    "Use the measured phenotyping-facility blue background as the editor and fallback camera clear/background color.",
+    "Keep environment-map ambient lighting active; using the dark blue wall as the environment color over-darkened plant tissue in raster preview.",
+    "Use softer, warmer key lighting with stronger direct illumination before material-specific plant calibration.",
+    "Keep camera framing and binary transform data unchanged; only YAML scalar camera response and clipping values are calibrated.",
+    "Treat this as the raster baseline calibration; ray tracing is intentionally excluded."
+  ],
+  "notes": [
+    "Composited synthetic previews may replace the clear/background plate with the extracted real facility background.",
+    "Strict scene-parity renders use the loaded scene camera and directional light; non-scene synthetic defaults are synchronized to the same ambient/key-light scale."
+  ]
+}

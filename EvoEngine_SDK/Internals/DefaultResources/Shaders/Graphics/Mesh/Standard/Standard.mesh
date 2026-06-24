@@ -20,6 +20,7 @@ layout(location = 0) out MS_V_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	vec2 TexCoord;
+	vec4 Color;
 } ms_v_out[];
 
 struct Task{
@@ -63,6 +64,7 @@ void main()
 		ms_v_out[vert].Normal = N;
 		ms_v_out[vert].Tangent = T;
 		ms_v_out[vert].TexCoord = v.tex_coord.xy;
+		ms_v_out[vert].Color = clamp(v.color, vec4(0.0), vec4(1.0));
 		gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(ms_v_out[vert].FragPos, 1.0);
 		currentInstanceIndex[vert] = instanceIndex;
 	}

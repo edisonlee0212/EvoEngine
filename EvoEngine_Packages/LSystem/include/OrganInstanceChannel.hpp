@@ -9,9 +9,22 @@
 #include "Particles.hpp"
 #include "Scene.hpp"
 
+#include <chrono>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace l_system_package {
 using namespace evo_engine;
 
+/**
+ * @brief Plant-agnostic instance render channel.
+ *
+ * Wraps one Particles component and stages instance payloads from worker
+ * threads. Flush publishes staged instances to ParticleInfoList on the main
+ * thread.
+ */
 class OrganInstanceChannel {
  public:
   struct Stats {
@@ -29,8 +42,24 @@ class OrganInstanceChannel {
         instance_material_(std::move(instance_material)) {
     entity_ = scene->CreateEntity(name);
     scene->SetParent(entity_, parent);
-    particle_info_list_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+
     particles_ = scene->GetOrSetPrivateComponent<Particles>(entity_).lock();
+    if (!particles_) {
+      return;
+    }
+
+    if (!instance_mesh_) {
+      instance_mesh_ = AssetManager::CreateTemporaryAsset<Mesh>();
+    }
+    if (!instance_material_) {
+      instance_material_ = AssetManager::CreateTemporaryAsset<Material>();
+    }
+
+    particle_info_list_ = particles_->particle_info_list.Get<ParticleInfoList>();
+    if (!particle_info_list_) {
+      particle_info_list_ = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
+    }
+
     particles_->mesh = instance_mesh_;
     particles_->material = instance_material_;
     particles_->particle_info_list = particle_info_list_;
@@ -49,11 +78,11 @@ class OrganInstanceChannel {
     }
   }
 
-  void Stage(std::vector<ParticleInfo> particle_infos) {
-    const std::uint64_t payload_hash = HashBytes(particle_infos.data(), particle_infos.size() * sizeof(ParticleInfo));
+  void Stage(std::vector<ParticleInfo> instances) {
+    const std::uint64_t payload_hash = ComputePayloadHash(instances);
     {
       std::lock_guard<std::mutex> guard(pending_mutex_);
-      pending_.particle_infos = std::move(particle_infos);
+      pending_.instances = std::move(instances);
       pending_.hash = payload_hash;
       pending_.present = true;
     }
@@ -62,8 +91,8 @@ class OrganInstanceChannel {
     }
   }
 
-  void Publish(std::vector<ParticleInfo> particle_infos) {
-    Stage(std::move(particle_infos));
+  void Publish(std::vector<ParticleInfo> instances) {
+    Stage(std::move(instances));
     Flush();
   }
 
@@ -83,7 +112,7 @@ class OrganInstanceChannel {
     }
 
     if (policy.deduplicate_identical_payloads && payload.hash == last_published_hash_ &&
-        payload.particle_infos.size() == last_published_instance_count_) {
+        payload.instances.size() == last_published_instance_count_) {
       ++stats_.skipped_by_dedup;
       return false;
     }
@@ -104,11 +133,12 @@ class OrganInstanceChannel {
     if (!particle_info_list_) {
       return false;
     }
-    particle_info_list_->SetParticleInfos(payload.particle_infos);
+
+    particle_info_list_->SetParticleInfos(payload.instances);
 
     last_published_hash_ = payload.hash;
-    last_published_instance_count_ = payload.particle_infos.size();
-    stats_.high_water_instance_count = std::max(stats_.high_water_instance_count, payload.particle_infos.size());
+    last_published_instance_count_ = payload.instances.size();
+    stats_.high_water_instance_count = std::max(stats_.high_water_instance_count, payload.instances.size());
     ++stats_.flush_count;
     return true;
   }
@@ -121,18 +151,23 @@ class OrganInstanceChannel {
   [[nodiscard]] Entity GetEntity() const noexcept {
     return entity_;
   }
+
   [[nodiscard]] const std::shared_ptr<Mesh>& GetInstanceMesh() const noexcept {
     return instance_mesh_;
   }
+
   [[nodiscard]] const std::shared_ptr<Material>& GetInstanceMaterial() const noexcept {
     return instance_material_;
   }
+
   [[nodiscard]] const std::shared_ptr<ParticleInfoList>& GetParticleInfoList() const noexcept {
     return particle_info_list_;
   }
+
   [[nodiscard]] const std::string& GetName() const noexcept {
     return name_;
   }
+
   [[nodiscard]] Stats GetStats() const noexcept {
     return stats_;
   }
@@ -141,10 +176,17 @@ class OrganInstanceChannel {
 
  private:
   struct PendingPayload {
-    std::vector<ParticleInfo> particle_infos;
+    std::vector<ParticleInfo> instances;
     std::uint64_t hash = 0;
     bool present = false;
   };
+
+  static std::uint64_t ComputePayloadHash(const std::vector<ParticleInfo>& instances) {
+    if (instances.empty()) {
+      return 0;
+    }
+    return HashBytes(instances.data(), instances.size() * sizeof(ParticleInfo));
+  }
 
   static double NowSeconds() {
     using clock = std::chrono::steady_clock;
@@ -155,10 +197,11 @@ class OrganInstanceChannel {
   std::weak_ptr<Scene> scene_;
   std::string name_;
   Entity entity_{};
+
+  std::shared_ptr<Particles> particles_;
   std::shared_ptr<Mesh> instance_mesh_;
   std::shared_ptr<Material> instance_material_;
   std::shared_ptr<ParticleInfoList> particle_info_list_;
-  std::shared_ptr<Particles> particles_;
 
   mutable std::mutex pending_mutex_;
   PendingPayload pending_;

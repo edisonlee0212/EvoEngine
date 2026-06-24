@@ -8,24 +8,23 @@
 using namespace l_system_package;
 
 namespace {
-void UpdateNeedleMaturityState(PineNeedleCluster& cluster, const float thermal_now_years,
-                               const float absolute_age_years) {
-  if (cluster.maturity_reached) {
+void UpdateNeedleMaturityState(PineNeedle& needle, const float thermal_now_years, const float absolute_age_years) {
+  if (needle.maturity_reached) {
     return;
   }
 
   const float clamped_chrono_age = std::max(0.0f, absolute_age_years);
-  if (cluster.continuous_growth.maturation_years <= 0.0f) {
-    cluster.maturity_reached = true;
-    cluster.chronological_age_at_maturity_years = clamped_chrono_age;
+  if (needle.continuous_growth.maturation_years <= 0.0f) {
+    needle.maturity_reached = true;
+    needle.chronological_age_at_maturity_years = clamped_chrono_age;
     return;
   }
 
   constexpr float kMaturityEpsilon = 1.0e-4f;
-  const float normalized_age = cluster.continuous_growth.NormalizedAge(thermal_now_years);
+  const float normalized_age = needle.continuous_growth.NormalizedAge(thermal_now_years);
   if (normalized_age >= 1.0f - kMaturityEpsilon) {
-    cluster.maturity_reached = true;
-    cluster.chronological_age_at_maturity_years = clamped_chrono_age;
+    needle.maturity_reached = true;
+    needle.chronological_age_at_maturity_years = clamped_chrono_age;
   }
 }
 
@@ -41,47 +40,53 @@ bool UpdateWhorlBudChronologicalDormancy(PineWhorlBud& bud, const float absolute
   return bud.dormancy_years_remaining != previous_remaining;
 }
 
-bool UpdateNeedleChronologicalAging(PineNeedleCluster& cluster, const float absolute_age_years) {
-  const int previous_age_years = cluster.age_years;
-  const float previous_senescence = cluster.senescence_phase;
-  const bool previous_alive = cluster.alive;
+bool UpdateNeedleChronologicalAging(PineNeedle& needle, const float absolute_age_years) {
+  const int previous_age_years = needle.age_years;
+  const float previous_senescence = needle.senescence_phase;
+  const bool previous_alive = needle.alive;
 
   const float clamped_age_years = std::max(0.0f, absolute_age_years);
-  cluster.age_years = std::max(0, static_cast<int>(std::floor(clamped_age_years)));
+  needle.age_years = std::max(0, static_cast<int>(std::floor(clamped_age_years)));
 
   // Inner cohorts senesce earlier than distal cohorts, approximating
   // proximal-first canopy turnover in young pines.
-  const float s_norm = std::clamp(cluster.s_along_parent_norm, 0.0f, 1.0f);
+  const float s_norm = std::clamp(needle.s_along_parent_norm, 0.0f, 1.0f);
   const float proximality = 1.0f - s_norm;
-  const float lifespan_years_f = static_cast<float>(cluster.lifespan_years);
+  const float lifespan_years_f = static_cast<float>(needle.lifespan_years);
   constexpr float kMaxProximalLifespanReductionYears = 2.0f;
   constexpr float kNodeRandomJitterYears = 0.35f;
-  const float lifespan_jitter = (cluster.node_random - 0.5f) * 2.0f * kNodeRandomJitterYears;
+  const float lifespan_jitter = (needle.node_random - 0.5f) * 2.0f * kNodeRandomJitterYears;
   const float effective_lifespan_years =
       std::max(0.25f, lifespan_years_f - proximality * kMaxProximalLifespanReductionYears + lifespan_jitter);
 
   const float senescence_age_years =
-      cluster.maturity_reached
-          ? std::max(0.0f, clamped_age_years - std::max(0.0f, cluster.chronological_age_at_maturity_years))
+      needle.maturity_reached
+          ? std::max(0.0f, clamped_age_years - std::max(0.0f, needle.chronological_age_at_maturity_years))
           : 0.0f;
 
-  if (cluster.maturity_reached && senescence_age_years > effective_lifespan_years) {
-    const float browning_years = std::max(0.0f, cluster.browning_years);
+  if (needle.maturity_reached && senescence_age_years > effective_lifespan_years) {
+    const float browning_years = std::max(0.0f, needle.browning_years);
     const float browning_scale = 1.0f - 0.35f * proximality;
     const float effective_browning_years = std::max(0.05f, browning_years * browning_scale);
     const float phase =
         (browning_years > 0.0f)
             ? std::clamp((senescence_age_years - effective_lifespan_years) / effective_browning_years, 0.0f, 1.0f)
             : 1.0f;
-    cluster.senescence_phase = phase;
+    needle.senescence_phase = phase;
     if (phase >= 1.0f)
-      cluster.alive = false;
+      needle.alive = false;
   } else {
-    cluster.senescence_phase = 0.0f;
+    needle.senescence_phase = 0.0f;
   }
 
-  return cluster.age_years != previous_age_years ||
-         std::abs(cluster.senescence_phase - previous_senescence) > 1.0e-5f || cluster.alive != previous_alive;
+  return needle.age_years != previous_age_years ||
+         std::abs(needle.senescence_phase - previous_senescence) > 1.0e-5f || needle.alive != previous_alive;
+}
+
+bool UpdateSheathChronologicalAging(PineNeedleSheath& sheath, const float absolute_age_years) {
+  const int previous_age_years = sheath.age_years;
+  sheath.age_years = std::max(0, static_cast<int>(std::floor(std::max(0.0f, absolute_age_years))));
+  return sheath.age_years != previous_age_years;
 }
 
 float HashToUnitOpen01(const uint32_t hash) {
@@ -116,7 +121,6 @@ float EvaluateMaturityMultiplier(const evo_engine::PlottedDistribution<float>& d
 void PineGrowthModel::ApplyActiveSampledProfile(const SampledPineParams& profile_sampled) {
   sampled = profile_sampled;
   graph.data.gravity_m_s2 = sampled.gravity_m_s2;
-  graph.data.needle_radius_to_stem_thickness_max_ratio = sampled.needle_radius_to_stem_thickness_max_ratio;
 }
 
 void PineGrowthModel::RefreshEngineRulesForActiveProfile() {
@@ -131,74 +135,6 @@ void PineGrowthModel::SetNeedleTopologyEnabled(const bool enabled) {
   needle_topology_enabled_ = enabled;
   if (initialized_) {
     RefreshEngineRulesForActiveProfile();
-  }
-}
-
-void PineGrowthModel::ActivatePostRepotProfile() {
-  if (!has_post_repot_profile_ || post_repot_profile_active_) {
-    return;
-  }
-  ApplyActiveSampledProfile(post_repot_sampled_);
-  RefreshEngineRulesForActiveProfile();
-  post_repot_profile_active_ = true;
-}
-
-void PineGrowthModel::GrowToGDDWithProfileSwitch(const float target_gdd, const uint32_t max_growth_steps) {
-  if (!has_post_repot_profile_ || repot_switch_gdd_ < 0.0f) {
-    Base::GrowToGDD(target_gdd, max_growth_steps);
-    return;
-  }
-
-  auto accumulate_profile = [](Base::GrowthStepProfile& dst, const Base::GrowthStepProfile& src) {
-    dst.total_seconds += src.total_seconds;
-    dst.apply_growth_rules_seconds += src.apply_growth_rules_seconds;
-    dst.apply_topology_rules_seconds += src.apply_topology_rules_seconds;
-    dst.sort_lists_seconds += src.sort_lists_seconds;
-    dst.update_node_info_seconds += src.update_node_info_seconds;
-    dst.propagate_geometry_seconds += src.propagate_geometry_seconds;
-    dst.topology_scan_seconds += src.topology_scan_seconds;
-  };
-
-  uint32_t total_steps = 0;
-  Base::GrowthStepProfile total_profile{};
-
-  auto run_segment = [&](const float segment_target, const uint32_t segment_cap) {
-    Base::GrowToGDD(segment_target, segment_cap);
-    total_steps += last_growth_steps;
-    accumulate_profile(total_profile, last_grow_to_gdd_profile);
-  };
-
-  if (!post_repot_profile_active_ && accumulated_gdd >= repot_switch_gdd_) {
-    ActivatePostRepotProfile();
-  }
-
-  uint32_t remaining_steps = max_growth_steps;
-  if (!post_repot_profile_active_ && accumulated_gdd < repot_switch_gdd_ && target_gdd > repot_switch_gdd_) {
-    const uint32_t pre_cap = (max_growth_steps == 0) ? 0u : remaining_steps;
-    run_segment(repot_switch_gdd_, pre_cap);
-
-    if (max_growth_steps != 0) {
-      if (total_steps >= max_growth_steps) {
-        last_growth_steps = total_steps;
-        last_grow_to_gdd_profile = total_profile;
-        return;
-      }
-      remaining_steps = max_growth_steps - total_steps;
-    }
-
-    if (!post_repot_profile_active_ && accumulated_gdd >= repot_switch_gdd_) {
-      ActivatePostRepotProfile();
-    }
-  }
-
-  const uint32_t final_cap = (max_growth_steps == 0) ? 0u : remaining_steps;
-  run_segment(target_gdd, final_cap);
-
-  last_growth_steps = total_steps;
-  last_grow_to_gdd_profile = total_profile;
-  if (last_growth_steps == 0) {
-    last_growth_step_profile = {};
-    last_grow_to_gdd_profile = {};
   }
 }
 
@@ -235,7 +171,6 @@ void PineGrowthModel::RebuildStemLoadCacheIfNeeded() {
 
 void PineGrowthModel::Initialize(const ScotsPineDescriptor& descriptor, const unsigned int seed,
                                  const glm::vec3& root_position, const glm::quat& root_rotation,
-                                 const ScotsPineDescriptor* post_repot_descriptor, const float repot_switch_gdd,
                                  const bool enable_needle_topology) {
   needle_topology_enabled_ = enable_needle_topology;
   Reset();
@@ -245,16 +180,7 @@ void PineGrowthModel::Initialize(const ScotsPineDescriptor& descriptor, const un
   root_rotation_ = root_rotation;
 
   // Sample all distributions from the descriptor (deterministic, fixed RNG order).
-  pre_repot_sampled_ = descriptor.Sample(rng_);
-  sampled = pre_repot_sampled_;
-
-  if (post_repot_descriptor && repot_switch_gdd >= 0.0f) {
-    std::mt19937 post_rng(seed ^ 0x9e3779b9u);
-    post_repot_sampled_ = post_repot_descriptor->Sample(post_rng);
-    has_post_repot_profile_ = true;
-    post_repot_profile_active_ = false;
-    repot_switch_gdd_ = repot_switch_gdd;
-  }
+  sampled = descriptor.Sample(rng_);
 
   // Sampled once per plant: random initial orientation around +Y.
   const glm::quat sampled_root_yaw =
@@ -285,6 +211,8 @@ void PineGrowthModel::Initialize(const ScotsPineDescriptor& descriptor, const un
     // is constructed with year_index == 0 and the clock starts at year 0).
     apex.bare_phytomers_this_year = pine_detail::SampleBarePhytomersThisYear(
         sampled, apex.sampled_max_phytomers_per_seasonal_growth, root_node_rng);
+    apex.whorl_phytomer_this_year = pine_detail::SampleWhorlPhytomerThisYear(
+        sampled, apex.sampled_max_phytomers_per_seasonal_growth, root_node_rng);
     apex.previous_season_completion_ratio = 1.0f;
     apex.previous_season_vigor = 1.0f;
   }
@@ -307,7 +235,7 @@ void PineGrowthModel::Initialize(const ScotsPineDescriptor& descriptor, const un
   //   - each whorl bud (when enabled) activates after `whorl_dormancy_years`
   //     and spawns N lateral apices, which run their own seasonal cycle.
   // Upper bound estimate scales with the per-year cap and a generous slack
-  // for needle-cluster successors and chronological dormancy transitions.
+  // for fascicle-sheath successors and chronological dormancy transitions.
   const int branches = std::max(1, sampled.branches_per_whorl);
   const int phytomers_per_year = std::max(1, sampled.max_phytomers_per_seasonal_growth);
   max_topology_steps_ = std::max(64, phytomers_per_year * 32 * (1 + branches * 16) + 512);
@@ -325,9 +253,14 @@ void PineGrowthModel::UpdateNodeInfoImpl(LGraphNode<PineModuleData>& node) {
   // continuous-growth curves. Chronological age is tracked separately in
   // node.info.temporal and is used for aging/senescence.
   const float thermal_now_years = accumulated_gdd / kPineGddPerYear;
-  if (graph.data.clock.NowYears() != thermal_now_years) {
-    graph.data.clock.SetYears(thermal_now_years);
+  if (IsChronologicalCoupledToThermal()) {
+    if (graph.data.clock.NowYears() != thermal_now_years) {
+      graph.data.clock.SetYears(thermal_now_years);
+    }
+    graph.data.clock.SyncSeasonalState(false, true, 1.0f);
   }
+  const float organ_growth_now_years =
+      IsChronologicalCoupledToThermal() ? thermal_now_years : graph.data.clock.NowYears();
 
   if (node.data.Is<PineInternode>()) {
     RebuildStemLoadCacheIfNeeded();
@@ -347,11 +280,8 @@ void PineGrowthModel::UpdateNodeInfoImpl(LGraphNode<PineModuleData>& node) {
       }
     }
 
-    // Thermal maturity age remains GDD-driven, but organ size multipliers are
-    // now sampled from maturity plot2D distributions (mean/deviation) with a
-    // fixed per-organ realization.
     const float internode_maturity_age_t =
-        std::clamp(internode.continuous_growth.NormalizedAge(thermal_now_years), 0.0f, 1.0f);
+        std::clamp(internode.continuous_growth.NormalizedAge(organ_growth_now_years), 0.0f, 1.0f);
     const float internode_length_maturity =
         EvaluateMaturityMultiplier(sampled.distributions.internode_length_maturity_curve, internode_maturity_age_t,
                                    internode.node_random, 0x31A1C001u);
@@ -371,27 +301,41 @@ void PineGrowthModel::UpdateNodeInfoImpl(LGraphNode<PineModuleData>& node) {
     internode.thickness = std::max(0.00002f, internode.thickness);
     node.info.length = internode.length;
     node.info.thickness = internode.thickness;
-  } else if (node.data.Is<PineNeedleCluster>()) {
-    auto& cluster = node.data.Get<PineNeedleCluster>();
+  } else if (node.data.Is<PineNeedleSheath>()) {
+    auto& sheath = node.data.Get<PineNeedleSheath>();
+    const float absolute_age_years = std::max(0.0f, node.info.temporal.age_absolute_years);
+    UpdateSheathChronologicalAging(sheath, absolute_age_years);
+    const float sheath_maturity =
+        sheath.continuous_growth.maturation_years > 0.0f
+            ? std::clamp(sheath.continuous_growth.Multiplier(organ_growth_now_years), 0.0f, 1.0f)
+            : 1.0f;
+    sheath.length = std::max(0.0f, sheath.target_length * sheath_maturity);
+    sheath.width = std::max(0.0f, sheath.target_width * sheath_maturity);
+
+    // Sheaths are rendered by ScotsPine from parent-internode anchor data.
+    // Do not let them change the flow walk's biological axis lengths.
+    node.info.length = 0.0f;
+    node.info.thickness = 0.0f;
+  } else if (node.data.Is<PineNeedle>()) {
+    auto& needle = node.data.Get<PineNeedle>();
     const float absolute_age_years = std::max(0.0f, node.info.temporal.age_absolute_years);
     float needle_length_maturity = 1.0f;
-    if (cluster.continuous_growth.maturation_years > 0.0f) {
+    if (needle.continuous_growth.maturation_years > 0.0f) {
       const float needle_maturity_age_t =
-          std::clamp(cluster.continuous_growth.NormalizedAge(thermal_now_years), 0.0f, 1.0f);
+          std::clamp(needle.continuous_growth.NormalizedAge(organ_growth_now_years), 0.0f, 1.0f);
       needle_length_maturity = EvaluateMaturityMultiplier(sampled.distributions.needle_length_maturity_curve,
-                                                          needle_maturity_age_t, cluster.node_random, 0x31A1C101u);
+                                                          needle_maturity_age_t, needle.node_random, 0x31A1C101u);
     }
-    cluster.length = cluster.target_length * needle_length_maturity;
+    needle.length = needle.target_length * needle_length_maturity;
 
-    // Development to maturity is thermal; once mature, needles are determinate.
-    UpdateNeedleMaturityState(cluster, thermal_now_years, absolute_age_years);
-    if (cluster.maturity_reached) {
-      cluster.length = cluster.target_length;
+    UpdateNeedleMaturityState(needle, organ_growth_now_years, absolute_age_years);
+    if (needle.maturity_reached) {
+      needle.length = needle.target_length;
     }
 
-    UpdateNeedleChronologicalAging(cluster, absolute_age_years);
+    UpdateNeedleChronologicalAging(needle, absolute_age_years);
 
-    // Needle clusters do not contribute to flow length / thickness in the
+    // Needles do not contribute to flow length / thickness in the
     // GeometryPass walk; their geometry is built out-of-band by ScotsPine.
     node.info.length = 0.0f;
     node.info.thickness = 0.0f;
@@ -409,9 +353,9 @@ void PineGrowthModel::UpdateNodeInfoImpl(LGraphNode<PineModuleData>& node) {
 
 bool PineGrowthModel::IsDevelopmentalSymbolImpl(const LGraphNode<PineModuleData>& node) const {
   // Apex symbols (leader + laterals) are still developing until they exhaust
-  // vigor or reach max_age. WhorlBud is unused in Phase 3 but counted here
-  // for forward compatibility.
-  return node.data.Is<PineApex>() || node.data.Is<PineWhorlBud>();
+  // vigor or reach max_age.
+  return node.data.Is<PineApex>() || node.data.Is<PineWhorlBud>() ||
+         (node.data.Is<PineNeedleSheath>() && !node.data.Get<PineNeedleSheath>().needles_spawned);
 }
 
 glm::quat PineGrowthModel::ComputeChildLocalRotationImpl(const LGraphNode<PineModuleData>& node,
@@ -445,7 +389,9 @@ glm::quat PineGrowthModel::ComputeChildLocalRotationImpl(const LGraphNode<PineMo
     }
     return local;
   }
-  // Needle clusters, whorl buds, and apices contribute no axis change.
+  // Needle sheaths, needles, whorl buds, and apices contribute no axis change
+  // to the flow walk; sheath and needle render anchors are resolved from the
+  // parent internode by ScotsPine.
   return glm::quat(1, 0, 0, 0);
 }
 
@@ -461,11 +407,16 @@ bool PineGrowthModel::UpdateNodeAgingOnlyImpl(LGraphNode<PineModuleData>& node) 
     return internode.age_years != previous_age_years;
   }
 
-  if (node.data.Is<PineNeedleCluster>()) {
-    auto& cluster = node.data.Get<PineNeedleCluster>();
+  if (node.data.Is<PineNeedleSheath>()) {
+    auto& sheath = node.data.Get<PineNeedleSheath>();
+    return UpdateSheathChronologicalAging(sheath, node.info.temporal.age_absolute_years);
+  }
+
+  if (node.data.Is<PineNeedle>()) {
+    auto& needle = node.data.Get<PineNeedle>();
     const float thermal_now_years = accumulated_gdd / kPineGddPerYear;
-    UpdateNeedleMaturityState(cluster, thermal_now_years, node.info.temporal.age_absolute_years);
-    return UpdateNeedleChronologicalAging(cluster, node.info.temporal.age_absolute_years);
+    UpdateNeedleMaturityState(needle, thermal_now_years, node.info.temporal.age_absolute_years);
+    return UpdateNeedleChronologicalAging(needle, node.info.temporal.age_absolute_years);
   }
 
   if (node.data.Is<PineWhorlBud>()) {
@@ -484,11 +435,6 @@ bool PineGrowthModel::UpdateNodeAgingOnlyImpl(LGraphNode<PineModuleData>& node) 
 void PineGrowthModel::Reset() {
   ResetBase();
   sampled = SampledPineParams();
-  pre_repot_sampled_ = SampledPineParams();
-  post_repot_sampled_ = SampledPineParams();
-  has_post_repot_profile_ = false;
-  post_repot_profile_active_ = false;
-  repot_switch_gdd_ = -1.0f;
   stem_load_cache_graph_version_ = -1;
   stem_load_cache_.clear();
 }

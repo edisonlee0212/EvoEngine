@@ -273,6 +273,8 @@ class EditorLayer : public ILayer {
   void MoveCamera(const glm::quat& target_rotation, const glm::vec3& target_position,
                   const float& transition_time = 1.0f);
 
+  [[nodiscard]] bool FrameEntityInSceneCamera(const Entity& entity, float transition_time = 0.2f);
+
   /**
    * @brief Updates the texture ID with the provided Vulkan image properties.
    *
@@ -283,6 +285,7 @@ class EditorLayer : public ILayer {
    */
   static auto UpdateTextureId(ImTextureID& target, VkSampler image_sampler, VkImageView image_view,
                               VkImageLayout image_layout) -> void;
+  static auto RemoveTextureId(ImTextureID& target) -> void;
 
   /**
    * @brief Retrieves the currently selected entity.

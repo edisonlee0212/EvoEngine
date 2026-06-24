@@ -308,10 +308,7 @@ GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data,
 void Texture2DStorage::Clear() {
   if (!Platform::Initialized())
     return;
-  if (im_texture_id != 0) {
-    ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(im_texture_id));
-    im_texture_id = 0;
-  }
+  EditorLayer::RemoveTextureId(im_texture_id);
   sampler.reset();
   image_view.reset();
   image.reset();
@@ -321,10 +318,7 @@ void CubemapStorage::Clear() {
   if (!Platform::Initialized())
     return;
   for (auto& im_texture_id : im_texture_ids) {
-    if (im_texture_id != 0) {
-      ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(im_texture_id));
-      im_texture_id = 0;
-    }
+    EditorLayer::RemoveTextureId(im_texture_id);
   }
   sampler.reset();
   image_view.reset();

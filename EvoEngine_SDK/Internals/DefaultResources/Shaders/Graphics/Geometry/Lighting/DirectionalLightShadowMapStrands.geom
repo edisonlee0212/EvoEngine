@@ -4,13 +4,14 @@
 #include "Basic.glsl"
 
 layout(lines, invocations = 1) in;
-layout(triangle_strip, max_vertices = 6) out;
+layout(triangle_strip, max_vertices = 10) out;
 
 layout (location = 0) in TES_OUT {
 	vec3 FragPos;
 	float Thickness;
 	vec3 Normal;
 	vec3 Tangent;
+	vec4 ProfileProperties;
 } tes_in[];
 const float PI2 = 6.28318531;
 void main(){
@@ -34,22 +35,26 @@ void main(){
 
 		float thickS = tes_in[i].Thickness;
 		float thickT = tes_in[i + 1].Thickness;
+		vec4 profileS = tes_in[i].ProfileProperties;
+		vec4 profileT = tes_in[i + 1].ProfileProperties;
 		
 		//Computing
-		vec3 v11 = normalize(vS);        
-		vec3 v12 = normalize(cross(vS, tS));
+		vec3 v11 = EE_SAFE_NORMALIZE(vS, vec3(0.0, 1.0, 0.0));
+		vec3 v12 = EE_STRANDS_SIDE_VECTOR(v11, tS);
 	 
-		vec3 v21 = normalize(vT);
-		vec3 v22 = normalize(cross(vT, tT)); 
+		vec3 v21 = EE_SAFE_NORMALIZE(vT, v11);
+		vec3 v22 = EE_STRANDS_SIDE_VECTOR(v21, tT);
 
 		int ringSubAmount = 4;
 
 		for(int k = 0; k <= ringSubAmount; k += 1)
 		{
-			float angle = PI2 * k / ringSubAmount;
+			float profileU = 1.0 * k / ringSubAmount;
+			vec2 localOffsetS = EE_STRAND_PROFILE_OFFSET(profileS, thickS, profileU);
+			vec2 localOffsetT = EE_STRAND_PROFILE_OFFSET(profileT, thickT, profileU);
 
-			vec3 newPS = vec3(model * vec4(modelPosS.xyz + (v11 * sin(-angle) + v12 * cos(-angle)) * thickS, 1.0));
-			vec3 newPT = vec3(model * vec4(modelPosT.xyz + (v21 * sin(-angle) + v22 * cos(-angle)) * thickT, 1.0));
+			vec3 newPS = vec3(model * vec4(modelPosS.xyz + v12 * localOffsetS.x + v11 * localOffsetS.y, 1.0));
+			vec3 newPT = vec3(model * vec4(modelPosT.xyz + v22 * localOffsetT.x + v21 * localOffsetT.y, 1.0));
 
 			//Source Vertex
 			gl_Position = light_space_matrix * vec4(newPS, 1);

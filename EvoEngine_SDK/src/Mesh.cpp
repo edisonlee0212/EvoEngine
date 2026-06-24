@@ -8,6 +8,7 @@
 #include "Platform.hpp"
 #include "Serialization.hpp"
 #include "Utilities.hpp"
+#include <algorithm>
 using namespace evo_engine;
 
 bool Mesh::SaveInternal(const std::filesystem::path& path) const {

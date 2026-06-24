@@ -16,7 +16,7 @@
 //     downstream cross-section sweep does not introduce visible twist.
 //
 // The class is deliberately decoupled from any L-system module type so the
-// same primitive serves PineNeedleCluster, PineInternode (Phase 6) and the
+// same primitive serves PineNeedle, PineInternode (Phase 6) and the
 // future maize/sorghum leaf blade (post-Phase 6).
 //
 // Phase 1 invariant: a freshly constructed centerline with two control

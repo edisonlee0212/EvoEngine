@@ -613,13 +613,28 @@ void DeserializeAnimation(const YAML::Node& in, Animation& animation) {
 }
 
 void SerializeParticleInfoList(YAML::Emitter& out, const ParticleInfoList& list) {
+  out << YAML::Key << "particle_info_stride" << YAML::Value << sizeof(ParticleInfo);
   Serialization::SerializeVector("particle_infos", list.PeekParticleInfoList(), out);
 }
 
 void DeserializeParticleInfoList(const YAML::Node& in, ParticleInfoList& list) {
   if (in["particle_infos"]) {
+    constexpr size_t kLegacyParticleInfoStride = 96;
     std::vector<ParticleInfo> particle_infos;
-    Serialization::DeserializeVector("particle_infos", particle_infos, in);
+    const auto& data = in["particle_infos"].as<YAML::Binary>();
+    size_t stored_stride = in["particle_info_stride"] ? in["particle_info_stride"].as<size_t>() : sizeof(ParticleInfo);
+    if (!in["particle_info_stride"] && data.size() % sizeof(ParticleInfo) != 0 &&
+        data.size() % kLegacyParticleInfoStride == 0) {
+      stored_stride = kLegacyParticleInfoStride;
+    }
+    if (stored_stride == 0) {
+      return;
+    }
+    particle_infos.resize(data.size() / stored_stride);
+    const size_t copy_size = std::min(stored_stride, sizeof(ParticleInfo));
+    for (size_t i = 0; i < particle_infos.size(); ++i) {
+      std::memcpy(&particle_infos[i], data.data() + i * stored_stride, copy_size);
+    }
     list.SetParticleInfos(particle_infos);
   }
 }

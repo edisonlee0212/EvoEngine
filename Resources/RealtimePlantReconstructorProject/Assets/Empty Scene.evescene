@@ -1,0 +1,14 @@
+environment:
+  background_color: [0.02, 0.025, 0.03]
+  environment_gamma: 2.20000005
+  ambient_light_intensity: 0.800000012
+  environment_type: 0
+  environmental_map:
+    asset_handle_: 0
+    asset_type_name_: ""
+main_camera:
+  entity_handle_: 0
+  private_component_type_name_: ""
+entity_metadata_list: []
+systems_: []
+data_component_storage_list: []

@@ -238,6 +238,9 @@ class Camera final : public IPrivateComponent {
   std::shared_ptr<Sampler> g_buffer_material_sampler_ = {};     ///< GBuffer material sampler.
   ImTextureID g_buffer_material_tex_coord_im_texture_id_ = {};  ///< ImTextureID for GBuffer texcoords.
   ImTextureID g_buffer_material_indices_im_texture_id_ = {};    ///< ImTextureID for GBuffer material indices.
+  std::shared_ptr<Image> g_buffer_albedo_ = {};                  ///< GBuffer albedo image.
+  std::shared_ptr<ImageView> g_buffer_albedo_view_ = {};         ///< GBuffer albedo image view.
+  std::shared_ptr<Sampler> g_buffer_albedo_sampler_ = {};        ///< GBuffer albedo sampler.
 
   uint32_t frame_count_ = 0;  ///< Frame count used for tracking rendering updates.
 

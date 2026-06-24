@@ -146,6 +146,21 @@ register_evoengine_app(DemoApp ON)
 register_evoengine_app(EcoSysLabApp ON)
 register_evoengine_app(DigitalAgricultureApp ON)
 register_evoengine_app(LSystemApp ON)
+register_evoengine_app(RealtimePlantReconstructorApp ON)
+if(TARGET RealtimePlantReconstructorApp)
+	add_custom_command(TARGET RealtimePlantReconstructorApp POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+		${PROJECT_SOURCE_DIR}/Resources/RealtimePlantReconstructorProject
+		$<TARGET_FILE_DIR:RealtimePlantReconstructorApp>/Resources/RealtimePlantReconstructorProject
+		VERBATIM)
+	install(DIRECTORY ${PROJECT_SOURCE_DIR}/Resources/RealtimePlantReconstructorProject
+		DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Resources")
+endif()
+
+register_evoengine_app(ScotsPineDataGeneratorApp ON)
+if(TARGET ScotsPineDataGeneratorApp)
+	target_include_directories(ScotsPineDataGeneratorApp PRIVATE ${PROJECT_SOURCE_DIR}/EvoEngine_Packages/include)
+endif()
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")

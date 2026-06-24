@@ -133,7 +133,7 @@ struct GrowthFunction {
 };
 
 /// Per-organ continuous-growth state. Stored on every module that has a
-/// determinate trajectory (PineNeedleCluster, PineInternode after Phase 6,
+/// determinate trajectory (PineNeedle, PineInternode after Phase 6,
 /// future maize/sorghum leaf). Owns the data needed to evaluate
 /// `GrowthFunction.Value((clock.now() - t_init_years) / maturation_years)`.
 struct ContinuousGrowthState {

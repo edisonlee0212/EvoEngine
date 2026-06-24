@@ -150,6 +150,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                    VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     camera_g_buffer_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                    VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     camera_g_buffer_layout_->Initialize();
   }
   if (!render_texture_storage_layout_) {
@@ -533,7 +535,8 @@ void RenderLayer::OnCreate() {
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    deferred_prepass_pipeline_normal->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    deferred_prepass_pipeline_normal->color_attachment_formats = {
+        Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_albedo};
     auto& push_constant_range = deferred_prepass_pipeline_normal->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -556,7 +559,8 @@ void RenderLayer::OnCreate() {
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
     deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    deferred_prepass_pipeline_mesh->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    deferred_prepass_pipeline_mesh->color_attachment_formats = {
+        Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_albedo};
     auto& push_constant_range = deferred_prepass_pipeline_mesh->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -576,7 +580,8 @@ void RenderLayer::OnCreate() {
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     instanced_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    instanced_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    instanced_deferred_prepass_pipeline->color_attachment_formats = {
+        Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_albedo};
     auto& push_constant_range = instanced_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -596,7 +601,8 @@ void RenderLayer::OnCreate() {
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    skinned_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    skinned_deferred_prepass_pipeline->color_attachment_formats = {
+        Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_albedo};
     auto& push_constant_range = skinned_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -620,14 +626,15 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredStrands.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     strands_deferred_prepass_pipeline->tessellation_patch_control_points = 4;
     strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    strands_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    strands_deferred_prepass_pipeline->color_attachment_formats = {
+        Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_color, Platform::Constants::g_buffer_albedo};
     auto& push_constant_range = strands_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;

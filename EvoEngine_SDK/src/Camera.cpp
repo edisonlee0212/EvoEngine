@@ -54,9 +54,11 @@ void Camera::UpdateGBuffer() {
     return;
   g_buffer_normal_view_.reset();
   g_buffer_material_view_.reset();
+  g_buffer_albedo_view_.reset();
 
   g_buffer_normal_.reset();
   g_buffer_material_.reset();
+  g_buffer_albedo_.reset();
 
   {
     VkImageCreateInfo image_info{};
@@ -164,6 +166,53 @@ void Camera::UpdateGBuffer() {
 
     g_buffer_material_sampler_ = std::make_unique<Sampler>(sampler_info);
   }
+  {
+    VkImageCreateInfo image_info{};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.extent = render_texture_->GetExtent();
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.format = Platform::Constants::g_buffer_albedo;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    g_buffer_albedo_ = std::make_unique<Image>(image_info);
+
+    VkImageViewCreateInfo view_info{};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = g_buffer_albedo_->GetVkImage();
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = Platform::Constants::g_buffer_albedo;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.baseMipLevel = 0;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.baseArrayLayer = 0;
+    view_info.subresourceRange.layerCount = 1;
+
+    g_buffer_albedo_view_ = std::make_unique<ImageView>(view_info);
+
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler_info.anisotropyEnable = VK_TRUE;
+    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+    g_buffer_albedo_sampler_ = std::make_unique<Sampler>(sampler_info);
+  }
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
@@ -186,12 +235,16 @@ void Camera::UpdateGBuffer() {
     image_info.imageView = g_buffer_material_view_->GetVkImageView();
     image_info.sampler = g_buffer_material_sampler_->GetVkSampler();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(19, image_info);
+    image_info.imageView = g_buffer_albedo_view_->GetVkImageView();
+    image_info.sampler = g_buffer_albedo_sampler_->GetVkSampler();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(20, image_info);
   }
 }
 
 void Camera::TransitGBufferImageLayout(const VkCommandBuffer vk_command_buffer, VkImageLayout target_layout) const {
   g_buffer_normal_->TransitImageLayout(vk_command_buffer, target_layout);
   g_buffer_material_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_albedo_->TransitImageLayout(vk_command_buffer, target_layout);
 }
 void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform) {
   const auto rotation = global_transform.GetRotation();
@@ -266,6 +319,10 @@ void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachment
 
   attachment.clearValue = {0, 0, 0, 0};
   attachment.imageView = g_buffer_material_view_->GetVkImageView();
+  attachment_infos.push_back(attachment);
+
+  attachment.clearValue = {0, 0, 0, 0};
+  attachment.imageView = g_buffer_albedo_view_->GetVkImageView();
   attachment_infos.push_back(attachment);
 }
 
