@@ -95,10 +95,12 @@ void main() {
   EE_VOLUMETRIC_CLOUD_SUN_LIGHT(sun_direction, sun_radiance, ambient_radiance);
 
   vec2 jitter = EE_VOLUMETRIC_CLOUD_TemporalJitter(pixel, uint(cameraFrameSteps.y));
+  VolumetricCloudSettingsGpu cloud_settings = EE_BUILD_VOLUMETRIC_CLOUD_SETTINGS();
   VolumetricCloudMarchResult cloud = EE_VOLUMETRIC_CLOUD_March(
-      EE_BUILD_VOLUMETRIC_CLOUD_SETTINGS(), ray_origin, ray_direction, max_distance, scene_distance, sun_direction,
-      sun_radiance, ambient_radiance, windTime.w, jitter.x);
+      cloud_settings, ray_origin, ray_direction, max_distance, scene_distance, sun_direction, sun_radiance,
+      ambient_radiance, windTime.w, jitter.x);
 
-  imageStore(outCloudAccumulation, pixel, vec4(cloud.radiance, cloud.march_distance));
+  imageStore(outCloudAccumulation, pixel,
+             vec4(EE_VOLUMETRIC_CLOUD_DebugAccumulation(cloud, cloud_settings.debug_mode), cloud.march_distance));
   imageStore(outCloudTransmittance, pixel, vec4(cloud.transmittance));
 }

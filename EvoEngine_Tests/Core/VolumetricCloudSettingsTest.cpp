@@ -98,7 +98,7 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   EXPECT_FLOAT_EQ(settings.base_noise_scale, 0.00001f);
   EXPECT_FLOAT_EQ(settings.detail_noise_scale, 10.0f);
   EXPECT_FLOAT_EQ(settings.extinction_scale, 1.0f);
-  EXPECT_EQ(settings.debug_mode, 3);
+  EXPECT_EQ(settings.debug_mode, 6);
 }
 
 TEST(VolumetricCloudSettings, SceneEnvironmentDeserializesCloudSettings) {
@@ -213,4 +213,16 @@ TEST(VolumetricCloudSettings, CloudSettingsDoNotFeedDdgiSceneChangeTriggers) {
   EXPECT_EQ(trigger_block.find("volumetric_cloud_settings"), std::string::npos);
   EXPECT_EQ(trigger_block.find("VolumetricCloudSettings"), std::string::npos);
   EXPECT_EQ(trigger_block.find("cloud"), std::string::npos);
+}
+
+TEST(VolumetricCloudSettings, DemoAppSmokeChecksCloudDensityVariation) {
+  const auto demo_app_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App" / "src" / "DemoApp.cpp");
+  ASSERT_FALSE(demo_app_source.empty());
+
+  EXPECT_NE(demo_app_source.find("luminance_standard_deviation"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("density_luminance_range"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("visible_cloud_settings.debug_visualization = true"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("visible_cloud_settings.debug_mode = 1"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("volumetric cloud density debug output is spatially flat"), std::string::npos);
 }

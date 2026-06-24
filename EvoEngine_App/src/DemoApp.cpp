@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <utility>
 
 #ifdef PHYSX_PHYSICS_SERVICE
@@ -631,6 +632,10 @@ struct RenderTextureRegionSummary {
   uint32_t sample_count = 0;
   glm::vec3 average_color = glm::vec3(0.0f);
   float average_luminance = 0.0f;
+  float luminance_second_moment = 0.0f;
+  float luminance_standard_deviation = 0.0f;
+  float minimum_luminance = std::numeric_limits<float>::max();
+  float maximum_luminance = 0.0f;
   bool finite = true;
 };
 
@@ -682,15 +687,22 @@ RenderTextureRegionSummary SummarizeRenderTextureRegion(const std::vector<glm::v
   for (uint32_t y = begin.y; y < end.y; ++y) {
     for (uint32_t x = begin.x; x < end.x; ++x) {
       const auto color = glm::max(glm::vec3(pixels[static_cast<size_t>(y) * resolution.x + x]), glm::vec3(0.0f));
+      const auto luminance = glm::dot(color, glm::vec3(0.2126f, 0.7152f, 0.0722f));
       summary.finite = summary.finite && std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z);
       summary.average_color += color;
-      summary.average_luminance += glm::dot(color, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+      summary.average_luminance += luminance;
+      summary.luminance_second_moment += luminance * luminance;
+      summary.minimum_luminance = glm::min(summary.minimum_luminance, luminance);
+      summary.maximum_luminance = glm::max(summary.maximum_luminance, luminance);
       ++summary.sample_count;
     }
   }
   if (summary.sample_count != 0u) {
     summary.average_color /= static_cast<float>(summary.sample_count);
     summary.average_luminance /= static_cast<float>(summary.sample_count);
+    summary.luminance_second_moment /= static_cast<float>(summary.sample_count);
+    summary.luminance_standard_deviation = std::sqrt(
+        glm::max(summary.luminance_second_moment - summary.average_luminance * summary.average_luminance, 0.0f));
   }
   return summary;
 }
@@ -1649,6 +1661,26 @@ int ValidateRenderingDemoCloudVisibleContribution(Application& application, cons
                                           std::to_string(baseline_summary->average_luminance) +
                                           " cloud=" + std::to_string(cloud_summary->average_luminance) +
                                           " minimum=" + std::to_string(minimum_cloud_luminance));
+  }
+  visible_cloud_settings.debug_visualization = true;
+  visible_cloud_settings.debug_mode = 1;
+  visible_cloud_settings.ClampSettings();
+  scene->environment.volumetric_cloud_settings = visible_cloud_settings;
+  main_camera->ResetFrameCount();
+  const auto density_summary =
+      CaptureMainCameraRegion(application, scene, {0.15f, 0.15f}, {0.85f, 0.85f},
+                              "application ended before cloud density variation validation completed");
+  if (!density_summary) {
+    return 1;
+  }
+  if (density_summary->sample_count == 0u || !density_summary->finite) {
+    return FailSmokeTest(application, "cloud density variation validation read invalid main-camera pixels");
+  }
+  const auto density_luminance_range = density_summary->maximum_luminance - density_summary->minimum_luminance;
+  if (density_summary->luminance_standard_deviation <= 0.001f && density_luminance_range <= 0.005f) {
+    return FailSmokeTest(application, "volumetric cloud density debug output is spatially flat stddev=" +
+                                          std::to_string(density_summary->luminance_standard_deviation) +
+                                          " range=" + std::to_string(density_luminance_range));
   }
   return 0;
 }

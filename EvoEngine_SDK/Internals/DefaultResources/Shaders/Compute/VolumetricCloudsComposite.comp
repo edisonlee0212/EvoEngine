@@ -74,13 +74,16 @@ vec4 EE_VOLUMETRIC_CLOUD_COMPOSITE_DEBUG(in vec3 scene_color, in vec3 cloud_radi
                                          in float march_distance, in float max_distance) {
   int debug_mode = flags.y != 0 ? flags.z : 0;
   if (debug_mode == 1) {
-    return vec4(vec3(1.0f - transmittance), 1.0f);
+    return vec4(cloud_radiance, 1.0f);
   }
   if (debug_mode == 2) {
     return vec4(vec3(transmittance), 1.0f);
   }
   if (debug_mode == 3) {
     return vec4(vec3(EE_VOLUMETRIC_CLOUD_Saturate(march_distance / max(max_distance, 1.0f))), 1.0f);
+  }
+  if (debug_mode == 4 || debug_mode == 5 || debug_mode == 6) {
+    return vec4(cloud_radiance, 1.0f);
   }
   return vec4(cloud_radiance + scene_color * transmittance, 1.0f);
 }

@@ -52,7 +52,7 @@ struct VolumetricCloudSettings {
     base_noise_scale = glm::clamp(base_noise_scale, 0.00001f, 10.0f);
     detail_noise_scale = glm::clamp(detail_noise_scale, 0.00001f, 10.0f);
     extinction_scale = glm::clamp(extinction_scale, 0.00001f, 1.0f);
-    debug_mode = glm::clamp(debug_mode, 0, 3);
+    debug_mode = glm::clamp(debug_mode, 0, 6);
   }
 };
 }  // namespace evo_engine

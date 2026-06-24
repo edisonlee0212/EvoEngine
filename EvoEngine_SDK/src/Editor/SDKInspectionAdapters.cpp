@@ -1261,7 +1261,8 @@ bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
     modified = true;
   if (ImGui::Checkbox("Cloud debug", &settings.debug_visualization))
     modified = true;
-  const char* debug_modes[] = {"Final", "Density", "Transmittance", "March depth"};
+  const char* debug_modes[] = {"Final composite", "Final density",  "Transmittance",   "March depth",
+                               "Base shape",      "Detail erosion", "Weather coverage"};
   if (ImGui::Combo("Cloud debug mode", &settings.debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes)))
     modified = true;
   if (modified) {

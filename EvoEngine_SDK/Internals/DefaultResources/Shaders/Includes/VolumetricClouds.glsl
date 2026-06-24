@@ -34,6 +34,16 @@ struct VolumetricCloudMarchResult {
   float transmittance;
   float mean_density;
   float march_distance;
+  float mean_base_shape;
+  float mean_detail_erosion;
+  float mean_weather_coverage;
+};
+
+struct VolumetricCloudDensitySample {
+  float final_density;
+  float base_shape;
+  float detail_erosion;
+  float weather_coverage;
 };
 
 layout(set = 1, binding = 6) uniform sampler3D EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE;
@@ -130,10 +140,15 @@ float EE_VOLUMETRIC_CLOUD_HeightProfile(in float height_fraction) {
   return bottom_fade * upper_fade * body;
 }
 
-float EE_VOLUMETRIC_CLOUD_EdgeErosion(in float base_shape_density, in vec4 detail_noise) {
+float EE_VOLUMETRIC_CLOUD_DetailErosionAmount(in float base_shape_density, in vec4 detail_noise) {
   float edge_weight = 1.0f - smoothstep(0.35f, 0.85f, base_shape_density);
   float detail_erosion = dot(detail_noise, vec4(0.45f, 0.30f, 0.18f, 0.07f));
-  return EE_VOLUMETRIC_CLOUD_Saturate(base_shape_density - detail_erosion * edge_weight * 0.35f);
+  return detail_erosion * edge_weight * 0.35f;
+}
+
+float EE_VOLUMETRIC_CLOUD_EdgeErosion(in float base_shape_density, in vec4 detail_noise) {
+  return EE_VOLUMETRIC_CLOUD_Saturate(base_shape_density -
+                                      EE_VOLUMETRIC_CLOUD_DetailErosionAmount(base_shape_density, detail_noise));
 }
 
 vec3 EE_VOLUMETRIC_CLOUD_WindOffset(in VolumetricCloudSettingsGpu settings, in float time_seconds) {
@@ -163,11 +178,18 @@ vec4 EE_VOLUMETRIC_CLOUD_SampleWeatherCoverage(in VolumetricCloudSettingsGpu set
                  wind_position.xz * max(settings.base_noise_scale * 0.08f, 0.00001f));
 }
 
-float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, in vec3 world_position,
-                                        in float time_seconds) {
+VolumetricCloudDensitySample EE_VOLUMETRIC_CLOUD_SampleDensityComponents(in VolumetricCloudSettingsGpu settings,
+                                                                         in vec3 world_position,
+                                                                         in float time_seconds) {
+  VolumetricCloudDensitySample sample;
+  sample.final_density = 0.0f;
+  sample.base_shape = 0.0f;
+  sample.detail_erosion = 0.0f;
+  sample.weather_coverage = 0.0f;
+
   float height_fraction = EE_VOLUMETRIC_CLOUD_HeightFraction(settings, world_position.y);
   if (height_fraction <= 0.0f || height_fraction >= 1.0f) {
-    return 0.0f;
+    return sample;
   }
 
   vec4 base_noise = EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise(settings, world_position, time_seconds);
@@ -178,10 +200,20 @@ float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, 
   float coverage_threshold = 1.0f - local_coverage;
   float base_shape = dot(base_noise.rgb, vec3(0.60f, 0.25f, 0.15f));
   float base_shape_density = EE_VOLUMETRIC_CLOUD_Remap(base_shape, coverage_threshold, 1.0f, 0.0f, 1.0f);
+  float detail_erosion = EE_VOLUMETRIC_CLOUD_DetailErosionAmount(base_shape_density, detail_noise);
   float eroded_shape_density = EE_VOLUMETRIC_CLOUD_EdgeErosion(base_shape_density, detail_noise);
   float weather_density = mix(0.75f, 1.20f, weather.b);
-  return EE_VOLUMETRIC_CLOUD_Saturate(eroded_shape_density * height_profile * weather_density *
-                                      max(settings.density, 0.0f));
+  sample.final_density = EE_VOLUMETRIC_CLOUD_Saturate(eroded_shape_density * height_profile * weather_density *
+                                                      max(settings.density, 0.0f));
+  sample.base_shape = base_shape_density;
+  sample.detail_erosion = detail_erosion;
+  sample.weather_coverage = local_coverage;
+  return sample;
+}
+
+float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, in vec3 world_position,
+                                        in float time_seconds) {
+  return EE_VOLUMETRIC_CLOUD_SampleDensityComponents(settings, world_position, time_seconds).final_density;
 }
 
 VolumetricCloudRayInterval EE_VOLUMETRIC_CLOUD_IntersectLayer(in vec3 ray_origin, in vec3 ray_direction,
@@ -249,6 +281,9 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
   result.transmittance = 1.0f;
   result.mean_density = 0.0f;
   result.march_distance = 0.0f;
+  result.mean_base_shape = 0.0f;
+  result.mean_detail_erosion = 0.0f;
+  result.mean_weather_coverage = 0.0f;
 
   if (settings.enabled == 0) {
     return result;
@@ -266,6 +301,9 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
   float cos_theta = dot(ray_direction, sun_direction);
   float phase = EE_VOLUMETRIC_CLOUD_DirectionalPhase(cos_theta, settings.phase_anisotropy);
   float density_sum = 0.0f;
+  float base_shape_sum = 0.0f;
+  float detail_erosion_sum = 0.0f;
+  float weather_coverage_sum = 0.0f;
   float used_steps = 0.0f;
 
   for (int step_index = 0; step_index < step_count; ++step_index) {
@@ -275,8 +313,13 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
     }
 
     vec3 sample_position = ray_origin + ray_direction * t;
-    float density = EE_VOLUMETRIC_CLOUD_SampleDensity(settings, sample_position, time_seconds);
+    VolumetricCloudDensitySample density_sample =
+        EE_VOLUMETRIC_CLOUD_SampleDensityComponents(settings, sample_position, time_seconds);
+    float density = density_sample.final_density;
     density_sum += density;
+    base_shape_sum += density_sample.base_shape;
+    detail_erosion_sum += density_sample.detail_erosion;
+    weather_coverage_sum += density_sample.weather_coverage;
     used_steps += 1.0f;
     if (density <= 0.0f) {
       continue;
@@ -298,12 +341,31 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
   }
 
   result.mean_density = used_steps > 0.0f ? density_sum / used_steps : 0.0f;
+  result.mean_base_shape = used_steps > 0.0f ? base_shape_sum / used_steps : 0.0f;
+  result.mean_detail_erosion = used_steps > 0.0f ? detail_erosion_sum / used_steps : 0.0f;
+  result.mean_weather_coverage = used_steps > 0.0f ? weather_coverage_sum / used_steps : 0.0f;
   result.transmittance = EE_VOLUMETRIC_CLOUD_Saturate(result.transmittance);
   return result;
 }
 
 vec3 EE_VOLUMETRIC_CLOUD_Composite(in vec3 scene_color, in VolumetricCloudMarchResult cloud) {
   return cloud.radiance + scene_color * cloud.transmittance;
+}
+
+vec3 EE_VOLUMETRIC_CLOUD_DebugAccumulation(in VolumetricCloudMarchResult cloud, in int debug_mode) {
+  if (debug_mode == 1) {
+    return vec3(cloud.mean_density);
+  }
+  if (debug_mode == 4) {
+    return vec3(cloud.mean_base_shape);
+  }
+  if (debug_mode == 5) {
+    return vec3(EE_VOLUMETRIC_CLOUD_Saturate(cloud.mean_detail_erosion * 4.0f));
+  }
+  if (debug_mode == 6) {
+    return vec3(cloud.mean_weather_coverage);
+  }
+  return cloud.radiance;
 }
 
 vec4 EE_VOLUMETRIC_CLOUD_Debug(in vec3 scene_color, in VolumetricCloudMarchResult cloud, in float max_distance,
@@ -316,6 +378,9 @@ vec4 EE_VOLUMETRIC_CLOUD_Debug(in vec3 scene_color, in VolumetricCloudMarchResul
   }
   if (debug_mode == 3) {
     return vec4(vec3(EE_VOLUMETRIC_CLOUD_Saturate(cloud.march_distance / max(max_distance, 1.0f))), 1.0f);
+  }
+  if (debug_mode == 4 || debug_mode == 5 || debug_mode == 6) {
+    return vec4(EE_VOLUMETRIC_CLOUD_DebugAccumulation(cloud, debug_mode), 1.0f);
   }
   return vec4(EE_VOLUMETRIC_CLOUD_Composite(scene_color, cloud), 1.0f);
 }
