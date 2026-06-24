@@ -237,6 +237,7 @@ void SerializeVolumetricCloudSettings(YAML::Emitter& out, const VolumetricCloudS
   out << YAML::Key << "density" << YAML::Value << settings.density;
   out << YAML::Key << "bottom_altitude" << YAML::Value << settings.bottom_altitude;
   out << YAML::Key << "top_altitude" << YAML::Value << settings.top_altitude;
+  out << YAML::Key << "max_march_distance" << YAML::Value << settings.max_march_distance;
   out << YAML::Key << "wind_direction" << YAML::Value << settings.wind_direction;
   out << YAML::Key << "wind_speed" << YAML::Value << settings.wind_speed;
   out << YAML::Key << "primary_step_count" << YAML::Value << settings.primary_step_count;
@@ -245,6 +246,9 @@ void SerializeVolumetricCloudSettings(YAML::Emitter& out, const VolumetricCloudS
   out << YAML::Key << "lighting_intensity" << YAML::Value << settings.lighting_intensity;
   out << YAML::Key << "ambient_lighting_strength" << YAML::Value << settings.ambient_lighting_strength;
   out << YAML::Key << "phase_anisotropy" << YAML::Value << settings.phase_anisotropy;
+  out << YAML::Key << "base_noise_scale" << YAML::Value << settings.base_noise_scale;
+  out << YAML::Key << "detail_noise_scale" << YAML::Value << settings.detail_noise_scale;
+  out << YAML::Key << "extinction_scale" << YAML::Value << settings.extinction_scale;
   out << YAML::Key << "debug_visualization" << YAML::Value << settings.debug_visualization;
   out << YAML::Key << "debug_mode" << YAML::Value << settings.debug_mode;
   out << YAML::EndMap;
@@ -261,6 +265,8 @@ void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSet
     settings.bottom_altitude = in["bottom_altitude"].as<float>();
   if (in["top_altitude"])
     settings.top_altitude = in["top_altitude"].as<float>();
+  if (in["max_march_distance"])
+    settings.max_march_distance = in["max_march_distance"].as<float>();
   if (in["wind_direction"])
     settings.wind_direction = in["wind_direction"].as<glm::vec2>();
   if (in["wind_speed"])
@@ -277,6 +283,12 @@ void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSet
     settings.ambient_lighting_strength = in["ambient_lighting_strength"].as<float>();
   if (in["phase_anisotropy"])
     settings.phase_anisotropy = in["phase_anisotropy"].as<float>();
+  if (in["base_noise_scale"])
+    settings.base_noise_scale = in["base_noise_scale"].as<float>();
+  if (in["detail_noise_scale"])
+    settings.detail_noise_scale = in["detail_noise_scale"].as<float>();
+  if (in["extinction_scale"])
+    settings.extinction_scale = in["extinction_scale"].as<float>();
   if (in["debug_visualization"])
     settings.debug_visualization = in["debug_visualization"].as<bool>();
   if (in["debug_mode"])

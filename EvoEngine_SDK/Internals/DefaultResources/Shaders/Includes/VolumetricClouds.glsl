@@ -17,6 +17,9 @@ struct VolumetricCloudSettingsGpu {
   float lighting_intensity;
   float ambient_lighting_strength;
   float phase_anisotropy;
+  float base_noise_scale;
+  float detail_noise_scale;
+  float extinction_scale;
   int debug_mode;
 };
 
@@ -108,8 +111,9 @@ float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, 
   }
 
   vec3 wind_position = world_position + EE_VOLUMETRIC_CLOUD_WindOffset(settings, time_seconds);
-  float base_noise = EE_VOLUMETRIC_CLOUD_Fbm(wind_position * 0.00045f);
-  float detail_noise = EE_VOLUMETRIC_CLOUD_Fbm(wind_position * 0.0025f + vec3(13.5f, 2.3f, 8.1f));
+  float base_noise = EE_VOLUMETRIC_CLOUD_Fbm(wind_position * max(settings.base_noise_scale, 0.00001f));
+  float detail_noise =
+      EE_VOLUMETRIC_CLOUD_Fbm(wind_position * max(settings.detail_noise_scale, 0.00001f) + vec3(13.5f, 2.3f, 8.1f));
   float height_shape = EE_VOLUMETRIC_CLOUD_Saturate(height_fraction * 4.0f) *
                        EE_VOLUMETRIC_CLOUD_Saturate((1.0f - height_fraction) * 3.0f);
   float coverage_threshold = 1.0f - EE_VOLUMETRIC_CLOUD_Saturate(settings.coverage);
@@ -166,7 +170,8 @@ float EE_VOLUMETRIC_CLOUD_LightTransmittance(in VolumetricCloudSettingsGpu setti
   for (int step_index = 0; step_index < step_count; ++step_index) {
     float t = interval.t_min + (float(step_index) + 0.5f) * step_length;
     vec3 sample_position = world_position + light_direction * t;
-    optical_depth += EE_VOLUMETRIC_CLOUD_SampleDensity(settings, sample_position, time_seconds) * step_length * 0.001f;
+    optical_depth += EE_VOLUMETRIC_CLOUD_SampleDensity(settings, sample_position, time_seconds) * step_length *
+                     max(settings.extinction_scale, 0.00001f);
   }
   return exp(-optical_depth);
 }
@@ -213,7 +218,7 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
       continue;
     }
 
-    float sample_extinction = density * step_length * 0.001f;
+    float sample_extinction = density * step_length * max(settings.extinction_scale, 0.00001f);
     float sample_transmittance = exp(-sample_extinction);
     float light_transmittance =
         EE_VOLUMETRIC_CLOUD_LightTransmittance(settings, sample_position, sun_direction, time_seconds);

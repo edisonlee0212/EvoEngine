@@ -14,6 +14,7 @@ layout(push_constant) uniform EE_VOLUMETRIC_CLOUD_CONSTANTS {
   vec4 altitudeCoverageDensity;
   vec4 windTime;
   vec4 lightingPhaseMaxDistance;
+  vec4 noiseExtinctionMarchDistance;
   ivec4 cameraFrameSteps;
   ivec4 flags;
 };
@@ -27,7 +28,12 @@ vec3 EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(in int camera_index, in vec2 tex_coord) {
 float EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(in int camera_index, in vec2 tex_coord, in vec3 ray_origin,
                                          in vec3 ray_direction, in float max_distance) {
   if (flags.w != 0) {
-    return clamp(texture(inDepth, tex_coord).r, 0.0f, max_distance);
+    float hit_distance = texture(inDepth, tex_coord).r;
+    float camera_far = EE_CAMERA_FAR(camera_index);
+    if (hit_distance >= camera_far * 0.999f) {
+      return max_distance;
+    }
+    return clamp(hit_distance, 0.0f, max_distance);
   }
   float ndc_depth = texture(inDepth, tex_coord).r;
   if (ndc_depth >= 0.999999f) {
@@ -90,7 +96,7 @@ void main() {
   int camera_index = cameraFrameSteps.x;
   vec3 ray_origin = EE_CAMERA_POSITION(camera_index);
   vec3 ray_direction = EE_VOLUMETRIC_CLOUD_RAY_DIRECTION(camera_index, tex_coord);
-  float max_distance = max(lightingPhaseMaxDistance.w, 0.0f);
+  float max_distance = max(noiseExtinctionMarchDistance.w, 0.0f);
   ivec2 cloud_pixel =
       EE_VOLUMETRIC_CLOUD_DEPTH_AWARE_TEXEL(camera_index, tex_coord, ray_origin, ray_direction, max_distance);
 

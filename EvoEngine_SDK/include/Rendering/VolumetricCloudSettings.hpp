@@ -4,10 +4,11 @@
 namespace evo_engine {
 struct VolumetricCloudSettings {
   bool enabled = false;
-  float coverage = 0.45f;
-  float density = 0.35f;
-  float bottom_altitude = 1500.0f;
-  float top_altitude = 4500.0f;
+  float coverage = 0.65f;
+  float density = 1.0f;
+  float bottom_altitude = 80.0f;
+  float top_altitude = 550.0f;
+  float max_march_distance = 5000.0f;
   glm::vec2 wind_direction = {1.0f, 0.0f};
   float wind_speed = 25.0f;
   int primary_step_count = 64;
@@ -16,6 +17,9 @@ struct VolumetricCloudSettings {
   float lighting_intensity = 1.0f;
   float ambient_lighting_strength = 0.2f;
   float phase_anisotropy = 0.65f;
+  float base_noise_scale = 0.012f;
+  float detail_noise_scale = 0.05f;
+  float extinction_scale = 0.01f;
   bool debug_visualization = false;
   int debug_mode = 0;
 
@@ -26,6 +30,7 @@ struct VolumetricCloudSettings {
       bottom_altitude = 0.0f;
     if (top_altitude < bottom_altitude + 1.0f)
       top_altitude = bottom_altitude + 1.0f;
+    max_march_distance = glm::clamp(max_march_distance, 1.0f, 1000000.0f);
     if (glm::dot(wind_direction, wind_direction) > 0.0001f) {
       wind_direction = glm::normalize(wind_direction);
     } else {
@@ -44,6 +49,9 @@ struct VolumetricCloudSettings {
     lighting_intensity = glm::clamp(lighting_intensity, 0.0f, 100.0f);
     ambient_lighting_strength = glm::clamp(ambient_lighting_strength, 0.0f, 10.0f);
     phase_anisotropy = glm::clamp(phase_anisotropy, -0.99f, 0.99f);
+    base_noise_scale = glm::clamp(base_noise_scale, 0.00001f, 10.0f);
+    detail_noise_scale = glm::clamp(detail_noise_scale, 0.00001f, 10.0f);
+    extinction_scale = glm::clamp(extinction_scale, 0.00001f, 1.0f);
     debug_mode = glm::clamp(debug_mode, 0, 3);
   }
 };

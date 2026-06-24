@@ -1231,6 +1231,8 @@ bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
     modified = true;
   if (ImGui::DragFloat("Top altitude", &settings.top_altitude, 10.0f, 1.0f, 100000.0f, "%.1f"))
     modified = true;
+  if (ImGui::DragFloat("Max march distance", &settings.max_march_distance, 10.0f, 1.0f, 1000000.0f, "%.1f"))
+    modified = true;
   if (ImGui::DragFloat2("Wind direction", &settings.wind_direction.x, 0.001f, -1.0f, 1.0f, "%.3f"))
     modified = true;
   if (ImGui::DragFloat("Wind speed", &settings.wind_speed, 0.1f, 0.0f, 10000.0f, "%.1f"))
@@ -1250,6 +1252,12 @@ bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
   if (ImGui::DragFloat("Ambient lighting", &settings.ambient_lighting_strength, 0.01f, 0.0f, 10.0f, "%.3f"))
     modified = true;
   if (ImGui::DragFloat("Phase anisotropy", &settings.phase_anisotropy, 0.001f, -0.99f, 0.99f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Base noise scale", &settings.base_noise_scale, 0.001f, 0.00001f, 10.0f, "%.5f"))
+    modified = true;
+  if (ImGui::DragFloat("Detail noise scale", &settings.detail_noise_scale, 0.001f, 0.00001f, 10.0f, "%.5f"))
+    modified = true;
+  if (ImGui::DragFloat("Extinction scale", &settings.extinction_scale, 0.001f, 0.00001f, 1.0f, "%.5f"))
     modified = true;
   if (ImGui::Checkbox("Cloud debug", &settings.debug_visualization))
     modified = true;

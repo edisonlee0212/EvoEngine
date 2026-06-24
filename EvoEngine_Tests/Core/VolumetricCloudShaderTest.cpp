@@ -30,6 +30,10 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Composite"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Debug"), std::string::npos);
+  EXPECT_NE(shader_source.find("base_noise_scale"), std::string::npos);
+  EXPECT_NE(shader_source.find("detail_noise_scale"), std::string::npos);
+  EXPECT_NE(shader_source.find("extinction_scale"), std::string::npos);
+  EXPECT_NE(shader_source.find("max(settings.extinction_scale"), std::string::npos);
 }
 
 TEST(VolumetricCloudShader, SharedLibraryStaysIndependentFromDdgiAndShaderForks) {
@@ -60,6 +64,8 @@ TEST(VolumetricCloudShader, RasterComputeUsesSharedLibraryAndRasterDepth) {
   EXPECT_NE(shader_source.find("imageSize(outCloudAccumulation)"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_DEPTH_TO_WORLD_POS"), std::string::npos);
   EXPECT_NE(shader_source.find("flags.w != 0"), std::string::npos);
+  EXPECT_NE(shader_source.find("hit_distance >= camera_far * 0.999f"), std::string::npos);
+  EXPECT_NE(shader_source.find("noiseExtinctionMarchDistance.w"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_DIRECTIONAL_LIGHTS"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
   EXPECT_NE(shader_source.find("cloud.march_distance"), std::string::npos);
@@ -82,6 +88,8 @@ TEST(VolumetricCloudShader, CompositeComputeUpsamplesDepthAwareClouds) {
             std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_DEPTH_AWARE_TEXEL"), std::string::npos);
   EXPECT_NE(shader_source.find("candidate_error = abs(candidate_distance - target_distance)"), std::string::npos);
+  EXPECT_NE(shader_source.find("hit_distance >= camera_far * 0.999f"), std::string::npos);
+  EXPECT_NE(shader_source.find("noiseExtinctionMarchDistance.w"), std::string::npos);
   EXPECT_NE(shader_source.find("cloud_radiance + scene_color * transmittance"), std::string::npos);
   EXPECT_NE(shader_source.find("imageStore(inOutColor"), std::string::npos);
 }
@@ -94,6 +102,8 @@ TEST(VolumetricCloudShader, RasterPassBindsComputePipelineAndGraphResources) {
   EXPECT_NE(pass_source.find("CreateGraphImageMipView(accumulation_binding->image, 0)"), std::string::npos);
   EXPECT_NE(pass_source.find("CreateGraphImageMipView(transmittance_binding->image, 0)"), std::string::npos);
   EXPECT_NE(pass_source.find("parameters.input_is_ray_hit_distance"), std::string::npos);
+  EXPECT_NE(pass_source.find("settings.max_march_distance"), std::string::npos);
+  EXPECT_NE(pass_source.find("noise_extinction_march_distance"), std::string::npos);
   EXPECT_NE(pass_source.find("CreateGraphImageMipView(depth_binding->image, 0)"), std::string::npos);
   EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(0, image_info)"), std::string::npos);
   EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(1, image_info)"), std::string::npos);

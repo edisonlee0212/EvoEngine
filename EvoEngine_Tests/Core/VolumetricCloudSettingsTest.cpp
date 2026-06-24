@@ -40,10 +40,11 @@ TEST(VolumetricCloudSettings, DefaultsAreDisabledAndAuthoringFriendly) {
   const VolumetricCloudSettings settings;
 
   EXPECT_FALSE(settings.enabled);
-  EXPECT_FLOAT_EQ(settings.coverage, 0.45f);
-  EXPECT_FLOAT_EQ(settings.density, 0.35f);
-  EXPECT_FLOAT_EQ(settings.bottom_altitude, 1500.0f);
-  EXPECT_FLOAT_EQ(settings.top_altitude, 4500.0f);
+  EXPECT_FLOAT_EQ(settings.coverage, 0.65f);
+  EXPECT_FLOAT_EQ(settings.density, 1.0f);
+  EXPECT_FLOAT_EQ(settings.bottom_altitude, 80.0f);
+  EXPECT_FLOAT_EQ(settings.top_altitude, 550.0f);
+  EXPECT_FLOAT_EQ(settings.max_march_distance, 5000.0f);
   EXPECT_EQ(settings.wind_direction, glm::vec2(1.0f, 0.0f));
   EXPECT_FLOAT_EQ(settings.wind_speed, 25.0f);
   EXPECT_EQ(settings.primary_step_count, 64);
@@ -52,6 +53,9 @@ TEST(VolumetricCloudSettings, DefaultsAreDisabledAndAuthoringFriendly) {
   EXPECT_FLOAT_EQ(settings.lighting_intensity, 1.0f);
   EXPECT_FLOAT_EQ(settings.ambient_lighting_strength, 0.2f);
   EXPECT_FLOAT_EQ(settings.phase_anisotropy, 0.65f);
+  EXPECT_FLOAT_EQ(settings.base_noise_scale, 0.012f);
+  EXPECT_FLOAT_EQ(settings.detail_noise_scale, 0.05f);
+  EXPECT_FLOAT_EQ(settings.extinction_scale, 0.01f);
   EXPECT_FALSE(settings.debug_visualization);
   EXPECT_EQ(settings.debug_mode, 0);
 }
@@ -62,6 +66,7 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   settings.density = 20.0f;
   settings.bottom_altitude = -10.0f;
   settings.top_altitude = -5.0f;
+  settings.max_march_distance = -20.0f;
   settings.wind_direction = {0.0f, 0.0f};
   settings.wind_speed = -1.0f;
   settings.primary_step_count = 0;
@@ -70,6 +75,9 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   settings.lighting_intensity = 200.0f;
   settings.ambient_lighting_strength = -1.0f;
   settings.phase_anisotropy = 2.0f;
+  settings.base_noise_scale = -1.0f;
+  settings.detail_noise_scale = 20.0f;
+  settings.extinction_scale = 2.0f;
   settings.debug_mode = 99;
 
   settings.ClampSettings();
@@ -78,6 +86,7 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   EXPECT_FLOAT_EQ(settings.density, 10.0f);
   EXPECT_FLOAT_EQ(settings.bottom_altitude, 0.0f);
   EXPECT_FLOAT_EQ(settings.top_altitude, 1.0f);
+  EXPECT_FLOAT_EQ(settings.max_march_distance, 1.0f);
   EXPECT_EQ(settings.wind_direction, glm::vec2(1.0f, 0.0f));
   EXPECT_FLOAT_EQ(settings.wind_speed, 0.0f);
   EXPECT_EQ(settings.primary_step_count, 1);
@@ -86,6 +95,9 @@ TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
   EXPECT_FLOAT_EQ(settings.lighting_intensity, 100.0f);
   EXPECT_FLOAT_EQ(settings.ambient_lighting_strength, 0.0f);
   EXPECT_FLOAT_EQ(settings.phase_anisotropy, 0.99f);
+  EXPECT_FLOAT_EQ(settings.base_noise_scale, 0.00001f);
+  EXPECT_FLOAT_EQ(settings.detail_noise_scale, 10.0f);
+  EXPECT_FLOAT_EQ(settings.extinction_scale, 1.0f);
   EXPECT_EQ(settings.debug_mode, 3);
 }
 
@@ -98,6 +110,7 @@ volumetric_cloud_settings:
   density: 0.9
   bottom_altitude: 1200.0
   top_altitude: 6200.0
+  max_march_distance: 9000.0
   wind_direction: [0.0, 1.0]
   wind_speed: 45.0
   primary_step_count: 96
@@ -106,6 +119,9 @@ volumetric_cloud_settings:
   lighting_intensity: 1.4
   ambient_lighting_strength: 0.35
   phase_anisotropy: 0.4
+  base_noise_scale: 0.002
+  detail_noise_scale: 0.02
+  extinction_scale: 0.004
   debug_visualization: true
   debug_mode: 2
 )"));
@@ -116,6 +132,7 @@ volumetric_cloud_settings:
   EXPECT_FLOAT_EQ(settings.density, 0.9f);
   EXPECT_FLOAT_EQ(settings.bottom_altitude, 1200.0f);
   EXPECT_FLOAT_EQ(settings.top_altitude, 6200.0f);
+  EXPECT_FLOAT_EQ(settings.max_march_distance, 9000.0f);
   EXPECT_EQ(settings.wind_direction, glm::vec2(0.0f, 1.0f));
   EXPECT_FLOAT_EQ(settings.wind_speed, 45.0f);
   EXPECT_EQ(settings.primary_step_count, 96);
@@ -124,6 +141,9 @@ volumetric_cloud_settings:
   EXPECT_FLOAT_EQ(settings.lighting_intensity, 1.4f);
   EXPECT_FLOAT_EQ(settings.ambient_lighting_strength, 0.35f);
   EXPECT_FLOAT_EQ(settings.phase_anisotropy, 0.4f);
+  EXPECT_FLOAT_EQ(settings.base_noise_scale, 0.002f);
+  EXPECT_FLOAT_EQ(settings.detail_noise_scale, 0.02f);
+  EXPECT_FLOAT_EQ(settings.extinction_scale, 0.004f);
   EXPECT_TRUE(settings.debug_visualization);
   EXPECT_EQ(settings.debug_mode, 2);
 }
@@ -136,9 +156,12 @@ environment_gamma: 2.0
 )"));
 
   EXPECT_FALSE(restored.volumetric_cloud_settings.enabled);
-  EXPECT_FLOAT_EQ(restored.volumetric_cloud_settings.coverage, 0.45f);
+  EXPECT_FLOAT_EQ(restored.volumetric_cloud_settings.coverage, 0.65f);
+  EXPECT_FLOAT_EQ(restored.volumetric_cloud_settings.max_march_distance, 5000.0f);
   EXPECT_EQ(restored.volumetric_cloud_settings.primary_step_count, 64);
   EXPECT_EQ(restored.volumetric_cloud_settings.resolution_divisor, 1);
+  EXPECT_FLOAT_EQ(restored.volumetric_cloud_settings.base_noise_scale, 0.012f);
+  EXPECT_FLOAT_EQ(restored.volumetric_cloud_settings.extinction_scale, 0.01f);
 }
 
 TEST(VolumetricCloudSettings, CloudSettingsStaySeparateFromDdgiSettings) {
@@ -161,6 +184,10 @@ TEST(VolumetricCloudSettings, CloudSettingsStaySeparateFromDdgiSettings) {
             std::string::npos);
   EXPECT_NE(scene_source.find("\"lighting_intensity\" << YAML::Value << settings.lighting_intensity"),
             std::string::npos);
+  EXPECT_NE(scene_source.find("\"max_march_distance\" << YAML::Value << settings.max_march_distance"),
+            std::string::npos);
+  EXPECT_NE(scene_source.find("\"base_noise_scale\" << YAML::Value << settings.base_noise_scale"), std::string::npos);
+  EXPECT_NE(scene_source.find("\"extinction_scale\" << YAML::Value << settings.extinction_scale"), std::string::npos);
   EXPECT_NE(scene_source.find("settings.ClampSettings();"), std::string::npos);
   EXPECT_EQ(ddgi_settings_source.find("cloud"), std::string::npos);
   EXPECT_EQ(ddgi_volume_source.find("cloud"), std::string::npos);

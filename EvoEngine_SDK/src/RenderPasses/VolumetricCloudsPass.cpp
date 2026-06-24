@@ -20,11 +20,15 @@ VolumetricCloudsPushConstant CreatePushConstant(const VolumetricCloudsPass::Para
   push_constant.wind_time = {settings.wind_direction.x, settings.wind_direction.y, settings.wind_speed,
                              parameters.time_seconds};
   const float max_distance =
-      parameters.max_distance > 0.0f
-          ? parameters.max_distance
-          : (parameters.camera ? glm::max(parameters.camera->camera_settings.far_distance, 0.0f) : 0.0f);
+      settings.max_march_distance > 0.0f
+          ? settings.max_march_distance
+          : (parameters.max_distance > 0.0f
+                 ? parameters.max_distance
+                 : (parameters.camera ? glm::max(parameters.camera->camera_settings.far_distance, 0.0f) : 0.0f));
   push_constant.lighting_phase_max_distance = {settings.lighting_intensity, settings.ambient_lighting_strength,
                                                settings.phase_anisotropy, max_distance};
+  push_constant.noise_extinction_march_distance = {settings.base_noise_scale, settings.detail_noise_scale,
+                                                   settings.extinction_scale, max_distance};
   push_constant.camera_frame_steps = {parameters.camera_index, static_cast<int>(parameters.frame_index),
                                       settings.primary_step_count, settings.light_step_count};
   push_constant.flags = {settings.enabled ? 1 : 0, settings.debug_visualization ? 1 : 0, settings.debug_mode,
