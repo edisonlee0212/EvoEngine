@@ -25,6 +25,9 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("struct VolumetricCloudMarchResult"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleDensity"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_HenyeyGreensteinPhase"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_DirectionalPhase"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_PowderEffect"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_EdgeLighting"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_TemporalJitter"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_LightTransmittance"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
@@ -47,6 +50,8 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("local_coverage"), std::string::npos);
   EXPECT_NE(shader_source.find("weather_density"), std::string::npos);
   EXPECT_NE(shader_source.find("mix(0.35f, 1.35f, weather.r)"), std::string::npos);
+  EXPECT_NE(shader_source.find("light_transmittance * phase * powder + edge_lighting"), std::string::npos);
+  EXPECT_NE(shader_source.find("ambient_lighting + sun_lighting"), std::string::npos);
   EXPECT_NE(shader_source.find("detail_erosion * edge_weight"), std::string::npos);
   EXPECT_NE(shader_source.find("height_profile"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Remap(base_shape, coverage_threshold"), std::string::npos);

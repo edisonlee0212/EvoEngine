@@ -95,6 +95,23 @@ float EE_VOLUMETRIC_CLOUD_HenyeyGreensteinPhase(in float cos_theta, in float ani
   return (1.0f - g2) / (4.0f * EE_VOLUMETRIC_CLOUD_PI * denominator);
 }
 
+float EE_VOLUMETRIC_CLOUD_DirectionalPhase(in float cos_theta, in float anisotropy) {
+  float forward_phase = EE_VOLUMETRIC_CLOUD_HenyeyGreensteinPhase(cos_theta, anisotropy);
+  float broad_phase = EE_VOLUMETRIC_CLOUD_HenyeyGreensteinPhase(cos_theta, 0.15f);
+  return max(forward_phase + broad_phase * 0.35f, 0.055f);
+}
+
+float EE_VOLUMETRIC_CLOUD_PowderEffect(in float density) {
+  return mix(0.65f, 1.35f, 1.0f - exp(-EE_VOLUMETRIC_CLOUD_Saturate(density) * 3.0f));
+}
+
+float EE_VOLUMETRIC_CLOUD_EdgeLighting(in float density, in float light_transmittance, in float cos_theta) {
+  float thin_edge = pow(1.0f - EE_VOLUMETRIC_CLOUD_Saturate(density), 2.0f);
+  float forward_lit = EE_VOLUMETRIC_CLOUD_Saturate(cos_theta * 0.5f + 0.5f);
+  float unshadowed = smoothstep(0.05f, 0.65f, light_transmittance);
+  return thin_edge * forward_lit * unshadowed * 0.35f;
+}
+
 float EE_VOLUMETRIC_CLOUD_HeightFraction(in VolumetricCloudSettingsGpu settings, in float world_height) {
   float layer_thickness = max(settings.top_altitude - settings.bottom_altitude, 1.0f);
   return EE_VOLUMETRIC_CLOUD_Saturate((world_height - settings.bottom_altitude) / layer_thickness);
@@ -246,7 +263,8 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
 
   int step_count = clamp(settings.primary_step_count, 1, 512);
   float step_length = (interval.t_max - interval.t_min) / float(step_count);
-  float phase = EE_VOLUMETRIC_CLOUD_HenyeyGreensteinPhase(dot(ray_direction, sun_direction), settings.phase_anisotropy);
+  float cos_theta = dot(ray_direction, sun_direction);
+  float phase = EE_VOLUMETRIC_CLOUD_DirectionalPhase(cos_theta, settings.phase_anisotropy);
   float density_sum = 0.0f;
   float used_steps = 0.0f;
 
@@ -268,8 +286,12 @@ VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSettingsG
     float sample_transmittance = exp(-sample_extinction);
     float light_transmittance =
         EE_VOLUMETRIC_CLOUD_LightTransmittance(settings, sample_position, sun_direction, time_seconds);
-    vec3 lighting = ambient_radiance * settings.ambient_lighting_strength +
-                    sun_radiance * light_transmittance * phase * settings.lighting_intensity;
+    float powder = EE_VOLUMETRIC_CLOUD_PowderEffect(density);
+    float edge_lighting = EE_VOLUMETRIC_CLOUD_EdgeLighting(density, light_transmittance, cos_theta);
+    vec3 ambient_lighting = ambient_radiance * settings.ambient_lighting_strength * mix(1.0f, 0.55f, density);
+    vec3 sun_lighting =
+        sun_radiance * (light_transmittance * phase * powder + edge_lighting) * settings.lighting_intensity;
+    vec3 lighting = ambient_lighting + sun_lighting;
     result.radiance += result.transmittance * (1.0f - sample_transmittance) * lighting;
     result.transmittance *= sample_transmittance;
     result.march_distance = t;
