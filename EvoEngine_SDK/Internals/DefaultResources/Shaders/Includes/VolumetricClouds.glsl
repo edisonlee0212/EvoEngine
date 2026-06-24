@@ -36,6 +36,9 @@ struct VolumetricCloudMarchResult {
   float march_distance;
 };
 
+layout(set = 1, binding = 6) uniform sampler3D EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE;
+layout(set = 1, binding = 7) uniform sampler3D EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE;
+
 float EE_VOLUMETRIC_CLOUD_Saturate(in float value) {
   return clamp(value, 0.0f, 1.0f);
 }
@@ -103,6 +106,19 @@ vec3 EE_VOLUMETRIC_CLOUD_WindOffset(in VolumetricCloudSettingsGpu settings, in f
   return vec3(wind_direction.x, 0.0f, wind_direction.y) * max(settings.wind_speed, 0.0f) * time_seconds;
 }
 
+vec4 EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise(in VolumetricCloudSettingsGpu settings, in vec3 world_position,
+                                              in float time_seconds) {
+  vec3 wind_position = world_position + EE_VOLUMETRIC_CLOUD_WindOffset(settings, time_seconds);
+  return texture(EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE, wind_position * max(settings.base_noise_scale, 0.00001f));
+}
+
+vec4 EE_VOLUMETRIC_CLOUD_SampleDetailErosionNoise(in VolumetricCloudSettingsGpu settings, in vec3 world_position,
+                                                  in float time_seconds) {
+  vec3 wind_position = world_position + EE_VOLUMETRIC_CLOUD_WindOffset(settings, time_seconds);
+  return texture(EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE,
+                 wind_position * max(settings.detail_noise_scale, 0.00001f) + vec3(0.17f, 0.41f, 0.73f));
+}
+
 float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, in vec3 world_position,
                                         in float time_seconds) {
   float height_fraction = EE_VOLUMETRIC_CLOUD_HeightFraction(settings, world_position.y);
@@ -110,14 +126,13 @@ float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, 
     return 0.0f;
   }
 
-  vec3 wind_position = world_position + EE_VOLUMETRIC_CLOUD_WindOffset(settings, time_seconds);
-  float base_noise = EE_VOLUMETRIC_CLOUD_Fbm(wind_position * max(settings.base_noise_scale, 0.00001f));
-  float detail_noise =
-      EE_VOLUMETRIC_CLOUD_Fbm(wind_position * max(settings.detail_noise_scale, 0.00001f) + vec3(13.5f, 2.3f, 8.1f));
+  vec4 base_noise = EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise(settings, world_position, time_seconds);
+  vec4 detail_noise = EE_VOLUMETRIC_CLOUD_SampleDetailErosionNoise(settings, world_position, time_seconds);
   float height_shape = EE_VOLUMETRIC_CLOUD_Saturate(height_fraction * 4.0f) *
                        EE_VOLUMETRIC_CLOUD_Saturate((1.0f - height_fraction) * 3.0f);
   float coverage_threshold = 1.0f - EE_VOLUMETRIC_CLOUD_Saturate(settings.coverage);
-  float cloud_shape = base_noise * 0.78f + detail_noise * 0.22f;
+  float detail_shape = dot(detail_noise, vec4(0.50f, 0.25f, 0.15f, 0.10f));
+  float cloud_shape = base_noise.r * 0.78f + detail_shape * 0.22f;
   return EE_VOLUMETRIC_CLOUD_Saturate((cloud_shape - coverage_threshold) * max(settings.density, 0.0f) * height_shape);
 }
 

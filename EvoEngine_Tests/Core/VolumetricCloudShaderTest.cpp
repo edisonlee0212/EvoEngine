@@ -30,6 +30,12 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Composite"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Debug"), std::string::npos);
+  EXPECT_NE(shader_source.find("uniform sampler3D EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("uniform sampler3D EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleDetailErosionNoise"), std::string::npos);
+  EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
   EXPECT_NE(shader_source.find("base_noise_scale"), std::string::npos);
   EXPECT_NE(shader_source.find("detail_noise_scale"), std::string::npos);
   EXPECT_NE(shader_source.find("extinction_scale"), std::string::npos);
@@ -104,11 +110,17 @@ TEST(VolumetricCloudShader, RasterPassBindsComputePipelineAndGraphResources) {
   EXPECT_NE(pass_source.find("parameters.input_is_ray_hit_distance"), std::string::npos);
   EXPECT_NE(pass_source.find("settings.max_march_distance"), std::string::npos);
   EXPECT_NE(pass_source.find("noise_extinction_march_distance"), std::string::npos);
+  EXPECT_NE(pass_source.find("VK_IMAGE_TYPE_3D"), std::string::npos);
+  EXPECT_NE(pass_source.find("BuildBaseShapeNoiseBytes"), std::string::npos);
+  EXPECT_NE(pass_source.find("BuildDetailErosionNoiseBytes"), std::string::npos);
+  EXPECT_NE(pass_source.find("GetCloudNoiseResources"), std::string::npos);
   EXPECT_NE(pass_source.find("CreateGraphImageMipView(depth_binding->image, 0)"), std::string::npos);
   EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(0, image_info)"), std::string::npos);
   EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(1, image_info)"), std::string::npos);
   EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(4, image_info)"), std::string::npos);
   EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(5, image_info)"), std::string::npos);
+  EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(6, image_info)"), std::string::npos);
+  EXPECT_NE(pass_source.find("descriptor_set->UpdateImageDescriptorBinding(7, image_info)"), std::string::npos);
   EXPECT_NE(pass_source.find("parameters.pipeline->Dispatch"), std::string::npos);
   EXPECT_NE(pass_source.find("parameters.composite_pipeline->Dispatch"), std::string::npos);
 
@@ -117,6 +129,8 @@ TEST(VolumetricCloudShader, RasterPassBindsComputePipelineAndGraphResources) {
   ASSERT_FALSE(render_layer_source.empty());
   EXPECT_NE(render_layer_source.find("Shaders/Compute/VolumetricClouds.comp"), std::string::npos);
   EXPECT_NE(render_layer_source.find("Shaders/Compute/VolumetricCloudsComposite.comp"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("volumetric_clouds_layout_->PushDescriptorBinding(6"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("volumetric_clouds_layout_->PushDescriptorBinding(7"), std::string::npos);
   EXPECT_NE(render_layer_source.find("volumetric_cloud_settings"), std::string::npos);
   EXPECT_NE(render_layer_source.find("volumetric_clouds_pipeline_"), std::string::npos);
   EXPECT_NE(render_layer_source.find("volumetric_clouds_composite_pipeline_"), std::string::npos);

@@ -1252,6 +1252,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                      VK_SHADER_STAGE_COMPUTE_BIT, 0);
     volumetric_clouds_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                      VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    volumetric_clouds_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    volumetric_clouds_layout_->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
     volumetric_clouds_layout_->Initialize();
   }
   if (!ddgi_probe_update_layout_) {

@@ -10,6 +10,228 @@
 using namespace evo_engine;
 
 namespace {
+constexpr uint32_t kCloudNoiseResolution = 32;
+constexpr uint32_t kCloudNoiseVoxelCount = kCloudNoiseResolution * kCloudNoiseResolution * kCloudNoiseResolution;
+
+struct CloudNoiseResources {
+  std::shared_ptr<Image> base_shape_image;
+  std::shared_ptr<ImageView> base_shape_view;
+  std::shared_ptr<Image> detail_erosion_image;
+  std::shared_ptr<ImageView> detail_erosion_view;
+  std::shared_ptr<Sampler> sampler;
+};
+
+uint32_t HashNoiseCoordinate(uint32_t x, uint32_t y, uint32_t z, uint32_t seed) {
+  uint32_t value = x * 73856093u ^ y * 19349663u ^ z * 83492791u ^ seed * 2654435761u;
+  value ^= value >> 16u;
+  value *= 2246822519u;
+  value ^= value >> 13u;
+  value *= 3266489917u;
+  value ^= value >> 16u;
+  return value;
+}
+
+float HashNoise01(const uint32_t x, const uint32_t y, const uint32_t z, const uint32_t seed) {
+  return static_cast<float>(HashNoiseCoordinate(x, y, z, seed) & 0x00ffffffu) / static_cast<float>(0x00ffffffu);
+}
+
+float SmoothStep(const float value) {
+  return value * value * (3.0f - 2.0f * value);
+}
+
+float WrappedValueNoise(const glm::vec3& position, const uint32_t period, const uint32_t seed) {
+  const auto period_vector = glm::vec3(static_cast<float>(period));
+  const auto wrapped_position = glm::mod(glm::mod(position, period_vector) + period_vector, period_vector);
+  const auto cell = glm::floor(wrapped_position);
+  const auto local = wrapped_position - cell;
+  const glm::vec3 fade = {SmoothStep(local.x), SmoothStep(local.y), SmoothStep(local.z)};
+  const auto x0 = static_cast<uint32_t>(cell.x) % period;
+  const auto y0 = static_cast<uint32_t>(cell.y) % period;
+  const auto z0 = static_cast<uint32_t>(cell.z) % period;
+  const auto x1 = (x0 + 1u) % period;
+  const auto y1 = (y0 + 1u) % period;
+  const auto z1 = (z0 + 1u) % period;
+
+  const float n000 = HashNoise01(x0, y0, z0, seed);
+  const float n100 = HashNoise01(x1, y0, z0, seed);
+  const float n010 = HashNoise01(x0, y1, z0, seed);
+  const float n110 = HashNoise01(x1, y1, z0, seed);
+  const float n001 = HashNoise01(x0, y0, z1, seed);
+  const float n101 = HashNoise01(x1, y0, z1, seed);
+  const float n011 = HashNoise01(x0, y1, z1, seed);
+  const float n111 = HashNoise01(x1, y1, z1, seed);
+
+  const float nx00 = glm::mix(n000, n100, fade.x);
+  const float nx10 = glm::mix(n010, n110, fade.x);
+  const float nx01 = glm::mix(n001, n101, fade.x);
+  const float nx11 = glm::mix(n011, n111, fade.x);
+  const float nxy0 = glm::mix(nx00, nx10, fade.y);
+  const float nxy1 = glm::mix(nx01, nx11, fade.y);
+  return glm::mix(nxy0, nxy1, fade.z);
+}
+
+float WrappedValueFbm(glm::vec3 position, const uint32_t seed) {
+  float value = 0.0f;
+  float amplitude = 0.5f;
+  float amplitude_sum = 0.0f;
+  uint32_t period = kCloudNoiseResolution;
+  for (int octave_index = 0; octave_index < 5; ++octave_index) {
+    value += WrappedValueNoise(position, period, seed + static_cast<uint32_t>(octave_index) * 31u) * amplitude;
+    amplitude_sum += amplitude;
+    position *= 2.0f;
+    period = glm::max(2u, period / 2u);
+    amplitude *= 0.5f;
+  }
+  return amplitude_sum > 0.0f ? value / amplitude_sum : 0.0f;
+}
+
+uint32_t WrapNoiseIndex(const int value, const uint32_t period) {
+  const int wrapped = value % static_cast<int>(period);
+  return static_cast<uint32_t>(wrapped < 0 ? wrapped + static_cast<int>(period) : wrapped);
+}
+
+glm::vec3 WrappedCellFeaturePoint(const glm::ivec3& cell, const uint32_t period, const uint32_t seed) {
+  const glm::uvec3 wrapped(WrapNoiseIndex(cell.x, period), WrapNoiseIndex(cell.y, period),
+                           WrapNoiseIndex(cell.z, period));
+  return glm::vec3(wrapped) + glm::vec3(HashNoise01(wrapped.x, wrapped.y, wrapped.z, seed),
+                                        HashNoise01(wrapped.x, wrapped.y, wrapped.z, seed + 17u),
+                                        HashNoise01(wrapped.x, wrapped.y, wrapped.z, seed + 43u));
+}
+
+float WrappedWorleyNoise(const glm::vec3& position, const uint32_t period, const uint32_t seed) {
+  const auto period_vector = glm::vec3(static_cast<float>(period));
+  const auto wrapped_position = glm::mod(glm::mod(position, period_vector) + period_vector, period_vector);
+  const auto base_cell = glm::ivec3(glm::floor(wrapped_position));
+  float min_distance = 1000000.0f;
+  for (int z = -1; z <= 1; ++z) {
+    for (int y = -1; y <= 1; ++y) {
+      for (int x = -1; x <= 1; ++x) {
+        const auto feature = WrappedCellFeaturePoint(base_cell + glm::ivec3(x, y, z), period, seed);
+        glm::vec3 delta = glm::abs(feature - wrapped_position);
+        delta = glm::min(delta, period_vector - delta);
+        min_distance = glm::min(min_distance, glm::length(delta));
+      }
+    }
+  }
+  return glm::clamp(min_distance / 1.7320508f, 0.0f, 1.0f);
+}
+
+std::vector<uint8_t> BuildBaseShapeNoiseBytes() {
+  std::vector<uint8_t> bytes(kCloudNoiseVoxelCount * 4u);
+  size_t output_index = 0;
+  for (uint32_t z = 0; z < kCloudNoiseResolution; ++z) {
+    for (uint32_t y = 0; y < kCloudNoiseResolution; ++y) {
+      for (uint32_t x = 0; x < kCloudNoiseResolution; ++x) {
+        const glm::vec3 position(x, y, z);
+        const float billow = WrappedValueFbm(position, 11u);
+        const float cellular = 1.0f - WrappedWorleyNoise(position * 0.25f, 8u, 29u);
+        const float low_frequency = WrappedValueNoise(position * 0.125f, 4u, 53u);
+        const float shape = glm::clamp(billow * 0.55f + cellular * 0.35f + low_frequency * 0.10f, 0.0f, 1.0f);
+        bytes[output_index++] = static_cast<uint8_t>(glm::round(shape * 255.0f));
+        bytes[output_index++] = static_cast<uint8_t>(glm::round(billow * 255.0f));
+        bytes[output_index++] = static_cast<uint8_t>(glm::round(cellular * 255.0f));
+        bytes[output_index++] = static_cast<uint8_t>(glm::round(low_frequency * 255.0f));
+      }
+    }
+  }
+  return bytes;
+}
+
+std::vector<uint8_t> BuildDetailErosionNoiseBytes() {
+  std::vector<uint8_t> bytes(kCloudNoiseVoxelCount * 4u);
+  size_t output_index = 0;
+  for (uint32_t z = 0; z < kCloudNoiseResolution; ++z) {
+    for (uint32_t y = 0; y < kCloudNoiseResolution; ++y) {
+      for (uint32_t x = 0; x < kCloudNoiseResolution; ++x) {
+        const glm::vec3 position(x, y, z);
+        const float fine_worley = WrappedWorleyNoise(position * 0.75f, 24u, 71u);
+        const float medium_worley = WrappedWorleyNoise(position * 0.5f, 16u, 97u);
+        const float coarse_worley = WrappedWorleyNoise(position * 0.25f, 8u, 131u);
+        const float detail = WrappedValueFbm(position * 2.0f, 163u);
+        bytes[output_index++] = static_cast<uint8_t>(glm::round((1.0f - fine_worley) * 255.0f));
+        bytes[output_index++] = static_cast<uint8_t>(glm::round((1.0f - medium_worley) * 255.0f));
+        bytes[output_index++] = static_cast<uint8_t>(glm::round((1.0f - coarse_worley) * 255.0f));
+        bytes[output_index++] = static_cast<uint8_t>(glm::round(detail * 255.0f));
+      }
+    }
+  }
+  return bytes;
+}
+
+std::shared_ptr<Image> CreateCloudNoiseImage() {
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_3D;
+  image_info.extent = {kCloudNoiseResolution, kCloudNoiseResolution, kCloudNoiseResolution};
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  return std::make_shared<Image>(image_info);
+}
+
+std::shared_ptr<ImageView> CreateCloudNoiseImageView(const std::shared_ptr<Image>& image) {
+  VkImageViewCreateInfo view_info{};
+  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  view_info.image = image->GetVkImage();
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
+  view_info.format = image->GetFormat();
+  view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  view_info.subresourceRange.baseMipLevel = 0;
+  view_info.subresourceRange.levelCount = 1;
+  view_info.subresourceRange.baseArrayLayer = 0;
+  view_info.subresourceRange.layerCount = 1;
+  return std::make_shared<ImageView>(view_info, image);
+}
+
+std::shared_ptr<Sampler> CreateCloudNoiseSampler() {
+  VkSamplerCreateInfo sampler_info{};
+  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_info.magFilter = VK_FILTER_LINEAR;
+  sampler_info.minFilter = VK_FILTER_LINEAR;
+  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  sampler_info.anisotropyEnable = VK_FALSE;
+  sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  sampler_info.unnormalizedCoordinates = VK_FALSE;
+  sampler_info.compareEnable = VK_FALSE;
+  sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+  sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  sampler_info.minLod = 0.0f;
+  sampler_info.maxLod = 1.0f;
+  sampler_info.mipLodBias = 0.0f;
+  return std::make_shared<Sampler>(sampler_info);
+}
+
+void UploadCloudNoiseImage(const std::shared_ptr<Image>& image, const std::vector<uint8_t>& bytes) {
+  Buffer staging_buffer(bytes.size(), false);
+  staging_buffer.UploadData(bytes.size(), bytes.data());
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  });
+}
+
+CloudNoiseResources& GetCloudNoiseResources() {
+  static CloudNoiseResources resources;
+  if (!resources.base_shape_image && Platform::Initialized()) {
+    resources.base_shape_image = CreateCloudNoiseImage();
+    resources.detail_erosion_image = CreateCloudNoiseImage();
+    UploadCloudNoiseImage(resources.base_shape_image, BuildBaseShapeNoiseBytes());
+    UploadCloudNoiseImage(resources.detail_erosion_image, BuildDetailErosionNoiseBytes());
+    resources.base_shape_view = CreateCloudNoiseImageView(resources.base_shape_image);
+    resources.detail_erosion_view = CreateCloudNoiseImageView(resources.detail_erosion_image);
+    resources.sampler = CreateCloudNoiseSampler();
+  }
+  return resources;
+}
+
 VolumetricCloudsPushConstant CreatePushConstant(const VolumetricCloudsPass::Parameters& parameters) {
   VolumetricCloudSettings settings = parameters.settings;
   settings.ClampSettings();
@@ -62,6 +284,10 @@ RenderPassDescriptor VolumetricCloudsPass::CreateRayTracingDescriptor(const char
 
 void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   if (!parameters.record_commands) {
+    return;
+  }
+  const auto& noise_resources = GetCloudNoiseResources();
+  if (!noise_resources.base_shape_view || !noise_resources.detail_erosion_view || !noise_resources.sampler) {
     return;
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
@@ -118,6 +344,13 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           descriptor_set->UpdateImageDescriptorBinding(4, image_info);
           image_info.imageView = transmittance_view->GetVkImageView();
           descriptor_set->UpdateImageDescriptorBinding(5, image_info);
+
+          image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+          image_info.imageView = noise_resources.base_shape_view->GetVkImageView();
+          image_info.sampler = noise_resources.sampler->GetVkSampler();
+          descriptor_set->UpdateImageDescriptorBinding(6, image_info);
+          image_info.imageView = noise_resources.detail_erosion_view->GetVkImageView();
+          descriptor_set->UpdateImageDescriptorBinding(7, image_info);
 
           const auto push_constant = CreatePushConstant(parameters);
           const auto cloud_extent = accumulation_binding->image->GetExtent();
