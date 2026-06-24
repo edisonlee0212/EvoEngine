@@ -1,4 +1,5 @@
 #include "DsKineticVoronoiMeshing.hpp"
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
 #include <glm/gtx/norm.hpp>            // for length2()
@@ -342,13 +343,18 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       std::make_shared<kinDS::StrandTree>(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
                                           transforms_by_height_and_branch, branch_indices, strands_by_branch_id);
 
+  if (meshing_settings.dry_run_strand_tree_only) {
+    EVOENGINE_LOG("Dry run: strand tree prepared, skipping meshing algorithm.");
+    return;
+  }
+
   kinDS::TreeMesher tree_mesher(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
     Jobs::RunParallelFor(count, [&](size_t i) {
       func(i);
     });
   });
 
-  auto& meshes = tree_mesher.runMeshingAlgorithm();
+  auto& meshes = tree_mesher.runMeshingAlgorithm(meshing_settings.debug_svg);
   std::vector<std::vector<glm::dmat4>> normal_transforms_by_height_and_branch =
       strand_tree->getNormalTransformsByHeightAndBranch();
   auto& boundary_mesh = tree_mesher.getBoundaryMesh();
@@ -416,6 +422,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
         triangle.vertex_index1 = static_cast<unsigned int>(triangles[triangle_vertex_index + 1] + vertex_offset);
         triangle.vertex_index2 = static_cast<unsigned int>(triangles[triangle_vertex_index + 2] + vertex_offset);
         int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+        int material_id = mesh.getMaterialIDs()[triangle_vertex_index / 3];
         if (meshing_neighbor_segment_index >= static_cast<long>(meshing_to_physics_segment_indices.size())) {
           EVOENGINE_ERROR("meshing_neighbor_segment_index out of bounds: " << meshing_neighbor_segment_index
                                                                            << "; upper bound is: "
@@ -498,19 +505,38 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       TransformBoundaryMesh(boundary_mesh, transforms_by_height_and_branch, normal_transforms_by_height_and_branch,
                             root_transform, branch_indices, boundary_vertex_to_strand_id);
 
-  bool debug_export_meshes = false;
+  bool debug_export_meshes = true;
   if (!debug_export_meshes) {
     EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
     return;
   }
   EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
-  kinDS::VoronoiMesh transformed_mesh({}, kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
+  std::vector<std::string> unique_material_names;
+  std::vector<std::vector<int>> material_id_remap(meshes.size());
+  for (size_t mesh_id = 0; mesh_id < meshes.size(); ++mesh_id) {
+    const auto& mesh_material_names = meshes[mesh_id].getMaterialNames();
+    material_id_remap[mesh_id].resize(mesh_material_names.size(), -1);
+    for (size_t material_id = 0; material_id < mesh_material_names.size(); ++material_id) {
+      const auto& material_name = mesh_material_names[material_id];
+      const auto it = std::find(unique_material_names.begin(), unique_material_names.end(), material_name);
+      if (it == unique_material_names.end()) {
+        material_id_remap[mesh_id][material_id] = static_cast<int>(unique_material_names.size());
+        unique_material_names.push_back(material_name);
+      } else {
+        material_id_remap[mesh_id][material_id] = static_cast<int>(std::distance(unique_material_names.begin(), it));
+      }
+    }
+  }
+
+  kinDS::VoronoiMesh transformed_mesh(unique_material_names,
+                                      kinDS::PerTriangleCorner);  // also build transformed mesh for debugging
   for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
     for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
       // Get mesh using the segment id from the meshing algorithm.
       // Note that this is different from the original segment id from the strand model because it is assigned in the
       // order of creation of the segments.
-      auto& mesh = meshes[meshing_strand_to_segment_indices[strand_id][segment_no]];
+      size_t mesh_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      auto& mesh = meshes[mesh_id];
 
       // get original segment id from strand model
       size_t segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
@@ -534,10 +560,16 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
       const auto& triangles = mesh.getTriangles();
       for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+        int source_material_id = mesh.getMaterialIDs()[triangle_vertex_index / 3];
+        int material_id = -1;
+        if (source_material_id >= 0 && static_cast<size_t>(source_material_id) < material_id_remap[mesh_id].size()) {
+          material_id = material_id_remap[mesh_id][source_material_id];
+        }
+
         size_t dest_tri_vertex_index =
             3 * transformed_mesh.addTriangle(triangles[triangle_vertex_index] + vertex_offset,
                                              triangles[triangle_vertex_index + 1] + vertex_offset,
-                                             triangles[triangle_vertex_index + 2] + vertex_offset);
+                                             triangles[triangle_vertex_index + 2] + vertex_offset, material_id);
 
         for (size_t j = 0; j < 3; j++) {
           auto source_tri_vertex_index = mesh.getTriangles()[triangle_vertex_index + j];
@@ -562,9 +594,12 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     }
   }
 
+  // tree_mesher.exportCombinedMesh(".", false);
+  tree_mesher.exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
+
   // export combined mesh
   // combined_mesh.mergeDuplicateVertices(0.0001);
-  // kinDS::ObjExporter::writeMesh(transformed_mesh, "transformed_mesh.obj");
+  kinDS::ObjExporter::writeMesh(transformed_mesh, "transformed_mesh.obj");
   // kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, "transformed_boundary_mesh.obj");
   // kinDS::ObjExporter::writeMesh(combined_mesh, "meshtest_subdivided.obj");
   EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
@@ -572,6 +607,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
 // DsKineticVoronoiMeshing implementation
 DsKineticVoronoiMeshing::RenderSettings DsKineticVoronoiMeshing::render_settings = {};
+DsKineticVoronoiMeshing::MeshingSettings DsKineticVoronoiMeshing::meshing_settings = {};
 
 DsKineticVoronoiMeshing::DsKineticVoronoiMeshing() {
 }
@@ -1381,6 +1417,15 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
 }
 
 bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::Checkbox("Dry run (strand tree only)", &meshing_settings.dry_run_strand_tree_only);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Prepare the strand tree during initialization but skip the meshing algorithm.");
+  }
+  ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Export kinDS segment-builder debug SVGs during meshing.");
+  }
+
   FileUtils::SaveFile(
       "Download and export PLY", "PLY", {".ply"},
       [&](const std::filesystem::path& path) {

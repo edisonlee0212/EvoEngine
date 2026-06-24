@@ -747,6 +747,9 @@ void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<S
       for (int32_t child_handle_i = parent_node.child_handles_.size() - 1; child_handle_i >= 0; --child_handle_i) {
         if (parent_node.child_handles_[child_handle_i] == removal_node_handle) {
           parent_node.child_handles_.erase(parent_node.child_handles_.begin() + child_handle_i);
+          if (parent_node.child_handles_.empty()) {
+            parent_node.end_node_ = true;
+          }
           break;
         }
       }

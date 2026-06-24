@@ -57,7 +57,13 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     SegmentMeshletsRenderParameters segment_meshlet_render_parameters;
   };
 
+  struct MeshingSettings {
+    bool dry_run_strand_tree_only = false;
+    bool debug_svg = false;
+  };
+
   static RenderSettings render_settings;
+  static MeshingSettings meshing_settings;
 
   struct GpuSegmentMeshletVertex {
     glm::vec3 x0;

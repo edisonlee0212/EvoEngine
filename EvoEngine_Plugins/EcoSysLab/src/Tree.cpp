@@ -64,6 +64,20 @@ bool Tree::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
       // values[5] = glm::vec2(0.04f, 0.0f);     // right tangent offset
       changed = true;
     }
+    if (ImGui::Button("Branchless tree")) {
+      strand_model_parameters.end_node_strands = 1600;
+      strand_model_parameters.strand_radius_distribution.mean.max_value = 0.004f;
+      strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.6f, {0, 0}, {1, 1});
+      auto& values = strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+      // First logical point (index 0)
+      // values[0] = glm::vec2(-0.05f, 0.0f);  // left tangent offset
+      values[2] = glm::vec2(0.0f, -0.4f);  // right tangent offset
+
+      // Second logical point (index 1)
+      values[3] = glm::vec2(-0.1f, 0.0f);  // left tangent offset
+      // values[5] = glm::vec2(0.04f, 0.0f);     // right tangent offset
+      changed = true;
+    }
     if (ImGui::Button("Elm")) {
       strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(0.65f, 0.5f, {0, 0}, {1, 1});
       changed = true;
