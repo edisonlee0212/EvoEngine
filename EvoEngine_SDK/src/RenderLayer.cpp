@@ -49,8 +49,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <functional>
+#include <initializer_list>
 #include <numeric>
+#include <vector>
 using namespace evo_engine;
 
 namespace {
@@ -125,6 +128,109 @@ RenderGraphCompileContext CreateFrameRenderGraphCompileContext() {
     }
   }
   return context;
+}
+
+std::shared_ptr<GraphicsPipeline> CreateShadowVertexPipeline(
+    const std::filesystem::path& vertex_shader_path, const std::filesystem::path& fragment_shader_path,
+    const GeometryType geometry_type,
+    const std::initializer_list<std::shared_ptr<DescriptorSetLayout>>& descriptor_set_layouts) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->vertex_shader =
+      Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(), vertex_shader_path);
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
+  pipeline->geometry_type = geometry_type;
+  for (const auto& descriptor_set_layout : descriptor_set_layouts) {
+    pipeline->descriptor_set_layouts.emplace_back(descriptor_set_layout);
+  }
+  pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RenderInstancePushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  pipeline->Initialize();
+  return pipeline;
+}
+
+std::shared_ptr<GraphicsPipeline> CreateShadowMeshPipeline(
+    const std::filesystem::path& task_shader_path, const std::filesystem::path& mesh_shader_path,
+    const std::filesystem::path& fragment_shader_path,
+    const std::initializer_list<std::shared_ptr<DescriptorSetLayout>>& descriptor_set_layouts) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->task_shader =
+      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(), task_shader_path);
+  pipeline->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(), mesh_shader_path);
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
+  pipeline->geometry_type = GeometryType::Mesh;
+  for (const auto& descriptor_set_layout : descriptor_set_layouts) {
+    pipeline->descriptor_set_layouts.emplace_back(descriptor_set_layout);
+  }
+  pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RenderInstancePushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  pipeline->Initialize();
+  return pipeline;
+}
+
+bool LightCastsShadow(const glm::vec4& diffuse) {
+  return diffuse.w > 0.5f;
+}
+
+bool IsFiniteBound(const Bound& bound) {
+  return std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z) &&
+         std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z) &&
+         bound.min.x <= bound.max.x && bound.min.y <= bound.max.y && bound.min.z <= bound.max.z;
+}
+
+bool BoundIntersectsClipSpace(const Bound& bound, const glm::mat4& matrix) {
+  if (!IsFiniteBound(bound)) {
+    return true;
+  }
+  std::vector<glm::vec3> corners;
+  bound.PopulateCorners(corners);
+  uint32_t outside_left = 0;
+  uint32_t outside_right = 0;
+  uint32_t outside_bottom = 0;
+  uint32_t outside_top = 0;
+  uint32_t outside_near = 0;
+  uint32_t outside_far = 0;
+  for (const auto& corner : corners) {
+    const auto clip = matrix * glm::vec4(corner, 1.0f);
+    if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w)) {
+      return true;
+    }
+    outside_left += clip.x < -clip.w ? 1 : 0;
+    outside_right += clip.x > clip.w ? 1 : 0;
+    outside_bottom += clip.y < -clip.w ? 1 : 0;
+    outside_top += clip.y > clip.w ? 1 : 0;
+    outside_near += clip.z < -clip.w ? 1 : 0;
+    outside_far += clip.z > clip.w ? 1 : 0;
+  }
+  return outside_left != corners.size() && outside_right != corners.size() && outside_bottom != corners.size() &&
+         outside_top != corners.size() && outside_near != corners.size() && outside_far != corners.size();
+}
+
+bool ShouldRenderShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance,
+                                const glm::mat4& light_space_matrix) {
+  return render_instance->cast_shadow && BoundIntersectsClipSpace(render_instance->world_bound, light_space_matrix);
+}
+
+bool HasVisibleShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
+                              const glm::mat4& light_space_matrix, const bool alpha_tested) {
+  bool has_visible_instance = false;
+  collection->ForEachRenderInstance([&](const auto& render_instance) {
+    if (!has_visible_instance && render_instance->alpha_tested_shadow == alpha_tested &&
+        ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+      has_visible_instance = true;
+    }
+  });
+  return has_visible_instance;
 }
 
 RenderGraphCompileContext CreateCameraRenderGraphCompileContext(const std::shared_ptr<Camera>& camera) {
@@ -1506,6 +1612,10 @@ void RenderLayer::OnCreate() {
     ddgi_probe_variability_extra_reduce_pipeline_->Initialize();
   }
 #pragma region Graphics Pipelines
+  const auto shadow_empty_fragment_shader_path =
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag";
+  const auto shadow_alpha_fragment_shader_path =
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag";
   if (!point_light_shadow_pipeline_normal) {
     point_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     point_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
@@ -1523,6 +1633,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     point_light_shadow_pipeline_normal->Initialize();
+  }
+  if (!point_light_shadow_pipeline_normal_opaque) {
+    point_light_shadow_pipeline_normal_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.vert",
+        shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_});
   }
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !point_light_shadow_pipeline_mesh_shader) {
     point_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
@@ -1546,6 +1661,13 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     point_light_shadow_pipeline_mesh_shader->Initialize();
   }
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader &&
+      !point_light_shadow_pipeline_mesh_shader_alpha_tested) {
+    point_light_shadow_pipeline_mesh_shader_alpha_tested = CreateShadowMeshPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.task",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.mesh",
+        shadow_alpha_fragment_shader_path, {per_frame_layout_, meshlet_layout_});
+  }
   if (!spot_light_shadow_pipeline_normal) {
     spot_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
@@ -1563,6 +1685,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     spot_light_shadow_pipeline_normal->Initialize();
+  }
+  if (!spot_light_shadow_pipeline_normal_opaque) {
+    spot_light_shadow_pipeline_normal_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.vert",
+        shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_});
   }
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !spot_light_shadow_pipeline_mesh_shader) {
     spot_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
@@ -1586,6 +1713,13 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     spot_light_shadow_pipeline_mesh_shader->Initialize();
   }
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader &&
+      !spot_light_shadow_pipeline_mesh_shader_alpha_tested) {
+    spot_light_shadow_pipeline_mesh_shader_alpha_tested = CreateShadowMeshPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.task",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.mesh",
+        shadow_alpha_fragment_shader_path, {per_frame_layout_, meshlet_layout_});
+  }
   if (!directional_light_shadow_pipeline_normal) {
     directional_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
@@ -1603,6 +1737,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     directional_light_shadow_pipeline_normal->Initialize();
+  }
+  if (!directional_light_shadow_pipeline_normal_opaque) {
+    directional_light_shadow_pipeline_normal_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert",
+        shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_});
   }
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !directional_light_shadow_pipeline_mesh_shader) {
     directional_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
@@ -1626,6 +1765,13 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     directional_light_shadow_pipeline_mesh_shader->Initialize();
   }
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader &&
+      !directional_light_shadow_pipeline_mesh_shader_alpha_tested) {
+    directional_light_shadow_pipeline_mesh_shader_alpha_tested = CreateShadowMeshPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.task",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh",
+        shadow_alpha_fragment_shader_path, {per_frame_layout_, meshlet_layout_});
+  }
   if (!instanced_point_light_shadow_pipeline) {
     instanced_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_point_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
@@ -1645,6 +1791,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     instanced_point_light_shadow_pipeline->Initialize();
   }
+  if (!instanced_point_light_shadow_pipeline_opaque) {
+    instanced_point_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert",
+        shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_, particle_instanced_data_layout_});
+  }
   if (!instanced_spot_light_shadow_pipeline) {
     instanced_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_spot_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
@@ -1663,6 +1814,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     instanced_spot_light_shadow_pipeline->Initialize();
+  }
+  if (!instanced_spot_light_shadow_pipeline_opaque) {
+    instanced_spot_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert",
+        shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_, particle_instanced_data_layout_});
   }
   if (!instanced_directional_light_shadow_pipeline) {
     instanced_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
@@ -1684,6 +1840,12 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     instanced_directional_light_shadow_pipeline->Initialize();
   }
+  if (!instanced_directional_light_shadow_pipeline_opaque) {
+    instanced_directional_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() /
+            "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert",
+        shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_, particle_instanced_data_layout_});
+  }
   if (!skinned_point_light_shadow_pipeline) {
     skinned_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_point_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
@@ -1702,6 +1864,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     skinned_point_light_shadow_pipeline->Initialize();
+  }
+  if (!skinned_point_light_shadow_pipeline_opaque) {
+    skinned_point_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert",
+        shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
   }
   if (!skinned_spot_light_shadow_pipeline) {
     skinned_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
@@ -1722,6 +1889,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     skinned_spot_light_shadow_pipeline->Initialize();
   }
+  if (!skinned_spot_light_shadow_pipeline_opaque) {
+    skinned_spot_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert",
+        shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
+  }
   if (!skinned_directional_light_shadow_pipeline) {
     skinned_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_directional_light_shadow_pipeline->vertex_shader =
@@ -1741,6 +1913,11 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     skinned_directional_light_shadow_pipeline->Initialize();
+  }
+  if (!skinned_directional_light_shadow_pipeline_opaque) {
+    skinned_directional_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert",
+        shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
   }
 #ifdef EVOENGINE_WINDOWS
   if (!strands_point_light_shadow_pipeline) {
@@ -3299,20 +3476,115 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
   const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto& point_light_shadow_pipeline =
-      use_mesh_shader ? point_light_shadow_pipeline_mesh_shader : point_light_shadow_pipeline_normal;
+      use_mesh_shader ? point_light_shadow_pipeline_mesh_shader_alpha_tested : point_light_shadow_pipeline_normal;
+  const auto& point_light_shadow_opaque_pipeline =
+      use_mesh_shader ? point_light_shadow_pipeline_mesh_shader : point_light_shadow_pipeline_normal_opaque;
   const auto& spot_light_shadow_pipeline =
-      use_mesh_shader ? spot_light_shadow_pipeline_mesh_shader : spot_light_shadow_pipeline_normal;
+      use_mesh_shader ? spot_light_shadow_pipeline_mesh_shader_alpha_tested : spot_light_shadow_pipeline_normal;
+  const auto& spot_light_shadow_opaque_pipeline =
+      use_mesh_shader ? spot_light_shadow_pipeline_mesh_shader : spot_light_shadow_pipeline_normal_opaque;
   auto& platform = Platform::GetInstance();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline,
                                                const glm::ivec4& view_port) {
+      if (!target_pipeline) {
+        return false;
+      }
       target_pipeline->states.ResetAllStates(0);
       target_pipeline->Bind(vk_command_buffer);
       target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                          per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+      if (use_mesh_shader &&
+          (target_pipeline == point_light_shadow_pipeline || target_pipeline == point_light_shadow_opaque_pipeline ||
+           target_pipeline == spot_light_shadow_pipeline || target_pipeline == spot_light_shadow_opaque_pipeline)) {
+        target_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                           meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+      }
       target_pipeline->states.SetViewportScissor(view_port);
+      return true;
     };
+    const auto render_shadow_collection =
+        [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
+            const std::shared_ptr<GraphicsPipeline>& alpha_tested_pipeline,
+            const std::shared_ptr<GraphicsPipeline>& opaque_pipeline, const glm::mat4& light_space_matrix,
+            const int light_index, const int split_index, const glm::ivec4& viewport) {
+          for (const bool alpha_tested : {false, true}) {
+            const auto target_pipeline = alpha_tested ? alpha_tested_pipeline : opaque_pipeline;
+            if (!prepare_graphics_pipeline(target_pipeline, viewport)) {
+              continue;
+            }
+            collection->ForEachRenderInstance([&](const auto& render_instance) {
+              if (render_instance->alpha_tested_shadow != alpha_tested ||
+                  !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+                return;
+              }
+              RenderInstancePushConstant push_constant;
+              push_constant.camera_index = light_index;
+              push_constant.light_split_index = split_index;
+              push_constant.instance_index = render_instance->instance_index;
+              const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
+              if (count_draw_calls) {
+                platform.draw_call[current_frame_index]++;
+                platform.prim_count[current_frame_index] += prim_count;
+              }
+            });
+          }
+        };
+    const auto draw_shadow_indirect = [&](const bool alpha_tested,
+                                          const std::shared_ptr<GraphicsPipeline>& target_pipeline,
+                                          const uint32_t prim_count, const std::shared_ptr<Buffer>& indexed_buffer,
+                                          const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
+                                          const std::shared_ptr<Buffer>& mesh_task_buffer,
+                                          const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands,
+                                          const glm::mat4& light_space_matrix, const int light_index,
+                                          const int split_index, const glm::ivec4& viewport) {
+      if (prim_count == 0 ||
+          !HasVisibleShadowInstance(current_render_instances->deferred_render_instances, light_space_matrix,
+                                    alpha_tested) ||
+          !prepare_graphics_pipeline(target_pipeline, viewport)) {
+        return;
+      }
+      RenderInstancePushConstant push_constant;
+      push_constant.camera_index = light_index;
+      push_constant.light_split_index = split_index;
+      push_constant.instance_index = 0;
+      target_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      target_pipeline->states.ApplyAllStates(vk_command_buffer);
+      if (count_draw_calls) {
+        platform.draw_call[current_frame_index]++;
+        platform.prim_count[current_frame_index] += prim_count;
+      }
+      if (use_mesh_shader) {
+        Platform::DrawMeshTasksIndirect(vk_command_buffer, *mesh_task_buffer, 0, mesh_task_commands.size(),
+                                        sizeof(VkDrawMeshTasksIndirectCommandEXT));
+      } else {
+        Platform::DrawIndexedIndirect(vk_command_buffer, *indexed_buffer, 0, indexed_commands.size(),
+                                      sizeof(VkDrawIndexedIndirectCommand));
+      }
+    };
+    const auto render_strands_shadow_collection =
+        [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
+            const std::shared_ptr<GraphicsPipeline>& pipeline, const glm::mat4& light_space_matrix,
+            const int light_index, const int split_index, const glm::ivec4& viewport) {
+          if (!prepare_graphics_pipeline(pipeline, viewport)) {
+            return;
+          }
+          collection->ForEachRenderInstance([&](const auto& render_instance) {
+            if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+              return;
+            }
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = light_index;
+            push_constant.light_split_index = split_index;
+            push_constant.instance_index = render_instance->instance_index;
+            const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, pipeline);
+            if (count_draw_calls) {
+              platform.draw_call[current_frame_index]++;
+              platform.prim_count[current_frame_index] += prim_count;
+            }
+          });
+        };
 
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -3332,118 +3604,58 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       render_info.pDepthAttachment = &depth_attachment;
       Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
         for (int i = 0; i < current_render_instances->point_light_info_blocks_.size(); i++) {
+          const auto& point_light_info_block = current_render_instances->point_light_info_blocks_[i];
+          if (!LightCastsShadow(point_light_info_block.diffuse)) {
+            continue;
+          }
+          const auto& light_space_matrix = point_light_info_block.light_space_matrix[face];
           GeometryStorage::BindVertices(vk_command_buffer);
           {
-            prepare_graphics_pipeline(point_light_shadow_pipeline,
-                                      current_render_instances->point_light_info_blocks_[i].viewport);
-            if (use_mesh_shader) {
-              point_light_shadow_pipeline->BindDescriptorSet(
-                  vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-            }
-            if (enable_indirect_rendering && !current_render_instances->deferred_render_instances->Empty()) {
-              RenderInstancePushConstant push_constant;
-              push_constant.camera_index = i;
-              push_constant.light_split_index = face;
-              push_constant.instance_index = 0;
-              point_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-              point_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
-              if (count_draw_calls)
-                platform.draw_call[current_frame_index]++;
-              if (count_draw_calls)
-                platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
-              if (use_mesh_shader) {
-                Platform::DrawMeshTasksIndirect(
-                    vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
-                    current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
-                    sizeof(VkDrawMeshTasksIndirectCommandEXT));
-              } else {
-                Platform::DrawIndexedIndirect(vk_command_buffer,
-                                              *current_render_instances->mesh_draw_indexed_indirect_commands_buffer, 0,
-                                              current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                                              sizeof(VkDrawIndexedIndirectCommand));
-              }
+            if (enable_indirect_rendering &&
+                !current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
+              draw_shadow_indirect(
+                  false, point_light_shadow_opaque_pipeline,
+                  current_render_instances->total_opaque_shadow_mesh_triangles,
+                  current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
+                  current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
+                  current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                  current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands, light_space_matrix, i,
+                  face, point_light_info_block.viewport);
+              draw_shadow_indirect(
+                  true, point_light_shadow_pipeline, current_render_instances->total_alpha_tested_shadow_mesh_triangles,
+                  current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
+                  current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
+                  current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                  current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands,
+                  light_space_matrix, i, face, point_light_info_block.viewport);
             } else {
-              current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                  [&](const auto& render_instance) {
-                    if (!render_instance->cast_shadow)
-                      return;
-                    RenderInstancePushConstant push_constant;
-                    push_constant.camera_index = i;
-                    push_constant.light_split_index = face;
-                    push_constant.instance_index = render_instance->instance_index;
-                    const auto prim_count =
-                        render_instance->Render(vk_command_buffer, push_constant, point_light_shadow_pipeline);
-                    if (count_draw_calls) {
-                      platform.draw_call[current_frame_index]++;
-                      platform.prim_count[current_frame_index] += prim_count;
-                    }
-                  });
+              render_shadow_collection(current_render_instances->deferred_render_instances, point_light_shadow_pipeline,
+                                       point_light_shadow_opaque_pipeline, light_space_matrix, i, face,
+                                       point_light_info_block.viewport);
             }
           }
           {
-            prepare_graphics_pipeline(instanced_point_light_shadow_pipeline,
-                                      current_render_instances->point_light_info_blocks_[i].viewport);
-            current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-                [&](const auto& render_instance) {
-                  if (!render_instance->cast_shadow)
-                    return;
-                  RenderInstancePushConstant push_constant;
-                  push_constant.camera_index = i;
-                  push_constant.light_split_index = face;
-                  push_constant.instance_index = render_instance->instance_index;
-                  const auto prim_count =
-                      render_instance->Render(vk_command_buffer, push_constant, instanced_point_light_shadow_pipeline);
-                  if (count_draw_calls) {
-                    platform.draw_call[current_frame_index]++;
-                    platform.prim_count[current_frame_index] += prim_count;
-                  }
-                });
+            render_shadow_collection(current_render_instances->deferred_instanced_render_instances,
+                                     instanced_point_light_shadow_pipeline,
+                                     instanced_point_light_shadow_pipeline_opaque, light_space_matrix, i, face,
+                                     point_light_info_block.viewport);
           }
           GeometryStorage::BindSkinnedVertices(vk_command_buffer);
           {
-            prepare_graphics_pipeline(skinned_point_light_shadow_pipeline,
-                                      current_render_instances->point_light_info_blocks_[i].viewport);
-            current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-                [&](const auto& render_instance) {
-                  if (!render_instance->cast_shadow)
-                    return;
-                  RenderInstancePushConstant push_constant;
-                  push_constant.camera_index = i;
-                  push_constant.light_split_index = face;
-                  push_constant.instance_index = render_instance->instance_index;
-                  const auto prim_count =
-                      render_instance->Render(vk_command_buffer, push_constant, skinned_point_light_shadow_pipeline);
-                  if (count_draw_calls) {
-                    platform.draw_call[current_frame_index]++;
-                    platform.prim_count[current_frame_index] += prim_count;
-                  }
-                });
+            render_shadow_collection(current_render_instances->deferred_skinned_render_instances,
+                                     skinned_point_light_shadow_pipeline, skinned_point_light_shadow_pipeline_opaque,
+                                     light_space_matrix, i, face, point_light_info_block.viewport);
           }
 #ifdef EVOENGINE_WINDOWS
           GeometryStorage::BindStrandPoints(vk_command_buffer);
           {
-            prepare_graphics_pipeline(strands_point_light_shadow_pipeline,
-                                      current_render_instances->point_light_info_blocks_[i].viewport);
-            current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-                [&](const auto& render_instance) {
-                  if (!render_instance->cast_shadow)
-                    return;
-                  RenderInstancePushConstant push_constant;
-                  push_constant.camera_index = i;
-                  push_constant.light_split_index = face;
-                  push_constant.instance_index = render_instance->instance_index;
-                  const auto prim_count =
-                      render_instance->Render(vk_command_buffer, push_constant, strands_point_light_shadow_pipeline);
-                  if (count_draw_calls) {
-                    platform.draw_call[current_frame_index]++;
-                    platform.prim_count[current_frame_index] += prim_count;
-                  }
-                });
+            render_strands_shadow_collection(current_render_instances->deferred_strands_render_instances,
+                                             strands_point_light_shadow_pipeline, light_space_matrix, i, face,
+                                             point_light_info_block.viewport);
           }
 #endif
           for (const auto& func : point_light_shadow_map_external_functions) {
-            const auto prim_count =
-                func(vk_command_buffer, {i, face, current_render_instances->point_light_info_blocks_[i].viewport});
+            const auto prim_count = func(vk_command_buffer, {i, face, point_light_info_block.viewport});
             if (count_draw_calls) {
               platform.draw_call[current_frame_index]++;
               platform.prim_count[current_frame_index] += prim_count;
@@ -3471,118 +3683,56 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
     render_info.pDepthAttachment = &depth_attachment;
     Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
       for (int i = 0; i < current_render_instances->spot_light_info_blocks_.size(); i++) {
+        const auto& spot_light_info_block = current_render_instances->spot_light_info_blocks_[i];
+        if (!LightCastsShadow(spot_light_info_block.diffuse)) {
+          continue;
+        }
+        const auto& light_space_matrix = spot_light_info_block.light_space_matrix;
         GeometryStorage::BindVertices(vk_command_buffer);
         {
-          prepare_graphics_pipeline(spot_light_shadow_pipeline,
-                                    current_render_instances->spot_light_info_blocks_[i].viewport);
-          if (use_mesh_shader) {
-            spot_light_shadow_pipeline->BindDescriptorSet(
-                vk_command_buffer, 1, meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          }
-          if (enable_indirect_rendering && !current_render_instances->deferred_render_instances->Empty()) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = i;
-            push_constant.light_split_index = 0;
-            push_constant.instance_index = 0;
-            spot_light_shadow_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            spot_light_shadow_pipeline->states.ApplyAllStates(vk_command_buffer);
-            if (count_draw_calls)
-              platform.draw_call[current_frame_index]++;
-            if (count_draw_calls)
-              platform.prim_count[current_frame_index] += current_render_instances->total_mesh_triangles;
-            if (use_mesh_shader) {
-              Platform::DrawMeshTasksIndirect(
-                  vk_command_buffer, *current_render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,
-                  current_render_instances->mesh_draw_mesh_tasks_indirect_commands.size(),
-                  sizeof(VkDrawMeshTasksIndirectCommandEXT));
-            } else {
-              Platform::DrawIndexedIndirect(vk_command_buffer,
-                                            *current_render_instances->mesh_draw_indexed_indirect_commands_buffer, 0,
-                                            current_render_instances->mesh_draw_indexed_indirect_commands.size(),
-                                            sizeof(VkDrawIndexedIndirectCommand));
-            }
+          if (enable_indirect_rendering &&
+              !current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
+            draw_shadow_indirect(false, spot_light_shadow_opaque_pipeline,
+                                 current_render_instances->total_opaque_shadow_mesh_triangles,
+                                 current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
+                                 current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
+                                 current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                                 current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands,
+                                 light_space_matrix, i, 0, spot_light_info_block.viewport);
+            draw_shadow_indirect(
+                true, spot_light_shadow_pipeline, current_render_instances->total_alpha_tested_shadow_mesh_triangles,
+                current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
+                current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
+                current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands,
+                light_space_matrix, i, 0, spot_light_info_block.viewport);
           } else {
-            current_render_instances->deferred_render_instances->ForEachRenderInstance(
-                [&](const auto& render_instance) {
-                  if (!render_instance->cast_shadow)
-                    return;
-                  RenderInstancePushConstant push_constant;
-                  push_constant.camera_index = i;
-                  push_constant.light_split_index = 0;
-                  push_constant.instance_index = render_instance->instance_index;
-                  const auto prim_count =
-                      render_instance->Render(vk_command_buffer, push_constant, spot_light_shadow_pipeline);
-                  if (count_draw_calls) {
-                    platform.draw_call[current_frame_index]++;
-                    platform.prim_count[current_frame_index] += prim_count;
-                  }
-                });
+            render_shadow_collection(current_render_instances->deferred_render_instances, spot_light_shadow_pipeline,
+                                     spot_light_shadow_opaque_pipeline, light_space_matrix, i, 0,
+                                     spot_light_info_block.viewport);
           }
         }
         {
-          prepare_graphics_pipeline(instanced_spot_light_shadow_pipeline,
-                                    current_render_instances->spot_light_info_blocks_[i].viewport);
-          current_render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
-              [&](const auto& render_instance) {
-                if (!render_instance->cast_shadow)
-                  return;
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = i;
-                push_constant.light_split_index = 0;
-                push_constant.instance_index = render_instance->instance_index;
-                const auto prim_count =
-                    render_instance->Render(vk_command_buffer, push_constant, instanced_spot_light_shadow_pipeline);
-                if (count_draw_calls) {
-                  platform.draw_call[current_frame_index]++;
-                  platform.prim_count[current_frame_index] += prim_count;
-                }
-              });
+          render_shadow_collection(current_render_instances->deferred_instanced_render_instances,
+                                   instanced_spot_light_shadow_pipeline, instanced_spot_light_shadow_pipeline_opaque,
+                                   light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
         GeometryStorage::BindSkinnedVertices(vk_command_buffer);
         {
-          prepare_graphics_pipeline(skinned_spot_light_shadow_pipeline,
-                                    current_render_instances->spot_light_info_blocks_[i].viewport);
-          current_render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
-              [&](const auto& render_instance) {
-                if (!render_instance->cast_shadow)
-                  return;
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = i;
-                push_constant.light_split_index = 0;
-                push_constant.instance_index = render_instance->instance_index;
-                const auto prim_count =
-                    render_instance->Render(vk_command_buffer, push_constant, skinned_spot_light_shadow_pipeline);
-                if (count_draw_calls) {
-                  platform.draw_call[current_frame_index]++;
-                  platform.prim_count[current_frame_index] += prim_count;
-                }
-              });
+          render_shadow_collection(current_render_instances->deferred_skinned_render_instances,
+                                   skinned_spot_light_shadow_pipeline, skinned_spot_light_shadow_pipeline_opaque,
+                                   light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
 #ifdef EVOENGINE_WINDOWS
         GeometryStorage::BindStrandPoints(vk_command_buffer);
         {
-          prepare_graphics_pipeline(strands_spot_light_shadow_pipeline,
-                                    current_render_instances->spot_light_info_blocks_[i].viewport);
-          current_render_instances->deferred_strands_render_instances->ForEachRenderInstance(
-              [&](const auto& render_instance) {
-                if (!render_instance->cast_shadow)
-                  return;
-                RenderInstancePushConstant push_constant;
-                push_constant.camera_index = i;
-                push_constant.light_split_index = 0;
-                push_constant.instance_index = render_instance->instance_index;
-                const auto prim_count =
-                    render_instance->Render(vk_command_buffer, push_constant, strands_spot_light_shadow_pipeline);
-                if (count_draw_calls) {
-                  platform.draw_call[current_frame_index]++;
-                  platform.prim_count[current_frame_index] += prim_count;
-                }
-              });
+          render_strands_shadow_collection(current_render_instances->deferred_strands_render_instances,
+                                           strands_spot_light_shadow_pipeline, light_space_matrix, i, 0,
+                                           spot_light_info_block.viewport);
         }
 #endif
         for (const auto& func : spot_light_shadow_map_external_functions) {
-          const auto prim_count =
-              func(vk_command_buffer, {i, current_render_instances->spot_light_info_blocks_[i].viewport});
+          const auto prim_count = func(vk_command_buffer, {i, spot_light_info_block.viewport});
           if (count_draw_calls) {
             platform.draw_call[current_frame_index]++;
             platform.prim_count[current_frame_index] += prim_count;
@@ -3966,16 +4116,22 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
 
     camera_render_graph.AddPass(
         DirectionalLightShadowPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-          const auto& directional_light_shadow_pipeline = use_mesh_shader
-                                                              ? directional_light_shadow_pipeline_mesh_shader
-                                                              : directional_light_shadow_pipeline_normal;
+          const auto& directional_light_shadow_pipeline =
+              use_mesh_shader ? directional_light_shadow_pipeline_mesh_shader_alpha_tested
+                              : directional_light_shadow_pipeline_normal;
+          const auto& directional_light_shadow_opaque_pipeline = use_mesh_shader
+                                                                     ? directional_light_shadow_pipeline_mesh_shader
+                                                                     : directional_light_shadow_pipeline_normal_opaque;
           const auto shadow_extent = lighting_->directional_light_shadow_map_->GetExtent();
           DirectionalLightShadowPass::Execute(
               context,
               {current_render_instances,
                directional_light_shadow_pipeline,
+               directional_light_shadow_opaque_pipeline,
                instanced_directional_light_shadow_pipeline,
+               instanced_directional_light_shadow_pipeline_opaque,
                skinned_directional_light_shadow_pipeline,
+               skinned_directional_light_shadow_pipeline_opaque,
                strands_directional_light_shadow_pipeline,
                per_frame_descriptor_sets_[current_frame_index],
                meshlet_descriptor_sets_[current_frame_index],
