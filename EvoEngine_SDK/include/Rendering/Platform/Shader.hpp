@@ -74,8 +74,7 @@ class Shader final : public IAsset {
                                   const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Shader");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Shader");
 
   [[nodiscard]] const std::string& PeekShaderCode() const;
 

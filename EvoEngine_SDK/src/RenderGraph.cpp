@@ -91,6 +91,9 @@ VkFormat ToVkFormat(const std::string& format_name) {
   if (format_name == "RG32F") {
     return VK_FORMAT_R32G32_SFLOAT;
   }
+  if (format_name == "R32F") {
+    return VK_FORMAT_R32_SFLOAT;
+  }
   if (format_name == "R32U") {
     return VK_FORMAT_R32_UINT;
   }
@@ -228,20 +231,28 @@ uint32_t CalculateFullMipChainLevels(uint32_t width, uint32_t height) {
   return levels;
 }
 
+uint32_t ResolveRelativeDimension(const uint32_t base_dimension, const uint32_t divisor) {
+  if (base_dimension == 0) {
+    return 0;
+  }
+  const uint32_t safe_divisor = std::max(divisor, 1u);
+  return std::max(1u, (base_dimension + safe_divisor - 1u) / safe_divisor);
+}
+
 RenderResourceDimensions ResolveDimensions(RenderResourceDimensions dimensions,
                                            const RenderGraphCompileContext& context) {
   switch (dimensions.size_mode) {
     case RenderResourceSizeMode::FrameRelative:
       if (context.frame_width != 0 && context.frame_height != 0) {
-        dimensions.width = dimensions.width == 0 ? context.frame_width : dimensions.width;
-        dimensions.height = dimensions.height == 0 ? context.frame_height : dimensions.height;
+        dimensions.width = ResolveRelativeDimension(context.frame_width, dimensions.width);
+        dimensions.height = ResolveRelativeDimension(context.frame_height, dimensions.height);
         dimensions.size_mode = RenderResourceSizeMode::Absolute;
       }
       break;
     case RenderResourceSizeMode::CameraRelative:
       if (context.camera_width != 0 && context.camera_height != 0) {
-        dimensions.width = dimensions.width == 0 ? context.camera_width : dimensions.width;
-        dimensions.height = dimensions.height == 0 ? context.camera_height : dimensions.height;
+        dimensions.width = ResolveRelativeDimension(context.camera_width, dimensions.width);
+        dimensions.height = ResolveRelativeDimension(context.camera_height, dimensions.height);
         dimensions.size_mode = RenderResourceSizeMode::Absolute;
       }
       break;
@@ -997,6 +1008,14 @@ void evo_engine::AddDefaultRayTracingCameraResources(RenderGraph& graph) {
                      RenderResourceLifetime::Camera,
                      {RenderResourceSizeMode::CameraRelative},
                      "Color"});
+  graph.AddResource({RenderResourceNames::camera_ray_hit_distance,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "R32F",
+                     1,
+                     1,
+                     true});
 }
 
 void evo_engine::AddAdvancedFrameResources(RenderGraph& graph) {
@@ -1058,5 +1077,25 @@ void evo_engine::AddAdvancedCameraResources(RenderGraph& graph) {
                      "Radiance",
                      1,
                      2,
+                     true});
+}
+
+void evo_engine::AddVolumetricCloudCameraResources(RenderGraph& graph, const uint32_t resolution_divisor) {
+  const uint32_t safe_resolution_divisor = resolution_divisor <= 1u ? 1u : (resolution_divisor <= 2u ? 2u : 4u);
+  graph.AddResource({RenderResourceNames::camera_volumetric_cloud_accumulation,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative, safe_resolution_divisor, safe_resolution_divisor},
+                     "RGBA16F",
+                     1,
+                     1,
+                     true});
+  graph.AddResource({RenderResourceNames::camera_volumetric_cloud_transmittance,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative, safe_resolution_divisor, safe_resolution_divisor},
+                     "R16F",
+                     1,
+                     1,
                      true});
 }

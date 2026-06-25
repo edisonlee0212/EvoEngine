@@ -170,8 +170,7 @@ class Strands final : public IAsset, public IGeometry {
   template <class T>
   static float FindTAdaptive(const T& v0, const T& v1, const T& v2, const T& v3, float t_start, float target_length,
                              float tolerance = 0.001f);
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Strands");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Strands");
 
  protected:
   /**

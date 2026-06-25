@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 #include <utility>
 
 #ifdef PHYSX_PHYSICS_SERVICE
@@ -631,6 +632,10 @@ struct RenderTextureRegionSummary {
   uint32_t sample_count = 0;
   glm::vec3 average_color = glm::vec3(0.0f);
   float average_luminance = 0.0f;
+  float luminance_second_moment = 0.0f;
+  float luminance_standard_deviation = 0.0f;
+  float minimum_luminance = std::numeric_limits<float>::max();
+  float maximum_luminance = 0.0f;
   bool finite = true;
 };
 
@@ -682,17 +687,42 @@ RenderTextureRegionSummary SummarizeRenderTextureRegion(const std::vector<glm::v
   for (uint32_t y = begin.y; y < end.y; ++y) {
     for (uint32_t x = begin.x; x < end.x; ++x) {
       const auto color = glm::max(glm::vec3(pixels[static_cast<size_t>(y) * resolution.x + x]), glm::vec3(0.0f));
+      const auto luminance = glm::dot(color, glm::vec3(0.2126f, 0.7152f, 0.0722f));
       summary.finite = summary.finite && std::isfinite(color.x) && std::isfinite(color.y) && std::isfinite(color.z);
       summary.average_color += color;
-      summary.average_luminance += glm::dot(color, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+      summary.average_luminance += luminance;
+      summary.luminance_second_moment += luminance * luminance;
+      summary.minimum_luminance = glm::min(summary.minimum_luminance, luminance);
+      summary.maximum_luminance = glm::max(summary.maximum_luminance, luminance);
       ++summary.sample_count;
     }
   }
   if (summary.sample_count != 0u) {
     summary.average_color /= static_cast<float>(summary.sample_count);
     summary.average_luminance /= static_cast<float>(summary.sample_count);
+    summary.luminance_second_moment /= static_cast<float>(summary.sample_count);
+    summary.luminance_standard_deviation = std::sqrt(
+        glm::max(summary.luminance_second_moment - summary.average_luminance * summary.average_luminance, 0.0f));
   }
   return summary;
+}
+
+std::optional<RenderTextureRegionSummary> CaptureMainCameraRegion(Application& application,
+                                                                  const std::shared_ptr<Scene>& scene,
+                                                                  const glm::vec2& uv_begin, const glm::vec2& uv_end,
+                                                                  const char* failure_reason) {
+  if (!application.Loop()) {
+    FailSmokeTest(application, failure_reason);
+    return {};
+  }
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  if (!main_camera || !main_camera->GetRenderTexture()) {
+    FailSmokeTest(application, "main camera render texture is missing for render-texture validation");
+    return {};
+  }
+  std::vector<glm::vec4> pixels;
+  main_camera->GetRenderTexture()->GetRgbaChannelData(pixels);
+  return SummarizeRenderTextureRegion(pixels, main_camera->GetSize(), uv_begin, uv_end);
 }
 
 int ValidateCornellBoxDdgiProbeReadback(Application& application, const DemoAppRuntimeConfig& config) {
@@ -1545,6 +1575,182 @@ int ValidateRenderingDemoDdgiIdleSteadyState(Application& application, const Dem
   return ValidateRenderingDemoDdgiState(application, config);
 }
 
+int ValidateRenderingDemoCloudVisibleContribution(Application& application, const DemoAppRuntimeConfig& config) {
+  if (config.demo_setup != DemoSetup::Rendering) {
+    return 0;
+  }
+  const auto scene = application.GetActiveScene();
+  if (!scene) {
+    return FailSmokeTest(application, "active scene is missing for cloud visibility validation");
+  }
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  if (!render_layer) {
+    return FailSmokeTest(application, "render layer is missing for cloud visibility validation");
+  }
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  if (!main_camera || !main_camera->GetRenderTexture()) {
+    return FailSmokeTest(application, "main camera render texture is missing for cloud visibility validation");
+  }
+
+  const auto original_cloud_settings = scene->environment.volumetric_cloud_settings;
+  const auto original_camera_settings = main_camera->camera_settings;
+  const auto original_camera_render_mode = main_camera->camera_render_mode;
+  const auto camera_owner = main_camera->GetOwner();
+  const auto original_camera_transform = scene->GetDataComponent<Transform>(camera_owner);
+  auto restore_state = MakeScopeExit([&]() {
+    scene->environment.volumetric_cloud_settings = original_cloud_settings;
+    main_camera->camera_settings = original_camera_settings;
+    main_camera->camera_render_mode = original_camera_render_mode;
+    scene->SetDataComponent(camera_owner, original_camera_transform);
+    main_camera->ResetFrameCount();
+  });
+
+  main_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  main_camera->camera_settings.use_clear_color = true;
+  main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+  main_camera->camera_settings.background_intensity = 0.0f;
+  main_camera->camera_settings.far_distance = 300.0f;
+  auto validation_camera_transform = original_camera_transform;
+  validation_camera_transform.SetPosition(glm::vec3(0.0f, 0.0f, 3.0f));
+  validation_camera_transform.SetRotation(Camera::ProcessMouseMovement(-90.0f, 12.0f, true));
+  scene->SetDataComponent(camera_owner, validation_camera_transform);
+  main_camera->ResetFrameCount();
+
+  VolumetricCloudSettings disabled_cloud_settings;
+  disabled_cloud_settings.enabled = false;
+
+  VolumetricCloudSettings visible_cloud_settings;
+  visible_cloud_settings.enabled = true;
+  visible_cloud_settings.resolution_divisor = 1;
+  visible_cloud_settings.ClampSettings();
+
+  auto validate_cloud_contribution = [&](const Camera::CameraRenderMode render_mode, const char* render_mode_name) {
+    main_camera->camera_render_mode = render_mode;
+    scene->environment.volumetric_cloud_settings = disabled_cloud_settings;
+    main_camera->ResetFrameCount();
+    const auto baseline_summary =
+        CaptureMainCameraRegion(application, scene, {0.15f, 0.15f}, {0.85f, 0.85f},
+                                "application ended before cloud baseline validation completed");
+    if (!baseline_summary) {
+      return 1;
+    }
+
+    scene->environment.volumetric_cloud_settings = visible_cloud_settings;
+    main_camera->ResetFrameCount();
+    const auto cloud_summary =
+        CaptureMainCameraRegion(application, scene, {0.15f, 0.15f}, {0.85f, 0.85f},
+                                "application ended before cloud contribution validation completed");
+    if (!cloud_summary) {
+      return 1;
+    }
+
+    if (baseline_summary->sample_count == 0u || cloud_summary->sample_count == 0u || !baseline_summary->finite ||
+        !cloud_summary->finite) {
+      return FailSmokeTest(application, std::string("cloud visibility validation read invalid ") + render_mode_name +
+                                            " main-camera pixels");
+    }
+    const auto minimum_cloud_luminance =
+        glm::max(baseline_summary->average_luminance + 0.01f, baseline_summary->average_luminance * 1.05f);
+    if (cloud_summary->average_luminance <= minimum_cloud_luminance) {
+      return FailSmokeTest(application,
+                           std::string("volumetric clouds did not produce visible ") + render_mode_name +
+                               " contribution baseline=" + std::to_string(baseline_summary->average_luminance) +
+                               " cloud=" + std::to_string(cloud_summary->average_luminance) +
+                               " minimum=" + std::to_string(minimum_cloud_luminance));
+    }
+    return 0;
+  };
+
+  if (const auto raster_result = validate_cloud_contribution(Camera::CameraRenderMode::Rasterization, "rasterization");
+      raster_result != 0) {
+    return raster_result;
+  }
+  if (const auto ray_tracing_result = validate_cloud_contribution(Camera::CameraRenderMode::RayTracing, "ray tracing");
+      ray_tracing_result != 0) {
+    return ray_tracing_result;
+  }
+
+  if (render_layer->GetDdgiLastProbeUpdateReasons() != RenderLayer::DdgiUpdateReasonSteadyState) {
+    return FailSmokeTest(application, "DDGI reported a scene refresh during cloud visibility validation");
+  }
+  visible_cloud_settings.debug_visualization = true;
+  visible_cloud_settings.debug_mode = 1;
+  visible_cloud_settings.ClampSettings();
+  scene->environment.volumetric_cloud_settings = visible_cloud_settings;
+  main_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  main_camera->ResetFrameCount();
+  const auto density_summary =
+      CaptureMainCameraRegion(application, scene, {0.15f, 0.15f}, {0.85f, 0.85f},
+                              "application ended before cloud density variation validation completed");
+  if (!density_summary) {
+    return 1;
+  }
+  if (density_summary->sample_count == 0u || !density_summary->finite) {
+    return FailSmokeTest(application, "cloud density variation validation read invalid main-camera pixels");
+  }
+  const auto density_luminance_range = density_summary->maximum_luminance - density_summary->minimum_luminance;
+  if (density_summary->luminance_standard_deviation <= 0.001f && density_luminance_range <= 0.005f) {
+    return FailSmokeTest(application, "volumetric cloud density debug output is spatially flat stddev=" +
+                                          std::to_string(density_summary->luminance_standard_deviation) +
+                                          " range=" + std::to_string(density_luminance_range));
+  }
+  return 0;
+}
+
+int ValidateRenderingDemoCloudSettingsDoNotRefreshDdgi(Application& application, const DemoAppRuntimeConfig& config) {
+  if (config.demo_setup != DemoSetup::Rendering) {
+    return 0;
+  }
+  const auto scene = application.GetActiveScene();
+  if (!scene) {
+    return FailSmokeTest(application, "active scene is missing for cloud/DDGI validation");
+  }
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  if (!render_layer) {
+    return FailSmokeTest(application, "render layer is missing for cloud/DDGI validation");
+  }
+
+  const auto original_cloud_settings = scene->environment.volumetric_cloud_settings;
+  auto restore_cloud_settings = MakeScopeExit([&]() {
+    scene->environment.volumetric_cloud_settings = original_cloud_settings;
+  });
+  auto require_steady_ddgi = [&](const char* failure_reason) {
+    if (!application.Loop()) {
+      return FailSmokeTest(application, failure_reason);
+    }
+    if (render_layer->GetDdgiLastProbeUpdateReasons() != RenderLayer::DdgiUpdateReasonSteadyState) {
+      return FailSmokeTest(application, "DDGI reported a scene refresh after cloud settings changed");
+    }
+    return 0;
+  };
+
+  auto cloud_settings = original_cloud_settings;
+  cloud_settings.enabled = true;
+  cloud_settings.coverage = 0.65f;
+  cloud_settings.density = 0.5f;
+  cloud_settings.resolution_divisor = 2;
+  cloud_settings.ClampSettings();
+  scene->environment.volumetric_cloud_settings = cloud_settings;
+  if (const auto result = require_steady_ddgi("application ended before cloud enable validation completed");
+      result != 0) {
+    return result;
+  }
+
+  scene->environment.volumetric_cloud_settings.coverage = 0.25f;
+  scene->environment.volumetric_cloud_settings.wind_speed = 80.0f;
+  if (const auto result = require_steady_ddgi("application ended before cloud mutation validation completed");
+      result != 0) {
+    return result;
+  }
+
+  restore_cloud_settings.Run();
+  if (const auto result = require_steady_ddgi("application ended before cloud restore validation completed");
+      result != 0) {
+    return result;
+  }
+  return ValidateRenderingDemoDdgiState(application, config);
+}
+
 void ApplyReadmeScreenshotEditorSetup(const DemoAppRuntimeConfig* config = nullptr);
 
 int RunSmokeTest(const DemoAppRuntimeConfig& config) {
@@ -1663,6 +1869,14 @@ int RunSmokeTest(const DemoAppRuntimeConfig& config) {
       return validation_result;
     }
     if (const auto validation_result = ValidateRenderingDemoDdgiIdleSteadyState(application, config);
+        validation_result != 0) {
+      return validation_result;
+    }
+    if (const auto validation_result = ValidateRenderingDemoCloudVisibleContribution(application, config);
+        validation_result != 0) {
+      return validation_result;
+    }
+    if (const auto validation_result = ValidateRenderingDemoCloudSettingsDoNotRefreshDdgi(application, config);
         validation_result != 0) {
       return validation_result;
     }

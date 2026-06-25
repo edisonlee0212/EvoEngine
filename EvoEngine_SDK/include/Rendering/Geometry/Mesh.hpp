@@ -157,8 +157,7 @@ class Mesh final : public IAsset, public IGeometry {
   bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Mesh");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Mesh");
 
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;

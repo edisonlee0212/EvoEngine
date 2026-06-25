@@ -1218,6 +1218,83 @@ void InspectStrandsSettings(RenderSettings& render_settings) {
 #endif
 }
 
+bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
+  settings.ClampSettings();
+  bool modified = false;
+  if (ImGui::Checkbox("Enable volumetric clouds", &settings.enabled))
+    modified = true;
+  if (ImGui::DragFloat("Coverage", &settings.coverage, 0.001f, 0.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Density", &settings.density, 0.001f, 0.0f, 10.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Bottom altitude", &settings.bottom_altitude, 10.0f, 0.0f, 100000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat("Top altitude", &settings.top_altitude, 10.0f, 1.0f, 100000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat("Max march distance", &settings.max_march_distance, 10.0f, 1.0f, 1000000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat2("Wind direction", &settings.wind_direction.x, 0.001f, -1.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Wind speed", &settings.wind_speed, 0.1f, 0.0f, 10000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragInt("Primary steps", &settings.primary_step_count, 1.0f, 1, 512))
+    modified = true;
+  if (ImGui::DragInt("Light steps", &settings.light_step_count, 1.0f, 1, 128))
+    modified = true;
+  int resolution_mode = settings.resolution_divisor == 4 ? 2 : (settings.resolution_divisor == 2 ? 1 : 0);
+  const char* resolution_modes[] = {"Full", "Half", "Quarter"};
+  if (ImGui::Combo("Cloud resolution", &resolution_mode, resolution_modes, IM_ARRAYSIZE(resolution_modes))) {
+    settings.resolution_divisor = resolution_mode == 2 ? 4 : (resolution_mode == 1 ? 2 : 1);
+    modified = true;
+  }
+  if (ImGui::DragFloat("Lighting intensity", &settings.lighting_intensity, 0.01f, 0.0f, 100.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Ambient lighting", &settings.ambient_lighting_strength, 0.01f, 0.0f, 10.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Phase anisotropy", &settings.phase_anisotropy, 0.001f, -0.99f, 0.99f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Base noise scale", &settings.base_noise_scale, 0.001f, 0.00001f, 10.0f, "%.5f"))
+    modified = true;
+  if (ImGui::DragFloat("Detail noise scale", &settings.detail_noise_scale, 0.001f, 0.00001f, 10.0f, "%.5f"))
+    modified = true;
+  if (ImGui::DragFloat("Extinction scale", &settings.extinction_scale, 0.001f, 0.00001f, 1.0f, "%.5f"))
+    modified = true;
+  if (ImGui::Checkbox("Spherical atmosphere", &settings.use_spherical_atmosphere))
+    modified = true;
+  if (ImGui::DragFloat("Atmosphere radius", &settings.atmosphere_radius, 10.0f, 10.0f, 10000000.0f, "%.1f"))
+    modified = true;
+  if (ImGui::DragFloat("Cloud type", &settings.cloud_type, 0.001f, 0.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Curl strength", &settings.curl_strength, 0.01f, 0.0f, 1000.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragFloat("Coarse step fraction", &settings.coarse_step_fraction, 0.001f, 0.0001f, 1.0f, "%.4f"))
+    modified = true;
+  if (ImGui::DragFloat("Fine step scale", &settings.fine_step_scale, 0.001f, 0.01f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragInt("Empty-step fallback", &settings.empty_step_fallback_count, 1.0f, 1, 64))
+    modified = true;
+  if (ImGui::Checkbox("Temporal reprojection", &settings.enable_temporal_reprojection))
+    modified = true;
+  if (ImGui::DragFloat("Temporal blend", &settings.temporal_blend_factor, 0.001f, 0.0f, 0.98f, "%.3f"))
+    modified = true;
+  if (ImGui::Checkbox("Cloud shadows", &settings.enable_cloud_shadows))
+    modified = true;
+  if (ImGui::DragFloat("Cloud shadow strength", &settings.cloud_shadow_strength, 0.001f, 0.0f, 1.0f, "%.3f"))
+    modified = true;
+  if (ImGui::DragInt("Cloud shadow steps", &settings.cloud_shadow_step_count, 1.0f, 1, 64))
+    modified = true;
+  if (ImGui::Checkbox("Cloud debug", &settings.debug_visualization))
+    modified = true;
+  const char* debug_modes[] = {"Final composite", "Final density",  "Transmittance",   "March depth",
+                               "Base shape",      "Detail erosion", "Weather coverage"};
+  if (ImGui::Combo("Cloud debug mode", &settings.debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes)))
+    modified = true;
+  if (modified) {
+    settings.ClampSettings();
+  }
+  return modified;
+}
+
 void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   auto& runtime = settings.runtime;
   runtime.ray_count = glm::clamp(runtime.ray_count, 1, 4096);
@@ -1740,6 +1817,11 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       modified = true;
     if (ImGui::DragFloat("Environmental light gamma", &scene.environment.environment_gamma, 0.01f, 0.0f, 10.0f)) {
       modified = true;
+    }
+    if (ImGui::TreeNodeEx("Volumetric clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (InspectVolumetricCloudSettings(scene.environment.volumetric_cloud_settings))
+        modified = true;
+      ImGui::TreePop();
     }
     ImGui::TreePop();
   }

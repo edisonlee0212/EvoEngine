@@ -2,6 +2,9 @@
 
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
+#include "RenderPasses/PostProcessingPass.hpp"
+#include "RenderPasses/RayTracingCameraPass.hpp"
+#include "RenderPasses/VolumetricCloudsPass.hpp"
 
 #include <gtest/gtest.h>
 
@@ -1640,6 +1643,148 @@ TEST(RenderGraph, DefaultCameraResourcesRegisterCurrentRenderTargets) {
   EXPECT_TRUE(ray_tracing_graph.HasResource(RenderResourceNames::frame_ray_tracing_descriptor_set));
   EXPECT_TRUE(ray_tracing_graph.HasResource(RenderResourceNames::scene_mesh_tlas));
   EXPECT_TRUE(ray_tracing_graph.HasResource(RenderResourceNames::camera_color));
+  EXPECT_TRUE(ray_tracing_graph.HasResource(RenderResourceNames::camera_ray_hit_distance));
+}
+
+TEST(RenderGraph, VolumetricCloudResourcesRegisterCameraRelativeAccumulationTargets) {
+  RenderGraph graph;
+  AddVolumetricCloudCameraResources(graph, 2);
+
+  const auto& resources = graph.GetResources();
+  const auto accumulation =
+      std::find_if(resources.begin(), resources.end(), [](const RenderResourceDescriptor& descriptor) {
+        return descriptor.name == RenderResourceNames::camera_volumetric_cloud_accumulation;
+      });
+  const auto transmittance =
+      std::find_if(resources.begin(), resources.end(), [](const RenderResourceDescriptor& descriptor) {
+        return descriptor.name == RenderResourceNames::camera_volumetric_cloud_transmittance;
+      });
+
+  ASSERT_NE(accumulation, resources.end());
+  EXPECT_EQ(accumulation->type, RenderResourceType::Image);
+  EXPECT_EQ(accumulation->lifetime, RenderResourceLifetime::Camera);
+  EXPECT_EQ(accumulation->dimensions.size_mode, RenderResourceSizeMode::CameraRelative);
+  EXPECT_EQ(accumulation->dimensions.width, 2u);
+  EXPECT_EQ(accumulation->dimensions.height, 2u);
+  EXPECT_EQ(accumulation->format_name, "RGBA16F");
+  EXPECT_TRUE(accumulation->managed_by_graph);
+
+  ASSERT_NE(transmittance, resources.end());
+  EXPECT_EQ(transmittance->type, RenderResourceType::Image);
+  EXPECT_EQ(transmittance->lifetime, RenderResourceLifetime::Camera);
+  EXPECT_EQ(transmittance->dimensions.size_mode, RenderResourceSizeMode::CameraRelative);
+  EXPECT_EQ(transmittance->dimensions.width, 2u);
+  EXPECT_EQ(transmittance->dimensions.height, 2u);
+  EXPECT_EQ(transmittance->format_name, "R16F");
+  EXPECT_TRUE(transmittance->managed_by_graph);
+
+  const auto plan = graph.Compile({0, 0, 1280, 720});
+  ASSERT_TRUE(plan.valid);
+  const auto accumulation_index = std::distance(resources.begin(), accumulation);
+  EXPECT_EQ(plan.resources[accumulation_index].resolved_dimensions.width, 640u);
+  EXPECT_EQ(plan.resources[accumulation_index].resolved_dimensions.height, 360u);
+}
+
+TEST(RenderGraph, VolumetricCloudRasterAndRayTracingDescriptorsUseSharedCameraPass) {
+  const auto raster_descriptor = VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera);
+  const auto ray_descriptor = VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera);
+
+  EXPECT_EQ(raster_descriptor.name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(ray_descriptor.name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(raster_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(ray_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(raster_descriptor.scope, RenderPassScope::Camera);
+  EXPECT_EQ(ray_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(raster_descriptor.dependencies.size(), 1);
+  ASSERT_EQ(ray_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(raster_descriptor.dependencies[0], RenderPassNames::deferred_camera);
+  EXPECT_EQ(ray_descriptor.dependencies[0], RenderPassNames::ray_tracing_camera);
+
+  ASSERT_EQ(raster_descriptor.resources.size(), ray_descriptor.resources.size());
+  EXPECT_EQ(raster_descriptor.resources[0].resource_name, RenderResourceNames::camera_depth);
+  EXPECT_EQ(ray_descriptor.resources[0].resource_name, RenderResourceNames::camera_ray_hit_distance);
+  for (size_t resource_index = 1; resource_index < raster_descriptor.resources.size(); ++resource_index) {
+    EXPECT_EQ(raster_descriptor.resources[resource_index].resource_name,
+              ray_descriptor.resources[resource_index].resource_name);
+    EXPECT_EQ(raster_descriptor.resources[resource_index].usage, ray_descriptor.resources[resource_index].usage);
+    EXPECT_EQ(raster_descriptor.resources[resource_index].state, ray_descriptor.resources[resource_index].state);
+  }
+}
+
+TEST(RenderGraph, VolumetricCloudRasterPassRunsBetweenDeferredLightingAndPostProcessing) {
+  RenderGraph graph;
+  AddDefaultRasterCameraResources(graph);
+  AddVolumetricCloudCameraResources(graph);
+
+  graph.AddPass(
+      {RenderPassNames::deferred_camera,
+       RenderPassQueue::Graphics,
+       RenderPassScope::Camera,
+       {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
+      []() {
+      });
+  graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera), []() {
+  });
+  graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
+  });
+
+  ASSERT_TRUE(graph.Validate());
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(graph.GetPasses().size(), 3);
+  EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(graph.GetPasses()[2].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[2].dependencies[0], RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(plan.passes[1].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[1].dependency_indices[0], 0);
+  ASSERT_EQ(plan.passes[2].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[2].dependency_indices[0], 1);
+
+  const auto color_transition = std::find_if(
+      plan.transitions.begin(), plan.transitions.end(), [&](const RenderResourceTransitionPlan& transition) {
+        return graph.GetResources()[transition.resource_index].name == RenderResourceNames::camera_color &&
+               transition.pass_index == 1;
+      });
+  ASSERT_NE(color_transition, plan.transitions.end());
+  EXPECT_EQ(color_transition->previous_state, RenderResourceState::ColorAttachment);
+  EXPECT_EQ(color_transition->next_state, RenderResourceState::StorageReadWrite);
+}
+
+TEST(RenderGraph, VolumetricCloudRayTracingPassConsumesRayHitDistanceAfterRayTracingCamera) {
+  RenderGraph graph;
+  AddDefaultRayTracingCameraResources(graph);
+  AddVolumetricCloudCameraResources(graph);
+
+  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), []() {
+  });
+  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera), []() {
+  });
+
+  ASSERT_TRUE(graph.Validate());
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(graph.GetPasses().size(), 2);
+  EXPECT_EQ(graph.GetPasses()[0].name, RenderPassNames::ray_tracing_camera);
+  EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(graph.GetPasses()[1].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[1].dependencies[0], RenderPassNames::ray_tracing_camera);
+  ASSERT_EQ(plan.passes[1].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[1].dependency_indices[0], 0);
+
+  const auto& ray_resources = graph.GetPasses()[0].resources;
+  EXPECT_NE(std::find_if(ray_resources.begin(), ray_resources.end(),
+                         [](const RenderResourceAccess& access) {
+                           return access.resource_name == RenderResourceNames::camera_ray_hit_distance &&
+                                  access.usage == RenderResourceUsage::Write;
+                         }),
+            ray_resources.end());
+  const auto& cloud_resources = graph.GetPasses()[1].resources;
+  EXPECT_NE(std::find_if(cloud_resources.begin(), cloud_resources.end(),
+                         [](const RenderResourceAccess& access) {
+                           return access.resource_name == RenderResourceNames::camera_ray_hit_distance &&
+                                  access.usage == RenderResourceUsage::Read;
+                         }),
+            cloud_resources.end());
 }
 
 TEST(RenderGraph, AdvancedResourcesDescribeHistoryAndVisibilityInputs) {

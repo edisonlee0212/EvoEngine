@@ -104,8 +104,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
   bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "SkinnedMesh");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "SkinnedMesh");
 
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;

@@ -16,6 +16,7 @@
 #include "PrivateComponentStorage.hpp"
 #include "ReflectionProbe.hpp"
 #include "Utilities.hpp"
+#include "VolumetricCloudSettings.hpp"
 
 namespace evo_engine {
 
@@ -68,8 +69,7 @@ void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataCompo
  */
 class Scene final : public IAsset {
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Scene");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 
   /**
    * @brief Generates a thumbnail texture for the scene.
@@ -275,6 +275,9 @@ class Scene final : public IAsset {
 
     /// Scene-owned global DDGI runtime, defaults, storage, and debug settings.
     DdgiSettings ddgi_settings{};
+
+    /// Scene-owned global volumetric cloud settings.
+    VolumetricCloudSettings volumetric_cloud_settings{};
 
     /**
      * @brief Serializes the environment's data to a YAML emitter.
