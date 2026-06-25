@@ -185,6 +185,8 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(cons
   scene->environment.background_color = glm::vec3(settings.clear_color);
   scene->environment.background_intensity = settings.clear_color.a;
   scene->environment.ambient_light_intensity = 1.1f;
+  scene->environment.volumetric_cloud_settings.enabled = false;
+  scene->environment.ddgi_settings.runtime.enabled = false;
   ConfigurePreviewLighting(scene);
 
   const auto subject = scene->CreateEntity("Preview Subject");

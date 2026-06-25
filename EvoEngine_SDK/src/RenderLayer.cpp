@@ -2442,7 +2442,8 @@ void RenderLayer::PrepareForRendering() {
 }
 
 void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, const bool include_editor_cameras,
-                                           const bool update_editor_selection, const bool update_ray_tracing) {
+                                           const bool update_editor_selection, const bool update_ray_tracing,
+                                           const bool track_ddgi_scene_inputs) {
   if (!scene)
     return;
   const ProfilerScope profiler_scope("RenderLayer::PrepareSceneForRendering", "Render");
@@ -2457,8 +2458,8 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   if (GeometryStorage::HasPendingUploads()) {
     GeometryStorage::WaitForPendingUploads();
   }
-  const bool render_instance_updated =
-      UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras, update_editor_selection);
+  const bool render_instance_updated = UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras,
+                                                                   update_editor_selection, track_ddgi_scene_inputs);
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayTracingEnabled();
@@ -2474,14 +2475,16 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
           2, current_render_instances->mesh_top_level_acceleration_structure);
     }
   }
-  PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_change_triggers_);
+  if (track_ddgi_scene_inputs) {
+    PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_change_triggers_);
+  }
   current_render_instances->Upload();
 }
 
 void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                                         const std::shared_ptr<RenderInstanceStorage>& render_instances,
                                         const int ddgi_scene_change_triggers) {
-  auto& ddgi_settings = GetDdgiSettings();
+  auto& ddgi_settings = scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
   ddgi_frame_trace_probe_rays_ = false;
   ddgi_frame_ray_push_constant_ = {};
   ddgi_frame_probe_update_push_constant_ = {};
@@ -2863,8 +2866,8 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
   const auto previous_render_instances = render_instances_list_[current_frame_index];
   const bool previous_need_fade = need_fade_;
   render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();
-  PrepareSceneForRendering(scene, false, false, false);
-  RenderToCamera(camera_global_transform, camera, true);
+  PrepareSceneForRendering(scene, false, false, false, false);
+  RenderToCamera(scene, camera_global_transform, camera, true);
   render_instances_list_[current_frame_index] = previous_render_instances;
   need_fade_ = previous_need_fade;
   if (previous_render_instances) {
@@ -2874,9 +2877,10 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
 
 void RenderLayer::RenderAll() {
   const ProfilerScope profiler_scope("RenderLayer::RenderAll", "Render");
+  const auto scene = GetScene();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
-  const auto& ddgi_settings = GetDdgiSettings();
+  const auto& ddgi_settings = scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
   auto& platform = Platform::GetInstance();
   render_graph_transient_resource_stores_.clear();
   if (!ddgi_fallback_probe_state_buffer_) {
@@ -3083,14 +3087,14 @@ void RenderLayer::RenderAll() {
   for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
     camera->rendered_ = false;
     if (camera->require_rendering_) {
-      RenderToCamera(cameraGlobalTransform, camera);
+      RenderToCamera(scene, cameraGlobalTransform, camera);
     }
   }
 
   if (Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
     for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
       if (camera->require_rendering_) {
-        RenderToCameraRayTracing(cameraGlobalTransform, camera);
+        RenderToCameraRayTracing(scene, cameraGlobalTransform, camera);
       }
     }
   }
@@ -3592,7 +3596,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
 }
 
 bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index,
-                                              const bool include_editor_cameras, const bool update_editor_selection) {
+                                              const bool include_editor_cameras, const bool update_editor_selection,
+                                              const bool track_ddgi_scene_inputs) {
   const ProfilerScope profiler_scope("RenderLayer::UpdateRenderInstanceStorage", "Render");
   auto lod_center = glm::vec3(0.f);
   float lod_max_distance = FLT_MAX;
@@ -3620,70 +3625,97 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   const auto previous_render_instances =
       render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
                              Platform::GetMaxFramesInFlight()];
-  const auto current_render_info = current_render_instances->render_info_block;
-  PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
-  const auto blocks_changed = [](const auto& current_blocks, const auto& previous_blocks) {
-    if (current_blocks.size() != previous_blocks.size()) {
-      return true;
-    }
-    for (size_t i = 0; i < current_blocks.size(); ++i) {
-      if (current_blocks[i] != previous_blocks[i]) {
+  bool render_instance_updated = false;
+  if (track_ddgi_scene_inputs) {
+    const auto current_render_info = current_render_instances->render_info_block;
+    PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
+    const auto blocks_changed = [](const auto& current_blocks, const auto& previous_blocks) {
+      if (current_blocks.size() != previous_blocks.size()) {
         return true;
       }
+      for (size_t i = 0; i < current_blocks.size(); ++i) {
+        if (current_blocks[i] != previous_blocks[i]) {
+          return true;
+        }
+      }
+      return false;
+    };
+    auto active_light_keys = CollectDdgiActiveLightKeys(scene);
+    auto light_signatures = CollectDdgiLightSignatures(scene);
+    std::vector<uint64_t> geometry_signatures;
+    const auto collect_ddgi_geometry_signatures = [&](const auto& collection) {
+      if (!collection) {
+        return;
+      }
+      collection->ForEachRenderInstance([&](const auto& render_instance) {
+        geometry_signatures.push_back(MakeDdgiGeometrySignature(render_instance));
+      });
+    };
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_skinned_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_instanced_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_strands_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->forward_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->forward_skinned_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->forward_instanced_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->forward_strands_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->transparent_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->transparent_skinned_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->transparent_instanced_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->transparent_strands_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->external_render_instances);
+    std::sort(geometry_signatures.begin(), geometry_signatures.end());
+    const bool had_previous_scene_inputs = ddgi_has_previous_scene_inputs_;
+    bool scene_render_inputs_updated =
+        current_render_instances->render_info_block != previous_render_instances->render_info_block;
+    ddgi_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
+    if (had_previous_scene_inputs) {
+      if (active_light_keys != ddgi_previous_active_light_keys_) {
+        ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightEnableChanged;
+      }
+      if (current_render_instances->environment_info_block != ddgi_previous_environment_info_block_ ||
+          light_signatures != ddgi_previous_light_signatures_) {
+        ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightingConditionChanged;
+      }
+      if (blocks_changed(current_render_instances->GetMaterialInfoBlocks(), ddgi_previous_material_info_blocks_) ||
+          geometry_signatures != ddgi_previous_geometry_signatures_) {
+        ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionGeometryChanged;
+      }
+      scene_render_inputs_updated =
+          scene_render_inputs_updated || ddgi_scene_change_triggers_ != DdgiVolumeTriggerConditionNone;
+    } else {
+      scene_render_inputs_updated = true;
     }
-    return false;
-  };
-  auto active_light_keys = CollectDdgiActiveLightKeys(scene);
-  auto light_signatures = CollectDdgiLightSignatures(scene);
-  std::vector<uint64_t> geometry_signatures;
-  const auto collect_ddgi_geometry_signatures = [&](const auto& collection) {
-    if (!collection) {
-      return;
-    }
-    collection->ForEachRenderInstance([&](const auto& render_instance) {
-      geometry_signatures.push_back(MakeDdgiGeometrySignature(render_instance));
-    });
-  };
-  collect_ddgi_geometry_signatures(current_render_instances->deferred_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->deferred_skinned_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->deferred_instanced_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->deferred_strands_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->forward_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->forward_skinned_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->forward_instanced_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->forward_strands_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->transparent_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->transparent_skinned_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->transparent_instanced_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->transparent_strands_render_instances);
-  collect_ddgi_geometry_signatures(current_render_instances->external_render_instances);
-  std::sort(geometry_signatures.begin(), geometry_signatures.end());
-  ddgi_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
-  if (ddgi_has_previous_scene_inputs_) {
-    if (active_light_keys != ddgi_previous_active_light_keys_) {
-      ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightEnableChanged;
-    }
-    if (current_render_instances->environment_info_block != ddgi_previous_environment_info_block_ ||
-        light_signatures != ddgi_previous_light_signatures_) {
-      ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightingConditionChanged;
-    }
-    if (blocks_changed(current_render_instances->GetMaterialInfoBlocks(), ddgi_previous_material_info_blocks_) ||
-        geometry_signatures != ddgi_previous_geometry_signatures_ ||
-        current_render_instances->geometry_storage_version != ddgi_previous_geometry_storage_version_ ||
-        current_render_instances->texture_storage_version != ddgi_previous_texture_storage_version_) {
-      ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionGeometryChanged;
-    }
+    ddgi_has_previous_scene_inputs_ = true;
+    ddgi_previous_environment_info_block_ = current_render_instances->environment_info_block;
+    ddgi_previous_material_info_blocks_ = current_render_instances->GetMaterialInfoBlocks();
+    ddgi_previous_active_light_keys_ = std::move(active_light_keys);
+    ddgi_previous_light_signatures_ = std::move(light_signatures);
+    ddgi_previous_geometry_signatures_ = std::move(geometry_signatures);
+    render_instance_updated = scene_render_inputs_updated;
+    PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);
+  } else {
+    render_instance_updated = *current_render_instances != *previous_render_instances;
   }
-  ddgi_has_previous_scene_inputs_ = true;
-  ddgi_previous_environment_info_block_ = current_render_instances->environment_info_block;
-  ddgi_previous_material_info_blocks_ = current_render_instances->GetMaterialInfoBlocks();
-  ddgi_previous_active_light_keys_ = std::move(active_light_keys);
-  ddgi_previous_light_signatures_ = std::move(light_signatures);
-  ddgi_previous_geometry_signatures_ = std::move(geometry_signatures);
-  ddgi_previous_geometry_storage_version_ = current_render_instances->geometry_storage_version;
-  ddgi_previous_texture_storage_version_ = current_render_instances->texture_storage_version;
-  const bool render_instance_updated = *current_render_instances != *previous_render_instances;
-  PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);
+  const auto camera_info_changed = [&](const std::shared_ptr<Camera>& camera) {
+    if (!camera || !previous_render_instances) {
+      return true;
+    }
+    const auto current_index_search = current_render_instances->camera_indices_.find(camera->GetHandle());
+    const auto previous_index_search = previous_render_instances->camera_indices_.find(camera->GetHandle());
+    if (current_index_search == current_render_instances->camera_indices_.end() ||
+        previous_index_search == previous_render_instances->camera_indices_.end()) {
+      return true;
+    }
+    const auto current_index = static_cast<size_t>(current_index_search->second);
+    const auto previous_index = static_cast<size_t>(previous_index_search->second);
+    if (current_index >= current_render_instances->camera_info_blocks_.size() ||
+        previous_index >= previous_render_instances->camera_info_blocks_.size()) {
+      return true;
+    }
+    return current_render_instances->camera_info_blocks_[current_index] !=
+           previous_render_instances->camera_info_blocks_[previous_index];
+  };
   if (update_editor_selection) {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
       if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
@@ -3700,8 +3732,16 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
     world_bound.min -= glm::vec3(0.1f);
     world_bound.max += glm::vec3(0.1f);
     scene->SetBound(world_bound);
-    for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
-      camera->frame_count_ = 0;
+    for (const auto& camera_entry : current_render_instances->cameras) {
+      if (const auto& camera = camera_entry.second) {
+        camera->frame_count_ = 0;
+      }
+    }
+  } else {
+    for (const auto& camera_entry : current_render_instances->cameras) {
+      if (const auto& camera = camera_entry.second; camera && camera_info_changed(camera)) {
+        camera->frame_count_ = 0;
+      }
     }
   }
   return render_instance_updated;
@@ -3832,22 +3872,21 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
                                                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 }
-void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera,
-                                 const bool immediate) const {
+void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
+                                 const std::shared_ptr<Camera>& camera, const bool immediate) const {
   const ProfilerScope profiler_scope("RenderLayer::RenderToCamera", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
-  const auto scene = GetScene();
   VolumetricCloudSettings volumetric_cloud_settings{};
   if (scene) {
     volumetric_cloud_settings = scene->environment.volumetric_cloud_settings;
     volumetric_cloud_settings.ClampSettings();
   }
   const bool volumetric_clouds_enabled = volumetric_cloud_settings.enabled;
-  const auto& ddgi_settings = GetDdgiSettings();
+  const auto& ddgi_settings = scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
   const auto render_info_probe_counts =
       glm::ivec3(glm::max(current_render_instances->render_info_block.ddgi_probe_counts, glm::vec4(1.0f)));
   const auto ddgi_visualization_probe_count =
@@ -4129,7 +4168,8 @@ void RenderLayer::RenderToCamera(const GlobalTransform& camera_global_transform,
   }
 }
 
-void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
+void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
+                                           const GlobalTransform& camera_global_transform,
                                            const std::shared_ptr<Camera>& camera) const {
   const ProfilerScope profiler_scope("RenderLayer::RenderToCameraRayTracing", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -4137,7 +4177,6 @@ void RenderLayer::RenderToCameraRayTracing(const GlobalTransform& camera_global_
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
 
   if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
-    const auto scene = GetScene();
     VolumetricCloudSettings volumetric_cloud_settings{};
     if (scene) {
       volumetric_cloud_settings = scene->environment.volumetric_cloud_settings;

@@ -499,8 +499,6 @@ class RenderLayer final : public ILayer {
   std::vector<uint64_t> ddgi_previous_active_light_keys_;
   std::vector<uint64_t> ddgi_previous_light_signatures_;
   std::vector<uint64_t> ddgi_previous_geometry_signatures_;
-  uint32_t ddgi_previous_geometry_storage_version_ = 0;
-  uint32_t ddgi_previous_texture_storage_version_ = 0;
   glm::vec3 ddgi_probe_scroll_base_first_probe_ = glm::vec3(0.0f);
   glm::ivec3 ddgi_probe_scroll_offset_ = glm::ivec3(0);
   glm::ivec3 ddgi_probe_scroll_clear_ = glm::ivec3(0);
@@ -555,18 +553,20 @@ class RenderLayer final : public ILayer {
 
   /**
    * \brief Renders to the specified camera.
+   * \param scene The scene whose environment settings apply to the camera render.
    * \param camera_global_transform The global transform of the camera.
    * \param camera The target camera to render to.
    */
-  void RenderToCamera(const GlobalTransform& camera_global_transform, const std::shared_ptr<Camera>& camera,
-                      bool immediate = false) const;
+  void RenderToCamera(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
+                      const std::shared_ptr<Camera>& camera, bool immediate = false) const;
 
   /**
    * \brief Renders to the specified camera using ray tracing.
+   * \param scene The scene whose environment settings apply to the camera render.
    * \param camera_global_transform The global transform of the camera.
    * \param camera The target camera to render to.
    */
-  void RenderToCameraRayTracing(const GlobalTransform& camera_global_transform,
+  void RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
                                 const std::shared_ptr<Camera>& camera) const;
 
   /**
@@ -589,7 +589,8 @@ class RenderLayer final : public ILayer {
    */
   void PrepareForRendering();
   void PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, bool include_editor_cameras = true,
-                                bool update_editor_selection = true, bool update_ray_tracing = true);
+                                bool update_editor_selection = true, bool update_ray_tracing = true,
+                                bool track_ddgi_scene_inputs = true);
 
   void PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                              const std::shared_ptr<RenderInstanceStorage>& render_instances,
@@ -612,10 +613,12 @@ class RenderLayer final : public ILayer {
    * \brief Updates the render instance storage based on the provided scene.
    * \param scene The scene associated with this render layer.
    * \param current_frame_index The index of the current frame.
-   * \return True if the render instance storage was updated, otherwise false.
+   * \param track_ddgi_scene_inputs Whether this scene should update active DDGI change tracking.
+   * \return True if scene-wide render changes require all collected camera histories to reset.
    */
   bool UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
-                                   bool include_editor_cameras = true, bool update_editor_selection = true);
+                                   bool include_editor_cameras = true, bool update_editor_selection = true,
+                                   bool track_ddgi_scene_inputs = true);
   void BindRenderInstanceStorage(uint32_t current_frame_index,
                                  const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
 
