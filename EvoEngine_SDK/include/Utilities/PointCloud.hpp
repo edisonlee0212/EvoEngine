@@ -49,8 +49,7 @@ class PointCloud : public IAsset {
   bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "PointCloud");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "PointCloud");
 
   /**
    * @struct PointCloudSaveSettings

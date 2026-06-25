@@ -69,8 +69,7 @@ void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataCompo
  */
 class Scene final : public IAsset {
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Scene");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 
   /**
    * @brief Generates a thumbnail texture for the scene.

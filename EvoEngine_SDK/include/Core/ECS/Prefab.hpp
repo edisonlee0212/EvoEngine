@@ -168,8 +168,7 @@ class Prefab : public IAsset {
   [[nodiscard]] bool SaveModelInternal(const std::filesystem::path& path) const;
 
  public:
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Prefab");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Prefab");
 
   /**
    * @brief Generates a thumbnail texture for the prefab.

@@ -54,8 +54,7 @@ class Texture2D : public IAsset {
   void SetResolution(const glm::uvec2& resolution, bool preserve_data = true);
   bool hdr = false;
   Texture2D();
-  [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                                    const std::string& type_name = "Texture2D");
+  static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Texture2D");
   const Texture2DStorage& PeekTexture2DStorage() const;
   Texture2DStorage& RefTexture2DStorage() const;
   [[nodiscard]] VkImageLayout GetLayout() const;
