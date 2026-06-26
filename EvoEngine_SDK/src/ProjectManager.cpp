@@ -13,6 +13,7 @@
 #include <exception>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace evo_engine;
@@ -228,6 +229,97 @@ bool IsSamePathOrChildPath(const std::filesystem::path& path, const std::filesys
   return true;
 }
 
+bool IsSamePath(const std::filesystem::path& lhs, const std::filesystem::path& rhs) {
+  const auto normalized_lhs = NormalizePathForContainment(lhs);
+  const auto normalized_rhs = NormalizePathForContainment(rhs);
+  return IsSamePathOrChildPath(normalized_lhs, normalized_rhs) && IsSamePathOrChildPath(normalized_rhs, normalized_lhs);
+}
+
+bool IsProjectMetadataPath(const std::filesystem::path& path) {
+  return path.extension() == ".evefilemeta" || path.extension() == ".evefoldermeta";
+}
+
+std::filesystem::path UniqueDestinationPath(const std::filesystem::path& destination_folder,
+                                            const std::filesystem::path& source_path) {
+  if (std::filesystem::is_directory(source_path)) {
+    return path_utils::GenerateUniquePath(destination_folder / source_path.filename(), "");
+  }
+  return path_utils::GenerateUniquePath(destination_folder / source_path.stem(), source_path.extension().string());
+}
+
+bool CopyFileToDirectory(const std::filesystem::path& source_path, const std::filesystem::path& destination_folder) {
+  std::error_code error;
+  std::filesystem::create_directories(destination_folder, error);
+  if (error) {
+    EVOENGINE_ERROR("Failed to create destination folder: " + error.message())
+    return false;
+  }
+  const auto destination_path = UniqueDestinationPath(destination_folder, source_path);
+  std::filesystem::copy_file(source_path, destination_path, std::filesystem::copy_options::none, error);
+  if (error) {
+    EVOENGINE_ERROR("Failed to copy file: " + error.message())
+    return false;
+  }
+  return true;
+}
+
+bool CopyDirectoryTree(const std::filesystem::path& source_path, const std::filesystem::path& destination_path) {
+  std::error_code error;
+  std::filesystem::create_directories(destination_path, error);
+  if (error) {
+    EVOENGINE_ERROR("Failed to create destination folder: " + error.message())
+    return false;
+  }
+  for (const auto& entry : std::filesystem::directory_iterator(source_path, error)) {
+    if (error) {
+      EVOENGINE_ERROR("Failed to inspect source folder: " + error.message())
+      return false;
+    }
+    if (IsProjectMetadataPath(entry.path())) {
+      continue;
+    }
+    const auto child_destination = destination_path / entry.path().filename();
+    if (entry.is_directory()) {
+      if (!CopyDirectoryTree(entry.path(), child_destination)) {
+        return false;
+      }
+    } else if (entry.is_regular_file()) {
+      std::filesystem::copy_file(entry.path(), child_destination, std::filesystem::copy_options::none, error);
+      if (error) {
+        EVOENGINE_ERROR("Failed to copy file: " + error.message())
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool CopyItemToDirectory(const std::filesystem::path& source_path, const std::filesystem::path& destination_folder) {
+  if (!std::filesystem::exists(source_path) || IsProjectMetadataPath(source_path)) {
+    return false;
+  }
+  if (std::filesystem::is_directory(source_path)) {
+    return CopyDirectoryTree(source_path, UniqueDestinationPath(destination_folder, source_path));
+  }
+  if (std::filesystem::is_regular_file(source_path)) {
+    return CopyFileToDirectory(source_path, destination_folder);
+  }
+  return false;
+}
+
+bool IsProtectedProjectPath(const std::filesystem::path& path) {
+  const auto project_path = ProjectManager::GetProjectPath();
+  const auto assets_folder_path = ProjectManager::GetAssetsFolderPath();
+  if (project_path.empty() || assets_folder_path.empty()) {
+    return true;
+  }
+  if (!std::filesystem::exists(path) || !path.is_absolute()) {
+    return true;
+  }
+  return IsSamePath(path, project_path) || IsSamePath(path, assets_folder_path) || IsProjectMetadataPath(path) ||
+         ProjectManager::IsInAssetsFolder(path) || !ProjectManager::IsInProjectFolder(path);
+}
+
 void MergeApplicationLaunchMetadata(ProjectLaunchMetadata& metadata) {
   const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
   if (metadata.application_name == kDefaultApplicationName && !application_info.application_name.empty()) {
@@ -418,6 +510,108 @@ bool ProjectManager::MoveFolder(const Handle& folder_handle, const std::shared_p
     return false;
   }
   source_parent->MoveChild(folder->GetHandle(), destination_folder);
+  return true;
+}
+
+bool ProjectManager::CopyProjectItemToAssets(const std::filesystem::path& source_path,
+                                             const std::shared_ptr<Folder>& destination_folder) {
+  if (!destination_folder) {
+    return false;
+  }
+  const auto normalized_source_path = NormalizePathForContainment(source_path);
+  if (IsProtectedProjectPath(normalized_source_path)) {
+    return false;
+  }
+  if (!CopyItemToDirectory(normalized_source_path, destination_folder->GetAbsolutePath())) {
+    return false;
+  }
+  DispatchScanAssetsTask();
+  return true;
+}
+
+bool ProjectManager::CopyAssetFileToProjectFolder(const Handle& asset_handle,
+                                                  const std::filesystem::path& destination_folder) {
+  const auto file = FileManager::GetFile(asset_handle);
+  if (!file) {
+    return false;
+  }
+  const auto normalized_destination_folder = NormalizePathForContainment(destination_folder);
+  if (!std::filesystem::is_directory(normalized_destination_folder) ||
+      !IsInProjectFolder(normalized_destination_folder) || IsInAssetsFolder(normalized_destination_folder)) {
+    return false;
+  }
+  return CopyFileToDirectory(file->GetAbsolutePath(), normalized_destination_folder);
+}
+
+bool ProjectManager::CopyAssetFolderToProjectFolder(const Handle& folder_handle,
+                                                    const std::filesystem::path& destination_folder) {
+  if (folder_handle.GetValue() == 0) {
+    return false;
+  }
+  const auto folder = FileManager::GetFolder(folder_handle);
+  if (!folder) {
+    return false;
+  }
+  const auto normalized_destination_folder = NormalizePathForContainment(destination_folder);
+  if (!std::filesystem::is_directory(normalized_destination_folder) ||
+      !IsInProjectFolder(normalized_destination_folder) || IsInAssetsFolder(normalized_destination_folder)) {
+    return false;
+  }
+  return CopyDirectoryTree(folder->GetAbsolutePath(),
+                           UniqueDestinationPath(normalized_destination_folder, folder->GetAbsolutePath()));
+}
+
+bool ProjectManager::CopyProjectItemToProjectFolder(const std::filesystem::path& source_path,
+                                                    const std::filesystem::path& destination_folder) {
+  const auto normalized_source_path = NormalizePathForContainment(source_path);
+  const auto normalized_destination_folder = NormalizePathForContainment(destination_folder);
+  if (IsProtectedProjectPath(normalized_source_path) || !std::filesystem::is_directory(normalized_destination_folder) ||
+      !IsInProjectFolder(normalized_destination_folder) || IsInAssetsFolder(normalized_destination_folder)) {
+    return false;
+  }
+  if (std::filesystem::is_directory(normalized_source_path) &&
+      path_utils::IsSameOrChildPath(normalized_destination_folder, normalized_source_path)) {
+    return false;
+  }
+  return CopyItemToDirectory(normalized_source_path, normalized_destination_folder);
+}
+
+bool ProjectManager::RenameProjectItem(const std::filesystem::path& path, const std::string& new_name) {
+  if (!path_utils::IsValidFileName(new_name)) {
+    return false;
+  }
+  const auto normalized_path = NormalizePathForContainment(path);
+  if (IsProtectedProjectPath(normalized_path)) {
+    return false;
+  }
+  const auto destination_path = normalized_path.parent_path() / new_name;
+  if (std::filesystem::exists(destination_path)) {
+    return false;
+  }
+  std::error_code error;
+  std::filesystem::rename(normalized_path, destination_path, error);
+  if (error) {
+    EVOENGINE_ERROR("Failed to rename project item: " + error.message())
+    return false;
+  }
+  return true;
+}
+
+bool ProjectManager::DeleteProjectItem(const std::filesystem::path& path) {
+  const auto normalized_path = NormalizePathForContainment(path);
+  if (IsProtectedProjectPath(normalized_path)) {
+    return false;
+  }
+  std::error_code error;
+  if (std::filesystem::is_directory(normalized_path)) {
+    std::filesystem::remove_all(normalized_path, error);
+  } else {
+    std::filesystem::remove(normalized_path, error);
+  }
+  if (error) {
+    EVOENGINE_ERROR("Failed to delete project item: " + error.message())
+    return false;
+  }
   return true;
 }
 
@@ -715,6 +909,11 @@ std::filesystem::path ProjectManager::GetProjectPath() {
   return project_manager.project_path_;
 }
 
+std::filesystem::path ProjectManager::GetProjectFolderPath() {
+  auto& project_manager = GetInstance();
+  return project_manager.project_path_.parent_path();
+}
+
 std::filesystem::path ProjectManager::GetAssetsFolderPath() {
   auto& project_manager = GetInstance();
   return project_manager.assets_folder_path;
@@ -744,6 +943,17 @@ bool ProjectManager::IsInAssetsFolder(const std::filesystem::path& absolute_path
     return false;
   }
   return path_utils::IsSameOrChildPath(absolute_path, project_manager.assets_folder_path);
+}
+bool ProjectManager::IsInProjectFolder(const std::filesystem::path& absolute_path) {
+  if (!absolute_path.is_absolute()) {
+    EVOENGINE_ERROR("Not absolute path!")
+    return false;
+  }
+  const auto project_folder_path = GetProjectFolderPath();
+  if (project_folder_path.empty()) {
+    return false;
+  }
+  return path_utils::IsSameOrChildPath(absolute_path, project_folder_path);
 }
 bool ProjectManager::IsValidAssetFileName(const std::filesystem::path& path) {
   auto stem = path.stem().string();
