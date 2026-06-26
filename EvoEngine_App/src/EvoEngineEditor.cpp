@@ -10,6 +10,7 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Times.hpp"
+#include "WindowLayer.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -292,7 +293,9 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
           scene_camera->ResetFrameCount();
         }
       }
-      ApplicationContext::Get().Play();
+      if (application_mode == ApplicationMode::Player) {
+        ApplicationContext::Get().Play();
+      }
       break;
     case DemoProfileId::EcoSysLab:
     case DemoProfileId::DigitalAgriculture:
@@ -303,15 +306,21 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
 
 void CaptureDemoPreview(const std::filesystem::path& output_path, const int width, const int height,
                         const size_t warmup_frames) {
+  const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    window_layer->ResizeWindow(width, height);
+    window_layer->CenterWindow();
+  }
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (!editor_layer) {
     throw std::runtime_error("Demo preview capture requires EditorLayer.");
   }
+  editor_layer->RequestSceneCameraPreviewWindow(preview_resolution);
   const auto scene_camera = editor_layer->GetSceneCamera();
   if (!scene_camera) {
     throw std::runtime_error("Demo preview capture requires a scene camera.");
   }
-  scene_camera->Resize(glm::uvec2(static_cast<uint32_t>(width), static_cast<uint32_t>(height)));
+  scene_camera->Resize(preview_resolution);
   for (size_t frame_index = 0; frame_index < warmup_frames; ++frame_index) {
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");

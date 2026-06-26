@@ -19,7 +19,7 @@ using namespace evo_engine;
 
 namespace {
 struct DdgiAppCommandLine {
-  ApplicationMode application_mode = ApplicationMode::Player;
+  ApplicationMode application_mode = ApplicationMode::Editor;
   size_t exit_after_frames = 0;
   size_t max_load_frames = 600;
   size_t screenshot_warmup_frames = 360;
@@ -76,8 +76,8 @@ struct DdgiAppCommandLine {
       throw std::invalid_argument("Unknown DDGIApp argument: " + argument);
     }
   }
-  if (command_line.application_mode != ApplicationMode::Player) {
-    throw std::invalid_argument("DDGIApp only supports player mode.");
+  if (command_line.application_mode == ApplicationMode::Headless) {
+    throw std::invalid_argument("DDGIApp does not support headless mode.");
   }
   return command_line;
 }
@@ -161,7 +161,9 @@ int main(const int argc, char** argv) {
     }
 
     ConfigureDdgiCornellBoxScene(ApplicationContext::Get().GetActiveScene(), command_line.scene_settings);
-    ApplicationContext::Get().Play();
+    if (command_line.application_mode == ApplicationMode::Player) {
+      ApplicationContext::Get().Play();
+    }
 
     if (!command_line.screenshot_path.empty()) {
       const auto screenshot_result = CaptureWindowScreenshot(ApplicationContext::Get(), command_line);

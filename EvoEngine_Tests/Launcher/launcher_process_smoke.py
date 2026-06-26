@@ -135,7 +135,7 @@ def main() -> int:
             if set(demo_app_after_launch) - set(demo_app_before_launch):
                 raise RuntimeError("Launcher demo hook spawned DemoApp.exe instead of EvoEngineEditor.exe.")
 
-        def launcher_open_ddgi_demo_hook_spawns_editor_player_profile() -> None:
+        def launcher_open_ddgi_demo_hook_spawns_editor_profile() -> None:
             with tempfile.TemporaryDirectory(prefix="EvoEngineLauncherDdgiDemoSmoke_") as temp_dir:
                 log_path = Path(temp_dir) / "launcher.log"
                 env = os.environ.copy()
@@ -155,8 +155,8 @@ def main() -> int:
                 if set(ddgi_app_after_launch) - set(ddgi_app_before_launch):
                     raise RuntimeError("Launcher DDGI demo hook spawned DDGIApp.exe instead of EvoEngineEditor.exe.")
                 log_text = log_path.read_text(encoding="utf-8", errors="ignore")
-                if "demo-open:ddgi:EvoEngineEditor:Player" not in log_text:
-                    raise RuntimeError("Launcher DDGI demo hook did not log EvoEngineEditor player-mode launch.")
+                if "demo-open:ddgi:EvoEngineEditor:Editor" not in log_text:
+                    raise RuntimeError("Launcher DDGI demo hook did not log EvoEngineEditor editor-mode launch.")
 
         run_subtest("EditorWithoutProject.SpawnsLauncher", editor_without_project_spawns_launcher)
         run_subtest("EditorWithProject.OpensWindow", editor_opens_existing_project)
@@ -165,8 +165,7 @@ def main() -> int:
         run_subtest("MetadataOnlyProject.PersistsStartScene", editor_creates_metadata_only_start_scene)
         run_subtest("LauncherOpenProjectHook.SpawnsEditor", launcher_open_project_hook_spawns_editor)
         run_subtest("LauncherOpenDemoHook.SpawnsEditorProfile", launcher_open_demo_hook_spawns_editor_profile)
-        run_subtest("LauncherOpenDdgiDemoHook.SpawnsEditorPlayerProfile",
-                    launcher_open_ddgi_demo_hook_spawns_editor_player_profile)
+        run_subtest("LauncherOpenDdgiDemoHook.SpawnsEditorProfile", launcher_open_ddgi_demo_hook_spawns_editor_profile)
         return 0
     except Exception:
         return 1

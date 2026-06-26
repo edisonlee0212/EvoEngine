@@ -1699,6 +1699,7 @@ void EditorLayer::PrepareFrameState() {
 void EditorLayer::CaptureSceneWindowMousePosition() {
   mouse_scene_window_position_ = glm::vec2(FLT_MAX, -FLT_MAX);
   if (show_scene_window) {
+    ApplySceneCameraPreviewWindowLayout();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
     if (ImGui::Begin("Scene")) {
       if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
@@ -1715,6 +1716,27 @@ void EditorLayer::CaptureSceneWindowMousePosition() {
     ImGui::End();
     ImGui::PopStyleVar();
   }
+}
+
+void EditorLayer::ApplySceneCameraPreviewWindowLayout() {
+  if (!scene_camera_preview_window_size_) {
+    return;
+  }
+
+  const auto* viewport = ImGui::GetMainViewport();
+  if (!viewport) {
+    scene_camera_preview_window_size_.reset();
+    return;
+  }
+
+  const auto size = *scene_camera_preview_window_size_;
+  ImGui::SetNextWindowViewport(viewport->ID);
+  ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+  ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(static_cast<float>(size.x), static_cast<float>(size.y)), ImGuiCond_Always);
+  ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
+  ImGui::SetNextWindowFocus();
+  scene_camera_preview_window_size_.reset();
 }
 
 void EditorLayer::CaptureMainCameraWindowMousePosition() {
@@ -3424,6 +3446,11 @@ void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
   asset_inspector_window_layout_pending_ = settings.asset_inspector_window.has_value();
   runtime_package_manager_layout_pending_ = settings.runtime_package_manager.has_value();
   dock_layout_reset_pending_ = true;
+}
+
+void EditorLayer::RequestSceneCameraPreviewWindow(const glm::uvec2& size) {
+  show_scene_window = true;
+  scene_camera_preview_window_size_ = {std::max(size.x, 1u), std::max(size.y, 1u)};
 }
 
 void EditorLayer::DrawDockspace(const float top_offset) {

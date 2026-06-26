@@ -905,6 +905,7 @@ class EditorLayer : public ILayer {
    */
   void DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& editor_layer);
   void RequestEditorLayout(const EditorLayoutSettings& settings);
+  void RequestSceneCameraPreviewWindow(const glm::uvec2& size);
 
  private:
   ImGuiID dock_space_id;
@@ -939,6 +940,7 @@ class EditorLayer : public ILayer {
   void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
   void DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                   const std::shared_ptr<EditorLayer>& editor_layer);
+  void ApplySceneCameraPreviewWindowLayout();
 
   /**
    * @brief Displays the scene camera window.
@@ -985,6 +987,7 @@ class EditorLayer : public ILayer {
   std::optional<EditorLayoutSettings> custom_layout_settings_;
   bool asset_inspector_window_layout_pending_ = false;
   bool runtime_package_manager_layout_pending_ = false;
+  std::optional<glm::uvec2> scene_camera_preview_window_size_;
   std::string pending_imgui_ini_settings_;
   bool has_pending_imgui_ini_settings_ = false;
   mutable bool editor_layout_dirty_ = false;

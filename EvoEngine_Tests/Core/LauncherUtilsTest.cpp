@@ -95,9 +95,9 @@ TEST(LauncherUtils, DemoProfilesExposeStableIdsAndPackageRequirements) {
   EXPECT_STREQ(profiles[0].preview_image_path, "Launcher/DemoPreviews/rendering.png");
   EXPECT_EQ(profiles[1].id, DemoProfileId::Ddgi);
   EXPECT_STREQ(profiles[1].id_name, "ddgi");
-  EXPECT_EQ(profiles[1].default_application_mode, ApplicationMode::Player);
-  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[1].id, ApplicationMode::Player));
-  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[1].id, ApplicationMode::Editor));
+  EXPECT_EQ(profiles[1].default_application_mode, ApplicationMode::Editor);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[1].id, ApplicationMode::Editor));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[1].id, ApplicationMode::Player));
   EXPECT_TRUE(profiles[1].startup_runtime_packages.empty());
   EXPECT_STREQ(profiles[1].preview_image_path, "Launcher/DemoPreviews/ddgi.png");
   EXPECT_EQ(profiles[2].id, DemoProfileId::EcoSysLab);
