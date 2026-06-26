@@ -67,8 +67,8 @@ Input is routed from GLFW callbacks through the engine input system and layer ev
 
 | Target | Purpose |
 | --- | --- |
-| `EvoEngineLauncher` | Project launcher for opening or creating projects before starting the editor. |
-| `EvoEngineEditor` | Generic project-required editor shell launched with a `.eveproj` path. |
-| `DemoApp` | General renderer/framework demo with multiple Service/package registrations. |
-| `EcoSysLabApp` | Interactive digital forestry and ecosystem workflow. |
-| `DigitalAgricultureApp` | Interactive sorghum and agriculture workflow. |
+| `EvoEngineLauncher` | Project launcher for demo profiles, recent projects, and new projects before starting the editor. |
+| `EvoEngineEditor` | Generic editor shell launched with a `.eveproj` path or `--demo <profile-id>`. |
+| `DemoApp` | Legacy opt-in standalone renderer/framework demo target. |
+| `EcoSysLabApp` | Legacy opt-in standalone digital forestry and ecosystem workflow target. |
+| `DigitalAgricultureApp` | Legacy opt-in standalone sorghum and agriculture workflow target. |

@@ -46,7 +46,6 @@ struct EditorDockLayoutSettings {
 struct EditorPanelVisibilitySettings {
   std::optional<bool> scene;
   std::optional<bool> camera;
-  std::optional<bool> scene_camera_debug;
   std::optional<bool> scene_info;
   std::optional<bool> camera_info;
   std::optional<bool> entity_explorer;
@@ -334,7 +333,6 @@ class EditorLayer : public ILayer {
    */
   void SetLockEntitySelection(bool value);
 
-  bool show_scene_camera_debug = false;     /**< Indicates whether the scene camera debug window is visible. */
   bool show_scene_window = true;            /**< Indicates whether the scene window is visible. */
   bool show_camera_window = true;           /**< Indicates whether the camera window is visible. */
   bool show_camera_info = false;            /**< Indicates whether the camera info window is visible. */
@@ -939,7 +937,6 @@ class EditorLayer : public ILayer {
   void DrawRuntimePackageManagerWindow();
   void DrawProfilerWindow();
   void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
-  void DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene);
   void DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                   const std::shared_ptr<EditorLayer>& editor_layer);
 

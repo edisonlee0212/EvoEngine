@@ -34,6 +34,14 @@ python Scripts\install_apps.py
 python Scripts\install_apps.py --config Debug
 ```
 
+The default app install builds the launcher/editor flow and leaves standalone demo executables disabled. Legacy demo
+targets can still be enabled explicitly when old automation needs them:
+
+```bat
+cmake --preset vs2026-x64 -DEvoEngine_App-DemoApp=ON -DEvoEngine_App-DDGIApp=ON
+cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target DemoApp
+```
+
 Build one target from the build tree:
 
 ```bat

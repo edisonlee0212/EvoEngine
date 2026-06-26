@@ -42,7 +42,8 @@ Installed app binaries are written to:
 out/install/vs2026-x64/bin/
 ```
 
-Start with `EvoEngineLauncher.exe` to create or open a project. Use `EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
+Start with `EvoEngineLauncher.exe` to open demo profiles, create projects, or open recent projects. Use
+`EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
 
 For detailed setup, platform requirements, Linux commands, VSCode notes, and install layout, see [docs/building.md](docs/building.md).
 

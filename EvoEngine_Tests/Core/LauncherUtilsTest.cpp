@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "AppBootstrap.hpp"
+#include "DemoProfiles.hpp"
 #include "LauncherUtils.hpp"
 
 #include <chrono>
@@ -79,6 +80,86 @@ TEST(LauncherUtils, BuildsProjectMetadataFromSelectedPackages) {
   EXPECT_EQ(metadata.application_name, "NewProject");
   EXPECT_EQ(metadata.preferred_editor, "EvoEngineEditor");
   EXPECT_EQ(metadata.startup_runtime_packages, selected_packages);
+}
+
+TEST(LauncherUtils, DemoProfilesExposeStableIdsAndPackageRequirements) {
+  const auto& profiles = GetDemoProfiles();
+  ASSERT_EQ(profiles.size(), 5);
+
+  EXPECT_EQ(profiles[0].id, DemoProfileId::Rendering);
+  EXPECT_STREQ(profiles[0].id_name, "rendering");
+  EXPECT_EQ(profiles[0].default_application_mode, ApplicationMode::Editor);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[0].id, ApplicationMode::Editor));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[0].id, ApplicationMode::Player));
+  EXPECT_TRUE(profiles[0].startup_runtime_packages.empty());
+  EXPECT_EQ(profiles[1].id, DemoProfileId::Ddgi);
+  EXPECT_STREQ(profiles[1].id_name, "ddgi");
+  EXPECT_EQ(profiles[1].default_application_mode, ApplicationMode::Player);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[1].id, ApplicationMode::Player));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[1].id, ApplicationMode::Editor));
+  EXPECT_TRUE(profiles[1].startup_runtime_packages.empty());
+  EXPECT_EQ(profiles[2].id, DemoProfileId::EcoSysLab);
+  EXPECT_STREQ(profiles[2].id_name, "ecosyslab");
+  EXPECT_EQ(profiles[2].default_application_mode, ApplicationMode::Editor);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[2].id, ApplicationMode::Editor));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[2].id, ApplicationMode::Player));
+  EXPECT_EQ(profiles[2].startup_runtime_packages, std::vector<std::string>{"EcoSysLab"});
+  EXPECT_EQ(profiles[3].id, DemoProfileId::DigitalAgriculture);
+  EXPECT_STREQ(profiles[3].id_name, "digital-agriculture");
+  EXPECT_EQ(profiles[3].default_application_mode, ApplicationMode::Editor);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[3].id, ApplicationMode::Editor));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[3].id, ApplicationMode::Player));
+  EXPECT_EQ(profiles[3].startup_runtime_packages, std::vector<std::string>{"DigitalAgriculture"});
+  EXPECT_EQ(profiles[4].id, DemoProfileId::LSystem);
+  EXPECT_STREQ(profiles[4].id_name, "lsystem");
+  EXPECT_EQ(profiles[4].default_application_mode, ApplicationMode::Editor);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[4].id, ApplicationMode::Editor));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[4].id, ApplicationMode::Player));
+  EXPECT_EQ(profiles[4].startup_runtime_packages, (std::vector<std::string>{"LSystem", "DigitalAgriculture"}));
+
+  ASSERT_NE(FindDemoProfile("rendering"), nullptr);
+  EXPECT_EQ(FindDemoProfile("rendering")->id, DemoProfileId::Rendering);
+  EXPECT_EQ(FindDemoProfile("missing"), nullptr);
+  EXPECT_STREQ(GetDemoProfileIdName(DemoProfileId::LSystem), "lsystem");
+}
+
+TEST(LauncherUtils, DemoProfileProjectPathsResolveFromResourcesRoot) {
+  TempLauncherDirectory temp;
+  const auto resource_root = temp.RootPath() / "Resources";
+  std::filesystem::create_directories(resource_root / "LSystemProjectAssets");
+  const auto lsystem_fallback = resource_root / "LSystemProjectAssets" / "test.eveproj";
+  std::ofstream project_file(lsystem_fallback);
+  project_file << "application_name: LSystem\n";
+  project_file.close();
+
+  EXPECT_EQ(
+      ResolveDemoProfileProjectPath(DemoProfileId::Rendering, resource_root),
+      launcher::NormalizeProjectPath(resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Rendering.eveproj"));
+  EXPECT_EQ(
+      ResolveDemoProfileProjectPath(DemoProfileId::Ddgi, resource_root),
+      launcher::NormalizeProjectPath(resource_root / "EvoEngine-DemoProjects" / "CornellBox" / "CornellBox.eveproj"));
+  EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::EcoSysLab, resource_root),
+            launcher::NormalizeProjectPath(resource_root / "EcoSysLabProject" / "test.eveproj"));
+  EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::DigitalAgriculture, resource_root),
+            launcher::NormalizeProjectPath(resource_root / "DigitalAgricultureProject" / "test.eveproj"));
+  EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::LSystem, resource_root),
+            launcher::NormalizeProjectPath(lsystem_fallback));
+}
+
+TEST(LauncherUtils, DemoResourceChecksRequireProjectsOnlyForPackageProfiles) {
+  TempLauncherDirectory temp;
+  const auto resource_root = temp.RootPath() / "Resources";
+  std::filesystem::create_directories(resource_root);
+
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::Rendering, resource_root).empty());
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::Ddgi, resource_root).empty());
+  EXPECT_FALSE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
+
+  std::filesystem::create_directories(resource_root / "EcoSysLabProject");
+  std::ofstream project_file(resource_root / "EcoSysLabProject" / "test.eveproj");
+  project_file << "application_name: EcoSysLab\n";
+  project_file.close();
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
 }
 
 TEST(LauncherUtils, ApplicationModeNamesAndArgumentsAreStable) {

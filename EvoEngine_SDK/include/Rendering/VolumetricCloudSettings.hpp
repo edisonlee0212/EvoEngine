@@ -3,7 +3,7 @@
 
 namespace evo_engine {
 struct VolumetricCloudSettings {
-  bool enabled = true;
+  bool enabled = false;
   float coverage = 0.62f;
   float density = 1.15f;
   float bottom_altitude = 25.0f;

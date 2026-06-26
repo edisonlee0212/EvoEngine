@@ -1,25 +1,21 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
-#include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "DdgiVolume.hpp"
+#include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
 #include "ImGuiLayer.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
-#include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "RenderTexture.hpp"
-#include "SkinnedMesh.hpp"
-#include "SkinnedMeshRenderer.hpp"
 #include "WindowLayer.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -1924,109 +1920,6 @@ void WriteMarkerFile(const std::filesystem::path& path) {
   marker << "ready" << std::endl;
 }
 
-std::string Lowercase(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char character) {
-    return static_cast<char>(std::tolower(character));
-  });
-  return value;
-}
-
-struct ShowcaseInspectorTarget {
-  Entity entity;
-  std::shared_ptr<IAsset> mesh;
-  std::shared_ptr<IAsset> material;
-  int score = -1;
-};
-
-int ScoreAssetTitle(const Handle& asset_handle, const std::string& needle, const int weight) {
-  if (asset_handle.GetValue() == 0) {
-    return 0;
-  }
-  const auto asset = AssetManager::GetAsset(asset_handle);
-  if (!asset) {
-    return 0;
-  }
-  return Lowercase(asset->GetTitle()).find(needle) != std::string::npos ? weight : 0;
-}
-
-int ScoreMaterialTextures(const std::shared_ptr<Material>& material) {
-  if (!material) {
-    return 0;
-  }
-  int score = 0;
-  score += ScoreAssetTitle(material->PeekAlbedoTextureRef().GetAssetHandle(), "curtain", 5);
-  score += ScoreAssetTitle(material->PeekNormalTextureRef().GetAssetHandle(), "curtain", 3);
-  score += ScoreAssetTitle(material->PeekAlbedoTextureRef().GetAssetHandle(), "blue", 1);
-  score += ScoreAssetTitle(material->PeekAlbedoTextureRef().GetAssetHandle(), "green", 1);
-  return score;
-}
-
-void ConsiderShowcaseTarget(const std::shared_ptr<Scene>& scene, const Entity& entity,
-                            const std::shared_ptr<IAsset>& mesh, const std::shared_ptr<Material>& material,
-                            ShowcaseInspectorTarget& target) {
-  if (!mesh || !material) {
-    return;
-  }
-  const auto entity_name = Lowercase(scene->GetEntityName(entity));
-  const auto mesh_title = Lowercase(mesh->GetTitle());
-  const auto material_title = Lowercase(material->GetTitle());
-  int score = 0;
-  if (entity_name.find("curtain") != std::string::npos) {
-    score += 8;
-  }
-  if (mesh_title.find("curtain") != std::string::npos) {
-    score += 4;
-  }
-  if (material_title.find("curtain") != std::string::npos) {
-    score += 4;
-  }
-  score += ScoreMaterialTextures(material);
-  if (entity_name.find("blue") != std::string::npos || mesh_title.find("blue") != std::string::npos ||
-      material_title.find("blue") != std::string::npos) {
-    score += 1;
-  }
-  if (score > target.score) {
-    target = {entity, mesh, material, score};
-  }
-}
-
-ShowcaseInspectorTarget FindShowcaseInspectorTarget(const std::shared_ptr<Scene>& scene) {
-  ShowcaseInspectorTarget target;
-  for (const auto& entity : scene->UnsafeGetAllEntities()) {
-    if (!scene->IsEntityValid(entity)) {
-      continue;
-    }
-    if (scene->HasPrivateComponent<MeshRenderer>(entity)) {
-      const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
-      ConsiderShowcaseTarget(scene, entity, mesh_renderer->mesh.Get<Mesh>(), mesh_renderer->material.Get<Material>(),
-                             target);
-    }
-    if (scene->HasPrivateComponent<SkinnedMeshRenderer>(entity)) {
-      const auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(entity).lock();
-      ConsiderShowcaseTarget(scene, entity, skinned_mesh_renderer->skinned_mesh.Get<SkinnedMesh>(),
-                             skinned_mesh_renderer->material.Get<Material>(), target);
-    }
-  }
-  return target;
-}
-
-void OpenReadmeShowcaseAssetInspector(const std::shared_ptr<EditorLayer>& editor_layer,
-                                      const std::shared_ptr<IAsset>& material) {
-  editor_layer->ClearAssetInspectors();
-  if (material) {
-    editor_layer->OpenAssetInspector(material);
-  }
-}
-
-void FrameSceneCameraOnTarget(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Scene>& scene,
-                              const Entity& entity) {
-  if (!scene->IsEntityValid(entity)) {
-    return;
-  }
-  editor_layer->SetSceneCameraPosition(glm::vec3(0.0f, 0.0f, 3.0f));
-  editor_layer->SetSceneCameraRotation(glm::quat(glm::vec3(0.0f)));
-}
-
 std::optional<Entity> FindEntityByName(const std::shared_ptr<Scene>& scene, const std::string& name) {
   if (!scene) {
     return {};
@@ -2037,131 +1930,6 @@ std::optional<Entity> FindEntityByName(const std::shared_ptr<Scene>& scene, cons
     }
   }
   return {};
-}
-
-void EnableReadmeMainCameraRayTracing(const std::shared_ptr<Scene>& scene) {
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    main_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
-    main_camera->ResetFrameCount();
-  }
-}
-
-bool PrepareReadmeScreenshotDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer,
-                                         const std::shared_ptr<Scene>& scene) {
-  const auto ddgi_volume_entity = FindEntityByName(scene, "DDGI Probe Volume");
-  if (!ddgi_volume_entity) {
-    return false;
-  }
-
-  auto& settings = scene->environment.ddgi_settings;
-  settings.runtime.enabled = true;
-  settings.debug.enabled = true;
-  settings.debug.visualize_volume_bounds = true;
-  settings.debug.visualize_probe_positions = true;
-  settings.debug.visualize_selected_probe = true;
-  settings.debug.visualization_scale = 2.0f;
-  settings.debug.selected_probe_index = 129;
-
-  if (const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(*ddgi_volume_entity).lock()) {
-    volume->visualize_bounds = true;
-    volume->visualize_probe_positions = true;
-    volume->max_visualized_probes = 512;
-    volume->probe_visualization_size = 0.14f;
-    volume->ClampSettings();
-  }
-
-  const glm::vec3 camera_position(0.0f, 0.0f, 3.0f);
-  const glm::quat camera_rotation(glm::vec3(0.0f));
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    main_camera->Resize({1920, 1080});
-    auto camera_transform = scene->GetDataComponent<Transform>(main_camera->GetOwner());
-    camera_transform.SetPosition(camera_position);
-    camera_transform.SetRotation(camera_rotation);
-    scene->SetDataComponent(main_camera->GetOwner(), camera_transform);
-  }
-  EnableReadmeMainCameraRayTracing(scene);
-  editor_layer->main_camera_allow_auto_resize = true;
-  editor_layer->main_camera_resolution_x = 1920;
-  editor_layer->main_camera_resolution_y = 1080;
-  editor_layer->SetSceneCameraPosition(camera_position);
-  editor_layer->SetSceneCameraRotation(camera_rotation);
-  if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-    scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
-    scene_camera->ResetFrameCount();
-  }
-  editor_layer->SetSelectedEntity(*ddgi_volume_entity, false);
-  OpenReadmeShowcaseAssetInspector(editor_layer, FindShowcaseInspectorTarget(scene).material);
-  return true;
-}
-
-void PrepareReadmeScreenshotShowcase(const std::shared_ptr<EditorLayer>& editor_layer) {
-  const auto scene = ApplicationContext::Get().GetActiveScene();
-  if (!scene) {
-    return;
-  }
-  EnableReadmeMainCameraRayTracing(scene);
-  if (!editor_layer) {
-    return;
-  }
-
-  if (PrepareReadmeScreenshotDdgiShowcase(editor_layer, scene)) {
-    return;
-  }
-
-  const auto target = FindShowcaseInspectorTarget(scene);
-  if (target.score >= 0) {
-    if (target.score >= 4) {
-      scene->SetEntityName(target.entity, "Blur Curtain");
-    }
-    editor_layer->SetSelectedEntity(target.entity, false);
-    FrameSceneCameraOnTarget(editor_layer, scene, target.entity);
-    OpenReadmeShowcaseAssetInspector(editor_layer, target.material);
-  }
-}
-
-EditorLayoutSettings CreateReadmeScreenshotEditorLayout() {
-  EditorLayoutSettings settings;
-  settings.panels.scene = true;
-  settings.panels.camera = true;
-  settings.panels.scene_camera_debug = false;
-  settings.panels.scene_info = false;
-  settings.panels.camera_info = true;
-  settings.panels.entity_explorer = true;
-  settings.panels.entity_inspector = true;
-  settings.panels.console = true;
-  settings.panels.project = true;
-  settings.panels.resources = false;
-  settings.panels.runtime_package_manager = true;
-  settings.panels.render_layer_inspection = false;
-
-  EditorDockLayoutSettings dock_layout;
-  dock_layout.left_fraction = 0.15f;
-  dock_layout.right_fraction = 0.19f;
-  dock_layout.bottom_fraction = 0.28f;
-  dock_layout.camera_fraction = 0.50f;
-  settings.dock_layout = dock_layout;
-
-  EditorFloatingWindowLayout asset_inspector_window;
-  asset_inspector_window.anchor = EditorFloatingWindowLayout::Anchor::LowerLeft;
-  asset_inspector_window.size = {292.0f, 530.0f};
-  asset_inspector_window.margin = {24.0f, 24.0f};
-  settings.asset_inspector_window = asset_inspector_window;
-
-  EditorRuntimePackageManagerLayoutSettings package_manager;
-  package_manager.floating_window.anchor = EditorFloatingWindowLayout::Anchor::LowerRight;
-  package_manager.floating_window.size = {600.0f, 530.0f};
-  package_manager.floating_window.margin = {24.0f, 24.0f};
-  package_manager.list_width_fraction = 0.30f;
-  package_manager.list_width_min = 220.0f;
-  package_manager.list_width_max = 320.0f;
-  settings.runtime_package_manager = package_manager;
-
-  EditorProjectBrowserLayoutSettings project_browser;
-  project_browser.hierarchy_width = 320.0f;
-  project_browser.reveal_folder = std::filesystem::path("Models") / "Sponza" / "textures";
-  settings.project_browser = project_browser;
-
-  return settings;
 }
 
 void ApplyReadmeScreenshotDdgiInspectionOptions(const DemoAppRuntimeConfig* config) {
@@ -2196,11 +1964,7 @@ void ApplyReadmeScreenshotDdgiInspectionOptions(const DemoAppRuntimeConfig* conf
 }
 
 void ApplyReadmeScreenshotEditorSetup(const DemoAppRuntimeConfig* config) {
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  if (editor_layer) {
-    editor_layer->RequestEditorLayout(CreateReadmeScreenshotEditorLayout());
-  }
-  PrepareReadmeScreenshotShowcase(editor_layer);
+  ApplyRenderingDemoEditorSetup();
   ApplyReadmeScreenshotDdgiInspectionOptions(config);
 }
 
