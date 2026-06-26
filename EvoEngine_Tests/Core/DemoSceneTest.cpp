@@ -65,3 +65,29 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.umeta"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.ufmeta"));
 }
+
+TEST(DemoScene, ClearGeneratedProceduralGalaxyProjectFilesOnlyRemovesUniverseGeneratedProjectFiles) {
+  TempDemoResources resources;
+  resources.WriteFile("EvoEngine-DemoProjects/Universe/ProceduralGalaxy.eveproj");
+  resources.WriteFile("EvoEngine-DemoProjects/Universe/Assets/New Scene.evescene");
+  resources.WriteFile("EvoEngine-DemoProjects/Universe/Assets/Texture.png.evefilemeta");
+  resources.WriteFile("EvoEngine-DemoProjects/Universe/Assets/Folder.evefoldermeta");
+  resources.WriteFile("EvoEngine-DemoProjects/Universe/Assets/Reference.png");
+  resources.WriteFile("EvoEngine-DemoProjects/Rendering/Rendering.eveproj");
+  resources.WriteFile("EvoEngine-DemoProjects/Rendering/Assets/New Scene.evescene");
+
+  ClearGeneratedProceduralGalaxyProjectFiles(resources.RootPath());
+
+  EXPECT_FALSE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Universe/ProceduralGalaxy.eveproj"));
+  EXPECT_FALSE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Universe/Assets/New Scene.evescene"));
+  EXPECT_FALSE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Universe/Assets/Texture.png.evefilemeta"));
+  EXPECT_FALSE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Universe/Assets/Folder.evefoldermeta"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Universe/Assets/Reference.png"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj"));
+  EXPECT_TRUE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Assets/New Scene.evescene"));
+}

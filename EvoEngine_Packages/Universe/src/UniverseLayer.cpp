@@ -1,6 +1,7 @@
 #include "UniverseLayer.hpp"
 
 #include "Application.hpp"
+#include "ProjectManager.hpp"
 #include "Times.hpp"
 #include "UniverseInspectionAdapters.hpp"
 
@@ -21,7 +22,13 @@ void UniverseLayer::RegisterTypes(Application &application) {
 
 namespace {
 void DrawStarClusterPatternGui(StarClusterPattern &pattern);
+
+bool IsProceduralGalaxyProjectPath() {
+  const auto project_path = ProjectManager::GetProjectPath();
+  return project_path.filename() == "ProceduralGalaxy.eveproj" && project_path.parent_path().filename() == "Universe" &&
+         project_path.parent_path().parent_path().filename() == "EvoEngine-DemoProjects";
 }
+}  // namespace
 
 bool universe_package::InspectUniverseLayer(InspectorContext &context, UniverseLayer &layer) {
   const auto &editor_layer = context.editor_layer;
@@ -142,6 +149,7 @@ void UniverseLayer::Update() {
   const auto scene = GetScene();
   if (!scene)
     return;
+  const bool configured_procedural_galaxy = ConfigureProceduralGalaxyDemoIfNeeded();
   const std::vector<Entity> *const planet_terrain_list = scene->UnsafeGetPrivateComponentOwnersList<PlanetTerrain>();
   if (const auto main_camera = scene->main_camera.Get<Camera>(); planet_terrain_list && main_camera) {
     std::mutex mesh_gen_lock;
@@ -171,7 +179,9 @@ void UniverseLayer::Update() {
     }
   }
 
-  galaxy_time_ += ApplicationContext::Get().GetTimes().DeltaTime() * speed_;
+  if (!configured_procedural_galaxy) {
+    galaxy_time_ += ApplicationContext::Get().GetTimes().DeltaTime() * speed_;
+  }
   // This method calculate the position for each star. Remove this line if you use your own implementation.
   CalculateStarPositionSync();
   // Do not touch below functions.
@@ -182,6 +192,22 @@ void UniverseLayer::Update() {
                                       particle_info_list_ref.Get<ParticleInfoList>(), cast_shadow);
     }
   }
+}
+
+bool UniverseLayer::ConfigureProceduralGalaxyDemoIfNeeded() {
+  const auto scene = GetScene();
+  if (!scene || procedural_galaxy_scene_.lock() == scene || !IsProceduralGalaxyProjectPath() ||
+      star_cluster_patterns_.empty()) {
+    return false;
+  }
+
+  ClearAllStars();
+  galaxy_time_ = 1000000.0f;
+  speed_ = 50.0f;
+  size_ = 0.25f;
+  PushStars(star_cluster_patterns_.front(), 50000);
+  procedural_galaxy_scene_ = scene;
+  return true;
 }
 
 void UniverseLayer::PushStars(StarClusterPattern &pattern, const size_t &amount) {

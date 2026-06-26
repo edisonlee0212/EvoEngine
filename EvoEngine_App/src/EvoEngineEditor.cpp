@@ -201,6 +201,9 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
       SetupDemoScene(DemoSetup::CornellBox, application_info, resource_root);
       ConfigureDdgiCornellBoxApplication(application_info, application_mode);
       break;
+    case DemoProfileId::ProceduralGalaxy:
+      SetupDemoScene(DemoSetup::ProceduralGalaxy, application_info, resource_root);
+      break;
     case DemoProfileId::LSystem: {
       const auto& profile = GetDemoProfile(profile_id);
       application_info.application_name = profile.title;
@@ -255,6 +258,12 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       editor_layer->default_scene_camera_position = glm::vec3(0.0f, 1.0f, 5.0f);
       editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       break;
+    case DemoProfileId::ProceduralGalaxy:
+      editor_layer->velocity = 50.f;
+      editor_layer->default_scene_camera_position = glm::vec3(0.0f, 100.0f, 100.0f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+      editor_layer->SetSceneCameraRotation(glm::quat(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f))));
+      break;
     case DemoProfileId::Rendering:
     case DemoProfileId::Ddgi:
       break;
@@ -300,6 +309,7 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
     case DemoProfileId::EcoSysLab:
     case DemoProfileId::DigitalAgriculture:
     case DemoProfileId::LSystem:
+    case DemoProfileId::ProceduralGalaxy:
       break;
   }
 }

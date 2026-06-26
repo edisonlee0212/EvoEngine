@@ -318,15 +318,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
-      {DemoProfileId::Ddgi,
-       "ddgi",
-       "DDGI",
-       "DDGIApp",
-       "Cornell Box DDGI scene.",
-       "Launcher/DemoPreviews/ddgi.png",
+      {DemoProfileId::ProceduralGalaxy,
+       "procedural-galaxy",
+       "Procedural Galaxy",
+       "Universe",
+       "Generated 50,000-star galaxy project with the Universe runtime package loaded.",
+       "Launcher/DemoPreviews/procedural-galaxy.png",
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
-       {}},
+       {"Universe"}},
       {DemoProfileId::EcoSysLab,
        "ecosyslab",
        "EcoSysLab",
@@ -354,6 +354,16 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {"LSystem", "DigitalAgriculture"}},
+      {DemoProfileId::Ddgi,
+       "ddgi",
+       "DDGI",
+       "DDGIApp",
+       "Cornell Box DDGI scene.",
+       "Launcher/DemoPreviews/ddgi.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {}},
+
   };
   return profiles;
 }
@@ -416,6 +426,9 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
       }
       return path_utils::NormalizeAbsolutePath(candidates.front());
     }
+    case DemoProfileId::ProceduralGalaxy:
+      return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "Universe" /
+                                               "ProceduralGalaxy.eveproj");
   }
   return {};
 }
@@ -428,7 +441,7 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     missing.emplace_back("Resources folder");
     return missing;
   }
-  if (id == DemoProfileId::Rendering || id == DemoProfileId::Ddgi) {
+  if (id == DemoProfileId::Rendering || id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy) {
     return missing;
   }
 

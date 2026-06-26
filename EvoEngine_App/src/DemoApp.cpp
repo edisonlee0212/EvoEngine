@@ -135,6 +135,9 @@ DemoSetup ParseDemoSetup(const std::string& value) {
   if (value == "Universe") {
     return DemoSetup::Universe;
   }
+  if (value == "ProceduralGalaxy") {
+    return DemoSetup::ProceduralGalaxy;
+  }
   throw std::invalid_argument("Unknown demo_setup value: " + value);
 }
 

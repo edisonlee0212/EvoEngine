@@ -16,6 +16,8 @@
 #include "SkinnedMeshRenderer.hpp"
 #include "Times.hpp"
 
+#include <unordered_set>
+
 using namespace evo_engine;
 
 namespace {
@@ -365,6 +367,47 @@ void RemoveGeneratedFiles(const std::filesystem::path& root, const std::unordere
     }
   }
 }
+
+void RemoveGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& resource_root) {
+  RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects" / "Universe",
+                       {".evescene", ".eveproj", ".evefilemeta", ".evefoldermeta"});
+}
+
+void ConfigureProceduralGalaxyScene(const std::shared_ptr<Scene>& scene) {
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.0f);
+  scene->environment.background_intensity = 0.0f;
+  scene->environment.ambient_light_intensity = 0.0f;
+
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  main_camera->Resize({1920, 1080});
+  main_camera->skybox.Clear();
+  main_camera->camera_settings.use_clear_color = true;
+  main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+  main_camera->camera_settings.background_intensity = 0.0f;
+  main_camera->camera_settings.far_distance = 1000.0f;
+  main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+
+  const auto main_camera_entity = main_camera->GetOwner();
+  Transform main_camera_transform;
+  main_camera_transform.SetPosition(glm::vec3(0.0f, 100.0f, 100.0f));
+  main_camera_transform.SetEulerRotation(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f)));
+  scene->SetDataComponent(main_camera_entity, main_camera_transform);
+  scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
+
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->SetSceneCameraPosition(glm::vec3(0.0f, 100.0f, 100.0f));
+    editor_layer->SetSceneCameraRotation(glm::quat(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f))));
+    if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+      scene_camera->skybox.Clear();
+      scene_camera->camera_settings.use_clear_color = true;
+      scene_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+      scene_camera->camera_settings.background_intensity = 0.0f;
+      scene_camera->camera_settings.far_distance = 1000.0f;
+      scene_camera->ResetFrameCount();
+    }
+  }
+}
 }  // namespace
 
 std::filesystem::path evo_engine::FindDemoResourcesRoot(const std::filesystem::path& preferred_root) {
@@ -386,6 +429,14 @@ void evo_engine::ClearGeneratedDemoProjectFiles(const std::filesystem::path& res
   RemoveGeneratedFiles(resource_root, {".uescene", ".ueproj"});
 }
 
+void evo_engine::ClearGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& resource_folder_path) {
+  const auto resource_root = FindDemoResourcesRoot(resource_folder_path);
+  if (resource_root.empty()) {
+    return;
+  }
+  RemoveGeneratedProceduralGalaxyProjectFiles(resource_root);
+}
+
 void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializationSettings& application_info,
                                 const std::filesystem::path& resource_folder_path,
                                 const bool clear_generated_project_files) {
@@ -395,7 +446,9 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
     return;
   }
 
-  if (demo_setup != DemoSetup::Empty && clear_generated_project_files) {
+  if (demo_setup == DemoSetup::ProceduralGalaxy && clear_generated_project_files) {
+    RemoveGeneratedProceduralGalaxyProjectFiles(resource_root);
+  } else if (demo_setup != DemoSetup::Empty && clear_generated_project_files) {
     ClearGeneratedDemoProjectFiles(resource_root);
   }
 
@@ -504,6 +557,16 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
       application_info.default_window_size = {1920, 1080};
       ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
         ConfigureThinWallScene(scene);
+      });
+    } break;
+    case DemoSetup::ProceduralGalaxy: {
+      application_info.application_name = "Procedural Galaxy";
+      application_info.project_path = resource_root / "EvoEngine-DemoProjects/Universe/ProceduralGalaxy.eveproj";
+      application_info.default_window_size = {1920, 1080};
+      application_info.enable_runtime_packages = true;
+      application_info.startup_runtime_packages = {"Universe"};
+      ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
+        ConfigureProceduralGalaxyScene(scene);
       });
     } break;
     case DemoSetup::Universe:

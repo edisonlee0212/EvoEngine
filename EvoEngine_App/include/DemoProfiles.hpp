@@ -12,7 +12,7 @@ enum class ApplicationMode;
 struct ApplicationInitializationSettings;
 class Scene;
 
-enum class DemoProfileId { Rendering, Ddgi, EcoSysLab, DigitalAgriculture, LSystem };
+enum class DemoProfileId { Rendering, Ddgi, EcoSysLab, DigitalAgriculture, LSystem, ProceduralGalaxy };
 
 struct DemoProfileDescriptor {
   DemoProfileId id;

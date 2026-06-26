@@ -16,6 +16,7 @@ DEMO_PROFILE_IDS = (
     "ecosyslab",
     "digital-agriculture",
     "lsystem",
+    "procedural-galaxy",
 )
 DEFAULT_WARMUP_FRAMES = 8
 PROFILE_WARMUP_FRAMES = {

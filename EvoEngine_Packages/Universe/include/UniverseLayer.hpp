@@ -261,10 +261,12 @@ class UniverseLayer : public ILayer {
   float size_ = 0.05f;
   float galaxy_time_ = 0.0;
   bool first_time_ = true;
+  std::weak_ptr<Scene> procedural_galaxy_scene_;
 
   void OnCreate() override;
   void OnDestroy() override;
   void Update() override;
+  bool ConfigureProceduralGalaxyDemoIfNeeded();
 
   void CalculateStarPositionSync();
   void ApplyPosition();
