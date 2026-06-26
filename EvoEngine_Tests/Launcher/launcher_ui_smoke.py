@@ -51,8 +51,9 @@ def main() -> int:
             wait_for_log(log_path, "section:Demo")
             wait_for_log(log_path, "demo-count:5")
             wait_for_log(log_path, "demo-profile:rendering:")
+            wait_for_log(log_path, "demo-preview:rendering:")
             wait_for_log(log_path, "recent-count:1")
-            assert_custom_title_bar_window(hwnd, "Launcher project hub")
+            assert_custom_title_bar_window(hwnd, "Launcher project hub", resizable=False)
 
         run_subtest("LauncherProjectHub.LoadsDemoHub", verify_project_hub_state)
         click(rect.left + 24, rect.bottom - 80)

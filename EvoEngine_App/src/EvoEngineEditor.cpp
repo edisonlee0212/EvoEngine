@@ -1,13 +1,17 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
+#include "Camera.hpp"
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
 #include "PathUtils.hpp"
+#include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
 #include "Times.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <stdexcept>
 
@@ -24,8 +28,12 @@ namespace {
 struct EditorCommandLine {
   std::optional<std::filesystem::path> project_path;
   std::optional<DemoProfileId> demo_profile_id;
+  std::optional<std::filesystem::path> demo_preview_capture_path;
   ApplicationMode application_mode = ApplicationMode::Editor;
   bool application_mode_explicit = false;
+  int preview_capture_width = 1280;
+  int preview_capture_height = 720;
+  size_t preview_capture_warmup_frames = 8;
 };
 
 EditorCommandLine ParseCommandLine(const int argc, char** argv) {
@@ -47,6 +55,26 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("Unknown EvoEngineEditor demo profile: " + profile_id);
       }
       command_line.demo_profile_id = profile->id;
+    } else if (argument == "--capture-demo-preview") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--capture-demo-preview requires an output PNG path.");
+      }
+      command_line.demo_preview_capture_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--preview-width") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-width requires a positive integer.");
+      }
+      command_line.preview_capture_width = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-height") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-height requires a positive integer.");
+      }
+      command_line.preview_capture_height = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-warmup-frames") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-warmup-frames requires a non-negative integer.");
+      }
+      command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
     } else {
       auto application_mode = command_line.application_mode;
       if (!ConsumeApplicationModeArgument(argc, argv, arg_index, application_mode)) {
@@ -65,12 +93,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.demo_profile_id && command_line.project_path) {
     throw std::invalid_argument("EvoEngineEditor --demo cannot be combined with --project.");
   }
+  if (command_line.demo_preview_capture_path && !command_line.demo_profile_id) {
+    throw std::invalid_argument("--capture-demo-preview requires --demo <profile-id>.");
+  }
   if (command_line.demo_profile_id) {
     const auto& profile = GetDemoProfile(*command_line.demo_profile_id);
     if (!command_line.application_mode_explicit) {
       command_line.application_mode = profile.default_application_mode;
     }
-    if (!IsDemoProfileApplicationModeSupported(profile.id, command_line.application_mode)) {
+    if (command_line.demo_preview_capture_path) {
+      if (command_line.application_mode_explicit && command_line.application_mode != ApplicationMode::Editor) {
+        throw std::invalid_argument("--capture-demo-preview requires editor mode.");
+      }
+      command_line.application_mode = ApplicationMode::Editor;
+    } else if (!IsDemoProfileApplicationModeSupported(profile.id, command_line.application_mode)) {
       throw std::invalid_argument("EvoEngineEditor --demo " + std::string(profile.id_name) + " does not support " +
                                   GetApplicationModeName(command_line.application_mode) + " mode.");
     }
@@ -211,10 +247,12 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
     case DemoProfileId::DigitalAgriculture:
       editor_layer->velocity = 2.f;
       editor_layer->default_scene_camera_position = glm::vec3(1.124f, 0.218f, 14.089f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       break;
     case DemoProfileId::LSystem:
       editor_layer->velocity = 2.f;
       editor_layer->default_scene_camera_position = glm::vec3(0.0f, 1.0f, 5.0f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       break;
     case DemoProfileId::Rendering:
     case DemoProfileId::Ddgi:
@@ -245,6 +283,15 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
       break;
     case DemoProfileId::Ddgi:
       ConfigureDdgiCornellBoxScene(ApplicationContext::Get().GetActiveScene());
+      if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+        if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+          scene_camera->skybox.Clear();
+          scene_camera->camera_settings.use_clear_color = true;
+          scene_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+          scene_camera->camera_settings.background_intensity = 0.0f;
+          scene_camera->ResetFrameCount();
+        }
+      }
       ApplicationContext::Get().Play();
       break;
     case DemoProfileId::EcoSysLab:
@@ -252,6 +299,32 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
     case DemoProfileId::LSystem:
       break;
   }
+}
+
+void CaptureDemoPreview(const std::filesystem::path& output_path, const int width, const int height,
+                        const size_t warmup_frames) {
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (!editor_layer) {
+    throw std::runtime_error("Demo preview capture requires EditorLayer.");
+  }
+  const auto scene_camera = editor_layer->GetSceneCamera();
+  if (!scene_camera) {
+    throw std::runtime_error("Demo preview capture requires a scene camera.");
+  }
+  scene_camera->Resize(glm::uvec2(static_cast<uint32_t>(width), static_cast<uint32_t>(height)));
+  for (size_t frame_index = 0; frame_index < warmup_frames; ++frame_index) {
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error("Application ended before demo preview capture completed.");
+    }
+  }
+  const auto render_texture = scene_camera->GetRenderTexture();
+  if (!render_texture) {
+    throw std::runtime_error("Demo preview capture scene camera has no render texture.");
+  }
+  if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
+    std::filesystem::create_directories(parent_path);
+  }
+  render_texture->StoreToPng(output_path, width, height);
 }
 }  // namespace
 
@@ -277,6 +350,12 @@ int main(const int argc, char** argv) {
         ApplicationContext::Get().Start(false);
         WaitForDemoProfileProjectIdle();
         ApplyDemoProfilePostLoadSetup(*command_line.demo_profile_id, command_line.application_mode);
+        if (command_line.demo_preview_capture_path) {
+          CaptureDemoPreview(*command_line.demo_preview_capture_path, command_line.preview_capture_width,
+                             command_line.preview_capture_height, command_line.preview_capture_warmup_frames);
+          ApplicationContext::Get().Terminate();
+          return 0;
+        }
         ApplicationContext::Get().Run();
         ApplicationContext::Get().Terminate();
         return 0;

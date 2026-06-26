@@ -22,6 +22,7 @@ GWL_STYLE = -16
 WS_CAPTION = 0x00C00000
 WS_POPUP = 0x80000000
 WS_THICKFRAME = 0x00040000
+WS_MAXIMIZEBOX = 0x00010000
 
 
 class RECT(ctypes.Structure):
@@ -139,7 +140,7 @@ def click(x: int, y: int) -> None:
     user32.mouse_event(0x0004, 0, 0, 0, None)
 
 
-def assert_custom_title_bar_window(hwnd: int, label: str) -> None:
+def assert_custom_title_bar_window(hwnd: int, label: str, resizable: bool = True) -> None:
     rect = RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
     width = rect.right - rect.left
@@ -151,8 +152,12 @@ def assert_custom_title_bar_window(hwnd: int, label: str) -> None:
         raise RuntimeError(f"{label} is missing the native caption style required for Windows animations.")
     if style & WS_POPUP:
         raise RuntimeError(f"{label} still has popup window styling.")
-    if not style & WS_THICKFRAME:
+    if resizable and not style & WS_THICKFRAME:
         raise RuntimeError(f"{label} is missing a resizable frame.")
+    if not resizable and style & WS_THICKFRAME:
+        raise RuntimeError(f"{label} unexpectedly has a resizable frame.")
+    if not resizable and style & WS_MAXIMIZEBOX:
+        raise RuntimeError(f"{label} unexpectedly has a maximize box.")
 
 
 def log_contains(path: Path, needle: str) -> bool:

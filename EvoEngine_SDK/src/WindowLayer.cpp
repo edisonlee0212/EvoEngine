@@ -59,10 +59,15 @@ void ExtendFrameIntoClientArea(HWND hwnd) {
   FreeLibrary(dwmapi);
 }
 
-void ApplyCustomTitleBarStyle(HWND hwnd) {
+void ApplyCustomTitleBarStyle(HWND hwnd, const bool resizable) {
   auto style = GetWindowLongPtrW(hwnd, GWL_STYLE);
   style &= ~WS_POPUP;
-  style |= WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME;
+  style |= WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+  if (resizable) {
+    style |= WS_MAXIMIZEBOX | WS_THICKFRAME;
+  } else {
+    style &= ~(WS_MAXIMIZEBOX | WS_THICKFRAME);
+  }
   SetWindowLongPtrW(hwnd, GWL_STYLE, style);
   ExtendFrameIntoClientArea(hwnd);
   SetWindowPos(hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
@@ -212,7 +217,7 @@ std::optional<intptr_t> WindowLayer::HitTestCustomTitleBar(void* native_window_h
   RECT window_rect{};
   GetWindowRect(hwnd, &window_rect);
 
-  if (!maximized) {
+  if (window_resizable_ && !maximized) {
     const int resize_border = std::max(6, GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER));
     const int x = point.x - window_rect.left;
     const int y = point.y - window_rect.top;
@@ -258,7 +263,7 @@ intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, cons
   switch (message) {
     case WM_ACTIVATE:
     case WM_ENABLE:
-      ApplyCustomTitleBarStyle(hwnd);
+      ApplyCustomTitleBarStyle(hwnd, window_resizable_);
       break;
     case WM_GETMINMAXINFO:
       ApplyMaximizedWorkArea(hwnd, l_param);
@@ -280,6 +285,14 @@ intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, cons
     case WM_NCHITTEST:
       if (const auto hit = HitTestCustomTitleBar(hwnd, l_param)) {
         return *hit;
+      }
+      break;
+    case WM_SYSCOMMAND:
+      if (!window_resizable_) {
+        const auto command = w_param & 0xfff0;
+        if (command == SC_MAXIMIZE || command == SC_SIZE) {
+          return 0;
+        }
       }
       break;
     default:
@@ -498,7 +511,7 @@ void WindowLayer::RefreshCustomTitleBar() {
   }
   native_window_handle_ = hwnd;
   SetPropW(hwnd, kWindowLayerProperty, this);
-  ApplyCustomTitleBarStyle(hwnd);
+  ApplyCustomTitleBarStyle(hwnd, window_resizable_);
 #endif
 }
 

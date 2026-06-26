@@ -32,7 +32,7 @@ const glm::vec3 kDdgiCornellBoxCameraPosition = {0.0f, 0.0f, 0.8f};
 const glm::ivec3 kDdgiCornellBoxProbeCounts = {13, 13, 14};
 const glm::vec3 kDdgiCornellBoxVolumeOrigin = {0.0f, 0.0f, 0.0f};
 constexpr float kDdgiCornellBoxProbeSpacing = 0.14333334f;
-constexpr float kDdgiCornellBoxCeilingLightEmission = 2.0f;
+constexpr float kDdgiCornellBoxCeilingLightEmission = 6.0f;
 constexpr float kDdgiCornellBoxNormalBias = 0.02f;
 constexpr float kDdgiCornellBoxViewBias = 0.05f;
 
@@ -314,6 +314,7 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        "Rendering",
        "DemoApp",
        "Lighting, deferred rendering, DDGI, and material stress scene.",
+       "Launcher/DemoPreviews/rendering.png",
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
@@ -322,6 +323,7 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        "DDGI",
        "DDGIApp",
        "Cornell Box DDGI scene in player mode.",
+       "Launcher/DemoPreviews/ddgi.png",
        ApplicationMode::Player,
        {ApplicationMode::Player},
        {}},
@@ -330,6 +332,7 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        "EcoSysLab",
        "EcoSysLabApp",
        "EcoSysLab project with its runtime package loaded.",
+       "Launcher/DemoPreviews/ecosyslab.png",
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {"EcoSysLab"}},
@@ -338,6 +341,7 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        "DigitalAgriculture",
        "DigitalAgricultureApp",
        "Digital Agriculture project with its runtime package loaded.",
+       "Launcher/DemoPreviews/digital-agriculture.png",
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {"DigitalAgriculture"}},
@@ -346,6 +350,7 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        "LSystem",
        "LSystemApp",
        "LSystem project with DigitalAgriculture compatibility package loaded.",
+       "Launcher/DemoPreviews/lsystem.png",
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {"LSystem", "DigitalAgriculture"}},

@@ -20,6 +20,7 @@ struct DemoProfileDescriptor {
   const char* title;
   const char* source_app_name;
   const char* description;
+  const char* preview_image_path;
   ApplicationMode default_application_mode;
   std::vector<ApplicationMode> supported_application_modes;
   std::vector<std::string> startup_runtime_packages;

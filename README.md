@@ -44,6 +44,8 @@ out/install/vs2026-x64/bin/
 
 Start with `EvoEngineLauncher.exe` to open demo profiles, create projects, or open recent projects. Use
 `EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
+Run `python Scripts\generate_demo_previews.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe` to refresh the
+static demo thumbnails shown by the launcher.
 
 For detailed setup, platform requirements, Linux commands, VSCode notes, and install layout, see [docs/building.md](docs/building.md).
 

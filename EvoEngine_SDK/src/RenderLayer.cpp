@@ -3043,7 +3043,12 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
   const auto previous_render_instances = render_instances_list_[current_frame_index];
   const bool previous_need_fade = need_fade_;
   render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();
-  PrepareSceneForRendering(scene, false, false, false, false);
+  if (!ddgi_fallback_probe_state_buffer_) {
+    ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer();
+  }
+  BindDdgiFallbackLightingDescriptors(lighting_ ? lighting_->lighting_descriptor_set : nullptr,
+                                      ddgi_fallback_probe_state_buffer_);
+  PrepareSceneForRendering(scene, true, false, false, false);
   RenderToCamera(scene, camera_global_transform, camera, true);
   render_instances_list_[current_frame_index] = previous_render_instances;
   need_fade_ = previous_need_fade;
