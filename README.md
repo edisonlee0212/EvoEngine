@@ -94,29 +94,17 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 ## Demo Gallery
 
-| Rendering with DDGI Probes | Ray Tracing |
+| Galaxy | EcoSysLab |
 | --- | --- |
-| ![Rendering demo with DDGI debug probes](Resources/GitHub/RenderingDemo.png) | ![Ray tracing demo](Resources/GitHub/RayTracingDemo.png) |
+| ![Galaxy demo](Resources/GitHub/GalaxyDemo.png) | ![EcoSysLab demo](Resources/GitHub/TreeFrameworkDemo.png) | 
 
-| Planet Terrain | Star Clusters |
+| Strand Visualization | Tree Fracture |
 | --- | --- |
-| ![Planet terrain demo](Resources/GitHub/PlanetsDemo.png) | ![Star cluster demo](Resources/GitHub/StarClusterDemo.png) |
+| ![Strand visualization](Resources/GitHub/StrandVisualization.png) | ![Tree fracture](Resources/GitHub/TreeFracture.png) |
 
-| Tree Framework | Tree Fracture |
+| Sky Lighting | Digital Agriculture |
 | --- | --- |
-| ![Tree framework demo](Resources/GitHub/TreeFrameworkDemo.png) | ![Tree fracture](Resources/GitHub/TreeFracture.png) |
-
-| Strand Visualization | Illumination Estimation |
-| --- | --- |
-| ![Strand visualization](Resources/GitHub/StrandVisualization.png) | ![Illumination estimation demo](Resources/GitHub/IlluminationEstimationDemo.png) |
-
-| Sorghum Model | Sorghum Point Cloud |
-| --- | --- |
-| ![Sorghum model](Resources/GitHub/SorghumModel.png) | ![Sorghum point cloud](Resources/GitHub/SorghumPointCloud.png) |
-
-| Sorghum Environment Lighting |
-| --- |
-| ![Sorghum environment lighting](Resources/GitHub/SorghumEnvLighting.png) |
+| ![Sorghum Env Lighting](Resources/GitHub/SorghumEnvLighting.png) | ![Illumination estimation demo](Resources/GitHub/IlluminationEstimationDemo.png) |
 
 ## Related Publications
 
