@@ -36,7 +36,7 @@ std::string ExtractBetween(const std::string& source, const std::string& begin, 
 }
 
 void ExpectDefaultVolumetricCloudSettings(const VolumetricCloudSettings& settings) {
-  EXPECT_TRUE(settings.enabled);
+  EXPECT_FALSE(settings.enabled);
   EXPECT_FLOAT_EQ(settings.coverage, 0.62f);
   EXPECT_FLOAT_EQ(settings.density, 1.15f);
   EXPECT_FLOAT_EQ(settings.bottom_altitude, 25.0f);
@@ -70,7 +70,7 @@ void ExpectDefaultVolumetricCloudSettings(const VolumetricCloudSettings& setting
 }
 }  // namespace
 
-TEST(VolumetricCloudSettings, DefaultsAreEnabledAndAuthoringFriendly) {
+TEST(VolumetricCloudSettings, DefaultsAreDisabledUntilSceneOptsIn) {
   ExpectDefaultVolumetricCloudSettings(VolumetricCloudSettings{});
 }
 
@@ -322,7 +322,8 @@ TEST(VolumetricCloudSettings, CloudSettingsDoNotFeedDdgiSceneChangeTriggers) {
   ASSERT_FALSE(render_layer_source.empty());
 
   const auto trigger_block =
-      ExtractBetween(render_layer_source, "ddgi_scene_change_triggers_ =", "const bool render_instance_updated");
+      ExtractBetween(render_layer_source, "if (track_ddgi_scene_inputs) {",
+                     "PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);");
   ASSERT_FALSE(trigger_block.empty());
 
   EXPECT_NE(trigger_block.find("active_light_keys != ddgi_previous_active_light_keys_"), std::string::npos);
@@ -331,8 +332,9 @@ TEST(VolumetricCloudSettings, CloudSettingsDoNotFeedDdgiSceneChangeTriggers) {
             std::string::npos);
   EXPECT_NE(trigger_block.find("light_signatures != ddgi_previous_light_signatures_"), std::string::npos);
   EXPECT_NE(trigger_block.find("geometry_signatures != ddgi_previous_geometry_signatures_"), std::string::npos);
-  EXPECT_NE(trigger_block.find("geometry_storage_version"), std::string::npos);
-  EXPECT_NE(trigger_block.find("texture_storage_version"), std::string::npos);
+  EXPECT_NE(trigger_block.find("blocks_changed(current_render_instances->GetMaterialInfoBlocks(), "
+                               "ddgi_previous_material_info_blocks_)"),
+            std::string::npos);
   EXPECT_EQ(trigger_block.find("volumetric_cloud_settings"), std::string::npos);
   EXPECT_EQ(trigger_block.find("VolumetricCloudSettings"), std::string::npos);
   EXPECT_EQ(trigger_block.find("cloud"), std::string::npos);

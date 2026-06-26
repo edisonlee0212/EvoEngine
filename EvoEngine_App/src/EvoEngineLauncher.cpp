@@ -1,6 +1,7 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "DemoProfiles.hpp"
 #include "EditorTheme.hpp"
 #include "ILayer.hpp"
 #include "ImGuiLayer.hpp"
@@ -21,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <unordered_map>
 #include <vector>
 
@@ -29,7 +31,6 @@
 #    define NOMINMAX
 #  endif
 #  include <Windows.h>
-#  include <shellapi.h>
 #endif
 
 using namespace evo_engine;
@@ -130,24 +131,67 @@ ImVec4 ColorSelectedPanel() {
   return ImGui::GetStyleColorVec4(ImGuiCol_Header);
 }
 
-ImVec4 ColorSelectedBorder() {
-  return ImGui::GetStyleColorVec4(ImGuiCol_TextLink);
+ImU32 StyleColor(const ImGuiCol color, const float alpha_multiplier = 1.0f) {
+  auto value = ImGui::GetStyleColorVec4(color);
+  value.w *= alpha_multiplier;
+  return ImGui::GetColorU32(value);
 }
 
-constexpr const char* kRecentProjectsWindow = "Recent Projects";
-constexpr const char* kNewProjectWindow = "New Project";
 constexpr float kCustomTitleBarHeight = 57.0f;
+constexpr int kLauncherWindowWidth = 1024;
+constexpr int kLauncherWindowHeight = 760;
+constexpr float kSidebarWidth = 218.0f;
+constexpr float kLauncherMainViewHorizontalPadding = 16.0f;
+constexpr const char* kLauncherBrandName = "EvoEngine";
 constexpr float kTitleBarLogoSize = 38.0f;
 constexpr float kTitleBarLogoX = 10.0f;
-constexpr float kTitleBarButtonsAreaWidth = 94.0f;
+constexpr float kTitleBarTitleGap = 12.0f;
+constexpr float kTitleBarTitleScale = 2.0f;
+constexpr float kTitleBarButtonsAreaWidth = 76.0f;
 constexpr float kTitleBarButtonSize = 14.0f;
 constexpr ImU32 kTitleBarColor = IM_COL32(21, 21, 21, 255);
 constexpr ImU32 kTitleBarText = IM_COL32(192, 192, 192, 255);
 constexpr ImU32 kTitleBarTextDarker = IM_COL32(128, 128, 128, 255);
+constexpr float kLauncherItemRounding = 5.0f;
+constexpr float kLauncherItemPadding = 8.0f;
+constexpr float kDemoThumbnailAspectRatio = 16.0f / 9.0f;
+constexpr float kDemoTypeHeight = 22.0f;
+constexpr float kLauncherTileTextAreaHeight = 146.0f;
 constexpr std::array<ApplicationMode, 2> kLauncherApplicationModes = {ApplicationMode::Editor, ApplicationMode::Player};
+
+enum class LauncherSection { Demo, RecentProjects, NewProject };
+
+struct LauncherTileInteraction {
+  bool clicked = false;
+  bool hovered = false;
+};
 
 ApplicationMode NormalizeLauncherApplicationMode(const ApplicationMode mode) {
   return mode == ApplicationMode::Player ? ApplicationMode::Player : ApplicationMode::Editor;
+}
+
+const char* GetLauncherSectionLabel(const LauncherSection section) {
+  switch (section) {
+    case LauncherSection::Demo:
+      return "Demo";
+    case LauncherSection::RecentProjects:
+      return "Recent Projects";
+    case LauncherSection::NewProject:
+      return "New Project";
+  }
+  return "Demo";
+}
+
+const char* GetLauncherSectionLogName(const LauncherSection section) {
+  switch (section) {
+    case LauncherSection::Demo:
+      return "Demo";
+    case LauncherSection::RecentProjects:
+      return "RecentProjects";
+    case LauncherSection::NewProject:
+      return "NewProject";
+  }
+  return "Demo";
 }
 
 ImU32 MultiplyColor(const ImU32 color, const float multiplier) {
@@ -186,6 +230,124 @@ bool DrawFittedImage(const std::shared_ptr<Texture2D>& icon, const ImVec2 min, c
   return true;
 }
 
+bool DrawPreviewImage(const std::shared_ptr<Texture2D>& texture, const ImVec2 min, const ImVec2 max, const ImU32 tint) {
+  if (!texture || texture->GetImTextureId() == 0) {
+    return false;
+  }
+  const glm::uvec2 resolution = texture->GetResolution();
+  if (resolution.x == 0 || resolution.y == 0) {
+    return false;
+  }
+
+  const ImVec2 bounds(max.x - min.x, max.y - min.y);
+  if (bounds.x <= 0.0f || bounds.y <= 0.0f) {
+    return false;
+  }
+  const float scale =
+      std::min(bounds.x / static_cast<float>(resolution.x), bounds.y / static_cast<float>(resolution.y));
+  const ImVec2 image_size(static_cast<float>(resolution.x) * scale, static_cast<float>(resolution.y) * scale);
+  const ImVec2 image_min(min.x + (bounds.x - image_size.x) * 0.5f, min.y + (bounds.y - image_size.y) * 0.5f);
+  const ImVec2 image_max(image_min.x + image_size.x, image_min.y + image_size.y);
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddImageRounded(texture->GetImTextureId(), image_min, image_max, ImVec2(0, 1), ImVec2(1, 0), tint,
+                             kLauncherItemRounding);
+  return true;
+}
+
+float LauncherTileHeightForWidth(const float card_width) {
+  const float thumbnail_width = std::max(card_width - kLauncherItemPadding * 2.0f, 1.0f);
+  return std::max(248.0f, thumbnail_width / kDemoThumbnailAspectRatio + kLauncherTileTextAreaHeight);
+}
+
+void DrawTextClipped(const ImVec2 min, const ImVec2 max, const ImU32 color, const std::string& text,
+                     const float wrap_width = 0.0f) {
+  if (text.empty()) {
+    return;
+  }
+  const ImVec4 clip(min.x, min.y, max.x, max.y);
+  ImGui::GetWindowDrawList()->AddText(nullptr, 0.0f, min, color, text.c_str(), nullptr, wrap_width, &clip);
+}
+
+void DrawTextCenteredClipped(const ImVec2 min, const ImVec2 max, const ImU32 color, const std::string& text) {
+  if (text.empty()) {
+    return;
+  }
+  const auto text_size = ImGui::CalcTextSize(text.c_str());
+  const float available_width = std::max(max.x - min.x - kLauncherItemPadding * 2.0f, 1.0f);
+  const float text_scale =
+      text_size.x > available_width ? std::max(available_width / std::max(text_size.x, 1.0f), 0.70f) : 1.0f;
+  const ImVec2 scaled_size(text_size.x * text_scale, text_size.y * text_scale);
+  const ImVec2 text_min(min.x + kLauncherItemPadding + std::max((available_width - scaled_size.x) * 0.5f, 0.0f),
+                        min.y + std::max((max.y - min.y - scaled_size.y) * 0.5f, 0.0f));
+  const ImVec4 clip(min.x, min.y, max.x, max.y);
+  ImGui::GetWindowDrawList()->AddText(nullptr, ImGui::GetFontSize() * text_scale, text_min, color, text.c_str(),
+                                      nullptr, 0.0f, &clip);
+}
+
+LauncherTileInteraction DrawLauncherDemoTile(const char* id, const std::string& type_label, const std::string& title,
+                                             const std::string& detail, const std::string& status,
+                                             const ImVec4& status_color, const std::shared_ptr<Texture2D>& preview,
+                                             const bool disabled, const ImVec2 size) {
+  ImGui::InvisibleButton(id, size);
+  LauncherTileInteraction interaction;
+  interaction.hovered = ImGui::IsItemHovered();
+  interaction.clicked = !disabled && ImGui::IsItemClicked(ImGuiMouseButton_Left);
+
+  const ImVec2 min = ImGui::GetItemRectMin();
+  const ImVec2 max = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  const auto background_color = disabled              ? StyleColor(ImGuiCol_FrameBg, 0.25f)
+                                : interaction.hovered ? StyleColor(ImGuiCol_HeaderHovered, 0.75f)
+                                                      : StyleColor(ImGuiCol_FrameBg, 0.45f);
+  const auto border_color = disabled ? StyleColor(ImGuiCol_Border, 0.45f) : StyleColor(ImGuiCol_Border, 0.80f);
+  draw_list->AddRectFilled(min, max, background_color, kLauncherItemRounding);
+  draw_list->AddRect(min, max, border_color, kLauncherItemRounding);
+
+  const ImVec2 thumbnail_min(min.x + kLauncherItemPadding, min.y + kLauncherItemPadding);
+  const float thumbnail_width = std::max(max.x - min.x - kLauncherItemPadding * 2.0f, 1.0f);
+  const ImVec2 thumbnail_max(max.x - kLauncherItemPadding,
+                             thumbnail_min.y + thumbnail_width / kDemoThumbnailAspectRatio);
+  draw_list->AddRectFilled(thumbnail_min, thumbnail_max, StyleColor(ImGuiCol_WindowBg, disabled ? 0.20f : 0.32f),
+                           kLauncherItemRounding);
+  if (DrawPreviewImage(preview, thumbnail_min, thumbnail_max, IM_COL32_WHITE) && disabled) {
+    draw_list->AddRectFilled(thumbnail_min, thumbnail_max, StyleColor(ImGuiCol_WindowBg, 0.52f), kLauncherItemRounding);
+  }
+  draw_list->AddRect(thumbnail_min, thumbnail_max, StyleColor(ImGuiCol_Border, 0.42f), kLauncherItemRounding);
+
+  const ImVec2 type_min(min.x, thumbnail_max.y + kLauncherItemPadding);
+  const ImVec2 type_max(max.x, type_min.y + kDemoTypeHeight);
+  draw_list->AddRectFilled(type_min, type_max, StyleColor(ImGuiCol_Header, disabled ? 0.38f : 0.70f));
+  DrawTextCenteredClipped(type_min, type_max, StyleColor(ImGuiCol_TextDisabled), type_label);
+
+  const ImVec2 title_min(min.x + kLauncherItemPadding, type_max.y + kLauncherItemPadding);
+  const ImVec2 title_max(max.x - kLauncherItemPadding, title_min.y + 22.0f);
+  DrawTextClipped(title_min, title_max, StyleColor(ImGuiCol_Text, disabled ? 0.55f : 1.0f), title);
+
+  const ImVec2 detail_min(title_min.x, title_max.y + 4.0f);
+  const ImVec2 detail_max(max.x - kLauncherItemPadding, max.y - 30.0f);
+  DrawTextClipped(detail_min, detail_max, StyleColor(ImGuiCol_TextDisabled, disabled ? 0.58f : 0.92f), detail,
+                  detail_max.x - detail_min.x);
+
+  const ImVec2 status_min(title_min.x, max.y - 24.0f);
+  const ImVec2 status_max(max.x - kLauncherItemPadding, max.y - kLauncherItemPadding);
+  DrawTextClipped(status_min, status_max, ImGui::GetColorU32(status_color), status);
+  return interaction;
+}
+
+void PushLauncherCardStyle(const bool selected, const bool disabled = false) {
+  ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, kLauncherItemRounding);
+  ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+  ImGui::PushStyleColor(ImGuiCol_ChildBg, selected   ? ColorSelectedPanel()
+                                          : disabled ? ImGui::GetStyleColorVec4(ImGuiCol_WindowBg)
+                                                     : ColorPanelAlt());
+  ImGui::PushStyleColor(ImGuiCol_Border, selected ? ImGui::GetStyleColorVec4(ImGuiCol_TextLink) : ColorBorder());
+}
+
+void PopLauncherCardStyle() {
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(2);
+}
+
 void DrawFallbackLogo(const ImVec2 min, const float size, const ImU32 tint) {
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
   const ImVec2 center(min.x + size * 0.5f, min.y + size * 0.5f);
@@ -201,7 +363,7 @@ void DrawFallbackLogo(const ImVec2 min, const float size, const ImU32 tint) {
   draw_list->AddLine(center, points[4], tint, 3.0f);
 }
 
-enum class TitleBarGlyph { Minimize, Maximize, Restore, Close };
+enum class TitleBarGlyph { Minimize, Close };
 
 void DrawFallbackTitleBarGlyph(const ImVec2 min, const ImVec2 max, const TitleBarGlyph glyph, const ImU32 tint) {
   ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -212,13 +374,6 @@ void DrawFallbackTitleBarGlyph(const ImVec2 min, const ImVec2 max, const TitleBa
       draw_list->AddLine(ImVec2(min.x, y), ImVec2(max.x, y), tint, thickness);
       break;
     }
-    case TitleBarGlyph::Maximize:
-      draw_list->AddRect(min, max, tint, 0.0f, 0, thickness);
-      break;
-    case TitleBarGlyph::Restore:
-      draw_list->AddRect(ImVec2(min.x + 3.0f, min.y), max, tint, 0.0f, 0, thickness);
-      draw_list->AddRect(ImVec2(min.x, min.y + 3.0f), ImVec2(max.x - 3.0f, max.y), tint, 0.0f, 0, thickness);
-      break;
     case TitleBarGlyph::Close:
       draw_list->AddLine(ImVec2(min.x + 1.0f, min.y + 1.0f), ImVec2(max.x - 1.0f, max.y - 1.0f), tint, thickness);
       draw_list->AddLine(ImVec2(max.x - 1.0f, min.y + 1.0f), ImVec2(min.x + 1.0f, max.y - 1.0f), tint, thickness);
@@ -288,23 +443,40 @@ bool LaunchEditorProcess(const std::filesystem::path& project_path, const Applic
 #endif
 }
 
-bool RevealProjectInExplorer(const std::filesystem::path& project_path, std::string& error) {
-  const auto absolute_path = std::filesystem::absolute(project_path);
-  if (!std::filesystem::exists(absolute_path) || std::filesystem::is_directory(absolute_path)) {
-    error = "Project file is missing.";
+bool LaunchDemoEditorProcess(const DemoProfileId profile_id, std::string& error) {
+  const auto editor_path = EditorExecutablePath();
+  if (!std::filesystem::exists(editor_path)) {
+    error = "Could not find EvoEngineEditor next to EvoEngineLauncher.";
     return false;
   }
+
+  const auto application_mode = GetDemoProfile(profile_id).default_application_mode;
+  const auto mode_argument = GetApplicationModeArgument(application_mode);
+  const std::string profile_arg = GetDemoProfileIdName(profile_id);
 #ifdef EVOENGINE_WINDOWS
-  const auto parameters = L"/select,\"" + absolute_path.wstring() + L"\"";
-  const auto result = ShellExecuteW(nullptr, L"open", L"explorer.exe", parameters.c_str(), nullptr, SW_SHOWNORMAL);
-  if (reinterpret_cast<intptr_t>(result) <= 32) {
-    error = "Failed to reveal project in Explorer.";
+  const std::wstring wide_profile_arg(profile_arg.begin(), profile_arg.end());
+  const std::wstring wide_mode_argument(mode_argument, mode_argument + std::strlen(mode_argument));
+  std::wstring command_line =
+      L"\"" + editor_path.wstring() + L"\" --demo " + wide_profile_arg + L" " + wide_mode_argument;
+  STARTUPINFOW startup_info{};
+  startup_info.cb = sizeof(startup_info);
+  PROCESS_INFORMATION process_info{};
+  const auto working_directory = editor_path.parent_path().wstring();
+  if (!CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, FALSE, 0, nullptr, working_directory.c_str(),
+                      &startup_info, &process_info)) {
+    error = "Failed to launch EvoEngineEditor.";
+    return false;
+  }
+  CloseHandle(process_info.hProcess);
+  CloseHandle(process_info.hThread);
+  return true;
+#else
+  const auto command = "\"" + editor_path.string() + "\" --demo " + profile_arg + " " + mode_argument + " &";
+  if (std::system(command.c_str()) != 0) {
+    error = "Failed to launch EvoEngineEditor.";
     return false;
   }
   return true;
-#else
-  error = "Reveal is only supported on Windows.";
-  return false;
 #endif
 }
 
@@ -324,12 +496,23 @@ class LauncherLayer final : public ILayer {
     }
     AppendLaunchModeTestLog();
     AppendTestLog("mode:hub");
+    AppendSectionTestLog();
+    AppendDemoAvailabilityTestLog();
     if (const char* open_project = std::getenv("EVOENGINE_LAUNCHER_TEST_OPEN_PROJECT")) {
       pending_test_open_project_ = open_project;
+    }
+    if (const char* open_demo = std::getenv("EVOENGINE_LAUNCHER_TEST_OPEN_DEMO")) {
+      pending_test_open_demo_ = open_demo;
     }
   }
 
   void PreUpdate() override {
+    if (!pending_test_open_demo_.empty()) {
+      const auto demo_id = pending_test_open_demo_;
+      pending_test_open_demo_.clear();
+      OpenDemoProfile(demo_id);
+      return;
+    }
     if (!pending_test_open_project_.empty()) {
       const auto project_path = pending_test_open_project_;
       pending_test_open_project_.clear();
@@ -346,7 +529,7 @@ class LauncherLayer final : public ILayer {
   }
 
  private:
-  char project_name_[256] = {};
+  char project_name_[256] = "NewProject";
   std::filesystem::path parent_folder_;
   std::string create_error_;
   std::string launch_error_;
@@ -355,10 +538,51 @@ class LauncherLayer final : public ILayer {
   std::vector<std::string> selected_startup_runtime_packages_;
   launcher::PackageAvailability package_availability_;
   ApplicationMode selected_launch_mode_ = ApplicationMode::Editor;
+  LauncherSection selected_section_ = LauncherSection::Demo;
   std::unordered_map<std::string, std::shared_ptr<Texture2D>> title_bar_icons_;
-  bool dock_layout_dirty_ = true;
-  ImGuiID dock_space_id_ = 0;
+  std::unordered_map<std::string, std::shared_ptr<Texture2D>> demo_preview_textures_;
   std::filesystem::path pending_test_open_project_;
+  std::string pending_test_open_demo_;
+
+  std::filesystem::path ResolveDemoPreviewPath(const DemoProfileDescriptor& profile) const {
+    const std::filesystem::path preview_path(profile.preview_image_path);
+    const auto executable_dir = CurrentExecutablePath().parent_path();
+    const std::vector<std::filesystem::path> candidates = {
+        executable_dir / preview_path, executable_dir / "Resources" / preview_path,
+        std::filesystem::current_path() / preview_path, std::filesystem::current_path() / "Resources" / preview_path};
+    if (const auto existing_path = path_utils::FindExistingPath(candidates); !existing_path.empty()) {
+      return existing_path;
+    }
+    return candidates.front();
+  }
+
+  std::shared_ptr<Texture2D> GetDemoPreviewTexture(const DemoProfileDescriptor& profile) {
+    const std::string key = profile.id_name;
+    if (const auto search = demo_preview_textures_.find(key); search != demo_preview_textures_.end()) {
+      return search->second;
+    }
+
+    const auto preview_path = ResolveDemoPreviewPath(profile);
+    std::shared_ptr<Texture2D> preview;
+    std::string state = "missing";
+    if (std::filesystem::exists(preview_path) && !std::filesystem::is_directory(preview_path)) {
+      auto loaded_preview = AssetManager::CreateTemporaryAsset<Texture2D>();
+      if (Serialization::LoadAsset(*loaded_preview, preview_path)) {
+        loaded_preview->UnsafeUploadDataImmediately();
+        if (loaded_preview->GetImTextureId() != 0) {
+          preview = std::move(loaded_preview);
+          state = "loaded";
+        } else {
+          state = "zero-texture-id";
+        }
+      } else {
+        state = "load-failed";
+      }
+    }
+    AppendTestLog("demo-preview:" + key + ":" + state + ":" + preview_path.string());
+    demo_preview_textures_[key] = preview;
+    return preview;
+  }
 
   void LoadTitleBarIcons() {
     const auto default_resources = DefaultResourcesPath();
@@ -376,8 +600,6 @@ class LauncherLayer final : public ILayer {
     load_icon("TitleBarLogoWhite", default_resources / "Editor/TitleBar/EvoEngine64White.png");
     load_icon("TitleBarLogoBlack", default_resources / "Icons/EvoEngine64.png");
     load_icon("WindowMinimize", default_resources / "Editor/Window/Minimize.png");
-    load_icon("WindowMaximize", default_resources / "Editor/Window/Maximize.png");
-    load_icon("WindowRestore", default_resources / "Editor/Window/Restore.png");
     load_icon("WindowClose", default_resources / "Editor/Window/Close.png");
   }
 
@@ -421,10 +643,17 @@ class LauncherLayer final : public ILayer {
         DrawFallbackLogo(logo_min, kTitleBarLogoSize, TitleBarLogoFallbackTint());
       }
 
-      const float drag_start_x = kTitleBarLogoX + kTitleBarLogoSize + 18.0f;
-      const float drag_width = controls_x - drag_start_x;
-      if (drag_width > 0.0f) {
-        window_layer->SetCustomTitleBarDragRegion(glm::vec4(drag_start_x, 0.0f, drag_width, kCustomTitleBarHeight));
+      const auto title_font = ImGui::GetFont();
+      const float title_font_size = ImGui::GetFontSize() * kTitleBarTitleScale;
+      const ImVec2 title_size =
+          title_font->CalcTextSizeA(title_font_size, std::numeric_limits<float>::max(), 0.0f, kLauncherBrandName);
+      const ImVec2 title_min(
+          static_cast<float>(static_cast<int>(logo_min.x + kTitleBarLogoSize + kTitleBarTitleGap)),
+          static_cast<float>(static_cast<int>(titlebar_min.y + (kCustomTitleBarHeight - title_size.y) * 0.5f)));
+      draw_list->AddText(title_font, title_font_size, title_min, kTitleBarText, kLauncherBrandName);
+
+      if (controls_x > 0.0f) {
+        window_layer->SetCustomTitleBarDragRegion(glm::vec4(0.0f, 0.0f, controls_x, kCustomTitleBarHeight));
       } else {
         window_layer->ClearCustomTitleBarDragRegion();
       }
@@ -435,16 +664,6 @@ class LauncherLayer final : public ILayer {
       if (DrawTitleBarImageButton("Close##Launcher", FindIcon(title_bar_icons_, "WindowClose"),
                                   ImVec2(button_x, button_y), true, TitleBarGlyph::Close)) {
         ApplicationContext::Get().End();
-      }
-      button_x -= 15.0f + kTitleBarButtonSize;
-      if (DrawTitleBarImageButton(
-              window_layer->IsWindowMaximized() ? "Restore##Launcher" : "Maximize##Launcher",
-              FindIcon(title_bar_icons_, window_layer->IsWindowMaximized() ? "WindowRestore" : "WindowMaximize"),
-              ImVec2(button_x, button_y), false,
-              window_layer->IsWindowMaximized() ? TitleBarGlyph::Restore : TitleBarGlyph::Maximize)) {
-        ApplicationContext::Get().QueueEndOfLoopAction([window_layer]() {
-          window_layer->ToggleMaximized();
-        });
       }
       button_x -= 17.0f + kTitleBarButtonSize;
       if (DrawTitleBarImageButton("Minimize##Launcher", FindIcon(title_bar_icons_, "WindowMinimize"),
@@ -482,62 +701,143 @@ class LauncherLayer final : public ILayer {
       ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(10.0f, 8.0f));
       ImGui::PushStyleColor(ImGuiCol_Border, ColorBorder());
       ImGui::SetCursorPos(ImVec2(0.0f, 0.0f));
-      if (ImGui::BeginChild("LauncherDockHost", ImVec2(0.0f, 0.0f), false,
-                            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        DrawLauncherDockspace();
-      }
-      ImGui::EndChild();
+      DrawLauncherShell(ImGui::GetContentRegionAvail());
       ImGui::PopStyleColor();
       ImGui::PopStyleVar(3);
     }
     ImGui::End();
     ImGui::PopStyleVar(3);
-
-    DrawProjectHub();
   }
 
-  void DrawLauncherDockspace() {
-    dock_space_id_ = ImGui::GetID("LauncherDockSpace");
-    const ImVec2 dock_size = ImGui::GetContentRegionAvail();
-    if ((dock_layout_dirty_ || ImGui::DockBuilderGetNode(dock_space_id_) == nullptr) && dock_size.x > 1.0f &&
-        dock_size.y > 1.0f) {
-      RebuildLauncherDockLayout(dock_size);
+  void DrawLauncherShell(const ImVec2& size) {
+    const float sidebar_width = std::clamp(kSidebarWidth, 120.0f, std::max(120.0f, size.x * 0.45f));
+    if (BeginLauncherPanel("LauncherSidebar", ImVec2(sidebar_width, 0.0f), ColorPanelAlt(), ImVec2(0.0f, 0.0f),
+                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+      DrawSidebar();
     }
-    ImGui::DockSpace(dock_space_id_, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
-  }
+    EndLauncherPanel();
 
-  void RebuildLauncherDockLayout(const ImVec2& dock_size) {
-    ImGui::DockBuilderRemoveNode(dock_space_id_);
-    ImGui::DockBuilderAddNode(dock_space_id_, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dock_space_id_, dock_size);
-    ImGuiID main_node = dock_space_id_;
-    const ImGuiID recent_node = ImGui::DockBuilderSplitNode(main_node, ImGuiDir_Left, 0.34f, nullptr, &main_node);
-    ImGui::DockBuilderDockWindow(kRecentProjectsWindow, recent_node);
-    ImGui::DockBuilderDockWindow(kNewProjectWindow, main_node);
-    ImGui::DockBuilderFinish(dock_space_id_);
-    dock_layout_dirty_ = false;
-  }
-
-  void DrawProjectHub() {
-    DrawDockedPanel(kRecentProjectsWindow, [this](const float width) {
-      DrawRecentProjectsPanel(width);
-    });
-    DrawDockedPanel(kNewProjectWindow, [this](const float width) {
-      DrawCreateProjectForm(ImVec2(width, 0.0f));
-    });
-  }
-
-  template <typename DrawBody>
-  void DrawDockedPanel(const char* title, DrawBody&& draw_body) {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f, 12.0f));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ColorPanel());
-    ImGui::PushStyleColor(ImGuiCol_Border, ColorBorder());
-    if (ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoCollapse)) {
-      draw_body(std::max(ImGui::GetContentRegionAvail().x, 260.0f));
+    ImGui::SameLine(0.0f, 0.0f);
+    if (BeginLauncherPanel("LauncherMainView", ImVec2(0.0f, 0.0f), ColorPanel(),
+                           ImVec2(kLauncherMainViewHorizontalPadding, 16.0f))) {
+      DrawSelectedSection(std::max(ImGui::GetContentRegionAvail().x, 260.0f));
     }
-    ImGui::End();
-    ImGui::PopStyleColor(2);
+    EndLauncherPanel();
+  }
+
+  bool BeginLauncherPanel(const char* id, const ImVec2& size, const ImVec4& background, const ImVec2& padding,
+                          const ImGuiWindowFlags window_flags = ImGuiWindowFlags_None) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
+    return ImGui::BeginChild(id, size, ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding, window_flags);
+  }
+
+  void EndLauncherPanel() {
+    ImGui::EndChild();
     ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+  }
+
+  void DrawSidebar() {
+    ImGui::Dummy(ImVec2(0.0f, 14.0f));
+    DrawSidebarItem(LauncherSection::Demo);
+    DrawSidebarItem(LauncherSection::RecentProjects);
+    DrawSidebarItem(LauncherSection::NewProject);
+  }
+
+  void DrawSidebarItem(const LauncherSection section) {
+    const bool selected = selected_section_ == section;
+    ImGui::SetCursorPosX(12.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, kLauncherItemRounding);
+    ImGui::PushStyleColor(ImGuiCol_Button, selected ? ColorSelectedPanel() : ColorPanelAlt());
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? ColorSelectedPanel() : ColorPanel());
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ColorSelectedPanel());
+    ImGui::PushStyleColor(ImGuiCol_Border, selected ? ImGui::GetStyleColorVec4(ImGuiCol_TextLink) : ColorBorder());
+    if (ImGui::Button(GetLauncherSectionLabel(section), ImVec2(ImGui::GetContentRegionAvail().x - 12.0f, 36.0f))) {
+      selected_section_ = section;
+      launch_error_.clear();
+      create_error_.clear();
+      AppendSectionTestLog();
+    }
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(2);
+  }
+
+  void DrawSelectedSection(const float content_width) {
+    switch (selected_section_) {
+      case LauncherSection::Demo:
+        DrawDemoPanel(content_width);
+        break;
+      case LauncherSection::RecentProjects:
+        DrawRecentProjectsPanel(content_width);
+        break;
+      case LauncherSection::NewProject:
+        DrawCreateProjectForm(ImVec2(content_width, 0.0f));
+        break;
+    }
+  }
+
+  void DrawDemoPanel(const float content_width) {
+    if (!launch_error_.empty()) {
+      ImGui::TextColored(ColorError(), "%s", launch_error_.c_str());
+    }
+    if (ImGui::Button("Refresh", ImVec2(92.0f, 28.0f))) {
+      RefreshPackageAvailability();
+      AppendDemoAvailabilityTestLog();
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(ColorTextMuted(), "Demo profiles open in EvoEngineEditor.");
+    ImGui::Spacing();
+
+    const float item_spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float target_card_width = 272.0f;
+    const int column_count =
+        std::max(1, static_cast<int>((content_width + item_spacing) / (target_card_width + item_spacing)));
+    const float card_width = std::max(240.0f, (content_width - item_spacing * (column_count - 1)) / column_count);
+    size_t card_index = 0;
+    for (const auto& profile : GetDemoProfiles()) {
+      if (card_index % static_cast<size_t>(column_count) != 0) {
+        ImGui::SameLine();
+      }
+      DrawDemoCard(profile, card_width);
+      ++card_index;
+    }
+  }
+
+  void DrawDemoCard(const DemoProfileDescriptor& profile, const float card_width) {
+    const auto missing_resources = MissingDemoProfileResourceRequirements(profile.id);
+    const auto missing_packages = launcher::MissingPackages(package_availability_, profile.startup_runtime_packages);
+    const bool available = missing_resources.empty() && missing_packages.empty();
+
+    ImGui::PushID(profile.id_name);
+    const std::string type_label =
+        std::string(profile.source_app_name) + " - " + GetApplicationModeName(profile.default_application_mode);
+    std::string detail = profile.description;
+    if (!profile.startup_runtime_packages.empty()) {
+      detail += "\nPackages: " + launcher::JoinPackages(profile.startup_runtime_packages);
+    }
+    std::string status = "Available";
+    ImVec4 status_color = ColorSuccess();
+    if (!missing_resources.empty()) {
+      status = "Missing: " + launcher::JoinPackages(missing_resources);
+      status_color = ColorWarning();
+    } else if (!missing_packages.empty()) {
+      status = "Missing packages: " + launcher::JoinPackages(missing_packages);
+      status_color = ColorWarning();
+    }
+
+    const auto interaction = DrawLauncherDemoTile("DemoCard", type_label, profile.title, detail, status, status_color,
+                                                  GetDemoPreviewTexture(profile), !available,
+                                                  ImVec2(card_width, LauncherTileHeightForWidth(card_width)));
+    if (interaction.hovered) {
+      ImGui::SetTooltip("%s\n%s", profile.title, available ? profile.description : status.c_str());
+    }
+    ImGui::PopID();
+
+    if (interaction.clicked) {
+      OpenDemoProfile(profile.id);
+    }
   }
 
   void DrawRecentProjectsPanel(const float content_width) {
@@ -575,14 +875,21 @@ class LauncherLayer final : public ILayer {
       return;
     }
 
-    if (ImGui::BeginChild("RecentProjectRows", ImVec2(content_width - 22.0f, 0.0f), false)) {
-      for (size_t i = 0; i < recent_project_paths_.size(); ++i) {
-        if (DrawRecentProjectRow(i, recent_project_paths_[i], content_width - 36.0f)) {
-          break;
-        }
+    const float item_spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float target_card_width = 272.0f;
+    const int column_count =
+        std::max(1, static_cast<int>((content_width + item_spacing) / (target_card_width + item_spacing)));
+    const float card_width = std::max(240.0f, (content_width - item_spacing * (column_count - 1)) / column_count);
+    size_t card_index = 0;
+    for (size_t i = 0; i < recent_project_paths_.size(); ++i) {
+      if (card_index % static_cast<size_t>(column_count) != 0) {
+        ImGui::SameLine();
       }
+      if (DrawRecentProjectCard(i, recent_project_paths_[i], card_width)) {
+        break;
+      }
+      ++card_index;
     }
-    ImGui::EndChild();
   }
 
   void DrawLaunchModeSelector(const float width) {
@@ -615,91 +922,90 @@ class LauncherLayer final : public ILayer {
     }
   }
 
-  bool DrawRecentProjectRow(const size_t index, const std::filesystem::path& path, const float row_width) {
+  bool DrawRecentProjectCard(const size_t index, const std::filesystem::path& path, const float card_width) {
     const bool available = std::filesystem::exists(path) && !std::filesystem::is_directory(path);
     const auto metadata = ProjectManager::LoadProjectLaunchMetadata(path);
     auto label = metadata.application_name;
     if (label.empty() || label == "EvoEngine Editor") {
       label = path.stem().string();
     }
-    if (!available) {
-      label += " (missing)";
-    }
 
     ImGui::PushID(static_cast<int>(index));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ColorPanelAlt());
-    ImGui::BeginChild("RecentRow", ImVec2(row_width, 124.0f), true);
-    ImGui::TextUnformatted(label.c_str());
-    ImGui::TextColored(ColorTextMuted(), "%s", path.parent_path().string().c_str());
+    const std::string type_label = std::string("Project - ") + GetApplicationModeName(selected_launch_mode_);
+    std::string detail = path.parent_path().string();
+    std::string status = available ? "Available" : "Missing project file";
+    ImVec4 status_color = available ? ColorSuccess() : ColorWarning();
     if (!metadata.startup_runtime_packages.empty()) {
       const auto missing_packages = launcher::MissingPackages(package_availability_, metadata.startup_runtime_packages);
       const auto package_text = launcher::JoinPackages(metadata.startup_runtime_packages);
-      if (missing_packages.empty()) {
-        ImGui::TextColored(ColorSuccess(), "Packages: %s", package_text.c_str());
-      } else {
-        ImGui::TextColored(ColorWarning(), "Missing: %s", launcher::JoinPackages(missing_packages).c_str());
+      detail += "\nPackages: " + package_text;
+      if (!missing_packages.empty()) {
+        status = "Missing packages: " + launcher::JoinPackages(missing_packages);
+        status_color = ColorWarning();
       }
     }
-    if (!available) {
-      ImGui::TextColored(ColorWarning(), "Project file is missing.");
-    }
-    ImGui::Spacing();
-    ImGui::BeginDisabled(!available);
-    const bool open_project = ImGui::Button("Open", ImVec2(58.0f, 26.0f));
-    ImGui::SameLine();
-    const bool reveal_project = ImGui::Button("Reveal", ImVec2(66.0f, 26.0f));
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    const bool remove_project = ImGui::Button("Remove", ImVec2(74.0f, 26.0f));
-    if (ImGui::IsWindowHovered()) {
+
+    const auto interaction =
+        DrawLauncherDemoTile("RecentProjectCard", type_label, label, detail, status, status_color, {}, !available,
+                             ImVec2(card_width, LauncherTileHeightForWidth(card_width)));
+    if (interaction.hovered) {
       ImGui::SetTooltip("%s", path.string().c_str());
     }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
     ImGui::PopID();
-    if (open_project) {
+    if (interaction.clicked) {
       OpenProject(path);
-      return true;
-    }
-    if (reveal_project) {
-      RevealProject(path);
-    }
-    if (remove_project) {
-      RemoveRecentProject(index);
       return true;
     }
     return false;
   }
 
   void DrawCreateProjectForm(const ImVec2& content_size) {
-    ImGui::SetNextItemWidth(content_size.x);
-    ImGui::InputText("Project Name", project_name_, sizeof(project_name_));
+    const float content_width = content_size.x;
+    const auto preview_project_name = launcher::Trim(project_name_);
+    const auto preview_project_path = launcher::BuildDerivedProjectPath(parent_folder_, preview_project_name);
+    constexpr float create_button_width = 120.0f;
+    constexpr float create_button_height = 32.0f;
+
+    const ImVec2 top_row_start = ImGui::GetCursorPos();
+    const float selector_width =
+        std::min(std::max(180.0f, content_width - create_button_width - ImGui::GetStyle().ItemSpacing.x), 320.0f);
+    DrawLaunchModeSelector(selector_width);
+    const float selector_end_y = ImGui::GetCursorPosY();
+
+    ImGui::SetCursorPos(ImVec2(top_row_start.x + std::max(0.0f, content_width - create_button_width), top_row_start.y));
+    if (ImGui::Button("Create", ImVec2(create_button_width, create_button_height))) {
+      const auto project_name = launcher::Trim(project_name_);
+      const auto derived_project_path = launcher::BuildDerivedProjectPath(parent_folder_, project_name);
+      CreateProject(project_name, derived_project_path.folder, derived_project_path.project_file,
+                    launcher::BuildProjectLaunchMetadata(project_name, selected_startup_runtime_packages_));
+    }
+
+    ImGui::SetCursorPos(ImVec2(top_row_start.x, std::max(selector_end_y, top_row_start.y + create_button_height)));
+    ImGui::Spacing();
+
+    ImGui::TextUnformatted("Project Path");
+    if (parent_folder_.empty() || preview_project_name.empty()) {
+      ImGui::TextColored(ColorTextMuted(), "Choose a parent folder.");
+    } else {
+      ImGui::TextWrapped("%s", preview_project_path.project_file.string().c_str());
+    }
+    ImGui::Spacing();
+
     FileUtils::OpenFolder(
-        "Parent Folder",
+        "Choose Parent Folder",
         [this](const std::filesystem::path& path) {
           parent_folder_ = path;
           create_error_.clear();
         },
         false);
 
-    DrawPackageSelector(content_size.x);
+    DrawPackageSelector(content_width);
 
-    const auto project_name = launcher::Trim(project_name_);
-    const auto derived_project_path = launcher::BuildDerivedProjectPath(parent_folder_, project_name);
-    ImGui::Spacing();
-    ImGui::TextUnformatted("Project Path");
-    ImGui::TextWrapped("%s", derived_project_path.project_file.string().c_str());
     if (!create_error_.empty()) {
       ImGui::TextColored(ColorError(), "%s", create_error_.c_str());
     }
     if (!launch_error_.empty()) {
       ImGui::TextColored(ColorError(), "%s", launch_error_.c_str());
-    }
-
-    ImGui::Spacing();
-    if (ImGui::Button("Create", ImVec2(120.0f, 32.0f))) {
-      CreateProject(project_name, derived_project_path.folder, derived_project_path.project_file,
-                    launcher::BuildProjectLaunchMetadata(project_name, selected_startup_runtime_packages_));
     }
   }
 
@@ -734,9 +1040,15 @@ class LauncherLayer final : public ILayer {
       return;
     }
     const float package_height = std::clamp(ImGui::GetContentRegionAvail().y * 0.45f, 180.0f, 360.0f);
+    const float item_spacing = ImGui::GetStyle().ItemSpacing.x;
+    const float package_list_width = std::max(content_width - 18.0f, 260.0f);
+    const float package_card_width = std::max(220.0f, (package_list_width - item_spacing) * 0.5f);
     if (ImGui::BeginChild("PackageSelectionRows", ImVec2(content_width, package_height), false)) {
-      for (const auto& package : available_packages_) {
-        DrawPackageSelectionRow(package, content_width - 18.0f);
+      for (size_t package_index = 0; package_index < available_packages_.size(); ++package_index) {
+        if (package_index % 2 != 0) {
+          ImGui::SameLine();
+        }
+        DrawPackageSelectionRow(available_packages_[package_index], package_card_width);
       }
     }
     ImGui::EndChild();
@@ -746,8 +1058,12 @@ class LauncherLayer final : public ILayer {
     bool selected = std::find(selected_startup_runtime_packages_.begin(), selected_startup_runtime_packages_.end(),
                               package.name) != selected_startup_runtime_packages_.end();
     ImGui::PushID(package.name.c_str());
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ColorPanelAlt());
-    ImGui::BeginChild("PackageSelectionRow", ImVec2(width, 76.0f), true);
+    PushLauncherCardStyle(selected, !package.library_exists);
+    ImGui::BeginChild("PackageSelectionRow", ImVec2(width, 116.0f), true);
+    ImGui::TextColored(ColorTextMuted(), "Runtime Package");
+    ImGui::SameLine();
+    ImGui::TextColored(package.library_exists ? ColorSuccess() : ColorWarning(), "- %s",
+                       package.library_exists ? "Available" : "Missing library");
     ImGui::BeginDisabled(!package.library_exists);
     if (ImGui::Checkbox(package.name.c_str(), &selected)) {
       SetPackageSelected(package.name, selected);
@@ -763,7 +1079,7 @@ class LauncherLayer final : public ILayer {
       ImGui::TextColored(ColorWarning(), "Library missing");
     }
     ImGui::EndChild();
-    ImGui::PopStyleColor();
+    PopLauncherCardStyle();
     ImGui::PopID();
   }
 
@@ -824,6 +1140,40 @@ class LauncherLayer final : public ILayer {
     ApplicationContext::Get().End();
   }
 
+  void OpenDemoProfile(const std::string_view profile_id) {
+    const auto* profile = FindDemoProfile(profile_id);
+    if (!profile) {
+      launch_error_ = "Unknown demo profile.";
+      return;
+    }
+    OpenDemoProfile(profile->id);
+  }
+
+  void OpenDemoProfile(const DemoProfileId profile_id) {
+    launch_error_.clear();
+    const auto& profile = GetDemoProfile(profile_id);
+    const auto missing_resources = MissingDemoProfileResourceRequirements(profile_id);
+    if (!missing_resources.empty()) {
+      launch_error_ = "Missing demo resources: " + launcher::JoinPackages(missing_resources);
+      return;
+    }
+    const auto missing_packages = launcher::MissingPackages(package_availability_, profile.startup_runtime_packages);
+    if (!missing_packages.empty()) {
+      launch_error_ = "Missing runtime packages: " + launcher::JoinPackages(missing_packages);
+      return;
+    }
+
+    std::string error;
+    if (!LaunchDemoEditorProcess(profile_id, error)) {
+      launch_error_ = error;
+      return;
+    }
+
+    AppendTestLog("demo-open:" + std::string(profile.id_name) +
+                  ":EvoEngineEditor:" + GetApplicationModeName(profile.default_application_mode));
+    ApplicationContext::Get().End();
+  }
+
   void LoadRecentProjects() {
     const auto settings_path = LauncherSettingsPath();
     bool pruned = false;
@@ -861,27 +1211,26 @@ class LauncherLayer final : public ILayer {
     AppendTestLog("launch-mode:" + std::string(GetApplicationModeName(selected_launch_mode_)));
   }
 
+  void AppendSectionTestLog() const {
+    AppendTestLog("section:" + std::string(GetLauncherSectionLogName(selected_section_)));
+  }
+
+  void AppendDemoAvailabilityTestLog() const {
+    const auto& profiles = GetDemoProfiles();
+    AppendTestLog("demo-count:" + std::to_string(profiles.size()));
+    for (const auto& profile : profiles) {
+      const auto missing_resources = MissingDemoProfileResourceRequirements(profile.id);
+      const auto missing_packages = launcher::MissingPackages(package_availability_, profile.startup_runtime_packages);
+      const bool available = missing_resources.empty() && missing_packages.empty();
+      AppendTestLog("demo-profile:" + std::string(profile.id_name) + ":" + (available ? "available" : "missing") +
+                    ":EvoEngineEditor:" + GetApplicationModeName(profile.default_application_mode));
+    }
+  }
+
   void AddRecentProject(const std::filesystem::path& path) {
     launcher::AddRecentProject(recent_project_paths_, path);
     SaveRecentProjects();
     AppendRecentProjectCountTestLog();
-  }
-
-  void RemoveRecentProject(const size_t index) {
-    if (index >= recent_project_paths_.size()) {
-      return;
-    }
-    recent_project_paths_.erase(recent_project_paths_.begin() + static_cast<std::ptrdiff_t>(index));
-    SaveRecentProjects();
-    AppendRecentProjectCountTestLog();
-  }
-
-  void RevealProject(const std::filesystem::path& path) {
-    launch_error_.clear();
-    std::string error;
-    if (!RevealProjectInExplorer(path, error)) {
-      launch_error_ = error;
-    }
   }
 };
 }  // namespace
@@ -897,8 +1246,10 @@ int main() {
 
     ApplicationInitializationSettings application_info{};
     application_info.application_name = "EvoEngine Launcher";
+    application_info.default_window_size = {kLauncherWindowWidth, kLauncherWindowHeight};
     application_info.allow_empty_project = true;
     application_info.use_custom_title_bar = true;
+    application_info.window_resizable = false;
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

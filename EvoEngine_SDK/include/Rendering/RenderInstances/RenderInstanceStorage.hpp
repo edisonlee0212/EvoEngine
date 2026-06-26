@@ -275,6 +275,8 @@ class RenderInstanceStorage {
     VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;              ///< Culling mode for rendering.
     VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;              ///< Polygon rendering mode.
     bool cast_shadow = true;                                        ///< Indicates if the render instance casts shadows.
+    bool alpha_tested_shadow = false;                               ///< Indicates if shadow rendering must alpha-test.
+    Bound world_bound{};                                            ///< World-space bounds used by shadow culling.
     uint32_t material_version;                                      ///< Material version used by the render instance.
     uint32_t geometry_version;                                      ///< Geometry version used by the render instance.
     std::shared_ptr<Material> material;                             ///< Material used by the render instance.
@@ -721,7 +723,21 @@ class RenderInstanceStorage {
   std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_draw_mesh_tasks_indirect_commands;
   std::shared_ptr<Buffer> mesh_draw_mesh_tasks_indirect_commands_buffer;
 
+  std::vector<VkDrawIndexedIndirectCommand> opaque_shadow_mesh_draw_indexed_indirect_commands;
+  std::shared_ptr<Buffer> opaque_shadow_mesh_draw_indexed_indirect_commands_buffer;
+
+  std::vector<VkDrawMeshTasksIndirectCommandEXT> opaque_shadow_mesh_draw_mesh_tasks_indirect_commands;
+  std::shared_ptr<Buffer> opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer;
+
+  std::vector<VkDrawIndexedIndirectCommand> alpha_tested_shadow_mesh_draw_indexed_indirect_commands;
+  std::shared_ptr<Buffer> alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer;
+
+  std::vector<VkDrawMeshTasksIndirectCommandEXT> alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands;
+  std::shared_ptr<Buffer> alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer;
+
   uint32_t total_mesh_triangles = 0;
+  uint32_t total_opaque_shadow_mesh_triangles = 0;
+  uint32_t total_alpha_tested_shadow_mesh_triangles = 0;
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;

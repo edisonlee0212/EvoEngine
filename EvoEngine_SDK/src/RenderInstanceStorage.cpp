@@ -8,6 +8,32 @@
 
 using namespace evo_engine;
 
+namespace {
+bool RequiresAlphaTestedShadow(const RenderInstanceStorage::MaterialInfoBlock& material_info_block) {
+  return material_info_block.albedo_texture_index != -1 || material_info_block.albedo_color_val.a <= 0.5f;
+}
+
+VkDrawMeshTasksIndirectCommandEXT CreateMeshTaskCommand(const uint32_t meshlet_range) {
+  VkDrawMeshTasksIndirectCommandEXT command{};
+  const uint32_t task_work_group_invocations =
+      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
+  command.groupCountX = (meshlet_range + task_work_group_invocations - 1) / task_work_group_invocations;
+  command.groupCountY = 1;
+  command.groupCountZ = 1;
+  return command;
+}
+
+VkDrawIndexedIndirectCommand CreateIndexedCommand(const uint32_t triangle_offset, const uint32_t triangle_index_count) {
+  VkDrawIndexedIndirectCommand command{};
+  command.instanceCount = 1;
+  command.firstIndex = triangle_offset * 3;
+  command.indexCount = triangle_index_count * 3;
+  command.vertexOffset = 0;
+  command.firstInstance = 0;
+  return command;
+}
+}  // namespace
+
 bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
@@ -26,6 +52,8 @@ bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRen
   if (material_version != other.material_version)
     return true;
   if (cast_shadow != other.cast_shadow)
+    return true;
+  if (alpha_tested_shadow != other.alpha_tested_shadow)
     return true;
   if (line_width != other.line_width)
     return true;
@@ -81,6 +109,8 @@ bool RenderInstanceStorage::MeshRenderInstance::operator!=(const MeshRenderInsta
   if (material_version != other.material_version)
     return true;
   if (cast_shadow != other.cast_shadow)
+    return true;
+  if (alpha_tested_shadow != other.alpha_tested_shadow)
     return true;
   if (line_width != other.line_width)
     return true;
@@ -145,6 +175,8 @@ bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedM
     return true;
   if (cast_shadow != other.cast_shadow)
     return true;
+  if (alpha_tested_shadow != other.alpha_tested_shadow)
+    return true;
   if (line_width != other.line_width)
     return true;
   if (cull_mode != other.cull_mode)
@@ -199,6 +231,8 @@ bool RenderInstanceStorage::InstancedRenderInstance::operator!=(const InstancedR
     return true;
   if (cast_shadow != other.cast_shadow)
     return true;
+  if (alpha_tested_shadow != other.alpha_tested_shadow)
+    return true;
   if (line_width != other.line_width)
     return true;
   if (cull_mode != other.cull_mode)
@@ -250,6 +284,8 @@ bool RenderInstanceStorage::StrandsRenderInstance::operator!=(const StrandsRende
     return true;
 
   if (cast_shadow != other.cast_shadow)
+    return true;
+  if (alpha_tested_shadow != other.alpha_tested_shadow)
     return true;
   if (line_width != other.line_width)
     return true;
@@ -733,6 +769,13 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
 }
 
 void RenderInstanceStorage::BuildRenderInstanceBlocks() {
+  total_opaque_shadow_mesh_triangles = 0;
+  total_alpha_tested_shadow_mesh_triangles = 0;
+  opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
+  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+  alpha_tested_shadow_mesh_draw_indexed_indirect_commands.clear();
+  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+
   const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
     render_instance->instance_index = instance_info_blocks_.size();
     if (render_instance->entity_handle != 0)
@@ -744,8 +787,36 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     auto& render_instance_block = instance_info_blocks_.emplace_back();
     render_instance->Apply(render_instance_block);
   };
+  const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+    VkDrawIndexedIndirectCommand opaque_draw{};
+    VkDrawMeshTasksIndirectCommandEXT opaque_mesh_task{};
+    VkDrawIndexedIndirectCommand alpha_tested_draw{};
+    VkDrawMeshTasksIndirectCommandEXT alpha_tested_mesh_task{};
+
+    const auto mesh_render_instance = std::dynamic_pointer_cast<MeshRenderInstance>(render_instance);
+    if (mesh_render_instance && mesh_render_instance->cast_shadow && mesh_render_instance->mesh) {
+      const auto triangle_offset = mesh_render_instance->mesh->triangle_range_->prev_frame_offset;
+      const auto triangle_index_count = mesh_render_instance->mesh->triangle_range_->prev_frame_index_count;
+      const auto meshlet_range = mesh_render_instance->mesh->meshlet_range_->prev_frame_range;
+      if (mesh_render_instance->alpha_tested_shadow) {
+        alpha_tested_draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
+        alpha_tested_mesh_task = CreateMeshTaskCommand(meshlet_range);
+        total_alpha_tested_shadow_mesh_triangles += triangle_index_count;
+      } else {
+        opaque_draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
+        opaque_mesh_task = CreateMeshTaskCommand(meshlet_range);
+        total_opaque_shadow_mesh_triangles += triangle_index_count;
+      }
+    }
+
+    opaque_shadow_mesh_draw_indexed_indirect_commands.emplace_back(opaque_draw);
+    opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(opaque_mesh_task);
+    alpha_tested_shadow_mesh_draw_indexed_indirect_commands.emplace_back(alpha_tested_draw);
+    alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(alpha_tested_mesh_task);
+  };
   deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance);
+    register_shadow_mesh_indirect_command(render_instance);
   });
   deferred_skinned_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance);
@@ -799,6 +870,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
 
   if (directional_light_entities && !directional_light_entities->empty()) {
     directional_light_info_blocks_.resize(graphics_settings.max_directional_light_size * cameras.size());
+    uint32_t directional_shadow_light_size = 0;
     for (const auto& light_entity : *directional_light_entities) {
       if (!target_scene->IsEntityEnabled(light_entity))
         continue;
@@ -806,19 +878,34 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       if (!dlc->IsEnabled())
         continue;
       render_info_block.directional_light_size++;
+      if (dlc->cast_shadow) {
+        directional_shadow_light_size++;
+      }
     }
     std::vector<glm::uvec3> viewport_results;
-    Lighting::AllocateAtlas(render_info_block.directional_light_size,
-                            graphics_settings.directional_light_shadow_map_resolution, viewport_results);
+    Lighting::AllocateAtlas(directional_shadow_light_size, graphics_settings.directional_light_shadow_map_resolution,
+                            viewport_results);
     for (const auto& [cameraGlobalTransform, camera] : cameras) {
       auto camera_index = GetCameraIndex(camera->GetHandle());
-      for (int i = 0; i < render_info_block.directional_light_size; i++) {
-        const auto block_index = camera_index * graphics_settings.max_directional_light_size + i;
+      size_t directional_light_index = 0;
+      size_t directional_shadow_light_index = 0;
+      for (const auto& light_entity : *directional_light_entities) {
+        if (!target_scene->IsEntityEnabled(light_entity))
+          continue;
+        const auto dlc = target_scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
+        if (!dlc->IsEnabled())
+          continue;
+        const auto block_index = camera_index * graphics_settings.max_directional_light_size + directional_light_index;
         auto& viewport = directional_light_info_blocks_[block_index].viewport;
-        viewport.x = viewport_results[i].x;
-        viewport.y = viewport_results[i].y;
-        viewport.z = viewport_results[i].z;
-        viewport.w = viewport_results[i].z;
+        viewport = glm::ivec4(0);
+        if (dlc->cast_shadow && directional_shadow_light_index < viewport_results.size()) {
+          viewport.x = viewport_results[directional_shadow_light_index].x;
+          viewport.y = viewport_results[directional_shadow_light_index].y;
+          viewport.z = viewport_results[directional_shadow_light_index].z;
+          viewport.w = viewport_results[directional_shadow_light_index].z;
+          directional_shadow_light_index++;
+        }
+        directional_light_index++;
       }
     }
 
@@ -975,7 +1062,8 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
   render_info_block.point_light_size = 0;
   if (point_light_entities && !point_light_entities->empty()) {
     point_light_info_blocks_.resize(point_light_entities->size());
-    std::multimap<float, size_t> sorted_point_light_indices;
+    std::multimap<float, size_t> sorted_point_shadow_light_indices;
+    uint32_t point_shadow_light_size = 0;
     for (int i = 0; i < point_light_entities->size(); i++) {
       Entity light_entity = point_light_entities->at(i);
       if (!target_scene->IsEntityEnabled(light_entity))
@@ -991,6 +1079,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       point_light_info_blocks_[render_info_block.point_light_size].diffuse =
           glm::vec4(plc->diffuse * plc->diffuse_brightness, plc->cast_shadow);
       point_light_info_blocks_[render_info_block.point_light_size].specular = glm::vec4(0);
+      point_light_info_blocks_[render_info_block.point_light_size].viewport = glm::ivec4(0);
       point_light_info_blocks_[render_info_block.point_light_size].constant_linear_quad_far_plane.w =
           plc->GetFarPlane();
 
@@ -1011,15 +1100,18 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       point_light_info_blocks_[render_info_block.point_light_size].reserved_parameters =
           glm::vec4(plc->bias, plc->light_size, 0, 0);
 
-      sorted_point_light_indices.insert(
-          {glm::distance(main_camera_position, position), render_info_block.point_light_size});
+      if (plc->cast_shadow) {
+        sorted_point_shadow_light_indices.insert(
+            {glm::distance(main_camera_position, position), render_info_block.point_light_size});
+        point_shadow_light_size++;
+      }
       render_info_block.point_light_size++;
     }
     std::vector<glm::uvec3> view_port_results;
-    Lighting::AllocateAtlas(render_info_block.point_light_size, graphics_settings.point_light_shadow_map_resolution,
+    Lighting::AllocateAtlas(point_shadow_light_size, graphics_settings.point_light_shadow_map_resolution,
                             view_port_results);
     int allocation_index = 0;
-    for (const auto& point_light_index : sorted_point_light_indices) {
+    for (const auto& point_light_index : sorted_point_shadow_light_indices) {
       auto& viewport = point_light_info_blocks_[point_light_index.second].viewport;
       viewport.x = view_port_results[allocation_index].x;
       viewport.y = view_port_results[allocation_index].y;
@@ -1035,7 +1127,8 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
   const std::vector<Entity>* spot_light_entities = target_scene->UnsafeGetPrivateComponentOwnersList<SpotLight>();
   if (spot_light_entities && !spot_light_entities->empty()) {
     spot_light_info_blocks_.resize(spot_light_entities->size());
-    std::multimap<float, size_t> sorted_spot_light_indices;
+    std::multimap<float, size_t> sorted_spot_shadow_light_indices;
+    uint32_t spot_shadow_light_size = 0;
     for (auto light_entity : *spot_light_entities) {
       if (!target_scene->IsEntityEnabled(light_entity))
         continue;
@@ -1055,6 +1148,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       spot_light_info_blocks_[render_info_block.spot_light_size].diffuse =
           glm::vec4(slc->diffuse * slc->diffuse_brightness, slc->cast_shadow);
       spot_light_info_blocks_[render_info_block.spot_light_size].specular = glm::vec4(0);
+      spot_light_info_blocks_[render_info_block.spot_light_size].viewport = glm::ivec4(0);
 
       glm::mat4 shadow_proj = glm::perspective(glm::radians(slc->outer_degrees * 2.0f), 1.0f,
                                                slc->shadow_distance / 1000.f, slc->shadow_distance);
@@ -1064,15 +1158,18 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           glm::vec4(glm::cos(glm::radians(slc->inner_degrees)), glm::cos(glm::radians(slc->outer_degrees)),
                     slc->light_size, slc->bias);
 
-      sorted_spot_light_indices.insert(
-          {glm::distance(main_camera_position, position), render_info_block.spot_light_size});
+      if (slc->cast_shadow) {
+        sorted_spot_shadow_light_indices.insert(
+            {glm::distance(main_camera_position, position), render_info_block.spot_light_size});
+        spot_shadow_light_size++;
+      }
       render_info_block.spot_light_size++;
     }
     std::vector<glm::uvec3> view_port_results;
-    Lighting::AllocateAtlas(render_info_block.spot_light_size, graphics_settings.spot_light_shadow_map_resolution,
+    Lighting::AllocateAtlas(spot_shadow_light_size, graphics_settings.spot_light_shadow_map_resolution,
                             view_port_results);
     int allocation_index = 0;
-    for (const auto& spot_light_index : sorted_spot_light_indices) {
+    for (const auto& spot_light_index : sorted_spot_shadow_light_indices) {
       auto& view_port = spot_light_info_blocks_[spot_light_index.second].viewport;
       view_port.x = view_port_results[allocation_index].x;
       view_port.y = view_port_results[allocation_index].y;
@@ -1171,6 +1268,30 @@ RenderInstanceStorage::RenderInstanceStorage() {
   mesh_draw_mesh_tasks_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1),
+               sizeof(VkDrawIndexedIndirectCommand) * opaque_shadow_mesh_draw_indexed_indirect_commands.size());
+  opaque_shadow_mesh_draw_indexed_indirect_commands_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1),
+               sizeof(VkDrawMeshTasksIndirectCommandEXT) * opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.size());
+  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1),
+               sizeof(VkDrawIndexedIndirectCommand) * alpha_tested_shadow_mesh_draw_indexed_indirect_commands.size());
+  alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1), sizeof(VkDrawMeshTasksIndirectCommandEXT) *
+                                           alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.size());
+  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+
   deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
   deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
   deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
@@ -1191,6 +1312,8 @@ RenderInstanceStorage::RenderInstanceStorage() {
 
 void RenderInstanceStorage::Clear() {
   total_mesh_triangles = 0;
+  total_opaque_shadow_mesh_triangles = 0;
+  total_alpha_tested_shadow_mesh_triangles = 0;
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
@@ -1232,6 +1355,10 @@ void RenderInstanceStorage::Clear() {
 
   mesh_draw_indexed_indirect_commands.clear();
   mesh_draw_mesh_tasks_indirect_commands.clear();
+  opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
+  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+  alpha_tested_shadow_mesh_draw_indexed_indirect_commands.clear();
+  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
 }
 
 void RenderInstanceStorage::Upload() const {
@@ -1247,6 +1374,14 @@ void RenderInstanceStorage::Upload() const {
 
   mesh_draw_indexed_indirect_commands_buffer->UploadVector(mesh_draw_indexed_indirect_commands);
   mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(mesh_draw_mesh_tasks_indirect_commands);
+  opaque_shadow_mesh_draw_indexed_indirect_commands_buffer->UploadVector(
+      opaque_shadow_mesh_draw_indexed_indirect_commands);
+  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(
+      opaque_shadow_mesh_draw_mesh_tasks_indirect_commands);
+  alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer->UploadVector(
+      alpha_tested_shadow_mesh_draw_indexed_indirect_commands);
+  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(
+      alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands);
 
   environment_info_descriptor_buffer->Upload(environment_info_block);
 }
@@ -1340,6 +1475,8 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
     return false;
   if (mesh->triangle_range_->prev_frame_index_count == 0 || mesh->meshlet_range_->prev_frame_range == 0)
     return false;
+  auto mesh_bound = mesh->GetBound();
+  mesh_bound.ApplyTransform(model.value);
   MaterialInfoBlock material_info_block;
   material_info_block.Apply(material);
   const auto render_instance = std::make_shared<MeshRenderInstance>();
@@ -1352,6 +1489,8 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   render_instance->model = model;
   render_instance->renderer_handle = 0;
   render_instance->cast_shadow = cast_shadow;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
+  render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
@@ -1408,6 +1547,7 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   render_instance->particle_info_list_version = particle_info_list->GetVersion();
   render_instance->renderer_handle = 0;
   render_instance->cast_shadow = cast_shadow;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
@@ -1450,6 +1590,7 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
   render_instance->renderer_handle = renderer_handle;
   render_instance->material = material;
   render_instance->cast_shadow = false;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
   render_instance->ddgi_geometry = ddgi_geometry;
   render_instance->geometry_version = ddgi_geometry.IsValid() ? ddgi_geometry.geometry_version : 0;
   render_instance->material_version = material->GetVersion();
@@ -1541,6 +1682,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->strands = strands;
   render_instance->material = material;
   render_instance->cast_shadow = strands_renderer->cast_shadow;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
+  render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = strands->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
@@ -1593,6 +1736,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->entity_handle = target_scene->GetEntityHandle(owner);
   render_instance->renderer_handle = mesh_renderer->GetHandle();
   render_instance->cast_shadow = mesh_renderer->cast_shadow;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
+  render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material->GetHandle(), material_info_block);
@@ -1669,6 +1814,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->skinned_mesh = skinned_mesh;
   render_instance->material = material;
   render_instance->cast_shadow = skinned_mesh_renderer->cast_shadow;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
+  render_instance->world_bound = mesh_bound;
   render_instance->bone_matrices = skinned_mesh_renderer->bone_matrices;
   render_instance->geometry_version = skinned_mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
@@ -1727,6 +1874,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->mesh = mesh;
   render_instance->material = material;
   render_instance->cast_shadow = particles->cast_shadow;
+  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_info_block);
   render_instance->particle_infos = particle_info_list;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();

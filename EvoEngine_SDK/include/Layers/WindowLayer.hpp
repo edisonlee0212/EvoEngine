@@ -54,6 +54,7 @@ class WindowLayer final : public ILayer {
   glm::ivec2 window_size_ = {1, 1};
 
   bool custom_title_bar_ = false;
+  bool window_resizable_ = true;
   std::vector<glm::vec4> title_bar_drag_regions_;
   void* native_window_handle_ = nullptr;
   intptr_t default_window_proc_ = 0;

@@ -57,6 +57,7 @@ struct ApplicationInitializationSettings {
   bool enable_viewport = true;       /**< Whether to enable the viewport feature. */
   bool full_screen = false;          /**< Whether the application starts in full-screen mode. */
   bool use_custom_title_bar = false; /**< Whether supported platforms should use app-rendered chrome. */
+  bool window_resizable = true;      /**< Whether the application window can be resized by the user. */
   bool hide_console_window = true;   /**< Whether to hide an owned OS console window on supported platforms. */
   bool redirect_standard_streams_to_console =
       true;                             /**< Whether C++ stdout/stderr should be mirrored to Evo's console. */

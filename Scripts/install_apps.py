@@ -13,6 +13,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+DEFAULT_DISABLED_DEMO_APP_ARGS = [
+    "-DEvoEngine_App-DemoApp=OFF",
+    "-DEvoEngine_App-DDGIApp=OFF",
+    "-DEvoEngine_App-EcoSysLabApp=OFF",
+    "-DEvoEngine_App-DigitalAgricultureApp=OFF",
+    "-DEvoEngine_App-LSystemApp=OFF",
+]
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -164,7 +172,13 @@ def main() -> int:
     if args.incremental and not args.cmake_arg and (build_dir / "CMakeCache.txt").exists():
         print(f"Skipping configure; reusing {build_dir / 'CMakeCache.txt'}", flush=True)
     else:
-        configure_command = ["cmake", "--preset", args.preset, "-DBUILD_TESTING=OFF"]
+        configure_command = [
+            "cmake",
+            "--preset",
+            args.preset,
+            "-DBUILD_TESTING=OFF",
+            *DEFAULT_DISABLED_DEMO_APP_ARGS,
+        ]
         if args.verbose:
             configure_command.append("--log-level=VERBOSE")
         configure_command.extend(args.cmake_arg)

@@ -748,6 +748,28 @@ bool CopyPackageBuildOutputToRuntimeDir(const RuntimePackageCMakeBuildRequest& r
   return true;
 }
 
+bool IsPackageLayerInspector(const std::shared_ptr<ILayer>& layer) {
+  if (!layer) {
+    return false;
+  }
+  const auto* inspector = InspectorRegistry::GetInstance().FindInspector(typeid(*layer));
+  return inspector && !inspector->owner_name.empty();
+}
+
+bool HasLayerInspector(const std::shared_ptr<ILayer>& layer) {
+  return layer && InspectorRegistry::GetInstance().FindInspector(typeid(*layer));
+}
+
+void DockLayerInspectionWindows(const ImGuiID built_in_node, const ImGuiID package_node) {
+  for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+    if (!HasLayerInspector(layer)) {
+      continue;
+    }
+    ImGui::DockBuilderDockWindow(layer->GetLayerName().c_str(),
+                                 IsPackageLayerInspector(layer) ? package_node : built_in_node);
+  }
+}
+
 void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock_size) {
   ImGui::DockBuilderRemoveNode(dock_space_id);
   ImGui::DockBuilderAddNode(dock_space_id, ImGuiDockNodeFlags_DockSpace);
@@ -760,9 +782,10 @@ void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& doc
 
   ImGui::DockBuilderDockWindow("Scene", center_node);
   ImGui::DockBuilderDockWindow("Camera", center_node);
+  ImGui::DockBuilderDockWindow("Plant Visual", center_node);
   ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
   ImGui::DockBuilderDockWindow("Entity Inspector", right_node);
-  ImGui::DockBuilderDockWindow("Scene Camera Debug", right_node);
+  DockLayerInspectionWindows(left_node, right_node);
   ImGui::DockBuilderDockWindow("Project", bottom_node);
   ImGui::DockBuilderDockWindow("Console", bottom_node);
   ImGui::DockBuilderDockWindow("Resources", bottom_node);
@@ -790,8 +813,10 @@ void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock
 
   ImGui::DockBuilderDockWindow("Scene", center_node);
   ImGui::DockBuilderDockWindow("Camera", camera_node);
+  ImGui::DockBuilderDockWindow("Plant Visual", center_node);
   ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
   ImGui::DockBuilderDockWindow("Entity Inspector", right_node);
+  DockLayerInspectionWindows(left_node, right_node);
   ImGui::DockBuilderDockWindow("Project", bottom_node);
   ImGui::DockBuilderDockWindow("Console", bottom_node);
   ImGui::DockBuilderFinish(dock_space_id);
@@ -1195,7 +1220,6 @@ void EditorLayer::OnCreate() {
 void EditorLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "enable_inspection" << YAML::Value << enable_inspection;
   out << YAML::Key << "show_console_window" << YAML::Value << show_console_window;
-  out << YAML::Key << "show_scene_camera_debug" << YAML::Value << show_scene_camera_debug;
   out << YAML::Key << "show_scene_window" << YAML::Value << show_scene_window;
   out << YAML::Key << "show_camera_window" << YAML::Value << show_camera_window;
   out << YAML::Key << "show_camera_info" << YAML::Value << show_camera_info;
@@ -1287,7 +1311,6 @@ void EditorLayer::DeserializeLayout(const YAML::Node& in) {
 
   ReadYamlValue(in, "enable_inspection", enable_inspection);
   ReadYamlValue(in, "show_console_window", show_console_window);
-  ReadYamlValue(in, "show_scene_camera_debug", show_scene_camera_debug);
   ReadYamlValue(in, "show_scene_window", show_scene_window);
   ReadYamlValue(in, "show_camera_window", show_camera_window);
   ReadYamlValue(in, "show_camera_info", show_camera_info);
@@ -1617,10 +1640,6 @@ void EditorLayer::RegisterEditorPanels() {
                  [this](const std::shared_ptr<EditorLayer>&) {
                    MainCameraWindow();
                  });
-  register_panel("scene_camera_debug", "Scene Camera Debug", show_scene_camera_debug,
-                 [this](const std::shared_ptr<EditorLayer>&) {
-                   DrawSceneCameraDebugWindow(ApplicationContext::Get().GetActiveScene());
-                 });
   register_panel("entity_explorer", "Entity Explorer", show_entity_explorer_window,
                  [this](const std::shared_ptr<EditorLayer>&) {
                    DrawEntityExplorerWindow(ApplicationContext::Get().GetActiveScene());
@@ -1680,6 +1699,7 @@ void EditorLayer::PrepareFrameState() {
 void EditorLayer::CaptureSceneWindowMousePosition() {
   mouse_scene_window_position_ = glm::vec2(FLT_MAX, -FLT_MAX);
   if (show_scene_window) {
+    ApplySceneCameraPreviewWindowLayout();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
     if (ImGui::Begin("Scene")) {
       if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
@@ -1696,6 +1716,27 @@ void EditorLayer::CaptureSceneWindowMousePosition() {
     ImGui::End();
     ImGui::PopStyleVar();
   }
+}
+
+void EditorLayer::ApplySceneCameraPreviewWindowLayout() {
+  if (!scene_camera_preview_window_size_) {
+    return;
+  }
+
+  const auto* viewport = ImGui::GetMainViewport();
+  if (!viewport) {
+    scene_camera_preview_window_size_.reset();
+    return;
+  }
+
+  const auto size = *scene_camera_preview_window_size_;
+  ImGui::SetNextWindowViewport(viewport->ID);
+  ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+  ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
+  ImGui::SetNextWindowSize(ImVec2(static_cast<float>(size.x), static_cast<float>(size.y)), ImGuiCond_Always);
+  ImGui::SetNextWindowCollapsed(false, ImGuiCond_Always);
+  ImGui::SetNextWindowFocus();
+  scene_camera_preview_window_size_.reset();
 }
 
 void EditorLayer::CaptureMainCameraWindowMousePosition() {
@@ -2714,19 +2755,6 @@ void EditorLayer::HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene)
   }
 }
 
-void EditorLayer::DrawSceneCameraDebugWindow(const std::shared_ptr<Scene>& scene) {
-  if (scene && show_scene_camera_debug) {
-    if (ImGui::Begin("Scene Camera Debug")) {
-      static float debug_scale = 0.25f;
-      ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-      debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-      auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-      DrawCameraDebugViews(*sceneCamera, debug_scale);
-    }
-    ImGui::End();
-  }
-}
-
 void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                              const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto layers = ApplicationContext::Get().GetLayers();
@@ -2752,62 +2780,68 @@ void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& ed
     enable_inspection = open;
     return;
   }
-  ImGui::Checkbox("Scene Window", &show_scene_window);
-  if (show_scene_window) {
-    ImGui::Checkbox("Scene Camera Debug Window", &show_scene_camera_debug);
-    ImGui::Checkbox("Scene Window Info", &show_scene_info);
-  }
-  ImGui::Checkbox("Main Camera Window", &show_camera_window);
-  if (show_camera_window) {
-    ImGui::Checkbox("Main Camera Window Info", &show_camera_info);
-  }
-  ImGui::Checkbox("Entity Explorer", &show_entity_explorer_window);
-  ImGui::Checkbox("Entity Inspector", &show_entity_inspector_window);
-  ImGui::Checkbox("Console", &show_console_window);
-  ImGui::Checkbox("Runtime Packages", &show_package_manager_window);
-  ImGui::Checkbox("Profiler", &show_profiler_window);
 
-  if (ImGui::TreeNode("Scene camera settings")) {
-    ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
-    if (ImGui::Button("Reset camera")) {
-      MoveCamera(default_scene_camera_rotation, default_scene_camera_position);
-    }
+  if (ImGui::BeginTabBar("EditorLayerInspectionTabs")) {
     auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-    if (ImGui::Button("Set default camera position")) {
-      default_scene_camera_position = sceneCameraPosition;
-      default_scene_camera_rotation = sceneCameraRotation;
-    }
-    ImGui::DragFloat("Move speed", &velocity, 0.1f, 0, 0, "%.1f");
-    ImGui::DragFloat("Mouse sensitivity", &sensitivity, 0.1f, 0, 0, "%.1f");
-    ImGui::DragFloat3("Position", &sceneCameraPosition.x, 0.1f);
-    if (ImGui::DragFloat4("Rotation", &sceneCameraRotation.x, 0.01f)) {
-      const float length_squared = glm::dot(sceneCameraRotation, sceneCameraRotation);
-      if (std::isfinite(length_squared) && length_squared > glm::epsilon<float>()) {
-        sceneCameraRotation = glm::normalize(sceneCameraRotation);
+    if (ImGui::BeginTabItem("Camera")) {
+      ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
+      if (ImGui::Button("Reset camera")) {
+        MoveCamera(default_scene_camera_rotation, default_scene_camera_position);
       }
-    }
-    if (ImGui::TreeNode("Key bindings")) {
-      ImGui::InputInt("Rotate mouse button", &editor_camera_control_key_bindings.rotate_mouse_button);
-      ImGui::InputInt("Move forward", &editor_camera_control_key_bindings.move_forward_key);
-      ImGui::InputInt("Move backward", &editor_camera_control_key_bindings.move_backward_key);
-      ImGui::InputInt("Move left", &editor_camera_control_key_bindings.move_left_key);
-      ImGui::InputInt("Move right", &editor_camera_control_key_bindings.move_right_key);
-      ImGui::InputInt("Move up", &editor_camera_control_key_bindings.move_up_key);
-      ImGui::InputInt("Move down", &editor_camera_control_key_bindings.move_down_key);
-      ImGui::TreePop();
-    }
-    ImGui::Checkbox("Copy Transform", &apply_transform_to_main_camera);
-    ImGui::DragFloat("Resolution", &scene_camera_resolution_multiplier, 0.1f, 0.1f, 4.0f);
+      if (ImGui::Button("Set default camera position")) {
+        default_scene_camera_position = sceneCameraPosition;
+        default_scene_camera_rotation = sceneCameraRotation;
+      }
+      ImGui::DragFloat("Move speed", &velocity, 0.1f, 0, 0, "%.1f");
+      ImGui::DragFloat("Mouse sensitivity", &sensitivity, 0.1f, 0, 0, "%.1f");
+      ImGui::DragFloat3("Position", &sceneCameraPosition.x, 0.1f);
+      if (ImGui::DragFloat4("Rotation", &sceneCameraRotation.x, 0.01f)) {
+        const float length_squared = glm::dot(sceneCameraRotation, sceneCameraRotation);
+        if (std::isfinite(length_squared) && length_squared > glm::epsilon<float>()) {
+          sceneCameraRotation = glm::normalize(sceneCameraRotation);
+        }
+      }
+      if (ImGui::TreeNode("Key bindings")) {
+        ImGui::InputInt("Rotate mouse button", &editor_camera_control_key_bindings.rotate_mouse_button);
+        ImGui::InputInt("Move forward", &editor_camera_control_key_bindings.move_forward_key);
+        ImGui::InputInt("Move backward", &editor_camera_control_key_bindings.move_backward_key);
+        ImGui::InputInt("Move left", &editor_camera_control_key_bindings.move_left_key);
+        ImGui::InputInt("Move right", &editor_camera_control_key_bindings.move_right_key);
+        ImGui::InputInt("Move up", &editor_camera_control_key_bindings.move_up_key);
+        ImGui::InputInt("Move down", &editor_camera_control_key_bindings.move_down_key);
+        ImGui::TreePop();
+      }
+      ImGui::Checkbox("Copy Transform", &apply_transform_to_main_camera);
+      ImGui::DragFloat("Resolution", &scene_camera_resolution_multiplier, 0.1f, 0.1f, 4.0f);
 
-    if (ImGui::TreeNode("Camera settings")) {
-      InspectorContext context;
-      context.editor_layer = editor_layer;
-      context.scene = ApplicationContext::Get().GetActiveScene();
-      InspectorRegistry::GetInstance().Inspect(context, *sceneCamera);
-      ImGui::TreePop();
+      if (ImGui::TreeNode("Camera settings")) {
+        if (sceneCamera) {
+          InspectorContext context;
+          context.editor_layer = editor_layer;
+          context.scene = ApplicationContext::Get().GetActiveScene();
+          InspectorRegistry::GetInstance().Inspect(context, *sceneCamera);
+        } else {
+          ImGui::Text("No active scene camera!");
+        }
+        ImGui::TreePop();
+      }
+      ImGui::EndTabItem();
     }
-
-    ImGui::TreePop();
+    if (ImGui::BeginTabItem("Debug")) {
+      const auto scene = ApplicationContext::Get().GetActiveScene();
+      if (!scene) {
+        ImGui::Text("No Scene!");
+      } else if (!sceneCamera) {
+        ImGui::Text("No active scene camera!");
+      } else {
+        static float debug_scale = 0.25f;
+        ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
+        debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
+        DrawCameraDebugViews(*sceneCamera, debug_scale);
+      }
+      ImGui::EndTabItem();
+    }
+    ImGui::EndTabBar();
   }
   ImGui::End();
   enable_inspection = open;
@@ -3201,11 +3235,28 @@ void EditorLayer::DrawMainMenuItems(const bool title_bar_style) {
   auto panel_menu_item = [](const char* label, bool& open) {
     ImGui::MenuItem(label, nullptr, &open);
   };
-  auto draw_layer_inspection_menu = []() {
-    if (ImGui::BeginMenu("Layer Inspection")) {
-      for (const auto& layer : ApplicationContext::Get().GetLayers()) {
-        ImGui::Checkbox(layer->layer_name_.c_str(), &layer->enable_inspection);
+  auto draw_layer_inspection_group = [](const char* label, const bool package_layers) {
+    if (!ImGui::BeginMenu(label)) {
+      return;
+    }
+    bool has_items = false;
+    for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+      if (!HasLayerInspector(layer) || IsPackageLayerInspector(layer) != package_layers) {
+        continue;
       }
+      has_items = true;
+      const auto layer_name = layer->GetLayerName();
+      ImGui::Checkbox(layer_name.c_str(), &layer->enable_inspection);
+    }
+    if (!has_items) {
+      ImGui::TextDisabled("No inspectable layers");
+    }
+    ImGui::EndMenu();
+  };
+  auto draw_layer_inspection_menu = [&]() {
+    if (ImGui::BeginMenu("Layer Inspection")) {
+      draw_layer_inspection_group("Built-in/App Layers", false);
+      draw_layer_inspection_group("Package Layers", true);
       ImGui::EndMenu();
     }
   };
@@ -3221,8 +3272,13 @@ void EditorLayer::DrawMainMenuItems(const bool title_bar_style) {
   if (begin_menu("Window")) {
     if (ImGui::BeginMenu("Scene")) {
       panel_menu_item("Scene Window", show_scene_window);
+      ImGui::BeginDisabled(!show_scene_window);
+      panel_menu_item("Scene Window Info", show_scene_info);
+      ImGui::EndDisabled();
       panel_menu_item("Main Camera Window", show_camera_window);
-      panel_menu_item("Scene Camera Debug", show_scene_camera_debug);
+      ImGui::BeginDisabled(!show_camera_window);
+      panel_menu_item("Main Camera Window Info", show_camera_info);
+      ImGui::EndDisabled();
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Entity")) {
@@ -3359,7 +3415,6 @@ void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
 
   apply_visibility(settings.panels.scene, show_scene_window);
   apply_visibility(settings.panels.camera, show_camera_window);
-  apply_visibility(settings.panels.scene_camera_debug, show_scene_camera_debug);
   apply_visibility(settings.panels.scene_info, show_scene_info);
   apply_visibility(settings.panels.camera_info, show_camera_info);
   apply_visibility(settings.panels.entity_explorer, show_entity_explorer_window);
@@ -3391,6 +3446,11 @@ void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
   asset_inspector_window_layout_pending_ = settings.asset_inspector_window.has_value();
   runtime_package_manager_layout_pending_ = settings.runtime_package_manager.has_value();
   dock_layout_reset_pending_ = true;
+}
+
+void EditorLayer::RequestSceneCameraPreviewWindow(const glm::uvec2& size) {
+  show_scene_window = true;
+  scene_camera_preview_window_size_ = {std::max(size.x, 1u), std::max(size.y, 1u)};
 }
 
 void EditorLayer::DrawDockspace(const float top_offset) {

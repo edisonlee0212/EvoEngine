@@ -118,12 +118,54 @@ def main() -> int:
             editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
             wait_until("editor window spawned by launcher", lambda: find_window_for_pid(editor_pid), timeout=20)
 
+        def launcher_open_demo_hook_spawns_editor_profile() -> None:
+            env = os.environ.copy()
+            env["EVOENGINE_LAUNCHER_TEST_OPEN_DEMO"] = "rendering"
+            editor_before_launch = process_ids("EvoEngineEditor.exe")
+            demo_app_before_launch = process_ids("DemoApp.exe")
+            launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
+            try:
+                launcher.wait(timeout=20)
+            except subprocess.TimeoutExpired as error:
+                raise RuntimeError("Launcher did not exit after test open-demo hook.") from error
+            editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
+            wait_until("demo profile editor process spawned by launcher",
+                       lambda: editor_pid in process_ids("EvoEngineEditor.exe"), timeout=5)
+            demo_app_after_launch = process_ids("DemoApp.exe")
+            if set(demo_app_after_launch) - set(demo_app_before_launch):
+                raise RuntimeError("Launcher demo hook spawned DemoApp.exe instead of EvoEngineEditor.exe.")
+
+        def launcher_open_ddgi_demo_hook_spawns_editor_profile() -> None:
+            with tempfile.TemporaryDirectory(prefix="EvoEngineLauncherDdgiDemoSmoke_") as temp_dir:
+                log_path = Path(temp_dir) / "launcher.log"
+                env = os.environ.copy()
+                env["EVOENGINE_LAUNCHER_TEST_OPEN_DEMO"] = "ddgi"
+                env["EVOENGINE_LAUNCHER_TEST_LOG"] = str(log_path)
+                editor_before_launch = process_ids("EvoEngineEditor.exe")
+                ddgi_app_before_launch = process_ids("DDGIApp.exe")
+                launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
+                try:
+                    launcher.wait(timeout=20)
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError("Launcher did not exit after DDGI test open-demo hook.") from error
+                editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
+                wait_until("DDGI demo editor process spawned by launcher",
+                           lambda: editor_pid in process_ids("EvoEngineEditor.exe"), timeout=5)
+                ddgi_app_after_launch = process_ids("DDGIApp.exe")
+                if set(ddgi_app_after_launch) - set(ddgi_app_before_launch):
+                    raise RuntimeError("Launcher DDGI demo hook spawned DDGIApp.exe instead of EvoEngineEditor.exe.")
+                log_text = log_path.read_text(encoding="utf-8", errors="ignore")
+                if "demo-open:ddgi:EvoEngineEditor:Editor" not in log_text:
+                    raise RuntimeError("Launcher DDGI demo hook did not log EvoEngineEditor editor-mode launch.")
+
         run_subtest("EditorWithoutProject.SpawnsLauncher", editor_without_project_spawns_launcher)
         run_subtest("EditorWithProject.OpensWindow", editor_opens_existing_project)
         run_subtest("EditorPlayerMode.OpensWindow", editor_player_mode_opens_existing_project)
         run_subtest("EditorHeadlessMode.InitializesProject", editor_headless_mode_initializes_project)
         run_subtest("MetadataOnlyProject.PersistsStartScene", editor_creates_metadata_only_start_scene)
         run_subtest("LauncherOpenProjectHook.SpawnsEditor", launcher_open_project_hook_spawns_editor)
+        run_subtest("LauncherOpenDemoHook.SpawnsEditorProfile", launcher_open_demo_hook_spawns_editor_profile)
+        run_subtest("LauncherOpenDdgiDemoHook.SpawnsEditorProfile", launcher_open_ddgi_demo_hook_spawns_editor_profile)
         return 0
     except Exception:
         return 1

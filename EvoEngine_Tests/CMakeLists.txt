@@ -32,6 +32,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
+	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoProfiles.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
 	)
 

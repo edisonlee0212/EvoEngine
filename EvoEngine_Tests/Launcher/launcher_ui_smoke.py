@@ -48,13 +48,15 @@ def main() -> int:
 
         def verify_project_hub_state() -> None:
             wait_for_log(log_path, "mode:hub")
+            wait_for_log(log_path, "section:Demo")
+            wait_for_log(log_path, "demo-count:6")
+            wait_for_log(log_path, "demo-profile:rendering:")
+            wait_for_log(log_path, "demo-preview:rendering:")
             wait_for_log(log_path, "recent-count:1")
-            assert_custom_title_bar_window(hwnd, "Launcher project hub")
+            assert_custom_title_bar_window(hwnd, "Launcher project hub", resizable=False)
 
-        run_subtest("LauncherProjectHub.LoadsRecentProject", verify_project_hub_state)
-        center_x = (rect.left + rect.right) // 2
-        center_y = (rect.top + rect.bottom) // 2
-        click(center_x, center_y)
+        run_subtest("LauncherProjectHub.LoadsDemoHub", verify_project_hub_state)
+        click(rect.left + 24, rect.bottom - 80)
         run_subtest("LauncherWorkspace.ClickDoesNotExit", lambda: assert_process_stays_alive(launcher, "Launcher"))
 
         def verify_new_project_packages() -> None:
@@ -64,7 +66,11 @@ def main() -> int:
                 raise RuntimeError("Launcher still logged template availability.")
 
         run_subtest("LauncherNewProject.ListsPackagesWithoutTemplates", verify_new_project_packages)
-        click((rect.left + rect.right) // 2 + 70, (rect.top + rect.bottom) // 2 + 135)
+        sidebar_x = rect.left + 92
+        click(sidebar_x, rect.top + 152)
+        run_subtest("LauncherProjectHub.RecentProjectsSectionDoesNotExit",
+                    lambda: assert_process_stays_alive(launcher, "Launcher"))
+        click(sidebar_x, rect.top + 194)
         run_subtest("LauncherProjectHub.InteractionDoesNotExit", lambda: assert_process_stays_alive(launcher, "Launcher"))
         return 0
     except Exception:

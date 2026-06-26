@@ -42,7 +42,7 @@ ctest --test-dir out/build/vs2026-x64 -C RelWithDebInfo -R "Launcher" --output-o
 
 - render golden-image comparison
 - Python render capture workflows
-- `DemoApp` smoke test that waits for the rendering demo project to load, enters play mode, and renders 100 frames
+- launcher/editor smoke coverage for project startup and the Rendering demo profile
 
 Visual artifacts are written under:
 

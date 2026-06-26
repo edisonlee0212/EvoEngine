@@ -16,11 +16,20 @@ if(CMAKE_CONFIGURATION_TYPES)
 endif()
 set(EVOENGINE_APP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(EVOENGINE_APP_RESOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
+set(EVOENGINE_APP_DEMO_PREVIEW_DIR ${CMAKE_SOURCE_DIR}/Resources/Launcher/DemoPreviews)
 
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_INSTALL_RUNTIME_DIR})
 evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_INSTALL_RUNTIME_DIR})
+add_custom_command(TARGET AppResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E make_directory ${EVOENGINE_APP_BUILD_RUNTIME_DIR}/Launcher/DemoPreviews
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+			${EVOENGINE_APP_DEMO_PREVIEW_DIR} ${EVOENGINE_APP_BUILD_RUNTIME_DIR}/Launcher/DemoPreviews VERBATIM)
+add_custom_command(TARGET AppResourceCopy POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E make_directory ${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Launcher/DemoPreviews
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+			${EVOENGINE_APP_DEMO_PREVIEW_DIR} ${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Launcher/DemoPreviews VERBATIM)
 add_custom_command(TARGET AppResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy
 			${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini ${EVOENGINE_APP_BUILD_RUNTIME_DIR} VERBATIM)
@@ -85,6 +94,15 @@ function(register_evoengine_app app_name default_enable)
 				target_sources(${app_name}
 					PRIVATE
 					${EVOENGINE_APP_SOURCE_DIR}/LauncherUtils.cpp
+					${CMAKE_CURRENT_SOURCE_DIR}/include/DemoProfiles.hpp
+					${EVOENGINE_APP_SOURCE_DIR}/DemoProfiles.cpp
+					)
+			endif()
+			if (${app_name} STREQUAL "EvoEngineEditor" OR ${app_name} STREQUAL "DemoApp" OR ${app_name} STREQUAL "DDGIApp")
+				target_sources(${app_name}
+					PRIVATE
+					${CMAKE_CURRENT_SOURCE_DIR}/include/DemoProfiles.hpp
+					${EVOENGINE_APP_SOURCE_DIR}/DemoProfiles.cpp
 					)
 			endif()
 			target_compile_definitions(${app_name}
@@ -107,7 +125,7 @@ function(register_evoengine_app app_name default_enable)
 				EvoEngine_SDK
 				${EvoEngine_Services}
 				)
-			if (${app_name} STREQUAL "DemoApp" OR ${app_name} STREQUAL "DDGIApp")
+			if (${app_name} STREQUAL "EvoEngineEditor" OR ${app_name} STREQUAL "DemoApp" OR ${app_name} STREQUAL "DDGIApp")
 				target_link_libraries(${app_name}
 					PRIVATE
 					EvoEngine_DemoScene
@@ -142,14 +160,17 @@ endfunction()
 register_evoengine_app(EvoEngineEditor ON)
 register_evoengine_app(EvoEngineLauncher ON)
 
-register_evoengine_app(DemoApp ON)
-register_evoengine_app(DDGIApp ON)
-register_evoengine_app(EcoSysLabApp ON)
-register_evoengine_app(DigitalAgricultureApp ON)
-register_evoengine_app(LSystemApp ON)
+register_evoengine_app(DemoApp OFF)
+register_evoengine_app(DDGIApp OFF)
+register_evoengine_app(EcoSysLabApp OFF)
+register_evoengine_app(DigitalAgricultureApp OFF)
+register_evoengine_app(LSystemApp OFF)
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 	install(FILES ${EVOENGINE_APP_RESOURCE_DIR}/imgui.ini
 		DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	install(DIRECTORY ${EVOENGINE_APP_DEMO_PREVIEW_DIR}/
+		DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Launcher/DemoPreviews"
+		OPTIONAL)
 endif ()

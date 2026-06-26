@@ -1,9 +1,18 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
+#include "Camera.hpp"
+#include "DemoProfiles.hpp"
+#include "DemoScene.hpp"
 #include "EditorLayer.hpp"
 #include "PathUtils.hpp"
+#include "Platform.hpp"
+#include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
+#include "Times.hpp"
+#include "WindowLayer.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <stdexcept>
 
@@ -19,7 +28,13 @@ using namespace evo_engine;
 namespace {
 struct EditorCommandLine {
   std::optional<std::filesystem::path> project_path;
+  std::optional<DemoProfileId> demo_profile_id;
+  std::optional<std::filesystem::path> demo_preview_capture_path;
   ApplicationMode application_mode = ApplicationMode::Editor;
+  bool application_mode_explicit = false;
+  int preview_capture_width = 1280;
+  int preview_capture_height = 720;
+  size_t preview_capture_warmup_frames = 8;
 };
 
 EditorCommandLine ParseCommandLine(const int argc, char** argv) {
@@ -31,12 +46,70 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument(argument + " requires a project path.");
       }
       command_line.project_path = std::filesystem::absolute(argv[++arg_index]);
-    } else if (ConsumeApplicationModeArgument(argc, argv, arg_index, command_line.application_mode)) {
-      continue;
-    } else if (!command_line.project_path) {
-      command_line.project_path = std::filesystem::absolute(argument);
+    } else if (argument == "--demo") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--demo requires a profile id.");
+      }
+      const std::string profile_id = argv[++arg_index] ? argv[arg_index] : "";
+      const auto* profile = FindDemoProfile(profile_id);
+      if (!profile) {
+        throw std::invalid_argument("Unknown EvoEngineEditor demo profile: " + profile_id);
+      }
+      command_line.demo_profile_id = profile->id;
+    } else if (argument == "--capture-demo-preview") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--capture-demo-preview requires an output PNG path.");
+      }
+      command_line.demo_preview_capture_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--preview-width") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-width requires a positive integer.");
+      }
+      command_line.preview_capture_width = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-height") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-height requires a positive integer.");
+      }
+      command_line.preview_capture_height = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-warmup-frames") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-warmup-frames requires a non-negative integer.");
+      }
+      command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
     } else {
-      throw std::invalid_argument("Unknown EvoEngineEditor argument: " + argument);
+      auto application_mode = command_line.application_mode;
+      if (!ConsumeApplicationModeArgument(argc, argv, arg_index, application_mode)) {
+        if (!command_line.project_path) {
+          command_line.project_path = std::filesystem::absolute(argument);
+        } else {
+          throw std::invalid_argument("Unknown EvoEngineEditor argument: " + argument);
+        }
+      } else {
+        command_line.application_mode = application_mode;
+        command_line.application_mode_explicit = true;
+      }
+      continue;
+    }
+  }
+  if (command_line.demo_profile_id && command_line.project_path) {
+    throw std::invalid_argument("EvoEngineEditor --demo cannot be combined with --project.");
+  }
+  if (command_line.demo_preview_capture_path && !command_line.demo_profile_id) {
+    throw std::invalid_argument("--capture-demo-preview requires --demo <profile-id>.");
+  }
+  if (command_line.demo_profile_id) {
+    const auto& profile = GetDemoProfile(*command_line.demo_profile_id);
+    if (!command_line.application_mode_explicit) {
+      command_line.application_mode = profile.default_application_mode;
+    }
+    if (command_line.demo_preview_capture_path) {
+      if (command_line.application_mode_explicit && command_line.application_mode != ApplicationMode::Editor) {
+        throw std::invalid_argument("--capture-demo-preview requires editor mode.");
+      }
+      command_line.application_mode = ApplicationMode::Editor;
+    } else if (!IsDemoProfileApplicationModeSupported(profile.id, command_line.application_mode)) {
+      throw std::invalid_argument("EvoEngineEditor --demo " + std::string(profile.id_name) + " does not support " +
+                                  GetApplicationModeName(command_line.application_mode) + " mode.");
     }
   }
   return command_line;
@@ -88,6 +161,190 @@ bool LaunchLauncherProcess(std::string& error) {
   return true;
 #endif
 }
+
+void ConfigurePackageDemoNewSceneDefaults() {
+  ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
+    ApplicationContext::Get().GetTimes().SetTimeStep(0.016f);
+    Transform transform;
+    transform.SetPosition(glm::vec3(0, 2, 35));
+    transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));
+    if (const auto main_camera = scene->main_camera.Get<Camera>()) {
+      scene->SetDataComponent(main_camera->GetOwner(), transform);
+      main_camera->camera_settings.use_clear_color = true;
+      main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
+    }
+  });
+}
+
+void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode application_mode,
+                          ApplicationInitializationSettings& application_info) {
+  const auto missing_resources = MissingDemoProfileResourceRequirements(profile_id);
+  if (!missing_resources.empty()) {
+    std::string message = "Demo profile '" + std::string(GetDemoProfileIdName(profile_id)) + "' is missing ";
+    for (size_t i = 0; i < missing_resources.size(); ++i) {
+      if (i > 0) {
+        message += ", ";
+      }
+      message += missing_resources[i];
+    }
+    throw std::runtime_error(message + ".");
+  }
+
+  application_info.application_mode = application_mode;
+  application_info.use_custom_title_bar = true;
+  const auto resource_root = FindDemoProfileResourcesRoot();
+  switch (profile_id) {
+    case DemoProfileId::Rendering:
+      SetupDemoScene(DemoSetup::Rendering, application_info, resource_root);
+      break;
+    case DemoProfileId::Ddgi:
+      SetupDemoScene(DemoSetup::CornellBox, application_info, resource_root);
+      ConfigureDdgiCornellBoxApplication(application_info, application_mode);
+      break;
+    case DemoProfileId::ProceduralGalaxy:
+      SetupDemoScene(DemoSetup::ProceduralGalaxy, application_info, resource_root);
+      break;
+    case DemoProfileId::LSystem: {
+      const auto& profile = GetDemoProfile(profile_id);
+      application_info.application_name = profile.title;
+      application_info.project_path = ResolveDemoProfileProjectPath(profile_id, resource_root);
+      application_info.enable_runtime_packages = true;
+      application_info.startup_runtime_packages = profile.startup_runtime_packages;
+      break;
+    }
+    case DemoProfileId::EcoSysLab:
+    case DemoProfileId::DigitalAgriculture: {
+      NormalizeLegacyResourceExtensions(resource_root);
+      ConfigurePackageDemoNewSceneDefaults();
+      const auto& profile = GetDemoProfile(profile_id);
+      application_info.application_name = profile.title;
+      application_info.project_path = ResolveDemoProfileProjectPath(profile_id, resource_root);
+      application_info.enable_runtime_packages = true;
+      application_info.startup_runtime_packages = profile.startup_runtime_packages;
+      break;
+    }
+  }
+}
+
+void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (!editor_layer) {
+    return;
+  }
+  switch (profile_id) {
+    case DemoProfileId::EcoSysLab: {
+      editor_layer->velocity = 2.f;
+      const auto scene_camera = editor_layer->GetSceneCamera();
+      if (!scene_camera) {
+        return;
+      }
+      auto& camera_settings = scene_camera->camera_settings;
+      camera_settings.use_clear_color = true;
+      camera_settings.clear_color = glm::vec4(1.f);
+      camera_settings.background_intensity = 3.f;
+      const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+      if (post_processing_stack) {
+        post_processing_stack->enable_bloom = false;
+      }
+      break;
+    }
+    case DemoProfileId::DigitalAgriculture:
+      editor_layer->velocity = 2.f;
+      editor_layer->default_scene_camera_position = glm::vec3(1.124f, 0.218f, 14.089f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+      break;
+    case DemoProfileId::LSystem:
+      editor_layer->velocity = 2.f;
+      editor_layer->default_scene_camera_position = glm::vec3(0.0f, 1.0f, 5.0f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+      break;
+    case DemoProfileId::ProceduralGalaxy:
+      editor_layer->velocity = 50.f;
+      editor_layer->default_scene_camera_position = glm::vec3(0.0f, 100.0f, 100.0f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+      editor_layer->SetSceneCameraRotation(glm::quat(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f))));
+      break;
+    case DemoProfileId::Rendering:
+    case DemoProfileId::Ddgi:
+      break;
+  }
+}
+
+void WaitForDemoProfileProjectIdle() {
+  constexpr size_t max_load_frames = 30000;
+  size_t load_frame_count = 0;
+  while (!ProjectManager::IsProjectIdle()) {
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error("Application ended before demo profile project load completed.");
+    }
+    ++load_frame_count;
+    if (load_frame_count >= max_load_frames) {
+      throw std::runtime_error("Demo profile project load timed out.");
+    }
+  }
+}
+
+void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const ApplicationMode application_mode) {
+  switch (profile_id) {
+    case DemoProfileId::Rendering:
+      if (application_mode == ApplicationMode::Editor) {
+        ApplyRenderingDemoEditorSetup();
+      }
+      break;
+    case DemoProfileId::Ddgi:
+      ConfigureDdgiCornellBoxScene(ApplicationContext::Get().GetActiveScene());
+      if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+        if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+          scene_camera->skybox.Clear();
+          scene_camera->camera_settings.use_clear_color = true;
+          scene_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+          scene_camera->camera_settings.background_intensity = 0.0f;
+          scene_camera->ResetFrameCount();
+        }
+      }
+      if (application_mode == ApplicationMode::Player) {
+        ApplicationContext::Get().Play();
+      }
+      break;
+    case DemoProfileId::EcoSysLab:
+    case DemoProfileId::DigitalAgriculture:
+    case DemoProfileId::LSystem:
+    case DemoProfileId::ProceduralGalaxy:
+      break;
+  }
+}
+
+void CaptureDemoPreview(const std::filesystem::path& output_path, const int width, const int height,
+                        const size_t warmup_frames) {
+  const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    window_layer->ResizeWindow(width, height);
+    window_layer->CenterWindow();
+  }
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (!editor_layer) {
+    throw std::runtime_error("Demo preview capture requires EditorLayer.");
+  }
+  editor_layer->RequestSceneCameraPreviewWindow(preview_resolution);
+  const auto scene_camera = editor_layer->GetSceneCamera();
+  if (!scene_camera) {
+    throw std::runtime_error("Demo preview capture requires a scene camera.");
+  }
+  scene_camera->Resize(preview_resolution);
+  for (size_t frame_index = 0; frame_index < warmup_frames; ++frame_index) {
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error("Application ended before demo preview capture completed.");
+    }
+  }
+  const auto render_texture = scene_camera->GetRenderTexture();
+  if (!render_texture) {
+    throw std::runtime_error("Demo preview capture scene camera has no render texture.");
+  }
+  if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
+    std::filesystem::create_directories(parent_path);
+  }
+  render_texture->StoreToPng(output_path, width, height);
+}
 }  // namespace
 
 int main(const int argc, char** argv) {
@@ -97,6 +354,31 @@ int main(const int argc, char** argv) {
     const auto command_line = ParseCommandLine(argc, argv);
     const auto& project_path = command_line.project_path;
     if (!project_path) {
+      if (command_line.demo_profile_id) {
+        PushStandardApplicationLayers(command_line.application_mode);
+
+        ApplicationInitializationSettings application_info{};
+        ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info);
+        ApplyApplicationModeDefaults(application_info);
+        ApplicationContext::Get().Initialize(application_info);
+        initialized = true;
+        if (command_line.application_mode == ApplicationMode::Editor) {
+          ApplyDemoEditorDefaults(*command_line.demo_profile_id);
+        }
+
+        ApplicationContext::Get().Start(false);
+        WaitForDemoProfileProjectIdle();
+        ApplyDemoProfilePostLoadSetup(*command_line.demo_profile_id, command_line.application_mode);
+        if (command_line.demo_preview_capture_path) {
+          CaptureDemoPreview(*command_line.demo_preview_capture_path, command_line.preview_capture_width,
+                             command_line.preview_capture_height, command_line.preview_capture_warmup_frames);
+          ApplicationContext::Get().Terminate();
+          return 0;
+        }
+        ApplicationContext::Get().Run();
+        ApplicationContext::Get().Terminate();
+        return 0;
+      }
       std::string error;
       if (!LaunchLauncherProcess(error)) {
         EVOENGINE_ERROR(error)

@@ -783,7 +783,9 @@ void Platform::CreateInstance() {
     glfwSetMonitorCallback(window_layer->SetMonitorCallback);
 
     window_layer->window_size_ = application_info.default_window_size;
+    window_layer->window_resizable_ = application_info.window_resizable;
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, application_info.window_resizable ? GLFW_TRUE : GLFW_FALSE);
 #ifdef EVOENGINE_WINDOWS
     if (application_info.use_custom_title_bar) {
       glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
@@ -792,6 +794,7 @@ void Platform::CreateInstance() {
     window_layer->window_ = glfwCreateWindow(window_layer->window_size_.x, window_layer->window_size_.y,
                                              application_info.application_name.c_str(), nullptr, nullptr);
     glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 #ifdef EVOENGINE_WINDOWS
     if (application_info.use_custom_title_bar) {
       glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);

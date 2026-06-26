@@ -42,7 +42,10 @@ Installed app binaries are written to:
 out/install/vs2026-x64/bin/
 ```
 
-Start with `EvoEngineLauncher.exe` to create or open a project. Use `EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
+Start with `EvoEngineLauncher.exe` to open demo profiles, create projects, or open recent projects. Use
+`EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
+Run `python Scripts\generate_demo_previews.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe` to refresh the
+static demo thumbnails shown by the launcher.
 
 For detailed setup, platform requirements, Linux commands, VSCode notes, and install layout, see [docs/building.md](docs/building.md).
 
@@ -91,29 +94,17 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 ## Demo Gallery
 
-| Rendering with DDGI Probes | Ray Tracing |
+| Galaxy | EcoSysLab |
 | --- | --- |
-| ![Rendering demo with DDGI debug probes](Resources/GitHub/RenderingDemo.png) | ![Ray tracing demo](Resources/GitHub/RayTracingDemo.png) |
+| ![Galaxy demo](Resources/GitHub/GalaxyDemo.png) | ![EcoSysLab demo](Resources/GitHub/TreeFrameworkDemo.png) | 
 
-| Planet Terrain | Star Clusters |
+| Strand Visualization | Tree Fracture |
 | --- | --- |
-| ![Planet terrain demo](Resources/GitHub/PlanetsDemo.png) | ![Star cluster demo](Resources/GitHub/StarClusterDemo.png) |
+| ![Strand visualization](Resources/GitHub/StrandVisualization.png) | ![Tree fracture](Resources/GitHub/TreeFracture.png) |
 
-| Tree Framework | Tree Fracture |
+| Sky Lighting | Digital Agriculture |
 | --- | --- |
-| ![Tree framework demo](Resources/GitHub/TreeFrameworkDemo.png) | ![Tree fracture](Resources/GitHub/TreeFracture.png) |
-
-| Strand Visualization | Illumination Estimation |
-| --- | --- |
-| ![Strand visualization](Resources/GitHub/StrandVisualization.png) | ![Illumination estimation demo](Resources/GitHub/IlluminationEstimationDemo.png) |
-
-| Sorghum Model | Sorghum Point Cloud |
-| --- | --- |
-| ![Sorghum model](Resources/GitHub/SorghumModel.png) | ![Sorghum point cloud](Resources/GitHub/SorghumPointCloud.png) |
-
-| Sorghum Environment Lighting |
-| --- |
-| ![Sorghum environment lighting](Resources/GitHub/SorghumEnvLighting.png) |
+| ![Sorghum Env Lighting](Resources/GitHub/SorghumEnvLighting.png) | ![Illumination estimation demo](Resources/GitHub/IlluminationEstimationDemo.png) |
 
 ## Related Publications
 

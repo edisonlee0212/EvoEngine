@@ -62,6 +62,10 @@ class TempFileManagerProject {
     return root_ / "FileManagerTest.eveproj";
   }
 
+  [[nodiscard]] std::filesystem::path RootPath() const {
+    return root_;
+  }
+
   [[nodiscard]] std::filesystem::path AssetsPath() const {
     return root_ / "Assets";
   }
@@ -148,6 +152,16 @@ bool WaitForThumbnailProbeLoad(const std::chrono::milliseconds timeout) {
 void OpenProject(Application& app, const TempFileManagerProject& project) {
   app.Initialize(TestApplicationSettings(project));
   ASSERT_TRUE(ProjectManager::GetAssetsFolder());
+}
+
+void RescanProject(const TempFileManagerProject& project) {
+  ProjectManager::GetOrCreateProject(project.ProjectPath());
+  ASSERT_TRUE(ProjectManager::GetAssetsFolder());
+}
+
+Handle AssetHandleFromMetadata(const std::filesystem::path& asset_path) {
+  const auto metadata = YAML::LoadFile(asset_path.string() + ".evefilemeta");
+  return Handle(metadata["asset_handle_"].as<uint64_t>());
 }
 }  // namespace
 
@@ -356,6 +370,155 @@ TEST(ProjectManager, MoveAssetMovesBinaryFileToDestinationFolder) {
   const auto moved_file = FileManager::GetFile(asset_handle);
   ASSERT_TRUE(moved_file);
   EXPECT_EQ(moved_file->GetFolder().lock(), destination_folder);
+}
+
+TEST(ProjectManager, ProjectRootContainmentAcceptsChildrenAndRejectsOutsidePaths) {
+  TempFileManagerProject project;
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  EXPECT_EQ(ProjectManager::GetProjectFolderPath(), project.RootPath());
+  EXPECT_TRUE(ProjectManager::IsInProjectFolder(project.RootPath()));
+  EXPECT_TRUE(ProjectManager::IsInProjectFolder(project.RootPath() / "Notes.txt"));
+  EXPECT_TRUE(ProjectManager::IsInProjectFolder(project.AssetsPath() / "Source.bin"));
+  EXPECT_FALSE(ProjectManager::IsInProjectFolder(std::filesystem::temp_directory_path() / "EvoEngineOutside.bin"));
+}
+
+TEST(ProjectManager, CopyProjectFileToAssetsAutoRenamesAndGeneratesMetadata) {
+  TempFileManagerProject project;
+  std::ofstream raw_file(project.RootPath() / "Source.bin");
+  raw_file << "raw project payload";
+  raw_file.close();
+  std::ofstream existing_asset(project.AssetsPath() / "Source.bin");
+  existing_asset << "existing asset payload";
+  existing_asset.close();
+
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  ASSERT_TRUE(
+      ProjectManager::CopyProjectItemToAssets(project.RootPath() / "Source.bin", ProjectManager::GetAssetsFolder()));
+  const auto copied_asset_path = project.AssetsPath() / "Source (1).bin";
+  ASSERT_TRUE(std::filesystem::exists(copied_asset_path));
+
+  RescanProject(project);
+
+  ASSERT_TRUE(std::filesystem::exists(copied_asset_path.string() + ".evefilemeta"));
+  const auto copied_file = FileManager::GetFile(AssetHandleFromMetadata(copied_asset_path));
+  ASSERT_TRUE(copied_file);
+  EXPECT_EQ(copied_file->GetAbsolutePath(), copied_asset_path);
+}
+
+TEST(ProjectManager, CopyProjectFolderToAssetsCopiesRecursivelyAndGeneratesMetadata) {
+  TempFileManagerProject project;
+  const auto docs_path = project.RootPath() / "Docs";
+  std::filesystem::create_directories(docs_path / "Nested");
+  std::ofstream readme_file(docs_path / "Readme.txt");
+  readme_file << "readme";
+  readme_file.close();
+  std::ofstream data_file(docs_path / "Nested" / "Data.dat");
+  data_file << "data";
+  data_file.close();
+
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  ASSERT_TRUE(ProjectManager::CopyProjectItemToAssets(docs_path, ProjectManager::GetAssetsFolder()));
+  const auto copied_folder_path = project.AssetsPath() / "Docs";
+  const auto copied_file_path = copied_folder_path / "Readme.txt";
+  const auto copied_nested_folder_path = copied_folder_path / "Nested";
+  const auto copied_nested_file_path = copied_nested_folder_path / "Data.dat";
+  ASSERT_TRUE(std::filesystem::exists(copied_file_path));
+  ASSERT_TRUE(std::filesystem::exists(copied_nested_file_path));
+
+  RescanProject(project);
+
+  EXPECT_TRUE(std::filesystem::exists(copied_folder_path.string() + ".evefoldermeta"));
+  EXPECT_TRUE(std::filesystem::exists(copied_file_path.string() + ".evefilemeta"));
+  EXPECT_TRUE(std::filesystem::exists(copied_nested_folder_path.string() + ".evefoldermeta"));
+  EXPECT_TRUE(std::filesystem::exists(copied_nested_file_path.string() + ".evefilemeta"));
+  EXPECT_TRUE(FileManager::GetFile(AssetHandleFromMetadata(copied_file_path)));
+  EXPECT_TRUE(FileManager::GetFile(AssetHandleFromMetadata(copied_nested_file_path)));
+}
+
+TEST(ProjectManager, CopyAssetFileToProjectFolderSkipsMetadata) {
+  TempFileManagerProject project;
+  WriteBinaryAssetFixture(project);
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  ASSERT_TRUE(ProjectManager::CopyAssetFileToProjectFolder(Handle(kBinaryAssetHandle), project.RootPath()));
+
+  const auto copied_path = project.RootPath() / "Source.bin";
+  EXPECT_TRUE(std::filesystem::exists(copied_path));
+  EXPECT_FALSE(std::filesystem::exists(copied_path.string() + ".evefilemeta"));
+}
+
+TEST(ProjectManager, CopyAssetFolderToProjectFolderSkipsMetadataRecursively) {
+  TempFileManagerProject project;
+  const auto bundle_path = project.AssetsPath() / "Bundle";
+  std::filesystem::create_directories(bundle_path / "Nested");
+  std::ofstream item_file(bundle_path / "Item.bin");
+  item_file << "item";
+  item_file.close();
+  std::ofstream nested_file(bundle_path / "Nested" / "NestedItem.bin");
+  nested_file << "nested";
+  nested_file.close();
+
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+  const auto bundle_folder = ProjectManager::GetOrCreateFolder("Bundle").lock();
+  ASSERT_TRUE(bundle_folder);
+  ASSERT_TRUE(std::filesystem::exists(bundle_path.string() + ".evefoldermeta"));
+  ASSERT_TRUE(std::filesystem::exists((bundle_path / "Item.bin").string() + ".evefilemeta"));
+  ASSERT_TRUE(std::filesystem::exists((bundle_path / "Nested").string() + ".evefoldermeta"));
+
+  ASSERT_TRUE(ProjectManager::CopyAssetFolderToProjectFolder(bundle_folder->GetHandle(), project.RootPath()));
+
+  const auto copied_bundle_path = project.RootPath() / "Bundle";
+  EXPECT_TRUE(std::filesystem::exists(copied_bundle_path / "Item.bin"));
+  EXPECT_TRUE(std::filesystem::exists(copied_bundle_path / "Nested" / "NestedItem.bin"));
+  EXPECT_FALSE(std::filesystem::exists(copied_bundle_path.string() + ".evefoldermeta"));
+  EXPECT_FALSE(std::filesystem::exists((copied_bundle_path / "Item.bin").string() + ".evefilemeta"));
+  EXPECT_FALSE(std::filesystem::exists((copied_bundle_path / "Nested").string() + ".evefoldermeta"));
+  EXPECT_FALSE(std::filesystem::exists((copied_bundle_path / "Nested" / "NestedItem.bin").string() + ".evefilemeta"));
+}
+
+TEST(ProjectManager, RenameAndDeleteProjectItemsRejectProtectedPaths) {
+  TempFileManagerProject project;
+  std::ofstream project_file(project.ProjectPath());
+  project_file << "application_name: FileManagerTest\n";
+  project_file.close();
+  const auto notes_path = project.RootPath() / "Notes.txt";
+  std::ofstream notes_file(notes_path);
+  notes_file << "notes";
+  notes_file.close();
+  const auto docs_path = project.RootPath() / "Docs";
+  std::filesystem::create_directories(docs_path);
+  const auto outside_path = std::filesystem::temp_directory_path() / "EvoEngineProjectManagerOutside.txt";
+
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  ASSERT_TRUE(ProjectManager::RenameProjectItem(notes_path, "NotesRenamed.txt"));
+  EXPECT_FALSE(std::filesystem::exists(notes_path));
+  EXPECT_TRUE(std::filesystem::exists(project.RootPath() / "NotesRenamed.txt"));
+
+  ASSERT_TRUE(ProjectManager::DeleteProjectItem(docs_path));
+  EXPECT_FALSE(std::filesystem::exists(docs_path));
+
+  EXPECT_FALSE(ProjectManager::RenameProjectItem(project.ProjectPath(), "Renamed.eveproj"));
+  EXPECT_FALSE(ProjectManager::DeleteProjectItem(project.ProjectPath()));
+  EXPECT_FALSE(ProjectManager::RenameProjectItem(project.AssetsPath(), "RenamedAssets"));
+  EXPECT_FALSE(ProjectManager::DeleteProjectItem(project.AssetsPath()));
+  EXPECT_FALSE(ProjectManager::RenameProjectItem(project.AssetsPath() / "Any.bin", "Renamed.bin"));
+  EXPECT_FALSE(ProjectManager::DeleteProjectItem(outside_path));
 }
 
 TEST(ProjectManager, DeleteAssetAndFolderRemoveProjectItems) {

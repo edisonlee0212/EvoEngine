@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the DemoApp editor layout used by the README gallery."""
+"""Capture the legacy DemoApp editor layout used by the README gallery."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--apply", action="store_true", help="overwrite Resources/GitHub/RenderingDemo.png")
     parser.add_argument("--build", dest="build", action="store_true", default=True, help="build DemoApp first")
     parser.add_argument("--no-build", dest="build", action="store_false", help="skip building DemoApp")
+    parser.add_argument("--preset", default="vs2026-x64", help="CMake preset used to enable the DemoApp target")
     parser.add_argument("--build-dir", type=Path, default=DEFAULT_BUILD_DIR)
     parser.add_argument("--config", default="RelWithDebInfo")
     parser.add_argument("--output", type=Path, help="capture output path")
@@ -38,7 +39,9 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def run_build(root: Path, build_dir: Path, config: str) -> None:
+def run_build(root: Path, build_dir: Path, config: str, preset: str) -> None:
+    configure_command = ["cmake", "--preset", preset, "-DEvoEngine_App-DemoApp=ON"]
+    subprocess.run(configure_command, cwd=root, check=True)
     command = ["cmake", "--build", str(root / build_dir), "--config", config, "--target", "DemoApp"]
     subprocess.run(command, cwd=root, check=True)
 
@@ -106,7 +109,7 @@ def main() -> int:
     build_dir = args.build_dir if args.build_dir.is_absolute() else root / args.build_dir
 
     if args.build:
-        run_build(root, build_dir, args.config)
+        run_build(root, build_dir, args.config, args.preset)
 
     app_path = demo_app_path(root, build_dir, args.config)
     run_dir = root / "out/readme-screenshots/run"

@@ -30,6 +30,7 @@ TEST(ApplicationInitializationSettings, DefaultsToFullHdWindowSize) {
   const ApplicationInitializationSettings settings;
   EXPECT_EQ(settings.default_window_size.x, 1920);
   EXPECT_EQ(settings.default_window_size.y, 1080);
+  EXPECT_TRUE(settings.window_resizable);
 }
 
 namespace {

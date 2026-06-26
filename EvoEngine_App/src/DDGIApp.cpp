@@ -1,11 +1,7 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
-#include "Camera.hpp"
-#include "DdgiVolume.hpp"
+#include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
-#include "Lights.hpp"
-#include "Material.hpp"
-#include "MeshRenderer.hpp"
 #include "ProjectManager.hpp"
 #include "WindowLayer.hpp"
 
@@ -22,28 +18,12 @@
 using namespace evo_engine;
 
 namespace {
-const glm::ivec2 kComparisonExtent = {1024, 1024};
-const glm::vec3 kCornellCameraPosition = {0.0f, 0.0f, 0.8f};
-const glm::ivec3 kComparisonProbeCounts = {13, 13, 14};
-const glm::vec3 kComparisonVolumeOrigin = {0.0f, 0.0f, 0.0f};
-constexpr float kComparisonProbeSpacing = 0.14333334f;
-constexpr float kComparisonPointLightBrightness = 2.0f;
-constexpr float kComparisonDdgiIndirectIntensity = 1.0f;
-constexpr float kComparisonCeilingLightEmission = 2.0f;
-constexpr float kComparisonDdgiNormalBias = 0.02f;
-constexpr float kComparisonDdgiViewBias = 0.05f;
-constexpr bool kComparisonEnableProbeRelocation = true;
-constexpr bool kComparisonEnableProbeClassification = true;
-
 struct DdgiAppCommandLine {
-  ApplicationMode application_mode = ApplicationMode::Player;
+  ApplicationMode application_mode = ApplicationMode::Editor;
   size_t exit_after_frames = 0;
   size_t max_load_frames = 600;
   size_t screenshot_warmup_frames = 360;
-  float point_light_brightness = kComparisonPointLightBrightness;
-  float ddgi_indirect_intensity = kComparisonDdgiIndirectIntensity;
-  bool enable_probe_relocation = kComparisonEnableProbeRelocation;
-  bool enable_probe_classification = kComparisonEnableProbeClassification;
+  DdgiCornellBoxDemoSettings scene_settings;
   std::filesystem::path screenshot_path;
 };
 
@@ -76,17 +56,17 @@ struct DdgiAppCommandLine {
     } else if (argument == "--screenshot-warmup-frames") {
       command_line.screenshot_warmup_frames = ParseSizeArgument(argc, argv, arg_index, argument);
     } else if (argument == "--point-light-brightness") {
-      command_line.point_light_brightness = ParseFloatArgument(argc, argv, arg_index, argument);
+      command_line.scene_settings.point_light_brightness = ParseFloatArgument(argc, argv, arg_index, argument);
     } else if (argument == "--ddgi-indirect-intensity") {
-      command_line.ddgi_indirect_intensity = ParseFloatArgument(argc, argv, arg_index, argument);
+      command_line.scene_settings.ddgi_indirect_intensity = ParseFloatArgument(argc, argv, arg_index, argument);
     } else if (argument == "--enable-probe-relocation") {
-      command_line.enable_probe_relocation = true;
+      command_line.scene_settings.enable_probe_relocation = true;
     } else if (argument == "--disable-probe-relocation") {
-      command_line.enable_probe_relocation = false;
+      command_line.scene_settings.enable_probe_relocation = false;
     } else if (argument == "--enable-probe-classification") {
-      command_line.enable_probe_classification = true;
+      command_line.scene_settings.enable_probe_classification = true;
     } else if (argument == "--disable-probe-classification") {
-      command_line.enable_probe_classification = false;
+      command_line.scene_settings.enable_probe_classification = false;
     } else if (argument == "--screenshot") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires a path.");
@@ -96,8 +76,8 @@ struct DdgiAppCommandLine {
       throw std::invalid_argument("Unknown DDGIApp argument: " + argument);
     }
   }
-  if (command_line.application_mode != ApplicationMode::Player) {
-    throw std::invalid_argument("DDGIApp only supports player mode.");
+  if (command_line.application_mode == ApplicationMode::Headless) {
+    throw std::invalid_argument("DDGIApp does not support headless mode.");
   }
   return command_line;
 }
@@ -105,105 +85,6 @@ struct DdgiAppCommandLine {
 int FailDdgiApp(const std::string& reason) {
   std::cerr << "DDGI_APP_RESULT failed reason=\"" << reason << "\"" << std::endl;
   return 1;
-}
-
-void DisablePostProcessing(const std::shared_ptr<Scene>& scene) {
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    main_camera->post_processing_stack_ref.Clear();
-  }
-  if (const auto* camera_owners = scene->UnsafeGetPrivateComponentOwnersList<Camera>()) {
-    for (const auto& owner : *camera_owners) {
-      if (const auto camera = scene->GetOrSetPrivateComponent<Camera>(owner).lock()) {
-        camera->post_processing_stack_ref.Clear();
-      }
-    }
-  }
-}
-
-void ConfigureDdgiAppScene(const std::shared_ptr<Scene>& scene, const DdgiAppCommandLine& command_line) {
-  if (!scene) {
-    return;
-  }
-  DisablePostProcessing(scene);
-
-  scene->environment.environment_type = Scene::EnvironmentType::Color;
-  scene->environment.background_color = glm::vec3(0.0f);
-  scene->environment.background_intensity = 0.0f;
-  scene->environment.ambient_light_intensity = 0.0f;
-
-  auto& ddgi_settings = scene->environment.ddgi_settings;
-  ddgi_settings.runtime.enabled = true;
-  ddgi_settings.runtime.pause_updates = false;
-  ddgi_settings.runtime.ray_count = 256;
-  ddgi_settings.runtime.normal_bias = kComparisonDdgiNormalBias;
-  ddgi_settings.runtime.view_bias = kComparisonDdgiViewBias;
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.runtime.indirect_intensity = glm::max(command_line.ddgi_indirect_intensity, 0.0f);
-  ddgi_settings.storage.max_probe_count =
-      kComparisonProbeCounts.x * kComparisonProbeCounts.y * kComparisonProbeCounts.z;
-  ddgi_settings.debug.enabled = false;
-  ddgi_settings.debug.visualize_volume_bounds = false;
-  ddgi_settings.debug.visualize_probe_positions = false;
-  ddgi_settings.debug.visualize_selected_probe = false;
-  ddgi_settings.debug.visualize_probe_state = false;
-  ddgi_settings.debug.visualize_probe_illumination = false;
-  ddgi_settings.debug.show_atlas_preview = false;
-  ddgi_settings.debug.show_update_age = false;
-  ddgi_settings.debug.show_rays = false;
-  ddgi_settings.debug.show_irradiance = false;
-  ddgi_settings.debug.show_visibility = false;
-  ddgi_settings.debug.show_sampling_weights = false;
-
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    main_camera->Resize(kComparisonExtent);
-    main_camera->skybox.Clear();
-    main_camera->camera_settings.use_clear_color = true;
-    main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    main_camera->camera_settings.background_intensity = 0.0f;
-
-    auto camera_transform = scene->GetDataComponent<Transform>(main_camera->GetOwner());
-    camera_transform.SetPosition(kCornellCameraPosition);
-    scene->SetDataComponent(main_camera->GetOwner(), camera_transform);
-  }
-
-  if (const auto* volume_owners = scene->UnsafeGetPrivateComponentOwnersList<DdgiVolume>()) {
-    for (const auto& owner : *volume_owners) {
-      if (const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(owner).lock()) {
-        volume->visualize_bounds = false;
-        volume->visualize_probe_positions = false;
-        volume->probe_counts = kComparisonProbeCounts;
-        volume->probe_spacing = glm::vec3(kComparisonProbeSpacing);
-        volume->volume_origin = kComparisonVolumeOrigin;
-        volume->relocation_distance = kComparisonProbeSpacing * 0.5f;
-        volume->enable_probe_relocation = command_line.enable_probe_relocation;
-        volume->enable_probe_classification = command_line.enable_probe_classification;
-        volume->max_visualized_probes = 0;
-        volume->ClampSettings();
-      }
-    }
-  }
-
-  if (const auto* point_light_owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {
-    for (const auto& owner : *point_light_owners) {
-      if (const auto point_light = scene->GetOrSetPrivateComponent<PointLight>(owner).lock()) {
-        point_light->diffuse_brightness = glm::max(command_line.point_light_brightness, 0.0f);
-      }
-    }
-  }
-
-  if (const auto* mesh_renderer_owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
-    for (const auto& owner : *mesh_renderer_owners) {
-      if (scene->GetEntityName(owner) != "Ceiling Light Mesh") {
-        continue;
-      }
-      const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(owner).lock();
-      const auto material = mesh_renderer ? mesh_renderer->material.Get<Material>() : nullptr;
-      if (material) {
-        material->material_properties.emission = kComparisonCeilingLightEmission;
-        material->MarkDirty();
-      }
-    }
-  }
 }
 
 [[nodiscard]] int WaitForProjectIdle(Application& application, const size_t max_load_frames) {
@@ -267,10 +148,7 @@ int main(const int argc, char** argv) {
 
     ApplicationInitializationSettings application_info;
     SetupDemoScene(DemoSetup::CornellBox, application_info);
-    application_info.application_mode = command_line.application_mode;
-    application_info.application_name = "DDGI Cornell Box";
-    application_info.default_window_size = kComparisonExtent;
-    application_info.use_custom_title_bar = false;
+    ConfigureDdgiCornellBoxApplication(application_info, command_line.application_mode);
     ApplyApplicationModeDefaults(application_info);
 
     ApplicationContext::Get().Initialize(application_info);
@@ -282,8 +160,10 @@ int main(const int argc, char** argv) {
       return load_result;
     }
 
-    ConfigureDdgiAppScene(ApplicationContext::Get().GetActiveScene(), command_line);
-    ApplicationContext::Get().Play();
+    ConfigureDdgiCornellBoxScene(ApplicationContext::Get().GetActiveScene(), command_line.scene_settings);
+    if (command_line.application_mode == ApplicationMode::Player) {
+      ApplicationContext::Get().Play();
+    }
 
     if (!command_line.screenshot_path.empty()) {
       const auto screenshot_result = CaptureWindowScreenshot(ApplicationContext::Get(), command_line);

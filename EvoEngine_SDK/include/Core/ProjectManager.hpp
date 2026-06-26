@@ -211,6 +211,12 @@ class ProjectManager {
   [[nodiscard]] static std::filesystem::path GetProjectPath();
 
   /**
+   * @brief Gets the absolute path of the folder that contains the current project file.
+   * @return The project folder path.
+   */
+  [[nodiscard]] static std::filesystem::path GetProjectFolderPath();
+
+  /**
    * @brief Gets the absolute path of the assets directory.
    * @return The folder path for assets.
    */
@@ -283,6 +289,22 @@ class ProjectManager {
    */
   [[nodiscard]] static bool MoveFolder(const Handle& folder_handle, const std::shared_ptr<Folder>& destination_folder);
 
+  [[nodiscard]] static bool CopyProjectItemToAssets(const std::filesystem::path& source_path,
+                                                    const std::shared_ptr<Folder>& destination_folder);
+
+  [[nodiscard]] static bool CopyAssetFileToProjectFolder(const Handle& asset_handle,
+                                                         const std::filesystem::path& destination_folder);
+
+  [[nodiscard]] static bool CopyAssetFolderToProjectFolder(const Handle& folder_handle,
+                                                           const std::filesystem::path& destination_folder);
+
+  [[nodiscard]] static bool CopyProjectItemToProjectFolder(const std::filesystem::path& source_path,
+                                                           const std::filesystem::path& destination_folder);
+
+  [[nodiscard]] static bool RenameProjectItem(const std::filesystem::path& path, const std::string& new_name);
+
+  [[nodiscard]] static bool DeleteProjectItem(const std::filesystem::path& path);
+
   /**
    * @brief Deletes the asset/file identified by handle from the project.
    * @param asset_handle Asset or file handle to delete.
@@ -303,6 +325,8 @@ class ProjectManager {
    * @return True if the path is within the assets folder, false otherwise.
    */
   [[nodiscard]] static bool IsInAssetsFolder(const std::filesystem::path& absolute_path);
+
+  [[nodiscard]] static bool IsInProjectFolder(const std::filesystem::path& absolute_path);
 
   /**
    * @brief Validates that a given file name is suitable for an asset.
