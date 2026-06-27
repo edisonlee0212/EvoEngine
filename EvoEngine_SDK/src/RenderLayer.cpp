@@ -1443,6 +1443,12 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                                 VK_SHADER_STAGE_VERTEX_BIT, 0);
     ddgi_probe_ray_visualization_layout_->Initialize();
   }
+  if (!gaussian_splat_layout_) {
+    gaussian_splat_layout_ = std::make_shared<DescriptorSetLayout>();
+    gaussian_splat_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    gaussian_splat_layout_->Initialize();
+  }
 }
 
 void RenderLayer::RenderToPointLightShadowMap(
@@ -2291,6 +2297,28 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     ddgi_probe_ray_visualization_pipeline_->Initialize();
+  }
+  if (!gaussian_splat_pipeline_) {
+    gaussian_splat_pipeline_ = std::make_shared<GraphicsPipeline>();
+    gaussian_splat_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/GaussianSplat/GaussianSplat.vert");
+    gaussian_splat_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/GaussianSplat/GaussianSplat.frag");
+    gaussian_splat_pipeline_->geometry_type = GeometryType::Mesh;
+    gaussian_splat_pipeline_->vertex_input_enabled = false;
+    gaussian_splat_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    gaussian_splat_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    gaussian_splat_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    gaussian_splat_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    gaussian_splat_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    gaussian_splat_pipeline_->descriptor_set_layouts.emplace_back(gaussian_splat_layout_);
+    auto& push_constant_range = gaussian_splat_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GaussianSplatPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    gaussian_splat_pipeline_->Initialize();
   }
 #ifdef EVOENGINE_WINDOWS
   if (!gizmos_strands) {
@@ -4253,8 +4281,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     if (gaussian_splat_rendering_enabled) {
       camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(post_lighting_dependency),
                                   [&](const RenderGraphExecutionContext& context) {
-                                    GaussianSplatPass::Execute(context,
-                                                               {camera, current_render_instances, record_commands});
+                                    GaussianSplatPass::Execute(
+                                        context, {camera, current_render_instances, gaussian_splat_pipeline_,
+                                                  per_frame_descriptor_sets_[current_frame_index],
+                                                  gaussian_splat_layout_, active_camera_transient_resources,
+                                                  static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
                                   });
       post_lighting_dependency = RenderPassNames::gaussian_splat;
     }

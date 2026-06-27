@@ -703,6 +703,11 @@ const GaussianSplatSortCache& GaussianSplat::EnsureSortedIndices(const Handle& c
   return cache;
 }
 
+const GaussianSplatSortCache* GaussianSplat::FindSortCache(const Handle& camera_handle) const {
+  const auto search = sort_caches_.find(camera_handle);
+  return search == sort_caches_.end() ? nullptr : &search->second;
+}
+
 void GaussianSplat::RecalculateBoundingBox() {
   if (positions.empty()) {
     min_bound_ = glm::vec3(0.0f);
