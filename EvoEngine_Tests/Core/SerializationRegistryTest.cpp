@@ -1065,6 +1065,69 @@ TEST(SerializationRegistry, GaussianSplatRejectsPlyWithoutRequiredFields) {
   EXPECT_TRUE(gaussian_splat.Empty());
 }
 
+TEST(SerializationRegistry, GaussianSplatBuildsGpuDataWithoutRepackingStaticAsset) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, -5.0f, 6.0f)};
+  gaussian_splat.scales = {glm::vec3(0.1f, 0.2f, 0.3f), glm::vec3(0.4f, 0.5f, 0.6f)};
+  gaussian_splat.rotations = {glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)};
+  gaussian_splat.opacities = {0.7f, 0.8f};
+  gaussian_splat.colors = {glm::vec3(0.9f, 1.0f, 1.1f), glm::vec3(1.2f, 1.3f, 1.4f)};
+  gaussian_splat.spherical_harmonics_rest = {0.01f, 0.02f, 0.03f, 0.04f};
+  gaussian_splat.spherical_harmonics_rest_float_count = 2;
+  gaussian_splat.RecalculateBoundingBox();
+
+  const auto& gpu_data = gaussian_splat.EnsureGpuData();
+  ASSERT_EQ(gpu_data.size(), 2);
+  EXPECT_FLOAT_EQ(gpu_data[0].position_opacity.x, -1.0f);
+  EXPECT_FLOAT_EQ(gpu_data[0].position_opacity.w, 0.7f);
+  EXPECT_FLOAT_EQ(gpu_data[1].scale_reserved.y, 0.5f);
+  EXPECT_FLOAT_EQ(gpu_data[1].rotation.y, 1.0f);
+  EXPECT_FLOAT_EQ(gpu_data[1].color_rest_offset.z, 1.4f);
+  EXPECT_FLOAT_EQ(gpu_data[1].color_rest_offset.w, 2.0f);
+
+  const auto revision = gaussian_splat.GetGpuDataRevision();
+  (void)gaussian_splat.EnsureGpuData();
+  EXPECT_EQ(gaussian_splat.GetGpuDataRevision(), revision);
+  EXPECT_EQ(gaussian_splat.GetGpuDataBuffer(), nullptr);
+
+  gaussian_splat.positions[0].z = 9.0f;
+  gaussian_splat.RecalculateBoundingBox();
+  const auto& updated_gpu_data = gaussian_splat.EnsureGpuData();
+  EXPECT_GT(gaussian_splat.GetGpuDataRevision(), revision);
+  EXPECT_FLOAT_EQ(updated_gpu_data[0].position_opacity.z, 9.0f);
+}
+
+TEST(SerializationRegistry, GaussianSplatSortCacheRefreshesForCameraTransform) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 0.0f, -5.0f), glm::vec3(0.0f, 0.0f, -3.0f)};
+  gaussian_splat.RecalculateBoundingBox();
+
+  const auto& cache = gaussian_splat.EnsureSortedIndices(Handle(101), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(cache.indices, (std::vector<uint32_t>{1, 2, 0}));
+  ASSERT_EQ(cache.depths.size(), 3);
+  EXPECT_FLOAT_EQ(cache.depths[0], 5.0f);
+  EXPECT_FLOAT_EQ(cache.depths[2], 1.0f);
+  const auto generation = cache.generation;
+
+  const auto& unchanged_cache = gaussian_splat.EnsureSortedIndices(Handle(101), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(unchanged_cache.generation, generation);
+
+  const auto rotated_model = glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+  const auto& rotated_cache = gaussian_splat.EnsureSortedIndices(Handle(101), rotated_model, glm::mat4(1.0f));
+  EXPECT_EQ(rotated_cache.indices, (std::vector<uint32_t>{0, 2, 1}));
+  EXPECT_GT(rotated_cache.generation, generation);
+
+  const auto& other_camera_cache = gaussian_splat.EnsureSortedIndices(Handle(202), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(other_camera_cache.indices, (std::vector<uint32_t>{1, 2, 0}));
+  EXPECT_EQ(other_camera_cache.generation, 1);
+}
+
 TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
   Application app;
   ApplicationContextScope scope(app);

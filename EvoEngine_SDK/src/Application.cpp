@@ -568,6 +568,7 @@ void DeserializeGaussianSplat(const YAML::Node& in, GaussianSplat& gaussian_spla
     gaussian_splat.spherical_harmonics_rest.resize(data.size() / sizeof(float));
     std::memcpy(gaussian_splat.spherical_harmonics_rest.data(), data.data(), data.size());
   }
+  gaussian_splat.InvalidateGpuCaches();
 }
 
 void SerializeTexture2D(YAML::Emitter& out, const Texture2D& texture) {

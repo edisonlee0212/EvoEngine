@@ -882,6 +882,26 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     auto& render_instance_block = instance_info_blocks_.emplace_back();
     render_instance->Apply(render_instance_block);
   };
+  const auto prepare_gaussian_splat_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+    const auto gaussian_splat_render_instance = std::dynamic_pointer_cast<GaussianSplatRenderInstance>(render_instance);
+    if (!gaussian_splat_render_instance || !gaussian_splat_render_instance->gaussian_splat) {
+      return;
+    }
+    gaussian_splat_render_instance->geometry_version =
+        gaussian_splat_render_instance->gaussian_splat->GetGpuDataRevision();
+    if (gaussian_splat_render_instance->sort_mode != GaussianSplatSortMode::CpuDepth) {
+      return;
+    }
+    const auto camera_count = std::min(cameras.size(), camera_info_blocks_.size());
+    for (size_t camera_index = 0; camera_index < camera_count; ++camera_index) {
+      const auto& camera = cameras[camera_index].second;
+      if (!camera) {
+        continue;
+      }
+      (void)gaussian_splat_render_instance->gaussian_splat->EnsureSortedIndices(
+          camera->GetHandle(), gaussian_splat_render_instance->model.value, camera_info_blocks_[camera_index].view);
+    }
+  };
   const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
     VkDrawIndexedIndirectCommand opaque_draw{};
     VkDrawMeshTasksIndirectCommandEXT opaque_mesh_task{};
@@ -950,6 +970,7 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   });
 
   gaussian_splat_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    prepare_gaussian_splat_render_instance(render_instance);
     register_render_instance(render_instance);
   });
 
@@ -1828,6 +1849,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                         glm::max(max_bound.z, center.z + size.z));
 
   const auto render_instance = std::make_shared<GaussianSplatRenderInstance>();
+  (void)gaussian_splat->EnsureGpuData();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->owner = owner;
   render_instance->entity_handle = target_scene->GetEntityHandle(owner);
@@ -1835,7 +1857,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->model = gt;
   render_instance->gaussian_splat = gaussian_splat;
   render_instance->world_bound = mesh_bound;
-  render_instance->geometry_version = gaussian_splat->GetVersion();
+  render_instance->geometry_version = gaussian_splat->GetGpuDataRevision();
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->opacity_scale = gaussian_splat_renderer->opacity_scale;
   render_instance->sh_degree = gaussian_splat_renderer->sh_degree;

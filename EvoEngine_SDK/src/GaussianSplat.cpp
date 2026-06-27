@@ -1,8 +1,13 @@
 #include "GaussianSplat.hpp"
 
+#include "ApplicationContext.hpp"
+#include "GraphicsResources.hpp"
+#include "Platform.hpp"
 #include "Serialization.hpp"
 #include "Tinyply.hpp"
 
+#include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -25,6 +30,53 @@ class GaussianSplatStagedLoadPayload final : public StagedAssetLoadPayload {
   std::vector<float> spherical_harmonics_rest;
   uint32_t spherical_harmonics_rest_float_count = 0;
 };
+
+[[nodiscard]] float GetOrDefault(const std::vector<float>& values, const size_t index, const float fallback) {
+  return index < values.size() ? values[index] : fallback;
+}
+
+[[nodiscard]] glm::vec3 GetOrDefault(const std::vector<glm::vec3>& values, const size_t index,
+                                     const glm::vec3& fallback) {
+  return index < values.size() ? values[index] : fallback;
+}
+
+[[nodiscard]] glm::vec4 GetOrDefault(const std::vector<glm::vec4>& values, const size_t index,
+                                     const glm::vec4& fallback) {
+  return index < values.size() ? values[index] : fallback;
+}
+
+[[nodiscard]] bool SameMatrix(const glm::mat4& lhs, const glm::mat4& rhs) {
+  return std::memcmp(&lhs[0][0], &rhs[0][0], sizeof(glm::mat4)) == 0;
+}
+
+[[nodiscard]] bool CanUploadGpuData() {
+  return ApplicationContext::TryGet() && Platform::Initialized();
+}
+
+[[nodiscard]] std::shared_ptr<evo_engine::Buffer> CreateStorageBuffer(const size_t byte_size) {
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = glm::max(static_cast<size_t>(1), byte_size);
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  return std::make_shared<evo_engine::Buffer>(buffer_create_info, allocation_create_info);
+}
+
+template <typename T>
+void UploadVector(std::shared_ptr<evo_engine::Buffer>& buffer, const std::vector<T>& data) {
+  if (!CanUploadGpuData() || data.empty()) {
+    return;
+  }
+
+  const auto byte_size = data.size() * sizeof(T);
+  if (!buffer || buffer->GetSize() < byte_size) {
+    buffer = CreateStorageBuffer(byte_size);
+  }
+  buffer->UploadVector(data);
+}
 
 bool HasVertexProperties(const PlyFile& file, const std::vector<std::string>& property_names) {
   std::unordered_set<std::string> vertex_properties;
@@ -557,10 +609,105 @@ void GaussianSplat::SetBounds(const glm::vec3& min_bound, const glm::vec3& max_b
   max_bound_ = max_bound;
 }
 
+void GaussianSplat::InvalidateGpuCaches() {
+  gpu_data_dirty_ = true;
+  gpu_data_buffer_dirty_ = true;
+  sort_caches_.clear();
+}
+
+void GaussianSplat::BuildGpuData() const {
+  if (!gpu_data_dirty_ && gpu_data_.size() == positions.size()) {
+    return;
+  }
+
+  gpu_data_.resize(positions.size());
+  for (size_t i = 0; i < positions.size(); ++i) {
+    auto& target = gpu_data_[i];
+    target.position_opacity = glm::vec4(positions[i], GetOrDefault(opacities, i, 1.0f));
+    target.scale_reserved = glm::vec4(GetOrDefault(scales, i, glm::vec3(0.0f)), 0.0f);
+    target.rotation = GetOrDefault(rotations, i, glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+    target.color_rest_offset = glm::vec4(GetOrDefault(colors, i, glm::vec3(1.0f)), -1.0f);
+
+    const auto rest_offset = i * spherical_harmonics_rest_float_count;
+    if (spherical_harmonics_rest_float_count > 0 &&
+        rest_offset + spherical_harmonics_rest_float_count <= spherical_harmonics_rest.size()) {
+      target.color_rest_offset.w = static_cast<float>(rest_offset);
+    }
+  }
+
+  gpu_data_dirty_ = false;
+  gpu_data_buffer_dirty_ = true;
+  ++gpu_data_revision_;
+}
+
+const std::vector<GaussianSplatGpuData>& GaussianSplat::EnsureGpuData() const {
+  BuildGpuData();
+  if (gpu_data_buffer_dirty_) {
+    UploadVector(gpu_data_buffer_, gpu_data_);
+    if (CanUploadGpuData()) {
+      gpu_data_buffer_dirty_ = false;
+    }
+  }
+  return gpu_data_;
+}
+
+const std::shared_ptr<evo_engine::Buffer>& GaussianSplat::GetGpuDataBuffer() const {
+  (void)EnsureGpuData();
+  return gpu_data_buffer_;
+}
+
+uint32_t GaussianSplat::GetGpuDataRevision() const {
+  (void)EnsureGpuData();
+  return gpu_data_revision_;
+}
+
+const GaussianSplatSortCache& GaussianSplat::EnsureSortedIndices(const Handle& camera_handle, const glm::mat4& model,
+                                                                 const glm::mat4& view) const {
+  (void)EnsureGpuData();
+  auto& cache = sort_caches_[camera_handle];
+  if (cache.valid && cache.indices.size() == positions.size() && SameMatrix(cache.model, model) &&
+      SameMatrix(cache.view, view)) {
+    return cache;
+  }
+
+  struct SortEntry {
+    uint32_t index = 0;
+    float depth = 0.0f;
+  };
+  std::vector<SortEntry> entries;
+  entries.resize(positions.size());
+  const auto model_view = view * model;
+  for (uint32_t i = 0; i < positions.size(); ++i) {
+    const auto view_position = model_view * glm::vec4(positions[i], 1.0f);
+    entries[i].index = i;
+    entries[i].depth = -view_position.z;
+  }
+
+  std::stable_sort(entries.begin(), entries.end(), [](const SortEntry& lhs, const SortEntry& rhs) {
+    return lhs.depth > rhs.depth;
+  });
+
+  cache.indices.resize(entries.size());
+  cache.depths.resize(entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    cache.indices[i] = entries[i].index;
+    cache.depths[i] = entries[i].depth;
+  }
+
+  UploadVector(cache.index_buffer, cache.indices);
+  UploadVector(cache.depth_buffer, cache.depths);
+  cache.model = model;
+  cache.view = view;
+  cache.valid = true;
+  ++cache.generation;
+  return cache;
+}
+
 void GaussianSplat::RecalculateBoundingBox() {
   if (positions.empty()) {
     min_bound_ = glm::vec3(0.0f);
     max_bound_ = glm::vec3(0.0f);
+    InvalidateGpuCaches();
     return;
   }
   min_bound_ = positions.front();
@@ -569,6 +716,7 @@ void GaussianSplat::RecalculateBoundingBox() {
     min_bound_ = glm::min(min_bound_, position);
     max_bound_ = glm::max(max_bound_, position);
   }
+  InvalidateGpuCaches();
 }
 
 bool GaussianSplat::LoadPly(const std::filesystem::path& path) {
