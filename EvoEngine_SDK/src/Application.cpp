@@ -12,6 +12,7 @@
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
+#include "GaussianSplat.hpp"
 #include "Input.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
@@ -150,6 +151,7 @@ void RegisterBuiltInAssetIoHandlers() {
   RegisterYamlStagedAssetIoHandler<Animation>("Animation");
   SkinnedMesh::RegisterAssetIoHandlers();
   PointCloud::RegisterAssetIoHandlers();
+  GaussianSplat::RegisterAssetIoHandlers();
 }
 
 void SerializeAnimationPlayer(YAML::Emitter& out, const AnimationPlayer& player) {
@@ -486,6 +488,84 @@ void DeserializePointCloud(const YAML::Node& in, PointCloud& point_cloud) {
     const auto& vertex_data = in["normals"].as<YAML::Binary>();
     point_cloud.normals.resize(vertex_data.size() / sizeof(glm::vec3));
     std::memcpy(point_cloud.normals.data(), vertex_data.data(), vertex_data.size());
+  }
+}
+
+void SerializeGaussianSplat(YAML::Emitter& out, const GaussianSplat& gaussian_splat) {
+  out << YAML::Key << "min_bound" << gaussian_splat.GetMinBound();
+  out << YAML::Key << "max_bound" << gaussian_splat.GetMaxBound();
+  out << YAML::Key << "spherical_harmonics_rest_float_count" << gaussian_splat.spherical_harmonics_rest_float_count;
+  if (!gaussian_splat.positions.empty()) {
+    out << YAML::Key << "positions" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(gaussian_splat.positions.data()),
+                        gaussian_splat.positions.size() * sizeof(glm::vec3));
+  }
+  if (!gaussian_splat.scales.empty()) {
+    out << YAML::Key << "scales" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(gaussian_splat.scales.data()),
+                        gaussian_splat.scales.size() * sizeof(glm::vec3));
+  }
+  if (!gaussian_splat.rotations.empty()) {
+    out << YAML::Key << "rotations" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(gaussian_splat.rotations.data()),
+                        gaussian_splat.rotations.size() * sizeof(glm::vec4));
+  }
+  if (!gaussian_splat.opacities.empty()) {
+    out << YAML::Key << "opacities" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(gaussian_splat.opacities.data()),
+                        gaussian_splat.opacities.size() * sizeof(float));
+  }
+  if (!gaussian_splat.colors.empty()) {
+    out << YAML::Key << "colors" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(gaussian_splat.colors.data()),
+                        gaussian_splat.colors.size() * sizeof(glm::vec3));
+  }
+  if (!gaussian_splat.spherical_harmonics_rest.empty()) {
+    out << YAML::Key << "spherical_harmonics_rest" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(gaussian_splat.spherical_harmonics_rest.data()),
+                        gaussian_splat.spherical_harmonics_rest.size() * sizeof(float));
+  }
+}
+
+void DeserializeGaussianSplat(const YAML::Node& in, GaussianSplat& gaussian_splat) {
+  auto min_bound = gaussian_splat.GetMinBound();
+  auto max_bound = gaussian_splat.GetMaxBound();
+  if (in["min_bound"])
+    min_bound = in["min_bound"].as<glm::vec3>();
+  if (in["max_bound"])
+    max_bound = in["max_bound"].as<glm::vec3>();
+  if (in["spherical_harmonics_rest_float_count"])
+    gaussian_splat.spherical_harmonics_rest_float_count = in["spherical_harmonics_rest_float_count"].as<uint32_t>();
+  gaussian_splat.SetBounds(min_bound, max_bound);
+  if (in["positions"]) {
+    const auto& data = in["positions"].as<YAML::Binary>();
+    gaussian_splat.positions.resize(data.size() / sizeof(glm::vec3));
+    std::memcpy(gaussian_splat.positions.data(), data.data(), data.size());
+  }
+  if (in["scales"]) {
+    const auto& data = in["scales"].as<YAML::Binary>();
+    gaussian_splat.scales.resize(data.size() / sizeof(glm::vec3));
+    std::memcpy(gaussian_splat.scales.data(), data.data(), data.size());
+  }
+  if (in["rotations"]) {
+    const auto& data = in["rotations"].as<YAML::Binary>();
+    gaussian_splat.rotations.resize(data.size() / sizeof(glm::vec4));
+    std::memcpy(gaussian_splat.rotations.data(), data.data(), data.size());
+  }
+  if (in["opacities"]) {
+    const auto& data = in["opacities"].as<YAML::Binary>();
+    gaussian_splat.opacities.resize(data.size() / sizeof(float));
+    std::memcpy(gaussian_splat.opacities.data(), data.data(), data.size());
+  }
+  if (in["colors"]) {
+    const auto& data = in["colors"].as<YAML::Binary>();
+    gaussian_splat.colors.resize(data.size() / sizeof(glm::vec3));
+    std::memcpy(gaussian_splat.colors.data(), data.data(), data.size());
+  }
+  if (in["spherical_harmonics_rest"]) {
+    const auto& data = in["spherical_harmonics_rest"].as<YAML::Binary>();
+    gaussian_splat.spherical_harmonics_rest.resize(data.size() / sizeof(float));
+    std::memcpy(gaussian_splat.spherical_harmonics_rest.data(), data.data(), data.size());
   }
 }
 
@@ -1261,6 +1341,8 @@ void RegisterBuiltInSerializationHandlers() {
       SerializeProceduralNoise<procedural_noise::ProceduralNoise4D>,
       DeserializeProceduralNoise<procedural_noise::ProceduralNoise4D>, {}, "ProceduralNoise4D");
   Serialization::RegisterSerializationHandler<PointCloud>(SerializePointCloud, DeserializePointCloud, {}, "PointCloud");
+  Serialization::RegisterSerializationHandler<GaussianSplat>(SerializeGaussianSplat, DeserializeGaussianSplat, {},
+                                                             "GaussianSplat");
   Serialization::RegisterSerializationHandler<Texture2D>(SerializeTexture2D, DeserializeTexture2D, {}, "Texture2D");
   Serialization::RegisterSerializationHandler<Animation>(SerializeAnimation, DeserializeAnimation, {}, "Animation");
   Serialization::RegisterSerializationHandler<ParticleInfoList>(SerializeParticleInfoList, DeserializeParticleInfoList,
@@ -1637,6 +1719,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<Animation>("Animation", {".eveanimation"});
   RegisterAsset<SkinnedMesh>("SkinnedMesh", {".eveskinnedmesh"});
   RegisterAsset<PointCloud>("PointCloud", {".evepointcloud"});
+  RegisterAsset<GaussianSplat>("GaussianSplat", {".evegaussiansplat"});
   RegisterAsset<Json>("Json", {".json"});
   RegisterSdkInspectionAdapters();
   RegisterBuiltInAssetIoHandlers();

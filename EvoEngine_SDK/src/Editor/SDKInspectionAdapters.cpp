@@ -10,6 +10,7 @@
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
+#include "GaussianSplat.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "LightProbe.hpp"
@@ -2267,6 +2268,16 @@ bool InspectMaterialTextureSlot(const std::shared_ptr<EditorLayer>& editor_layer
   return false;
 }
 
+bool InspectGaussianSplat(InspectorContext&, GaussianSplat& gaussian_splat) {
+  const auto min_bound = gaussian_splat.GetMinBound();
+  const auto max_bound = gaussian_splat.GetMaxBound();
+  ImGui::Text("Splats: %zu", gaussian_splat.GetSplatCount());
+  ImGui::Text("Bounds min: %.3f, %.3f, %.3f", min_bound.x, min_bound.y, min_bound.z);
+  ImGui::Text("Bounds max: %.3f, %.3f, %.3f", max_bound.x, max_bound.y, max_bound.z);
+  ImGui::Text("SH rest floats per splat: %u", gaussian_splat.spherical_harmonics_rest_float_count);
+  return false;
+}
+
 bool InspectMaterial(InspectorContext& context, Material& material) {
   const auto& editor_layer = context.editor_layer;
   if (!editor_layer) {
@@ -2923,6 +2934,7 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<MeshRenderer>(InspectMeshRenderer, {}, "MeshRenderer");
   InspectorRegistry::GetInstance().RegisterInspector<Particles>(InspectParticles, {}, "Particles");
   InspectorRegistry::GetInstance().RegisterInspector<PointCloud>(InspectPointCloud, {}, "PointCloud");
+  InspectorRegistry::GetInstance().RegisterInspector<GaussianSplat>(InspectGaussianSplat, {}, "GaussianSplat");
   InspectorRegistry::GetInstance().RegisterInspector<PointCloudScanner>(InspectPointCloudScanner, {},
                                                                         "PointCloudScanner");
   InspectorRegistry::GetInstance().RegisterInspector<Prefab>(InspectPrefab, {}, "Prefab");
