@@ -31,6 +31,7 @@
 #include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
+#include "RenderPasses/GaussianSplatPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
@@ -4230,7 +4231,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
           });
     }
-    const char* cloud_post_processing_dependency = RenderPassNames::deferred_camera;
+    const bool gaussian_splat_rendering_enabled = current_render_instances &&
+                                                  current_render_instances->total_gaussian_splats != 0u &&
+                                                  current_render_instances->gaussian_splat_render_instances &&
+                                                  !current_render_instances->gaussian_splat_render_instances->Empty();
+    const char* post_lighting_dependency = RenderPassNames::deferred_camera;
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
           VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
@@ -4243,7 +4248,15 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                           static_cast<uint32_t>(glm::max(0.0f, std::floor(time_seconds * 60.0f))), time_seconds,
                           camera->camera_settings.far_distance});
           });
-      cloud_post_processing_dependency = RenderPassNames::volumetric_clouds;
+      post_lighting_dependency = RenderPassNames::volumetric_clouds;
+    }
+    if (gaussian_splat_rendering_enabled) {
+      camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(post_lighting_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    GaussianSplatPass::Execute(context,
+                                                               {camera, current_render_instances, record_commands});
+                                  });
+      post_lighting_dependency = RenderPassNames::gaussian_splat;
     }
     if (ddgi_probe_visualization_enabled) {
       camera_render_graph.AddPass(
@@ -4263,8 +4276,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           });
     }
     if (ddgi_probe_ray_visualization_enabled) {
-      const auto* dependency = ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
-                                                                : cloud_post_processing_dependency;
+      const auto* dependency =
+          ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency;
       camera_render_graph.AddPass(
           DdgiProbeRayVisualizationPass::CreateDescriptor(dependency),
           [&, ddgi_probe_ray_visualization_push_constant](const RenderGraphExecutionContext& context) {
@@ -4283,8 +4296,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     const auto* ddgi_debug_post_processing_dependency =
         ddgi_probe_ray_visualization_enabled
             ? RenderPassNames::ddgi_probe_ray_visualization
-            : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
-                                                : cloud_post_processing_dependency);
+            : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency);
     camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
                                 [&](const RenderGraphExecutionContext& context) {
                                   PostProcessingPass::Execute(context, {camera, immediate});
