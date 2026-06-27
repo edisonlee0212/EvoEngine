@@ -46,6 +46,9 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
   resources.WriteFile("EvoEngine-DemoProjects/Rendering/Assets/New Scene.evescene");
   resources.WriteFile("EvoEngine-DemoProjects/Rendering/Assets/Texture.png.evefilemeta");
   resources.WriteFile("EvoEngine-DemoProjects/Rendering/Assets/Folder.evefoldermeta");
+  resources.WriteFile("EvoEngine-DemoProjects/3DGS/3DGS.eveproj");
+  resources.WriteFile("EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats.evefoldermeta");
+  resources.WriteFile("EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats/spatial_dragon.ply.evefilemeta");
   resources.WriteFile("Legacy.uescene");
   resources.WriteFile("Legacy.ueproj");
   resources.WriteFile("Legacy.umeta");
@@ -60,6 +63,11 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
                                        "EvoEngine-DemoProjects/Rendering/Assets/Texture.png.evefilemeta"));
   EXPECT_FALSE(
       std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Assets/Folder.evefoldermeta"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/3DGS/3DGS.eveproj"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() /
+                                      "EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats.evefoldermeta"));
+  EXPECT_TRUE(std::filesystem::exists(
+      resources.RootPath() / "EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats/spatial_dragon.ply.evefilemeta"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.uescene"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.ueproj"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.umeta"));

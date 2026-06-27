@@ -372,6 +372,29 @@ void RemoveGeneratedFiles(const std::filesystem::path& root, const std::unordere
   }
 }
 
+void RemoveGeneratedDemoProjectFiles(const std::filesystem::path& resource_root) {
+  const auto demo_projects_root = resource_root / "EvoEngine-DemoProjects";
+  const auto gaussian_splat_demo_root = demo_projects_root / "3DGS";
+  if (!std::filesystem::exists(demo_projects_root)) {
+    return;
+  }
+  std::filesystem::recursive_directory_iterator iterator(demo_projects_root);
+  for (const auto end = std::filesystem::recursive_directory_iterator(); iterator != end; ++iterator) {
+    const auto path = iterator->path();
+    if (iterator->is_directory()) {
+      if (path == gaussian_splat_demo_root) {
+        iterator.disable_recursion_pending();
+      }
+      continue;
+    }
+    const auto extension = path.extension().string();
+    if (extension == ".evescene" || extension == ".eveproj" || extension == ".evefilemeta" ||
+        extension == ".evefoldermeta") {
+      std::filesystem::remove(path);
+    }
+  }
+}
+
 void RemoveGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& resource_root) {
   RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects" / "Universe",
                        {".evescene", ".eveproj", ".evefilemeta", ".evefoldermeta"});
@@ -521,8 +544,7 @@ void evo_engine::ClearGeneratedDemoProjectFiles(const std::filesystem::path& res
     return;
   }
 
-  RemoveGeneratedFiles(resource_root / "EvoEngine-DemoProjects",
-                       {".evescene", ".eveproj", ".evefilemeta", ".evefoldermeta"});
+  RemoveGeneratedDemoProjectFiles(resource_root);
   RemoveGeneratedFiles(resource_root, {".uescene", ".ueproj"});
 }
 
