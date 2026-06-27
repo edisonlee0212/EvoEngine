@@ -2,6 +2,7 @@
 #pragma once
 #include "Camera.hpp"
 #include "Entity.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -12,6 +13,7 @@ namespace evo_engine {
 class BottomLevelAccelerationStructure;
 class DeferredGeometryPass;
 class DirectionalLightShadowPass;
+class GaussianSplatPass;
 
 /**
  * @brief Struct containing various render settings for the engine.
@@ -455,6 +457,19 @@ class RenderInstanceStorage {
                     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
   };
 
+  struct GaussianSplatRenderInstance : IRenderInstance {
+    std::shared_ptr<GaussianSplat> gaussian_splat;
+    float opacity_scale = 1.0f;
+    int sh_degree = 0;
+    GaussianSplatSortMode sort_mode = GaussianSplatSortMode::CpuDepth;
+    GaussianSplatDepthMode depth_mode = GaussianSplatDepthMode::SceneDepth;
+
+    bool operator!=(const GaussianSplatRenderInstance& other) const;
+    void Apply(InstanceInfoBlock& instance_info_block) const override;
+    uint32_t Render(VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
+                    const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
+  };
+
   /**
    * @brief Interface for a collection of render instances.
    */
@@ -613,6 +628,16 @@ class RenderInstanceStorage {
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
   };
 
+  class GaussianSplatRenderInstanceCollection : public IRenderInstanceCollection {
+    std::vector<std::shared_ptr<GaussianSplatRenderInstance>> render_commands;
+
+   public:
+    bool Empty() const override;
+    void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
+    bool operator!=(const GaussianSplatRenderInstanceCollection& other) const;
+    void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+  };
+
   /**
    * @brief Collection of instanced render instances.
    */
@@ -741,6 +766,7 @@ class RenderInstanceStorage {
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;
+  uint32_t total_gaussian_splats = 0;
   /**
    * @brief Clears all the render instance data and collections.
    */
@@ -903,6 +929,7 @@ class RenderInstanceStorage {
   std::shared_ptr<InstancedRenderInstanceCollection> transparent_instanced_render_instances;
   std::shared_ptr<StrandsRenderInstanceCollection> transparent_strands_render_instances;
 
+  std::shared_ptr<GaussianSplatRenderInstanceCollection> gaussian_splat_render_instances;
   std::shared_ptr<ExternalRenderInstanceCollection> external_render_instances;
   uint32_t geometry_storage_version = 0;
   uint32_t texture_storage_version = 0;
@@ -911,6 +938,7 @@ class RenderInstanceStorage {
   friend class RenderLayer;
   friend class DeferredGeometryPass;
   friend class DirectionalLightShadowPass;
+  friend class GaussianSplatPass;
   friend class CpuRayTracer;
   /**
    * @brief Collects entity renderers and calculates the world bounding box.
@@ -985,6 +1013,10 @@ class RenderInstanceStorage {
    */
   bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
                       const std::shared_ptr<StrandsRenderer>& strands_renderer, glm::vec3& min_bound,
+                      glm::vec3& max_bound);
+
+  bool RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
+                      const std::shared_ptr<GaussianSplatRenderer>& gaussian_splat_renderer, glm::vec3& min_bound,
                       glm::vec3& max_bound);
 
   /**

@@ -13,6 +13,7 @@
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "Input.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
@@ -965,6 +966,26 @@ void DeserializeStrandsRenderer(const YAML::Node& in, StrandsRenderer& renderer)
   renderer.material.Load("material", in);
 }
 
+void SerializeGaussianSplatRenderer(YAML::Emitter& out, const GaussianSplatRenderer& renderer) {
+  renderer.gaussian_splat.Save("gaussian_splat", out);
+  out << YAML::Key << "opacity_scale" << YAML::Value << renderer.opacity_scale;
+  out << YAML::Key << "sh_degree" << YAML::Value << renderer.sh_degree;
+  out << YAML::Key << "sort_mode" << YAML::Value << static_cast<int>(renderer.sort_mode);
+  out << YAML::Key << "depth_mode" << YAML::Value << static_cast<int>(renderer.depth_mode);
+}
+
+void DeserializeGaussianSplatRenderer(const YAML::Node& in, GaussianSplatRenderer& renderer) {
+  renderer.gaussian_splat.Load("gaussian_splat", in);
+  if (in["opacity_scale"])
+    renderer.opacity_scale = in["opacity_scale"].as<float>();
+  if (in["sh_degree"])
+    renderer.sh_degree = in["sh_degree"].as<int>();
+  if (in["sort_mode"])
+    renderer.sort_mode = static_cast<GaussianSplatSortMode>(in["sort_mode"].as<int>());
+  if (in["depth_mode"])
+    renderer.depth_mode = static_cast<GaussianSplatDepthMode>(in["depth_mode"].as<int>());
+}
+
 void SerializeSkinnedMeshRenderer(YAML::Emitter& out, const SkinnedMeshRenderer& renderer) {
   out << YAML::Key << "cast_shadow" << renderer.cast_shadow;
   renderer.animator.Save("animator", out);
@@ -1357,6 +1378,8 @@ void RegisterBuiltInSerializationHandlers() {
                                                             "MeshRenderer");
   Serialization::RegisterSerializationHandler<StrandsRenderer>(SerializeStrandsRenderer, DeserializeStrandsRenderer, {},
                                                                "StrandsRenderer");
+  Serialization::RegisterSerializationHandler<GaussianSplatRenderer>(
+      SerializeGaussianSplatRenderer, DeserializeGaussianSplatRenderer, {}, "GaussianSplatRenderer");
   Serialization::RegisterSerializationHandler<SkinnedMeshRenderer>(
       SerializeSkinnedMeshRenderer, DeserializeSkinnedMeshRenderer, {}, "SkinnedMeshRenderer");
   Serialization::RegisterSerializationHandler<Particles>(SerializeParticles, DeserializeParticles, {}, "Particles");
@@ -1681,6 +1704,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterPrivateComponent<Particles>("Particles");
   RegisterPrivateComponent<MeshRenderer>("MeshRenderer");
   RegisterPrivateComponent<StrandsRenderer>("StrandsRenderer");
+  RegisterPrivateComponent<GaussianSplatRenderer>("GaussianSplatRenderer");
   RegisterPrivateComponent<SkinnedMeshRenderer>("SkinnedMeshRenderer");
   RegisterPrivateComponent<Animator>("Animator");
   RegisterPrivateComponent<PointLight>("PointLight");

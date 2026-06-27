@@ -11,6 +11,7 @@
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "LightProbe.hpp"
@@ -2641,6 +2642,77 @@ bool InspectStrandsRenderer(InspectorContext& context, StrandsRenderer& renderer
   return changed;
 }
 
+void RenderGaussianSplatRendererBound(const std::shared_ptr<EditorLayer>& editor_layer, GaussianSplatRenderer& renderer,
+                                      glm::vec4& color) {
+  const auto gaussian_splat = renderer.gaussian_splat.Get<GaussianSplat>();
+  if (!gaussian_splat) {
+    return;
+  }
+  const auto transform = renderer.GetScene()->GetDataComponent<GlobalTransform>(renderer.GetOwner()).value;
+  Bound bound;
+  bound.min = gaussian_splat->GetMinBound();
+  bound.max = gaussian_splat->GetMaxBound();
+  glm::vec3 size = bound.Size();
+  if (size.x < 0.01f)
+    size.x = 0.01f;
+  if (size.z < 0.01f)
+    size.z = 0.01f;
+  if (size.y < 0.01f)
+    size.y = 0.01f;
+  GizmoSettings gizmo_settings;
+  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  gizmo_settings.draw_settings.blending = true;
+  gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
+  gizmo_settings.draw_settings.line_width = 3.0f;
+  editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cube, color,
+                              transform * (glm::translate(bound.Center()) * glm::scale(size)), 1, gizmo_settings);
+}
+
+bool InspectGaussianSplatRenderer(InspectorContext& context, GaussianSplatRenderer& renderer) {
+  const auto& editor_layer = context.editor_layer;
+  if (!editor_layer) {
+    return false;
+  }
+
+  bool changed = false;
+  if (editor_layer->DragAndDropButton<GaussianSplat>(renderer.gaussian_splat, "Gaussian Splat"))
+    changed = true;
+  if (ImGui::DragFloat("Opacity scale##GaussianSplatRenderer", &renderer.opacity_scale, 0.01f, 0.0f, 10.0f))
+    changed = true;
+  if (ImGui::SliderInt("SH degree##GaussianSplatRenderer", &renderer.sh_degree, 0, 3))
+    changed = true;
+
+  int sort_mode = static_cast<int>(renderer.sort_mode);
+  const char* sort_modes[] = {"None", "CPU depth"};
+  if (ImGui::Combo("Sort mode##GaussianSplatRenderer", &sort_mode, sort_modes, IM_ARRAYSIZE(sort_modes))) {
+    renderer.sort_mode = static_cast<GaussianSplatSortMode>(sort_mode);
+    changed = true;
+  }
+
+  int depth_mode = static_cast<int>(renderer.depth_mode);
+  const char* depth_modes[] = {"Always", "Scene depth"};
+  if (ImGui::Combo("Depth mode##GaussianSplatRenderer", &depth_mode, depth_modes, IM_ARRAYSIZE(depth_modes))) {
+    renderer.depth_mode = static_cast<GaussianSplatDepthMode>(depth_mode);
+    changed = true;
+  }
+
+  if (const auto gaussian_splat = renderer.gaussian_splat.Get<GaussianSplat>()) {
+    ImGui::Text("Splats: %zu", gaussian_splat->GetSplatCount());
+    if (ImGui::TreeNode("Gaussian Splat##GaussianSplatRenderer")) {
+      static bool display_bound = true;
+      ImGui::Checkbox("Display bounds##GaussianSplatRenderer", &display_bound);
+      if (display_bound) {
+        static auto display_bound_color = glm::vec4(0.0f, 0.7f, 1.0f, 0.2f);
+        ImGui::ColorEdit4("Color:##GaussianSplatRenderer",
+                          static_cast<float*>(static_cast<void*>(&display_bound_color)));
+        RenderGaussianSplatRendererBound(editor_layer, renderer, display_bound_color);
+      }
+      ImGui::TreePop();
+    }
+  }
+  return changed;
+}
+
 void RenderSkinnedMeshRendererBound(const std::shared_ptr<EditorLayer>& editor_layer, SkinnedMeshRenderer& renderer,
                                     glm::vec4& color) {
   const auto skinned_mesh = renderer.skinned_mesh.Get<SkinnedMesh>();
@@ -2932,6 +3004,8 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<LightProbe>(InspectLightProbe, {}, "LightProbe");
   InspectorRegistry::GetInstance().RegisterInspector<Mesh>(InspectMesh, {}, "Mesh");
   InspectorRegistry::GetInstance().RegisterInspector<MeshRenderer>(InspectMeshRenderer, {}, "MeshRenderer");
+  InspectorRegistry::GetInstance().RegisterInspector<GaussianSplatRenderer>(InspectGaussianSplatRenderer, {},
+                                                                            "GaussianSplatRenderer");
   InspectorRegistry::GetInstance().RegisterInspector<Particles>(InspectParticles, {}, "Particles");
   InspectorRegistry::GetInstance().RegisterInspector<PointCloud>(InspectPointCloud, {}, "PointCloud");
   InspectorRegistry::GetInstance().RegisterInspector<GaussianSplat>(InspectGaussianSplat, {}, "GaussianSplat");

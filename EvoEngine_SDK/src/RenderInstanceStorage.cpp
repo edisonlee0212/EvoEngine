@@ -315,6 +315,48 @@ uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
   return strands->segment_range_->prev_frame_index_count;
 }
 
+bool RenderInstanceStorage::GaussianSplatRenderInstance::operator!=(const GaussianSplatRenderInstance& other) const {
+  if (entity_selected != other.entity_selected)
+    return true;
+  if (instance_index != other.instance_index)
+    return true;
+  if (command_type != other.command_type)
+    return true;
+  if (model.value != other.model.value)
+    return true;
+  if (owner != other.owner)
+    return true;
+  if (gaussian_splat != other.gaussian_splat)
+    return true;
+  if (geometry_version != other.geometry_version)
+    return true;
+  if (opacity_scale != other.opacity_scale)
+    return true;
+  if (sh_degree != other.sh_degree)
+    return true;
+  if (sort_mode != other.sort_mode)
+    return true;
+  if (depth_mode != other.depth_mode)
+    return true;
+  return false;
+}
+
+void RenderInstanceStorage::GaussianSplatRenderInstance::Apply(InstanceInfoBlock& instance_info_block) const {
+  instance_info_block.model = model;
+  instance_info_block.material_index = -1;
+  instance_info_block.triangle_offset = 0;
+  instance_info_block.meshlet_index_offset = 0;
+  instance_info_block.meshlet_size = 0;
+  instance_info_block.info_index = entity_selected ? 1 : 0;
+  instance_info_block.entity_index = owner.GetIndex();
+  instance_info_block.renderer_handle = renderer_handle;
+}
+
+uint32_t RenderInstanceStorage::GaussianSplatRenderInstance::Render(VkCommandBuffer, const RenderInstancePushConstant&,
+                                                                    const std::shared_ptr<GraphicsPipeline>&) const {
+  return 0;
+}
+
 bool RenderInstanceStorage::ExternalRenderInstanceCollection::operator!=(
     const ExternalRenderInstanceCollection& other) const {
   if (render_commands.size() != other.render_commands.size())
@@ -425,6 +467,37 @@ bool RenderInstanceStorage::StrandsRenderInstanceCollection::operator!=(
 }
 
 void RenderInstanceStorage::StrandsRenderInstanceCollection::ForEachRenderInstance(
+    const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
+  for (const auto& i : render_commands) {
+    action(i);
+  }
+}
+
+bool RenderInstanceStorage::GaussianSplatRenderInstanceCollection::Empty() const {
+  return render_commands.empty();
+}
+
+void RenderInstanceStorage::GaussianSplatRenderInstanceCollection::Register(
+    const std::shared_ptr<IRenderInstance>& render_instance) {
+  render_commands.emplace_back(std::dynamic_pointer_cast<GaussianSplatRenderInstance>(render_instance));
+}
+
+bool RenderInstanceStorage::GaussianSplatRenderInstanceCollection::operator!=(
+    const GaussianSplatRenderInstanceCollection& other) const {
+  if (render_commands.size() != other.render_commands.size())
+    return true;
+  for (uint32_t i = 0; i < render_commands.size(); i++) {
+    if (render_commands[i] && other.render_commands[i]) {
+      if (*render_commands[i] != *other.render_commands[i])
+        return true;
+    } else if (render_commands[i] != other.render_commands[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void RenderInstanceStorage::GaussianSplatRenderInstanceCollection::ForEachRenderInstance(
     const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) {
   for (const auto& i : render_commands) {
     action(i);
@@ -705,6 +778,15 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
                 has_render_instance = true;
               }
             }
+          } else if (const auto gaussian_splat_renderer = renderer.Get<GaussianSplatRenderer>()) {
+            lod_group_renderers.insert(gaussian_splat_renderer->GetHandle());
+            if (render_current_level && target_scene->IsEntityEnabled(owner) &&
+                target_scene->IsEntityEnabled(gaussian_splat_renderer->GetOwner()) &&
+                gaussian_splat_renderer->IsEnabled()) {
+              if (RegisterEntity(target_scene, owner, gaussian_splat_renderer, min_bound, max_bound)) {
+                has_render_instance = true;
+              }
+            }
           }
         }
       }
@@ -758,6 +840,19 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
       if (lod_group_renderers.find(strands_renderer->GetHandle()) != lod_group_renderers.end())
         continue;
       if (RegisterEntity(target_scene, owner, strands_renderer, min_bound, max_bound)) {
+        has_render_instance = true;
+      }
+    }
+  }
+
+  if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<GaussianSplatRenderer>()) {
+    for (auto owner : *owners) {
+      if (!target_scene->IsEntityEnabled(owner))
+        continue;
+      auto gaussian_splat_renderer = target_scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(owner).lock();
+      if (lod_group_renderers.find(gaussian_splat_renderer->GetHandle()) != lod_group_renderers.end())
+        continue;
+      if (RegisterEntity(target_scene, owner, gaussian_splat_renderer, min_bound, max_bound)) {
         has_render_instance = true;
       }
     }
@@ -851,6 +946,10 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     register_render_instance(render_instance);
   });
   transparent_strands_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance);
+  });
+
+  gaussian_splat_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance);
   });
 
@@ -1307,6 +1406,7 @@ RenderInstanceStorage::RenderInstanceStorage() {
   transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
   transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
 
+  gaussian_splat_render_instances = std::make_shared<GaussianSplatRenderInstanceCollection>();
   external_render_instances = std::make_shared<ExternalRenderInstanceCollection>();
 }
 
@@ -1317,6 +1417,7 @@ void RenderInstanceStorage::Clear() {
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
+  total_gaussian_splats = 0;
 
   deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
   deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
@@ -1333,6 +1434,7 @@ void RenderInstanceStorage::Clear() {
   transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
   transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
 
+  gaussian_splat_render_instances = std::make_shared<GaussianSplatRenderInstanceCollection>();
   external_render_instances = std::make_shared<ExternalRenderInstanceCollection>();
 
   instance_entity_handles_.clear();
@@ -1454,6 +1556,9 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
     if (camera_info_blocks_[i] != other.camera_info_blocks_[i])
       return true;
   }
+
+  if (*gaussian_splat_render_instances != *other.gaussian_splat_render_instances)
+    return true;
 
   if (*external_render_instances != *other.external_render_instances)
     return true;
@@ -1701,6 +1806,47 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   total_strands_segments += strands->segment_range_->prev_frame_index_count;
   return true;
 }
+
+bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
+                                           const std::shared_ptr<GaussianSplatRenderer>& gaussian_splat_renderer,
+                                           glm::vec3& min_bound, glm::vec3& max_bound) {
+  auto gaussian_splat = gaussian_splat_renderer->gaussian_splat.Get<GaussianSplat>();
+  if (!gaussian_splat_renderer->IsEnabled() || !gaussian_splat || gaussian_splat->Empty())
+    return false;
+
+  auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
+  auto mesh_bound = Bound();
+  mesh_bound.min = gaussian_splat->GetMinBound();
+  mesh_bound.max = gaussian_splat->GetMaxBound();
+  mesh_bound.ApplyTransform(gt.value);
+  glm::vec3 center = mesh_bound.Center();
+
+  glm::vec3 size = mesh_bound.Size();
+  min_bound = glm::vec3((glm::min)(min_bound.x, center.x - size.x), (glm::min)(min_bound.y, center.y - size.y),
+                        (glm::min)(min_bound.z, center.z - size.z));
+  max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
+                        glm::max(max_bound.z, center.z + size.z));
+
+  const auto render_instance = std::make_shared<GaussianSplatRenderInstance>();
+  render_instance->command_type = RenderInstanceType::FromRenderer;
+  render_instance->owner = owner;
+  render_instance->entity_handle = target_scene->GetEntityHandle(owner);
+  render_instance->renderer_handle = gaussian_splat_renderer->GetHandle();
+  render_instance->model = gt;
+  render_instance->gaussian_splat = gaussian_splat;
+  render_instance->world_bound = mesh_bound;
+  render_instance->geometry_version = gaussian_splat->GetVersion();
+  render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
+  render_instance->opacity_scale = gaussian_splat_renderer->opacity_scale;
+  render_instance->sh_degree = gaussian_splat_renderer->sh_degree;
+  render_instance->sort_mode = gaussian_splat_renderer->sort_mode;
+  render_instance->depth_mode = gaussian_splat_renderer->depth_mode;
+
+  gaussian_splat_render_instances->Register(render_instance);
+  total_gaussian_splats += gaussian_splat->GetSplatCount();
+  return true;
+}
+
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
                                            const std::shared_ptr<MeshRenderer>& mesh_renderer, glm::vec3& min_bound,
                                            glm::vec3& max_bound) {

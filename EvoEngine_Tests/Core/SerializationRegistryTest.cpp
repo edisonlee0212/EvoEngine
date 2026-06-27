@@ -14,6 +14,7 @@
 #include "Camera.hpp"
 #include "FileManager.hpp"
 #include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "IAsset.hpp"
 #include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
@@ -34,6 +35,7 @@
 #include "Prefab.hpp"
 #include "ProceduralNoise.hpp"
 #include "ProjectManager.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
@@ -604,6 +606,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Camera).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Animator).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(MeshRenderer).hash_code()), nullptr);
+  ASSERT_NE(Serialization::FindSerializationHandler(typeid(GaussianSplatRenderer).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(StrandsRenderer).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(SkinnedMeshRenderer).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Particles).hash_code()), nullptr);
@@ -1060,6 +1063,85 @@ TEST(SerializationRegistry, GaussianSplatRejectsPlyWithoutRequiredFields) {
   GaussianSplat gaussian_splat;
   EXPECT_FALSE(gaussian_splat.LoadPly(path));
   EXPECT_TRUE(gaussian_splat.Empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto gaussian_splat = AssetManager::CreateTemporaryAsset<GaussianSplat>();
+  ASSERT_TRUE(gaussian_splat);
+
+  GaussianSplatRenderer renderer;
+  renderer.gaussian_splat.Set<GaussianSplat>(gaussian_splat);
+  renderer.opacity_scale = 0.5f;
+  renderer.sh_degree = 2;
+  renderer.sort_mode = GaussianSplatSortMode::None;
+  renderer.depth_mode = GaussianSplatDepthMode::Always;
+
+  YAML::Emitter out;
+  BeginMap(out);
+  Serialization::SerializeObject(out, static_cast<IPrivateComponent&>(renderer));
+  out << YAML::EndMap;
+  const auto node = YAML::Load(out.c_str());
+
+  GaussianSplatRenderer restored;
+  Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored));
+  EXPECT_EQ(restored.gaussian_splat.GetAssetHandle(), gaussian_splat->GetHandle());
+  EXPECT_FLOAT_EQ(restored.opacity_scale, 0.5f);
+  EXPECT_EQ(restored.sh_degree, 2);
+  EXPECT_EQ(restored.sort_mode, GaussianSplatSortMode::None);
+  EXPECT_EQ(restored.depth_mode, GaussianSplatDepthMode::Always);
+
+  std::vector<AssetRef> asset_refs;
+  Serialization::CollectAssetRefs(static_cast<IPrivateComponent&>(renderer), asset_refs);
+  ASSERT_EQ(asset_refs.size(), 1);
+  EXPECT_EQ(asset_refs.front().GetAssetHandle(), gaussian_splat->GetHandle());
+}
+
+TEST(SerializationRegistry, GaussianSplatRendererSceneCollectionSkipsInvalidRenderers) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(scene);
+  app.Attach(scene);
+  for (const auto& camera_entity : scene->GetPrivateComponentOwnersList<Camera>()) {
+    const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
+    ASSERT_TRUE(camera);
+    camera->SetEnabled(false);
+  }
+
+  const auto gaussian_splat = AssetManager::CreateTemporaryAsset<GaussianSplat>();
+  ASSERT_TRUE(gaussian_splat);
+  gaussian_splat->positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, -5.0f, 6.0f)};
+  gaussian_splat->RecalculateBoundingBox();
+
+  const auto entity = scene->CreateEntity("Gaussian");
+  const auto renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(entity).lock();
+  ASSERT_TRUE(renderer);
+  renderer->gaussian_splat.Set<GaussianSplat>(gaussian_splat);
+
+  RenderInstanceStorage storage;
+  Bound world_bound;
+  storage.BuildFromScene({}, scene, world_bound, false);
+  ASSERT_EQ(storage.GetInstanceInfoBlocks().size(), 1);
+  EXPECT_EQ(storage.GetRenderInstanceIndex(renderer->GetHandle()), 0);
+  EXPECT_EQ(storage.GetInstanceRendererHandle(0), renderer->GetHandle());
+  EXPECT_EQ(storage.GetInstanceEntityHandle(0), scene->GetEntityHandle(entity));
+
+  renderer->SetEnabled(false);
+  storage.Clear();
+  storage.BuildFromScene({}, scene, world_bound, false);
+  EXPECT_TRUE(storage.GetInstanceInfoBlocks().empty());
+
+  renderer->SetEnabled(true);
+  renderer->gaussian_splat.Clear();
+  storage.Clear();
+  storage.BuildFromScene({}, scene, world_bound, false);
+  EXPECT_TRUE(storage.GetInstanceInfoBlocks().empty());
 }
 
 TEST(SerializationRegistry, UsesExactRegisteredHandlerBeforeDefaultHandler) {

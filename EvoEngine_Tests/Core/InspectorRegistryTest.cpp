@@ -11,6 +11,7 @@
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "IAsset.hpp"
 #include "ILayer.hpp"
 #include "IPrivateComponent.hpp"
@@ -161,6 +162,7 @@ TEST(InspectorRegistry, ApplicationRegistersSdkInspectorsExternally) {
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Particles)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(PointCloud)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(GaussianSplat)), nullptr);
+  EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(GaussianSplatRenderer)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(PointCloudScanner)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Prefab)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(PointLight)), nullptr);

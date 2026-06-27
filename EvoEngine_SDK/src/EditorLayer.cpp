@@ -4,6 +4,8 @@
 #include "Cubemap.hpp"
 #include "EditorTheme.hpp"
 #include "EnvironmentalMap.hpp"
+#include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "ILayer.hpp"
 #include "InspectorRegistry.hpp"
 #include "Material.hpp"
@@ -4462,8 +4464,8 @@ void EditorLayer::LoadIcons() {
 }
 
 void EditorLayer::CameraWindowDragAndDrop() const {
-  if (AssetRef asset_ref;
-      UnsafeDroppableAsset(asset_ref, {"Scene", "Prefab", "Mesh", "Strands", "Cubemap", "EnvironmentalMap"})) {
+  if (AssetRef asset_ref; UnsafeDroppableAsset(
+          asset_ref, {"Scene", "Prefab", "Mesh", "Strands", "GaussianSplat", "Cubemap", "EnvironmentalMap"})) {
     const auto scene = GetScene();
     if (const auto asset = asset_ref.Get<IAsset>();
         !ApplicationContext::Get().IsPlaying() && asset->GetTypeName() == "Scene") {
@@ -4486,6 +4488,10 @@ void EditorLayer::CameraWindowDragAndDrop() const {
       strands_renderer->strands.Set<Strands>(std::dynamic_pointer_cast<Strands>(asset));
       const auto material = AssetManager::CreateTemporaryAsset<Material>();
       strands_renderer->material.Set<Material>(material);
+    } else if (asset->GetTypeName() == "GaussianSplat") {
+      const auto entity = scene->CreateEntity(asset->GetTitle());
+      const auto gaussian_splat_renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(entity).lock();
+      gaussian_splat_renderer->gaussian_splat.Set<GaussianSplat>(std::dynamic_pointer_cast<GaussianSplat>(asset));
     } else if (asset->GetTypeName() == "EnvironmentalMap") {
       scene->environment.environmental_map = std::dynamic_pointer_cast<EnvironmentalMap>(asset);
     } else if (asset->GetTypeName() == "Cubemap") {
