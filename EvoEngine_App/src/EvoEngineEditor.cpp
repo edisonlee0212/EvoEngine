@@ -204,6 +204,9 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
     case DemoProfileId::ProceduralGalaxy:
       SetupDemoScene(DemoSetup::ProceduralGalaxy, application_info, resource_root);
       break;
+    case DemoProfileId::GaussianSplat:
+      SetupDemoScene(DemoSetup::GaussianSplat, application_info, resource_root, false);
+      break;
     case DemoProfileId::LSystem: {
       const auto& profile = GetDemoProfile(profile_id);
       application_info.application_name = profile.title;
@@ -264,6 +267,11 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       editor_layer->SetSceneCameraRotation(glm::quat(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f))));
       break;
+    case DemoProfileId::GaussianSplat:
+      editor_layer->velocity = 1.0f;
+      editor_layer->default_scene_camera_position = glm::vec3(0.0f, 0.0f, 3.0f);
+      editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+      break;
     case DemoProfileId::Rendering:
     case DemoProfileId::Ddgi:
       break;
@@ -310,6 +318,7 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
     case DemoProfileId::DigitalAgriculture:
     case DemoProfileId::LSystem:
     case DemoProfileId::ProceduralGalaxy:
+    case DemoProfileId::GaussianSplat:
       break;
   }
 }

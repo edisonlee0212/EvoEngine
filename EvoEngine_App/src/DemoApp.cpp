@@ -138,6 +138,9 @@ DemoSetup ParseDemoSetup(const std::string& value) {
   if (value == "ProceduralGalaxy") {
     return DemoSetup::ProceduralGalaxy;
   }
+  if (value == "GaussianSplat" || value == "3DGS") {
+    return DemoSetup::GaussianSplat;
+  }
   throw std::invalid_argument("Unknown demo_setup value: " + value);
 }
 

@@ -246,6 +246,21 @@ aspect-fit presentation and mouse mapping as a fallback, so camera output is not
 Focused atlas seam-safety tests validate that wrapped border texels map back to same-tile interior texels for row,
 column, and corner borders.
 
+### 3DGS Demo Notes
+
+The `3dgs` launcher profile opens a script-generated 3D Gaussian Splatting project under
+`Resources/EvoEngine-DemoProjects/3DGS`. Run `python Scripts/generate_3dgs_demo.py` from the repository root to download
+and verify the Spatial Dragon PLY asset before launching the profile. The source asset is Aimi Sekiguchi's
+`spatialdragon-3dgs` `data/spatial_dragon.ply`, licensed CC0 1.0, 1,571,111 bytes, with SHA256
+`40D7FDEBEB6A9A5755074F4F02A759EEE19BF15F46520A8D79B5F42BDE42921D`.
+
+The generator writes deterministic asset metadata for a `GaussianSplat` asset and can optionally run
+`EvoEngineEditor --demo 3dgs --capture-demo-preview` through `--editor <path-to-EvoEngineEditor.exe>`. On first launch,
+the profile creates and saves a scene containing one `GaussianSplatRenderer`, a fitted editor/main camera, and a dark
+constant background for visual inspection. The demo asset is small enough for Git without LFS, but the project files live
+inside the `Resources/EvoEngine-DemoProjects` submodule; publishing the generated demo permanently requires committing
+that submodule content separately from the main EvoEngine code.
+
 ### DDGI RTXGI Port Map
 
 `out/external/RTXGI-DDGI` is treated as the algorithm reference only. EvoEngine keeps shader source

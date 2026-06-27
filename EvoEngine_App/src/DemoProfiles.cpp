@@ -327,6 +327,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {"Universe"}},
+      {DemoProfileId::GaussianSplat,
+       "3dgs",
+       "3D Gaussian Splatting",
+       "EvoEngineEditor",
+       "Spatial Dragon Gaussian splat demo scene.",
+       "Launcher/DemoPreviews/3dgs.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {}},
       {DemoProfileId::EcoSysLab,
        "ecosyslab",
        "EcoSysLab",
@@ -430,6 +439,8 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
     case DemoProfileId::ProceduralGalaxy:
       return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "Universe" /
                                                "ProceduralGalaxy.eveproj");
+    case DemoProfileId::GaussianSplat:
+      return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "3DGS" / "3DGS.eveproj");
   }
   return {};
 }
@@ -443,6 +454,18 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     return missing;
   }
   if (id == DemoProfileId::Rendering || id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy) {
+    return missing;
+  }
+  if (id == DemoProfileId::GaussianSplat) {
+    const auto asset_path =
+        resource_root / "EvoEngine-DemoProjects" / "3DGS" / "Assets" / "GaussianSplats" / "spatial_dragon.ply";
+    const auto asset_metadata_path = std::filesystem::path(asset_path.string() + ".evefilemeta");
+    if (!std::filesystem::exists(asset_path) || std::filesystem::is_directory(asset_path)) {
+      missing.emplace_back("spatial_dragon.ply");
+    }
+    if (!std::filesystem::exists(asset_metadata_path) || std::filesystem::is_directory(asset_metadata_path)) {
+      missing.emplace_back("spatial_dragon.ply.evefilemeta");
+    }
     return missing;
   }
 

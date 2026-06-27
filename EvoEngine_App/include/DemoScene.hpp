@@ -6,7 +6,7 @@
 
 namespace evo_engine {
 
-enum class DemoSetup { Empty, Rendering, CornellBox, ThinWall, ProceduralGalaxy, Universe };
+enum class DemoSetup { Empty, Rendering, CornellBox, ThinWall, ProceduralGalaxy, Universe, GaussianSplat };
 
 [[nodiscard]] std::filesystem::path FindDemoResourcesRoot(const std::filesystem::path& preferred_root = {});
 

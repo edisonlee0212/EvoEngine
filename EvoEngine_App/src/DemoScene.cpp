@@ -4,6 +4,8 @@
 #include "Application.hpp"
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
+#include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "PathUtils.hpp"
@@ -21,6 +23,8 @@
 using namespace evo_engine;
 
 namespace {
+constexpr uint64_t kSpatialDragonGaussianSplatHandle = 9739484957885691067ull;
+
 Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name, bool add_spheres) {
   auto base_entity = scene->CreateEntity(base_entity_name);
 
@@ -373,6 +377,23 @@ void RemoveGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& re
                        {".evescene", ".eveproj", ".evefilemeta", ".evefoldermeta"});
 }
 
+void RemoveGeneratedGaussianSplatProjectFiles(const std::filesystem::path& resource_root) {
+  const auto root = resource_root / "EvoEngine-DemoProjects" / "3DGS";
+  if (!std::filesystem::exists(root)) {
+    return;
+  }
+  for (const auto& i : std::filesystem::recursive_directory_iterator(root)) {
+    if (i.is_directory()) {
+      continue;
+    }
+    const auto path = i.path();
+    if (path.extension() == ".evescene" || path.extension() == ".eveproj" ||
+        (path.extension() == ".evefilemeta" && path.stem().extension() == ".evescene")) {
+      std::filesystem::remove(path);
+    }
+  }
+}
+
 void ConfigureProceduralGalaxyScene(const std::shared_ptr<Scene>& scene) {
   scene->environment.environment_type = Scene::EnvironmentType::Color;
   scene->environment.background_color = glm::vec3(0.0f);
@@ -407,6 +428,82 @@ void ConfigureProceduralGalaxyScene(const std::shared_ptr<Scene>& scene) {
       scene_camera->ResetFrameCount();
     }
   }
+}
+
+void ConfigureGaussianSplatScene(const std::shared_ptr<Scene>& scene) {
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.01f, 0.012f, 0.016f);
+  scene->environment.background_intensity = 0.0f;
+  scene->environment.ambient_light_intensity = 0.0f;
+
+  std::shared_ptr<GaussianSplat> gaussian_splat;
+  try {
+    gaussian_splat = AssetManager::GetAsset<GaussianSplat>(Handle(kSpatialDragonGaussianSplatHandle));
+  } catch (const std::exception& error) {
+    EVOENGINE_ERROR("Failed to load Spatial Dragon Gaussian splat asset: " + std::string(error.what()))
+    return;
+  }
+  if (!gaussian_splat || gaussian_splat->Empty()) {
+    EVOENGINE_ERROR("Spatial Dragon Gaussian splat asset is empty or unavailable.")
+    return;
+  }
+
+  const auto min_bound = gaussian_splat->GetMinBound();
+  const auto max_bound = gaussian_splat->GetMaxBound();
+  const auto center = (min_bound + max_bound) * 0.5f;
+  const auto size = glm::max(max_bound - min_bound, glm::vec3(0.001f));
+  const float radius = std::max(glm::length(size) * 0.5f, 0.5f);
+  const auto camera_position = glm::vec3(0.0f, radius * 0.05f, radius * 2.4f);
+  const auto camera_rotation = glm::quat(glm::radians(glm::vec3(-3.0f, 0.0f, 0.0f)));
+
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  main_camera->Resize({1920, 1080});
+  main_camera->skybox.Clear();
+  main_camera->camera_settings.use_clear_color = true;
+  main_camera->camera_settings.clear_color = glm::vec4(0.01f, 0.012f, 0.016f, 1.0f);
+  main_camera->camera_settings.background_intensity = 0.0f;
+  main_camera->camera_settings.near_distance = std::max(radius * 0.01f, 0.01f);
+  main_camera->camera_settings.far_distance = std::max(radius * 10.0f, 100.0f);
+  main_camera->camera_settings.fov = 55.0f;
+  main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+
+  const auto main_camera_entity = main_camera->GetOwner();
+  Transform main_camera_transform;
+  main_camera_transform.SetPosition(camera_position);
+  main_camera_transform.SetRotation(camera_rotation);
+  scene->SetDataComponent(main_camera_entity, main_camera_transform);
+  scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
+
+  const auto gaussian_entity = scene->CreateEntity("Spatial Dragon 3DGS");
+  const auto gaussian_renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(gaussian_entity).lock();
+  gaussian_renderer->gaussian_splat.Set<GaussianSplat>(gaussian_splat);
+  gaussian_renderer->opacity_scale = 1.0f;
+  gaussian_renderer->sh_degree = 0;
+  gaussian_renderer->sort_mode = GaussianSplatSortMode::CpuDepth;
+  gaussian_renderer->depth_mode = GaussianSplatDepthMode::SceneDepth;
+  Transform gaussian_transform;
+  gaussian_transform.SetPosition(-center);
+  scene->SetDataComponent(gaussian_entity, gaussian_transform);
+
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->velocity = std::max(radius * 0.25f, 0.5f);
+    editor_layer->default_scene_camera_position = camera_position;
+    editor_layer->SetSceneCameraPosition(camera_position);
+    editor_layer->SetSceneCameraRotation(camera_rotation);
+    if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+      scene_camera->skybox.Clear();
+      scene_camera->camera_settings.use_clear_color = true;
+      scene_camera->camera_settings.clear_color = glm::vec4(0.01f, 0.012f, 0.016f, 1.0f);
+      scene_camera->camera_settings.background_intensity = 0.0f;
+      scene_camera->camera_settings.near_distance = main_camera->camera_settings.near_distance;
+      scene_camera->camera_settings.far_distance = main_camera->camera_settings.far_distance;
+      scene_camera->camera_settings.fov = main_camera->camera_settings.fov;
+      scene_camera->ResetFrameCount();
+    }
+  }
+
+  scene->Save();
+  ProjectManager::SaveProject();
 }
 }  // namespace
 
@@ -448,6 +545,8 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
 
   if (demo_setup == DemoSetup::ProceduralGalaxy && clear_generated_project_files) {
     RemoveGeneratedProceduralGalaxyProjectFiles(resource_root);
+  } else if (demo_setup == DemoSetup::GaussianSplat && clear_generated_project_files) {
+    RemoveGeneratedGaussianSplatProjectFiles(resource_root);
   } else if (demo_setup != DemoSetup::Empty && clear_generated_project_files) {
     ClearGeneratedDemoProjectFiles(resource_root);
   }
@@ -567,6 +666,14 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
       application_info.startup_runtime_packages = {"Universe"};
       ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
         ConfigureProceduralGalaxyScene(scene);
+      });
+    } break;
+    case DemoSetup::GaussianSplat: {
+      application_info.application_name = "3D Gaussian Splatting";
+      application_info.project_path = resource_root / "EvoEngine-DemoProjects/3DGS/3DGS.eveproj";
+      application_info.default_window_size = {1920, 1080};
+      ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
+        ConfigureGaussianSplatScene(scene);
       });
     } break;
     case DemoSetup::Universe:
