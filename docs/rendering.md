@@ -255,11 +255,17 @@ and verify the Spatial Dragon PLY asset before launching the profile. The source
 `40D7FDEBEB6A9A5755074F4F02A759EEE19BF15F46520A8D79B5F42BDE42921D`.
 
 The generator writes deterministic asset metadata for a `GaussianSplat` asset and can optionally run
-`EvoEngineEditor --demo 3dgs --capture-demo-preview` through `--editor <path-to-EvoEngineEditor.exe>`. On first launch,
-the profile creates and saves a scene containing one `GaussianSplatRenderer`, a fitted editor/main camera, and a dark
-constant background for visual inspection. The demo asset is small enough for Git without LFS, but the project files live
-inside the `Resources/EvoEngine-DemoProjects` submodule; publishing the generated demo permanently requires committing
-that submodule content separately from the main EvoEngine code.
+`EvoEngineEditor --demo 3dgs --capture-demo-preview` through `--editor <path-to-EvoEngineEditor.exe>`. The preview
+capture command accepts `--preview-render-mode rasterization` or `--preview-render-mode raytracing` when a specific
+camera path needs to be checked. On first launch, the profile creates and saves a scene containing one
+`GaussianSplatRenderer`, a fitted editor/main camera, the default skybox as the camera background, and the default
+environmental map for scene lighting. It also includes a tiny off-camera `Ray Tracing TLAS Seed` mesh because EvoEngine's
+current ray-tracing camera path only records camera work when a mesh TLAS exists. Ray-tracing cameras composite Gaussian
+splats as a raster overlay after the ray-tracing camera pass, or after ray-tracing volumetric clouds when clouds are
+enabled. Splats are therefore visible in RayTracing camera mode, but they do not yet participate in TLAS traversal, mesh
+occlusion, ray-traced reflections, shadows, DDGI, or ray-hit-distance generation. The demo asset is small enough for Git
+without LFS, but the project files live inside the `Resources/EvoEngine-DemoProjects` submodule; publishing the generated
+demo permanently requires committing that submodule content separately from the main EvoEngine code.
 
 ### DDGI RTXGI Port Map
 

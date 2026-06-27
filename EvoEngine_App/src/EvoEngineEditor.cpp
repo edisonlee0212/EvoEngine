@@ -35,7 +35,18 @@ struct EditorCommandLine {
   int preview_capture_width = 1280;
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
+  std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
 };
+
+Camera::CameraRenderMode ParsePreviewRenderMode(const std::string& value) {
+  if (value == "rasterization" || value == "raster" || value == "Rasterization") {
+    return Camera::CameraRenderMode::Rasterization;
+  }
+  if (value == "raytracing" || value == "ray-tracing" || value == "RayTracing") {
+    return Camera::CameraRenderMode::RayTracing;
+  }
+  throw std::invalid_argument("Unknown preview render mode: " + value);
+}
 
 EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   EditorCommandLine command_line;
@@ -76,6 +87,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-warmup-frames requires a non-negative integer.");
       }
       command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
+    } else if (argument == "--preview-render-mode") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-render-mode requires rasterization or raytracing.");
+      }
+      command_line.preview_capture_render_mode = ParsePreviewRenderMode(argv[++arg_index] ? argv[arg_index] : "");
     } else {
       auto application_mode = command_line.application_mode;
       if (!ConsumeApplicationModeArgument(argc, argv, arg_index, application_mode)) {
@@ -318,13 +334,16 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
     case DemoProfileId::DigitalAgriculture:
     case DemoProfileId::LSystem:
     case DemoProfileId::ProceduralGalaxy:
+      break;
     case DemoProfileId::GaussianSplat:
+      ConfigureGaussianSplatDemoScene(ApplicationContext::Get().GetActiveScene());
       break;
   }
 }
 
 void CaptureDemoPreview(const std::filesystem::path& output_path, const int width, const int height,
-                        const size_t warmup_frames) {
+                        const size_t warmup_frames,
+                        const std::optional<Camera::CameraRenderMode>& preview_render_mode) {
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     window_layer->ResizeWindow(width, height);
@@ -338,6 +357,10 @@ void CaptureDemoPreview(const std::filesystem::path& output_path, const int widt
   const auto scene_camera = editor_layer->GetSceneCamera();
   if (!scene_camera) {
     throw std::runtime_error("Demo preview capture requires a scene camera.");
+  }
+  if (preview_render_mode) {
+    scene_camera->camera_render_mode = *preview_render_mode;
+    scene_camera->ResetFrameCount();
   }
   scene_camera->Resize(preview_resolution);
   for (size_t frame_index = 0; frame_index < warmup_frames; ++frame_index) {
@@ -380,7 +403,8 @@ int main(const int argc, char** argv) {
         ApplyDemoProfilePostLoadSetup(*command_line.demo_profile_id, command_line.application_mode);
         if (command_line.demo_preview_capture_path) {
           CaptureDemoPreview(*command_line.demo_preview_capture_path, command_line.preview_capture_width,
-                             command_line.preview_capture_height, command_line.preview_capture_warmup_frames);
+                             command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
+                             command_line.preview_capture_render_mode);
           ApplicationContext::Get().Terminate();
           return 0;
         }

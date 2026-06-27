@@ -58,7 +58,7 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
   render_info.layerCount = 1;
   render_info.colorAttachmentCount = static_cast<uint32_t>(color_attachment_infos.size());
   render_info.pColorAttachments = color_attachment_infos.data();
-  render_info.pDepthAttachment = &depth_attachment;
+  render_info.pDepthAttachment = parameters.use_scene_depth ? &depth_attachment : nullptr;
 
   Platform::RecordRenderCommands(render_info, vk_command_buffer, [&]() {
     const glm::ivec4 viewport{0, 0, static_cast<int>(parameters.camera->GetSize().x),
@@ -103,7 +103,8 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           parameters.transient_resources->RetainDescriptorSet(descriptor_set);
           parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
 
-          parameters.pipeline->states.depth_test = gaussian_instance->depth_mode == GaussianSplatDepthMode::SceneDepth;
+          parameters.pipeline->states.depth_test =
+              parameters.use_scene_depth && gaussian_instance->depth_mode == GaussianSplatDepthMode::SceneDepth;
           parameters.pipeline->states.ApplyAllStates(vk_command_buffer);
 
           GaussianSplatPushConstant push_constant{};
@@ -130,6 +131,17 @@ RenderPassDescriptor GaussianSplatPass::CreateDescriptor(const char* dependency)
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
       {dependency ? dependency : RenderPassNames::deferred_camera}};
+}
+
+RenderPassDescriptor GaussianSplatPass::CreateOverlayDescriptor(const char* dependency) {
+  return {
+      RenderPassNames::gaussian_splat,
+      RenderPassQueue::Graphics,
+      RenderPassScope::Camera,
+      {{RenderResourceNames::frame_render_instances, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+       {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
+       {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
+      {dependency ? dependency : RenderPassNames::ray_tracing_camera}};
 }
 
 void GaussianSplatPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {

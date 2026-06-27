@@ -757,6 +757,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<GraphicsPipeline> ddgi_probe_visualization_pipeline_;
   std::shared_ptr<GraphicsPipeline> ddgi_probe_ray_visualization_pipeline_;
   std::shared_ptr<GraphicsPipeline> gaussian_splat_pipeline_;
+  std::shared_ptr<GraphicsPipeline> gaussian_splat_overlay_pipeline_;
 
   /// Graphics pipeline for rendering gizmos on hair strands.
   std::shared_ptr<GraphicsPipeline> gizmos_strands;

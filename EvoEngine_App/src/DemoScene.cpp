@@ -453,11 +453,38 @@ void ConfigureProceduralGalaxyScene(const std::shared_ptr<Scene>& scene) {
   }
 }
 
-void ConfigureGaussianSplatScene(const std::shared_ptr<Scene>& scene) {
-  scene->environment.environment_type = Scene::EnvironmentType::Color;
+Entity GetOrCreateGaussianSplatDemoEntity(const std::shared_ptr<Scene>& scene) {
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<GaussianSplatRenderer>()) {
+    for (const auto& owner : *owners) {
+      if (scene->IsEntityValid(owner) && scene->GetEntityName(owner) == "Spatial Dragon 3DGS") {
+        return owner;
+      }
+    }
+  }
+  return scene->CreateEntity("Spatial Dragon 3DGS");
+}
+
+Entity GetOrCreateRayTracingTlasSeedEntity(const std::shared_ptr<Scene>& scene) {
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
+    for (const auto& owner : *owners) {
+      if (scene->IsEntityValid(owner) && scene->GetEntityName(owner) == "Ray Tracing TLAS Seed") {
+        return owner;
+      }
+    }
+  }
+  return scene->CreateEntity("Ray Tracing TLAS Seed");
+}
+}  // namespace
+
+void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  scene->environment.environment_type = Scene::EnvironmentType::EnvironmentalMap;
+  scene->environment.environmental_map = Resources::GetInstance().GetDefaultEnvironmentalMap();
   scene->environment.background_color = glm::vec3(0.01f, 0.012f, 0.016f);
-  scene->environment.background_intensity = 0.0f;
-  scene->environment.ambient_light_intensity = 0.0f;
+  scene->environment.background_intensity = 0.6f;
+  scene->environment.ambient_light_intensity = 0.25f;
 
   std::shared_ptr<GaussianSplat> gaussian_splat;
   try {
@@ -481,10 +508,10 @@ void ConfigureGaussianSplatScene(const std::shared_ptr<Scene>& scene) {
 
   const auto main_camera = scene->main_camera.Get<Camera>();
   main_camera->Resize({1920, 1080});
-  main_camera->skybox.Clear();
-  main_camera->camera_settings.use_clear_color = true;
+  main_camera->skybox = Resources::GetInstance().GetDefaultSkybox();
+  main_camera->camera_settings.use_clear_color = false;
   main_camera->camera_settings.clear_color = glm::vec4(0.01f, 0.012f, 0.016f, 1.0f);
-  main_camera->camera_settings.background_intensity = 0.0f;
+  main_camera->camera_settings.background_intensity = 0.6f;
   main_camera->camera_settings.near_distance = std::max(radius * 0.01f, 0.01f);
   main_camera->camera_settings.far_distance = std::max(radius * 10.0f, 100.0f);
   main_camera->camera_settings.fov = 55.0f;
@@ -497,7 +524,7 @@ void ConfigureGaussianSplatScene(const std::shared_ptr<Scene>& scene) {
   scene->SetDataComponent(main_camera_entity, main_camera_transform);
   scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
 
-  const auto gaussian_entity = scene->CreateEntity("Spatial Dragon 3DGS");
+  const auto gaussian_entity = GetOrCreateGaussianSplatDemoEntity(scene);
   const auto gaussian_renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(gaussian_entity).lock();
   gaussian_renderer->gaussian_splat.Set<GaussianSplat>(gaussian_splat);
   gaussian_renderer->opacity_scale = 1.0f;
@@ -508,16 +535,32 @@ void ConfigureGaussianSplatScene(const std::shared_ptr<Scene>& scene) {
   gaussian_transform.SetPosition(-center);
   scene->SetDataComponent(gaussian_entity, gaussian_transform);
 
+  const auto tlas_seed_entity = GetOrCreateRayTracingTlasSeedEntity(scene);
+  const auto tlas_seed_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(tlas_seed_entity).lock();
+  tlas_seed_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
+  auto tlas_seed_material = tlas_seed_renderer->material.Get<Material>();
+  if (!tlas_seed_material) {
+    tlas_seed_material = AssetManager::CreateTemporaryAsset<Material>();
+    tlas_seed_renderer->material.Set<Material>(tlas_seed_material);
+  }
+  tlas_seed_material->material_properties.albedo_color = glm::vec3(0.0f);
+  tlas_seed_material->material_properties.roughness = 1.0f;
+  tlas_seed_material->material_properties.metallic = 0.0f;
+  Transform tlas_seed_transform;
+  tlas_seed_transform.SetPosition(camera_position + camera_rotation * glm::vec3(0.0f, 0.0f, radius * 100.0f));
+  tlas_seed_transform.SetScale(glm::vec3(glm::max(radius * 0.001f, 0.001f)));
+  scene->SetDataComponent(tlas_seed_entity, tlas_seed_transform);
+
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     editor_layer->velocity = std::max(radius * 0.25f, 0.5f);
     editor_layer->default_scene_camera_position = camera_position;
     editor_layer->SetSceneCameraPosition(camera_position);
     editor_layer->SetSceneCameraRotation(camera_rotation);
     if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-      scene_camera->skybox.Clear();
-      scene_camera->camera_settings.use_clear_color = true;
+      scene_camera->skybox = Resources::GetInstance().GetDefaultSkybox();
+      scene_camera->camera_settings.use_clear_color = false;
       scene_camera->camera_settings.clear_color = glm::vec4(0.01f, 0.012f, 0.016f, 1.0f);
-      scene_camera->camera_settings.background_intensity = 0.0f;
+      scene_camera->camera_settings.background_intensity = 0.6f;
       scene_camera->camera_settings.near_distance = main_camera->camera_settings.near_distance;
       scene_camera->camera_settings.far_distance = main_camera->camera_settings.far_distance;
       scene_camera->camera_settings.fov = main_camera->camera_settings.fov;
@@ -528,7 +571,6 @@ void ConfigureGaussianSplatScene(const std::shared_ptr<Scene>& scene) {
   scene->Save();
   ProjectManager::SaveProject();
 }
-}  // namespace
 
 std::filesystem::path evo_engine::FindDemoResourcesRoot(const std::filesystem::path& preferred_root) {
   if (!preferred_root.empty() && std::filesystem::exists(preferred_root)) {
@@ -695,7 +737,7 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
       application_info.project_path = resource_root / "EvoEngine-DemoProjects/3DGS/3DGS.eveproj";
       application_info.default_window_size = {1920, 1080};
       ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
-        ConfigureGaussianSplatScene(scene);
+        ConfigureGaussianSplatDemoScene(scene);
       });
     } break;
     case DemoSetup::Universe:

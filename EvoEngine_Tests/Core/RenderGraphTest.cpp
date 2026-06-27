@@ -1737,6 +1737,19 @@ TEST(RenderGraph, GaussianSplatDescriptorCompositesAfterDeferredLighting) {
   const auto cloud_dependent_descriptor = GaussianSplatPass::CreateDescriptor(RenderPassNames::volumetric_clouds);
   ASSERT_EQ(cloud_dependent_descriptor.dependencies.size(), 1);
   EXPECT_EQ(cloud_dependent_descriptor.dependencies[0], RenderPassNames::volumetric_clouds);
+
+  const auto overlay_descriptor = GaussianSplatPass::CreateOverlayDescriptor(nullptr);
+  EXPECT_EQ(overlay_descriptor.name, RenderPassNames::gaussian_splat);
+  EXPECT_EQ(overlay_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(overlay_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(overlay_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(overlay_descriptor.dependencies[0], RenderPassNames::ray_tracing_camera);
+  ASSERT_EQ(overlay_descriptor.resources.size(), 3);
+  EXPECT_EQ(overlay_descriptor.resources[0].resource_name, RenderResourceNames::frame_render_instances);
+  EXPECT_EQ(overlay_descriptor.resources[1].resource_name, RenderResourceNames::frame_per_frame_descriptor_set);
+  EXPECT_EQ(overlay_descriptor.resources[2].resource_name, RenderResourceNames::camera_color);
+  EXPECT_EQ(overlay_descriptor.resources[2].usage, RenderResourceUsage::ReadWrite);
+  EXPECT_EQ(overlay_descriptor.resources[2].state, RenderResourceState::ColorAttachment);
 }
 
 TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
@@ -1857,6 +1870,40 @@ TEST(RenderGraph, VolumetricCloudRayTracingPassConsumesRayHitDistanceAfterRayTra
                                   access.usage == RenderResourceUsage::Read;
                          }),
             cloud_resources.end());
+}
+
+TEST(RenderGraph, GaussianSplatOverlayRunsAfterRayTracingClouds) {
+  RenderGraph graph;
+  AddDefaultRayTracingCameraResources(graph);
+  AddVolumetricCloudCameraResources(graph);
+
+  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), []() {
+  });
+  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera), []() {
+  });
+  graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::volumetric_clouds), []() {
+  });
+
+  ASSERT_TRUE(graph.Validate());
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(graph.GetPasses().size(), 3);
+  EXPECT_EQ(graph.GetPasses()[0].name, RenderPassNames::ray_tracing_camera);
+  EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(graph.GetPasses()[2].name, RenderPassNames::gaussian_splat);
+  ASSERT_EQ(graph.GetPasses()[2].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[2].dependencies[0], RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(plan.passes[2].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[2].dependency_indices[0], 1);
+
+  const auto color_transition = std::find_if(
+      plan.transitions.begin(), plan.transitions.end(), [&](const RenderResourceTransitionPlan& transition) {
+        return graph.GetResources()[transition.resource_index].name == RenderResourceNames::camera_color &&
+               transition.pass_index == 2;
+      });
+  ASSERT_NE(color_transition, plan.transitions.end());
+  EXPECT_EQ(color_transition->previous_state, RenderResourceState::StorageReadWrite);
+  EXPECT_EQ(color_transition->next_state, RenderResourceState::ColorAttachment);
 }
 
 TEST(RenderGraph, AdvancedResourcesDescribeHistoryAndVisibilityInputs) {

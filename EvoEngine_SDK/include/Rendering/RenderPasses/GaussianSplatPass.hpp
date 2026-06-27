@@ -28,10 +28,12 @@ class GaussianSplatPass final {
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     uint32_t camera_index = 0;
+    bool use_scene_depth = true;
     RecordCommands record_commands;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(const char* dependency);
+  [[nodiscard]] static RenderPassDescriptor CreateOverlayDescriptor(const char* dependency);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 }  // namespace evo_engine
