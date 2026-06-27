@@ -1316,6 +1316,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_camera_output_layout_->Initialize();
   }
   if (!ray_tracing_point_cloud_layout_) {

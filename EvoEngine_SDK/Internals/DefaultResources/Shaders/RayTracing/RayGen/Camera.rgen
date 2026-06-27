@@ -7,6 +7,7 @@
 
 layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
 layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image;
+layout(set = 2, binding = 2, rgba32f) uniform image2D radiance_history_image;
 
 layout(push_constant) uniform EE_CAMERA_CONSTANTS {
   uint EE_CAMERA_INDEX;
@@ -54,10 +55,13 @@ void main()
 	}
 
 	result_color /= sample_size;
-	vec3 prev_color = imageLoad(result_image, ivec2(gl_LaunchIDEXT.xy)).xyz;
-	result_color = (result_color + pow(prev_color, vec3(camera.gamma)) * EE_FRAME_ID) / (EE_FRAME_ID + 1);
+	if (EE_FRAME_ID > 0) {
+		vec3 prev_color = imageLoad(radiance_history_image, ivec2(gl_LaunchIDEXT.xy)).xyz;
+		result_color = (result_color + pow(prev_color, vec3(camera.gamma)) * EE_FRAME_ID) / (EE_FRAME_ID + 1);
+	}
 
 	result_color = pow(result_color, vec3(1.f / camera.gamma));
 	imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(result_color.x, result_color.y, result_color.z, 1));
+	imageStore(radiance_history_image, ivec2(gl_LaunchIDEXT.xy), vec4(result_color.x, result_color.y, result_color.z, 1));
 	imageStore(ray_hit_distance_image, ivec2(gl_LaunchIDEXT.xy), vec4(primary_hit_distance));
 }
