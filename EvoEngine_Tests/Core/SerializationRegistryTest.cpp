@@ -473,6 +473,24 @@ std::filesystem::path WriteInvalidGaussianSplatPlyFixture(const std::filesystem:
   return path;
 }
 
+GaussianSplat CreateGaussianSplatFixture() {
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, -5.0f, 6.0f)};
+  gaussian_splat.scales = {glm::vec3(0.1f, 0.2f, 0.3f), glm::vec3(0.8f, 0.9f, 1.0f)};
+  gaussian_splat.rotations = {glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)};
+  gaussian_splat.opacities = {1.25f, 0.25f};
+  gaussian_splat.colors = {glm::vec3(1.2f, -0.2f, 0.5f), glm::vec3(0.25f, 0.5f, 0.75f)};
+  gaussian_splat.spherical_harmonics_rest = {0.01f, 0.02f, 0.03f, 0.04f};
+  gaussian_splat.spherical_harmonics_rest_float_count = 2;
+  gaussian_splat.RecalculateBoundingBox();
+  return gaussian_splat;
+}
+
+std::vector<uint8_t> ReadBinaryFile(const std::filesystem::path& path) {
+  std::ifstream stream(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
 std::vector<Handle> ReadMaterialTextureHandles(const std::string& saved_text) {
   std::vector<Handle> texture_handles;
   std::istringstream stream(saved_text);
@@ -1063,6 +1081,148 @@ TEST(SerializationRegistry, GaussianSplatRejectsPlyWithoutRequiredFields) {
   GaussianSplat gaussian_splat;
   EXPECT_FALSE(gaussian_splat.LoadPly(path));
   EXPECT_TRUE(gaussian_splat.Empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatSavesPlyRoundTripPreservesRestFields) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto path = project.RootPath() / "roundtrip.ply";
+
+  ASSERT_TRUE(gaussian_splat.SavePly(path));
+  GaussianSplat restored;
+  ASSERT_TRUE(restored.LoadPly(path));
+  ASSERT_EQ(restored.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored.positions[1].z, 6.0f);
+  EXPECT_FLOAT_EQ(restored.scales[0].y, 0.2f);
+  EXPECT_FLOAT_EQ(restored.colors[0].x, 1.2f);
+  EXPECT_FLOAT_EQ(restored.opacities[0], 1.25f);
+  EXPECT_FLOAT_EQ(restored.rotations[1].y, 1.0f);
+  EXPECT_EQ(restored.spherical_harmonics_rest_float_count, 2u);
+  ASSERT_EQ(restored.spherical_harmonics_rest.size(), 4);
+  EXPECT_FLOAT_EQ(restored.spherical_harmonics_rest[3], 0.04f);
+}
+
+TEST(SerializationRegistry, GaussianSplatSavesAndLoadsStandardSplatRows) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto path = project.RootPath() / "fixture.splat";
+
+  testing::internal::CaptureStderr();
+  ASSERT_TRUE(gaussian_splat.SaveSplat(path));
+  const auto warning = testing::internal::GetCapturedStderr();
+  EXPECT_NE(warning.find("drops spherical_harmonics_rest"), std::string::npos);
+
+  const auto bytes = ReadBinaryFile(path);
+  ASSERT_EQ(bytes.size(), 64);
+  float first_x = 0.0f;
+  float first_scale_z = 0.0f;
+  std::memcpy(&first_x, bytes.data(), sizeof(float));
+  std::memcpy(&first_scale_z, bytes.data() + 20, sizeof(float));
+  EXPECT_FLOAT_EQ(first_x, -1.0f);
+  EXPECT_FLOAT_EQ(first_scale_z, 0.3f);
+  EXPECT_EQ(bytes[24], 255);
+  EXPECT_EQ(bytes[25], 0);
+  EXPECT_EQ(bytes[26], 128);
+  EXPECT_EQ(bytes[27], 255);
+  EXPECT_EQ(bytes[28], 255);
+  EXPECT_EQ(bytes[29], 128);
+  EXPECT_EQ(bytes[30], 128);
+  EXPECT_EQ(bytes[31], 128);
+
+  GaussianSplat restored;
+  ASSERT_TRUE(restored.LoadSplat(path));
+  ASSERT_EQ(restored.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored.positions[0].x, -1.0f);
+  EXPECT_FLOAT_EQ(restored.scales[1].z, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].x, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].y, 0.0f);
+  EXPECT_NEAR(restored.colors[0].z, 128.0f / 255.0f, 0.0001f);
+  EXPECT_FLOAT_EQ(restored.opacities[0], 1.0f);
+  EXPECT_EQ(restored.spherical_harmonics_rest_float_count, 0u);
+  EXPECT_TRUE(restored.spherical_harmonics_rest.empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatRejectsInvalidSplatByteSize) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  const auto path = project.RootPath() / "invalid.splat";
+  std::ofstream stream(path, std::ios::binary);
+  stream << "not a splat";
+  stream.close();
+
+  GaussianSplat gaussian_splat;
+  EXPECT_FALSE(gaussian_splat.LoadSplat(path));
+}
+
+TEST(SerializationRegistry, GaussianSplatSavesAndLoadsUncompressedKSplat) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto path = project.RootPath() / "fixture.ksplat";
+
+  testing::internal::CaptureStderr();
+  ASSERT_TRUE(gaussian_splat.SaveKSplat(path));
+  const auto warning = testing::internal::GetCapturedStderr();
+  EXPECT_NE(warning.find("drops spherical_harmonics_rest"), std::string::npos);
+  EXPECT_EQ(std::filesystem::file_size(path), 4096u + 1024u + 88u);
+
+  GaussianSplat restored;
+  ASSERT_TRUE(restored.LoadKSplat(path));
+  ASSERT_EQ(restored.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored.positions[0].x, -1.0f);
+  EXPECT_FLOAT_EQ(restored.scales[1].z, 1.0f);
+  EXPECT_FLOAT_EQ(restored.rotations[1].y, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].x, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].y, 0.0f);
+  EXPECT_NEAR(restored.colors[0].z, 128.0f / 255.0f, 0.0001f);
+  EXPECT_FLOAT_EQ(restored.opacities[0], 1.0f);
+  EXPECT_EQ(restored.spherical_harmonics_rest_float_count, 0u);
+  EXPECT_TRUE(restored.spherical_harmonics_rest.empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatRejectsUnsupportedKSplatVersionsAndCompression) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto version_path = project.RootPath() / "unsupported-version.ksplat";
+  const auto compression_path = project.RootPath() / "unsupported-compression.ksplat";
+  ASSERT_TRUE(gaussian_splat.SaveKSplat(version_path));
+  std::filesystem::copy_file(version_path, compression_path);
+
+  {
+    std::fstream stream(version_path, std::ios::binary | std::ios::in | std::ios::out);
+    const uint8_t version = 1;
+    stream.write(reinterpret_cast<const char*>(&version), sizeof(version));
+  }
+  {
+    std::fstream stream(compression_path, std::ios::binary | std::ios::in | std::ios::out);
+    const uint16_t compression_level = 1;
+    stream.seekp(20);
+    stream.write(reinterpret_cast<const char*>(&compression_level), sizeof(compression_level));
+  }
+
+  GaussianSplat restored;
+  EXPECT_FALSE(restored.LoadKSplat(version_path));
+  EXPECT_FALSE(restored.LoadKSplat(compression_path));
+}
+
+TEST(SerializationRegistry, GaussianSplatRegisteredExtensionsIncludeInterchangeFormats) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto& extensions = Serialization::PeekAssetExtensions("GaussianSplat");
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".evegaussiansplat"), extensions.end());
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".ply"), extensions.end());
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".splat"), extensions.end());
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".ksplat"), extensions.end());
 }
 
 TEST(SerializationRegistry, GaussianSplatBuildsGpuDataWithoutRepackingStaticAsset) {

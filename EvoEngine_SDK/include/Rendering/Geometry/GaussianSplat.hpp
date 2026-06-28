@@ -73,6 +73,11 @@ class GaussianSplat final : public IAsset {
                                                                   const glm::mat4& view) const;
   [[nodiscard]] const GaussianSplatSortCache* FindSortCache(const Handle& camera_handle) const;
   bool LoadPly(const std::filesystem::path& path);
+  bool SavePly(const std::filesystem::path& path) const;
+  bool LoadSplat(const std::filesystem::path& path);
+  bool SaveSplat(const std::filesystem::path& path) const;
+  bool LoadKSplat(const std::filesystem::path& path);
+  bool SaveKSplat(const std::filesystem::path& path) const;
 };
 
 }  // namespace evo_engine

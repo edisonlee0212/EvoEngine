@@ -1744,7 +1744,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<Animation>("Animation", {".eveanimation"});
   RegisterAsset<SkinnedMesh>("SkinnedMesh", {".eveskinnedmesh"});
   RegisterAsset<PointCloud>("PointCloud", {".evepointcloud"});
-  RegisterAsset<GaussianSplat>("GaussianSplat", {".evegaussiansplat"});
+  RegisterAsset<GaussianSplat>("GaussianSplat", {".evegaussiansplat", ".ply", ".splat", ".ksplat"});
   RegisterAsset<Json>("Json", {".json"});
   RegisterSdkInspectionAdapters();
   RegisterBuiltInAssetIoHandlers();

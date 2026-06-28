@@ -267,6 +267,12 @@ occlusion, ray-traced reflections, shadows, DDGI, or ray-hit-distance generation
 without LFS, but the project files live inside the `Resources/EvoEngine-DemoProjects` submodule; publishing the generated
 demo permanently requires committing that submodule content separately from the main EvoEngine code.
 
+`GaussianSplat` keeps `.evegaussiansplat` as its native YAML-backed serialized format and supports interchange import
+and export for `.ply`, `.splat`, and `.ksplat`. PLY preserves the standard Gaussian fields plus contiguous `f_rest_*`
+SH-rest floats. Standard SPLAT and the current KSPLAT target store only SH degree 0 color/opacity data; exporting either
+format clamps RGBA values to bytes, drops `spherical_harmonics_rest`, and emits a warning. KSPLAT support is intentionally
+limited to GaussianSplats3D-compatible uncompressed version 0.1, compression level 0, SH degree 0 files.
+
 ### DDGI RTXGI Port Map
 
 `out/external/RTXGI-DDGI` is treated as the algorithm reference only. EvoEngine keeps shader source

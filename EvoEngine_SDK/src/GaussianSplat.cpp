@@ -7,10 +7,15 @@
 #include "Tinyply.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <sstream>
+#include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -47,6 +52,14 @@ class GaussianSplatStagedLoadPayload final : public StagedAssetLoadPayload {
 
 [[nodiscard]] bool SameMatrix(const glm::mat4& lhs, const glm::mat4& rhs) {
   return std::memcmp(&lhs[0][0], &rhs[0][0], sizeof(glm::mat4)) == 0;
+}
+
+[[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& path) {
+  auto extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return extension;
 }
 
 [[nodiscard]] bool CanUploadGpuData() {
@@ -183,6 +196,36 @@ template <typename T>
 [[nodiscard]] bool ReadBinaryValue(std::istream& stream, T& value) {
   stream.read(reinterpret_cast<char*>(&value), sizeof(T));
   return static_cast<bool>(stream);
+}
+
+template <typename T>
+bool WriteBinaryValue(std::ostream& stream, const T& value) {
+  stream.write(reinterpret_cast<const char*>(&value), sizeof(T));
+  return static_cast<bool>(stream);
+}
+
+[[nodiscard]] uint8_t FloatToByte(const float value) {
+  return static_cast<uint8_t>(std::clamp(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f), 0l, 255l));
+}
+
+[[nodiscard]] uint8_t QuaternionToByte(const float value) {
+  return static_cast<uint8_t>(std::clamp(std::lround(std::clamp(value, -1.0f, 1.0f) * 128.0f + 128.0f), 0l, 255l));
+}
+
+[[nodiscard]] glm::vec4 NormalizeRotation(const glm::vec4& rotation) {
+  const auto length = glm::length(rotation);
+  if (length <= std::numeric_limits<float>::epsilon()) {
+    return glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+  }
+  return rotation / length;
+}
+
+void WarnDropsSphericalHarmonicsRest(const char* format, const uint32_t rest_count,
+                                     const std::vector<float>& spherical_harmonics_rest) {
+  if (rest_count == 0 || spherical_harmonics_rest.empty()) {
+    return;
+  }
+  std::cerr << "Saving Gaussian splats as " << format << " drops spherical_harmonics_rest." << std::endl;
 }
 
 [[nodiscard]] bool ReadBinaryScalar(std::istream& stream, const Type type, float& value) {
@@ -492,25 +535,318 @@ bool LoadGaussianSplatPly(const std::filesystem::path& path, GaussianSplatStaged
     return false;
   }
 }
+
+bool SaveGaussianSplatPly(const GaussianSplat& gaussian_splat, const std::filesystem::path& path) {
+  std::ofstream stream(path, std::ios::binary);
+  if (!stream || stream.fail()) {
+    return false;
+  }
+
+  const auto splat_count = gaussian_splat.positions.size();
+  stream << "ply\n";
+  stream << "format binary_little_endian 1.0\n";
+  stream << "element vertex " << splat_count << "\n";
+  const std::vector<std::string> properties = {"x",      "y",      "z",       "scale_0", "scale_1", "scale_2", "f_dc_0",
+                                               "f_dc_1", "f_dc_2", "opacity", "rot_0",   "rot_1",   "rot_2",   "rot_3"};
+  for (const auto& property : properties) {
+    stream << "property float " << property << "\n";
+  }
+  for (uint32_t i = 0; i < gaussian_splat.spherical_harmonics_rest_float_count; ++i) {
+    stream << "property float f_rest_" << i << "\n";
+  }
+  stream << "end_header\n";
+
+  for (size_t i = 0; i < splat_count; ++i) {
+    const auto position = GetOrDefault(gaussian_splat.positions, i, glm::vec3(0.0f));
+    const auto scale = GetOrDefault(gaussian_splat.scales, i, glm::vec3(0.0f));
+    const auto color = GetOrDefault(gaussian_splat.colors, i, glm::vec3(0.0f));
+    const auto opacity = GetOrDefault(gaussian_splat.opacities, i, 0.0f);
+    const auto rotation = GetOrDefault(gaussian_splat.rotations, i, glm::vec4(1.0f, 0.0f, 0.0f, 0.0f));
+    const std::array<float, 14> values = {position.x, position.y, position.z, scale.x,   scale.y,
+                                          scale.z,    color.x,    color.y,    color.z,   opacity,
+                                          rotation.x, rotation.y, rotation.z, rotation.w};
+    for (const auto value : values) {
+      if (!WriteBinaryValue(stream, value)) {
+        return false;
+      }
+    }
+    const auto rest_offset = i * gaussian_splat.spherical_harmonics_rest_float_count;
+    for (uint32_t rest_index = 0; rest_index < gaussian_splat.spherical_harmonics_rest_float_count; ++rest_index) {
+      const auto value = GetOrDefault(gaussian_splat.spherical_harmonics_rest, rest_offset + rest_index, 0.0f);
+      if (!WriteBinaryValue(stream, value)) {
+        return false;
+      }
+    }
+  }
+  return static_cast<bool>(stream);
+}
+
+bool LoadGaussianSplatSplat(const std::filesystem::path& path, GaussianSplatStagedLoadPayload& payload) {
+  constexpr size_t kSplatRowSize = 32;
+  std::error_code error;
+  const auto file_size = std::filesystem::file_size(path, error);
+  if (error || file_size == 0 || file_size % kSplatRowSize != 0) {
+    return false;
+  }
+
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream || stream.fail()) {
+    return false;
+  }
+
+  const auto splat_count = static_cast<size_t>(file_size / kSplatRowSize);
+  payload.positions.resize(splat_count);
+  payload.scales.resize(splat_count);
+  payload.colors.resize(splat_count);
+  payload.opacities.resize(splat_count);
+  payload.rotations.resize(splat_count);
+  payload.spherical_harmonics_rest.clear();
+  payload.spherical_harmonics_rest_float_count = 0;
+
+  for (size_t i = 0; i < splat_count; ++i) {
+    uint8_t rgba[4] = {};
+    uint8_t rotation[4] = {};
+    if (!ReadBinaryValue(stream, payload.positions[i].x) || !ReadBinaryValue(stream, payload.positions[i].y) ||
+        !ReadBinaryValue(stream, payload.positions[i].z) || !ReadBinaryValue(stream, payload.scales[i].x) ||
+        !ReadBinaryValue(stream, payload.scales[i].y) || !ReadBinaryValue(stream, payload.scales[i].z)) {
+      return false;
+    }
+    stream.read(reinterpret_cast<char*>(rgba), sizeof(rgba));
+    stream.read(reinterpret_cast<char*>(rotation), sizeof(rotation));
+    if (!stream) {
+      return false;
+    }
+    payload.colors[i] = glm::vec3(rgba[0], rgba[1], rgba[2]) / 255.0f;
+    payload.opacities[i] = static_cast<float>(rgba[3]) / 255.0f;
+    payload.rotations[i] = NormalizeRotation(glm::vec4(
+        (static_cast<float>(rotation[0]) - 128.0f) / 128.0f, (static_cast<float>(rotation[1]) - 128.0f) / 128.0f,
+        (static_cast<float>(rotation[2]) - 128.0f) / 128.0f, (static_cast<float>(rotation[3]) - 128.0f) / 128.0f));
+  }
+  return true;
+}
+
+bool SaveGaussianSplatSplat(const GaussianSplat& gaussian_splat, const std::filesystem::path& path) {
+  WarnDropsSphericalHarmonicsRest(".splat", gaussian_splat.spherical_harmonics_rest_float_count,
+                                  gaussian_splat.spherical_harmonics_rest);
+  std::ofstream stream(path, std::ios::binary);
+  if (!stream || stream.fail()) {
+    return false;
+  }
+
+  for (size_t i = 0; i < gaussian_splat.positions.size(); ++i) {
+    const auto position = GetOrDefault(gaussian_splat.positions, i, glm::vec3(0.0f));
+    const auto scale = GetOrDefault(gaussian_splat.scales, i, glm::vec3(0.0f));
+    const auto color = GetOrDefault(gaussian_splat.colors, i, glm::vec3(0.0f));
+    const auto opacity = GetOrDefault(gaussian_splat.opacities, i, 0.0f);
+    const auto rotation =
+        NormalizeRotation(GetOrDefault(gaussian_splat.rotations, i, glm::vec4(1.0f, 0.0f, 0.0f, 0.0f)));
+    const uint8_t rgba[4] = {FloatToByte(color.x), FloatToByte(color.y), FloatToByte(color.z), FloatToByte(opacity)};
+    const uint8_t packed_rotation[4] = {QuaternionToByte(rotation.x), QuaternionToByte(rotation.y),
+                                        QuaternionToByte(rotation.z), QuaternionToByte(rotation.w)};
+    if (!WriteBinaryValue(stream, position.x) || !WriteBinaryValue(stream, position.y) ||
+        !WriteBinaryValue(stream, position.z) || !WriteBinaryValue(stream, scale.x) ||
+        !WriteBinaryValue(stream, scale.y) || !WriteBinaryValue(stream, scale.z)) {
+      return false;
+    }
+    stream.write(reinterpret_cast<const char*>(rgba), sizeof(rgba));
+    stream.write(reinterpret_cast<const char*>(packed_rotation), sizeof(packed_rotation));
+    if (!stream) {
+      return false;
+    }
+  }
+  return static_cast<bool>(stream);
+}
+
+bool LoadGaussianSplatKSplat(const std::filesystem::path& path, GaussianSplatStagedLoadPayload& payload) {
+  constexpr uint32_t kHeaderSizeBytes = 4096;
+  constexpr uint32_t kSectionHeaderSizeBytes = 1024;
+  constexpr uint32_t kBytesPerLevel0SphericalHarmonics0Splat = 44;
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream || stream.fail()) {
+    return false;
+  }
+
+  std::vector<uint8_t> header(kHeaderSizeBytes, 0);
+  stream.read(reinterpret_cast<char*>(header.data()), header.size());
+  if (!stream || header[0] != 0 || header[1] != 1) {
+    return false;
+  }
+  const auto* header_u16 = reinterpret_cast<const uint16_t*>(header.data());
+  const auto* header_u32 = reinterpret_cast<const uint32_t*>(header.data());
+  const auto max_section_count = header_u32[1];
+  const auto section_count = header_u32[2];
+  const auto splat_count = header_u32[4];
+  const auto compression_level = header_u16[10];
+  if (compression_level != 0 || max_section_count == 0 || section_count == 0 || section_count > max_section_count) {
+    return false;
+  }
+
+  std::vector<uint8_t> section_headers(static_cast<size_t>(max_section_count) * kSectionHeaderSizeBytes, 0);
+  stream.read(reinterpret_cast<char*>(section_headers.data()), section_headers.size());
+  if (!stream) {
+    return false;
+  }
+
+  payload.positions.clear();
+  payload.scales.clear();
+  payload.rotations.clear();
+  payload.colors.clear();
+  payload.opacities.clear();
+  payload.spherical_harmonics_rest.clear();
+  payload.spherical_harmonics_rest_float_count = 0;
+  payload.positions.reserve(splat_count);
+  payload.scales.reserve(splat_count);
+  payload.rotations.reserve(splat_count);
+  payload.colors.reserve(splat_count);
+  payload.opacities.reserve(splat_count);
+
+  for (uint32_t section_index = 0; section_index < max_section_count; ++section_index) {
+    const auto* section_base = section_headers.data() + static_cast<size_t>(section_index) * kSectionHeaderSizeBytes;
+    const auto* section_u16 = reinterpret_cast<const uint16_t*>(section_base);
+    const auto* section_u32 = reinterpret_cast<const uint32_t*>(section_base);
+    const auto section_splat_count = section_u32[0];
+    const auto section_max_splat_count = section_u32[1];
+    const auto storage_size_bytes = section_u32[7];
+    const auto sh_degree = section_u16[20];
+    if (section_index >= section_count) {
+      if (section_max_splat_count != 0) {
+        return false;
+      }
+      continue;
+    }
+    if (sh_degree != 0 || section_splat_count > section_max_splat_count ||
+        storage_size_bytes != section_max_splat_count * kBytesPerLevel0SphericalHarmonics0Splat) {
+      return false;
+    }
+    for (uint32_t i = 0; i < section_max_splat_count; ++i) {
+      glm::vec3 position(0.0f);
+      glm::vec3 scale(0.0f);
+      glm::vec4 rotation(1.0f, 0.0f, 0.0f, 0.0f);
+      uint8_t rgba[4] = {};
+      if (!ReadBinaryValue(stream, position.x) || !ReadBinaryValue(stream, position.y) ||
+          !ReadBinaryValue(stream, position.z) || !ReadBinaryValue(stream, scale.x) ||
+          !ReadBinaryValue(stream, scale.y) || !ReadBinaryValue(stream, scale.z) ||
+          !ReadBinaryValue(stream, rotation.x) || !ReadBinaryValue(stream, rotation.y) ||
+          !ReadBinaryValue(stream, rotation.z) || !ReadBinaryValue(stream, rotation.w)) {
+        return false;
+      }
+      stream.read(reinterpret_cast<char*>(rgba), sizeof(rgba));
+      if (!stream) {
+        return false;
+      }
+      if (i >= section_splat_count) {
+        continue;
+      }
+      payload.positions.emplace_back(position);
+      payload.scales.emplace_back(scale);
+      payload.rotations.emplace_back(NormalizeRotation(rotation));
+      payload.colors.emplace_back(glm::vec3(rgba[0], rgba[1], rgba[2]) / 255.0f);
+      payload.opacities.emplace_back(static_cast<float>(rgba[3]) / 255.0f);
+    }
+  }
+  return payload.positions.size() == splat_count;
+}
+
+bool SaveGaussianSplatKSplat(const GaussianSplat& gaussian_splat, const std::filesystem::path& path) {
+  constexpr uint32_t kHeaderSizeBytes = 4096;
+  constexpr uint32_t kSectionHeaderSizeBytes = 1024;
+  constexpr uint32_t kBytesPerLevel0SphericalHarmonics0Splat = 44;
+  WarnDropsSphericalHarmonicsRest(".ksplat", gaussian_splat.spherical_harmonics_rest_float_count,
+                                  gaussian_splat.spherical_harmonics_rest);
+
+  std::ofstream stream(path, std::ios::binary);
+  if (!stream || stream.fail()) {
+    return false;
+  }
+
+  const auto splat_count = static_cast<uint32_t>(gaussian_splat.positions.size());
+  std::vector<uint8_t> header(kHeaderSizeBytes, 0);
+  header[0] = 0;
+  header[1] = 1;
+  auto* header_u16 = reinterpret_cast<uint16_t*>(header.data());
+  auto* header_u32 = reinterpret_cast<uint32_t*>(header.data());
+  auto* header_f32 = reinterpret_cast<float*>(header.data());
+  header_u32[1] = 1;
+  header_u32[2] = 1;
+  header_u32[3] = splat_count;
+  header_u32[4] = splat_count;
+  header_u16[10] = 0;
+  const auto scene_center = (gaussian_splat.GetMinBound() + gaussian_splat.GetMaxBound()) * 0.5f;
+  header_f32[6] = scene_center.x;
+  header_f32[7] = scene_center.y;
+  header_f32[8] = scene_center.z;
+  header_f32[9] = -1.5f;
+  header_f32[10] = 1.5f;
+  stream.write(reinterpret_cast<const char*>(header.data()), header.size());
+
+  std::vector<uint8_t> section_header(kSectionHeaderSizeBytes, 0);
+  auto* section_u16 = reinterpret_cast<uint16_t*>(section_header.data());
+  auto* section_u32 = reinterpret_cast<uint32_t*>(section_header.data());
+  section_u32[0] = splat_count;
+  section_u32[1] = splat_count;
+  section_u32[7] = splat_count * kBytesPerLevel0SphericalHarmonics0Splat;
+  section_u16[20] = 0;
+  stream.write(reinterpret_cast<const char*>(section_header.data()), section_header.size());
+
+  for (size_t i = 0; i < gaussian_splat.positions.size(); ++i) {
+    const auto position = GetOrDefault(gaussian_splat.positions, i, glm::vec3(0.0f));
+    const auto scale = GetOrDefault(gaussian_splat.scales, i, glm::vec3(0.0f));
+    const auto rotation =
+        NormalizeRotation(GetOrDefault(gaussian_splat.rotations, i, glm::vec4(1.0f, 0.0f, 0.0f, 0.0f)));
+    const auto color = GetOrDefault(gaussian_splat.colors, i, glm::vec3(0.0f));
+    const auto opacity = GetOrDefault(gaussian_splat.opacities, i, 0.0f);
+    const uint8_t rgba[4] = {FloatToByte(color.x), FloatToByte(color.y), FloatToByte(color.z), FloatToByte(opacity)};
+    if (!WriteBinaryValue(stream, position.x) || !WriteBinaryValue(stream, position.y) ||
+        !WriteBinaryValue(stream, position.z) || !WriteBinaryValue(stream, scale.x) ||
+        !WriteBinaryValue(stream, scale.y) || !WriteBinaryValue(stream, scale.z) ||
+        !WriteBinaryValue(stream, rotation.x) || !WriteBinaryValue(stream, rotation.y) ||
+        !WriteBinaryValue(stream, rotation.z) || !WriteBinaryValue(stream, rotation.w)) {
+      return false;
+    }
+    stream.write(reinterpret_cast<const char*>(rgba), sizeof(rgba));
+  }
+  return static_cast<bool>(stream);
+}
 }  // namespace
 
 bool GaussianSplat::LoadInternal(const std::filesystem::path& path) {
-  if (path.extension() == ".ply") {
+  const auto extension = LowercaseExtension(path);
+  if (extension == ".ply") {
     return LoadPly(path);
+  }
+  if (extension == ".splat") {
+    return LoadSplat(path);
+  }
+  if (extension == ".ksplat") {
+    return LoadKSplat(path);
   }
   return Serialization::LoadAssetFromYaml(*this, path);
 }
 
 bool GaussianSplat::SupportsStagedLoading(const std::filesystem::path& path) const {
-  return path.extension() == ".evegaussiansplat" || path.extension() == ".ply";
+  const auto extension = LowercaseExtension(path);
+  return extension == ".evegaussiansplat" || extension == ".ply" || extension == ".splat" || extension == ".ksplat";
 }
 
 std::shared_ptr<StagedAssetLoadPayload> GaussianSplat::LoadStagedPayloadInternal(
     const std::filesystem::path& path) const {
   try {
     auto payload = std::make_shared<GaussianSplatStagedLoadPayload>();
-    if (path.extension() == ".ply") {
+    const auto extension = LowercaseExtension(path);
+    if (extension == ".ply") {
       if (!LoadGaussianSplatPly(path, *payload)) {
+        return {};
+      }
+      return payload;
+    }
+    if (extension == ".splat") {
+      if (!LoadGaussianSplatSplat(path, *payload)) {
+        return {};
+      }
+      return payload;
+    }
+    if (extension == ".ksplat") {
+      if (!LoadGaussianSplatKSplat(path, *payload)) {
         return {};
       }
       return payload;
@@ -557,9 +893,15 @@ bool GaussianSplat::ApplyStagedPayloadInternal(const std::filesystem::path&,
 }
 
 bool GaussianSplat::SaveInternal(const std::filesystem::path& path) const {
-  if (path.extension() == ".ply") {
-    std::cerr << "Saving Gaussian splats as PLY is not implemented." << std::endl;
-    return false;
+  const auto extension = LowercaseExtension(path);
+  if (extension == ".ply") {
+    return SavePly(path);
+  }
+  if (extension == ".splat") {
+    return SaveSplat(path);
+  }
+  if (extension == ".ksplat") {
+    return SaveKSplat(path);
   }
   return Serialization::SaveAssetAsYaml(*this, path);
 }
@@ -740,4 +1082,52 @@ bool GaussianSplat::LoadPly(const std::filesystem::path& path) {
   ++version_;
   saved_ = false;
   return true;
+}
+
+bool GaussianSplat::SavePly(const std::filesystem::path& path) const {
+  return SaveGaussianSplatPly(*this, path);
+}
+
+bool GaussianSplat::LoadSplat(const std::filesystem::path& path) {
+  GaussianSplatStagedLoadPayload payload;
+  if (!LoadGaussianSplatSplat(path, payload)) {
+    return false;
+  }
+  positions = std::move(payload.positions);
+  scales = std::move(payload.scales);
+  rotations = std::move(payload.rotations);
+  opacities = std::move(payload.opacities);
+  colors = std::move(payload.colors);
+  spherical_harmonics_rest = std::move(payload.spherical_harmonics_rest);
+  spherical_harmonics_rest_float_count = payload.spherical_harmonics_rest_float_count;
+  RecalculateBoundingBox();
+  ++version_;
+  saved_ = false;
+  return true;
+}
+
+bool GaussianSplat::SaveSplat(const std::filesystem::path& path) const {
+  return SaveGaussianSplatSplat(*this, path);
+}
+
+bool GaussianSplat::LoadKSplat(const std::filesystem::path& path) {
+  GaussianSplatStagedLoadPayload payload;
+  if (!LoadGaussianSplatKSplat(path, payload)) {
+    return false;
+  }
+  positions = std::move(payload.positions);
+  scales = std::move(payload.scales);
+  rotations = std::move(payload.rotations);
+  opacities = std::move(payload.opacities);
+  colors = std::move(payload.colors);
+  spherical_harmonics_rest = std::move(payload.spherical_harmonics_rest);
+  spherical_harmonics_rest_float_count = payload.spherical_harmonics_rest_float_count;
+  RecalculateBoundingBox();
+  ++version_;
+  saved_ = false;
+  return true;
+}
+
+bool GaussianSplat::SaveKSplat(const std::filesystem::path& path) const {
+  return SaveGaussianSplatKSplat(*this, path);
 }
