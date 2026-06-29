@@ -17,8 +17,13 @@ layout(set = 1, binding = 1) readonly buffer EE_GAUSSIAN_SPLAT_INDEX_BLOCK {
   uint EE_GAUSSIAN_SPLAT_INDICES[];
 };
 
+layout(set = 1, binding = 2) readonly buffer EE_GAUSSIAN_SPLAT_SH_REST_BLOCK {
+  float EE_GAUSSIAN_SPLAT_SH_REST[];
+};
+
 layout(push_constant) uniform EE_GAUSSIAN_SPLAT_CONSTANTS {
   uvec4 camera_instance_count_flags;
+  uvec4 sh_degree_rest_count_reserved;
   vec4 opacity_extent_min_max;
 };
 
@@ -33,6 +38,10 @@ const vec2 EE_GAUSSIAN_SPLAT_CORNERS[6] = vec2[](
     vec2(-1.0f, -1.0f), vec2(1.0f, -1.0f), vec2(-1.0f, 1.0f),
     vec2(-1.0f, 1.0f), vec2(1.0f, -1.0f), vec2(1.0f, 1.0f));
 const float EE_GAUSSIAN_SPLAT_SH_C0 = 0.28209479177387814f;
+const float EE_GAUSSIAN_SPLAT_SH_C1 = 0.4886025119029199f;
+const float EE_GAUSSIAN_SPLAT_SH_C2[5] = float[](1.0925484f, -1.0925484f, 0.3153916f, -1.0925484f, 0.5462742f);
+const float EE_GAUSSIAN_SPLAT_SH_C3[7] =
+    float[](-0.5900436f, 2.8906114f, -0.4570458f, 0.3731763f, -0.4570458f, 1.4453057f, -0.5900436f);
 
 float EE_GAUSSIAN_SPLAT_SIGMOID(const float value) {
   return 1.0f / (1.0f + exp(-value));
@@ -115,6 +124,87 @@ bool EE_GAUSSIAN_SPLAT_COVARIANCE_AXES(const mat2 covariance, const float extent
   return true;
 }
 
+uint EE_GAUSSIAN_SPLAT_AVAILABLE_SH_DEGREE(const uint rest_float_count) {
+  const uint coefficients_per_channel = rest_float_count / 3u;
+  if (coefficients_per_channel >= 15u) {
+    return 3u;
+  }
+  if (coefficients_per_channel >= 8u) {
+    return 2u;
+  }
+  if (coefficients_per_channel >= 3u) {
+    return 1u;
+  }
+  return 0u;
+}
+
+vec3 EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(const uint splat_index, const uint rest_float_count,
+                                      const uint coefficient_index) {
+  const uint coefficients_per_channel = rest_float_count / 3u;
+  const uint base = splat_index * rest_float_count;
+  return vec3(EE_GAUSSIAN_SPLAT_SH_REST[base + coefficient_index],
+              EE_GAUSSIAN_SPLAT_SH_REST[base + coefficients_per_channel + coefficient_index],
+              EE_GAUSSIAN_SPLAT_SH_REST[base + 2u * coefficients_per_channel + coefficient_index]);
+}
+
+vec3 EE_GAUSSIAN_SPLAT_SH_RADIANCE(const uint splat_index, const uint requested_degree,
+                                   const uint rest_float_count, const vec3 direction) {
+  const uint degree = min(min(requested_degree, 3u), EE_GAUSSIAN_SPLAT_AVAILABLE_SH_DEGREE(rest_float_count));
+  if (degree == 0u) {
+    return vec3(0.0f);
+  }
+
+  const float x = direction.x;
+  const float y = direction.y;
+  const float z = direction.z;
+
+  vec3 radiance = EE_GAUSSIAN_SPLAT_SH_C1 *
+                  (-EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 0u) * y +
+                   EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 1u) * z -
+                   EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 2u) * x);
+  if (degree >= 2u) {
+    const float xx = x * x;
+    const float yy = y * y;
+    const float zz = z * z;
+    const float xy = x * y;
+    const float yz = y * z;
+    const float xz = x * z;
+    radiance += (EE_GAUSSIAN_SPLAT_SH_C2[0] * xy) *
+                    EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 3u) +
+                (EE_GAUSSIAN_SPLAT_SH_C2[1] * yz) *
+                    EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 4u) +
+                (EE_GAUSSIAN_SPLAT_SH_C2[2] * (2.0f * zz - xx - yy)) *
+                    EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 5u) +
+                (EE_GAUSSIAN_SPLAT_SH_C2[3] * xz) *
+                    EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 6u) +
+                (EE_GAUSSIAN_SPLAT_SH_C2[4] * (xx - yy)) *
+                    EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 7u);
+
+    if (degree >= 3u) {
+      radiance += EE_GAUSSIAN_SPLAT_SH_C3[0] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 8u) *
+                      (3.0f * x * x - y * y) * y +
+                  EE_GAUSSIAN_SPLAT_SH_C3[1] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 9u) * x * y * z +
+                  EE_GAUSSIAN_SPLAT_SH_C3[2] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 10u) *
+                      (4.0f * z * z - x * x - y * y) * y +
+                  EE_GAUSSIAN_SPLAT_SH_C3[3] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 11u) * z *
+                      (2.0f * z * z - 3.0f * x * x - 3.0f * y * y) +
+                  EE_GAUSSIAN_SPLAT_SH_C3[4] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 12u) * x *
+                      (4.0f * z * z - x * x - y * y) +
+                  EE_GAUSSIAN_SPLAT_SH_C3[5] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 13u) * (x * x - y * y) * z +
+                  EE_GAUSSIAN_SPLAT_SH_C3[6] *
+                      EE_GAUSSIAN_SPLAT_SH_COEFFICIENT(splat_index, rest_float_count, 14u) * x *
+                      (x * x - 3.0f * y * y);
+    }
+  }
+  return radiance;
+}
+
 void main() {
   const bool sorted = (camera_instance_count_flags.w & 1u) != 0u;
   const uint splat_index = sorted ? EE_GAUSSIAN_SPLAT_INDICES[gl_InstanceIndex] : gl_InstanceIndex;
@@ -132,7 +222,13 @@ void main() {
   const float raw_opacity = splat.position_opacity.w;
   const float opacity = raw_opacity >= 0.0f && raw_opacity <= 1.0f ? raw_opacity : EE_GAUSSIAN_SPLAT_SIGMOID(raw_opacity);
   const float scaled_opacity = clamp(opacity * opacity_extent_min_max.x, 0.0f, 1.0f);
-  vs_out.Color = clamp(splat.color_rest_offset.rgb * EE_GAUSSIAN_SPLAT_SH_C0 + vec3(0.5f), vec3(0.0f), vec3(1.0f));
+  vec3 color = splat.color_rest_offset.rgb * EE_GAUSSIAN_SPLAT_SH_C0 + vec3(0.5f);
+  if (sh_degree_rest_count_reserved.x > 0u && sh_degree_rest_count_reserved.y > 0u) {
+    const vec3 view_direction = normalize(world_center - EE_CAMERA_POSITION(camera_index));
+    color += EE_GAUSSIAN_SPLAT_SH_RADIANCE(splat_index, sh_degree_rest_count_reserved.x,
+                                           sh_degree_rest_count_reserved.y, view_direction);
+  }
+  vs_out.Color = clamp(color, vec3(0.0f), vec3(1.0f));
   vs_out.LocalCoord = corner * extent;
   vs_out.Opacity = scaled_opacity;
   vs_out.CutoffRadiusSquared = extent * extent;

@@ -960,6 +960,7 @@ void GaussianSplat::SetBounds(const glm::vec3& min_bound, const glm::vec3& max_b
 void GaussianSplat::InvalidateGpuCaches() {
   gpu_data_dirty_ = true;
   gpu_data_buffer_dirty_ = true;
+  spherical_harmonics_rest_buffer_dirty_ = true;
   sort_caches_.clear();
 }
 
@@ -1002,6 +1003,45 @@ const std::vector<GaussianSplatGpuData>& GaussianSplat::EnsureGpuData() const {
 const std::shared_ptr<evo_engine::Buffer>& GaussianSplat::GetGpuDataBuffer() const {
   (void)EnsureGpuData();
   return gpu_data_buffer_;
+}
+
+const std::shared_ptr<evo_engine::Buffer>& GaussianSplat::GetSphericalHarmonicsRestBuffer() const {
+  if (spherical_harmonics_rest.empty()) {
+    spherical_harmonics_rest_buffer_.reset();
+    spherical_harmonics_rest_buffer_dirty_ = false;
+    return spherical_harmonics_rest_buffer_;
+  }
+  if (spherical_harmonics_rest_buffer_dirty_) {
+    UploadVector(spherical_harmonics_rest_buffer_, spherical_harmonics_rest);
+    if (CanUploadGpuData()) {
+      spherical_harmonics_rest_buffer_dirty_ = false;
+    }
+  }
+  return spherical_harmonics_rest_buffer_;
+}
+
+uint32_t GaussianSplat::GetSphericalHarmonicsRestFloatCount() const {
+  return spherical_harmonics_rest_float_count;
+}
+
+uint32_t GaussianSplat::GetSphericalHarmonicsDegree() const {
+  const auto splat_count = positions.size();
+  if (splat_count == 0u || spherical_harmonics_rest_float_count == 0u ||
+      spherical_harmonics_rest.size() < splat_count * static_cast<size_t>(spherical_harmonics_rest_float_count)) {
+    return 0u;
+  }
+
+  const auto coefficients_per_channel = spherical_harmonics_rest_float_count / 3u;
+  if (coefficients_per_channel >= 15u) {
+    return 3u;
+  }
+  if (coefficients_per_channel >= 8u) {
+    return 2u;
+  }
+  if (coefficients_per_channel >= 3u) {
+    return 1u;
+  }
+  return 0u;
 }
 
 uint32_t GaussianSplat::GetGpuDataRevision() const {

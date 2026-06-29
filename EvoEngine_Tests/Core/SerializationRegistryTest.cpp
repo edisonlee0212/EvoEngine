@@ -1260,6 +1260,32 @@ TEST(SerializationRegistry, GaussianSplatBuildsGpuDataWithoutRepackingStaticAsse
   EXPECT_FLOAT_EQ(updated_gpu_data[0].position_opacity.z, 9.0f);
 }
 
+TEST(SerializationRegistry, GaussianSplatReportsAvailableSphericalHarmonicsDegree) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions.resize(2);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsRestFloatCount(), 0u);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 0u);
+
+  gaussian_splat.spherical_harmonics_rest_float_count = 9;
+  gaussian_splat.spherical_harmonics_rest.assign(18, 0.0f);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsRestFloatCount(), 9u);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 1u);
+
+  gaussian_splat.spherical_harmonics_rest_float_count = 24;
+  gaussian_splat.spherical_harmonics_rest.assign(48, 0.0f);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 2u);
+
+  gaussian_splat.spherical_harmonics_rest_float_count = 45;
+  gaussian_splat.spherical_harmonics_rest.assign(90, 0.0f);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 3u);
+
+  gaussian_splat.spherical_harmonics_rest.resize(10);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 0u);
+}
+
 TEST(SerializationRegistry, GaussianSplatSortCacheRefreshesForCameraTransform) {
   Application app;
   ApplicationContextScope scope(app);

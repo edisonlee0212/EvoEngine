@@ -1475,6 +1475,7 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     gaussian_splat_layout_ = std::make_shared<DescriptorSetLayout>();
     gaussian_splat_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
     gaussian_splat_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
     gaussian_splat_layout_->Initialize();
   }
 }

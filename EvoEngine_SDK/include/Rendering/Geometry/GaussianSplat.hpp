@@ -30,9 +30,11 @@ class GaussianSplat final : public IAsset {
   glm::vec3 max_bound_ = glm::vec3(0.0f);
   mutable std::vector<GaussianSplatGpuData> gpu_data_;
   mutable std::shared_ptr<Buffer> gpu_data_buffer_;
+  mutable std::shared_ptr<Buffer> spherical_harmonics_rest_buffer_;
   mutable std::unordered_map<Handle, GaussianSplatSortCache> sort_caches_;
   mutable bool gpu_data_dirty_ = true;
   mutable bool gpu_data_buffer_dirty_ = true;
+  mutable bool spherical_harmonics_rest_buffer_dirty_ = true;
   mutable uint32_t gpu_data_revision_ = 0;
 
   void BuildGpuData() const;
@@ -68,6 +70,9 @@ class GaussianSplat final : public IAsset {
   void InvalidateGpuCaches();
   [[nodiscard]] const std::vector<GaussianSplatGpuData>& EnsureGpuData() const;
   [[nodiscard]] const std::shared_ptr<Buffer>& GetGpuDataBuffer() const;
+  [[nodiscard]] const std::shared_ptr<Buffer>& GetSphericalHarmonicsRestBuffer() const;
+  [[nodiscard]] uint32_t GetSphericalHarmonicsRestFloatCount() const;
+  [[nodiscard]] uint32_t GetSphericalHarmonicsDegree() const;
   [[nodiscard]] uint32_t GetGpuDataRevision() const;
   [[nodiscard]] const GaussianSplatSortCache& EnsureSortedIndices(const Handle& camera_handle,
                                                                   const Handle& sort_owner_handle,

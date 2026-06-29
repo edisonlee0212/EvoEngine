@@ -8,6 +8,8 @@
 #include "RenderInstanceStorage.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
+#include <algorithm>
+
 using namespace evo_engine;
 
 namespace {
@@ -101,6 +103,21 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
           descriptor_set->UpdateBufferDescriptorBinding(0, splat_buffer);
           descriptor_set->UpdateBufferDescriptorBinding(1, index_buffer);
+          const auto requested_sh_degree = static_cast<uint32_t>(std::clamp(gaussian_instance->sh_degree, 0, 3));
+          const auto available_sh_degree = gaussian_instance->gaussian_splat->GetSphericalHarmonicsDegree();
+          auto effective_sh_degree = std::min(requested_sh_degree, available_sh_degree);
+          auto rest_float_count = gaussian_instance->gaussian_splat->GetSphericalHarmonicsRestFloatCount();
+          auto rest_buffer = splat_buffer;
+          if (effective_sh_degree > 0u) {
+            if (const auto candidate = gaussian_instance->gaussian_splat->GetSphericalHarmonicsRestBuffer();
+                IsValidStorageBuffer(candidate)) {
+              rest_buffer = candidate;
+            } else {
+              effective_sh_degree = 0u;
+              rest_float_count = 0u;
+            }
+          }
+          descriptor_set->UpdateBufferDescriptorBinding(2, rest_buffer);
           parameters.transient_resources->RetainDescriptorSet(descriptor_set);
           parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
 
@@ -112,6 +129,7 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           push_constant.camera_instance_count_flags =
               glm::uvec4(parameters.camera_index, static_cast<uint32_t>(gaussian_instance->instance_index), splat_count,
                          use_sorted_indices ? kGaussianSplatSortedIndicesFlag : 0u);
+          push_constant.sh_degree_rest_count_reserved = glm::uvec4(effective_sh_degree, rest_float_count, 0u, 0u);
           const float opacity_scale = gaussian_instance->opacity_scale > 0.0f ? gaussian_instance->opacity_scale : 0.0f;
           push_constant.opacity_extent_min_max = glm::vec4(opacity_scale, 2.8284271f, 1.0f, 192.0f);
           parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
