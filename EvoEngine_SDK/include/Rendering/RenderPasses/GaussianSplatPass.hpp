@@ -13,7 +13,7 @@ class RenderInstanceStorage;
 
 struct GaussianSplatPushConstant {
   glm::uvec4 camera_instance_count_flags = glm::uvec4(0u);
-  glm::vec4 opacity_extent_min_max = glm::vec4(1.0f, 3.0f, 1.0f, 192.0f);
+  glm::vec4 opacity_extent_min_max = glm::vec4(1.0f, 2.8284271f, 1.0f, 192.0f);
 };
 
 class GaussianSplatPass final {

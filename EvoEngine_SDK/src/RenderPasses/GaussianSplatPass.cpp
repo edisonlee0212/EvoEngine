@@ -113,7 +113,7 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
               glm::uvec4(parameters.camera_index, static_cast<uint32_t>(gaussian_instance->instance_index), splat_count,
                          use_sorted_indices ? kGaussianSplatSortedIndicesFlag : 0u);
           const float opacity_scale = gaussian_instance->opacity_scale > 0.0f ? gaussian_instance->opacity_scale : 0.0f;
-          push_constant.opacity_extent_min_max = glm::vec4(opacity_scale, 3.0f, 1.0f, 192.0f);
+          push_constant.opacity_extent_min_max = glm::vec4(opacity_scale, 2.8284271f, 1.0f, 192.0f);
           parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           vkCmdDraw(vk_command_buffer, 6u, splat_count, 0u, 0u);
         });
