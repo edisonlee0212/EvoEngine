@@ -49,6 +49,10 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
   resources.WriteFile("EvoEngine-DemoProjects/3DGS/3DGS.eveproj");
   resources.WriteFile("EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats.evefoldermeta");
   resources.WriteFile("EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats/spatial_dragon.ply.evefilemeta");
+  resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Bicycle.eveproj");
+  resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats.evefoldermeta");
+  resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats/bicycle.ply.evefilemeta");
+  resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Assets/Cameras/cameras.json");
   resources.WriteFile("Legacy.uescene");
   resources.WriteFile("Legacy.ueproj");
   resources.WriteFile("Legacy.umeta");
@@ -68,6 +72,13 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
                                       "EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats.evefoldermeta"));
   EXPECT_TRUE(std::filesystem::exists(
       resources.RootPath() / "EvoEngine-DemoProjects/3DGS/Assets/GaussianSplats/spatial_dragon.ply.evefilemeta"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Bicycle/Bicycle.eveproj"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() /
+                                      "EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats.evefoldermeta"));
+  EXPECT_TRUE(std::filesystem::exists(resources.RootPath() /
+                                      "EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats/bicycle.ply.evefilemeta"));
+  EXPECT_TRUE(
+      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Bicycle/Assets/Cameras/cameras.json"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.uescene"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.ueproj"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.umeta"));

@@ -336,6 +336,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
+      {DemoProfileId::Bicycle,
+       "bicycle",
+       "Bicycle",
+       "EvoEngineEditor",
+       "INRIA Bicycle Gaussian splat demo scene.",
+       "Launcher/DemoPreviews/bicycle.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {}},
       {DemoProfileId::EcoSysLab,
        "ecosyslab",
        "EcoSysLab",
@@ -441,6 +450,9 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
                                                "ProceduralGalaxy.eveproj");
     case DemoProfileId::GaussianSplat:
       return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "3DGS" / "3DGS.eveproj");
+    case DemoProfileId::Bicycle:
+      return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "Bicycle" /
+                                               "Bicycle.eveproj");
   }
   return {};
 }
@@ -465,6 +477,22 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     }
     if (!std::filesystem::exists(asset_metadata_path) || std::filesystem::is_directory(asset_metadata_path)) {
       missing.emplace_back("spatial_dragon.ply.evefilemeta");
+    }
+    return missing;
+  }
+  if (id == DemoProfileId::Bicycle) {
+    const auto demo_root = resource_root / "EvoEngine-DemoProjects" / "Bicycle" / "Assets";
+    const auto asset_path = demo_root / "GaussianSplats" / "bicycle.ply";
+    const auto asset_metadata_path = std::filesystem::path(asset_path.string() + ".evefilemeta");
+    const auto cameras_path = demo_root / "Cameras" / "cameras.json";
+    if (!std::filesystem::exists(asset_path) || std::filesystem::is_directory(asset_path)) {
+      missing.emplace_back("bicycle.ply");
+    }
+    if (!std::filesystem::exists(asset_metadata_path) || std::filesystem::is_directory(asset_metadata_path)) {
+      missing.emplace_back("bicycle.ply.evefilemeta");
+    }
+    if (!std::filesystem::exists(cameras_path) || std::filesystem::is_directory(cameras_path)) {
+      missing.emplace_back("cameras.json");
     }
     return missing;
   }

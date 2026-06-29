@@ -223,6 +223,9 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
     case DemoProfileId::GaussianSplat:
       SetupDemoScene(DemoSetup::GaussianSplat, application_info, resource_root, false);
       break;
+    case DemoProfileId::Bicycle:
+      SetupDemoScene(DemoSetup::Bicycle, application_info, resource_root, false);
+      break;
     case DemoProfileId::LSystem: {
       const auto& profile = GetDemoProfile(profile_id);
       application_info.application_name = profile.title;
@@ -284,6 +287,7 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       editor_layer->SetSceneCameraRotation(glm::quat(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f))));
       break;
     case DemoProfileId::GaussianSplat:
+    case DemoProfileId::Bicycle:
       editor_layer->velocity = 1.0f;
       editor_layer->default_scene_camera_position = glm::vec3(0.0f, 0.0f, 3.0f);
       editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
@@ -337,6 +341,9 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
       break;
     case DemoProfileId::GaussianSplat:
       ConfigureGaussianSplatDemoScene(ApplicationContext::Get().GetActiveScene());
+      break;
+    case DemoProfileId::Bicycle:
+      ConfigureBicycleDemoScene(ApplicationContext::Get().GetActiveScene());
       break;
   }
 }

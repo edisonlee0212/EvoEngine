@@ -6,6 +6,7 @@
 #include "EditorLayer.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "Json.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "PathUtils.hpp"
@@ -24,6 +25,16 @@ using namespace evo_engine;
 
 namespace {
 constexpr uint64_t kSpatialDragonGaussianSplatHandle = 9739484957885691067ull;
+constexpr uint64_t kBicycleGaussianSplatHandle = 14453709846752502031ull;
+constexpr uint64_t kBicycleCamerasHandle = 6692924907754216903ull;
+// VK's benchmark preset 1 maps to the first imported INRIA camera because preset 0 is VK's default camera.
+constexpr int kBicycleDemoCameraId = 0;
+
+struct GaussianSplatDemoCameraPose {
+  glm::vec3 position = glm::vec3(0.0f);
+  glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+  float fov = 55.0f;
+};
 
 Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name, bool add_spheres) {
   auto base_entity = scene->CreateEntity(base_entity_name);
@@ -375,6 +386,7 @@ void RemoveGeneratedFiles(const std::filesystem::path& root, const std::unordere
 void RemoveGeneratedDemoProjectFiles(const std::filesystem::path& resource_root) {
   const auto demo_projects_root = resource_root / "EvoEngine-DemoProjects";
   const auto gaussian_splat_demo_root = demo_projects_root / "3DGS";
+  const auto bicycle_demo_root = demo_projects_root / "Bicycle";
   if (!std::filesystem::exists(demo_projects_root)) {
     return;
   }
@@ -382,7 +394,7 @@ void RemoveGeneratedDemoProjectFiles(const std::filesystem::path& resource_root)
   for (const auto end = std::filesystem::recursive_directory_iterator(); iterator != end; ++iterator) {
     const auto path = iterator->path();
     if (iterator->is_directory()) {
-      if (path == gaussian_splat_demo_root) {
+      if (path == gaussian_splat_demo_root || path == bicycle_demo_root) {
         iterator.disable_recursion_pending();
       }
       continue;
@@ -400,8 +412,7 @@ void RemoveGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& re
                        {".evescene", ".eveproj", ".evefilemeta", ".evefoldermeta"});
 }
 
-void RemoveGeneratedGaussianSplatProjectFiles(const std::filesystem::path& resource_root) {
-  const auto root = resource_root / "EvoEngine-DemoProjects" / "3DGS";
+void RemoveGeneratedStandaloneGaussianSplatProjectFiles(const std::filesystem::path& root) {
   if (!std::filesystem::exists(root)) {
     return;
   }
@@ -415,6 +426,14 @@ void RemoveGeneratedGaussianSplatProjectFiles(const std::filesystem::path& resou
       std::filesystem::remove(path);
     }
   }
+}
+
+void RemoveGeneratedGaussianSplatProjectFiles(const std::filesystem::path& resource_root) {
+  RemoveGeneratedStandaloneGaussianSplatProjectFiles(resource_root / "EvoEngine-DemoProjects" / "3DGS");
+}
+
+void RemoveGeneratedBicycleProjectFiles(const std::filesystem::path& resource_root) {
+  RemoveGeneratedStandaloneGaussianSplatProjectFiles(resource_root / "EvoEngine-DemoProjects" / "Bicycle");
 }
 
 void ConfigureProceduralGalaxyScene(const std::shared_ptr<Scene>& scene) {
@@ -453,15 +472,15 @@ void ConfigureProceduralGalaxyScene(const std::shared_ptr<Scene>& scene) {
   }
 }
 
-Entity GetOrCreateGaussianSplatDemoEntity(const std::shared_ptr<Scene>& scene) {
+Entity GetOrCreateGaussianSplatDemoEntity(const std::shared_ptr<Scene>& scene, const char* entity_name) {
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<GaussianSplatRenderer>()) {
     for (const auto& owner : *owners) {
-      if (scene->IsEntityValid(owner) && scene->GetEntityName(owner) == "Spatial Dragon 3DGS") {
+      if (scene->IsEntityValid(owner) && scene->GetEntityName(owner) == entity_name) {
         return owner;
       }
     }
   }
-  return scene->CreateEntity("Spatial Dragon 3DGS");
+  return scene->CreateEntity(entity_name);
 }
 
 Entity GetOrCreateRayTracingTlasSeedEntity(const std::shared_ptr<Scene>& scene) {
@@ -474,9 +493,58 @@ Entity GetOrCreateRayTracingTlasSeedEntity(const std::shared_ptr<Scene>& scene) 
   }
   return scene->CreateEntity("Ray Tracing TLAS Seed");
 }
-}  // namespace
 
-void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene) {
+std::optional<GaussianSplatDemoCameraPose> LoadGaussianSplatDemoCameraPose(const uint64_t cameras_handle,
+                                                                           const glm::vec3& center,
+                                                                           const int preferred_camera_id) {
+  std::shared_ptr<Json> cameras_asset;
+  try {
+    cameras_asset = AssetManager::GetAsset<Json>(Handle(cameras_handle));
+  } catch (const std::exception& error) {
+    EVOENGINE_WARNING("Failed to load Gaussian splat demo camera JSON: " + std::string(error.what()))
+    return {};
+  }
+  if (!cameras_asset || !cameras_asset->m_json.is_array() || cameras_asset->m_json.empty()) {
+    return {};
+  }
+
+  const nlohmann::json* selected_camera = &cameras_asset->m_json.front();
+  for (const auto& camera : cameras_asset->m_json) {
+    if (camera.value("id", -1) == preferred_camera_id) {
+      selected_camera = &camera;
+      break;
+    }
+  }
+
+  try {
+    const auto& position = selected_camera->at("position");
+    const auto& rotation = selected_camera->at("rotation");
+    GaussianSplatDemoCameraPose pose;
+    pose.position =
+        glm::vec3(position.at(0).get<float>(), position.at(1).get<float>(), position.at(2).get<float>()) - center;
+    // EvoEngine keeps the INRIA PLY coordinates unflipped; invert the image-down axis for editor/main camera up.
+    const auto front = glm::normalize(glm::vec3(rotation.at(0).at(2).get<float>(), rotation.at(1).at(2).get<float>(),
+                                                rotation.at(2).at(2).get<float>()));
+    const auto up = glm::normalize(-glm::vec3(rotation.at(0).at(1).get<float>(), rotation.at(1).at(1).get<float>(),
+                                              rotation.at(2).at(1).get<float>()));
+    pose.rotation = glm::quatLookAt(front, up);
+
+    const float height = selected_camera->value("height", 0.0f);
+    const float fy = selected_camera->value("fy", 0.0f);
+    if (height > 0.0f && fy > 0.0f) {
+      pose.fov = glm::clamp(glm::degrees(4.0f * std::atan(height / (2.0f * fy))), 20.0f, 120.0f);
+    }
+    return pose;
+  } catch (const std::exception& error) {
+    EVOENGINE_WARNING("Failed to parse Gaussian splat demo camera JSON: " + std::string(error.what()))
+    return {};
+  }
+}
+
+void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, const uint64_t gaussian_splat_handle,
+                                         const char* asset_name, const char* entity_name, const int sh_degree,
+                                         const std::optional<uint64_t> cameras_handle = {},
+                                         const int preferred_camera_id = 0) {
   if (!scene) {
     return;
   }
@@ -488,13 +556,13 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
 
   std::shared_ptr<GaussianSplat> gaussian_splat;
   try {
-    gaussian_splat = AssetManager::GetAsset<GaussianSplat>(Handle(kSpatialDragonGaussianSplatHandle));
+    gaussian_splat = AssetManager::GetAsset<GaussianSplat>(Handle(gaussian_splat_handle));
   } catch (const std::exception& error) {
-    EVOENGINE_ERROR("Failed to load Spatial Dragon Gaussian splat asset: " + std::string(error.what()))
+    EVOENGINE_ERROR("Failed to load " + std::string(asset_name) + " Gaussian splat asset: " + std::string(error.what()))
     return;
   }
   if (!gaussian_splat || gaussian_splat->Empty()) {
-    EVOENGINE_ERROR("Spatial Dragon Gaussian splat asset is empty or unavailable.")
+    EVOENGINE_ERROR(std::string(asset_name) + " Gaussian splat asset is empty or unavailable.")
     return;
   }
 
@@ -503,8 +571,16 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
   const auto center = (min_bound + max_bound) * 0.5f;
   const auto size = glm::max(max_bound - min_bound, glm::vec3(0.001f));
   const float radius = std::max(glm::length(size) * 0.5f, 0.5f);
-  const auto camera_position = glm::vec3(0.0f, radius * 0.05f, radius * 2.4f);
-  const auto camera_rotation = glm::quat(glm::radians(glm::vec3(-3.0f, 0.0f, 0.0f)));
+  auto camera_position = glm::vec3(0.0f, radius * 0.05f, radius * 2.4f);
+  auto camera_rotation = glm::quat(glm::radians(glm::vec3(-3.0f, 0.0f, 0.0f)));
+  auto camera_fov = 55.0f;
+  if (cameras_handle) {
+    if (const auto camera_pose = LoadGaussianSplatDemoCameraPose(*cameras_handle, center, preferred_camera_id)) {
+      camera_position = camera_pose->position;
+      camera_rotation = camera_pose->rotation;
+      camera_fov = camera_pose->fov;
+    }
+  }
 
   const auto main_camera = scene->main_camera.Get<Camera>();
   main_camera->Resize({1920, 1080});
@@ -514,7 +590,7 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
   main_camera->camera_settings.background_intensity = 0.6f;
   main_camera->camera_settings.near_distance = std::max(radius * 0.01f, 0.01f);
   main_camera->camera_settings.far_distance = std::max(radius * 10.0f, 100.0f);
-  main_camera->camera_settings.fov = 55.0f;
+  main_camera->camera_settings.fov = camera_fov;
   main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
 
   const auto main_camera_entity = main_camera->GetOwner();
@@ -524,11 +600,11 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
   scene->SetDataComponent(main_camera_entity, main_camera_transform);
   scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
 
-  const auto gaussian_entity = GetOrCreateGaussianSplatDemoEntity(scene);
+  const auto gaussian_entity = GetOrCreateGaussianSplatDemoEntity(scene, entity_name);
   const auto gaussian_renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(gaussian_entity).lock();
   gaussian_renderer->gaussian_splat.Set<GaussianSplat>(gaussian_splat);
   gaussian_renderer->opacity_scale = 1.0f;
-  gaussian_renderer->sh_degree = 0;
+  gaussian_renderer->sh_degree = sh_degree;
   gaussian_renderer->sort_mode = GaussianSplatSortMode::CpuDepth;
   gaussian_renderer->depth_mode = GaussianSplatDepthMode::SceneDepth;
   Transform gaussian_transform;
@@ -571,6 +647,17 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
   scene->Save();
   ProjectManager::SaveProject();
 }
+}  // namespace
+
+void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene) {
+  ConfigureGaussianSplatDemoSceneImpl(scene, kSpatialDragonGaussianSplatHandle, "Spatial Dragon", "Spatial Dragon 3DGS",
+                                      0);
+}
+
+void evo_engine::ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene) {
+  ConfigureGaussianSplatDemoSceneImpl(scene, kBicycleGaussianSplatHandle, "Bicycle", "Bicycle 3DGS", 3,
+                                      kBicycleCamerasHandle, kBicycleDemoCameraId);
+}
 
 std::filesystem::path evo_engine::FindDemoResourcesRoot(const std::filesystem::path& preferred_root) {
   if (!preferred_root.empty() && std::filesystem::exists(preferred_root)) {
@@ -611,6 +698,8 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
     RemoveGeneratedProceduralGalaxyProjectFiles(resource_root);
   } else if (demo_setup == DemoSetup::GaussianSplat && clear_generated_project_files) {
     RemoveGeneratedGaussianSplatProjectFiles(resource_root);
+  } else if (demo_setup == DemoSetup::Bicycle && clear_generated_project_files) {
+    RemoveGeneratedBicycleProjectFiles(resource_root);
   } else if (demo_setup != DemoSetup::Empty && clear_generated_project_files) {
     ClearGeneratedDemoProjectFiles(resource_root);
   }
@@ -738,6 +827,14 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
       application_info.default_window_size = {1920, 1080};
       ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
         ConfigureGaussianSplatDemoScene(scene);
+      });
+    } break;
+    case DemoSetup::Bicycle: {
+      application_info.application_name = "Bicycle";
+      application_info.project_path = resource_root / "EvoEngine-DemoProjects/Bicycle/Bicycle.eveproj";
+      application_info.default_window_size = {1920, 1080};
+      ProjectManager::SetActionAfterNewScene([](const std::shared_ptr<Scene>& scene) {
+        ConfigureBicycleDemoScene(scene);
       });
     } break;
     case DemoSetup::Universe:

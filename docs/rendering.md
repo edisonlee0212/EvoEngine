@@ -254,18 +254,28 @@ and verify the Spatial Dragon PLY asset before launching the profile. The source
 `spatialdragon-3dgs` `data/spatial_dragon.ply`, licensed CC0 1.0, 1,571,111 bytes, with SHA256
 `40D7FDEBEB6A9A5755074F4F02A759EEE19BF15F46520A8D79B5F42BDE42921D`.
 
+The `bicycle` launcher profile is a second script-generated 3D Gaussian Splatting project under
+`Resources/EvoEngine-DemoProjects/Bicycle`. Run `python Scripts/generate_bicycle_demo.py` from the repository root to
+download INRIA's pretrained `models.zip`, extract only
+`bicycle/bicycle/point_cloud/iteration_30000/point_cloud.ply` and `bicycle/bicycle/cameras.json`, and write them to
+`Assets/GaussianSplats/bicycle.ply` and `Assets/Cameras/cameras.json`. The script removes `models.zip` after extraction
+by default; pass `--keep-archive` only when the local archive is intentionally needed. The Bicycle profile uses SH
+degree 3 by default because the pretrained scene includes SH rest data.
+
 The generator writes deterministic asset metadata for a `GaussianSplat` asset and can optionally run
-`EvoEngineEditor --demo 3dgs --capture-demo-preview` through `--editor <path-to-EvoEngineEditor.exe>`. The preview
-capture command accepts `--preview-render-mode rasterization` or `--preview-render-mode raytracing` when a specific
-camera path needs to be checked. On first launch, the profile creates and saves a scene containing one
+`EvoEngineEditor --demo 3dgs --capture-demo-preview` or `EvoEngineEditor --demo bicycle --capture-demo-preview` through
+`--editor <path-to-EvoEngineEditor.exe>`. The preview capture command accepts `--preview-render-mode rasterization` or
+`--preview-render-mode raytracing` when a specific camera path needs to be checked. On first launch, either profile
+creates and saves a scene containing one
 `GaussianSplatRenderer`, a fitted editor/main camera, the default skybox as the camera background, and the default
 environmental map for scene lighting. It also includes a tiny off-camera `Ray Tracing TLAS Seed` mesh because EvoEngine's
 current ray-tracing camera path only records camera work when a mesh TLAS exists. Ray-tracing cameras composite Gaussian
 splats as a raster overlay after the ray-tracing camera pass, or after ray-tracing volumetric clouds when clouds are
 enabled. Splats are therefore visible in RayTracing camera mode, but they do not yet participate in TLAS traversal, mesh
-occlusion, ray-traced reflections, shadows, DDGI, or ray-hit-distance generation. The demo asset is small enough for Git
-without LFS, but the project files live inside the `Resources/EvoEngine-DemoProjects` submodule; publishing the generated
-demo permanently requires committing that submodule content separately from the main EvoEngine code.
+occlusion, ray-traced reflections, shadows, DDGI, or ray-hit-distance generation. The Spatial Dragon demo asset is small
+enough for Git without LFS, but the Bicycle PLY is large and should remain local unless the Resources submodule workflow
+explicitly includes it. The project files live inside the `Resources/EvoEngine-DemoProjects` submodule; publishing either
+generated demo permanently requires committing that submodule content separately from the main EvoEngine code.
 
 `GaussianSplat` keeps `.evegaussiansplat` as its native YAML-backed serialized format and supports interchange import
 and export for `.ply`, `.splat`, and `.ksplat`. PLY preserves the standard Gaussian fields plus contiguous `f_rest_*`
