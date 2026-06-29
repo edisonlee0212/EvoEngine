@@ -1529,13 +1529,24 @@ bool InspectEnvironmentalMap(InspectorContext& context, EnvironmentalMap& enviro
   }
 
   bool changed = false;
-  AssetRef inspection_target_texture;
-  if (editor_layer->DragAndDropButton<Cubemap>(inspection_target_texture, "Convert from Skybox")) {
-    if (const auto texture = inspection_target_texture.Get<Cubemap>()) {
+  AssetRef inspection_target_cubemap;
+  ImGui::PushID("EnvironmentalMapConvertFromSkybox");
+  if (editor_layer->DragAndDropButton<Cubemap>(inspection_target_cubemap, "Convert from Skybox")) {
+    if (const auto texture = inspection_target_cubemap.Get<Cubemap>()) {
       environmental_map.ConstructFromCubemap(texture);
       changed = true;
     }
   }
+  ImGui::PopID();
+  AssetRef inspection_target_texture;
+  ImGui::PushID("EnvironmentalMapConvertFromTexture2D");
+  if (editor_layer->DragAndDropButton<Texture2D>(inspection_target_texture, "Convert from Texture2D/HDR")) {
+    if (const auto texture = inspection_target_texture.Get<Texture2D>()) {
+      environmental_map.ConstructFromTexture2D(texture);
+      changed = true;
+    }
+  }
+  ImGui::PopID();
 
   if (ImGui::TreeNode("Sky illumination")) {
     static bool auto_rebuild = true;
@@ -1550,6 +1561,8 @@ bool InspectEnvironmentalMap(InspectorContext& context, EnvironmentalMap& enviro
   }
 
   if (editor_layer->DragAndDropButton<LightProbe>(environmental_map.light_probe, "LightProbe"))
+    changed = true;
+  if (editor_layer->DragAndDropButton<Cubemap>(environmental_map.source_cubemap, "Source Cubemap"))
     changed = true;
   if (editor_layer->DragAndDropButton<LightProbe>(environmental_map.reflection_probe, "ReflectionProbe"))
     changed = true;

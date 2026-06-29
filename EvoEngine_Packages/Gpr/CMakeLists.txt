@@ -19,15 +19,18 @@ add_library(GprPackage
 	${GPR_SOURCES}
 	)
 target_compile_definitions(GprPackage
-	PRIVATE
-	${EVOENGINE_SDK_DEFS}
+	PUBLIC
+	GPR_PACKAGE
 	"-DGPR_READING=1"
 	"-DGPR_WRITING=1"
+	PRIVATE
+	${EVOENGINE_SDK_DEFS}
 	)
 target_include_directories(GprPackage
+	PUBLIC
+	${GPR_INCLUDES}
 	PRIVATE
 	${EVOENGINE_INCLUDES}
-	${GPR_INCLUDES}
 	)
 
 target_link_libraries(GprPackage

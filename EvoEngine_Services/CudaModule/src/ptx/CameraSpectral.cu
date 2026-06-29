@@ -1,6 +1,6 @@
 #include "BSDF.cuh"
 #include "BSSDF.cuh"
-#include "Environment.cuh"
+#include "SpectralRayFunctions.cuh"
 
 namespace evo_engine {
 extern "C" __constant__ CameraSpectralLaunchParams cameraSpectralLaunchParams;
@@ -164,14 +164,7 @@ static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
 }
 
 static __forceinline__ __device__ void CameraSpectralMissFunc() {
-  auto &per_ray_data = *GetRayDataPointer<PerRayData<glm::vec3>>();
-  const float3 ray_dir = optixGetWorldRayDirection();
-  const float3 ray_origin = optixGetWorldRayOrigin();
-  const glm::vec3 ray_orig = glm::vec3(ray_origin.x, ray_origin.y, ray_origin.z);
-  glm::vec3 ray_direction = glm::vec3(ray_dir.x, ray_dir.y, ray_dir.z);
-  auto &environment = cameraSpectralLaunchParams.ray_tracer_properties.environment;
-  const glm::vec3 environmental_light_color = CalculateEnvironmentalLight(ray_orig, ray_direction, environment);
-  per_ray_data.albedo = per_ray_data.energy = environmental_light_color;
+  SpectralMissFunc(cameraSpectralLaunchParams.ray_tracer_properties.environment);
 }
 
 #pragma region Closest hit functions

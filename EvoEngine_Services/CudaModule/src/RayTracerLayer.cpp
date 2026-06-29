@@ -458,6 +458,14 @@ void RayTracerLayer::RegisterTypes(Application& application) {
   Serialization::RegisterSerializationHandler<TriangleIlluminationEstimator>(SerializeTriangleIlluminationEstimator,
                                                                              DeserializeTriangleIlluminationEstimator,
                                                                              {}, "TriangleIlluminationEstimator");
+  Serialization::RegisterSerializationHandler<IlluminationLightmapEstimator>(
+      [](YAML::Emitter& out, const IlluminationLightmapEstimator& estimator) {
+        estimator.Serialize(out);
+      },
+      [](const YAML::Node& in, IlluminationLightmapEstimator& estimator) {
+        estimator.Deserialize(in);
+      },
+      {}, "IlluminationLightmapEstimator");
   Serialization::RegisterSerializationHandler<RayTracerCamera>(SerializeRayTracerCamera, DeserializeRayTracerCamera, {},
                                                                "RayTracerCamera");
   Serialization::RegisterSerializationHandler<BasicPointCloudScanner>(
@@ -474,6 +482,11 @@ void RayTracerLayer::RegisterTypes(Application& application) {
         return estimator.DrawGui(context.editor_layer);
       },
       {}, "TriangleIlluminationEstimator");
+  InspectorRegistry::GetInstance().RegisterInspector<IlluminationLightmapEstimator>(
+      [](InspectorContext& context, IlluminationLightmapEstimator& estimator) {
+        return estimator.DrawGui(context.editor_layer);
+      },
+      {}, "IlluminationLightmapEstimator");
   InspectorRegistry::GetInstance().RegisterInspector<RayTracerCamera>(
       [](InspectorContext& context, RayTracerCamera& camera) {
         return camera.DrawGui(context.editor_layer);

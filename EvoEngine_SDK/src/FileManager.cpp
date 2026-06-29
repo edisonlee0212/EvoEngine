@@ -193,7 +193,11 @@ void File::Load(const std::filesystem::path& path) {
   if (in["asset_handle_"])
     asset_handle_ = in["asset_handle_"].as<uint64_t>();
 
-  if (!Serialization::HasSerializableType(asset_type_name_)) {
+  const auto registered_type_name = Serialization::GetAssetTypeName(asset_extension_);
+  if (asset_type_name_ == "Binary" && registered_type_name != "Binary") {
+    asset_type_name_ = registered_type_name;
+    Save();
+  } else if (!Serialization::HasSerializableType(asset_type_name_)) {
     asset_type_name_ = "Binary";
   }
   InvalidateThumbnail();

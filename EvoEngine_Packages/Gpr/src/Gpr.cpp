@@ -14,11 +14,18 @@ using namespace gpr_package;
 
 namespace {
 bool InspectGpr(InspectorContext& context, Gpr& asset) {
-  (void)context;
+  ImGui::PushID(&asset);
   auto& preview_image = asset.RefPreviewImage();
-  EditorLayer::Draggable<Texture2D>(preview_image);
-  if (const auto texture_storage = preview_image.Get<Texture2D>()->PeekTexture2DStorage();
-      texture_storage.im_texture_id) {
+  const auto preview_texture = preview_image.Get<Texture2D>();
+  if (!preview_texture) {
+    ImGui::TextDisabled("No GPR preview texture is available.");
+    ImGui::PopID();
+    return false;
+  }
+  if (context.editor_layer) {
+    context.editor_layer->DragAndDropButton<Texture2D>(preview_image, "Preview Texture", false);
+  }
+  if (const auto texture_storage = preview_texture->PeekTexture2DStorage(); texture_storage.im_texture_id) {
     static float debug_scale = 0.25f;
     ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 10.0f);
     debug_scale = glm::clamp(debug_scale, 0.1f, 10.0f);
@@ -27,6 +34,7 @@ bool InspectGpr(InspectorContext& context, Gpr& asset) {
                         texture_storage.image->GetExtent().height * debug_scale),
                  ImVec2(0, 1), ImVec2(1, 0));
   }
+  ImGui::PopID();
   return false;
 }
 }  // namespace
@@ -69,13 +77,19 @@ bool Gpr::LoadGpr(const std::filesystem::path& path) {
       EVOENGINE_ERROR("Failed to convert GPR Image to RGB!");
       return false;
     }
-    auto data = static_cast<const char*>(rgb_buffer_.buffer);
+    auto data = static_cast<const uint8_t*>(rgb_buffer_.buffer);
     std::vector<glm::vec3> rgb(rgb_buffer_.width * rgb_buffer_.height);
-    Jobs::RunParallelFor(rgb_buffer_.width * rgb_buffer_.height, [&](const auto i) {
-      rgb[i] = glm::vec3(data[i * 3] / 255.f, data[i * 3 + 1] / 255.f, data[i * 3 + 2] / 255.f);
+    const auto width = rgb_buffer_.width;
+    const auto height = rgb_buffer_.height;
+    Jobs::RunParallelFor(width * height, [&](const auto i) {
+      const auto x = i % width;
+      const auto y = i / width;
+      const auto src_y = height - 1 - y;
+      const auto src_index = (src_y * width + x) * 3;
+      rgb[i] = glm::vec3(data[src_index] / 255.f, data[src_index + 1] / 255.f, data[src_index + 2] / 255.f);
     });
 
-    preview_image_.Get<Texture2D>()->SetRgbChannelData(rgb, {rgb_buffer_.width, rgb_buffer_.height});
+    preview_image_.Get<Texture2D>()->SetRgbChannelData(rgb, {width, height});
     return true;
   }
   return true;

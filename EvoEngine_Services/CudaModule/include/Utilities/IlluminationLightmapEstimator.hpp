@@ -17,6 +17,7 @@ class IlluminationLightmapEstimator : public IPrivateComponent {
   void SampleLightProbeGroup(const RayProperties& ray_properties, int seed, float push_normal_distance);
   void ApplyLightmapToVertices(float exposure = 1.0f, bool tone_mapping = true) const;
   void ExportLightmappedObj(const std::filesystem::path& path, float exposure = 1.0f, bool tone_mapping = true) const;
+  void ExportRawLightmapCsv(const std::filesystem::path& path) const;
   bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   const LightProbeGroup& PeekProbes() const;
   const std::vector<glm::vec3>& PeekLightmap() const;

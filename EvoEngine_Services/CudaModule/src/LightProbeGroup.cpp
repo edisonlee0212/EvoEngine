@@ -13,6 +13,15 @@ void LightProbeGroup::CalculateIllumination(const RayProperties& ray_properties,
       push_normal_distance);
 }
 
+void LightProbeGroup::CalculateIlluminationSpectral(const RayProperties& ray_properties, int seed,
+                                                    float push_normal_distance) {
+  if (light_probes.empty())
+    return;
+  CudaModule::EstimateIlluminationRayTracingSpectral(
+      ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, ray_properties, light_probes, seed,
+      push_normal_distance);
+}
+
 bool LightProbeGroup::DrawGui() {
   ImGui::Text("Light probes size: %llu", light_probes.size());
   return false;

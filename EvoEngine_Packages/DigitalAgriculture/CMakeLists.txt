@@ -31,6 +31,7 @@ target_include_directories(DigitalAgriculturePackage
 target_link_libraries(DigitalAgriculturePackage
 	PUBLIC
 	EcoSysLabPackage
+	GprPackage
 	PRIVATE
 	EvoEngine_SDK
 	${EvoEngine_Services}

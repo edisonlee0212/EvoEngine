@@ -173,6 +173,12 @@ bool IlluminationLightmapEstimator::DrawGui(const std::shared_ptr<EditorLayer>& 
         ExportLightmappedObj(path, export_color_exposure, export_tone_mapping);
       },
       false);
+  FileUtils::SaveFile(
+      "Export raw lightmap CSV", "CSV", {".csv"},
+      [this](const std::filesystem::path& path) {
+        ExportRawLightmapCsv(path);
+      },
+      false);
 
   static bool show_probes = true;
 
@@ -221,7 +227,7 @@ const std::vector<glm::vec3>& IlluminationLightmapEstimator::PeekLightmap() cons
 
 void IlluminationLightmapEstimator::SampleLightProbeGroup(const RayProperties& ray_properties, int seed,
                                                           float push_normal_distance) {
-  light_probe_group_.CalculateIllumination(ray_properties, seed, push_normal_distance);
+  light_probe_group_.CalculateIlluminationSpectral(ray_properties, seed, push_normal_distance);
   vertex_lightmap_.clear();
   vertex_lightmap_.reserve(light_probe_group_.light_probes.size());
   for (const auto& probe : light_probe_group_.light_probes) {
@@ -237,6 +243,44 @@ void IlluminationLightmapEstimator::ExportLightmappedObj(const std::filesystem::
                                                          const bool tone_mapping) const {
   ApplyLightmapToVertices(exposure, tone_mapping);
   ExportDescendentsObj(GetScene(), GetOwner(), path);
+}
+
+void IlluminationLightmapEstimator::ExportRawLightmapCsv(const std::filesystem::path& path) const {
+  std::ofstream of(path.string(), std::ofstream::out | std::ofstream::trunc);
+  if (!of.is_open()) {
+    EVOENGINE_ERROR("Can't open file!");
+    return;
+  }
+
+  of << "entity,vertex_index,world_x,world_y,world_z,energy_r,energy_g,energy_b,energy_length\n";
+  auto entities = GetScene()->GetDescendants(GetOwner());
+  entities.push_back(GetOwner());
+  size_t lightmap_index = 0;
+  for (const auto& entity : entities) {
+    std::shared_ptr<Mesh> mesh;
+    if (GetScene()->HasPrivateComponent<MeshRenderer>(entity)) {
+      mesh = GetScene()->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->mesh.Get<Mesh>();
+    } else if (GetScene()->HasPrivateComponent<BtfMeshRenderer>(entity)) {
+      mesh = GetScene()->GetOrSetPrivateComponent<BtfMeshRenderer>(entity).lock()->mesh.Get<Mesh>();
+    }
+    if (!mesh)
+      continue;
+
+    const auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(entity).value;
+    const auto& vertices = mesh->UnsafeGetVertices();
+    for (size_t vertex_index = 0; vertex_index < vertices.size(); vertex_index++) {
+      if (lightmap_index >= vertex_lightmap_.size()) {
+        EVOENGINE_WARNING("Raw lightmap export stopped early because the lightmap has fewer entries than vertices.");
+        EVOENGINE_LOG("Raw lightmap CSV saved as " + path.string());
+        return;
+      }
+      const auto position = glm::vec3(global_transform * glm::vec4(vertices[vertex_index].position, 1.0f));
+      const auto energy = vertex_lightmap_[lightmap_index++];
+      of << entity.GetIndex() << "," << vertex_index << "," << position.x << "," << position.y << "," << position.z
+         << "," << energy.r << "," << energy.g << "," << energy.b << "," << glm::length(energy) << "\n";
+    }
+  }
+  EVOENGINE_LOG("Raw lightmap CSV saved as " + path.string());
 }
 
 void IlluminationLightmapEstimator::PrepareLightProbeGroup() {

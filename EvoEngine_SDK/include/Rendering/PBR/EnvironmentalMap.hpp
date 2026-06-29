@@ -33,6 +33,11 @@ class EnvironmentalMap final : public IAsset {
   AssetRef light_probe;
 
   /**
+   * @brief Reference to the source cubemap used to build the environment.
+   */
+  AssetRef source_cubemap;
+
+  /**
    * @brief Reference to the reflection probe used in the environment.
    */
   AssetRef reflection_probe;
