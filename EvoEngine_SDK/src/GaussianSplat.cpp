@@ -54,6 +54,12 @@ class GaussianSplatStagedLoadPayload final : public StagedAssetLoadPayload {
   return std::memcmp(&lhs[0][0], &rhs[0][0], sizeof(glm::mat4)) == 0;
 }
 
+[[nodiscard]] Handle CombineSortCacheHandles(const Handle& camera_handle, const Handle& sort_owner_handle) {
+  auto value = camera_handle.GetValue() + 0x9e3779b97f4a7c15ull;
+  value ^= sort_owner_handle.GetValue() + 0x9e3779b97f4a7c15ull + (value << 6) + (value >> 2);
+  return Handle(value);
+}
+
 [[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& path) {
   auto extension = path.extension().string();
   std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
@@ -1003,10 +1009,11 @@ uint32_t GaussianSplat::GetGpuDataRevision() const {
   return gpu_data_revision_;
 }
 
-const GaussianSplatSortCache& GaussianSplat::EnsureSortedIndices(const Handle& camera_handle, const glm::mat4& model,
-                                                                 const glm::mat4& view) const {
+const GaussianSplatSortCache& GaussianSplat::EnsureSortedIndices(const Handle& camera_handle,
+                                                                 const Handle& sort_owner_handle,
+                                                                 const glm::mat4& model, const glm::mat4& view) const {
   (void)EnsureGpuData();
-  auto& cache = sort_caches_[camera_handle];
+  auto& cache = sort_caches_[CombineSortCacheHandles(camera_handle, sort_owner_handle)];
   if (cache.valid && cache.indices.size() == positions.size() && SameMatrix(cache.model, model) &&
       SameMatrix(cache.view, view)) {
     return cache;
@@ -1045,8 +1052,9 @@ const GaussianSplatSortCache& GaussianSplat::EnsureSortedIndices(const Handle& c
   return cache;
 }
 
-const GaussianSplatSortCache* GaussianSplat::FindSortCache(const Handle& camera_handle) const {
-  const auto search = sort_caches_.find(camera_handle);
+const GaussianSplatSortCache* GaussianSplat::FindSortCache(const Handle& camera_handle,
+                                                           const Handle& sort_owner_handle) const {
+  const auto search = sort_caches_.find(CombineSortCacheHandles(camera_handle, sort_owner_handle));
   return search == sort_caches_.end() ? nullptr : &search->second;
 }
 

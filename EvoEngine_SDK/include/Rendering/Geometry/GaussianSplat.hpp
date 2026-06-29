@@ -69,9 +69,11 @@ class GaussianSplat final : public IAsset {
   [[nodiscard]] const std::vector<GaussianSplatGpuData>& EnsureGpuData() const;
   [[nodiscard]] const std::shared_ptr<Buffer>& GetGpuDataBuffer() const;
   [[nodiscard]] uint32_t GetGpuDataRevision() const;
-  [[nodiscard]] const GaussianSplatSortCache& EnsureSortedIndices(const Handle& camera_handle, const glm::mat4& model,
-                                                                  const glm::mat4& view) const;
-  [[nodiscard]] const GaussianSplatSortCache* FindSortCache(const Handle& camera_handle) const;
+  [[nodiscard]] const GaussianSplatSortCache& EnsureSortedIndices(const Handle& camera_handle,
+                                                                  const Handle& sort_owner_handle,
+                                                                  const glm::mat4& model, const glm::mat4& view) const;
+  [[nodiscard]] const GaussianSplatSortCache* FindSortCache(const Handle& camera_handle,
+                                                            const Handle& sort_owner_handle) const;
   bool LoadPly(const std::filesystem::path& path);
   bool SavePly(const std::filesystem::path& path) const;
   bool LoadSplat(const std::filesystem::path& path);

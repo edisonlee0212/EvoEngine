@@ -899,7 +899,8 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
         continue;
       }
       (void)gaussian_splat_render_instance->gaussian_splat->EnsureSortedIndices(
-          camera->GetHandle(), gaussian_splat_render_instance->model.value, camera_info_blocks_[camera_index].view);
+          camera->GetHandle(), gaussian_splat_render_instance->renderer_handle,
+          gaussian_splat_render_instance->model.value, camera_info_blocks_[camera_index].view);
     }
   };
   const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<IRenderInstance>& render_instance) {

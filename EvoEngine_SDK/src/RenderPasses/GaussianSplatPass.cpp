@@ -89,7 +89,8 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           bool use_sorted_indices = false;
           auto index_buffer = splat_buffer;
           if (gaussian_instance->sort_mode == GaussianSplatSortMode::CpuDepth) {
-            const auto* sort_cache = gaussian_instance->gaussian_splat->FindSortCache(parameters.camera->GetHandle());
+            const auto* sort_cache = gaussian_instance->gaussian_splat->FindSortCache(
+                parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
             if (sort_cache && sort_cache->valid && sort_cache->indices.size() == splat_count &&
                 IsValidStorageBuffer(sort_cache->index_buffer)) {
               use_sorted_indices = true;
