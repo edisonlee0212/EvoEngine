@@ -1,6 +1,7 @@
 #pragma once
 #include "IAsset.hpp"
 
+#include <future>
 #include <unordered_map>
 
 namespace evo_engine {
@@ -14,6 +15,13 @@ struct GaussianSplatGpuData {
   glm::vec4 color_rest_offset = glm::vec4(1.0f, 1.0f, 1.0f, -1.0f);
 };
 
+struct GaussianSplatSortResult {
+  std::vector<uint32_t> indices;
+  std::vector<float> depths;
+  glm::mat4 model = glm::mat4(1.0f);
+  glm::mat4 view = glm::mat4(1.0f);
+};
+
 struct GaussianSplatSortCache {
   std::vector<uint32_t> indices;
   std::vector<float> depths;
@@ -21,6 +29,7 @@ struct GaussianSplatSortCache {
   std::shared_ptr<Buffer> depth_buffer;
   glm::mat4 model = glm::mat4(1.0f);
   glm::mat4 view = glm::mat4(1.0f);
+  std::future<GaussianSplatSortResult> pending_sort;
   uint32_t generation = 0;
   bool valid = false;
 };

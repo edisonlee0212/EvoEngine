@@ -9,9 +9,11 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <sstream>
@@ -63,6 +65,44 @@ class GaussianSplatStagedLoadPayload final : public StagedAssetLoadPayload {
   return Handle(value);
 }
 
+[[nodiscard]] bool SortMatches(const GaussianSplatSortCache& cache, const size_t splat_count, const glm::mat4& model,
+                               const glm::mat4& view) {
+  return cache.valid && cache.indices.size() == splat_count && SameMatrix(cache.model, model) &&
+         SameMatrix(cache.view, view);
+}
+
+[[nodiscard]] GaussianSplatSortResult BuildSortResult(const std::vector<glm::vec3>& positions, const glm::mat4& model,
+                                                      const glm::mat4& view) {
+  struct SortEntry {
+    uint32_t index = 0;
+    float depth = 0.0f;
+  };
+
+  std::vector<SortEntry> entries;
+  entries.resize(positions.size());
+  const auto model_view = view * model;
+  for (uint32_t i = 0; i < positions.size(); ++i) {
+    const auto view_position = model_view * glm::vec4(positions[i], 1.0f);
+    entries[i].index = i;
+    entries[i].depth = -view_position.z;
+  }
+
+  std::stable_sort(entries.begin(), entries.end(), [](const SortEntry& lhs, const SortEntry& rhs) {
+    return lhs.depth > rhs.depth;
+  });
+
+  GaussianSplatSortResult result;
+  result.indices.resize(entries.size());
+  result.depths.resize(entries.size());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    result.indices[i] = entries[i].index;
+    result.depths[i] = entries[i].depth;
+  }
+  result.model = model;
+  result.view = view;
+  return result;
+}
+
 [[nodiscard]] std::string LowercaseExtension(const std::filesystem::path& path) {
   auto extension = path.extension().string();
   std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char c) {
@@ -109,6 +149,38 @@ void UploadVector(std::shared_ptr<evo_engine::Buffer>& buffer, const std::vector
     buffer = CreateStorageBuffer(byte_size);
   }
   buffer->UploadVector(data);
+}
+
+void PublishSortResult(GaussianSplatSortCache& cache, GaussianSplatSortResult result) {
+  cache.indices = std::move(result.indices);
+  cache.depths = std::move(result.depths);
+  UploadVector(cache.index_buffer, cache.indices);
+  UploadVector(cache.depth_buffer, cache.depths);
+  cache.model = result.model;
+  cache.view = result.view;
+  cache.valid = true;
+  ++cache.generation;
+}
+
+void PublishCompletedPendingSort(GaussianSplatSortCache& cache, const glm::mat4& model, const glm::mat4& view) {
+  if (!cache.pending_sort.valid() ||
+      cache.pending_sort.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) {
+    return;
+  }
+  auto result = cache.pending_sort.get();
+  if (SameMatrix(result.model, model) && SameMatrix(result.view, view)) {
+    PublishSortResult(cache, std::move(result));
+  }
+}
+
+void StartPendingSort(GaussianSplatSortCache& cache, std::vector<glm::vec3> positions, const glm::mat4& model,
+                      const glm::mat4& view) {
+  if (cache.pending_sort.valid()) {
+    return;
+  }
+  cache.pending_sort = std::async(std::launch::async, [positions = std::move(positions), model, view]() {
+    return BuildSortResult(positions, model, view);
+  });
 }
 
 bool HasVertexProperties(const PlyFile& file, const std::vector<std::string>& property_names) {
@@ -1069,41 +1141,21 @@ const GaussianSplatSortCache& GaussianSplat::EnsureSortedIndices(const Handle& c
                                                                  const glm::mat4& model, const glm::mat4& view) const {
   (void)EnsureGpuData();
   auto& cache = sort_caches_[CombineSortCacheHandles(camera_handle, sort_owner_handle)];
-  if (cache.valid && cache.indices.size() == positions.size() && SameMatrix(cache.model, model) &&
-      SameMatrix(cache.view, view)) {
+  PublishCompletedPendingSort(cache, model, view);
+  if (SortMatches(cache, positions.size(), model, view)) {
     return cache;
   }
 
-  struct SortEntry {
-    uint32_t index = 0;
-    float depth = 0.0f;
-  };
-  std::vector<SortEntry> entries;
-  entries.resize(positions.size());
-  const auto model_view = view * model;
-  for (uint32_t i = 0; i < positions.size(); ++i) {
-    const auto view_position = model_view * glm::vec4(positions[i], 1.0f);
-    entries[i].index = i;
-    entries[i].depth = -view_position.z;
+  if (!cache.valid || cache.indices.size() != positions.size()) {
+    if (cache.pending_sort.valid()) {
+      cache.pending_sort.wait();
+      cache.pending_sort = std::future<GaussianSplatSortResult>();
+    }
+    PublishSortResult(cache, BuildSortResult(positions, model, view));
+    return cache;
   }
 
-  std::stable_sort(entries.begin(), entries.end(), [](const SortEntry& lhs, const SortEntry& rhs) {
-    return lhs.depth > rhs.depth;
-  });
-
-  cache.indices.resize(entries.size());
-  cache.depths.resize(entries.size());
-  for (size_t i = 0; i < entries.size(); ++i) {
-    cache.indices[i] = entries[i].index;
-    cache.depths[i] = entries[i].depth;
-  }
-
-  UploadVector(cache.index_buffer, cache.indices);
-  UploadVector(cache.depth_buffer, cache.depths);
-  cache.model = model;
-  cache.view = view;
-  cache.valid = true;
-  ++cache.generation;
+  StartPendingSort(cache, positions, model, view);
   return cache;
 }
 

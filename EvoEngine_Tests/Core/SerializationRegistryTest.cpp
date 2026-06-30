@@ -53,6 +53,7 @@
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <thread>
 
 using namespace evo_engine;
 
@@ -1306,10 +1307,26 @@ TEST(SerializationRegistry, GaussianSplatSortCacheRefreshesForCameraTransform) {
   EXPECT_EQ(unchanged_cache.generation, generation);
 
   const auto rotated_model = glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-  const auto& rotated_cache =
+  const auto wait_for_sort = [&](const Handle camera_handle, const Handle renderer_handle, const glm::mat4& model,
+                                 const std::vector<uint32_t>& expected_indices) {
+    for (size_t attempt = 0; attempt < 200; ++attempt) {
+      const auto& current = gaussian_splat.EnsureSortedIndices(camera_handle, renderer_handle, model, glm::mat4(1.0f));
+      if (current.indices == expected_indices) {
+        return current.generation;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const auto& current = gaussian_splat.EnsureSortedIndices(camera_handle, renderer_handle, model, glm::mat4(1.0f));
+    EXPECT_EQ(current.indices, expected_indices);
+    return current.generation;
+  };
+
+  const auto& stale_rotated_cache =
       gaussian_splat.EnsureSortedIndices(Handle(101), Handle(301), rotated_model, glm::mat4(1.0f));
-  EXPECT_EQ(rotated_cache.indices, (std::vector<uint32_t>{0, 2, 1}));
-  EXPECT_GT(rotated_cache.generation, generation);
+  EXPECT_EQ(stale_rotated_cache.indices, (std::vector<uint32_t>{1, 2, 0}));
+  EXPECT_EQ(stale_rotated_cache.generation, generation);
+  const auto rotated_generation = wait_for_sort(Handle(101), Handle(301), rotated_model, {0, 2, 1});
+  EXPECT_GT(rotated_generation, generation);
 
   const auto& other_camera_cache =
       gaussian_splat.EnsureSortedIndices(Handle(202), Handle(301), glm::mat4(1.0f), glm::mat4(1.0f));
@@ -1324,7 +1341,7 @@ TEST(SerializationRegistry, GaussianSplatSortCacheRefreshesForCameraTransform) {
   const auto& restored_first_renderer =
       gaussian_splat.EnsureSortedIndices(Handle(101), Handle(301), rotated_model, glm::mat4(1.0f));
   EXPECT_EQ(restored_first_renderer.indices, (std::vector<uint32_t>{0, 2, 1}));
-  EXPECT_EQ(restored_first_renderer.generation, rotated_cache.generation);
+  EXPECT_EQ(restored_first_renderer.generation, rotated_generation);
 }
 
 TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
