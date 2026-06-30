@@ -1473,9 +1473,13 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   }
   if (!gaussian_splat_layout_) {
     gaussian_splat_layout_ = std::make_shared<DescriptorSetLayout>();
-    gaussian_splat_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
-    gaussian_splat_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
-    gaussian_splat_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     gaussian_splat_layout_->Initialize();
   }
 }
@@ -1585,6 +1589,19 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     volumetric_clouds_composite_pipeline_->Initialize();
+  }
+  if (!gaussian_splat_cull_pipeline_) {
+    gaussian_splat_cull_pipeline_ = std::make_shared<ComputePipeline>();
+    gaussian_splat_cull_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/GaussianSplatCull.comp");
+    gaussian_splat_cull_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    gaussian_splat_cull_pipeline_->descriptor_set_layouts.emplace_back(gaussian_splat_layout_);
+    auto& push_constant_range = gaussian_splat_cull_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GaussianSplatCullPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    gaussian_splat_cull_pipeline_->Initialize();
   }
   if (!ddgi_probe_update_pipeline_) {
     ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
@@ -4146,6 +4163,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     AddDefaultRasterCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
+    AddGaussianSplatCameraResources(camera_render_graph);
     if (volumetric_clouds_enabled) {
       AddVolumetricCloudCameraResources(camera_render_graph,
                                         static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
@@ -4294,7 +4312,15 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       post_lighting_dependency = RenderPassNames::volumetric_clouds;
     }
     if (gaussian_splat_rendering_enabled) {
-      camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(post_lighting_dependency),
+      camera_render_graph.AddPass(GaussianSplatCullPass::CreateDescriptor(post_lighting_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    GaussianSplatCullPass::Execute(
+                                        context, {camera, current_render_instances, gaussian_splat_cull_pipeline_,
+                                                  per_frame_descriptor_sets_[current_frame_index],
+                                                  gaussian_splat_layout_, active_camera_transient_resources,
+                                                  static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
+                                  });
+      camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
                                   [&](const RenderGraphExecutionContext& context) {
                                     GaussianSplatPass::Execute(
                                         context,
@@ -4410,6 +4436,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     AddDefaultRayTracingCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
+    AddGaussianSplatCameraResources(camera_render_graph);
     if (volumetric_clouds_enabled) {
       AddVolumetricCloudCameraResources(camera_render_graph,
                                         static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
@@ -4438,7 +4465,15 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       post_ray_tracing_dependency = RenderPassNames::volumetric_clouds;
     }
     if (gaussian_splat_rendering_enabled) {
-      camera_render_graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(post_ray_tracing_dependency),
+      camera_render_graph.AddPass(GaussianSplatCullPass::CreateDescriptor(post_ray_tracing_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    GaussianSplatCullPass::Execute(
+                                        context, {camera, current_render_instances, gaussian_splat_cull_pipeline_,
+                                                  per_frame_descriptor_sets_[current_frame_index],
+                                                  gaussian_splat_layout_, active_camera_transient_resources,
+                                                  static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
+                                  });
+      camera_render_graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_cull),
                                   [&](const RenderGraphExecutionContext& context) {
                                     GaussianSplatPass::Execute(
                                         context,

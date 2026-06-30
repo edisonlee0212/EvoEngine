@@ -1,6 +1,7 @@
 #include "RenderPasses/GaussianSplatPass.hpp"
 
 #include "Camera.hpp"
+#include "ComputePipeline.hpp"
 #include "GaussianSplat.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
@@ -9,14 +10,21 @@
 #include "RenderPasses/RenderPassUtilities.hpp"
 
 #include <algorithm>
+#include <cstddef>
 
 using namespace evo_engine;
 
 namespace {
 constexpr uint32_t kGaussianSplatSortedIndicesFlag = 1u;
+constexpr uint32_t kGaussianSplatCullWorkGroupSize = 256u;
 
 [[nodiscard]] bool IsValidStorageBuffer(const std::shared_ptr<Buffer>& buffer) {
   return buffer && buffer->GetVkBuffer() != VK_NULL_HANDLE && buffer->GetSize() != 0;
+}
+
+[[nodiscard]] bool IsValidGpuPrepassCache(const GaussianSplatGpuPrepassCache& cache, const uint32_t splat_count) {
+  return cache.valid && cache.capacity == splat_count && IsValidStorageBuffer(cache.visible_index_buffer) &&
+         IsValidStorageBuffer(cache.depth_key_buffer) && IsValidStorageBuffer(cache.indirect_draw_buffer);
 }
 
 void ConfigurePremultipliedAlphaBlend(GraphicsPipeline& pipeline) {
@@ -29,6 +37,73 @@ void ConfigurePremultipliedAlphaBlend(GraphicsPipeline& pipeline) {
   blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
   blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+}
+
+void ResetIndirectDrawBuffer(const VkCommandBuffer vk_command_buffer, const Buffer& indirect_draw_buffer) {
+  indirect_draw_buffer.Fill(vk_command_buffer, offsetof(VkDrawIndirectCommand, vertexCount), sizeof(uint32_t), 6u);
+  indirect_draw_buffer.Fill(vk_command_buffer, offsetof(VkDrawIndirectCommand, instanceCount), sizeof(uint32_t), 0u);
+  indirect_draw_buffer.Fill(vk_command_buffer, offsetof(VkDrawIndirectCommand, firstVertex), sizeof(uint32_t), 0u);
+  indirect_draw_buffer.Fill(vk_command_buffer, offsetof(VkDrawIndirectCommand, firstInstance), sizeof(uint32_t), 0u);
+  Platform::BufferMemoryBarrier(vk_command_buffer, indirect_draw_buffer);
+}
+
+void RecordGaussianSplatCull(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
+                             const GaussianSplatCullPass::Parameters& parameters,
+                             const std::shared_ptr<RenderInstanceStorage::GaussianSplatRenderInstanceCollection>&
+                                 gaussian_splat_render_instances,
+                             const uint32_t total_gaussian_splats) {
+  if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
+      !parameters.descriptor_set_layout || !parameters.transient_resources || !parameters.camera ||
+      total_gaussian_splats == 0u || !gaussian_splat_render_instances || gaussian_splat_render_instances->Empty()) {
+    return;
+  }
+
+  ApplyGraphResourceBarriers(vk_command_buffer, context);
+  parameters.pipeline->Bind(vk_command_buffer);
+  parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                         parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+
+  gaussian_splat_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto gaussian_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::GaussianSplatRenderInstance>(render_instance);
+        if (!gaussian_instance || !gaussian_instance->gaussian_splat) {
+          return;
+        }
+        const auto splat_count = static_cast<uint32_t>(gaussian_instance->gaussian_splat->GetSplatCount());
+        const auto splat_buffer = gaussian_instance->gaussian_splat->GetGpuDataBuffer();
+        if (splat_count == 0u || !IsValidStorageBuffer(splat_buffer)) {
+          return;
+        }
+
+        const auto* gpu_prepass = gaussian_instance->gaussian_splat->FindGpuPrepassCache(
+            parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
+        if (!gpu_prepass || !IsValidGpuPrepassCache(*gpu_prepass, splat_count)) {
+          return;
+        }
+
+        const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
+        descriptor_set->UpdateBufferDescriptorBinding(0, splat_buffer);
+        descriptor_set->UpdateBufferDescriptorBinding(1, gpu_prepass->visible_index_buffer);
+        descriptor_set->UpdateBufferDescriptorBinding(2, gpu_prepass->depth_key_buffer);
+        descriptor_set->UpdateBufferDescriptorBinding(3, gpu_prepass->indirect_draw_buffer);
+        parameters.transient_resources->RetainDescriptorSet(descriptor_set);
+
+        ResetIndirectDrawBuffer(vk_command_buffer, *gpu_prepass->indirect_draw_buffer);
+        parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
+
+        GaussianSplatCullPushConstant push_constant{};
+        push_constant.camera_instance_count_flags = glm::uvec4(
+            parameters.camera_index, static_cast<uint32_t>(gaussian_instance->instance_index), splat_count, 0u);
+        const float opacity_scale = gaussian_instance->opacity_scale > 0.0f ? gaussian_instance->opacity_scale : 0.0f;
+        push_constant.opacity_extent_min_max = glm::vec4(opacity_scale, 2.8284271f, 1.0f, 192.0f);
+        parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+        parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(splat_count, kGaussianSplatCullWorkGroupSize));
+        Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->visible_index_buffer);
+        Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->depth_key_buffer);
+        Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->indirect_draw_buffer);
+      });
+  ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 
 void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
@@ -89,6 +164,7 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           }
 
           bool use_sorted_indices = false;
+          bool use_indirect_draw = false;
           auto index_buffer = splat_buffer;
           if (gaussian_instance->sort_mode == GaussianSplatSortMode::CpuDepth) {
             const auto* sort_cache = gaussian_instance->gaussian_splat->FindSortCache(
@@ -98,6 +174,12 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
               use_sorted_indices = true;
               index_buffer = sort_cache->index_buffer;
             }
+          } else if (const auto* gpu_prepass = gaussian_instance->gaussian_splat->FindGpuPrepassCache(
+                         parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
+                     gpu_prepass && IsValidGpuPrepassCache(*gpu_prepass, splat_count)) {
+            use_sorted_indices = true;
+            use_indirect_draw = true;
+            index_buffer = gpu_prepass->visible_index_buffer;
           }
 
           const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
@@ -133,12 +215,47 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           const float opacity_scale = gaussian_instance->opacity_scale > 0.0f ? gaussian_instance->opacity_scale : 0.0f;
           push_constant.opacity_extent_min_max = glm::vec4(opacity_scale, 2.8284271f, 1.0f, 192.0f);
           parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-          vkCmdDraw(vk_command_buffer, 6u, splat_count, 0u, 0u);
+          if (use_indirect_draw) {
+            const auto* gpu_prepass = gaussian_instance->gaussian_splat->FindGpuPrepassCache(
+                parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
+            vkCmdDrawIndirect(vk_command_buffer, gpu_prepass->indirect_draw_buffer->GetVkBuffer(), 0, 1,
+                              sizeof(VkDrawIndirectCommand));
+          } else {
+            vkCmdDraw(vk_command_buffer, 6u, splat_count, 0u, 0u);
+          }
         });
   });
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 }  // namespace
+
+RenderPassDescriptor GaussianSplatCullPass::CreateDescriptor(const char* dependency) {
+  return {
+      RenderPassNames::gaussian_splat_cull,
+      RenderPassQueue::Graphics,
+      RenderPassScope::Camera,
+      {{RenderResourceNames::frame_render_instances, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+       {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
+       {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::Write,
+        RenderResourceState::StorageReadWrite}},
+      {dependency ? dependency : RenderPassNames::deferred_camera}};
+}
+
+void GaussianSplatCullPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  const auto gaussian_splat_render_instances =
+      parameters.render_instances ? parameters.render_instances->gaussian_splat_render_instances : nullptr;
+  const auto total_gaussian_splats =
+      parameters.render_instances ? parameters.render_instances->total_gaussian_splats : 0u;
+  if (!parameters.record_commands || !parameters.camera || !parameters.render_instances ||
+      total_gaussian_splats == 0u || !gaussian_splat_render_instances || gaussian_splat_render_instances->Empty()) {
+    return;
+  }
+
+  parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
+    RecordGaussianSplatCull(vk_command_buffer, context, parameters, gaussian_splat_render_instances,
+                            total_gaussian_splats);
+  });
+}
 
 RenderPassDescriptor GaussianSplatPass::CreateDescriptor(const char* dependency) {
   return {
@@ -147,6 +264,7 @@ RenderPassDescriptor GaussianSplatPass::CreateDescriptor(const char* dependency)
       RenderPassScope::Camera,
       {{RenderResourceNames::frame_render_instances, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
+       {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
       {dependency ? dependency : RenderPassNames::deferred_camera}};
@@ -159,6 +277,7 @@ RenderPassDescriptor GaussianSplatPass::CreateOverlayDescriptor(const char* depe
       RenderPassScope::Camera,
       {{RenderResourceNames::frame_render_instances, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
+       {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
       {dependency ? dependency : RenderPassNames::ray_tracing_camera}};
 }

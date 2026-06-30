@@ -25,6 +25,15 @@ struct GaussianSplatSortCache {
   bool valid = false;
 };
 
+struct GaussianSplatGpuPrepassCache {
+  std::shared_ptr<Buffer> visible_index_buffer;
+  std::shared_ptr<Buffer> depth_key_buffer;
+  std::shared_ptr<Buffer> indirect_draw_buffer;
+  uint32_t capacity = 0;
+  uint32_t generation = 0;
+  bool valid = false;
+};
+
 class GaussianSplat final : public IAsset {
   glm::vec3 min_bound_ = glm::vec3(0.0f);
   glm::vec3 max_bound_ = glm::vec3(0.0f);
@@ -32,6 +41,7 @@ class GaussianSplat final : public IAsset {
   mutable std::shared_ptr<Buffer> gpu_data_buffer_;
   mutable std::shared_ptr<Buffer> spherical_harmonics_rest_buffer_;
   mutable std::unordered_map<Handle, GaussianSplatSortCache> sort_caches_;
+  mutable std::unordered_map<Handle, GaussianSplatGpuPrepassCache> gpu_prepass_caches_;
   mutable bool gpu_data_dirty_ = true;
   mutable bool gpu_data_buffer_dirty_ = true;
   mutable bool spherical_harmonics_rest_buffer_dirty_ = true;
@@ -79,6 +89,10 @@ class GaussianSplat final : public IAsset {
                                                                   const glm::mat4& model, const glm::mat4& view) const;
   [[nodiscard]] const GaussianSplatSortCache* FindSortCache(const Handle& camera_handle,
                                                             const Handle& sort_owner_handle) const;
+  [[nodiscard]] const GaussianSplatGpuPrepassCache& EnsureGpuPrepassCache(const Handle& camera_handle,
+                                                                          const Handle& sort_owner_handle) const;
+  [[nodiscard]] const GaussianSplatGpuPrepassCache* FindGpuPrepassCache(const Handle& camera_handle,
+                                                                        const Handle& sort_owner_handle) const;
   bool LoadPly(const std::filesystem::path& path);
   bool SavePly(const std::filesystem::path& path) const;
   bool LoadSplat(const std::filesystem::path& path);

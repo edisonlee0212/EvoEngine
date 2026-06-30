@@ -13,6 +13,7 @@ namespace evo_engine {
 class BottomLevelAccelerationStructure;
 class DeferredGeometryPass;
 class DirectionalLightShadowPass;
+class GaussianSplatCullPass;
 class GaussianSplatPass;
 
 /**
@@ -938,6 +939,7 @@ class RenderInstanceStorage {
   friend class RenderLayer;
   friend class DeferredGeometryPass;
   friend class DirectionalLightShadowPass;
+  friend class GaussianSplatCullPass;
   friend class GaussianSplatPass;
   friend class CpuRayTracer;
   /**

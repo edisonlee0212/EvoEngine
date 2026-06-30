@@ -72,16 +72,27 @@ class GaussianSplatStagedLoadPayload final : public StagedAssetLoadPayload {
   return ApplicationContext::TryGet() && Platform::Initialized();
 }
 
-[[nodiscard]] std::shared_ptr<evo_engine::Buffer> CreateStorageBuffer(const size_t byte_size) {
+[[nodiscard]] std::shared_ptr<evo_engine::Buffer> CreateStorageBuffer(const size_t byte_size,
+                                                                      const VkBufferUsageFlags extra_usage = 0) {
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.size = glm::max(static_cast<size_t>(1), byte_size);
-  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | extra_usage;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VmaAllocationCreateInfo allocation_create_info{};
   allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   return std::make_shared<evo_engine::Buffer>(buffer_create_info, allocation_create_info);
+}
+
+void EnsureStorageBufferCapacity(std::shared_ptr<evo_engine::Buffer>& buffer, const size_t byte_size,
+                                 const VkBufferUsageFlags extra_usage = 0) {
+  if (!CanUploadGpuData()) {
+    return;
+  }
+  if (!buffer || buffer->GetSize() < byte_size) {
+    buffer = CreateStorageBuffer(byte_size, extra_usage);
+  }
 }
 
 template <typename T>
@@ -962,6 +973,7 @@ void GaussianSplat::InvalidateGpuCaches() {
   gpu_data_buffer_dirty_ = true;
   spherical_harmonics_rest_buffer_dirty_ = true;
   sort_caches_.clear();
+  gpu_prepass_caches_.clear();
 }
 
 void GaussianSplat::BuildGpuData() const {
@@ -1096,6 +1108,36 @@ const GaussianSplatSortCache* GaussianSplat::FindSortCache(const Handle& camera_
                                                            const Handle& sort_owner_handle) const {
   const auto search = sort_caches_.find(CombineSortCacheHandles(camera_handle, sort_owner_handle));
   return search == sort_caches_.end() ? nullptr : &search->second;
+}
+
+const GaussianSplatGpuPrepassCache& GaussianSplat::EnsureGpuPrepassCache(const Handle& camera_handle,
+                                                                         const Handle& sort_owner_handle) const {
+  (void)EnsureGpuData();
+  auto& cache = gpu_prepass_caches_[CombineSortCacheHandles(camera_handle, sort_owner_handle)];
+  const auto splat_count = static_cast<uint32_t>(positions.size());
+  if (cache.valid && cache.capacity == splat_count) {
+    return cache;
+  }
+
+  if (splat_count == 0u || !CanUploadGpuData()) {
+    cache = {};
+    return cache;
+  }
+
+  EnsureStorageBufferCapacity(cache.visible_index_buffer, splat_count * sizeof(uint32_t));
+  EnsureStorageBufferCapacity(cache.depth_key_buffer, splat_count * sizeof(uint32_t));
+  EnsureStorageBufferCapacity(cache.indirect_draw_buffer, sizeof(VkDrawIndirectCommand),
+                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+  cache.capacity = splat_count;
+  cache.valid = cache.visible_index_buffer && cache.depth_key_buffer && cache.indirect_draw_buffer;
+  ++cache.generation;
+  return cache;
+}
+
+const GaussianSplatGpuPrepassCache* GaussianSplat::FindGpuPrepassCache(const Handle& camera_handle,
+                                                                       const Handle& sort_owner_handle) const {
+  const auto search = gpu_prepass_caches_.find(CombineSortCacheHandles(camera_handle, sort_owner_handle));
+  return search == gpu_prepass_caches_.end() ? nullptr : &search->second;
 }
 
 void GaussianSplat::RecalculateBoundingBox() {

@@ -1099,3 +1099,15 @@ void evo_engine::AddVolumetricCloudCameraResources(RenderGraph& graph, const uin
                      1,
                      true});
 }
+
+void evo_engine::AddGaussianSplatCameraResources(RenderGraph& graph) {
+  graph.AddResource({RenderResourceNames::camera_gaussian_splat_prepass,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Camera,
+                     {},
+                     "GaussianSplatPrepass",
+                     1,
+                     1,
+                     true,
+                     sizeof(uint32_t)});
+}

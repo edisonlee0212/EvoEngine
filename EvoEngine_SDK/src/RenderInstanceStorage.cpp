@@ -889,18 +889,19 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     }
     gaussian_splat_render_instance->geometry_version =
         gaussian_splat_render_instance->gaussian_splat->GetGpuDataRevision();
-    if (gaussian_splat_render_instance->sort_mode != GaussianSplatSortMode::CpuDepth) {
-      return;
-    }
     const auto camera_count = std::min(cameras.size(), camera_info_blocks_.size());
     for (size_t camera_index = 0; camera_index < camera_count; ++camera_index) {
       const auto& camera = cameras[camera_index].second;
       if (!camera) {
         continue;
       }
-      (void)gaussian_splat_render_instance->gaussian_splat->EnsureSortedIndices(
-          camera->GetHandle(), gaussian_splat_render_instance->renderer_handle,
-          gaussian_splat_render_instance->model.value, camera_info_blocks_[camera_index].view);
+      (void)gaussian_splat_render_instance->gaussian_splat->EnsureGpuPrepassCache(
+          camera->GetHandle(), gaussian_splat_render_instance->renderer_handle);
+      if (gaussian_splat_render_instance->sort_mode == GaussianSplatSortMode::CpuDepth) {
+        (void)gaussian_splat_render_instance->gaussian_splat->EnsureSortedIndices(
+            camera->GetHandle(), gaussian_splat_render_instance->renderer_handle,
+            gaussian_splat_render_instance->model.value, camera_info_blocks_[camera_index].view);
+      }
     }
   };
   const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
