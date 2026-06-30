@@ -6,7 +6,6 @@
 #include "EditorLayer.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
-#include "Json.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "PathUtils.hpp"
@@ -26,14 +25,14 @@ using namespace evo_engine;
 namespace {
 constexpr uint64_t kSpatialDragonGaussianSplatHandle = 9739484957885691067ull;
 constexpr uint64_t kBicycleGaussianSplatHandle = 14453709846752502031ull;
-constexpr uint64_t kBicycleCamerasHandle = 6692924907754216903ull;
 // VK's benchmark preset 1 maps to the first imported INRIA camera because preset 0 is VK's default camera.
-constexpr int kBicycleDemoCameraId = 0;
+const glm::vec3 kBicycleDemoCamera0Position = glm::vec3(-3.0026817f, 1.4007727f, -2.2284005f);
+const glm::vec3 kBicycleDemoCamera0Front = glm::vec3(0.7710113f, -0.08249339f, 0.6314558f);
+const glm::vec3 kBicycleDemoCamera0ImageDown = glm::vec3(-0.03804422f, 0.9838366f, 0.17498063f);
 
 struct GaussianSplatDemoCameraPose {
   glm::vec3 position = glm::vec3(0.0f);
   glm::quat rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
-  float fov = 55.0f;
 };
 
 Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string& base_entity_name, bool add_spheres) {
@@ -483,69 +482,35 @@ Entity GetOrCreateGaussianSplatDemoEntity(const std::shared_ptr<Scene>& scene, c
   return scene->CreateEntity(entity_name);
 }
 
-Entity GetOrCreateRayTracingTlasSeedEntity(const std::shared_ptr<Scene>& scene) {
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
-    for (const auto& owner : *owners) {
-      if (scene->IsEntityValid(owner) && scene->GetEntityName(owner) == "Ray Tracing TLAS Seed") {
-        return owner;
+void RemoveRayTracingTlasSeedEntity(const std::shared_ptr<Scene>& scene) {
+  bool removed = false;
+  do {
+    removed = false;
+    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
+      for (const auto& owner : *owners) {
+        if (scene->IsEntityValid(owner) && scene->GetEntityName(owner) == "Ray Tracing TLAS Seed") {
+          scene->DeleteEntity(owner);
+          removed = true;
+          break;
+        }
       }
     }
-  }
-  return scene->CreateEntity("Ray Tracing TLAS Seed");
+  } while (removed);
 }
 
-std::optional<GaussianSplatDemoCameraPose> LoadGaussianSplatDemoCameraPose(const uint64_t cameras_handle,
-                                                                           const glm::vec3& center,
-                                                                           const int preferred_camera_id) {
-  std::shared_ptr<Json> cameras_asset;
-  try {
-    cameras_asset = AssetManager::GetAsset<Json>(Handle(cameras_handle));
-  } catch (const std::exception& error) {
-    EVOENGINE_WARNING("Failed to load Gaussian splat demo camera JSON: " + std::string(error.what()))
-    return {};
-  }
-  if (!cameras_asset || !cameras_asset->m_json.is_array() || cameras_asset->m_json.empty()) {
-    return {};
-  }
-
-  const nlohmann::json* selected_camera = &cameras_asset->m_json.front();
-  for (const auto& camera : cameras_asset->m_json) {
-    if (camera.value("id", -1) == preferred_camera_id) {
-      selected_camera = &camera;
-      break;
-    }
-  }
-
-  try {
-    const auto& position = selected_camera->at("position");
-    const auto& rotation = selected_camera->at("rotation");
-    GaussianSplatDemoCameraPose pose;
-    pose.position =
-        glm::vec3(position.at(0).get<float>(), position.at(1).get<float>(), position.at(2).get<float>()) - center;
-    // EvoEngine keeps the INRIA PLY coordinates unflipped; invert the image-down axis for editor/main camera up.
-    const auto front = glm::normalize(glm::vec3(rotation.at(0).at(2).get<float>(), rotation.at(1).at(2).get<float>(),
-                                                rotation.at(2).at(2).get<float>()));
-    const auto up = glm::normalize(-glm::vec3(rotation.at(0).at(1).get<float>(), rotation.at(1).at(1).get<float>(),
-                                              rotation.at(2).at(1).get<float>()));
-    pose.rotation = glm::quatLookAt(front, up);
-
-    const float height = selected_camera->value("height", 0.0f);
-    const float fy = selected_camera->value("fy", 0.0f);
-    if (height > 0.0f && fy > 0.0f) {
-      pose.fov = glm::clamp(glm::degrees(4.0f * std::atan(height / (2.0f * fy))), 20.0f, 120.0f);
-    }
-    return pose;
-  } catch (const std::exception& error) {
-    EVOENGINE_WARNING("Failed to parse Gaussian splat demo camera JSON: " + std::string(error.what()))
-    return {};
-  }
+GaussianSplatDemoCameraPose GetBicycleDemoCameraPose(const glm::vec3& center) {
+  GaussianSplatDemoCameraPose pose;
+  pose.position = kBicycleDemoCamera0Position - center;
+  // EvoEngine keeps the INRIA PLY coordinates unflipped; invert the image-down axis for editor/main camera up.
+  pose.rotation =
+      glm::quatLookAt(glm::normalize(kBicycleDemoCamera0Front), glm::normalize(-kBicycleDemoCamera0ImageDown));
+  return pose;
 }
 
 void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, const uint64_t gaussian_splat_handle,
                                          const char* asset_name, const char* entity_name, const int sh_degree,
-                                         const std::optional<uint64_t> cameras_handle = {},
-                                         const int preferred_camera_id = 0,
-                                         const GaussianSplatSortMode sort_mode = GaussianSplatSortMode::GpuRadix) {
+                                         const GaussianSplatSortMode sort_mode = GaussianSplatSortMode::GpuRadix,
+                                         const bool bake_bicycle_camera_pose_into_splat_transform = false) {
   if (!scene) {
     return;
   }
@@ -575,12 +540,14 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
   auto camera_position = glm::vec3(0.0f, radius * 0.05f, radius * 2.4f);
   auto camera_rotation = glm::quat(glm::radians(glm::vec3(-3.0f, 0.0f, 0.0f)));
   auto camera_fov = 55.0f;
-  if (cameras_handle) {
-    if (const auto camera_pose = LoadGaussianSplatDemoCameraPose(*cameras_handle, center, preferred_camera_id)) {
-      camera_position = camera_pose->position;
-      camera_rotation = camera_pose->rotation;
-      camera_fov = camera_pose->fov;
-    }
+  auto gaussian_position = glm::vec3(-center);
+  auto gaussian_rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+  if (bake_bicycle_camera_pose_into_splat_transform) {
+    const auto camera_pose = GetBicycleDemoCameraPose(center);
+    const auto inverse_pose_rotation = glm::inverse(camera_pose.rotation);
+    gaussian_rotation = glm::normalize(camera_rotation * inverse_pose_rotation);
+    gaussian_position =
+        camera_position + camera_rotation * (inverse_pose_rotation * (glm::vec3(-center) - camera_pose.position));
   }
 
   const auto main_camera = scene->main_camera.Get<Camera>();
@@ -592,6 +559,7 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
   main_camera->camera_settings.near_distance = std::max(radius * 0.01f, 0.01f);
   main_camera->camera_settings.far_distance = std::max(radius * 10.0f, 100.0f);
   main_camera->camera_settings.fov = camera_fov;
+  main_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
   main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
 
   const auto main_camera_entity = main_camera->GetOwner();
@@ -609,24 +577,9 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
   gaussian_renderer->sort_mode = sort_mode;
   gaussian_renderer->depth_mode = GaussianSplatDepthMode::SceneDepth;
   Transform gaussian_transform;
-  gaussian_transform.SetPosition(-center);
+  gaussian_transform.SetValue(gaussian_position, gaussian_rotation, glm::vec3(1.0f));
   scene->SetDataComponent(gaussian_entity, gaussian_transform);
-
-  const auto tlas_seed_entity = GetOrCreateRayTracingTlasSeedEntity(scene);
-  const auto tlas_seed_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(tlas_seed_entity).lock();
-  tlas_seed_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
-  auto tlas_seed_material = tlas_seed_renderer->material.Get<Material>();
-  if (!tlas_seed_material) {
-    tlas_seed_material = AssetManager::CreateTemporaryAsset<Material>();
-    tlas_seed_renderer->material.Set<Material>(tlas_seed_material);
-  }
-  tlas_seed_material->material_properties.albedo_color = glm::vec3(0.0f);
-  tlas_seed_material->material_properties.roughness = 1.0f;
-  tlas_seed_material->material_properties.metallic = 0.0f;
-  Transform tlas_seed_transform;
-  tlas_seed_transform.SetPosition(camera_position + camera_rotation * glm::vec3(0.0f, 0.0f, radius * 100.0f));
-  tlas_seed_transform.SetScale(glm::vec3(glm::max(radius * 0.001f, 0.001f)));
-  scene->SetDataComponent(tlas_seed_entity, tlas_seed_transform);
+  RemoveRayTracingTlasSeedEntity(scene);
 
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     editor_layer->velocity = std::max(radius * 0.25f, 0.5f);
@@ -641,6 +594,7 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
       scene_camera->camera_settings.near_distance = main_camera->camera_settings.near_distance;
       scene_camera->camera_settings.far_distance = main_camera->camera_settings.far_distance;
       scene_camera->camera_settings.fov = main_camera->camera_settings.fov;
+      scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
       scene_camera->ResetFrameCount();
     }
   }
@@ -657,7 +611,7 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
 
 void evo_engine::ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene) {
   ConfigureGaussianSplatDemoSceneImpl(scene, kBicycleGaussianSplatHandle, "Bicycle", "Bicycle 3DGS", 3,
-                                      kBicycleCamerasHandle, kBicycleDemoCameraId, GaussianSplatSortMode::GpuRadix);
+                                      GaussianSplatSortMode::GpuRadix, true);
 }
 
 std::filesystem::path evo_engine::FindDemoResourcesRoot(const std::filesystem::path& preferred_root) {

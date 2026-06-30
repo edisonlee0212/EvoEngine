@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
@@ -18,11 +17,8 @@ BICYCLE_PLY_MEMBERS = (
     "bicycle/bicycle/point_cloud/iteration_30000/point_cloud.ply",
     "bicycle/point_cloud/iteration_30000/point_cloud.ply",
 )
-BICYCLE_CAMERA_MEMBERS = ("bicycle/bicycle/cameras.json", "bicycle/cameras.json")
 ASSET_HANDLE = 14453709846752502031
 GAUSSIAN_SPLATS_FOLDER_HANDLE = 13041787869273319741
-CAMERAS_FOLDER_HANDLE = 15379860129740290489
-CAMERAS_ASSET_HANDLE = 6692924907754216903
 
 
 def repo_root() -> Path:
@@ -44,18 +40,8 @@ def validate_ply(path: Path) -> bool:
     return header.startswith("ply") and "element vertex" in header and "end_header" in header
 
 
-def validate_cameras(path: Path) -> bool:
-    if not path.is_file() or path.stat().st_size == 0:
-        return False
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return False
-    return isinstance(data, (list, dict))
-
-
-def verify_outputs(asset_path: Path, cameras_path: Path) -> bool:
-    return validate_ply(asset_path) and validate_cameras(cameras_path)
+def verify_outputs(asset_path: Path) -> bool:
+    return validate_ply(asset_path)
 
 
 def download_archive(url: str, archive_path: Path, force: bool, no_download: bool) -> None:
@@ -92,18 +78,13 @@ def extract_member(archive: zipfile.ZipFile, member: str, destination: Path) -> 
     temp_path.replace(destination)
 
 
-def extract_bicycle_files(archive_path: Path, asset_path: Path, cameras_path: Path) -> None:
+def extract_bicycle_files(archive_path: Path, asset_path: Path) -> None:
     with zipfile.ZipFile(archive_path) as archive:
         ply_member = find_zip_member(archive, BICYCLE_PLY_MEMBERS)
-        camera_member = find_zip_member(archive, BICYCLE_CAMERA_MEMBERS)
         extract_member(archive, ply_member, asset_path)
-        extract_member(archive, camera_member, cameras_path)
     if not validate_ply(asset_path):
         raise RuntimeError(f"Extracted Bicycle PLY is missing a valid PLY header: {asset_path}")
-    if not validate_cameras(cameras_path):
-        raise RuntimeError(f"Extracted Bicycle cameras file is not valid JSON: {cameras_path}")
     print(f"Extracted Bicycle PLY: {asset_path}")
-    print(f"Extracted Bicycle cameras: {cameras_path}")
 
 
 def reset_scene_files(demo_root: Path) -> None:
@@ -113,12 +94,18 @@ def reset_scene_files(demo_root: Path) -> None:
         Path(str(scene_path) + ".evefilemeta").unlink(missing_ok=True)
 
 
-def write_demo_files(resource_root: Path, reset_project: bool) -> tuple[Path, Path, Path, Path]:
+def remove_legacy_camera_files(demo_root: Path) -> None:
+    assets_root = demo_root / "Assets"
+    shutil.rmtree(assets_root / "Cameras", ignore_errors=True)
+    (assets_root / "Cameras.evefoldermeta").unlink(missing_ok=True)
+
+
+def write_demo_files(resource_root: Path, reset_project: bool) -> tuple[Path, Path, Path]:
     demo_root = resource_root / "EvoEngine-DemoProjects" / "Bicycle"
     asset_path = demo_root / "Assets" / "GaussianSplats" / "bicycle.ply"
-    cameras_path = demo_root / "Assets" / "Cameras" / "cameras.json"
     archive_path = demo_root / "models.zip"
     project_path = demo_root / "Bicycle.eveproj"
+    remove_legacy_camera_files(demo_root)
 
     project_text = """application_name: Bicycle
 preferred_editor: EvoEngineEditor
@@ -140,34 +127,20 @@ asset_handle_: {ASSET_HANDLE}
 """
     write_text_if_changed(Path(str(asset_path) + ".evefilemeta"), asset_meta)
 
-    cameras_folder_meta = f"""handle_: {CAMERAS_FOLDER_HANDLE}
-type_name: Cameras
-"""
-    write_text_if_changed(demo_root / "Assets" / "Cameras.evefoldermeta", cameras_folder_meta)
-
-    cameras_meta = f"""asset_extension_: .json
-asset_file_name_: cameras
-asset_type_name_: Json
-asset_handle_: {CAMERAS_ASSET_HANDLE}
-"""
-    write_text_if_changed(Path(str(cameras_path) + ".evefilemeta"), cameras_meta)
-
     readme_text = f"""# Bicycle Demo
 
 This generated demo uses the pretrained INRIA 3D Gaussian Splatting Bicycle scene.
 
 - Source: https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/datasets/pretrained/models.zip
 - PLY member: {BICYCLE_PLY_MEMBERS[0]}
-- Camera member: {BICYCLE_CAMERA_MEMBERS[0]}
 - Local PLY: Assets/GaussianSplats/bicycle.ply
-- Local cameras: Assets/Cameras/cameras.json
 
 Run `python Scripts/generate_bicycle_demo.py` from the EvoEngine repository root to recreate the extracted files and
 asset metadata. The archive is removed after extraction by default; pass `--keep-archive` to keep `models.zip`.
 Run the editor with `--demo bicycle` to create or refresh the persistent scene.
 """
     write_text_if_changed(demo_root / "README.md", readme_text)
-    return demo_root, asset_path, cameras_path, archive_path
+    return demo_root, asset_path, archive_path
 
 
 def capture_preview(editor: Path, preview_path: Path, warmup_frames: int) -> None:
@@ -202,15 +175,15 @@ def main() -> int:
     args = parser.parse_args()
 
     resource_root = args.resource_root.resolve()
-    demo_root, asset_path, cameras_path, archive_path = write_demo_files(resource_root, args.reset_scene)
+    demo_root, asset_path, archive_path = write_demo_files(resource_root, args.reset_scene)
     if args.reset_scene:
         reset_scene_files(demo_root)
 
-    if not args.force_download and verify_outputs(asset_path, cameras_path):
+    if not args.force_download and verify_outputs(asset_path):
         print(f"Verified existing Bicycle files under {demo_root}")
     else:
         download_archive(args.asset_url, archive_path, args.force_download, args.no_download)
-        extract_bicycle_files(archive_path, asset_path, cameras_path)
+        extract_bicycle_files(archive_path, asset_path)
     if not args.keep_archive:
         archive_path.unlink(missing_ok=True)
     if args.editor:

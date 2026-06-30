@@ -484,15 +484,11 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     const auto demo_root = resource_root / "EvoEngine-DemoProjects" / "Bicycle" / "Assets";
     const auto asset_path = demo_root / "GaussianSplats" / "bicycle.ply";
     const auto asset_metadata_path = std::filesystem::path(asset_path.string() + ".evefilemeta");
-    const auto cameras_path = demo_root / "Cameras" / "cameras.json";
     if (!std::filesystem::exists(asset_path) || std::filesystem::is_directory(asset_path)) {
       missing.emplace_back("bicycle.ply");
     }
     if (!std::filesystem::exists(asset_metadata_path) || std::filesystem::is_directory(asset_metadata_path)) {
       missing.emplace_back("bicycle.ply.evefilemeta");
-    }
-    if (!std::filesystem::exists(cameras_path) || std::filesystem::is_directory(cameras_path)) {
-      missing.emplace_back("cameras.json");
     }
     return missing;
   }

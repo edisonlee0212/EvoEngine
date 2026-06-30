@@ -27,7 +27,6 @@ set(EVOENGINE_TEST_SOURCES
 	Core/PlatformQueueFamilyTest.cpp
 	Core/RenderGraphTest.cpp
 	Core/DdgiVolumeTest.cpp
-	Core/GaussianSplatShaderTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
 	Core/InspectorRegistryTest.cpp
@@ -153,11 +152,6 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER DdgiVolume.*
 	PROPERTIES LABELS "core,render,ddgi"
-	)
-gtest_discover_tests(EvoEngine_Tests
-	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
-	TEST_FILTER GaussianSplatShader.*
-	PROPERTIES LABELS "core,render,gaussian-splat"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

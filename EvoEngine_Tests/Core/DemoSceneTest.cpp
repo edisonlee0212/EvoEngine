@@ -52,7 +52,6 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
   resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Bicycle.eveproj");
   resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats.evefoldermeta");
   resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats/bicycle.ply.evefilemeta");
-  resources.WriteFile("EvoEngine-DemoProjects/Bicycle/Assets/Cameras/cameras.json");
   resources.WriteFile("Legacy.uescene");
   resources.WriteFile("Legacy.ueproj");
   resources.WriteFile("Legacy.umeta");
@@ -77,8 +76,6 @@ TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadat
                                       "EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats.evefoldermeta"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() /
                                       "EvoEngine-DemoProjects/Bicycle/Assets/GaussianSplats/bicycle.ply.evefilemeta"));
-  EXPECT_TRUE(
-      std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Bicycle/Assets/Cameras/cameras.json"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.uescene"));
   EXPECT_FALSE(std::filesystem::exists(resources.RootPath() / "Legacy.ueproj"));
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "Legacy.umeta"));

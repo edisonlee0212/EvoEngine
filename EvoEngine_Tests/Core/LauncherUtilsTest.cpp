@@ -200,8 +200,7 @@ TEST(LauncherUtils, DemoResourceChecksRequireProjectsOnlyForPackageProfiles) {
   EXPECT_EQ(missing_gaussian_resources,
             (std::vector<std::string>{"spatial_dragon.ply", "spatial_dragon.ply.evefilemeta"}));
   const auto missing_bicycle_resources = MissingDemoProfileResourceRequirements(DemoProfileId::Bicycle, resource_root);
-  EXPECT_EQ(missing_bicycle_resources,
-            (std::vector<std::string>{"bicycle.ply", "bicycle.ply.evefilemeta", "cameras.json"}));
+  EXPECT_EQ(missing_bicycle_resources, (std::vector<std::string>{"bicycle.ply", "bicycle.ply.evefilemeta"}));
   EXPECT_FALSE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
 
   const auto gaussian_asset_folder = resource_root / "EvoEngine-DemoProjects" / "3DGS" / "Assets" / "GaussianSplats";
@@ -223,10 +222,6 @@ TEST(LauncherUtils, DemoResourceChecksRequireProjectsOnlyForPackageProfiles) {
   std::ofstream bicycle_metadata(bicycle_splats_folder / "bicycle.ply.evefilemeta");
   bicycle_metadata << "asset_type_name_: GaussianSplat\n";
   bicycle_metadata.close();
-  std::filesystem::create_directories(bicycle_assets_folder / "Cameras");
-  std::ofstream bicycle_cameras(bicycle_assets_folder / "Cameras" / "cameras.json");
-  bicycle_cameras << "[]\n";
-  bicycle_cameras.close();
   EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::Bicycle, resource_root).empty());
 
   std::filesystem::create_directories(resource_root / "EcoSysLabProject");
