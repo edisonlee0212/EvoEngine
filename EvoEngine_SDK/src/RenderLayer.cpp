@@ -181,11 +181,18 @@ std::shared_ptr<GraphicsPipeline> CreateShadowMeshPipeline(
 
 std::shared_ptr<GraphicsPipeline> CreateGaussianSplatPipeline(
     const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
-    const std::shared_ptr<DescriptorSetLayout>& gaussian_splat_layout, const VkFormat depth_attachment_format) {
+    const std::shared_ptr<DescriptorSetLayout>& gaussian_splat_layout, const VkFormat depth_attachment_format,
+    const bool use_mesh_shader = false) {
   auto pipeline = std::make_shared<GraphicsPipeline>();
-  pipeline->vertex_shader = Shader::CreateTemporary(
-      ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/GaussianSplat/GaussianSplat.vert");
+  if (use_mesh_shader) {
+    pipeline->mesh_shader = Shader::CreateTemporary(
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/GaussianSplat/GaussianSplat.mesh");
+  } else {
+    pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/GaussianSplat/GaussianSplat.vert");
+  }
   pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
       Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/GaussianSplat/GaussianSplat.frag");
@@ -200,7 +207,8 @@ std::shared_ptr<GraphicsPipeline> CreateGaussianSplatPipeline(
   auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(GaussianSplatPushConstant);
   push_constant_range.offset = 0;
-  push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  push_constant_range.stageFlags =
+      (use_mesh_shader ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT) | VK_SHADER_STAGE_FRAGMENT_BIT;
   pipeline->Initialize();
   return pipeline;
 }
@@ -1473,13 +1481,18 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   }
   if (!gaussian_splat_layout_) {
     gaussian_splat_layout_ = std::make_shared<DescriptorSetLayout>();
-    gaussian_splat_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    gaussian_splat_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    gaussian_splat_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                  VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    gaussian_splat_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(
+        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(
+        2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     gaussian_splat_layout_->Initialize();
   }
   if (!gaussian_splat_radix_sort_layout_) {
@@ -2381,6 +2394,16 @@ void RenderLayer::OnCreate() {
   if (!gaussian_splat_overlay_pipeline_) {
     gaussian_splat_overlay_pipeline_ =
         CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_, VK_FORMAT_UNDEFINED);
+  }
+  if (Platform::MeshShaderEnabled()) {
+    if (!gaussian_splat_mesh_pipeline_) {
+      gaussian_splat_mesh_pipeline_ = CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_,
+                                                                  Platform::Constants::render_texture_depth, true);
+    }
+    if (!gaussian_splat_mesh_overlay_pipeline_) {
+      gaussian_splat_mesh_overlay_pipeline_ =
+          CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_, VK_FORMAT_UNDEFINED, true);
+    }
   }
 #ifdef EVOENGINE_WINDOWS
   if (!gizmos_strands) {
@@ -4358,15 +4381,15 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                           gaussian_splat_radix_spine_pipeline_, gaussian_splat_radix_downsweep_pipeline_,
                           gaussian_splat_radix_sort_layout_, active_camera_transient_resources, record_commands});
           });
-      camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort),
-                                  [&](const RenderGraphExecutionContext& context) {
-                                    GaussianSplatPass::Execute(
-                                        context,
-                                        {camera, current_render_instances, gaussian_splat_pipeline_,
-                                         per_frame_descriptor_sets_[current_frame_index], gaussian_splat_layout_,
-                                         active_camera_transient_resources,
-                                         static_cast<uint32_t>(glm::max(camera_index, 0)), true, record_commands});
-                                  });
+      camera_render_graph.AddPass(
+          GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_pipeline_, gaussian_splat_mesh_pipeline_,
+                          per_frame_descriptor_sets_[current_frame_index], gaussian_splat_layout_,
+                          active_camera_transient_resources, static_cast<uint32_t>(glm::max(camera_index, 0)), true,
+                          Platform::MeshShaderEnabled() && enable_meshlet, record_commands});
+          });
       post_lighting_dependency = RenderPassNames::gaussian_splat;
     }
     if (ddgi_probe_visualization_enabled) {
@@ -4519,15 +4542,16 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                           gaussian_splat_radix_spine_pipeline_, gaussian_splat_radix_downsweep_pipeline_,
                           gaussian_splat_radix_sort_layout_, active_camera_transient_resources, record_commands});
           });
-      camera_render_graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort),
-                                  [&](const RenderGraphExecutionContext& context) {
-                                    GaussianSplatPass::Execute(
-                                        context,
-                                        {camera, current_render_instances, gaussian_splat_overlay_pipeline_,
-                                         per_frame_descriptor_sets_[current_frame_index], gaussian_splat_layout_,
-                                         active_camera_transient_resources,
-                                         static_cast<uint32_t>(glm::max(camera_index, 0)), false, record_commands});
-                                  });
+      camera_render_graph.AddPass(
+          GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_overlay_pipeline_,
+                          gaussian_splat_mesh_overlay_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          gaussian_splat_layout_, active_camera_transient_resources,
+                          static_cast<uint32_t>(glm::max(camera_index, 0)), false,
+                          Platform::MeshShaderEnabled() && enable_meshlet, record_commands});
+          });
     }
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid ray tracing camera render graph.")

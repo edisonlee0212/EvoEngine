@@ -1184,6 +1184,8 @@ const GaussianSplatGpuPrepassCache& GaussianSplat::EnsureGpuPrepassCache(const H
   EnsureStorageBufferCapacity(cache.depth_key_buffer, splat_count * sizeof(uint32_t));
   EnsureStorageBufferCapacity(cache.indirect_draw_buffer, sizeof(VkDrawIndirectCommand),
                               VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+  EnsureStorageBufferCapacity(cache.mesh_task_indirect_draw_buffer, sizeof(VkDrawMeshTasksIndirectCommandEXT),
+                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
   EnsureStorageBufferCapacity(cache.radix_scratch_index_buffer, splat_count * sizeof(uint32_t));
   EnsureStorageBufferCapacity(cache.radix_scratch_key_buffer, splat_count * sizeof(uint32_t));
   EnsureStorageBufferCapacity(cache.radix_global_histogram_buffer, kGaussianSplatRadixSortRadix * sizeof(uint32_t));
@@ -1192,8 +1194,9 @@ const GaussianSplatGpuPrepassCache& GaussianSplat::EnsureGpuPrepassCache(const H
   cache.capacity = splat_count;
   cache.radix_partition_capacity = partition_count;
   cache.valid = cache.visible_index_buffer && cache.depth_key_buffer && cache.indirect_draw_buffer &&
-                cache.radix_scratch_index_buffer && cache.radix_scratch_key_buffer &&
-                cache.radix_global_histogram_buffer && cache.radix_partition_histogram_buffer;
+                cache.mesh_task_indirect_draw_buffer && cache.radix_scratch_index_buffer &&
+                cache.radix_scratch_key_buffer && cache.radix_global_histogram_buffer &&
+                cache.radix_partition_histogram_buffer;
   ++cache.generation;
   return cache;
 }

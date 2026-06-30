@@ -73,11 +73,13 @@ class GaussianSplatPass final {
     std::shared_ptr<Camera> camera;
     std::shared_ptr<RenderInstanceStorage> render_instances;
     std::shared_ptr<GraphicsPipeline> pipeline;
+    std::shared_ptr<GraphicsPipeline> mesh_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     uint32_t camera_index = 0;
     bool use_scene_depth = true;
+    bool use_mesh_shader = false;
     RecordCommands record_commands;
   };
 

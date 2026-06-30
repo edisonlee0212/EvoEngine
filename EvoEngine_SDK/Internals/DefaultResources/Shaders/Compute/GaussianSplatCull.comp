@@ -9,6 +9,8 @@
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
+const uint EE_GAUSSIAN_SPLAT_MESH_SPLATS_PER_TASK = 32u;
+
 struct GaussianSplat {
   vec4 position_opacity;
   vec4 scale_reserved;
@@ -21,6 +23,12 @@ struct DrawIndirectCommand {
   uint instanceCount;
   uint firstVertex;
   uint firstInstance;
+};
+
+struct MeshTasksIndirectCommand {
+  uint groupCountX;
+  uint groupCountY;
+  uint groupCountZ;
 };
 
 layout(set = 1, binding = 0) readonly buffer EE_GAUSSIAN_SPLAT_BLOCK {
@@ -37,6 +45,10 @@ layout(set = 1, binding = 2) writeonly buffer EE_GAUSSIAN_SPLAT_DEPTH_KEY_BLOCK 
 
 layout(set = 1, binding = 3) buffer EE_GAUSSIAN_SPLAT_INDIRECT_DRAW_BLOCK {
   DrawIndirectCommand EE_GAUSSIAN_SPLAT_DRAW_COMMAND;
+};
+
+layout(set = 1, binding = 4) buffer EE_GAUSSIAN_SPLAT_MESH_TASK_INDIRECT_DRAW_BLOCK {
+  MeshTasksIndirectCommand EE_GAUSSIAN_SPLAT_MESH_TASK_DRAW_COMMAND;
 };
 
 layout(push_constant) uniform EE_GAUSSIAN_SPLAT_CULL_CONSTANTS {
@@ -86,6 +98,9 @@ void main() {
   }
 
   const uint visible_index = atomicAdd(EE_GAUSSIAN_SPLAT_DRAW_COMMAND.instanceCount, 1u);
+  if (visible_index % EE_GAUSSIAN_SPLAT_MESH_SPLATS_PER_TASK == 0u) {
+    atomicAdd(EE_GAUSSIAN_SPLAT_MESH_TASK_DRAW_COMMAND.groupCountX, 1u);
+  }
   EE_GAUSSIAN_SPLAT_VISIBLE_INDICES[visible_index] = splat_index;
   const vec4 view_center = EE_CAMERAS[camera_index].view * world_center;
   EE_GAUSSIAN_SPLAT_DEPTH_KEYS[visible_index] = EE_GAUSSIAN_SPLAT_DESCENDING_DEPTH_KEY(-view_center.z);
