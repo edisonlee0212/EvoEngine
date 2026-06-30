@@ -277,6 +277,20 @@ enough for Git without LFS, but the Bicycle PLY is large and should remain local
 explicitly includes it. The project files live inside the `Resources/EvoEngine-DemoProjects` submodule; publishing either
 generated demo permanently requires committing that submodule content separately from the main EvoEngine code.
 
+`GaussianSplatRenderer` exposes the VK3DGS rasterization controls used by the current implementation:
+
+- `sort_mode`: `GPU radix` is the default. It uses the GPU cull prepass, radix-sorts visible splat indices by depth, and
+  draws indirectly. `CPU depth` remains available as an async fallback that keeps using the previous completed sort while
+  a new CPU sort is pending. `None` uses the GPU-visible order without depth sorting.
+- `raster_mode`: `Auto` uses the mesh-shader raster path when `Platform::MeshShaderEnabled()` and the render layer
+  meshlet toggle are both enabled, otherwise it uses the vertex raster path. `Vertex` forces the vertex path. `Mesh
+  shader` requests the mesh path, but still falls back to vertex rasterization when mesh shaders are unavailable, the
+  render layer meshlet toggle is disabled, or the draw is using the CPU-sort fallback.
+- `depth_mode`: `Scene depth` depth-tests splats against the scene depth attachment without writing depth. `Always`
+  blends splats without scene-depth testing.
+- `sh_degree`: clamps to the lesser of the renderer request and the degree available in the loaded asset's SH-rest data.
+  Degree 0 uses the base color path; degrees 1-3 add view-dependent SH color when rest data exists.
+
 `GaussianSplat` keeps `.evegaussiansplat` as its native YAML-backed serialized format and supports interchange import
 and export for `.ply`, `.splat`, and `.ksplat`. PLY preserves the standard Gaussian fields plus contiguous `f_rest_*`
 SH-rest floats. Standard SPLAT and the current KSPLAT target store only SH degree 0 color/opacity data; exporting either

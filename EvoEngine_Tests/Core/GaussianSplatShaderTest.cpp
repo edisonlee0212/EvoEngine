@@ -64,5 +64,5 @@ TEST(GaussianSplatShader, RenderLayerWiresMeshPipelineAsCapabilityGatedPath) {
   EXPECT_NE(render_layer.find("Platform::MeshShaderEnabled() && enable_meshlet"), std::string::npos);
   EXPECT_NE(gaussian_pass.find("mesh_task_indirect_draw_buffer"), std::string::npos);
   EXPECT_NE(gaussian_pass.find("Platform::DrawMeshTasksIndirect"), std::string::npos);
-  EXPECT_NE(gaussian_pass.find("use_mesh_draw = mesh_pipeline_available && use_indirect_draw"), std::string::npos);
+  EXPECT_NE(gaussian_pass.find("gaussian_instance->raster_mode != GaussianSplatRasterMode::Vertex"), std::string::npos);
 }

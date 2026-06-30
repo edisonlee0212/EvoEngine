@@ -973,6 +973,7 @@ void SerializeGaussianSplatRenderer(YAML::Emitter& out, const GaussianSplatRende
   out << YAML::Key << "sh_degree" << YAML::Value << renderer.sh_degree;
   out << YAML::Key << "sort_mode" << YAML::Value << static_cast<int>(renderer.sort_mode);
   out << YAML::Key << "depth_mode" << YAML::Value << static_cast<int>(renderer.depth_mode);
+  out << YAML::Key << "raster_mode" << YAML::Value << static_cast<int>(renderer.raster_mode);
 }
 
 void DeserializeGaussianSplatRenderer(const YAML::Node& in, GaussianSplatRenderer& renderer) {
@@ -985,6 +986,8 @@ void DeserializeGaussianSplatRenderer(const YAML::Node& in, GaussianSplatRendere
     renderer.sort_mode = static_cast<GaussianSplatSortMode>(in["sort_mode"].as<int>());
   if (in["depth_mode"])
     renderer.depth_mode = static_cast<GaussianSplatDepthMode>(in["depth_mode"].as<int>());
+  if (in["raster_mode"])
+    renderer.raster_mode = static_cast<GaussianSplatRasterMode>(in["raster_mode"].as<int>());
 }
 
 void SerializeSkinnedMeshRenderer(YAML::Emitter& out, const SkinnedMeshRenderer& renderer) {

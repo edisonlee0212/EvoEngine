@@ -342,6 +342,8 @@ bool RenderInstanceStorage::GaussianSplatRenderInstance::operator!=(const Gaussi
     return true;
   if (depth_mode != other.depth_mode)
     return true;
+  if (raster_mode != other.raster_mode)
+    return true;
   return false;
 }
 
@@ -1871,6 +1873,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->sh_degree = gaussian_splat_renderer->sh_degree;
   render_instance->sort_mode = gaussian_splat_renderer->sort_mode;
   render_instance->depth_mode = gaussian_splat_renderer->depth_mode;
+  render_instance->raster_mode = gaussian_splat_renderer->raster_mode;
 
   gaussian_splat_render_instances->Register(render_instance);
   total_gaussian_splats += gaussian_splat->GetSplatCount();

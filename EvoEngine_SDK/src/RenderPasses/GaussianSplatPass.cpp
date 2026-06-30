@@ -324,7 +324,8 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
             index_buffer = gpu_prepass->visible_index_buffer;
           }
 
-          const bool use_mesh_draw = mesh_pipeline_available && use_indirect_draw;
+          const bool use_mesh_draw = mesh_pipeline_available && use_indirect_draw &&
+                                     gaussian_instance->raster_mode != GaussianSplatRasterMode::Vertex;
           const auto active_pipeline = use_mesh_draw ? parameters.mesh_pipeline : parameters.pipeline;
           if (!active_pipeline || !active_pipeline->Initialized()) {
             return;

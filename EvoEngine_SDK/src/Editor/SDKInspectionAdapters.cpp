@@ -2696,6 +2696,13 @@ bool InspectGaussianSplatRenderer(InspectorContext& context, GaussianSplatRender
     changed = true;
   }
 
+  int raster_mode = static_cast<int>(renderer.raster_mode);
+  const char* raster_modes[] = {"Auto", "Vertex", "Mesh shader"};
+  if (ImGui::Combo("Raster mode##GaussianSplatRenderer", &raster_mode, raster_modes, IM_ARRAYSIZE(raster_modes))) {
+    renderer.raster_mode = static_cast<GaussianSplatRasterMode>(raster_mode);
+    changed = true;
+  }
+
   if (const auto gaussian_splat = renderer.gaussian_splat.Get<GaussianSplat>()) {
     ImGui::Text("Splats: %zu", gaussian_splat->GetSplatCount());
     if (ImGui::TreeNode("Gaussian Splat##GaussianSplatRenderer")) {

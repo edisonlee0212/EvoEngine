@@ -1358,6 +1358,7 @@ TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
   renderer.sh_degree = 2;
   renderer.sort_mode = GaussianSplatSortMode::GpuRadix;
   renderer.depth_mode = GaussianSplatDepthMode::Always;
+  renderer.raster_mode = GaussianSplatRasterMode::Mesh;
 
   YAML::Emitter out;
   BeginMap(out);
@@ -1372,6 +1373,7 @@ TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
   EXPECT_EQ(restored.sh_degree, 2);
   EXPECT_EQ(restored.sort_mode, GaussianSplatSortMode::GpuRadix);
   EXPECT_EQ(restored.depth_mode, GaussianSplatDepthMode::Always);
+  EXPECT_EQ(restored.raster_mode, GaussianSplatRasterMode::Mesh);
 
   std::vector<AssetRef> asset_refs;
   Serialization::CollectAssetRefs(static_cast<IPrivateComponent&>(renderer), asset_refs);

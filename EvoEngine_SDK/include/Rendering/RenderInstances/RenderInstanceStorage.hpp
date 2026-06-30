@@ -465,6 +465,7 @@ class RenderInstanceStorage {
     int sh_degree = 0;
     GaussianSplatSortMode sort_mode = GaussianSplatSortMode::GpuRadix;
     GaussianSplatDepthMode depth_mode = GaussianSplatDepthMode::SceneDepth;
+    GaussianSplatRasterMode raster_mode = GaussianSplatRasterMode::Auto;
 
     bool operator!=(const GaussianSplatRenderInstance& other) const;
     void Apply(InstanceInfoBlock& instance_info_block) const override;
