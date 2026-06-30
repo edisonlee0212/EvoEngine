@@ -31,6 +31,7 @@
 #include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
+#include "RenderPasses/GaussianSplatPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
@@ -174,6 +175,40 @@ std::shared_ptr<GraphicsPipeline> CreateShadowMeshPipeline(
   push_constant_range.size = sizeof(RenderInstancePushConstant);
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  pipeline->Initialize();
+  return pipeline;
+}
+
+std::shared_ptr<GraphicsPipeline> CreateGaussianSplatPipeline(
+    const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
+    const std::shared_ptr<DescriptorSetLayout>& gaussian_splat_layout, const VkFormat depth_attachment_format,
+    const bool use_mesh_shader = false) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  if (use_mesh_shader) {
+    pipeline->mesh_shader = Shader::CreateTemporary(
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/GaussianSplat/GaussianSplat.mesh");
+  } else {
+    pipeline->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/GaussianSplat/GaussianSplat.vert");
+  }
+  pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/GaussianSplat/GaussianSplat.frag");
+  pipeline->geometry_type = GeometryType::Mesh;
+  pipeline->vertex_input_enabled = false;
+  pipeline->primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  pipeline->depth_attachment_format = depth_attachment_format;
+  pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+  pipeline->descriptor_set_layouts.emplace_back(per_frame_layout);
+  pipeline->descriptor_set_layouts.emplace_back(gaussian_splat_layout);
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(GaussianSplatPushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags =
+      (use_mesh_shader ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT) | VK_SHADER_STAGE_FRAGMENT_BIT;
   pipeline->Initialize();
   return pipeline;
 }
@@ -1289,6 +1324,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_camera_output_layout_->Initialize();
   }
   if (!ray_tracing_point_cloud_layout_) {
@@ -1442,6 +1479,30 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                                 VK_SHADER_STAGE_VERTEX_BIT, 0);
     ddgi_probe_ray_visualization_layout_->Initialize();
   }
+  if (!gaussian_splat_layout_) {
+    gaussian_splat_layout_ = std::make_shared<DescriptorSetLayout>();
+    gaussian_splat_layout_->PushDescriptorBinding(
+        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(
+        2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                  VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    gaussian_splat_layout_->Initialize();
+  }
+  if (!gaussian_splat_radix_sort_layout_) {
+    gaussian_splat_radix_sort_layout_ = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 7u; ++binding) {
+      gaussian_splat_radix_sort_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                               VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    }
+    gaussian_splat_radix_sort_layout_->Initialize();
+  }
 }
 
 void RenderLayer::RenderToPointLightShadowMap(
@@ -1550,6 +1611,41 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     volumetric_clouds_composite_pipeline_->Initialize();
   }
+  if (!gaussian_splat_cull_pipeline_) {
+    gaussian_splat_cull_pipeline_ = std::make_shared<ComputePipeline>();
+    gaussian_splat_cull_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/GaussianSplatCull.comp");
+    gaussian_splat_cull_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    gaussian_splat_cull_pipeline_->descriptor_set_layouts.emplace_back(gaussian_splat_layout_);
+    auto& push_constant_range = gaussian_splat_cull_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GaussianSplatCullPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    gaussian_splat_cull_pipeline_->Initialize();
+  }
+  const auto create_gaussian_splat_radix_pipeline = [&](std::shared_ptr<ComputePipeline>& pipeline,
+                                                        const std::filesystem::path& shader_path) {
+    if (pipeline) {
+      return;
+    }
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(), shader_path);
+    pipeline->descriptor_set_layouts.emplace_back(gaussian_splat_radix_sort_layout_);
+    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GaussianSplatRadixSortPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeline->Initialize();
+  };
+  const auto gaussian_splat_compute_path = Resources::GetDefaultResourcesPath() / "Shaders/Compute";
+  create_gaussian_splat_radix_pipeline(gaussian_splat_radix_upsweep_pipeline_,
+                                       gaussian_splat_compute_path / "GaussianSplatRadixUpsweep.comp");
+  create_gaussian_splat_radix_pipeline(gaussian_splat_radix_spine_pipeline_,
+                                       gaussian_splat_compute_path / "GaussianSplatRadixSpine.comp");
+  create_gaussian_splat_radix_pipeline(gaussian_splat_radix_downsweep_pipeline_,
+                                       gaussian_splat_compute_path / "GaussianSplatRadixDownsweep.comp");
   if (!ddgi_probe_update_pipeline_) {
     ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_update_pipeline_->compute_shader =
@@ -2290,6 +2386,24 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     ddgi_probe_ray_visualization_pipeline_->Initialize();
+  }
+  if (!gaussian_splat_pipeline_) {
+    gaussian_splat_pipeline_ = CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_,
+                                                           Platform::Constants::render_texture_depth);
+  }
+  if (!gaussian_splat_overlay_pipeline_) {
+    gaussian_splat_overlay_pipeline_ =
+        CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_, VK_FORMAT_UNDEFINED);
+  }
+  if (Platform::MeshShaderEnabled()) {
+    if (!gaussian_splat_mesh_pipeline_) {
+      gaussian_splat_mesh_pipeline_ = CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_,
+                                                                  Platform::Constants::render_texture_depth, true);
+    }
+    if (!gaussian_splat_mesh_overlay_pipeline_) {
+      gaussian_splat_mesh_overlay_pipeline_ =
+          CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_, VK_FORMAT_UNDEFINED, true);
+    }
   }
 #ifdef EVOENGINE_WINDOWS
   if (!gizmos_strands) {
@@ -4102,6 +4216,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     AddDefaultRasterCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
+    AddGaussianSplatCameraResources(camera_render_graph);
     if (volumetric_clouds_enabled) {
       AddVolumetricCloudCameraResources(camera_render_graph,
                                         static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
@@ -4230,7 +4345,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
           });
     }
-    const char* cloud_post_processing_dependency = RenderPassNames::deferred_camera;
+    const bool gaussian_splat_rendering_enabled = current_render_instances &&
+                                                  current_render_instances->total_gaussian_splats != 0u &&
+                                                  current_render_instances->gaussian_splat_render_instances &&
+                                                  !current_render_instances->gaussian_splat_render_instances->Empty();
+    const char* post_lighting_dependency = RenderPassNames::deferred_camera;
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
           VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
@@ -4243,7 +4362,35 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                           static_cast<uint32_t>(glm::max(0.0f, std::floor(time_seconds * 60.0f))), time_seconds,
                           camera->camera_settings.far_distance});
           });
-      cloud_post_processing_dependency = RenderPassNames::volumetric_clouds;
+      post_lighting_dependency = RenderPassNames::volumetric_clouds;
+    }
+    if (gaussian_splat_rendering_enabled) {
+      camera_render_graph.AddPass(GaussianSplatCullPass::CreateDescriptor(post_lighting_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    GaussianSplatCullPass::Execute(
+                                        context, {camera, current_render_instances, gaussian_splat_cull_pipeline_,
+                                                  per_frame_descriptor_sets_[current_frame_index],
+                                                  gaussian_splat_layout_, active_camera_transient_resources,
+                                                  static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
+                                  });
+      camera_render_graph.AddPass(
+          GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatSortPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_radix_upsweep_pipeline_,
+                          gaussian_splat_radix_spine_pipeline_, gaussian_splat_radix_downsweep_pipeline_,
+                          gaussian_splat_radix_sort_layout_, active_camera_transient_resources, record_commands});
+          });
+      camera_render_graph.AddPass(
+          GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_pipeline_, gaussian_splat_mesh_pipeline_,
+                          per_frame_descriptor_sets_[current_frame_index], gaussian_splat_layout_,
+                          active_camera_transient_resources, static_cast<uint32_t>(glm::max(camera_index, 0)), true,
+                          Platform::MeshShaderEnabled() && enable_meshlet, record_commands});
+          });
+      post_lighting_dependency = RenderPassNames::gaussian_splat;
     }
     if (ddgi_probe_visualization_enabled) {
       camera_render_graph.AddPass(
@@ -4263,8 +4410,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           });
     }
     if (ddgi_probe_ray_visualization_enabled) {
-      const auto* dependency = ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
-                                                                : cloud_post_processing_dependency;
+      const auto* dependency =
+          ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency;
       camera_render_graph.AddPass(
           DdgiProbeRayVisualizationPass::CreateDescriptor(dependency),
           [&, ddgi_probe_ray_visualization_push_constant](const RenderGraphExecutionContext& context) {
@@ -4283,8 +4430,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     const auto* ddgi_debug_post_processing_dependency =
         ddgi_probe_ray_visualization_enabled
             ? RenderPassNames::ddgi_probe_ray_visualization
-            : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization
-                                                : cloud_post_processing_dependency);
+            : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency);
     camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
                                 [&](const RenderGraphExecutionContext& context) {
                                   PostProcessingPass::Execute(context, {camera, immediate});
@@ -4339,6 +4485,10 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       volumetric_cloud_settings.ClampSettings();
     }
     const bool volumetric_clouds_enabled = volumetric_cloud_settings.enabled;
+    const bool gaussian_splat_rendering_enabled = current_render_instances &&
+                                                  current_render_instances->total_gaussian_splats != 0u &&
+                                                  current_render_instances->gaussian_splat_render_instances &&
+                                                  !current_render_instances->gaussian_splat_render_instances->Empty();
     const auto record_commands = [](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
       Platform::RecordCommandsMainQueue(action);
     };
@@ -4347,6 +4497,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     AddDefaultRayTracingCameraResources(camera_render_graph);
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
+    AddGaussianSplatCameraResources(camera_render_graph);
     if (volumetric_clouds_enabled) {
       AddVolumetricCloudCameraResources(camera_render_graph,
                                         static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
@@ -4359,6 +4510,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                         ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
                         record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
         });
+    const char* post_ray_tracing_dependency = RenderPassNames::ray_tracing_camera;
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
           VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
@@ -4370,6 +4522,35 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                           active_camera_transient_resources, volumetric_cloud_settings, camera_index,
                           camera->frame_count_, time_seconds, camera->camera_settings.far_distance,
                           RenderResourceNames::camera_ray_hit_distance, true});
+          });
+      post_ray_tracing_dependency = RenderPassNames::volumetric_clouds;
+    }
+    if (gaussian_splat_rendering_enabled) {
+      camera_render_graph.AddPass(GaussianSplatCullPass::CreateDescriptor(post_ray_tracing_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    GaussianSplatCullPass::Execute(
+                                        context, {camera, current_render_instances, gaussian_splat_cull_pipeline_,
+                                                  per_frame_descriptor_sets_[current_frame_index],
+                                                  gaussian_splat_layout_, active_camera_transient_resources,
+                                                  static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
+                                  });
+      camera_render_graph.AddPass(
+          GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatSortPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_radix_upsweep_pipeline_,
+                          gaussian_splat_radix_spine_pipeline_, gaussian_splat_radix_downsweep_pipeline_,
+                          gaussian_splat_radix_sort_layout_, active_camera_transient_resources, record_commands});
+          });
+      camera_render_graph.AddPass(
+          GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_overlay_pipeline_,
+                          gaussian_splat_mesh_overlay_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          gaussian_splat_layout_, active_camera_transient_resources,
+                          static_cast<uint32_t>(glm::max(camera_index, 0)), false,
+                          Platform::MeshShaderEnabled() && enable_meshlet, record_commands});
           });
     }
     if (!camera_render_graph.Validate()) {

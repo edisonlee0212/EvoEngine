@@ -49,7 +49,7 @@ def main() -> int:
         def verify_project_hub_state() -> None:
             wait_for_log(log_path, "mode:hub")
             wait_for_log(log_path, "section:Demo")
-            wait_for_log(log_path, "demo-count:6")
+            wait_for_log(log_path, "demo-count:8")
             wait_for_log(log_path, "demo-profile:rendering:")
             wait_for_log(log_path, "demo-preview:rendering:")
             wait_for_log(log_path, "recent-count:1")

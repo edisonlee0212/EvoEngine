@@ -1,0 +1,48 @@
+#extension GL_EXT_mesh_shader : enable
+#extension GL_ARB_shading_language_include : enable
+
+#define EE_GAUSSIAN_SPLAT_ENABLE_DRAW_COMMAND 1
+#include "GaussianSplat.glsl"
+
+const uint EE_GAUSSIAN_SPLAT_MESH_VERTICES_PER_TASK = EE_GAUSSIAN_SPLAT_MESH_SPLATS_PER_TASK * 4u;
+const uint EE_GAUSSIAN_SPLAT_MESH_PRIMITIVES_PER_TASK = EE_GAUSSIAN_SPLAT_MESH_SPLATS_PER_TASK * 2u;
+
+layout(local_size_x = EE_GAUSSIAN_SPLAT_MESH_VERTICES_PER_TASK) in;
+layout(triangles) out;
+layout(max_vertices = 128, max_primitives = 64) out;
+
+layout(location = 0) out VS_OUT {
+  vec3 Color;
+  vec2 LocalCoord;
+  flat float Opacity;
+  flat float CutoffRadiusSquared;
+} ms_out[];
+
+void main() {
+  const uint draw_count = EE_GAUSSIAN_SPLAT_DRAW_COUNT();
+  const uint task_splat_base = gl_WorkGroupID.x * EE_GAUSSIAN_SPLAT_MESH_SPLATS_PER_TASK;
+  const uint active_splats =
+      task_splat_base >= draw_count ? 0u : min(EE_GAUSSIAN_SPLAT_MESH_SPLATS_PER_TASK, draw_count - task_splat_base);
+  SetMeshOutputsEXT(active_splats * 4u, active_splats * 2u);
+
+  const uint vertex_index = gl_LocalInvocationID.x;
+  if (vertex_index < active_splats * 4u) {
+    const uint splat_offset = vertex_index / 4u;
+    const uint corner_index = vertex_index - splat_offset * 4u;
+    vec4 clip_position;
+    EE_GAUSSIAN_SPLAT_BUILD_VERTEX(task_splat_base + splat_offset, EE_GAUSSIAN_SPLAT_QUAD_CORNERS[corner_index],
+                                   clip_position, ms_out[vertex_index].Color, ms_out[vertex_index].LocalCoord,
+                                   ms_out[vertex_index].Opacity, ms_out[vertex_index].CutoffRadiusSquared);
+    gl_MeshVerticesEXT[vertex_index].gl_Position = clip_position;
+  }
+
+  for (uint primitive_index = vertex_index; primitive_index < active_splats * 2u;
+       primitive_index += gl_WorkGroupSize.x) {
+    const uint splat_offset = primitive_index / 2u;
+    const uint local_primitive = primitive_index - splat_offset * 2u;
+    const uint vertex_base = splat_offset * 4u;
+    gl_PrimitiveTriangleIndicesEXT[primitive_index] =
+        local_primitive == 0u ? uvec3(vertex_base, vertex_base + 1u, vertex_base + 2u)
+                              : uvec3(vertex_base + 2u, vertex_base + 1u, vertex_base + 3u);
+  }
+}

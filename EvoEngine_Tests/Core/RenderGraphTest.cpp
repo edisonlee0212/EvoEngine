@@ -2,6 +2,7 @@
 
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
+#include "RenderPasses/GaussianSplatPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
@@ -1711,6 +1712,154 @@ TEST(RenderGraph, VolumetricCloudRasterAndRayTracingDescriptorsUseSharedCameraPa
   }
 }
 
+TEST(RenderGraph, GaussianSplatDescriptorCompositesAfterDeferredLighting) {
+  const auto cull_descriptor = GaussianSplatCullPass::CreateDescriptor(nullptr);
+
+  EXPECT_EQ(cull_descriptor.name, RenderPassNames::gaussian_splat_cull);
+  EXPECT_EQ(cull_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(cull_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(cull_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(cull_descriptor.dependencies[0], RenderPassNames::deferred_camera);
+  ASSERT_EQ(cull_descriptor.resources.size(), 3);
+  EXPECT_EQ(cull_descriptor.resources[0].resource_name, RenderResourceNames::frame_render_instances);
+  EXPECT_EQ(cull_descriptor.resources[0].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(cull_descriptor.resources[0].state, RenderResourceState::ShaderRead);
+  EXPECT_EQ(cull_descriptor.resources[1].resource_name, RenderResourceNames::frame_per_frame_descriptor_set);
+  EXPECT_EQ(cull_descriptor.resources[1].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(cull_descriptor.resources[1].state, RenderResourceState::General);
+  EXPECT_EQ(cull_descriptor.resources[2].resource_name, RenderResourceNames::camera_gaussian_splat_prepass);
+  EXPECT_EQ(cull_descriptor.resources[2].usage, RenderResourceUsage::Write);
+  EXPECT_EQ(cull_descriptor.resources[2].state, RenderResourceState::StorageReadWrite);
+
+  const auto sort_descriptor = GaussianSplatSortPass::CreateDescriptor(nullptr);
+
+  EXPECT_EQ(sort_descriptor.name, RenderPassNames::gaussian_splat_sort);
+  EXPECT_EQ(sort_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(sort_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(sort_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(sort_descriptor.dependencies[0], RenderPassNames::gaussian_splat_cull);
+  ASSERT_EQ(sort_descriptor.resources.size(), 2);
+  EXPECT_EQ(sort_descriptor.resources[0].resource_name, RenderResourceNames::frame_render_instances);
+  EXPECT_EQ(sort_descriptor.resources[0].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(sort_descriptor.resources[0].state, RenderResourceState::ShaderRead);
+  EXPECT_EQ(sort_descriptor.resources[1].resource_name, RenderResourceNames::camera_gaussian_splat_prepass);
+  EXPECT_EQ(sort_descriptor.resources[1].usage, RenderResourceUsage::ReadWrite);
+  EXPECT_EQ(sort_descriptor.resources[1].state, RenderResourceState::StorageReadWrite);
+
+  const auto descriptor = GaussianSplatPass::CreateDescriptor(nullptr);
+
+  EXPECT_EQ(descriptor.name, RenderPassNames::gaussian_splat);
+  EXPECT_EQ(descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(descriptor.dependencies.size(), 1);
+  EXPECT_EQ(descriptor.dependencies[0], RenderPassNames::deferred_camera);
+  ASSERT_EQ(descriptor.resources.size(), 5);
+  EXPECT_EQ(descriptor.resources[0].resource_name, RenderResourceNames::frame_render_instances);
+  EXPECT_EQ(descriptor.resources[0].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(descriptor.resources[0].state, RenderResourceState::ShaderRead);
+  EXPECT_EQ(descriptor.resources[1].resource_name, RenderResourceNames::frame_per_frame_descriptor_set);
+  EXPECT_EQ(descriptor.resources[1].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(descriptor.resources[1].state, RenderResourceState::General);
+  EXPECT_EQ(descriptor.resources[2].resource_name, RenderResourceNames::camera_gaussian_splat_prepass);
+  EXPECT_EQ(descriptor.resources[2].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(descriptor.resources[2].state, RenderResourceState::ShaderRead);
+  EXPECT_EQ(descriptor.resources[3].resource_name, RenderResourceNames::camera_depth);
+  EXPECT_EQ(descriptor.resources[3].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(descriptor.resources[3].state, RenderResourceState::DepthAttachment);
+  EXPECT_EQ(descriptor.resources[4].resource_name, RenderResourceNames::camera_color);
+  EXPECT_EQ(descriptor.resources[4].usage, RenderResourceUsage::ReadWrite);
+  EXPECT_EQ(descriptor.resources[4].state, RenderResourceState::ColorAttachment);
+
+  const auto cloud_dependent_descriptor = GaussianSplatPass::CreateDescriptor(RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(cloud_dependent_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(cloud_dependent_descriptor.dependencies[0], RenderPassNames::volumetric_clouds);
+
+  const auto overlay_descriptor = GaussianSplatPass::CreateOverlayDescriptor(nullptr);
+  EXPECT_EQ(overlay_descriptor.name, RenderPassNames::gaussian_splat);
+  EXPECT_EQ(overlay_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(overlay_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(overlay_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(overlay_descriptor.dependencies[0], RenderPassNames::ray_tracing_camera);
+  ASSERT_EQ(overlay_descriptor.resources.size(), 4);
+  EXPECT_EQ(overlay_descriptor.resources[0].resource_name, RenderResourceNames::frame_render_instances);
+  EXPECT_EQ(overlay_descriptor.resources[1].resource_name, RenderResourceNames::frame_per_frame_descriptor_set);
+  EXPECT_EQ(overlay_descriptor.resources[2].resource_name, RenderResourceNames::camera_gaussian_splat_prepass);
+  EXPECT_EQ(overlay_descriptor.resources[2].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(overlay_descriptor.resources[2].state, RenderResourceState::ShaderRead);
+  EXPECT_EQ(overlay_descriptor.resources[3].resource_name, RenderResourceNames::camera_color);
+  EXPECT_EQ(overlay_descriptor.resources[3].usage, RenderResourceUsage::ReadWrite);
+  EXPECT_EQ(overlay_descriptor.resources[3].state, RenderResourceState::ColorAttachment);
+}
+
+TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
+  RenderGraph graph;
+  AddDefaultRasterCameraResources(graph);
+  AddVolumetricCloudCameraResources(graph);
+  AddGaussianSplatCameraResources(graph);
+
+  graph.AddPass(
+      {RenderPassNames::deferred_camera,
+       RenderPassQueue::Graphics,
+       RenderPassScope::Camera,
+       {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
+      []() {
+      });
+  graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera), []() {
+  });
+  graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
+  });
+  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
+  });
+  graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort), []() {
+  });
+  graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::gaussian_splat), []() {
+  });
+
+  ASSERT_TRUE(graph.Validate());
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(graph.GetPasses().size(), 6);
+  EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(graph.GetPasses()[2].name, RenderPassNames::gaussian_splat_cull);
+  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::gaussian_splat_sort);
+  EXPECT_EQ(graph.GetPasses()[4].name, RenderPassNames::gaussian_splat);
+  ASSERT_EQ(graph.GetPasses()[2].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[2].dependencies[0], RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(graph.GetPasses()[3].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[3].dependencies[0], RenderPassNames::gaussian_splat_cull);
+  ASSERT_EQ(graph.GetPasses()[4].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[4].dependencies[0], RenderPassNames::gaussian_splat_sort);
+  ASSERT_EQ(graph.GetPasses()[5].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[5].dependencies[0], RenderPassNames::gaussian_splat);
+  ASSERT_EQ(plan.passes[2].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[2].dependency_indices[0], 1);
+  ASSERT_EQ(plan.passes[3].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[3].dependency_indices[0], 2);
+  ASSERT_EQ(plan.passes[4].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[4].dependency_indices[0], 3);
+  ASSERT_EQ(plan.passes[5].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[5].dependency_indices[0], 4);
+
+  const auto color_transition = std::find_if(
+      plan.transitions.begin(), plan.transitions.end(), [&](const RenderResourceTransitionPlan& transition) {
+        return graph.GetResources()[transition.resource_index].name == RenderResourceNames::camera_color &&
+               transition.pass_index == 4;
+      });
+  ASSERT_NE(color_transition, plan.transitions.end());
+  EXPECT_EQ(color_transition->previous_state, RenderResourceState::StorageReadWrite);
+  EXPECT_EQ(color_transition->next_state, RenderResourceState::ColorAttachment);
+
+  const auto prepass_transition = std::find_if(plan.transitions.begin(), plan.transitions.end(),
+                                               [&](const RenderResourceTransitionPlan& transition) {
+                                                 return graph.GetResources()[transition.resource_index].name ==
+                                                            RenderResourceNames::camera_gaussian_splat_prepass &&
+                                                        transition.pass_index == 4;
+                                               });
+  ASSERT_NE(prepass_transition, plan.transitions.end());
+  EXPECT_EQ(prepass_transition->previous_state, RenderResourceState::StorageReadWrite);
+  EXPECT_EQ(prepass_transition->next_state, RenderResourceState::ShaderRead);
+}
+
 TEST(RenderGraph, VolumetricCloudRasterPassRunsBetweenDeferredLightingAndPostProcessing) {
   RenderGraph graph;
   AddDefaultRasterCameraResources(graph);
@@ -1785,6 +1934,55 @@ TEST(RenderGraph, VolumetricCloudRayTracingPassConsumesRayHitDistanceAfterRayTra
                                   access.usage == RenderResourceUsage::Read;
                          }),
             cloud_resources.end());
+}
+
+TEST(RenderGraph, GaussianSplatOverlayRunsAfterRayTracingClouds) {
+  RenderGraph graph;
+  AddDefaultRayTracingCameraResources(graph);
+  AddVolumetricCloudCameraResources(graph);
+  AddGaussianSplatCameraResources(graph);
+
+  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), []() {
+  });
+  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera), []() {
+  });
+  graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
+  });
+  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
+  });
+  graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort), []() {
+  });
+
+  ASSERT_TRUE(graph.Validate());
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(graph.GetPasses().size(), 5);
+  EXPECT_EQ(graph.GetPasses()[0].name, RenderPassNames::ray_tracing_camera);
+  EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
+  EXPECT_EQ(graph.GetPasses()[2].name, RenderPassNames::gaussian_splat_cull);
+  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::gaussian_splat_sort);
+  EXPECT_EQ(graph.GetPasses()[4].name, RenderPassNames::gaussian_splat);
+  ASSERT_EQ(graph.GetPasses()[2].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[2].dependencies[0], RenderPassNames::volumetric_clouds);
+  ASSERT_EQ(graph.GetPasses()[3].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[3].dependencies[0], RenderPassNames::gaussian_splat_cull);
+  ASSERT_EQ(graph.GetPasses()[4].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[4].dependencies[0], RenderPassNames::gaussian_splat_sort);
+  ASSERT_EQ(plan.passes[2].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[2].dependency_indices[0], 1);
+  ASSERT_EQ(plan.passes[3].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[3].dependency_indices[0], 2);
+  ASSERT_EQ(plan.passes[4].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[4].dependency_indices[0], 3);
+
+  const auto color_transition = std::find_if(
+      plan.transitions.begin(), plan.transitions.end(), [&](const RenderResourceTransitionPlan& transition) {
+        return graph.GetResources()[transition.resource_index].name == RenderResourceNames::camera_color &&
+               transition.pass_index == 4;
+      });
+  ASSERT_NE(color_transition, plan.transitions.end());
+  EXPECT_EQ(color_transition->previous_state, RenderResourceState::StorageReadWrite);
+  EXPECT_EQ(color_transition->next_state, RenderResourceState::ColorAttachment);
 }
 
 TEST(RenderGraph, AdvancedResourcesDescribeHistoryAndVisibilityInputs) {

@@ -13,6 +13,8 @@
 #include "AssetThumbnailProvider.hpp"
 #include "Camera.hpp"
 #include "FileManager.hpp"
+#include "GaussianSplat.hpp"
+#include "GaussianSplatRenderer.hpp"
 #include "IAsset.hpp"
 #include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
@@ -33,6 +35,7 @@
 #include "Prefab.hpp"
 #include "ProceduralNoise.hpp"
 #include "ProjectManager.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
@@ -50,6 +53,7 @@
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <thread>
 
 using namespace evo_engine;
 
@@ -418,6 +422,76 @@ void BeginMap(YAML::Emitter& out) {
   out << YAML::BeginMap;
 }
 
+void WriteFloat(std::ofstream& stream, const float value) {
+  stream.write(reinterpret_cast<const char*>(&value), sizeof(float));
+}
+
+std::filesystem::path WriteGaussianSplatPlyFixture(const std::filesystem::path& directory, const bool include_rest) {
+  const auto path = directory / (include_rest ? "GaussianSplatFixtureWithRest.ply" : "GaussianSplatFixture.ply");
+  std::ofstream stream(path, std::ios::binary);
+  stream << "ply\n";
+  stream << "format binary_little_endian 1.0\n";
+  stream << "element vertex 2\n";
+  const std::vector<std::string> properties = {"x",      "y",      "z",       "scale_0", "scale_1", "scale_2", "f_dc_0",
+                                               "f_dc_1", "f_dc_2", "opacity", "rot_0",   "rot_1",   "rot_2",   "rot_3"};
+  for (const auto& property : properties) {
+    stream << "property float " << property << "\n";
+  }
+  if (include_rest) {
+    stream << "property float f_rest_0\n";
+    stream << "property float f_rest_1\n";
+    stream << "property float f_rest_2\n";
+  }
+  stream << "end_header\n";
+
+  const std::array<std::vector<float>, 2> rows = {
+      std::vector<float>{-1.0f, 2.0f, 3.0f, 0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 1.0f, 0.0f, 0.0f, 0.0f, 0.01f,
+                         0.02f, 0.03f},
+      std::vector<float>{4.0f, -5.0f, 6.0f, 0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 0.0f, 1.0f, 0.0f, 0.0f, 0.04f,
+                         0.05f, 0.06f}};
+  for (const auto& row : rows) {
+    const auto value_count = include_rest ? row.size() : properties.size();
+    for (size_t i = 0; i < value_count; ++i) {
+      WriteFloat(stream, row[i]);
+    }
+  }
+  return path;
+}
+
+std::filesystem::path WriteInvalidGaussianSplatPlyFixture(const std::filesystem::path& directory) {
+  const auto path = directory / "InvalidGaussianSplatFixture.ply";
+  std::ofstream stream(path, std::ios::binary);
+  stream << "ply\n";
+  stream << "format binary_little_endian 1.0\n";
+  stream << "element vertex 1\n";
+  stream << "property float x\n";
+  stream << "property float y\n";
+  stream << "property float z\n";
+  stream << "end_header\n";
+  WriteFloat(stream, 0.0f);
+  WriteFloat(stream, 0.0f);
+  WriteFloat(stream, 0.0f);
+  return path;
+}
+
+GaussianSplat CreateGaussianSplatFixture() {
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, -5.0f, 6.0f)};
+  gaussian_splat.scales = {glm::vec3(0.1f, 0.2f, 0.3f), glm::vec3(0.8f, 0.9f, 1.0f)};
+  gaussian_splat.rotations = {glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)};
+  gaussian_splat.opacities = {1.25f, 0.25f};
+  gaussian_splat.colors = {glm::vec3(1.2f, -0.2f, 0.5f), glm::vec3(0.25f, 0.5f, 0.75f)};
+  gaussian_splat.spherical_harmonics_rest = {0.01f, 0.02f, 0.03f, 0.04f};
+  gaussian_splat.spherical_harmonics_rest_float_count = 2;
+  gaussian_splat.RecalculateBoundingBox();
+  return gaussian_splat;
+}
+
+std::vector<uint8_t> ReadBinaryFile(const std::filesystem::path& path) {
+  std::ifstream stream(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+
 std::vector<Handle> ReadMaterialTextureHandles(const std::string& saved_text) {
   std::vector<Handle> texture_handles;
   std::istringstream stream(saved_text);
@@ -551,6 +625,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Camera).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Animator).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(MeshRenderer).hash_code()), nullptr);
+  ASSERT_NE(Serialization::FindSerializationHandler(typeid(GaussianSplatRenderer).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(StrandsRenderer).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(SkinnedMeshRenderer).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Particles).hash_code()), nullptr);
@@ -570,6 +645,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(procedural_noise::ProceduralNoise3D).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(procedural_noise::ProceduralNoise4D).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(PointCloud).hash_code()), nullptr);
+  ASSERT_NE(Serialization::FindSerializationHandler(typeid(GaussianSplat).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Texture2D).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Animation).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(ParticleInfoList).hash_code()), nullptr);
@@ -794,6 +870,32 @@ tone_mapping:
   EXPECT_DOUBLE_EQ(restored_point_cloud.GetMinBound().x, -1.0);
   EXPECT_DOUBLE_EQ(restored_point_cloud.GetMaxBound().z, 6.0);
 
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, 5.0f, 6.0f)};
+  gaussian_splat.scales = {glm::vec3(0.1f, 0.2f, 0.3f), glm::vec3(0.4f, 0.5f, 0.6f)};
+  gaussian_splat.rotations = {glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)};
+  gaussian_splat.opacities = {0.7f, 0.8f};
+  gaussian_splat.colors = {glm::vec3(0.9f, 1.0f, 1.1f), glm::vec3(1.2f, 1.3f, 1.4f)};
+  gaussian_splat.spherical_harmonics_rest = {0.01f, 0.02f, 0.03f, 0.04f};
+  gaussian_splat.spherical_harmonics_rest_float_count = 2;
+  gaussian_splat.RecalculateBoundingBox();
+  YAML::Emitter gaussian_splat_out;
+  BeginMap(gaussian_splat_out);
+  Serialization::SerializeObject(gaussian_splat_out, static_cast<IAsset&>(gaussian_splat));
+  gaussian_splat_out << YAML::EndMap;
+  const auto gaussian_splat_node = YAML::Load(gaussian_splat_out.c_str());
+  EXPECT_EQ(gaussian_splat_node["positions"].as<YAML::Binary>().size(), 2 * sizeof(glm::vec3));
+  EXPECT_EQ(gaussian_splat_node["spherical_harmonics_rest_float_count"].as<uint32_t>(), 2u);
+
+  GaussianSplat restored_gaussian_splat;
+  Serialization::DeserializeObject(gaussian_splat_node, static_cast<IAsset&>(restored_gaussian_splat));
+  EXPECT_EQ(restored_gaussian_splat.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored_gaussian_splat.GetMinBound().x, -1.0f);
+  EXPECT_FLOAT_EQ(restored_gaussian_splat.GetMaxBound().z, 6.0f);
+  EXPECT_FLOAT_EQ(restored_gaussian_splat.scales[1].y, 0.5f);
+  EXPECT_FLOAT_EQ(restored_gaussian_splat.opacities[1], 0.8f);
+  EXPECT_EQ(restored_gaussian_splat.spherical_harmonics_rest.size(), 4);
+
   Texture2D texture;
   texture.SetRgbaChannelData({glm::vec4(1.0f, 0.5f, 0.25f, 1.0f)}, glm::uvec2(1, 1));
   YAML::Emitter texture_out;
@@ -947,6 +1049,380 @@ tone_mapping:
   EXPECT_TRUE(restored_skinned_mesh_renderer.RagDoll());
   EXPECT_TRUE(restored_skinned_mesh_renderer.rag_doll_freeze);
   EXPECT_EQ(restored_skinned_mesh_renderer.PeekRagDollTransformChain().size(), 1);
+}
+
+TEST(SerializationRegistry, GaussianSplatLoadsStandardPlyFields) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  const auto path = WriteGaussianSplatPlyFixture(project.RootPath(), true);
+
+  GaussianSplat gaussian_splat;
+  ASSERT_TRUE(gaussian_splat.LoadPly(path));
+  ASSERT_EQ(gaussian_splat.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(gaussian_splat.positions[0].x, -1.0f);
+  EXPECT_FLOAT_EQ(gaussian_splat.positions[1].y, -5.0f);
+  EXPECT_FLOAT_EQ(gaussian_splat.scales[0].z, 0.3f);
+  EXPECT_FLOAT_EQ(gaussian_splat.colors[1].x, 1.1f);
+  EXPECT_FLOAT_EQ(gaussian_splat.opacities[1], 1.4f);
+  EXPECT_FLOAT_EQ(gaussian_splat.rotations[0].x, 1.0f);
+  EXPECT_EQ(gaussian_splat.spherical_harmonics_rest_float_count, 3u);
+  ASSERT_EQ(gaussian_splat.spherical_harmonics_rest.size(), 6);
+  EXPECT_FLOAT_EQ(gaussian_splat.spherical_harmonics_rest[4], 0.05f);
+  EXPECT_FLOAT_EQ(gaussian_splat.GetMinBound().y, -5.0f);
+  EXPECT_FLOAT_EQ(gaussian_splat.GetMaxBound().z, 6.0f);
+}
+
+TEST(SerializationRegistry, GaussianSplatRejectsPlyWithoutRequiredFields) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  const auto path = WriteInvalidGaussianSplatPlyFixture(project.RootPath());
+
+  GaussianSplat gaussian_splat;
+  EXPECT_FALSE(gaussian_splat.LoadPly(path));
+  EXPECT_TRUE(gaussian_splat.Empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatSavesPlyRoundTripPreservesRestFields) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto path = project.RootPath() / "roundtrip.ply";
+
+  ASSERT_TRUE(gaussian_splat.SavePly(path));
+  GaussianSplat restored;
+  ASSERT_TRUE(restored.LoadPly(path));
+  ASSERT_EQ(restored.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored.positions[1].z, 6.0f);
+  EXPECT_FLOAT_EQ(restored.scales[0].y, 0.2f);
+  EXPECT_FLOAT_EQ(restored.colors[0].x, 1.2f);
+  EXPECT_FLOAT_EQ(restored.opacities[0], 1.25f);
+  EXPECT_FLOAT_EQ(restored.rotations[1].y, 1.0f);
+  EXPECT_EQ(restored.spherical_harmonics_rest_float_count, 2u);
+  ASSERT_EQ(restored.spherical_harmonics_rest.size(), 4);
+  EXPECT_FLOAT_EQ(restored.spherical_harmonics_rest[3], 0.04f);
+}
+
+TEST(SerializationRegistry, GaussianSplatSavesAndLoadsStandardSplatRows) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto path = project.RootPath() / "fixture.splat";
+
+  testing::internal::CaptureStderr();
+  ASSERT_TRUE(gaussian_splat.SaveSplat(path));
+  const auto warning = testing::internal::GetCapturedStderr();
+  EXPECT_NE(warning.find("drops spherical_harmonics_rest"), std::string::npos);
+
+  const auto bytes = ReadBinaryFile(path);
+  ASSERT_EQ(bytes.size(), 64);
+  float first_x = 0.0f;
+  float first_scale_z = 0.0f;
+  std::memcpy(&first_x, bytes.data(), sizeof(float));
+  std::memcpy(&first_scale_z, bytes.data() + 20, sizeof(float));
+  EXPECT_FLOAT_EQ(first_x, -1.0f);
+  EXPECT_FLOAT_EQ(first_scale_z, 0.3f);
+  EXPECT_EQ(bytes[24], 255);
+  EXPECT_EQ(bytes[25], 0);
+  EXPECT_EQ(bytes[26], 128);
+  EXPECT_EQ(bytes[27], 255);
+  EXPECT_EQ(bytes[28], 255);
+  EXPECT_EQ(bytes[29], 128);
+  EXPECT_EQ(bytes[30], 128);
+  EXPECT_EQ(bytes[31], 128);
+
+  GaussianSplat restored;
+  ASSERT_TRUE(restored.LoadSplat(path));
+  ASSERT_EQ(restored.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored.positions[0].x, -1.0f);
+  EXPECT_FLOAT_EQ(restored.scales[1].z, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].x, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].y, 0.0f);
+  EXPECT_NEAR(restored.colors[0].z, 128.0f / 255.0f, 0.0001f);
+  EXPECT_FLOAT_EQ(restored.opacities[0], 1.0f);
+  EXPECT_EQ(restored.spherical_harmonics_rest_float_count, 0u);
+  EXPECT_TRUE(restored.spherical_harmonics_rest.empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatRejectsInvalidSplatByteSize) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  const auto path = project.RootPath() / "invalid.splat";
+  std::ofstream stream(path, std::ios::binary);
+  stream << "not a splat";
+  stream.close();
+
+  GaussianSplat gaussian_splat;
+  EXPECT_FALSE(gaussian_splat.LoadSplat(path));
+}
+
+TEST(SerializationRegistry, GaussianSplatSavesAndLoadsUncompressedKSplat) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto path = project.RootPath() / "fixture.ksplat";
+
+  testing::internal::CaptureStderr();
+  ASSERT_TRUE(gaussian_splat.SaveKSplat(path));
+  const auto warning = testing::internal::GetCapturedStderr();
+  EXPECT_NE(warning.find("drops spherical_harmonics_rest"), std::string::npos);
+  EXPECT_EQ(std::filesystem::file_size(path), 4096u + 1024u + 88u);
+
+  GaussianSplat restored;
+  ASSERT_TRUE(restored.LoadKSplat(path));
+  ASSERT_EQ(restored.GetSplatCount(), 2);
+  EXPECT_FLOAT_EQ(restored.positions[0].x, -1.0f);
+  EXPECT_FLOAT_EQ(restored.scales[1].z, 1.0f);
+  EXPECT_FLOAT_EQ(restored.rotations[1].y, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].x, 1.0f);
+  EXPECT_FLOAT_EQ(restored.colors[0].y, 0.0f);
+  EXPECT_NEAR(restored.colors[0].z, 128.0f / 255.0f, 0.0001f);
+  EXPECT_FLOAT_EQ(restored.opacities[0], 1.0f);
+  EXPECT_EQ(restored.spherical_harmonics_rest_float_count, 0u);
+  EXPECT_TRUE(restored.spherical_harmonics_rest.empty());
+}
+
+TEST(SerializationRegistry, GaussianSplatRejectsUnsupportedKSplatVersionsAndCompression) {
+  Application app;
+  ApplicationContextScope scope(app);
+  TempProject project;
+  auto gaussian_splat = CreateGaussianSplatFixture();
+  const auto version_path = project.RootPath() / "unsupported-version.ksplat";
+  const auto compression_path = project.RootPath() / "unsupported-compression.ksplat";
+  ASSERT_TRUE(gaussian_splat.SaveKSplat(version_path));
+  std::filesystem::copy_file(version_path, compression_path);
+
+  {
+    std::fstream stream(version_path, std::ios::binary | std::ios::in | std::ios::out);
+    const uint8_t version = 1;
+    stream.write(reinterpret_cast<const char*>(&version), sizeof(version));
+  }
+  {
+    std::fstream stream(compression_path, std::ios::binary | std::ios::in | std::ios::out);
+    const uint16_t compression_level = 1;
+    stream.seekp(20);
+    stream.write(reinterpret_cast<const char*>(&compression_level), sizeof(compression_level));
+  }
+
+  GaussianSplat restored;
+  EXPECT_FALSE(restored.LoadKSplat(version_path));
+  EXPECT_FALSE(restored.LoadKSplat(compression_path));
+}
+
+TEST(SerializationRegistry, GaussianSplatRegisteredExtensionsIncludeInterchangeFormats) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto& extensions = Serialization::PeekAssetExtensions("GaussianSplat");
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".evegaussiansplat"), extensions.end());
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".ply"), extensions.end());
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".splat"), extensions.end());
+  EXPECT_NE(std::find(extensions.begin(), extensions.end(), ".ksplat"), extensions.end());
+}
+
+TEST(SerializationRegistry, GaussianSplatBuildsGpuDataWithoutRepackingStaticAsset) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, -5.0f, 6.0f)};
+  gaussian_splat.scales = {glm::vec3(0.1f, 0.2f, 0.3f), glm::vec3(0.4f, 0.5f, 0.6f)};
+  gaussian_splat.rotations = {glm::vec4(1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 0.0f)};
+  gaussian_splat.opacities = {0.7f, 0.8f};
+  gaussian_splat.colors = {glm::vec3(0.9f, 1.0f, 1.1f), glm::vec3(1.2f, 1.3f, 1.4f)};
+  gaussian_splat.spherical_harmonics_rest = {0.01f, 0.02f, 0.03f, 0.04f};
+  gaussian_splat.spherical_harmonics_rest_float_count = 2;
+  gaussian_splat.RecalculateBoundingBox();
+
+  const auto& gpu_data = gaussian_splat.EnsureGpuData();
+  ASSERT_EQ(gpu_data.size(), 2);
+  EXPECT_FLOAT_EQ(gpu_data[0].position_opacity.x, -1.0f);
+  EXPECT_FLOAT_EQ(gpu_data[0].position_opacity.w, 0.7f);
+  EXPECT_FLOAT_EQ(gpu_data[1].scale_reserved.y, 0.5f);
+  EXPECT_FLOAT_EQ(gpu_data[1].rotation.y, 1.0f);
+  EXPECT_FLOAT_EQ(gpu_data[1].color_rest_offset.z, 1.4f);
+  EXPECT_FLOAT_EQ(gpu_data[1].color_rest_offset.w, 2.0f);
+
+  const auto revision = gaussian_splat.GetGpuDataRevision();
+  (void)gaussian_splat.EnsureGpuData();
+  EXPECT_EQ(gaussian_splat.GetGpuDataRevision(), revision);
+  EXPECT_EQ(gaussian_splat.GetGpuDataBuffer(), nullptr);
+
+  gaussian_splat.positions[0].z = 9.0f;
+  gaussian_splat.RecalculateBoundingBox();
+  const auto& updated_gpu_data = gaussian_splat.EnsureGpuData();
+  EXPECT_GT(gaussian_splat.GetGpuDataRevision(), revision);
+  EXPECT_FLOAT_EQ(updated_gpu_data[0].position_opacity.z, 9.0f);
+}
+
+TEST(SerializationRegistry, GaussianSplatReportsAvailableSphericalHarmonicsDegree) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions.resize(2);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsRestFloatCount(), 0u);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 0u);
+
+  gaussian_splat.spherical_harmonics_rest_float_count = 9;
+  gaussian_splat.spherical_harmonics_rest.assign(18, 0.0f);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsRestFloatCount(), 9u);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 1u);
+
+  gaussian_splat.spherical_harmonics_rest_float_count = 24;
+  gaussian_splat.spherical_harmonics_rest.assign(48, 0.0f);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 2u);
+
+  gaussian_splat.spherical_harmonics_rest_float_count = 45;
+  gaussian_splat.spherical_harmonics_rest.assign(90, 0.0f);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 3u);
+
+  gaussian_splat.spherical_harmonics_rest.resize(10);
+  EXPECT_EQ(gaussian_splat.GetSphericalHarmonicsDegree(), 0u);
+}
+
+TEST(SerializationRegistry, GaussianSplatSortCacheRefreshesForCameraTransform) {
+  Application app;
+  ApplicationContextScope scope(app);
+
+  GaussianSplat gaussian_splat;
+  gaussian_splat.positions = {glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 0.0f, -5.0f), glm::vec3(0.0f, 0.0f, -3.0f)};
+  gaussian_splat.RecalculateBoundingBox();
+
+  const auto& cache = gaussian_splat.EnsureSortedIndices(Handle(101), Handle(301), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(cache.indices, (std::vector<uint32_t>{1, 2, 0}));
+  ASSERT_EQ(cache.depths.size(), 3);
+  EXPECT_FLOAT_EQ(cache.depths[0], 5.0f);
+  EXPECT_FLOAT_EQ(cache.depths[2], 1.0f);
+  const auto generation = cache.generation;
+
+  const auto& unchanged_cache =
+      gaussian_splat.EnsureSortedIndices(Handle(101), Handle(301), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(unchanged_cache.generation, generation);
+
+  const auto rotated_model = glm::rotate(glm::mat4(1.0f), glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+  const auto wait_for_sort = [&](const Handle camera_handle, const Handle renderer_handle, const glm::mat4& model,
+                                 const std::vector<uint32_t>& expected_indices) {
+    for (size_t attempt = 0; attempt < 200; ++attempt) {
+      const auto& current = gaussian_splat.EnsureSortedIndices(camera_handle, renderer_handle, model, glm::mat4(1.0f));
+      if (current.indices == expected_indices) {
+        return current.generation;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    const auto& current = gaussian_splat.EnsureSortedIndices(camera_handle, renderer_handle, model, glm::mat4(1.0f));
+    EXPECT_EQ(current.indices, expected_indices);
+    return current.generation;
+  };
+
+  const auto& stale_rotated_cache =
+      gaussian_splat.EnsureSortedIndices(Handle(101), Handle(301), rotated_model, glm::mat4(1.0f));
+  EXPECT_EQ(stale_rotated_cache.indices, (std::vector<uint32_t>{1, 2, 0}));
+  EXPECT_EQ(stale_rotated_cache.generation, generation);
+  const auto rotated_generation = wait_for_sort(Handle(101), Handle(301), rotated_model, {0, 2, 1});
+  EXPECT_GT(rotated_generation, generation);
+
+  const auto& other_camera_cache =
+      gaussian_splat.EnsureSortedIndices(Handle(202), Handle(301), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(other_camera_cache.indices, (std::vector<uint32_t>{1, 2, 0}));
+  EXPECT_EQ(other_camera_cache.generation, 1);
+
+  const auto& shared_camera_other_renderer =
+      gaussian_splat.EnsureSortedIndices(Handle(101), Handle(302), glm::mat4(1.0f), glm::mat4(1.0f));
+  EXPECT_EQ(shared_camera_other_renderer.indices, (std::vector<uint32_t>{1, 2, 0}));
+  EXPECT_EQ(shared_camera_other_renderer.generation, 1);
+
+  const auto& restored_first_renderer =
+      gaussian_splat.EnsureSortedIndices(Handle(101), Handle(301), rotated_model, glm::mat4(1.0f));
+  EXPECT_EQ(restored_first_renderer.indices, (std::vector<uint32_t>{0, 2, 1}));
+  EXPECT_EQ(restored_first_renderer.generation, rotated_generation);
+}
+
+TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto gaussian_splat = AssetManager::CreateTemporaryAsset<GaussianSplat>();
+  ASSERT_TRUE(gaussian_splat);
+
+  GaussianSplatRenderer renderer;
+  renderer.gaussian_splat.Set<GaussianSplat>(gaussian_splat);
+  renderer.opacity_scale = 0.5f;
+  renderer.sh_degree = 2;
+  renderer.sort_mode = GaussianSplatSortMode::GpuRadix;
+  renderer.depth_mode = GaussianSplatDepthMode::Always;
+  renderer.raster_mode = GaussianSplatRasterMode::Mesh;
+
+  YAML::Emitter out;
+  BeginMap(out);
+  Serialization::SerializeObject(out, static_cast<IPrivateComponent&>(renderer));
+  out << YAML::EndMap;
+  const auto node = YAML::Load(out.c_str());
+
+  GaussianSplatRenderer restored;
+  Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored));
+  EXPECT_EQ(restored.gaussian_splat.GetAssetHandle(), gaussian_splat->GetHandle());
+  EXPECT_FLOAT_EQ(restored.opacity_scale, 0.5f);
+  EXPECT_EQ(restored.sh_degree, 2);
+  EXPECT_EQ(restored.sort_mode, GaussianSplatSortMode::GpuRadix);
+  EXPECT_EQ(restored.depth_mode, GaussianSplatDepthMode::Always);
+  EXPECT_EQ(restored.raster_mode, GaussianSplatRasterMode::Mesh);
+
+  std::vector<AssetRef> asset_refs;
+  Serialization::CollectAssetRefs(static_cast<IPrivateComponent&>(renderer), asset_refs);
+  ASSERT_EQ(asset_refs.size(), 1);
+  EXPECT_EQ(asset_refs.front().GetAssetHandle(), gaussian_splat->GetHandle());
+}
+
+TEST(SerializationRegistry, GaussianSplatRendererSceneCollectionSkipsInvalidRenderers) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(scene);
+  app.Attach(scene);
+  for (const auto& camera_entity : scene->GetPrivateComponentOwnersList<Camera>()) {
+    const auto camera = scene->GetOrSetPrivateComponent<Camera>(camera_entity).lock();
+    ASSERT_TRUE(camera);
+    camera->SetEnabled(false);
+  }
+
+  const auto gaussian_splat = AssetManager::CreateTemporaryAsset<GaussianSplat>();
+  ASSERT_TRUE(gaussian_splat);
+  gaussian_splat->positions = {glm::vec3(-1.0f, 2.0f, 3.0f), glm::vec3(4.0f, -5.0f, 6.0f)};
+  gaussian_splat->RecalculateBoundingBox();
+
+  const auto entity = scene->CreateEntity("Gaussian");
+  const auto renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(entity).lock();
+  ASSERT_TRUE(renderer);
+  renderer->gaussian_splat.Set<GaussianSplat>(gaussian_splat);
+
+  RenderInstanceStorage storage;
+  Bound world_bound;
+  storage.BuildFromScene({}, scene, world_bound, false);
+  ASSERT_EQ(storage.GetInstanceInfoBlocks().size(), 1);
+  EXPECT_EQ(storage.GetRenderInstanceIndex(renderer->GetHandle()), 0);
+  EXPECT_EQ(storage.GetInstanceRendererHandle(0), renderer->GetHandle());
+  EXPECT_EQ(storage.GetInstanceEntityHandle(0), scene->GetEntityHandle(entity));
+
+  renderer->SetEnabled(false);
+  storage.Clear();
+  storage.BuildFromScene({}, scene, world_bound, false);
+  EXPECT_TRUE(storage.GetInstanceInfoBlocks().empty());
+
+  renderer->SetEnabled(true);
+  renderer->gaussian_splat.Clear();
+  storage.Clear();
+  storage.BuildFromScene({}, scene, world_bound, false);
+  EXPECT_TRUE(storage.GetInstanceInfoBlocks().empty());
 }
 
 TEST(SerializationRegistry, UsesExactRegisteredHandlerBeforeDefaultHandler) {

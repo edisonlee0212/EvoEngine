@@ -1,0 +1,67 @@
+layout(local_size_x = 512, local_size_y = 1, local_size_z = 1) in;
+
+const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
+const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION = 8u;
+const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_SIZE = EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION * 512u;
+
+struct DrawIndirectCommand {
+  uint vertexCount;
+  uint instanceCount;
+  uint firstVertex;
+  uint firstInstance;
+};
+
+layout(set = 0, binding = 0) readonly buffer EE_GAUSSIAN_SPLAT_INDIRECT_DRAW_BLOCK {
+  DrawIndirectCommand EE_GAUSSIAN_SPLAT_DRAW_COMMAND;
+};
+
+layout(set = 0, binding = 1) buffer EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM_BLOCK {
+  uint EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[];
+};
+
+layout(set = 0, binding = 2) buffer EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM_BLOCK {
+  uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[];
+};
+
+layout(set = 0, binding = 3) readonly buffer EE_GAUSSIAN_SPLAT_RADIX_KEY_INPUT_BLOCK {
+  uint EE_GAUSSIAN_SPLAT_RADIX_KEYS_IN[];
+};
+
+layout(push_constant) uniform EE_GAUSSIAN_SPLAT_RADIX_CONSTANTS {
+  uvec4 pass_count_partition_reserved;
+};
+
+shared uint EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[EE_GAUSSIAN_SPLAT_RADIX];
+
+void main() {
+  const uint index = gl_LocalInvocationID.x;
+  const uint partition_index = gl_WorkGroupID.x;
+  const uint partition_start = partition_index * EE_GAUSSIAN_SPLAT_RADIX_PARTITION_SIZE;
+  const uint element_count = EE_GAUSSIAN_SPLAT_DRAW_COMMAND.instanceCount;
+  const uint histogram_base = partition_index * EE_GAUSSIAN_SPLAT_RADIX;
+
+  if (index < EE_GAUSSIAN_SPLAT_RADIX) {
+    EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[index] = 0u;
+    if (partition_start >= element_count) {
+      EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[histogram_base + index] = 0u;
+    }
+  }
+  if (partition_start >= element_count) {
+    return;
+  }
+  barrier();
+
+  for (uint i = 0u; i < EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION; ++i) {
+    const uint key_index = partition_start + 512u * i + index;
+    const uint key = key_index < element_count ? EE_GAUSSIAN_SPLAT_RADIX_KEYS_IN[key_index] : 0xffffffffu;
+    const uint radix = bitfieldExtract(key, int(8u * pass_count_partition_reserved.x), 8);
+    atomicAdd(EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[radix], 1u);
+  }
+  barrier();
+
+  if (index < EE_GAUSSIAN_SPLAT_RADIX) {
+    const uint count = EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[index];
+    EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[histogram_base + index] = count;
+    atomicAdd(EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[index], count);
+  }
+}

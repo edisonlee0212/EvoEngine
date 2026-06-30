@@ -246,6 +246,56 @@ aspect-fit presentation and mouse mapping as a fallback, so camera output is not
 Focused atlas seam-safety tests validate that wrapped border texels map back to same-tile interior texels for row,
 column, and corner borders.
 
+### 3DGS Demo Notes
+
+The `3dgs` launcher profile opens a script-generated 3D Gaussian Splatting project under
+`Resources/EvoEngine-DemoProjects/3DGS`. Run `python Scripts/generate_3dgs_demo.py` from the repository root to download
+and verify the Spatial Dragon PLY asset before launching the profile. The source asset is Aimi Sekiguchi's
+`spatialdragon-3dgs` `data/spatial_dragon.ply`, licensed CC0 1.0, 1,571,111 bytes, with SHA256
+`40D7FDEBEB6A9A5755074F4F02A759EEE19BF15F46520A8D79B5F42BDE42921D`.
+
+The `bicycle` launcher profile is a second script-generated 3D Gaussian Splatting project under
+`Resources/EvoEngine-DemoProjects/Bicycle`. Run `python Scripts/generate_bicycle_demo.py` from the repository root to
+download INRIA's pretrained `models.zip`, extract only
+`bicycle/bicycle/point_cloud/iteration_30000/point_cloud.ply`, and write it to `Assets/GaussianSplats/bicycle.ply`. The
+script removes `models.zip` after extraction by default; pass `--keep-archive` only when the local archive is
+intentionally needed. The Bicycle profile uses SH degree 3 by default because the pretrained scene includes SH rest data.
+
+The generator writes deterministic asset metadata for a `GaussianSplat` asset and can optionally run
+`EvoEngineEditor --demo 3dgs --capture-demo-preview` or `EvoEngineEditor --demo bicycle --capture-demo-preview` through
+`--editor <path-to-EvoEngineEditor.exe>`. The required Gaussian-splat preview checks use
+`--preview-render-mode rasterization`. On first launch, either profile creates and saves a scene containing one
+`GaussianSplatRenderer`, a fitted editor/main camera, the default skybox as the camera background, and the default
+environmental map for scene lighting. Bicycle keeps that fitted camera setup and applies hard-coded constants from INRIA
+camera id 0 to the `Bicycle 3DGS` entity transform so the scene is framed by moving and rotating the splat instead of the
+main/editor cameras. Ray-tracing cameras can composite Gaussian splats as a raster overlay after the ray-tracing camera
+pass, or after ray-tracing volumetric clouds when clouds are enabled, in scenes where the ray-tracing camera path records
+normally. Splats do not yet participate in TLAS traversal, mesh occlusion, ray-traced reflections, shadows, DDGI, or
+ray-hit-distance generation. The Spatial Dragon demo asset is small
+enough for Git without LFS, but the Bicycle PLY is large and should remain local unless the Resources submodule workflow
+explicitly includes it. The project files live inside the `Resources/EvoEngine-DemoProjects` submodule; publishing either
+generated demo permanently requires committing that submodule content separately from the main EvoEngine code.
+
+`GaussianSplatRenderer` exposes the VK3DGS rasterization controls used by the current implementation:
+
+- `sort_mode`: `GPU radix` is the default. It uses the GPU cull prepass, radix-sorts visible splat indices by depth, and
+  draws indirectly. `CPU depth` remains available as an async fallback that keeps using the previous completed sort while
+  a new CPU sort is pending. `None` uses the GPU-visible order without depth sorting.
+- `raster_mode`: `Auto` uses the mesh-shader raster path when `Platform::MeshShaderEnabled()` and the render layer
+  meshlet toggle are both enabled, otherwise it uses the vertex raster path. `Vertex` forces the vertex path. `Mesh
+  shader` requests the mesh path, but still falls back to vertex rasterization when mesh shaders are unavailable, the
+  render layer meshlet toggle is disabled, or the draw is using the CPU-sort fallback.
+- `depth_mode`: `Scene depth` depth-tests splats against the scene depth attachment without writing depth. `Always`
+  blends splats without scene-depth testing.
+- `sh_degree`: clamps to the lesser of the renderer request and the degree available in the loaded asset's SH-rest data.
+  Degree 0 uses the base color path; degrees 1-3 add view-dependent SH color when rest data exists.
+
+`GaussianSplat` keeps `.evegaussiansplat` as its native YAML-backed serialized format and supports interchange import
+and export for `.ply`, `.splat`, and `.ksplat`. PLY preserves the standard Gaussian fields plus contiguous `f_rest_*`
+SH-rest floats. Standard SPLAT and the current KSPLAT target store only SH degree 0 color/opacity data; exporting either
+format clamps RGBA values to bytes, drops `spherical_harmonics_rest`, and emits a warning. KSPLAT support is intentionally
+limited to GaussianSplats3D-compatible uncompressed version 0.1, compression level 0, SH degree 0 files.
+
 ### DDGI RTXGI Port Map
 
 `out/external/RTXGI-DDGI` is treated as the algorithm reference only. EvoEngine keeps shader source

@@ -665,6 +665,31 @@ void ProjectContentBrowserPanel::DrawAssetFolderContents(const std::shared_ptr<E
         if (ImGui::Button("Duplicate")) {
           i.second->GetFolder().lock()->Duplicate(i.second->GetAssetHandle());
         }
+        if (i.second->GetAssetTypeName() == "GaussianSplat") {
+          if (auto asset = AssetManager::GetAssetImpl(i.second->asset_handle_)) {
+            if (ImGui::BeginMenu(("Export" + icon_tag).c_str())) {
+              FileUtils::SaveFile(
+                  "Export PLY...", "GaussianSplat PLY", {".ply"},
+                  [asset](const std::filesystem::path& path) {
+                    return asset->Export(path);
+                  },
+                  false);
+              FileUtils::SaveFile(
+                  "Export SPLAT...", "GaussianSplat SPLAT", {".splat"},
+                  [asset](const std::filesystem::path& path) {
+                    return asset->Export(path);
+                  },
+                  false);
+              FileUtils::SaveFile(
+                  "Export KSPLAT...", "GaussianSplat KSPLAT", {".ksplat"},
+                  [asset](const std::filesystem::path& path) {
+                    return asset->Export(path);
+                  },
+                  false);
+              ImGui::EndMenu();
+            }
+          }
+        }
         if (i.second->GetAssetTypeName() != "Binary" && ImGui::BeginMenu(("Rename" + icon_tag).c_str())) {
           static char new_name[256] = {};
           ImGui::InputText(("New name" + icon_tag).c_str(), new_name, 256);
