@@ -544,7 +544,8 @@ std::optional<GaussianSplatDemoCameraPose> LoadGaussianSplatDemoCameraPose(const
 void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, const uint64_t gaussian_splat_handle,
                                          const char* asset_name, const char* entity_name, const int sh_degree,
                                          const std::optional<uint64_t> cameras_handle = {},
-                                         const int preferred_camera_id = 0) {
+                                         const int preferred_camera_id = 0,
+                                         const GaussianSplatSortMode sort_mode = GaussianSplatSortMode::GpuRadix) {
   if (!scene) {
     return;
   }
@@ -605,7 +606,7 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
   gaussian_renderer->gaussian_splat.Set<GaussianSplat>(gaussian_splat);
   gaussian_renderer->opacity_scale = 1.0f;
   gaussian_renderer->sh_degree = sh_degree;
-  gaussian_renderer->sort_mode = GaussianSplatSortMode::CpuDepth;
+  gaussian_renderer->sort_mode = sort_mode;
   gaussian_renderer->depth_mode = GaussianSplatDepthMode::SceneDepth;
   Transform gaussian_transform;
   gaussian_transform.SetPosition(-center);
@@ -656,7 +657,7 @@ void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& s
 
 void evo_engine::ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene) {
   ConfigureGaussianSplatDemoSceneImpl(scene, kBicycleGaussianSplatHandle, "Bicycle", "Bicycle 3DGS", 3,
-                                      kBicycleCamerasHandle, kBicycleDemoCameraId);
+                                      kBicycleCamerasHandle, kBicycleDemoCameraId, GaussianSplatSortMode::GpuRadix);
 }
 
 std::filesystem::path evo_engine::FindDemoResourcesRoot(const std::filesystem::path& preferred_root) {

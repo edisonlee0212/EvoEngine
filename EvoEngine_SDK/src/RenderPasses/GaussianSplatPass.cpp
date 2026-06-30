@@ -17,6 +17,9 @@ using namespace evo_engine;
 namespace {
 constexpr uint32_t kGaussianSplatSortedIndicesFlag = 1u;
 constexpr uint32_t kGaussianSplatCullWorkGroupSize = 256u;
+constexpr uint32_t kGaussianSplatRadix = 256u;
+constexpr uint32_t kGaussianSplatRadixPassCount = 4u;
+constexpr uint32_t kGaussianSplatRadixPartitionSize = 4096u;
 
 [[nodiscard]] bool IsValidStorageBuffer(const std::shared_ptr<Buffer>& buffer) {
   return buffer && buffer->GetVkBuffer() != VK_NULL_HANDLE && buffer->GetSize() != 0;
@@ -25,6 +28,19 @@ constexpr uint32_t kGaussianSplatCullWorkGroupSize = 256u;
 [[nodiscard]] bool IsValidGpuPrepassCache(const GaussianSplatGpuPrepassCache& cache, const uint32_t splat_count) {
   return cache.valid && cache.capacity == splat_count && IsValidStorageBuffer(cache.visible_index_buffer) &&
          IsValidStorageBuffer(cache.depth_key_buffer) && IsValidStorageBuffer(cache.indirect_draw_buffer);
+}
+
+[[nodiscard]] bool IsValidGpuRadixSortCache(const GaussianSplatGpuPrepassCache& cache, const uint32_t splat_count) {
+  const auto partition_count = Platform::DivUp(splat_count, kGaussianSplatRadixPartitionSize);
+  return IsValidGpuPrepassCache(cache, splat_count) && cache.radix_partition_capacity >= partition_count &&
+         IsValidStorageBuffer(cache.radix_scratch_index_buffer) &&
+         IsValidStorageBuffer(cache.radix_scratch_key_buffer) &&
+         IsValidStorageBuffer(cache.radix_global_histogram_buffer) &&
+         IsValidStorageBuffer(cache.radix_partition_histogram_buffer);
+}
+
+[[nodiscard]] bool GpuRadixSortSupported() {
+  return Platform::Initialized() && Platform::GetInstance().GetCapabilities().subgroup_size >= 32u;
 }
 
 void ConfigurePremultipliedAlphaBlend(GraphicsPipeline& pipeline) {
@@ -45,6 +61,20 @@ void ResetIndirectDrawBuffer(const VkCommandBuffer vk_command_buffer, const Buff
   indirect_draw_buffer.Fill(vk_command_buffer, offsetof(VkDrawIndirectCommand, firstVertex), sizeof(uint32_t), 0u);
   indirect_draw_buffer.Fill(vk_command_buffer, offsetof(VkDrawIndirectCommand, firstInstance), sizeof(uint32_t), 0u);
   Platform::BufferMemoryBarrier(vk_command_buffer, indirect_draw_buffer);
+}
+
+void UpdateRadixSortDescriptorSet(
+    const std::shared_ptr<DescriptorSet>& descriptor_set, const std::shared_ptr<Buffer>& indirect_draw_buffer,
+    const std::shared_ptr<Buffer>& global_histogram_buffer, const std::shared_ptr<Buffer>& partition_histogram_buffer,
+    const std::shared_ptr<Buffer>& key_input_buffer, const std::shared_ptr<Buffer>& key_output_buffer,
+    const std::shared_ptr<Buffer>& value_input_buffer, const std::shared_ptr<Buffer>& value_output_buffer) {
+  descriptor_set->UpdateBufferDescriptorBinding(0, indirect_draw_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(1, global_histogram_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(2, partition_histogram_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(3, key_input_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(4, key_output_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(5, value_input_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(6, value_output_buffer);
 }
 
 void RecordGaussianSplatCull(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
@@ -102,6 +132,90 @@ void RecordGaussianSplatCull(const VkCommandBuffer vk_command_buffer, const Rend
         Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->visible_index_buffer);
         Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->depth_key_buffer);
         Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->indirect_draw_buffer);
+      });
+  ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+}
+
+void RecordGaussianSplatRadixSort(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
+                                  const GaussianSplatSortPass::Parameters& parameters,
+                                  const std::shared_ptr<RenderInstanceStorage::GaussianSplatRenderInstanceCollection>&
+                                      gaussian_splat_render_instances,
+                                  const uint32_t total_gaussian_splats) {
+  if (!GpuRadixSortSupported() || !parameters.upsweep_pipeline || !parameters.upsweep_pipeline->Initialized() ||
+      !parameters.spine_pipeline || !parameters.spine_pipeline->Initialized() || !parameters.downsweep_pipeline ||
+      !parameters.downsweep_pipeline->Initialized() || !parameters.descriptor_set_layout ||
+      !parameters.transient_resources || !parameters.camera || total_gaussian_splats == 0u ||
+      !gaussian_splat_render_instances || gaussian_splat_render_instances->Empty()) {
+    return;
+  }
+
+  ApplyGraphResourceBarriers(vk_command_buffer, context);
+  gaussian_splat_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto gaussian_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::GaussianSplatRenderInstance>(render_instance);
+        if (!gaussian_instance || !gaussian_instance->gaussian_splat ||
+            gaussian_instance->sort_mode != GaussianSplatSortMode::GpuRadix) {
+          return;
+        }
+        const auto splat_count = static_cast<uint32_t>(gaussian_instance->gaussian_splat->GetSplatCount());
+        if (splat_count == 0u) {
+          return;
+        }
+        const auto* gpu_prepass = gaussian_instance->gaussian_splat->FindGpuPrepassCache(
+            parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
+        if (!gpu_prepass || !IsValidGpuRadixSortCache(*gpu_prepass, splat_count)) {
+          return;
+        }
+
+        const auto partition_count = Platform::DivUp(splat_count, kGaussianSplatRadixPartitionSize);
+        const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
+        parameters.transient_resources->RetainDescriptorSet(descriptor_set);
+
+        GaussianSplatRadixSortPushConstant push_constant{};
+        push_constant.pass_count_partition_reserved.y = splat_count;
+        push_constant.pass_count_partition_reserved.z = partition_count;
+        for (uint32_t pass = 0u; pass < kGaussianSplatRadixPassCount; ++pass) {
+          const bool odd_pass = (pass & 1u) != 0u;
+          const auto key_input = odd_pass ? gpu_prepass->radix_scratch_key_buffer : gpu_prepass->depth_key_buffer;
+          const auto key_output = odd_pass ? gpu_prepass->depth_key_buffer : gpu_prepass->radix_scratch_key_buffer;
+          const auto value_input =
+              odd_pass ? gpu_prepass->radix_scratch_index_buffer : gpu_prepass->visible_index_buffer;
+          const auto value_output =
+              odd_pass ? gpu_prepass->visible_index_buffer : gpu_prepass->radix_scratch_index_buffer;
+
+          UpdateRadixSortDescriptorSet(
+              descriptor_set, gpu_prepass->indirect_draw_buffer, gpu_prepass->radix_global_histogram_buffer,
+              gpu_prepass->radix_partition_histogram_buffer, key_input, key_output, value_input, value_output);
+          gpu_prepass->radix_global_histogram_buffer->Fill(vk_command_buffer, 0, kGaussianSplatRadix * sizeof(uint32_t),
+                                                           0u);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->radix_global_histogram_buffer);
+
+          push_constant.pass_count_partition_reserved.x = pass;
+          parameters.upsweep_pipeline->Bind(vk_command_buffer);
+          parameters.upsweep_pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+          parameters.upsweep_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          parameters.upsweep_pipeline->Dispatch(vk_command_buffer, partition_count);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->radix_global_histogram_buffer);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->radix_partition_histogram_buffer);
+
+          parameters.spine_pipeline->Bind(vk_command_buffer);
+          parameters.spine_pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+          parameters.spine_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          parameters.spine_pipeline->Dispatch(vk_command_buffer, kGaussianSplatRadix);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->radix_global_histogram_buffer);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->radix_partition_histogram_buffer);
+
+          parameters.downsweep_pipeline->Bind(vk_command_buffer);
+          parameters.downsweep_pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+          parameters.downsweep_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+          parameters.downsweep_pipeline->Dispatch(vk_command_buffer, partition_count);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *key_output);
+          Platform::BufferMemoryBarrier(vk_command_buffer, *value_output);
+        }
+
+        Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->depth_key_buffer);
+        Platform::BufferMemoryBarrier(vk_command_buffer, *gpu_prepass->visible_index_buffer);
       });
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
@@ -166,7 +280,10 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
           bool use_sorted_indices = false;
           bool use_indirect_draw = false;
           auto index_buffer = splat_buffer;
-          if (gaussian_instance->sort_mode == GaussianSplatSortMode::CpuDepth) {
+          const bool use_cpu_sort =
+              gaussian_instance->sort_mode == GaussianSplatSortMode::CpuDepth ||
+              (gaussian_instance->sort_mode == GaussianSplatSortMode::GpuRadix && !GpuRadixSortSupported());
+          if (use_cpu_sort) {
             const auto* sort_cache = gaussian_instance->gaussian_splat->FindSortCache(
                 parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
             if (sort_cache && sort_cache->valid && sort_cache->indices.size() == splat_count &&
@@ -174,9 +291,13 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
               use_sorted_indices = true;
               index_buffer = sort_cache->index_buffer;
             }
-          } else if (const auto* gpu_prepass = gaussian_instance->gaussian_splat->FindGpuPrepassCache(
-                         parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
-                     gpu_prepass && IsValidGpuPrepassCache(*gpu_prepass, splat_count)) {
+          } else if (gaussian_instance->sort_mode == GaussianSplatSortMode::None ||
+                     gaussian_instance->sort_mode == GaussianSplatSortMode::GpuRadix) {
+            const auto* gpu_prepass = gaussian_instance->gaussian_splat->FindGpuPrepassCache(
+                parameters.camera->GetHandle(), gaussian_instance->renderer_handle);
+            if (!gpu_prepass || !IsValidGpuPrepassCache(*gpu_prepass, splat_count)) {
+              return;
+            }
             use_sorted_indices = true;
             use_indirect_draw = true;
             index_buffer = gpu_prepass->visible_index_buffer;
@@ -254,6 +375,32 @@ void GaussianSplatCullPass::Execute(const RenderGraphExecutionContext& context, 
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     RecordGaussianSplatCull(vk_command_buffer, context, parameters, gaussian_splat_render_instances,
                             total_gaussian_splats);
+  });
+}
+
+RenderPassDescriptor GaussianSplatSortPass::CreateDescriptor(const char* dependency) {
+  return {RenderPassNames::gaussian_splat_sort,
+          RenderPassQueue::Graphics,
+          RenderPassScope::Camera,
+          {{RenderResourceNames::frame_render_instances, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+           {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::ReadWrite,
+            RenderResourceState::StorageReadWrite}},
+          {dependency ? dependency : RenderPassNames::gaussian_splat_cull}};
+}
+
+void GaussianSplatSortPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  const auto gaussian_splat_render_instances =
+      parameters.render_instances ? parameters.render_instances->gaussian_splat_render_instances : nullptr;
+  const auto total_gaussian_splats =
+      parameters.render_instances ? parameters.render_instances->total_gaussian_splats : 0u;
+  if (!parameters.record_commands || !parameters.camera || !parameters.render_instances ||
+      total_gaussian_splats == 0u || !gaussian_splat_render_instances || gaussian_splat_render_instances->Empty()) {
+    return;
+  }
+
+  parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
+    RecordGaussianSplatRadixSort(vk_command_buffer, context, parameters, gaussian_splat_render_instances,
+                                 total_gaussian_splats);
   });
 }
 

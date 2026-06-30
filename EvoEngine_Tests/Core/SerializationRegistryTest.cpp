@@ -1339,7 +1339,7 @@ TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
   renderer.gaussian_splat.Set<GaussianSplat>(gaussian_splat);
   renderer.opacity_scale = 0.5f;
   renderer.sh_degree = 2;
-  renderer.sort_mode = GaussianSplatSortMode::None;
+  renderer.sort_mode = GaussianSplatSortMode::GpuRadix;
   renderer.depth_mode = GaussianSplatDepthMode::Always;
 
   YAML::Emitter out;
@@ -1353,7 +1353,7 @@ TEST(SerializationRegistry, GaussianSplatRendererPreservesSettingsAndAssetRef) {
   EXPECT_EQ(restored.gaussian_splat.GetAssetHandle(), gaussian_splat->GetHandle());
   EXPECT_FLOAT_EQ(restored.opacity_scale, 0.5f);
   EXPECT_EQ(restored.sh_degree, 2);
-  EXPECT_EQ(restored.sort_mode, GaussianSplatSortMode::None);
+  EXPECT_EQ(restored.sort_mode, GaussianSplatSortMode::GpuRadix);
   EXPECT_EQ(restored.depth_mode, GaussianSplatDepthMode::Always);
 
   std::vector<AssetRef> asset_refs;

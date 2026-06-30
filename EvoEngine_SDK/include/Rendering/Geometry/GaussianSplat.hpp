@@ -29,7 +29,12 @@ struct GaussianSplatGpuPrepassCache {
   std::shared_ptr<Buffer> visible_index_buffer;
   std::shared_ptr<Buffer> depth_key_buffer;
   std::shared_ptr<Buffer> indirect_draw_buffer;
+  std::shared_ptr<Buffer> radix_scratch_index_buffer;
+  std::shared_ptr<Buffer> radix_scratch_key_buffer;
+  std::shared_ptr<Buffer> radix_global_histogram_buffer;
+  std::shared_ptr<Buffer> radix_partition_histogram_buffer;
   uint32_t capacity = 0;
+  uint32_t radix_partition_capacity = 0;
   uint32_t generation = 0;
   bool valid = false;
 };

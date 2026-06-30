@@ -1482,6 +1482,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     gaussian_splat_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     gaussian_splat_layout_->Initialize();
   }
+  if (!gaussian_splat_radix_sort_layout_) {
+    gaussian_splat_radix_sort_layout_ = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 7u; ++binding) {
+      gaussian_splat_radix_sort_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                               VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    }
+    gaussian_splat_radix_sort_layout_->Initialize();
+  }
 }
 
 void RenderLayer::RenderToPointLightShadowMap(
@@ -1603,6 +1611,28 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     gaussian_splat_cull_pipeline_->Initialize();
   }
+  const auto create_gaussian_splat_radix_pipeline = [&](std::shared_ptr<ComputePipeline>& pipeline,
+                                                        const std::filesystem::path& shader_path) {
+    if (pipeline) {
+      return;
+    }
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(), shader_path);
+    pipeline->descriptor_set_layouts.emplace_back(gaussian_splat_radix_sort_layout_);
+    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(GaussianSplatRadixSortPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeline->Initialize();
+  };
+  const auto gaussian_splat_compute_path = Resources::GetDefaultResourcesPath() / "Shaders/Compute";
+  create_gaussian_splat_radix_pipeline(gaussian_splat_radix_upsweep_pipeline_,
+                                       gaussian_splat_compute_path / "GaussianSplatRadixUpsweep.comp");
+  create_gaussian_splat_radix_pipeline(gaussian_splat_radix_spine_pipeline_,
+                                       gaussian_splat_compute_path / "GaussianSplatRadixSpine.comp");
+  create_gaussian_splat_radix_pipeline(gaussian_splat_radix_downsweep_pipeline_,
+                                       gaussian_splat_compute_path / "GaussianSplatRadixDownsweep.comp");
   if (!ddgi_probe_update_pipeline_) {
     ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_update_pipeline_->compute_shader =
@@ -4320,7 +4350,15 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                                   gaussian_splat_layout_, active_camera_transient_resources,
                                                   static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
                                   });
-      camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+      camera_render_graph.AddPass(
+          GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatSortPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_radix_upsweep_pipeline_,
+                          gaussian_splat_radix_spine_pipeline_, gaussian_splat_radix_downsweep_pipeline_,
+                          gaussian_splat_radix_sort_layout_, active_camera_transient_resources, record_commands});
+          });
+      camera_render_graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort),
                                   [&](const RenderGraphExecutionContext& context) {
                                     GaussianSplatPass::Execute(
                                         context,
@@ -4473,7 +4511,15 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                                                   gaussian_splat_layout_, active_camera_transient_resources,
                                                   static_cast<uint32_t>(glm::max(camera_index, 0)), record_commands});
                                   });
-      camera_render_graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_cull),
+      camera_render_graph.AddPass(
+          GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+          [&](const RenderGraphExecutionContext& context) {
+            GaussianSplatSortPass::Execute(
+                context, {camera, current_render_instances, gaussian_splat_radix_upsweep_pipeline_,
+                          gaussian_splat_radix_spine_pipeline_, gaussian_splat_radix_downsweep_pipeline_,
+                          gaussian_splat_radix_sort_layout_, active_camera_transient_resources, record_commands});
+          });
+      camera_render_graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort),
                                   [&](const RenderGraphExecutionContext& context) {
                                     GaussianSplatPass::Execute(
                                         context,

@@ -4,7 +4,7 @@
 
 namespace evo_engine {
 
-enum class GaussianSplatSortMode { None = 0, CpuDepth = 1 };
+enum class GaussianSplatSortMode { None = 0, CpuDepth = 1, GpuRadix = 2 };
 enum class GaussianSplatDepthMode { Always = 0, SceneDepth = 1 };
 
 class GaussianSplatRenderer final : public IPrivateComponent {
@@ -12,7 +12,7 @@ class GaussianSplatRenderer final : public IPrivateComponent {
   AssetRef gaussian_splat;
   float opacity_scale = 1.0f;
   int sh_degree = 0;
-  GaussianSplatSortMode sort_mode = GaussianSplatSortMode::CpuDepth;
+  GaussianSplatSortMode sort_mode = GaussianSplatSortMode::GpuRadix;
   GaussianSplatDepthMode depth_mode = GaussianSplatDepthMode::SceneDepth;
 
   void OnCreate() override;

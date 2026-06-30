@@ -10,7 +10,7 @@ void GaussianSplatRenderer::OnDestroy() {
   gaussian_splat.Clear();
   opacity_scale = 1.0f;
   sh_degree = 0;
-  sort_mode = GaussianSplatSortMode::CpuDepth;
+  sort_mode = GaussianSplatSortMode::GpuRadix;
   depth_mode = GaussianSplatDepthMode::SceneDepth;
 }
 

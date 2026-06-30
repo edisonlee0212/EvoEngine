@@ -469,6 +469,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
+  std::shared_ptr<DescriptorSetLayout> gaussian_splat_radix_sort_layout_;
 
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
@@ -773,6 +774,9 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_composite_pipeline_;
   std::shared_ptr<ComputePipeline> gaussian_splat_cull_pipeline_;
+  std::shared_ptr<ComputePipeline> gaussian_splat_radix_upsweep_pipeline_;
+  std::shared_ptr<ComputePipeline> gaussian_splat_radix_spine_pipeline_;
+  std::shared_ptr<ComputePipeline> gaussian_splat_radix_downsweep_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_update_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;

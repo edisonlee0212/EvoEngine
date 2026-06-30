@@ -32,6 +32,10 @@ VkDrawIndexedIndirectCommand CreateIndexedCommand(const uint32_t triangle_offset
   command.firstInstance = 0;
   return command;
 }
+
+bool GaussianSplatGpuRadixSortSupported() {
+  return Platform::Initialized() && Platform::GetInstance().GetCapabilities().subgroup_size >= 32u;
+}
 }  // namespace
 
 bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
@@ -897,7 +901,9 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       }
       (void)gaussian_splat_render_instance->gaussian_splat->EnsureGpuPrepassCache(
           camera->GetHandle(), gaussian_splat_render_instance->renderer_handle);
-      if (gaussian_splat_render_instance->sort_mode == GaussianSplatSortMode::CpuDepth) {
+      if (gaussian_splat_render_instance->sort_mode == GaussianSplatSortMode::CpuDepth ||
+          (gaussian_splat_render_instance->sort_mode == GaussianSplatSortMode::GpuRadix &&
+           !GaussianSplatGpuRadixSortSupported())) {
         (void)gaussian_splat_render_instance->gaussian_splat->EnsureSortedIndices(
             camera->GetHandle(), gaussian_splat_render_instance->renderer_handle,
             gaussian_splat_render_instance->model.value, camera_info_blocks_[camera_index].view);

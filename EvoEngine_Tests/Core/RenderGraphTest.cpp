@@ -1731,6 +1731,21 @@ TEST(RenderGraph, GaussianSplatDescriptorCompositesAfterDeferredLighting) {
   EXPECT_EQ(cull_descriptor.resources[2].usage, RenderResourceUsage::Write);
   EXPECT_EQ(cull_descriptor.resources[2].state, RenderResourceState::StorageReadWrite);
 
+  const auto sort_descriptor = GaussianSplatSortPass::CreateDescriptor(nullptr);
+
+  EXPECT_EQ(sort_descriptor.name, RenderPassNames::gaussian_splat_sort);
+  EXPECT_EQ(sort_descriptor.queue, RenderPassQueue::Graphics);
+  EXPECT_EQ(sort_descriptor.scope, RenderPassScope::Camera);
+  ASSERT_EQ(sort_descriptor.dependencies.size(), 1);
+  EXPECT_EQ(sort_descriptor.dependencies[0], RenderPassNames::gaussian_splat_cull);
+  ASSERT_EQ(sort_descriptor.resources.size(), 2);
+  EXPECT_EQ(sort_descriptor.resources[0].resource_name, RenderResourceNames::frame_render_instances);
+  EXPECT_EQ(sort_descriptor.resources[0].usage, RenderResourceUsage::Read);
+  EXPECT_EQ(sort_descriptor.resources[0].state, RenderResourceState::ShaderRead);
+  EXPECT_EQ(sort_descriptor.resources[1].resource_name, RenderResourceNames::camera_gaussian_splat_prepass);
+  EXPECT_EQ(sort_descriptor.resources[1].usage, RenderResourceUsage::ReadWrite);
+  EXPECT_EQ(sort_descriptor.resources[1].state, RenderResourceState::StorageReadWrite);
+
   const auto descriptor = GaussianSplatPass::CreateDescriptor(nullptr);
 
   EXPECT_EQ(descriptor.name, RenderPassNames::gaussian_splat);
@@ -1793,7 +1808,9 @@ TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
   });
   graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
   });
-  graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
+  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
+  });
+  graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort), []() {
   });
   graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::gaussian_splat), []() {
   });
@@ -1801,27 +1818,32 @@ TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
   ASSERT_TRUE(graph.Validate());
   const auto plan = graph.Compile();
   ASSERT_TRUE(plan.valid);
-  ASSERT_EQ(graph.GetPasses().size(), 5);
+  ASSERT_EQ(graph.GetPasses().size(), 6);
   EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
   EXPECT_EQ(graph.GetPasses()[2].name, RenderPassNames::gaussian_splat_cull);
-  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::gaussian_splat);
+  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::gaussian_splat_sort);
+  EXPECT_EQ(graph.GetPasses()[4].name, RenderPassNames::gaussian_splat);
   ASSERT_EQ(graph.GetPasses()[2].dependencies.size(), 1);
   EXPECT_EQ(graph.GetPasses()[2].dependencies[0], RenderPassNames::volumetric_clouds);
   ASSERT_EQ(graph.GetPasses()[3].dependencies.size(), 1);
   EXPECT_EQ(graph.GetPasses()[3].dependencies[0], RenderPassNames::gaussian_splat_cull);
   ASSERT_EQ(graph.GetPasses()[4].dependencies.size(), 1);
-  EXPECT_EQ(graph.GetPasses()[4].dependencies[0], RenderPassNames::gaussian_splat);
+  EXPECT_EQ(graph.GetPasses()[4].dependencies[0], RenderPassNames::gaussian_splat_sort);
+  ASSERT_EQ(graph.GetPasses()[5].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[5].dependencies[0], RenderPassNames::gaussian_splat);
   ASSERT_EQ(plan.passes[2].dependency_indices.size(), 1);
   EXPECT_EQ(plan.passes[2].dependency_indices[0], 1);
   ASSERT_EQ(plan.passes[3].dependency_indices.size(), 1);
   EXPECT_EQ(plan.passes[3].dependency_indices[0], 2);
   ASSERT_EQ(plan.passes[4].dependency_indices.size(), 1);
   EXPECT_EQ(plan.passes[4].dependency_indices[0], 3);
+  ASSERT_EQ(plan.passes[5].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[5].dependency_indices[0], 4);
 
   const auto color_transition = std::find_if(
       plan.transitions.begin(), plan.transitions.end(), [&](const RenderResourceTransitionPlan& transition) {
         return graph.GetResources()[transition.resource_index].name == RenderResourceNames::camera_color &&
-               transition.pass_index == 3;
+               transition.pass_index == 4;
       });
   ASSERT_NE(color_transition, plan.transitions.end());
   EXPECT_EQ(color_transition->previous_state, RenderResourceState::StorageReadWrite);
@@ -1831,7 +1853,7 @@ TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
                                                [&](const RenderResourceTransitionPlan& transition) {
                                                  return graph.GetResources()[transition.resource_index].name ==
                                                             RenderResourceNames::camera_gaussian_splat_prepass &&
-                                                        transition.pass_index == 3;
+                                                        transition.pass_index == 4;
                                                });
   ASSERT_NE(prepass_transition, plan.transitions.end());
   EXPECT_EQ(prepass_transition->previous_state, RenderResourceState::StorageReadWrite);
@@ -1926,30 +1948,37 @@ TEST(RenderGraph, GaussianSplatOverlayRunsAfterRayTracingClouds) {
   });
   graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
   });
-  graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_cull), []() {
+  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
+  });
+  graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort), []() {
   });
 
   ASSERT_TRUE(graph.Validate());
   const auto plan = graph.Compile();
   ASSERT_TRUE(plan.valid);
-  ASSERT_EQ(graph.GetPasses().size(), 4);
+  ASSERT_EQ(graph.GetPasses().size(), 5);
   EXPECT_EQ(graph.GetPasses()[0].name, RenderPassNames::ray_tracing_camera);
   EXPECT_EQ(graph.GetPasses()[1].name, RenderPassNames::volumetric_clouds);
   EXPECT_EQ(graph.GetPasses()[2].name, RenderPassNames::gaussian_splat_cull);
-  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::gaussian_splat);
+  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::gaussian_splat_sort);
+  EXPECT_EQ(graph.GetPasses()[4].name, RenderPassNames::gaussian_splat);
   ASSERT_EQ(graph.GetPasses()[2].dependencies.size(), 1);
   EXPECT_EQ(graph.GetPasses()[2].dependencies[0], RenderPassNames::volumetric_clouds);
   ASSERT_EQ(graph.GetPasses()[3].dependencies.size(), 1);
   EXPECT_EQ(graph.GetPasses()[3].dependencies[0], RenderPassNames::gaussian_splat_cull);
+  ASSERT_EQ(graph.GetPasses()[4].dependencies.size(), 1);
+  EXPECT_EQ(graph.GetPasses()[4].dependencies[0], RenderPassNames::gaussian_splat_sort);
   ASSERT_EQ(plan.passes[2].dependency_indices.size(), 1);
   EXPECT_EQ(plan.passes[2].dependency_indices[0], 1);
   ASSERT_EQ(plan.passes[3].dependency_indices.size(), 1);
   EXPECT_EQ(plan.passes[3].dependency_indices[0], 2);
+  ASSERT_EQ(plan.passes[4].dependency_indices.size(), 1);
+  EXPECT_EQ(plan.passes[4].dependency_indices[0], 3);
 
   const auto color_transition = std::find_if(
       plan.transitions.begin(), plan.transitions.end(), [&](const RenderResourceTransitionPlan& transition) {
         return graph.GetResources()[transition.resource_index].name == RenderResourceNames::camera_color &&
-               transition.pass_index == 3;
+               transition.pass_index == 4;
       });
   ASSERT_NE(color_transition, plan.transitions.end());
   EXPECT_EQ(color_transition->previous_state, RenderResourceState::StorageReadWrite);

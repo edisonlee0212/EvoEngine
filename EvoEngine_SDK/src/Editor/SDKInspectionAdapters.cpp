@@ -2683,7 +2683,7 @@ bool InspectGaussianSplatRenderer(InspectorContext& context, GaussianSplatRender
     changed = true;
 
   int sort_mode = static_cast<int>(renderer.sort_mode);
-  const char* sort_modes[] = {"None", "CPU depth"};
+  const char* sort_modes[] = {"None", "CPU depth", "GPU radix"};
   if (ImGui::Combo("Sort mode##GaussianSplatRenderer", &sort_mode, sort_modes, IM_ARRAYSIZE(sort_modes))) {
     renderer.sort_mode = static_cast<GaussianSplatSortMode>(sort_mode);
     changed = true;

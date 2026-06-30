@@ -14,6 +14,7 @@ class BottomLevelAccelerationStructure;
 class DeferredGeometryPass;
 class DirectionalLightShadowPass;
 class GaussianSplatCullPass;
+class GaussianSplatSortPass;
 class GaussianSplatPass;
 
 /**
@@ -462,7 +463,7 @@ class RenderInstanceStorage {
     std::shared_ptr<GaussianSplat> gaussian_splat;
     float opacity_scale = 1.0f;
     int sh_degree = 0;
-    GaussianSplatSortMode sort_mode = GaussianSplatSortMode::CpuDepth;
+    GaussianSplatSortMode sort_mode = GaussianSplatSortMode::GpuRadix;
     GaussianSplatDepthMode depth_mode = GaussianSplatDepthMode::SceneDepth;
 
     bool operator!=(const GaussianSplatRenderInstance& other) const;
@@ -940,6 +941,7 @@ class RenderInstanceStorage {
   friend class DeferredGeometryPass;
   friend class DirectionalLightShadowPass;
   friend class GaussianSplatCullPass;
+  friend class GaussianSplatSortPass;
   friend class GaussianSplatPass;
   friend class CpuRayTracer;
   /**

@@ -23,6 +23,9 @@ using namespace evo_engine;
 using namespace tinyply;
 
 namespace {
+constexpr uint32_t kGaussianSplatRadixSortRadix = 256u;
+constexpr uint32_t kGaussianSplatRadixSortPartitionSize = 4096u;
+
 class GaussianSplatStagedLoadPayload final : public StagedAssetLoadPayload {
  public:
   bool yaml = false;
@@ -1124,12 +1127,21 @@ const GaussianSplatGpuPrepassCache& GaussianSplat::EnsureGpuPrepassCache(const H
     return cache;
   }
 
+  const auto partition_count = Platform::DivUp(splat_count, kGaussianSplatRadixSortPartitionSize);
   EnsureStorageBufferCapacity(cache.visible_index_buffer, splat_count * sizeof(uint32_t));
   EnsureStorageBufferCapacity(cache.depth_key_buffer, splat_count * sizeof(uint32_t));
   EnsureStorageBufferCapacity(cache.indirect_draw_buffer, sizeof(VkDrawIndirectCommand),
                               VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+  EnsureStorageBufferCapacity(cache.radix_scratch_index_buffer, splat_count * sizeof(uint32_t));
+  EnsureStorageBufferCapacity(cache.radix_scratch_key_buffer, splat_count * sizeof(uint32_t));
+  EnsureStorageBufferCapacity(cache.radix_global_histogram_buffer, kGaussianSplatRadixSortRadix * sizeof(uint32_t));
+  EnsureStorageBufferCapacity(cache.radix_partition_histogram_buffer,
+                              partition_count * kGaussianSplatRadixSortRadix * sizeof(uint32_t));
   cache.capacity = splat_count;
-  cache.valid = cache.visible_index_buffer && cache.depth_key_buffer && cache.indirect_draw_buffer;
+  cache.radix_partition_capacity = partition_count;
+  cache.valid = cache.visible_index_buffer && cache.depth_key_buffer && cache.indirect_draw_buffer &&
+                cache.radix_scratch_index_buffer && cache.radix_scratch_key_buffer &&
+                cache.radix_global_histogram_buffer && cache.radix_partition_histogram_buffer;
   ++cache.generation;
   return cache;
 }
