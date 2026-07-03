@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 
 using namespace evo_engine;
 void Prefab::OnCreate() {
@@ -1171,17 +1172,55 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
     exporter_mesh->mNumVertices = vertices.size();
     exporter_mesh->mVertices = new aiVector3D[vertices.size()];
     exporter_mesh->mNormals = new aiVector3D[vertices.size()];
+    exporter_mesh->mTangents = new aiVector3D[vertices.size()];
+    exporter_mesh->mBitangents = new aiVector3D[vertices.size()];
+    exporter_mesh->mColors[0] = new aiColor4D[vertices.size()];
     exporter_mesh->mNumUVComponents[0] = 2;
     exporter_mesh->mTextureCoords[0] = new aiVector3D[vertices.size()];
     exporter_mesh->mPrimitiveTypes = aiPrimitiveType_TRIANGLE;
     for (int vertex_index = 0; vertex_index < vertices.size(); vertex_index++) {
+      const auto& source_vertex = vertices.at(vertex_index);
       exporter_mesh->mVertices[vertex_index].x = vertices.at(vertex_index).position.x;
       exporter_mesh->mVertices[vertex_index].y = vertices.at(vertex_index).position.y;
       exporter_mesh->mVertices[vertex_index].z = vertices.at(vertex_index).position.z;
 
-      exporter_mesh->mNormals[vertex_index].x = vertices.at(vertex_index).normal.x;
-      exporter_mesh->mNormals[vertex_index].y = vertices.at(vertex_index).normal.y;
-      exporter_mesh->mNormals[vertex_index].z = vertices.at(vertex_index).normal.z;
+      glm::vec3 normal = source_vertex.normal;
+      if (!(glm::dot(normal, normal) > 1e-12f)) {
+        normal = glm::vec3(0.0f, 1.0f, 0.0f);
+      } else {
+        normal = glm::normalize(normal);
+      }
+      glm::vec3 tangent = source_vertex.tangent - normal * glm::dot(normal, source_vertex.tangent);
+      if (!(glm::dot(tangent, tangent) > 1e-12f)) {
+        const glm::vec3 reference = std::abs(normal.y) < 0.9f ? glm::vec3(0.0f, 1.0f, 0.0f)
+                                                              : glm::vec3(1.0f, 0.0f, 0.0f);
+        tangent = glm::cross(reference, normal);
+      }
+      if (!(glm::dot(tangent, tangent) > 1e-12f)) {
+        tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+      } else {
+        tangent = glm::normalize(tangent);
+      }
+      glm::vec3 bitangent = glm::cross(normal, tangent);
+      if (!(glm::dot(bitangent, bitangent) > 1e-12f)) {
+        bitangent = glm::vec3(0.0f, 0.0f, 1.0f);
+      } else {
+        bitangent = glm::normalize(bitangent);
+      }
+
+      exporter_mesh->mNormals[vertex_index].x = normal.x;
+      exporter_mesh->mNormals[vertex_index].y = normal.y;
+      exporter_mesh->mNormals[vertex_index].z = normal.z;
+      exporter_mesh->mTangents[vertex_index].x = tangent.x;
+      exporter_mesh->mTangents[vertex_index].y = tangent.y;
+      exporter_mesh->mTangents[vertex_index].z = tangent.z;
+      exporter_mesh->mBitangents[vertex_index].x = bitangent.x;
+      exporter_mesh->mBitangents[vertex_index].y = bitangent.y;
+      exporter_mesh->mBitangents[vertex_index].z = bitangent.z;
+      exporter_mesh->mColors[0][vertex_index].r = source_vertex.color.r;
+      exporter_mesh->mColors[0][vertex_index].g = source_vertex.color.g;
+      exporter_mesh->mColors[0][vertex_index].b = source_vertex.color.b;
+      exporter_mesh->mColors[0][vertex_index].a = source_vertex.color.a;
 
       exporter_mesh->mTextureCoords[0][vertex_index].x = vertices.at(vertex_index).tex_coord.x;
       exporter_mesh->mTextureCoords[0][vertex_index].y = vertices.at(vertex_index).tex_coord.y;
@@ -1194,15 +1233,27 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
     } else {
       exporter_mesh->mFaces = new aiFace[triangles.size()];
     }
+    const bool align_leaf_faces = mesh_names.at(mesh_index).rfind("Sorghum Leaves", 0) == 0;
     for (int triangle_index = 0; triangle_index < triangles.size(); triangle_index++) {
+      auto triangle = triangles[triangle_index];
+      if (align_leaf_faces && triangle.x < vertices.size() && triangle.y < vertices.size() &&
+          triangle.z < vertices.size()) {
+        const auto& v0 = vertices.at(triangle.x);
+        const auto& v1 = vertices.at(triangle.y);
+        const auto& v2 = vertices.at(triangle.z);
+        const glm::vec3 face_normal = glm::cross(v1.position - v0.position, v2.position - v0.position);
+        const glm::vec3 vertex_normal = v0.normal + v1.normal + v2.normal;
+        if (glm::dot(face_normal, vertex_normal) < 0.0f) {
+          std::swap(triangle.y, triangle.z);
+        }
+      }
       exporter_mesh->mFaces[triangle_index].mIndices = new unsigned int[3];
       exporter_mesh->mFaces[triangle_index].mNumIndices = 3;
-      exporter_mesh->mFaces[triangle_index].mIndices[0] = triangles[triangle_index][0];
-      exporter_mesh->mFaces[triangle_index].mIndices[1] = triangles[triangle_index][1];
-      exporter_mesh->mFaces[triangle_index].mIndices[2] = triangles[triangle_index][2];
+      exporter_mesh->mFaces[triangle_index].mIndices[0] = triangle.x;
+      exporter_mesh->mFaces[triangle_index].mIndices[1] = triangle.y;
+      exporter_mesh->mFaces[triangle_index].mIndices[2] = triangle.z;
     }
     exporter_mesh->mMaterialIndex = mesh.second;
-    exporter_mesh->mName = std::string("mesh_") + std::to_string(mesh_index);
   }
 
   exporter_scene.mNumMaterials = materials.size();
@@ -1250,19 +1301,7 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
         }
         if (albedo_texture->alpha_channel) {
           info.has_opacity = true;
-          std::string opacity_title = std::to_string(material_index) + "_opacity.png";
-          info.m_opacity = aiString((std::filesystem::path("textures") / opacity_title).string());
-          std::vector<glm::vec4> data;
-          albedo_texture->GetRgbaChannelData(data);
-          std::vector<float> src(data.size() * 4);
-          Jobs::RunParallelFor(data.size(), [&](size_t i) {
-            src[i * 4] = data[i].a;
-            src[i * 4 + 1] = data[i].a;
-            src[i * 4 + 2] = data[i].a;
-            src[i * 4 + 3] = data[i].a;
-          });
-          auto resolution = albedo_texture->GetResolution();
-          Texture2D::StoreToPng(texture_folder_path / opacity_title, src, resolution.x, resolution.y, 4, 4);
+          info.m_opacity = info.color;
         }
       }
 
@@ -1361,13 +1400,16 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
   } else if (path.extension().string() == ".fbx") {
     format_id = "fbx";
   } else if (path.extension().string() == ".gltf") {
-    format_id = "gltf";
+    format_id = "gltf2";
   } else if (path.extension().string() == ".dae") {
     format_id = "dae";
   }
 
   root_node.Process(exporter_scene.mRootNode);
-  exporter.Export(&exporter_scene, format_id.c_str(), path.string());
+  if (exporter.Export(&exporter_scene, format_id.c_str(), path.string()) != AI_SUCCESS) {
+    EVOENGINE_ERROR("Assimp export failed: " + std::string(exporter.GetErrorString()));
+    return false;
+  }
 
   return true;
 }

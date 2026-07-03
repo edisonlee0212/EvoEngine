@@ -99,6 +99,11 @@ class AssetManager {
   [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const Handle& asset_handle);
 
   /**
+   * @brief Returns a loaded asset or resource without starting a load request.
+   */
+  [[nodiscard]] static std::shared_ptr<IAsset> PeekAsset(const Handle& asset_handle);
+
+  /**
    * @brief Enqueues an asset load request and returns the shared future without blocking the caller.
    */
   [[nodiscard]] static std::shared_future<std::shared_ptr<IAsset>> RequestAssetLoad(const Handle& asset_handle);

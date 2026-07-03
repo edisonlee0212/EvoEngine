@@ -19,9 +19,9 @@
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
+#include "SorghumFieldGrid.hpp"
 #include "SorghumTraitDescriptor.hpp"
 #ifdef CUDA_MODULE_SERVICE
-#  include "SorghumFieldGrid.hpp"
 #  include "CBTFGroup.hpp"
 #  include "PARSensorGroup.hpp"
 #endif

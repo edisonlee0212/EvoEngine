@@ -926,6 +926,10 @@ std::shared_ptr<IAsset> AssetManager::GetAsset(const Handle& asset_handle) {
   return GetAssetImpl(asset_handle);
 }
 
+std::shared_ptr<IAsset> AssetManager::PeekAsset(const Handle& asset_handle) {
+  return PeekAssetImpl(asset_handle);
+}
+
 std::shared_ptr<IAsset> AssetManager::CreateTemporaryAssetImpl(const std::string& type_name,
                                                                const Handle& asset_handle) {
   size_t hash_code;

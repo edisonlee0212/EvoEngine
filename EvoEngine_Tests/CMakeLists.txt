@@ -25,6 +25,7 @@ add_executable(EvoEngine_Tests
 	Core/GpuServiceTest.cpp
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
+	Core/LSystemLeafAtlasUvTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
 	)
@@ -32,6 +33,7 @@ target_link_libraries(EvoEngine_Tests
 	PRIVATE
 	EvoEngine_SDK
 	EvoEngine_DemoScene
+	LSystemPackage
 	GTest::gtest_main
 	)
 target_include_directories(EvoEngine_Tests
@@ -110,6 +112,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER SerializationRegistry.*
 	PROPERTIES LABELS "core,serialization,registry"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER LSystemLeafAtlasUv.*
+	PROPERTIES LABELS "core,lsystem,geometry"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

@@ -1546,6 +1546,41 @@ TEST(SerializationRegistry, AssetRefKeepsUnresolvedSerializedHandle) {
   EXPECT_FALSE(after_get.Active());
 }
 
+TEST(SerializationRegistry, AssetRefDefersProjectAssetLoadUntilGet) {
+  TempProject project;
+  Handle texture_handle = 0;
+
+  {
+    Application app;
+    ApplicationContextScope scope(app);
+    app.Initialize(ProjectSettings(project));
+
+    const auto project_texture = CreateSinglePixelTexture(glm::vec4(0.2f, 0.4f, 0.8f, 1.0f));
+    ASSERT_TRUE(project_texture->SetPathAndSave("Textures/LazyTexture.evetexture2d"));
+    texture_handle = project_texture->GetHandle();
+  }
+
+  Application app;
+  ApplicationContextScope scope(app);
+  auto settings = ProjectSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+  ASSERT_TRUE(FileManager::GetFile(texture_handle));
+
+  const auto before = AssetManager::GetAssetLoadSnapshot();
+  AssetRef asset_ref;
+  asset_ref.Deserialize(YAML::Load("{asset_handle_: " + std::to_string(texture_handle.GetValue()) +
+                                   ", type_name_: Texture2D}"));
+  const auto after_deserialize = AssetManager::GetAssetLoadSnapshot();
+  EXPECT_EQ(asset_ref.GetAssetHandle(), texture_handle);
+  EXPECT_EQ(after_deserialize.total, before.total);
+  EXPECT_FALSE(after_deserialize.Active());
+
+  const auto texture = asset_ref.Get<Texture2D>();
+  ASSERT_TRUE(texture);
+  EXPECT_EQ(texture->GetHandle(), texture_handle);
+}
+
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {
   const auto prefab_path = std::filesystem::temp_directory_path() / "EvoEngine_PrefabMaterialTextureRefs.eveprefab";
   std::filesystem::remove(prefab_path);
@@ -1917,4 +1952,42 @@ TEST(SerializationRegistry, SceneSerializationRoutesComponentsAndSystemsThroughH
   const auto routed_system = target->GetSystem<RoutedSceneSystem>();
   ASSERT_TRUE(routed_system);
   EXPECT_EQ(routed_system->value, 231);
+}
+
+TEST(SerializationRegistry, SceneSerializationSkipsRuntimeOnlyEntities) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto source = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(source);
+  source->Purge();
+  const auto persistent = source->CreateEntity("Persistent Entity");
+  const auto runtime_only = source->CreateEntity("Runtime Only Entity");
+  source->SetParent(runtime_only, persistent);
+  source->SetEntitySerializable(runtime_only, false);
+
+  YAML::Emitter out;
+  BeginMap(out);
+  Serialization::SerializeObject(out, static_cast<IAsset&>(*source));
+  const std::string saved_text = out.c_str();
+  EXPECT_NE(saved_text.find("Persistent Entity"), std::string::npos);
+  EXPECT_EQ(saved_text.find("Runtime Only Entity"), std::string::npos);
+
+  const auto target = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(target);
+  Serialization::DeserializeObject(YAML::Load(saved_text), static_cast<IAsset&>(*target));
+
+  bool found_persistent = false;
+  bool found_runtime_only = false;
+  for (const auto& entity : target->UnsafeGetAllEntities()) {
+    if (!target->IsEntityValid(entity)) {
+      continue;
+    }
+    const auto name = target->GetEntityName(entity);
+    found_persistent = found_persistent || name == "Persistent Entity";
+    found_runtime_only = found_runtime_only || name == "Runtime Only Entity";
+  }
+  EXPECT_TRUE(found_persistent);
+  EXPECT_FALSE(found_runtime_only);
 }

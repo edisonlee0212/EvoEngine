@@ -1448,9 +1448,17 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  if (!deferred_render_instances->Empty()) {
-    mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
-  }
+  bool has_ray_traceable_mesh = false;
+  deferred_render_instances->ForEachRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto mesh_render_instance =
+            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
+        if (mesh_render_instance && mesh_render_instance->mesh && mesh_render_instance->mesh->GetBlas()) {
+          has_ray_traceable_mesh = true;
+        }
+      });
+  mesh_top_level_acceleration_structure =
+      has_ray_traceable_mesh ? std::make_shared<TopLevelAccelerationStructure>(scene, *this) : nullptr;
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,

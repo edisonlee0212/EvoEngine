@@ -23,6 +23,8 @@
 //       bool IsDevelopmentalSymbolImpl(const LGraphNode<MD>& node) const;
 //       glm::quat ComputeChildLocalRotationImpl(
 //           const LGraphNode<MD>& node, const LGraphNode<MD>& parent) const;
+//       glm::vec3 ComputeChildGlobalPositionImpl(
+//           const LGraphNode<MD>& node, const LGraphNode<MD>& parent) const;
 //       void ResetExtensionImpl();   // reset plant-specific fields
 //     };
 //
@@ -114,8 +116,8 @@ class LSystemGrowthModelBase {
     chronological_years_ += dt_years;
   }
 
-  /// Propagate geometry transforms top-down using the Derived hook for the
-  /// per-node local rotation.
+  /// Propagate geometry transforms top-down using the Derived hooks for
+  /// per-node local rotation and global position.
   void PropagateGeometry();
 
  protected:
@@ -318,6 +320,9 @@ void LSystemGrowthModelBase<Derived, TGraph, TEngine>::PropagateGeometry() {
       graph, root_position_, root_rotation_,
       std::function<glm::quat(const NodeT&, const NodeT&)>([this](const NodeT& node, const NodeT& parent) -> glm::quat {
         return AsDerived()->ComputeChildLocalRotationImpl(node, parent);
+      }),
+      std::function<glm::vec3(const NodeT&, const NodeT&)>([this](const NodeT& node, const NodeT& parent) -> glm::vec3 {
+        return AsDerived()->ComputeChildGlobalPositionImpl(node, parent);
       }));
 }
 

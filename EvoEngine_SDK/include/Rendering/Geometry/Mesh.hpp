@@ -157,6 +157,10 @@ class Mesh final : public IAsset, public IGeometry {
   bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
+  bool ray_tracing_acceleration_enabled = true;
+  bool compact_storage_on_update = true;
+  bool optimize_meshlet_layout = true;
+
   [[nodiscard]] static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
                                                     const std::string& type_name = "Mesh");
 

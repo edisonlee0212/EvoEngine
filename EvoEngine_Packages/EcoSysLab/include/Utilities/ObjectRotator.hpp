@@ -1,5 +1,8 @@
 #pragma once
 
+#include "EditorLayer.hpp"
+#include "IPrivateComponent.hpp"
+
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 

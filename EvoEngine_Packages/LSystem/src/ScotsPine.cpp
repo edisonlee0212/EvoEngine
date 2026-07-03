@@ -1063,6 +1063,10 @@ void ScotsPine::GrowToTargetGDD(const bool uncapped_growth) {
   (void)uncapped_growth;
   const auto& times = GetApplication().GetTimes();
   const double grow_start = times.Now();
+  last_rebuild_seconds = 0.0;
+  last_rebuild_internode_seconds = 0.0;
+  last_needle_mesh_seconds = 0.0;
+  last_mesh_upload_seconds = 0.0;
   auto descriptor = descriptor_ref.Get<ScotsPineDescriptor>();
   if (!descriptor) {
     last_grow_seconds = 0.0;
@@ -1160,6 +1164,9 @@ void ScotsPine::RebuildGeometry() {
   last_internode_count = 0;
   last_needle_count = 0;
   last_node_count = 0;
+  last_rebuild_internode_seconds = 0.0;
+  last_needle_mesh_seconds = 0.0;
+  last_mesh_upload_seconds = 0.0;
 
   if (!growth_model.IsInitialized()) {
     last_rebuild_seconds = 0.0;
@@ -1232,6 +1239,7 @@ void ScotsPine::RebuildGeometry() {
 
   // -- Internodes (instance channel) --
   {
+    const double internode_start = times.Now();
     auto& infos = internode_infos_cache;
     infos.clear();
     infos.reserve(sorted.size());
@@ -1364,6 +1372,7 @@ void ScotsPine::RebuildGeometry() {
         channel->Stage(std::move(infos));
       }
     }
+    last_rebuild_internode_seconds = times.Now() - internode_start;
   }
 
   // -- Needles (mesh channel by default, instance channel legacy fallback) --
@@ -1384,26 +1393,31 @@ void ScotsPine::RebuildGeometry() {
     const int needle_station_count = std::max(4, growth_model.sampled.needle_segment_count + 1);
     const int needle_perimeter_count = growth_active_lod ? 5 : 8;
 
-    BuildPineNeedleAggregateMesh(
-        growth_model.graph, sorted, color_mode, needle_base_color, needle_old_color, needle_axial_age_span,
-        needle_axial_age_exponent, growth_model.sampled.distributions.needle_cross_section_width_profile,
-        growth_model.sampled.distributions.needle_cross_section_thickness_profile,
-        growth_model.sampled.distributions.needle_cross_section_temporal_maturity_curve,
-        growth_model.sampled.needle_fascicular_start_year, growth_model.sampled.needle_lignification_factor_year1,
-        growth_model.sampled.needle_lignification_factor_year2plus,
-        growth_model.sampled.needle_stomatal_strip_density_year1,
-        growth_model.sampled.needle_stomatal_strip_density_year2plus,
-        growth_model.sampled.needle_basal_taper_ratio_year1, growth_model.sampled.needle_basal_taper_ratio_year2plus,
-        growth_model.sampled.needle_fascicle_sheath_budget_years,
-        growth_model.sampled.needle_specularity_plasticity_year1,
-        growth_model.sampled.needle_specularity_plasticity_year2plus, needle_geom_vertices, needle_geom_triangles,
-        needle_station_count, needle_perimeter_count, &last_needle_skeleton_lines);
+    {
+      const double needle_mesh_start = times.Now();
+      BuildPineNeedleAggregateMesh(
+          growth_model.graph, sorted, color_mode, needle_base_color, needle_old_color, needle_axial_age_span,
+          needle_axial_age_exponent, growth_model.sampled.distributions.needle_cross_section_width_profile,
+          growth_model.sampled.distributions.needle_cross_section_thickness_profile,
+          growth_model.sampled.distributions.needle_cross_section_temporal_maturity_curve,
+          growth_model.sampled.needle_fascicular_start_year, growth_model.sampled.needle_lignification_factor_year1,
+          growth_model.sampled.needle_lignification_factor_year2plus,
+          growth_model.sampled.needle_stomatal_strip_density_year1,
+          growth_model.sampled.needle_stomatal_strip_density_year2plus,
+          growth_model.sampled.needle_basal_taper_ratio_year1, growth_model.sampled.needle_basal_taper_ratio_year2plus,
+          growth_model.sampled.needle_fascicle_sheath_budget_years,
+          growth_model.sampled.needle_specularity_plasticity_year1,
+          growth_model.sampled.needle_specularity_plasticity_year2plus, needle_geom_vertices, needle_geom_triangles,
+          needle_station_count, needle_perimeter_count, &last_needle_skeleton_lines);
 
-    SanitizeNeedleAggregateMeshVertices(needle_geom_vertices);
-    last_needle_count = needle_geom_triangles.empty()
-                            ? 0u
-                            : static_cast<uint32_t>(needle_geom_vertices.size() /
-                                                    static_cast<size_t>(needle_station_count * needle_perimeter_count));
+      SanitizeNeedleAggregateMeshVertices(needle_geom_vertices);
+      last_needle_count =
+          needle_geom_triangles.empty()
+              ? 0u
+              : static_cast<uint32_t>(needle_geom_vertices.size() /
+                                      static_cast<size_t>(needle_station_count * needle_perimeter_count));
+      last_needle_mesh_seconds = times.Now() - needle_mesh_start;
+    }
 
     const bool needle_mesh_valid = IsNeedleAggregateMeshValid(needle_geom_vertices, needle_geom_triangles);
     if (!needle_mesh_valid) {
@@ -1534,7 +1548,9 @@ void ScotsPine::RebuildGeometry() {
   }
 
   if (render_target_) {
+    const double upload_start = times.Now();
     render_target_->FlushPending();
+    last_mesh_upload_seconds = times.Now() - upload_start;
   }
 
   last_applied_internode_visual_radius_multiplier =

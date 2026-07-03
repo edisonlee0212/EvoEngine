@@ -41,6 +41,9 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
         growth_model(other.growth_model),
         last_grow_seconds(other.last_grow_seconds),
         last_rebuild_seconds(other.last_rebuild_seconds),
+        last_rebuild_internode_seconds(other.last_rebuild_internode_seconds),
+        last_needle_mesh_seconds(other.last_needle_mesh_seconds),
+        last_mesh_upload_seconds(other.last_mesh_upload_seconds),
         last_node_count(other.last_node_count),
         last_internode_count(other.last_internode_count),
         last_needle_count(other.last_needle_count),
@@ -63,6 +66,9 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
     growth_model = other.growth_model;
     last_grow_seconds = other.last_grow_seconds;
     last_rebuild_seconds = other.last_rebuild_seconds;
+    last_rebuild_internode_seconds = other.last_rebuild_internode_seconds;
+    last_needle_mesh_seconds = other.last_needle_mesh_seconds;
+    last_mesh_upload_seconds = other.last_mesh_upload_seconds;
     last_node_count = other.last_node_count;
     last_internode_count = other.last_internode_count;
     last_needle_count = other.last_needle_count;
@@ -152,6 +158,9 @@ class ScotsPine final : public LSystemComponentBase<ScotsPine> {
   // Runtime profiling/debug counters (not serialized).
   double last_grow_seconds = 0.0;
   double last_rebuild_seconds = 0.0;
+  double last_rebuild_internode_seconds = 0.0;
+  double last_needle_mesh_seconds = 0.0;
+  double last_mesh_upload_seconds = 0.0;
   uint32_t last_node_count = 0;
   uint32_t last_internode_count = 0;
   uint32_t last_needle_count = 0;

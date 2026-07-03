@@ -1,7 +1,19 @@
 #include "PrivateComponentStorage.hpp"
+#include "ApplicationContext.hpp"
 #include "Entities.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
+
+std::shared_ptr<IPrivateComponent> PrivateComponentStorage::CreatePrivateComponent(const size_t &type_id) const {
+  size_t temp;
+  const auto type_name = Serialization::GetSerializableTypeName(type_id);
+  if (const auto scene = owner_scene.lock()) {
+    const ApplicationContextScope application_scope(scene->GetApplication());
+    return std::dynamic_pointer_cast<IPrivateComponent>(Serialization::ProduceSerializable(type_name, temp));
+  }
+  return std::dynamic_pointer_cast<IPrivateComponent>(Serialization::ProduceSerializable(type_name, temp));
+}
+
 void PrivateComponentStorage::RemovePrivateComponent(const Entity &entity, const size_t type_index,
                                                      const std::shared_ptr<IPrivateComponent> &private_component) {
   if (const auto search = p_owners_collections_map_.find(type_index); search != p_owners_collections_map_.end()) {
@@ -65,9 +77,7 @@ std::shared_ptr<IPrivateComponent> PrivateComponentStorage::GetOrSetPrivateCompo
     back->handle_ = Handle();
     return back;
   }
-  size_t temp;
-  return std::dynamic_pointer_cast<IPrivateComponent>(
-      Serialization::ProduceSerializable(Serialization::GetSerializableTypeName(type_id), temp));
+  return CreatePrivateComponent(type_id);
 }
 
 void PrivateComponentStorage::SetPrivateComponent(const Entity &entity, size_t id) {

@@ -220,6 +220,12 @@ class Image final : public IGraphicsResource {
   [[nodiscard]] VkFormat GetFormat() const;
 
   /**
+   * @brief Retrieves the Vulkan usage flags for the image.
+   * @return The Vulkan image usage flags.
+   */
+  [[nodiscard]] VkImageUsageFlags GetUsage() const;
+
+  /**
    * @brief Retrieves the VMA allocation handle for the image.
    * @return VMA allocation handle.
    */

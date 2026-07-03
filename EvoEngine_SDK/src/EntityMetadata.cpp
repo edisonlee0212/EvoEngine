@@ -13,6 +13,7 @@ void EntityMetadata::Deserialize(const YAML::Node &in, const std::shared_ptr<Sce
   entity_version = 1;
   entity_enabled = in["e"].as<bool>();
   entity_static = in["s"].as<bool>();
+  entity_serializable = in["se"] ? in["se"].as<bool>() : true;
   entity_handle.value_ = in["h"].as<uint64_t>();
   ancestor_selected = false;
 }
@@ -24,6 +25,8 @@ void EntityMetadata::Serialize(YAML::Emitter &out, const std::shared_ptr<Scene> 
     out << YAML::Key << "h" << YAML::Value << entity_handle.value_;
     out << YAML::Key << "e" << YAML::Value << entity_enabled;
     out << YAML::Key << "s" << YAML::Value << entity_static;
+    if (!entity_serializable)
+      out << YAML::Key << "se" << YAML::Value << entity_serializable;
     if (parent.GetIndex() != 0)
       out << YAML::Key << "p" << YAML::Value << scene->GetEntityHandle(parent);
     if (root.GetIndex() != 0)
@@ -55,6 +58,7 @@ void EntityMetadata::Clone(const std::unordered_map<Handle, Handle> &entity_map,
   entity_name = source.entity_name;
   entity_version = source.entity_version;
   entity_enabled = source.entity_enabled;
+  entity_serializable = source.entity_serializable;
   parent = source.parent;
   root = source.root;
   entity_static = source.entity_static;

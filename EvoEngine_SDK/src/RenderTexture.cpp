@@ -6,11 +6,17 @@
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 
+#include <stdexcept>
+
 using namespace evo_engine;
 
 void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_create_info, uint32_t mip_levels) {
   if (!Platform::Initialized())
     return;
+  const auto application = ApplicationContext::TryGet();
+  if (application && application->GetApplicationStatus() == Application::ExecutionStatus::OnDestroy) {
+    return;
+  }
   color_image_views_.clear();
   color_image_.reset();
   color_sampler_.reset();
@@ -167,18 +173,30 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   extent_ = render_texture_create_info.extent;
   image_view_type_ = render_texture_create_info.image_view_type;
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    if (application && application->GetApplicationStatus() == Application::ExecutionStatus::OnDestroy) {
+      return;
+    }
+    throw std::runtime_error("Render texture render layer is not initialized.");
+  }
+  const auto& present_descriptor_set_layout = render_layer->GetRenderTexturePresentDescriptorSetLayout();
+  const auto& storage_descriptor_set_layout = render_layer->GetRenderTextureStorageDescriptorSetLayout();
+  if (!present_descriptor_set_layout || (color_ && !storage_descriptor_set_layout)) {
+    if (application && application->GetApplicationStatus() == Application::ExecutionStatus::OnDestroy) {
+      return;
+    }
+    throw std::runtime_error("Render texture descriptor set layouts are not initialized.");
+  }
 
   if (color_) {
-    color_present_descriptor_set_ =
-        std::make_shared<DescriptorSet>(render_layer->GetRenderTexturePresentDescriptorSetLayout());
+    color_present_descriptor_set_ = std::make_shared<DescriptorSet>(present_descriptor_set_layout);
     VkDescriptorImageInfo present_info;
     present_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     present_info.imageView = color_image_views_[0]->GetVkImageView();
     present_info.sampler = color_sampler_->GetVkSampler();
     color_present_descriptor_set_->UpdateImageDescriptorBinding(0, present_info);
 
-    storage_descriptor_set_ =
-        std::make_shared<DescriptorSet>(render_layer->GetRenderTextureStorageDescriptorSetLayout());
+    storage_descriptor_set_ = std::make_shared<DescriptorSet>(storage_descriptor_set_layout);
     VkDescriptorImageInfo storage_info;
     storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     storage_info.imageView = color_image_views_[0]->GetVkImageView();
@@ -187,8 +205,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   }
 
   if (depth_) {
-    depth_present_descriptor_set_ =
-        std::make_shared<DescriptorSet>(render_layer->GetRenderTexturePresentDescriptorSetLayout());
+    depth_present_descriptor_set_ = std::make_shared<DescriptorSet>(present_descriptor_set_layout);
     VkDescriptorImageInfo present_info;
     present_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     present_info.imageView = depth_image_views_[0]->GetVkImageView();

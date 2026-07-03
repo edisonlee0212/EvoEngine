@@ -35,6 +35,11 @@ struct EntityMetadata {
   bool entity_enabled = true;
 
   /**
+   * @brief Indicates whether this entity is persisted when saving the scene.
+   */
+  bool entity_serializable = true;
+
+  /**
    * @brief The parent entity of this entity.
    */
   Entity parent = Entity();

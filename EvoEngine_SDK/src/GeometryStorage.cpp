@@ -6,9 +6,167 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <limits>
 #include <type_traits>
 
 using namespace evo_engine;
+
+namespace {
+struct MeshStorageBuild {
+  std::vector<Meshlet> meshlets;
+  std::vector<VertexDataChunk> vertex_chunks;
+  std::vector<glm::uvec3> global_triangles;
+  std::vector<Vertex> replacement_vertices;
+  std::vector<glm::uvec3> replacement_triangles;
+};
+
+uint32_t CalculateDynamicCapacity(const size_t used, const bool reserve_dynamic_capacity, const size_t min_extra) {
+  if (!reserve_dynamic_capacity) {
+    return static_cast<uint32_t>(used);
+  }
+  const auto extra = (std::max)(used, min_extra);
+  return static_cast<uint32_t>((std::min)(used + extra, static_cast<size_t>(std::numeric_limits<uint32_t>::max())));
+}
+
+MeshStorageBuild BuildOptimizedMeshStorage(std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
+                                           const uint32_t vertex_chunk_offset) {
+  std::vector<meshopt_Meshlet> meshlets_results;
+  std::vector<uint32_t> meshlet_result_vertices;
+  std::vector<uint8_t> meshlet_result_triangles;
+  const auto max_meshlets =
+      meshopt_buildMeshletsBound(triangles.size() * 3, Platform::Constants::meshlet_max_vertices_size,
+                                 Platform::Constants::meshlet_max_triangles_size);
+  meshlets_results.resize(max_meshlets);
+  meshlet_result_vertices.resize(max_meshlets * Platform::Constants::meshlet_max_vertices_size);
+  meshlet_result_triangles.resize(max_meshlets * Platform::Constants::meshlet_max_triangles_size * 3);
+  const auto meshlet_size = meshopt_buildMeshlets(
+      meshlets_results.data(), meshlet_result_vertices.data(), meshlet_result_triangles.data(), &triangles.at(0).x,
+      triangles.size() * 3, &vertices.at(0).position.x, vertices.size(), sizeof(Vertex),
+      Platform::Constants::meshlet_max_vertices_size, Platform::Constants::meshlet_max_triangles_size, 0);
+
+  MeshStorageBuild build;
+  build.meshlets.resize(meshlet_size);
+  build.vertex_chunks.resize(meshlet_size);
+  for (size_t meshlet_index = 0; meshlet_index < meshlet_size; meshlet_index++) {
+    auto& current_meshlet = build.meshlets[meshlet_index];
+    current_meshlet.vertex_chunk_index = vertex_chunk_offset + static_cast<uint32_t>(meshlet_index);
+    auto& current_chunk = build.vertex_chunks[meshlet_index];
+
+    const auto& meshlet_result = meshlets_results.at(meshlet_index);
+    const uint32_t replacement_vertex_offset = build.replacement_vertices.size();
+
+    for (uint32_t vi = 0; vi < meshlet_result.vertex_count; vi++) {
+      current_chunk.vertex_data[vi] = vertices[meshlet_result_vertices.at(meshlet_result.vertex_offset + vi)];
+      build.replacement_vertices.emplace_back(current_chunk.vertex_data[vi]);
+    }
+    current_meshlet.vertices_size = meshlet_result.vertex_count;
+    current_meshlet.triangle_size = meshlet_result.triangle_count;
+    for (uint32_t ti = 0; ti < meshlet_result.triangle_count; ti++) {
+      auto& current_meshlet_triangle = current_meshlet.triangles[ti];
+      current_meshlet_triangle = glm::u8vec3(meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset],
+                                             meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset + 1],
+                                             meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset + 2]);
+
+      auto& global_triangle = build.global_triangles.emplace_back();
+      global_triangle.x = current_meshlet_triangle.x +
+                          current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
+      global_triangle.y = current_meshlet_triangle.y +
+                          current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
+      global_triangle.z = current_meshlet_triangle.z +
+                          current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
+
+      build.replacement_triangles.emplace_back(current_meshlet_triangle.x + replacement_vertex_offset,
+                                               current_meshlet_triangle.y + replacement_vertex_offset,
+                                               current_meshlet_triangle.z + replacement_vertex_offset);
+    }
+  }
+  return build;
+}
+
+MeshStorageBuild BuildSequentialMeshStorage(const std::vector<Vertex>& vertices,
+                                            const std::vector<glm::uvec3>& triangles,
+                                            const uint32_t vertex_chunk_offset) {
+  MeshStorageBuild build;
+  const auto estimated_meshlets =
+      (triangles.size() + Platform::Constants::meshlet_max_triangles_size - 1) /
+      Platform::Constants::meshlet_max_triangles_size;
+  build.meshlets.reserve(estimated_meshlets);
+  build.vertex_chunks.reserve(estimated_meshlets);
+  build.global_triangles.reserve(triangles.size());
+  build.replacement_vertices.reserve(vertices.size());
+  build.replacement_triangles.reserve(triangles.size());
+
+  std::vector<int> remap(vertices.size(), -1);
+  std::vector<uint32_t> touched_vertices;
+  touched_vertices.reserve(Platform::Constants::meshlet_max_vertices_size);
+
+  size_t triangle_index = 0;
+  while (triangle_index < triangles.size()) {
+    Meshlet meshlet{};
+    VertexDataChunk vertex_chunk{};
+    const uint32_t vertex_chunk_index = vertex_chunk_offset + static_cast<uint32_t>(build.meshlets.size());
+    const uint32_t replacement_vertex_offset = static_cast<uint32_t>(build.replacement_vertices.size());
+    meshlet.vertex_chunk_index = vertex_chunk_index;
+    touched_vertices.clear();
+
+    while (triangle_index < triangles.size()) {
+      const auto& triangle = triangles[triangle_index];
+      const uint32_t indices[3] = {triangle.x, triangle.y, triangle.z};
+      uint32_t new_vertex_count = 0;
+      for (const auto index : indices) {
+        if (remap[index] == -1) {
+          new_vertex_count++;
+        }
+      }
+      if (meshlet.triangle_size != 0 &&
+          (meshlet.triangle_size >= Platform::Constants::meshlet_max_triangles_size ||
+           meshlet.vertices_size + new_vertex_count > Platform::Constants::meshlet_max_vertices_size)) {
+        break;
+      }
+
+      glm::u8vec3 local_triangle{};
+      for (int i = 0; i < 3; i++) {
+        const auto index = indices[i];
+        if (remap[index] == -1) {
+          remap[index] = static_cast<int>(meshlet.vertices_size);
+          vertex_chunk.vertex_data[meshlet.vertices_size] = vertices[index];
+          build.replacement_vertices.emplace_back(vertices[index]);
+          touched_vertices.emplace_back(index);
+          meshlet.vertices_size++;
+        }
+        local_triangle[i] = static_cast<uint8_t>(remap[index]);
+      }
+
+      meshlet.triangles[meshlet.triangle_size] = local_triangle;
+      build.global_triangles.emplace_back(
+          local_triangle.x + vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size,
+          local_triangle.y + vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size,
+          local_triangle.z + vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size);
+      build.replacement_triangles.emplace_back(local_triangle.x + replacement_vertex_offset,
+                                               local_triangle.y + replacement_vertex_offset,
+                                               local_triangle.z + replacement_vertex_offset);
+      meshlet.triangle_size++;
+      triangle_index++;
+    }
+
+    for (const auto index : touched_vertices) {
+      remap[index] = -1;
+    }
+    build.meshlets.emplace_back(meshlet);
+    build.vertex_chunks.emplace_back(vertex_chunk);
+  }
+
+  return build;
+}
+
+MeshStorageBuild BuildMeshStorage(std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
+                                  const uint32_t vertex_chunk_offset, const bool optimize_meshlet_layout) {
+  if (optimize_meshlet_layout) {
+    return BuildOptimizedMeshStorage(vertices, triangles, vertex_chunk_offset);
+  }
+  return BuildSequentialMeshStorage(vertices, triangles, vertex_chunk_offset);
+}
+}  // namespace
 
 void GeometryStorage::DirtyRange::Mark(const size_t range_begin, const size_t count) {
   if (count == 0) {
@@ -414,92 +572,84 @@ const StrandPoint& GeometryStorage::PeekStrandPoint(const size_t strand_point_in
 void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices,
                                    std::vector<glm::uvec3>& triangles,
                                    const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
-                                   const std::shared_ptr<RangeDescriptor>& target_triangle_range) {
+                                   const std::shared_ptr<RangeDescriptor>& target_triangle_range,
+                                   const bool reserve_dynamic_capacity, const bool optimize_meshlet_layout) {
   if (vertices.empty() || triangles.empty()) {
     throw std::runtime_error("Empty vertices or triangles!");
   }
   auto& storage = GetInstance();
-  WaitPendingUpload(storage.pending_mesh_upload_);
-  storage.CompletePendingUpload(storage.pending_mesh_upload_);
   const auto meshlet_begin = storage.meshlets_.size();
   const auto triangle_begin = storage.triangles_.size();
+  auto build = BuildMeshStorage(vertices, triangles, static_cast<uint32_t>(meshlet_begin), optimize_meshlet_layout);
+  const auto meshlet_capacity = CalculateDynamicCapacity(build.meshlets.size(), reserve_dynamic_capacity, 8);
+  const auto triangle_capacity = CalculateDynamicCapacity(build.global_triangles.size(), reserve_dynamic_capacity, 512);
 
   // const auto meshletRange = std::make_shared<RangeDescriptor>();
   target_meshlet_range->handle_ = handle;
-  target_meshlet_range->offset = meshlet_begin;
-  target_meshlet_range->range = 0;
+  target_meshlet_range->offset = static_cast<uint32_t>(meshlet_begin);
+  target_meshlet_range->range = static_cast<uint32_t>(build.meshlets.size());
+  target_meshlet_range->capacity = meshlet_capacity;
 
   // const auto triangleRange = std::make_shared<RangeDescriptor>();
   target_triangle_range->handle_ = handle;
-  target_triangle_range->offset = triangle_begin;
-  target_triangle_range->range = 0;
-  target_triangle_range->index_count = triangles.size();
+  target_triangle_range->offset = static_cast<uint32_t>(triangle_begin);
+  target_triangle_range->range = static_cast<uint32_t>(build.global_triangles.size());
+  target_triangle_range->capacity = triangle_capacity;
+  target_triangle_range->index_count = static_cast<uint32_t>(build.replacement_triangles.size());
 
-  std::vector<meshopt_Meshlet> meshlets_results;
-  std::vector<uint32_t> meshlet_result_vertices;
-  std::vector<uint8_t> meshlet_result_triangles;
-  const auto max_meshlets =
-      meshopt_buildMeshletsBound(triangles.size() * 3, Platform::Constants::meshlet_max_vertices_size,
-                                 Platform::Constants::meshlet_max_triangles_size);
-  meshlets_results.resize(max_meshlets);
-  meshlet_result_vertices.resize(max_meshlets * Platform::Constants::meshlet_max_vertices_size);
-  meshlet_result_triangles.resize(max_meshlets * Platform::Constants::meshlet_max_triangles_size * 3);
-  const auto meshlet_size = meshopt_buildMeshlets(
-      meshlets_results.data(), meshlet_result_vertices.data(), meshlet_result_triangles.data(), &triangles.at(0).x,
-      triangles.size() * 3, &vertices.at(0).position.x, vertices.size(), sizeof(Vertex),
-      Platform::Constants::meshlet_max_vertices_size, Platform::Constants::meshlet_max_triangles_size, 0);
-  std::vector<Vertex> replacement_vertices;
-  std::vector<glm::uvec3> replacement_triangles;
+  storage.meshlets_.resize(meshlet_begin + meshlet_capacity);
+  storage.vertex_data_chunks_.resize(meshlet_begin + meshlet_capacity);
+  std::copy(build.meshlets.begin(), build.meshlets.end(), storage.meshlets_.begin() + meshlet_begin);
+  std::copy(build.vertex_chunks.begin(), build.vertex_chunks.end(), storage.vertex_data_chunks_.begin() + meshlet_begin);
 
-  target_meshlet_range->range = meshlet_size;
-  for (size_t meshlet_index = 0; meshlet_index < meshlet_size; meshlet_index++) {
-    const uint32_t current_meshlet_index = storage.meshlets_.size();
-    storage.meshlets_.emplace_back();
-    auto& current_meshlet = storage.meshlets_[current_meshlet_index];
-
-    current_meshlet.vertex_chunk_index = storage.vertex_data_chunks_.size();
-    storage.vertex_data_chunks_.emplace_back();
-    auto& current_chunk = storage.vertex_data_chunks_[current_meshlet.vertex_chunk_index];
-
-    const auto& meshlet_result = meshlets_results.at(meshlet_index);
-
-    const uint32_t replacement_vertex_offset = replacement_vertices.size();
-
-    for (uint32_t vi = 0; vi < meshlet_result.vertex_count; vi++) {
-      current_chunk.vertex_data[vi] = vertices[meshlet_result_vertices.at(meshlet_result.vertex_offset + vi)];
-      replacement_vertices.emplace_back(current_chunk.vertex_data[vi]);
-    }
-    current_meshlet.vertices_size = meshlet_result.vertex_count;
-    current_meshlet.triangle_size = meshlet_result.triangle_count;
-    for (uint32_t ti = 0; ti < meshlet_result.triangle_count; ti++) {
-      auto& current_meshlet_triangle = current_meshlet.triangles[ti];
-      current_meshlet_triangle = glm::u8vec3(meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset],
-                                             meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset + 1],
-                                             meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset + 2]);
-
-      auto& global_triangle = storage.triangles_.emplace_back();
-      global_triangle.x = current_meshlet_triangle.x +
-                          current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
-      global_triangle.y = current_meshlet_triangle.y +
-                          current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
-      global_triangle.z = current_meshlet_triangle.z +
-                          current_meshlet.vertex_chunk_index * Platform::Constants::meshlet_max_vertices_size;
-
-      replacement_triangles.emplace_back(current_meshlet_triangle.x + replacement_vertex_offset,
-                                         current_meshlet_triangle.y + replacement_vertex_offset,
-                                         current_meshlet_triangle.z + replacement_vertex_offset);
-    }
-    target_triangle_range->range += current_meshlet.triangle_size;
-  }
-  vertices = replacement_vertices;
-  triangles = replacement_triangles;
+  storage.triangles_.resize(triangle_begin + triangle_capacity);
+  std::copy(build.global_triangles.begin(), build.global_triangles.end(), storage.triangles_.begin() + triangle_begin);
+  vertices = std::move(build.replacement_vertices);
+  triangles = std::move(build.replacement_triangles);
 
   storage.meshlet_range_descriptor_.push_back(target_meshlet_range);
   storage.triangle_range_descriptor_.push_back(target_triangle_range);
+  storage.mesh_vertex_dirty_range_.Mark(meshlet_begin, target_meshlet_range->capacity);
+  storage.meshlet_dirty_range_.Mark(meshlet_begin, target_meshlet_range->capacity);
+  storage.triangle_dirty_range_.Mark(triangle_begin, target_triangle_range->capacity);
+  storage.require_mesh_data_device_update_ = true;
+}
+
+bool GeometryStorage::TryUpdateMesh(const Handle& handle, std::vector<Vertex>& vertices,
+                                    std::vector<glm::uvec3>& triangles,
+                                    const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
+                                    const std::shared_ptr<RangeDescriptor>& target_triangle_range,
+                                    const bool optimize_meshlet_layout) {
+  if (vertices.empty() || triangles.empty() || !target_meshlet_range || !target_triangle_range) {
+    return false;
+  }
+  auto& storage = GetInstance();
+  if (target_meshlet_range->handle_ != handle || target_triangle_range->handle_ != handle ||
+      target_meshlet_range->capacity == 0 || target_triangle_range->capacity == 0) {
+    return false;
+  }
+  const auto meshlet_begin = target_meshlet_range->offset;
+  const auto triangle_begin = target_triangle_range->offset;
+  auto build = BuildMeshStorage(vertices, triangles, meshlet_begin, optimize_meshlet_layout);
+  if (build.meshlets.size() > target_meshlet_range->capacity ||
+      build.global_triangles.size() > target_triangle_range->capacity) {
+    return false;
+  }
+
+  target_meshlet_range->range = static_cast<uint32_t>(build.meshlets.size());
+  target_triangle_range->range = static_cast<uint32_t>(build.global_triangles.size());
+  target_triangle_range->index_count = static_cast<uint32_t>(build.replacement_triangles.size());
+  std::copy(build.meshlets.begin(), build.meshlets.end(), storage.meshlets_.begin() + meshlet_begin);
+  std::copy(build.vertex_chunks.begin(), build.vertex_chunks.end(), storage.vertex_data_chunks_.begin() + meshlet_begin);
+  std::copy(build.global_triangles.begin(), build.global_triangles.end(), storage.triangles_.begin() + triangle_begin);
+  vertices = std::move(build.replacement_vertices);
+  triangles = std::move(build.replacement_triangles);
+
   storage.mesh_vertex_dirty_range_.Mark(meshlet_begin, target_meshlet_range->range);
   storage.meshlet_dirty_range_.Mark(meshlet_begin, target_meshlet_range->range);
   storage.triangle_dirty_range_.Mark(triangle_begin, target_triangle_range->range);
   storage.require_mesh_data_device_update_ = true;
+  return true;
 }
 
 void GeometryStorage::AllocateSkinnedMesh(const Handle& handle, const std::vector<SkinnedVertex>& skinned_vertices,
@@ -735,7 +885,8 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
   }
   const auto& meshlet_range_descriptor = storage.meshlet_range_descriptor_[meshlet_range_descriptor_index];
   const auto meshlet_remove_offset = meshlet_range_descriptor->offset;
-  const uint32_t remove_chunk_size = meshlet_range_descriptor->range;
+  const uint32_t remove_chunk_size =
+      meshlet_range_descriptor->capacity == 0 ? meshlet_range_descriptor->range : meshlet_range_descriptor->capacity;
   storage.meshlets_.erase(storage.meshlets_.begin() + meshlet_range_descriptor->offset,
                           storage.meshlets_.begin() + meshlet_range_descriptor->offset + remove_chunk_size);
   storage.vertex_data_chunks_.erase(
@@ -745,8 +896,8 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
     storage.meshlets_[i].vertex_chunk_index = i;
   }
   for (uint32_t i = meshlet_range_descriptor_index + 1; i < storage.meshlet_range_descriptor_.size(); i++) {
-    assert(storage.meshlet_range_descriptor_[i]->offset >= meshlet_range_descriptor->range);
-    storage.meshlet_range_descriptor_[i]->offset -= meshlet_range_descriptor->range;
+    assert(storage.meshlet_range_descriptor_[i]->offset >= remove_chunk_size);
+    storage.meshlet_range_descriptor_[i]->offset -= remove_chunk_size;
   }
   storage.meshlet_range_descriptor_.erase(storage.meshlet_range_descriptor_.begin() + meshlet_range_descriptor_index);
   storage.mesh_vertex_dirty_range_.MarkTail(meshlet_remove_offset, storage.vertex_data_chunks_.size());
@@ -764,12 +915,14 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
   }
   const auto& triangle_range_descriptor = storage.triangle_range_descriptor_[triangle_range_descriptor_index];
   const auto triangle_remove_offset = triangle_range_descriptor->offset;
+  const uint32_t triangle_remove_size =
+      triangle_range_descriptor->capacity == 0 ? triangle_range_descriptor->range : triangle_range_descriptor->capacity;
   storage.triangles_.erase(
       storage.triangles_.begin() + triangle_range_descriptor->offset,
-      storage.triangles_.begin() + triangle_range_descriptor->offset + triangle_range_descriptor->range);
+      storage.triangles_.begin() + triangle_range_descriptor->offset + triangle_remove_size);
   for (uint32_t i = triangle_range_descriptor_index + 1; i < storage.triangle_range_descriptor_.size(); i++) {
-    assert(storage.triangle_range_descriptor_[i]->offset >= triangle_range_descriptor->range);
-    storage.triangle_range_descriptor_[i]->offset -= triangle_range_descriptor->range;
+    assert(storage.triangle_range_descriptor_[i]->offset >= triangle_remove_size);
+    storage.triangle_range_descriptor_[i]->offset -= triangle_remove_size;
   }
 
   for (uint32_t i = triangle_range_descriptor->offset; i < storage.triangles_.size(); i++) {
@@ -781,6 +934,22 @@ void GeometryStorage::FreeMesh(const Handle& handle) {
                                            triangle_range_descriptor_index);
   storage.triangle_dirty_range_.MarkTail(triangle_remove_offset, storage.triangles_.size());
   storage.require_mesh_data_device_update_ = true;
+}
+
+void GeometryStorage::OrphanMesh(const Handle& handle) {
+  auto& storage = GetInstance();
+  if (!storage.initialized_) {
+    return;
+  }
+  const auto remove_descriptors = [&](auto& descriptors) {
+    descriptors.erase(std::remove_if(descriptors.begin(), descriptors.end(),
+                                     [&](const auto& descriptor) {
+                                       return descriptor && descriptor->handle_ == handle;
+                                     }),
+                      descriptors.end());
+  };
+  remove_descriptors(storage.meshlet_range_descriptor_);
+  remove_descriptors(storage.triangle_range_descriptor_);
 }
 
 void GeometryStorage::FreeSkinnedMesh(const Handle& handle) {

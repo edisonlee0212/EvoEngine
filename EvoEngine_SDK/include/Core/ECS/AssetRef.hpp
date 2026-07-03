@@ -54,14 +54,7 @@ class AssetRef final : public ISerializable {
    * @brief Deserializes the `AssetRef` object from a YAML node.
    * @param in The YAML node to deserialize from.
    */
-  void Deserialize(const YAML::Node &in) {
-    value_.reset();
-    if (in["asset_handle_"])
-      asset_handle_ = Handle(in["asset_handle_"].as<uint64_t>());
-    if (in["type_name_"])
-      asset_type_name_ = in["type_name_"].as<std::string>();
-    Update();
-  }
+  void Deserialize(const YAML::Node &in);
 
   /**
    * @brief Default constructor for `AssetRef`.

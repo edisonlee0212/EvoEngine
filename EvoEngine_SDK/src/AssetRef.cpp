@@ -9,6 +9,22 @@
 
 using namespace evo_engine;
 
+void AssetRef::Deserialize(const YAML::Node& in) {
+  value_.reset();
+  asset_handle_ = Handle(0);
+  asset_type_name_.clear();
+  if (in["asset_handle_"]) {
+    asset_handle_ = Handle(in["asset_handle_"].as<uint64_t>());
+  }
+  if (in["type_name_"]) {
+    asset_type_name_ = in["type_name_"].as<std::string>();
+  }
+  if (const auto ptr = AssetManager::PeekAssetImpl(asset_handle_)) {
+    value_ = ptr;
+    asset_type_name_ = ptr->GetTypeName();
+  }
+}
+
 bool AssetRef::Update() {
   if (!value_) {
     if (asset_handle_.GetValue() == 0) {

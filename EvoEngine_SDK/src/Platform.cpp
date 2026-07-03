@@ -970,7 +970,8 @@ void Platform::PhysicalDevice::QueryInformation() {
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features);
 
-  properties2.pNext = &vulkan11_properties;
+  properties2.pNext = &device_id_properties;
+  device_id_properties.pNext = &vulkan11_properties;
   vulkan11_properties.pNext = &vulkan12_properties;
   vulkan12_properties.pNext = &mesh_shader_properties_ext;
   mesh_shader_properties_ext.pNext = &subgroup_size_control_properties;
@@ -1345,19 +1346,9 @@ void Platform::SetupVmaAllocator() {
   vma_allocator_create_info.vulkanApiVersion = volkGetInstanceVersion();
   vma_allocator_create_info.pVulkanFunctions = &vulkan_functions;
 #if ENABLE_EXTERNAL_MEMORY
-  std::vector<VkExternalMemoryHandleTypeFlagsKHR> handle_types;
-  handle_types.resize(graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount);
-  for (int i = 0; i < graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount; i++) {
-    if (graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypes[i].propertyFlags |
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
 #  ifdef _WIN64
-      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+  vma_allocator_create_info.flags |= VMA_ALLOCATOR_CREATE_KHR_EXTERNAL_MEMORY_WIN32_BIT;
 #  endif
-    }
-  }
-  vma_allocator_create_info.pTypeExternalMemoryHandleTypes = handle_types.data();
 #endif
   CheckVk(vmaCreateAllocator(&vma_allocator_create_info, &vma_allocator_));
 #pragma endregion
@@ -1598,6 +1589,7 @@ void Platform::OnDestroy() {
     graphics.gpu_service_->Shutdown();
   }
   CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
+  graphics.render_texture_present_pipeline.reset();
   const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
   CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
 

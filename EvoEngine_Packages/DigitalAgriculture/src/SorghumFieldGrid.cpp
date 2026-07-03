@@ -34,6 +34,7 @@ struct FieldIlluminationTestResult {
   float field_radiant_flux = 0.0f;
 };
 
+#ifdef CUDA_MODULE_SERVICE
 float CalculateSorghumRadiantFlux(const std::shared_ptr<Scene>& scene,
                                   const std::shared_ptr<SorghumLayer>& sorghum_layer,
                                   const Entity& sorghum_entity) {
@@ -43,6 +44,7 @@ float CalculateSorghumRadiantFlux(const std::shared_ptr<Scene>& scene,
                                    sorghum_layer->push_distance);
   return glm::length(estimator->average_flux);
 }
+#endif
 
 std::filesystem::path FindEvoEngineRoot(const std::filesystem::path& start_path) {
   auto current = start_path;
@@ -210,7 +212,7 @@ void SorghumFieldGrid::RecreateField() {
       sorghum->sorghum_generator = generator;
       const auto sorghum_descriptor = AssetManager::CreateTemporaryAsset<SorghumDescriptor>();
       generator->Apply(sorghum_descriptor, base_seed + size);
-      sorghum->sorghum_descriptor = generator;
+      sorghum->sorghum_descriptor = sorghum_descriptor;
 
       size++;
     }
@@ -229,6 +231,11 @@ void SorghumFieldGrid::CalculateIlluminationForField() {
     return;
   }
 
+#ifndef CUDA_MODULE_SERVICE
+  EVOENGINE_ERROR("Failed to calculate field illumination: requires CUDA_MODULE_SERVICE.");
+  return;
+#else
+
   sorghum_layer->CalculateIllumination();
 
   illumination_stats.total_area = 0.0f;
@@ -246,6 +253,7 @@ void SorghumFieldGrid::CalculateIlluminationForField() {
   if (illumination_stats.total_area > 0.0f) {
     illumination_stats.average_flux = illumination_stats.total_flux / illumination_stats.total_area;
   }
+#endif
 }
 
 bool SorghumFieldGrid::CalculateAndExportFieldIlluminationTest() {

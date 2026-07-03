@@ -131,26 +131,39 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
 #endif
     return;
   }
-  vertices_ = vertices;
-  triangles_.clear();
-  triangles_.reserve(triangles.size());
+
+  auto v_c = vertices;
+  std::vector<glm::uvec3> t_c;
+  t_c.reserve(triangles.size());
   for (const auto& triangle : triangles) {
     const auto& i1 = triangle.x;
     const auto& i2 = triangle.y;
     const auto& i3 = triangle.z;
-    if (i1 < 0 || i1 >= vertices_.size())
+    if (i1 >= v_c.size())
       continue;
-    if (i2 < 0 || i2 >= vertices_.size())
+    if (i2 >= v_c.size())
       continue;
-    if (i3 < 0 || i3 >= vertices_.size())
+    if (i3 >= v_c.size())
       continue;
-    triangles_.emplace_back() = triangle;
+    t_c.emplace_back(triangle);
+  }
+  if (t_c.empty()) {
+    if (version_ != 0) {
+      GeometryStorage::FreeMesh(GetHandle());
+    }
+    vertices_.clear();
+    triangles_.clear();
+    bound_ = Bound();
+    blas_.reset();
+    version_++;
+    saved_ = false;
+    return;
   }
 
 #pragma region Bound
-  glm::vec3 min_bound = vertices_.at(0).position;
-  glm::vec3 max_bound = vertices_.at(0).position;
-  for (const auto& vertex : vertices_) {
+  glm::vec3 min_bound = v_c.at(0).position;
+  glm::vec3 max_bound = v_c.at(0).position;
+  for (const auto& vertex : v_c) {
     min_bound = glm::vec3((glm::min)(min_bound.x, vertex.position.x), (glm::min)(min_bound.y, vertex.position.y),
                           (glm::min)(min_bound.z, vertex.position.z));
     max_bound = glm::vec3((glm::max)(max_bound.x, vertex.position.x), (glm::max)(max_bound.y, vertex.position.y),
@@ -159,10 +172,21 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   bound_.max = max_bound;
   bound_.min = min_bound;
 #pragma endregion
-  if (!vertex_attributes.normal)
+
+  if (!vertex_attributes.normal || !vertex_attributes.tangent) {
+    vertices_ = v_c;
+    triangles_ = t_c;
+  }
+  if (!vertex_attributes.normal) {
     RecalculateNormal();
-  if (!vertex_attributes.tangent)
+  }
+  if (!vertex_attributes.tangent) {
     RecalculateTangent();
+  }
+  if (!vertex_attributes.normal || !vertex_attributes.tangent) {
+    v_c = vertices_;
+    t_c = triangles_;
+  }
 
   vertex_attributes_ = vertex_attributes;
   vertex_attributes_.normal = true;
@@ -170,16 +194,39 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
 
   // MergeVertices();
 
-  if (version_ != 0)
-    GeometryStorage::FreeMesh(GetHandle());
+  if (version_ != 0 && !compact_storage_on_update &&
+      GeometryStorage::TryUpdateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_, optimize_meshlet_layout)) {
+    vertices_ = std::move(v_c);
+    triangles_ = std::move(t_c);
+    version_++;
+    if (ray_tracing_acceleration_enabled && Platform::RayTracingEnabled() && !vertices_.empty() &&
+        !triangles_.empty()) {
+      blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices_, triangles_);
+    } else {
+      blas_.reset();
+    }
+    saved_ = false;
+    return;
+  }
 
-  auto v_c = vertices_;
-  auto t_c = triangles_;
-  GeometryStorage::AllocateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_);
+  if (version_ != 0) {
+    if (compact_storage_on_update) {
+      GeometryStorage::FreeMesh(GetHandle());
+    } else {
+      GeometryStorage::OrphanMesh(GetHandle());
+    }
+  }
 
+  GeometryStorage::AllocateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_, !compact_storage_on_update,
+                                optimize_meshlet_layout);
+
+  vertices_ = std::move(v_c);
+  triangles_ = std::move(t_c);
   version_++;
-  if (Platform::RayTracingEnabled()) {
-    blas_ = std::make_shared<BottomLevelAccelerationStructure>(v_c, t_c);
+  if (ray_tracing_acceleration_enabled && Platform::RayTracingEnabled() && !vertices_.empty() && !triangles_.empty()) {
+    blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices_, triangles_);
+  } else {
+    blas_.reset();
   }
 
   saved_ = false;

@@ -449,6 +449,11 @@ glm::quat PineGrowthModel::ComputeChildLocalRotationImpl(const LGraphNode<PineMo
   return glm::quat(1, 0, 0, 0);
 }
 
+glm::vec3 PineGrowthModel::ComputeChildGlobalPositionImpl(const LGraphNode<PineModuleData>& /*node*/,
+                                                          const LGraphNode<PineModuleData>& parent) const {
+  return parent.info.GetGlobalEndPosition();
+}
+
 float PineGrowthModel::ChronologicalGddPerYearImpl() const {
   return kPineGddPerYear;
 }

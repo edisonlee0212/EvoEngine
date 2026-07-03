@@ -435,6 +435,20 @@ class Scene final : public IAsset {
   void SetEntityStatic(const Entity& entity, bool value);
 
   /**
+   * @brief Marks an entity as scene-serializable or runtime-only.
+   * @param entity The entity to update.
+   * @param value True to save the entity with the scene, false to omit it.
+   */
+  void SetEntitySerializable(const Entity& entity, bool value);
+
+  /**
+   * @brief Checks whether an entity is saved with the scene.
+   * @param entity The entity to query.
+   * @return True if the entity is serialized when saving the scene.
+   */
+  [[nodiscard]] bool IsEntitySerializable(const Entity& entity) const;
+
+  /**
    * @brief Sets the parent of a child entity.
    * @param child The child entity to update.
    * @param parent The parent entity to assign.

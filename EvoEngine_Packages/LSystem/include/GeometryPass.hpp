@@ -10,7 +10,7 @@ namespace l_system_package {
  *
  * Traverses the graph in BFS (sorted) order, computing each node's
  * `global_position` and `global_rotation` from its parent's transform plus
- * its own local rotation and length.
+ * its own local position/rotation and length.
  *
  * This is the graph-primary equivalent of a turtle interpreter. It does NOT
  * interpret a linear string - it operates directly on graph node references.
@@ -25,12 +25,12 @@ struct GeometryPass {
    * For each node in sorted (BFS root->leaf) order:
    *   - Root nodes keep their existing global_position and global_rotation.
    *   - Non-root nodes:
-   *       child.global_position = parent.info.GetGlobalEndPosition()
+   *       child.global_position = global_position_fn(child, parent)
+   *                               or parent.info.GetGlobalEndPosition()
    *       child.global_rotation = parent.global_rotation * child_local_rotation
    *
-   * The local rotation is obtained from the user-supplied callback, which
-   * can derive it from the node's module data (e.g., branching angles stored
-   * in the module parameters).
+   * Local position and rotation are obtained from user-supplied callbacks,
+   * which can derive them from module data.
    *
    * @tparam GraphData   Graph-wide data type.
    * @tparam FlowData    Per-flow data type.
@@ -39,11 +39,16 @@ struct GeometryPass {
    * @param local_rotation_fn Optional callback returning the local rotation for
    *                          a node relative to its parent. If nullptr, identity
    *                          rotation is used (child inherits parent direction).
+   * @param global_position_fn Optional callback returning the child's world
+   *                           position. If nullptr, the child starts at the
+   *                           parent's distal end.
    */
   template <typename GraphData, typename FlowData, typename ModuleData>
   static void Execute(LSystemGraph<GraphData, FlowData, ModuleData>& graph,
                       std::function<glm::quat(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
-                          local_rotation_fn = nullptr);
+                          local_rotation_fn = nullptr,
+                      std::function<glm::vec3(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
+                          global_position_fn = nullptr);
 
   /**
    * @brief Execute geometry propagation with a fixed root transform.
@@ -57,7 +62,9 @@ struct GeometryPass {
   static void Execute(LSystemGraph<GraphData, FlowData, ModuleData>& graph, const glm::vec3& root_position,
                       const glm::quat& root_rotation,
                       std::function<glm::quat(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
-                          local_rotation_fn = nullptr);
+                          local_rotation_fn = nullptr,
+                      std::function<glm::vec3(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
+                          global_position_fn = nullptr);
 };
 
 // =============================================================================
@@ -68,7 +75,9 @@ template <typename GraphData, typename FlowData, typename ModuleData>
 void GeometryPass::Execute(
     LSystemGraph<GraphData, FlowData, ModuleData>& graph,
     std::function<glm::quat(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
-        local_rotation_fn) {
+        local_rotation_fn,
+    std::function<glm::vec3(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
+        global_position_fn) {
   const auto& sorted = graph.PeekSortedNodeList();
   for (const auto handle : sorted) {
     auto& node = graph.RefNode(handle);
@@ -80,8 +89,8 @@ void GeometryPass::Execute(
 
     const auto& parent = graph.PeekNode(parent_handle);
 
-    // Child starts where parent ends.
-    node.info.global_position = parent.info.GetGlobalEndPosition();
+    node.info.global_position =
+        global_position_fn ? global_position_fn(node, parent) : parent.info.GetGlobalEndPosition();
 
     // Child rotation = parent rotation composed with local rotation.
     if (local_rotation_fn) {
@@ -99,7 +108,9 @@ void GeometryPass::Execute(
     LSystemGraph<GraphData, FlowData, ModuleData>& graph, const glm::vec3& root_position,
     const glm::quat& root_rotation,
     std::function<glm::quat(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
-        local_rotation_fn) {
+        local_rotation_fn,
+    std::function<glm::vec3(const LGraphNode<ModuleData>& node, const LGraphNode<ModuleData>& parent)>
+        global_position_fn) {
   // Set root transform(s).
   const auto& sorted = graph.PeekSortedNodeList();
   for (const auto handle : sorted) {
@@ -111,7 +122,7 @@ void GeometryPass::Execute(
   }
 
   // Run standard propagation.
-  Execute(graph, local_rotation_fn);
+  Execute(graph, local_rotation_fn, global_position_fn);
 }
 
 }  // namespace l_system_package

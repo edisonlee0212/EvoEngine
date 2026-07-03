@@ -24,6 +24,7 @@ constexpr uint64_t kBinaryAssetHandle = 0xE702'0000'0000'0001ull;
 constexpr uint64_t kThumbnailProbeAssetHandle = 0xE702'0000'0000'0002ull;
 constexpr uint64_t kNativePrefabAssetHandle = 0xE702'0000'0000'0003ull;
 constexpr uint64_t kSourceModelPrefabAssetHandle = 0xE702'0000'0000'0004ull;
+constexpr uint64_t kSceneAssetHandle = 0xE702'0000'0000'0005ull;
 constexpr auto kThumbnailProbeAssetTypeName = "ThumbnailProbeAsset";
 constexpr auto kThumbnailProbeAssetExtension = ".evethumbnailprobe";
 
@@ -129,6 +130,23 @@ void WritePrefabFixture(const TempFileManagerProject& project, const std::string
   metadata_file << "asset_extension_: " << extension << "\n";
   metadata_file << "asset_file_name_: " << file_name << "\n";
   metadata_file << "asset_type_name_: Prefab\n";
+  metadata_file << "asset_handle_: " << handle << "\n";
+}
+
+void WriteSceneFixture(const TempFileManagerProject& project, const std::string& file_name, const uint64_t handle) {
+  const auto asset_path = project.AssetsPath() / (file_name + ".evescene");
+  std::ofstream asset_file(asset_path);
+  asset_file << "environment: {}\n";
+  asset_file << "main_camera: {}\n";
+  asset_file << "entity_metadata_list: []\n";
+  asset_file << "systems_: []\n";
+  asset_file << "data_component_storage_list: []\n";
+  asset_file.close();
+
+  std::ofstream metadata_file(asset_path.string() + ".evefilemeta");
+  metadata_file << "asset_extension_: .evescene\n";
+  metadata_file << "asset_file_name_: " << file_name << "\n";
+  metadata_file << "asset_type_name_: Scene\n";
   metadata_file << "asset_handle_: " << handle << "\n";
 }
 
@@ -261,6 +279,22 @@ TEST(FileManager, ProjectScanDefersSourceModelPrefabAutoLoad) {
 
   ASSERT_TRUE(FileManager::GetFile(Handle(kNativePrefabAssetHandle)));
   ASSERT_TRUE(FileManager::GetFile(Handle(kSourceModelPrefabAssetHandle)));
+  const auto snapshot = AssetManager::GetAssetLoadSnapshot();
+  EXPECT_EQ(snapshot.total, 1);
+  EXPECT_EQ(snapshot.completed + snapshot.failed + snapshot.cancelled, 1);
+}
+
+TEST(FileManager, ProjectScanDefersSceneAutoLoad) {
+  TempFileManagerProject project;
+  WritePrefabFixture(project, "NativePrefab", ".eveprefab", kNativePrefabAssetHandle);
+  WriteSceneFixture(project, "UnusedScene", kSceneAssetHandle);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  OpenProject(app, project);
+
+  ASSERT_TRUE(FileManager::GetFile(Handle(kNativePrefabAssetHandle)));
+  ASSERT_TRUE(FileManager::GetFile(Handle(kSceneAssetHandle)));
   const auto snapshot = AssetManager::GetAssetLoadSnapshot();
   EXPECT_EQ(snapshot.total, 1);
   EXPECT_EQ(snapshot.completed + snapshot.failed + snapshot.cancelled, 1);

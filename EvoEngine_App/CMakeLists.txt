@@ -108,6 +108,13 @@ function(register_evoengine_app app_name default_enable)
 					EvoEngine_DemoScene
 					)
 			endif()
+			if (${app_name} STREQUAL "DigitalAgricultureApp")
+				target_link_libraries(${app_name}
+					PRIVATE
+					DigitalAgriculturePackage
+					LSystemPackage
+					)
+			endif()
 			if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
 				add_dependencies(${app_name} ${EvoEngine_RuntimePackages})
 			endif()

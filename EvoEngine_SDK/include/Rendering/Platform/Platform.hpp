@@ -84,6 +84,9 @@ class Platform final {
     /// Vulkan 1.1 specific device properties.
     VkPhysicalDeviceProperties2 properties2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
 
+    /// Vulkan physical device identifiers used for cross-API interop.
+    VkPhysicalDeviceIDProperties device_id_properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+
     /// Vulkan 1.1 specific properties.
     VkPhysicalDeviceVulkan11Properties vulkan11_properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
 

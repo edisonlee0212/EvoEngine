@@ -415,6 +415,11 @@ void PostProcessingStack::Resize(const glm::uvec2& size) {
 }
 
 void PostProcessingStack::OnCreate() {
+  if (const auto application = ApplicationContext::TryGet();
+      application && application->GetApplicationStatus() == Application::ExecutionStatus::OnDestroy) {
+    return;
+  }
+
   if (!blur_layout) {
     blur_layout = std::make_shared<DescriptorSetLayout>();
     blur_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
@@ -452,6 +457,11 @@ void PostProcessingStack::OnCreate() {
 }
 
 bool PostProcessingStack::BuildNextPipeline() {
+  if (const auto application = ApplicationContext::TryGet();
+      application && application->GetApplicationStatus() == Application::ExecutionStatus::OnDestroy) {
+    pipelines_ready_ = true;
+    return true;
+  }
   if (pipelines_ready_) {
     return true;
   }

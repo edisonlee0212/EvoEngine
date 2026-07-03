@@ -138,6 +138,11 @@ class RangeDescriptor {
   uint32_t range = 0;
 
   /**
+   * @brief Allocated storage capacity for this descriptor.
+   */
+  uint32_t capacity = 0;
+
+  /**
    * @brief Offset for the previous frame's data.
    */
   uint32_t prev_frame_offset = 0;
@@ -348,7 +353,12 @@ class GeometryStorage final {
 
   static void AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
                            const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
-                           const std::shared_ptr<RangeDescriptor>& target_triangle_range);
+                           const std::shared_ptr<RangeDescriptor>& target_triangle_range,
+                           bool reserve_dynamic_capacity = false, bool optimize_meshlet_layout = true);
+  static bool TryUpdateMesh(const Handle& handle, std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
+                            const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
+                            const std::shared_ptr<RangeDescriptor>& target_triangle_range,
+                            bool optimize_meshlet_layout = true);
   static void AllocateSkinnedMesh(const Handle& handle, const std::vector<SkinnedVertex>& skinned_vertices,
                                   const std::vector<glm::uvec3>& skinned_triangles,
                                   const std::shared_ptr<RangeDescriptor>& target_skinned_meshlet_range,
@@ -359,6 +369,7 @@ class GeometryStorage final {
                               const std::shared_ptr<RangeDescriptor>& target_segment_range);
 
   static void FreeMesh(const Handle& handle);
+  static void OrphanMesh(const Handle& handle);
   static void FreeSkinnedMesh(const Handle& handle);
   static void FreeStrands(const Handle& handle);
 

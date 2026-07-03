@@ -52,6 +52,8 @@ class PrivateComponentStorage {
    */
   std::unordered_map<size_t, std::vector<std::shared_ptr<IPrivateComponent>>> private_component_pool_;
 
+  [[nodiscard]] std::shared_ptr<IPrivateComponent> CreatePrivateComponent(const size_t &type_id) const;
+
  public:
   /**
    * @brief The scene that owns this private component storage.
@@ -161,7 +163,7 @@ std::shared_ptr<T> PrivateComponentStorage::GetOrSetPrivateComponent(const Entit
     back->handle_ = Handle();
     return std::dynamic_pointer_cast<T>(back);
   }
-  return Serialization::ProduceSerializable<T>();
+  return std::dynamic_pointer_cast<T>(CreatePrivateComponent(id));
 }
 
 template <typename T>

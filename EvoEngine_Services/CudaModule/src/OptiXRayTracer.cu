@@ -774,8 +774,8 @@ void PrintLogMessage(unsigned int level, const char *tag, const char *message, v
 }
 
 void OptiXRayTracer::CreateContext() {
-  // for this sample, do everything on one device
-  constexpr int device_id = 0;
+  int device_id = 0;
+  CUDA_CHECK(GetDevice(&device_id));
   CUDA_CHECK(StreamCreate(&stream_));
   CUDA_CHECK(GetDeviceProperties(&device_props_, device_id));
   EVOENGINE_LOG(std::string("Optix: running on device: ") + device_props_.name);
@@ -1842,7 +1842,7 @@ void OptiXRayTracer::AssemblePipeline(RayTracerPipeline &target_pipeline) const 
     for (auto &j : i.second)
       program_groups.push_back(j.second);
 
-  constexpr uint32_t max_trace_depth = 31;
+  constexpr uint32_t max_trace_depth = 8;
   target_pipeline.pipeline_link_options.maxTraceDepth = max_trace_depth;
   char log[2048];
   size_t sizeof_log = sizeof(log);

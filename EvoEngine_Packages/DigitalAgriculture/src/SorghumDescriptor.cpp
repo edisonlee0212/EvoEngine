@@ -523,41 +523,31 @@ std::optional<std::vector<std::unordered_map<std::string, std::vector<glm::vec3>
 
 
 float SorghumDescriptor::CalculateLeafArea(int leaf_index) const {
-
-  
   float total_area = 0.0f;
-  const auto scene = ApplicationContext::Get().GetActiveScene();
-  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
 
   std::vector<Vertex> vertices;
   std::vector<unsigned int> indices;
   const auto leaf_state = leaves[leaf_index];
   constexpr auto sorghum_mesh_generator_settings = SorghumMeshGeneratorSettings{};
   leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, false);
-   if (sorghum_mesh_generator_settings.bottom_face) {
-     leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
-   }
-  VertexAttributes attributes{};
-  attributes.tex_coord = true;
-  mesh->SetVertices(attributes, vertices, indices);
-
-
-  for (const auto& triangle : mesh->UnsafeGetTriangles()) {
-    auto& v = mesh->UnsafeGetVertices();
-
-    IlluminationSampler<glm::vec3> light_probe;
-    light_probe.v_0 = v[triangle.x];
-    light_probe.v_1 = v[triangle.y];
-    light_probe.v_2 = v[triangle.z];
-
-
-    const float area = light_probe.GetArea();
-
-    //todo: this may need argue
-    total_area += area;
-
+  if (sorghum_mesh_generator_settings.bottom_face) {
+    leaf_state.GenerateGeometry(vertices, indices, sorghum_mesh_generator_settings, true);
   }
-  
+
+  for (size_t index = 0; index + 2 < indices.size(); index += 3) {
+    const auto i0 = indices[index];
+    const auto i1 = indices[index + 1];
+    const auto i2 = indices[index + 2];
+    if (i0 >= vertices.size() || i1 >= vertices.size() || i2 >= vertices.size()) {
+      continue;
+    }
+
+    const auto& p0 = vertices[i0].position;
+    const auto& p1 = vertices[i1].position;
+    const auto& p2 = vertices[i2].position;
+    total_area += 0.5f * glm::length(glm::cross(p1 - p0, p2 - p0));
+  }
+
   return total_area;
 }
 
@@ -668,5 +658,3 @@ std::vector<float> SorghumDescriptor::CalculateInterNodeLengths() const {
   }
   return internode_lengths;
 }
-
-

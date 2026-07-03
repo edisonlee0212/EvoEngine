@@ -26,10 +26,10 @@ void InitiateSorghumEntity(
     const Entity& sorghum_entity, const DatasetGenerator::SorghumDataGenerationParameters &data_generation_parameters) {
 
 
-  Application::GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
+  ApplicationContext::Get().GetLayer<SorghumLayer>()->GenerateMeshForAllSorghums(
       data_generation_parameters.sorghum_mesh_generator_settings);
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   
 }
 
@@ -60,17 +60,17 @@ void ScanLabeledMeshes(const bool use_gpu, const std::vector<Entity>& targets,
   }
 
 
-  const auto scene = Application::GetActiveScene();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto scanner_entity = scene->CreateEntity("Scanner");
   const auto scanner = scene->GetOrSetPrivateComponent<GantryPointCloudScanner>(scanner_entity).lock();
   scanner->sorghum_point_cloud_point_settings = data_generation_parameters.sorghum_point_cloud_point_settings;
-  Application::Loop();
-  Application::Loop();
+  ApplicationContext::Get().Loop();
+  ApplicationContext::Get().Loop();
   const auto point_cloud_output_path =
       data_generation_parameters.output_folder / (data_generation_parameters.output_file_name + ".ply");
   scanner->CaptureLabeledMeshes(targets, label_lists, point_cloud_output_path, gantry_capture_settings);
   scene->DeleteEntity(scanner_entity);
-  Application::Loop();
+  ApplicationContext::Get().Loop();
 
 }
 

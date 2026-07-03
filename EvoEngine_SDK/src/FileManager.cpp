@@ -56,7 +56,7 @@ bool IsDeferredImportSource(const File& file) {
 }
 
 bool ShouldAutoLoadAsset(const File& file) {
-  return file.GetAssetTypeName() != "Binary" && !IsDeferredImportSource(file);
+  return file.GetAssetTypeName() != "Binary" && file.GetAssetTypeName() != "Scene" && !IsDeferredImportSource(file);
 }
 
 std::filesystem::path FileMetadataPath(const std::filesystem::path& asset_path) {

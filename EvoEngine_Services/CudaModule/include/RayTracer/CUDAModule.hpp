@@ -2,6 +2,7 @@
 
 #include "OptiXRayTracer.hpp"
 #include "memory"
+#include <unordered_map>
 
 #include "VulkanInterlop.hpp"
 
@@ -32,6 +33,7 @@ class CudaModule {
   void *optix_handle_ = nullptr;
   bool initialized_ = false;
   std::unique_ptr<OptiXRayTracer> ray_tracer_;
+  std::unordered_map<uint64_t, std::pair<uint32_t, std::shared_ptr<CudaImage>>> texture_2d_cache_;
 
   friend class RayTracerLayer;
 

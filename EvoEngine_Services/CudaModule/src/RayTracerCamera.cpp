@@ -67,7 +67,6 @@ void RayTracerCamera::OnCreate() {
   render_texture_create_info.extent.height = frame_size.y;
   render_texture_create_info.extent.depth = 1;
   render_texture = std::make_shared<RenderTexture>(render_texture_create_info);
-  Ready(glm::vec3(0), glm::vec3(0));
 }
 
 void RayTracerCamera::OnDestroy() {

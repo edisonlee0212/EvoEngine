@@ -1,7 +1,9 @@
 #include "PyEvoEngine.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
+#include "RenderLayer.hpp"
 #include "TextureStorage.hpp"
+#include "WindowLayer.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
 #endif

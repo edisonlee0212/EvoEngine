@@ -9,6 +9,8 @@
 //#  include "EditorLayer.hpp"
 //#  include "HeightField.hpp"
 //#  include "MeshRenderer.hpp"
+#  include "EditorLayer.hpp"
+#  include "IPrivateComponent.hpp"
 #  include "ObjectRotator.hpp"
 #  include "PlayerController.hpp"
 #  include "PostProcessingStack.hpp"
@@ -25,7 +27,9 @@
 #  include "TreeStructor.hpp"
 #  include "WindowLayer.hpp"
 #  include "pybind11/pybind11.h"
+#  include "pybind11/stl.h"
 #  include "pybind11/stl/filesystem.h"
+#  include <map>
 
 #  if DATASET_GENERATION_PACKAGE
 #    include <SorghumPointCloudScanner.hpp>
@@ -41,6 +45,75 @@ using namespace dataset_generation_package;
 using namespace evo_engine;
 using namespace py_evo_engine;
 using namespace digital_agriculture_package;
+
+struct ParbarProbeRecord {
+  std::string cultivar;
+  std::string model;
+  std::string sensor_bar_level;
+  std::string height_rule;
+  uint32_t row = 0;
+  uint32_t column = 0;
+  uint32_t represented_plant_count = 0;
+  glm::vec3 position = glm::vec3(0.0f);
+  glm::vec3 normal = glm::vec3(0.0f, 1.0f, 0.0f);
+  glm::vec3 energy = glm::vec3(0.0f);
+  glm::vec3 direction = glm::vec3(0.0f);
+  float average_represented_root_elevation_m = 0.0f;
+  float average_represented_plant_height_m = 0.0f;
+  float sensor_top_elevation_m = 0.0f;
+  float height_fraction_of_average_height = 0.0f;
+  float scalar = 0.0f;
+  float normalized = 0.0f;
+};
+
+struct LSystemGridIlluminationRecord {
+  std::string name;
+  std::string cultivar;
+  uint32_t row = 0;
+  uint32_t column = 0;
+  glm::vec3 position = glm::vec3(0.0f);
+  uint32_t triangle_count = 0;
+  uint32_t leaf_triangle_count = 0;
+  uint32_t stem_triangle_count = 0;
+  float area = 0.0f;
+  float leaf_area = 0.0f;
+  float stem_area = 0.0f;
+  float plant_height_m = 0.0f;
+  glm::vec3 total_flux = glm::vec3(0.0f);
+  glm::vec3 average_flux = glm::vec3(0.0f);
+  float scalar = 0.0f;
+  glm::vec3 isolated_total_flux = glm::vec3(0.0f);
+  glm::vec3 isolated_average_flux = glm::vec3(0.0f);
+  float isolated_scalar = 0.0f;
+  float retention_ratio = 1.0f;
+  float shadow_loss = 0.0f;
+  float normalized = 0.0f;
+};
+
+struct LSystemPlantHeightFitRecord {
+  std::string date;
+  std::string cultivar;
+  std::string plant_name;
+  std::string base_plant_name;
+  std::string scene_asset_path;
+  std::string descriptor_asset_path;
+  uint32_t cluster_index = 0;
+  uint32_t cluster_size = 1;
+  float cluster_offset_x_m = 0.0f;
+  float cluster_offset_z_m = 0.0f;
+  float cluster_offset_radius_m = 0.0f;
+  float clump_mean_height_m = 0.0f;
+  float target_height_m = 0.0f;
+  float pre_fit_height_m = 0.0f;
+  float final_height_m = 0.0f;
+  float optimized_descriptor_scale = 1.0f;
+  float per_plant_scale = 1.0f;
+  float leaf_modules_mean = 0.0f;
+  float leaf_modules_deviation = 0.0f;
+  float leaf_thickness_m = 0.001f;
+  uint32_t leaf_count = 0;
+  float middle_parbar_top_elevation_m = 0.0f;
+};
 
 class PyDigitalAgriculture {
  public:
@@ -92,8 +165,46 @@ class PyDigitalAgriculture {
 
   static void SetIlluminationSamples(int samples, int bounces);
 
-  static Entity PyDigitalAgriculture::CreateEntityFromPrefab(const Handle& prefab_handle, const glm::vec3& position,
-                                                             const glm::vec3& euler_rotation, const glm::vec3& scale);
+  static bool RunLSystemSorghumProject(const std::filesystem::path& project_path,
+                                       const std::filesystem::path& runtime_package_path = {},
+                                       const std::filesystem::path& start_scene_path = {},
+                                       bool load_project_assets = false);
+
+  static bool WaitForProjectIdle(int max_frames = 30000);
+
+  static void LoopFrames(int frames);
+
+  static size_t GrowSorghumLsPlantsToAdulthood();
+
+  static size_t SetSorghumLsLeafThickness(float leaf_thickness_m, bool regenerate_geometry = true);
+
+  static size_t SetSorghumLsGridSpacing(float spacing_x, float spacing_z);
+
+  static size_t MoveParbarMiddlePanelsToPlantHeightFraction(float height_fraction = 2.0f / 3.0f);
+
+  static Handle CreateParbarTopFaceSensorGroup(uint32_t samples_per_panel = 100);
+
+  static void EstimatePARSensors(const Handle& sensor_group_handle, int samples = 64, int bounces = 4,
+                                 float push_normal_distance = 0.001f, int seed = 0);
+
+  static std::vector<ParbarProbeRecord> GetParbarTopFaceSensorResults(const Handle& sensor_group_handle,
+                                                                      uint32_t samples_per_panel = 100);
+
+  static std::vector<LSystemGridIlluminationRecord> EstimateSorghumLsGridIllumination(
+      int samples = 64, int bounces = 4, int max_triangles_per_plant = 0,
+      float push_normal_distance = 0.001f, int seed = 0);
+
+  static std::vector<LSystemPlantHeightFitRecord> FitSorghumLsDateHeightScene(
+      const std::string& date, const std::map<std::string, float>& target_heights_m,
+      float leaf_modules_mean, float leaf_modules_deviation, const std::filesystem::path& descriptor_folder,
+      const std::filesystem::path& scene_asset_path, int optimizer_sample_count = 240,
+      float tolerance_m = 0.005f, int max_fit_iterations = 6, float leaf_thickness_m = 0.001f,
+      int cluster_min_count = 1, int cluster_max_count = 1, float cluster_radius_m = 0.0f);
+
+  static bool SaveActiveSceneAsProjectAsset(const std::filesystem::path& scene_asset_path);
+
+  static Entity CreateEntityFromPrefab(const Handle& prefab_handle, const glm::vec3& position,
+                                       const glm::vec3& euler_rotation, const glm::vec3& scale);
 };
 
 }  // namespace py_digital_agriculture_plugin

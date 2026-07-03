@@ -93,6 +93,14 @@ function(register_python_binding target_name default_enable)
 				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}Module.cpp)
 			configure_python_binding_target(${target_name})
+			if (${target_name} STREQUAL "PyDigitalAgriculture")
+				target_link_libraries(${target_name}
+					PRIVATE
+					DigitalAgriculturePackage
+					DatasetGenerationPackage
+					LSystemPackage
+					)
+			endif()
 			message("Enabled [${target_name}] PythonBinding.")
 		endif()
 	endif ()
@@ -101,8 +109,7 @@ endfunction()
 register_core_python_binding()
 
 set("PythonBinding-PyEcoSysLab" OFF CACHE BOOL "Package-specific Python bindings are disabled during runtime package migration." FORCE)
-set("PythonBinding-PyDigitalAgriculture" OFF CACHE BOOL
-	"Package-specific Python bindings are disabled during runtime package migration." FORCE)
+set("PythonBinding-PyDigitalAgriculture" ON CACHE BOOL "Add Digital Agriculture Python binding." FORCE)
 register_python_binding(PyEcoSysLab OFF)
 register_python_binding(PyDigitalAgriculture ON)
 

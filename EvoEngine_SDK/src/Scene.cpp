@@ -5,6 +5,7 @@
 #include "EditorLayer.hpp"
 #include "Entities.hpp"
 #include "EntityMetadata.hpp"
+#include "FileManager.hpp"
 #include "Jobs.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
@@ -13,11 +14,108 @@
 #include "SkinnedMeshRenderer.hpp"
 #include "UnknownPrivateComponent.hpp"
 
+#include <sstream>
 #include <system_error>
 
 using namespace evo_engine;
 
 void WriteSceneSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
+
+namespace {
+bool EntitySerializableForSave(const std::vector<EntityMetadata>& metadata, const size_t index,
+                               std::vector<int8_t>& cache) {
+  if (index == 0 || index >= metadata.size()) {
+    return false;
+  }
+  if (cache[index] != -1) {
+    return cache[index] != 0;
+  }
+
+  const auto& entity_metadata = metadata[index];
+  bool serializable = entity_metadata.entity_handle != 0 && entity_metadata.entity_serializable;
+  if (serializable && entity_metadata.parent.GetIndex() != 0) {
+    serializable = EntitySerializableForSave(metadata, entity_metadata.parent.GetIndex(), cache);
+  }
+  cache[index] = serializable ? 1 : 0;
+  return serializable;
+}
+
+std::vector<bool> BuildSerializableEntityMask(const std::vector<EntityMetadata>& metadata) {
+  std::vector<bool> mask(metadata.size(), false);
+  std::vector<int8_t> cache(metadata.size(), -1);
+  for (size_t i = 1; i < metadata.size(); ++i) {
+    mask[i] = EntitySerializableForSave(metadata, i, cache);
+  }
+  return mask;
+}
+
+size_t CountSerializableStorageEntities(const DataComponentStorage& storage, const std::vector<bool>& mask) {
+  size_t count = 0;
+  for (size_t i = 0; i < storage.entity_alive_count; ++i) {
+    const auto entity = storage.chunk_array.entity_array[i];
+    if (entity.GetVersion() != 0 && entity.GetIndex() < mask.size() && mask[entity.GetIndex()]) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void WriteSceneDataComponentStoragePayload(const SceneDataStorage& scene_data_storage,
+                                           const DataComponentStorage& storage,
+                                           const std::vector<bool>& serializable_entities, YAML::Emitter& out) {
+  out << YAML::BeginMap;
+  {
+    out << YAML::Key << "entity_size" << YAML::Value << storage.entity_size;
+    out << YAML::Key << "chunk_capacity" << YAML::Value << storage.chunk_capacity;
+    out << YAML::Key << "entity_alive_count" << YAML::Value
+        << CountSerializableStorageEntities(storage, serializable_entities);
+    out << YAML::Key << "data_component_types" << YAML::Value << YAML::BeginSeq;
+    for (const auto& i : storage.data_component_types) {
+      out << YAML::BeginMap;
+      out << YAML::Key << "type_name" << YAML::Value << i.type_name;
+      out << YAML::Key << "type_size" << YAML::Value << i.type_size;
+      out << YAML::Key << "type_offset" << YAML::Value << i.type_offset;
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+
+    out << YAML::Key << "chunk_array" << YAML::Value << YAML::BeginSeq;
+    for (size_t i = 0; i < storage.entity_alive_count; i++) {
+      const auto entity = storage.chunk_array.entity_array[i];
+      if (entity.GetVersion() == 0 || entity.GetIndex() >= serializable_entities.size() ||
+          !serializable_entities[entity.GetIndex()]) {
+        continue;
+      }
+
+      out << YAML::BeginMap;
+      auto& entity_info = scene_data_storage.entity_metadata_list.at(entity.GetIndex());
+      out << YAML::Key << "h" << YAML::Value << entity_info.entity_handle;
+
+      auto& data_component_storage =
+          scene_data_storage.data_component_storage_list[entity_info.data_component_storage_index];
+      const auto chunk_index = entity_info.chunk_array_index / data_component_storage.chunk_capacity;
+      const auto chunk_pointer = entity_info.chunk_array_index % data_component_storage.chunk_capacity;
+      auto& chunk = data_component_storage.chunk_array.chunks[chunk_index];
+
+      out << YAML::Key << "dc" << YAML::Value << YAML::BeginSeq;
+      for (const auto& type : data_component_storage.data_component_types) {
+        out << YAML::BeginMap;
+        out << YAML::Key << "d" << YAML::Value
+            << YAML::Binary(
+                   static_cast<const unsigned char*>(chunk.PeekData(
+                       type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * type.type_size)),
+                   type.type_size);
+        out << YAML::EndMap;
+      }
+      out << YAML::EndSeq;
+
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+  }
+  out << YAML::EndMap;
+}
+}  // namespace
 
 Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version) {
   Entity entity;
@@ -198,6 +296,7 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
   const auto& main_camera = scene.main_camera;
   const auto& scene_data_storage_ = scene.scene_data_storage_;
   const auto& systems_ = scene.systems_;
+  const auto serializable_entities = BuildSerializableEntityMask(scene_data_storage_.entity_metadata_list);
   out << YAML::Key << "environment" << YAML::Value << YAML::BeginMap;
   environment.Serialize(out);
   out << YAML::EndMap;
@@ -210,8 +309,12 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
   out << YAML::Key << "entity_metadata_list" << YAML::Value << YAML::BeginSeq;
   for (size_t i = 1; i < scene_data_storage.entity_metadata_list.size(); i++) {
     auto& entity_metadata = scene_data_storage.entity_metadata_list[i];
-    if (entity_metadata.entity_handle == 0)
+    if (entity_metadata.entity_handle == 0) {
       continue;
+    }
+    if (i >= serializable_entities.size() || !serializable_entities[i]) {
+      continue;
+    }
     for (const auto& element : entity_metadata.private_component_elements) {
       Serialization::CollectAssetRefs(*element.private_component_data, list);
     }
@@ -230,16 +333,29 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
 #pragma endregion
 
 #pragma region Assets
-  for (auto& i : list) {
-    const auto asset = i.Get<IAsset>();
-
-    if (asset && !Resources::IsResource(asset->GetHandle())) {
-      if (asset->IsTemporary()) {
-        asset_map[asset->GetHandle()] = asset;
-      } else if (!asset->Saved()) {
-        asset->Save();
-      }
+  auto collect_asset = [&](AssetRef& asset_ref) {
+    const auto handle = asset_ref.GetAssetHandle();
+    if (handle == 0 || Resources::IsResource(handle)) {
+      return;
     }
+    if (FileManager::GetFile(handle)) {
+      if (const auto loaded_asset = AssetManager::PeekAsset(handle); loaded_asset && !loaded_asset->Saved()) {
+        loaded_asset->Save();
+      }
+      return;
+    }
+    const auto asset = asset_ref.Get<IAsset>();
+    if (!asset || Resources::IsResource(asset->GetHandle())) {
+      return;
+    }
+    if (asset->IsTemporary()) {
+      asset_map[asset->GetHandle()] = asset;
+    } else if (!asset->Saved()) {
+      asset->Save();
+    }
+  };
+  for (auto& i : list) {
+    collect_asset(i);
   }
   bool list_check = true;
   while (list_check) {
@@ -249,13 +365,7 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
       Serialization::CollectAssetRefs(*i.second, list);
     }
     for (auto& i : list) {
-      if (const auto asset = i.Get<IAsset>(); asset && !Resources::IsResource(asset->GetHandle())) {
-        if (asset->IsTemporary()) {
-          asset_map[asset->GetHandle()] = asset;
-        } else if (!asset->Saved()) {
-          asset->Save();
-        }
-      }
+      collect_asset(i);
     }
     if (asset_map.size() == current_size)
       list_check = false;
@@ -280,7 +390,8 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
 #pragma region DataComponentStorage
   out << YAML::Key << "data_component_storage_list" << YAML::Value << YAML::BeginSeq;
   for (size_t i = 1; i < scene_data_storage.data_component_storage_list.size(); i++) {
-    WriteSceneDataComponentStorage(scene, scene_data_storage.data_component_storage_list[i], out);
+    const auto& storage = scene_data_storage.data_component_storage_list[i];
+    WriteSceneDataComponentStoragePayload(scene_data_storage, storage, serializable_entities, out);
   }
   out << YAML::EndSeq;
 #pragma endregion
@@ -472,54 +583,11 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
 void evo_engine::WriteSceneDataComponentStorage(const Scene& scene, const DataComponentStorage& storage,
                                                 YAML::Emitter& out) {
   const auto& scene_data_storage_ = scene.scene_data_storage_;
-  out << YAML::BeginMap;
-  {
-    out << YAML::Key << "entity_size" << YAML::Value << storage.entity_size;
-    out << YAML::Key << "chunk_capacity" << YAML::Value << storage.chunk_capacity;
-    out << YAML::Key << "entity_alive_count" << YAML::Value << storage.entity_alive_count;
-    out << YAML::Key << "data_component_types" << YAML::Value << YAML::BeginSeq;
-    for (const auto& i : storage.data_component_types) {
-      out << YAML::BeginMap;
-      out << YAML::Key << "type_name" << YAML::Value << i.type_name;
-      out << YAML::Key << "type_size" << YAML::Value << i.type_size;
-      out << YAML::Key << "type_offset" << YAML::Value << i.type_offset;
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-
-    out << YAML::Key << "chunk_array" << YAML::Value << YAML::BeginSeq;
-    for (size_t i = 0; i < storage.entity_alive_count; i++) {
-      const auto entity = storage.chunk_array.entity_array[i];
-      if (entity.GetVersion() == 0)
-        continue;
-
-      out << YAML::BeginMap;
-      auto& entity_info = scene_data_storage_.entity_metadata_list.at(entity.GetIndex());
-      out << YAML::Key << "h" << YAML::Value << entity_info.entity_handle;
-
-      auto& data_component_storage =
-          scene_data_storage_.data_component_storage_list[entity_info.data_component_storage_index];
-      const auto chunk_index = entity_info.chunk_array_index / data_component_storage.chunk_capacity;
-      const auto chunk_pointer = entity_info.chunk_array_index % data_component_storage.chunk_capacity;
-      auto& chunk = data_component_storage.chunk_array.chunks[chunk_index];
-
-      out << YAML::Key << "dc" << YAML::Value << YAML::BeginSeq;
-      for (const auto& type : data_component_storage.data_component_types) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "d" << YAML::Value
-            << YAML::Binary(
-                   static_cast<const unsigned char*>(chunk.PeekData(
-                       type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * type.type_size)),
-                   type.type_size);
-        out << YAML::EndMap;
-      }
-      out << YAML::EndSeq;
-
-      out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
+  std::vector<bool> serializable_entities(scene_data_storage_.entity_metadata_list.size(), true);
+  if (!serializable_entities.empty()) {
+    serializable_entities[0] = false;
   }
-  out << YAML::EndMap;
+  WriteSceneDataComponentStoragePayload(scene_data_storage_, storage, serializable_entities, out);
 }
 
 void evo_engine::ReadSceneDataComponentStorage(Scene& scene, const size_t storage_index,
@@ -1256,6 +1324,22 @@ void Scene::SetEntityStatic(const Entity& entity, bool value) {
   entity_info.entity_static = value;
   SetUnsaved();
 }
+
+void Scene::SetEntitySerializable(const Entity& entity, bool value) {
+  assert(IsEntityValid(entity));
+  auto& entity_info = scene_data_storage_.entity_metadata_list.at(entity.index_);
+  if (entity_info.entity_serializable == value) {
+    return;
+  }
+  entity_info.entity_serializable = value;
+  SetUnsaved();
+}
+
+bool Scene::IsEntitySerializable(const Entity& entity) const {
+  assert(IsEntityValid(entity));
+  return scene_data_storage_.entity_metadata_list.at(entity.index_).entity_serializable;
+}
+
 void Scene::SetParent(const Entity& child, const Entity& parent, const bool& recalculate_transform) {
   assert(IsEntityValid(child) && IsEntityValid(parent));
   const size_t child_index = child.index_;

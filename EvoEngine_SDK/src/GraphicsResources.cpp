@@ -8,8 +8,59 @@
 #include "Utilities.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 
 using namespace evo_engine;
+
+namespace {
+VkDeviceSize GrowBufferSize(const VkDeviceSize current_size, const VkDeviceSize required_size) {
+  if (current_size <= 1) {
+    return required_size;
+  }
+  return std::max(required_size, current_size + current_size / 2);
+}
+
+bool RequiresExternalMemoryExport(const VkImageCreateInfo& image_create_info) {
+  return (image_create_info.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT)) != 0;
+}
+
+#if ENABLE_EXTERNAL_MEMORY
+VkExternalMemoryHandleTypeFlagBitsKHR ExternalMemoryHandleType() {
+#  ifdef _WIN64
+  return VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR;
+#  else
+  return VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+#  endif
+}
+
+VkResult CreateImage(VkImageCreateInfo& image_create_info, VmaAllocationCreateInfo& allocation_create_info,
+                     const bool export_external_memory, VkImage* image, VmaAllocation* allocation,
+                     VmaAllocationInfo* allocation_info) {
+  if (!export_external_memory) {
+    return vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &allocation_create_info, image, allocation,
+                          allocation_info);
+  }
+
+  VkExternalMemoryImageCreateInfoKHR external_image_create_info{};
+  external_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR;
+  external_image_create_info.pNext = image_create_info.pNext;
+  external_image_create_info.handleTypes = ExternalMemoryHandleType();
+  image_create_info.pNext = &external_image_create_info;
+
+  VkExportMemoryAllocateInfoKHR export_memory_allocate_info{};
+  export_memory_allocate_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR;
+  export_memory_allocate_info.handleTypes = ExternalMemoryHandleType();
+  return vmaCreateDedicatedImage(Platform::GetVmaAllocator(), &image_create_info, &allocation_create_info,
+                                 &export_memory_allocate_info, image, allocation, allocation_info);
+}
+#else
+VkResult CreateImage(VkImageCreateInfo& image_create_info, VmaAllocationCreateInfo& allocation_create_info,
+                     const bool, VkImage* image, VmaAllocation* allocation, VmaAllocationInfo* allocation_info) {
+  return vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &allocation_create_info, image, allocation,
+                        allocation_info);
+}
+#endif
+}  // namespace
 
 Fence::Fence(const VkFenceCreateInfo& vk_fence_create_info) {
   if (!Platform::Initialized())
@@ -278,21 +329,12 @@ uint32_t Image::GetMipLevels() const {
 Image::Image(VkImageCreateInfo image_create_info) {
   if (!Platform::Initialized())
     return;
-#if ENABLE_EXTERNAL_MEMORY
-  VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
-  vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  vk_external_mem_image_create_info.pNext = nullptr;
-#  ifdef _WIN64
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-  image_create_info.pNext = &vk_external_mem_image_create_info;
-#endif
+  const bool export_external_memory = RequiresExternalMemoryExport(image_create_info);
   VmaAllocationCreateInfo alloc_info = {};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
-  if (Platform::CheckVk(vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &alloc_info, &vk_image_,
-                                       &vma_allocation_, &vma_allocation_info_))) {
+  if (Platform::CheckVk(
+          CreateImage(image_create_info, alloc_info, export_external_memory, &vk_image_, &vma_allocation_,
+                      &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create image!");
   }
   flags_ = image_create_info.flags;
@@ -313,20 +355,10 @@ Image::Image(VkImageCreateInfo image_create_info) {
 Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info) {
   if (!Platform::Initialized())
     return;
-#if ENABLE_EXTERNAL_MEMORY
-  VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
-  vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  vk_external_mem_image_create_info.pNext = nullptr;
-#  ifdef _WIN64
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-
-  image_create_info.pNext = &vk_external_mem_image_create_info;
-#endif
-  if (Platform::CheckVk(vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &vma_allocation_create_info,
-                                       &vk_image_, &vma_allocation_, &vma_allocation_info_))) {
+  const bool export_external_memory = RequiresExternalMemoryExport(image_create_info);
+  auto allocation_create_info = vma_allocation_create_info;
+  if (Platform::CheckVk(CreateImage(image_create_info, allocation_create_info, export_external_memory, &vk_image_,
+                                    &vma_allocation_, &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create image!");
   }
   flags_ = image_create_info.flags;
@@ -436,6 +468,10 @@ VkFormat Image::GetFormat() const {
   return format_;
 }
 
+VkImageUsageFlags Image::GetUsage() const {
+  return usage_;
+}
+
 VmaAllocation Image::GetVmaAllocation() const {
   return vma_allocation_;
 }
@@ -479,15 +515,10 @@ VkMemoryRequirements Image::GetMemoryRequirements() const {
 #ifdef _WIN64
 void* Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const {
 #  if ENABLE_EXTERNAL_MEMORY
-  void* handle;
-
-  VkMemoryGetWin32HandleInfoKHR vk_memory_get_win32_handle_info_khr = {};
-  vk_memory_get_win32_handle_info_khr.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
-  vk_memory_get_win32_handle_info_khr.pNext = nullptr;
-  vk_memory_get_win32_handle_info_khr.memory = vma_allocation_info_.deviceMemory;
-  vk_memory_get_win32_handle_info_khr.handleType =
-      static_cast<VkExternalMemoryHandleTypeFlagBitsKHR>(external_memory_handle_type);
-  Platform::CheckVk(vkGetMemoryWin32HandleKHR(Platform::GetVkDevice(), &vk_memory_get_win32_handle_info_khr, &handle));
+  HANDLE handle = nullptr;
+  Platform::CheckVk(vmaGetMemoryWin32Handle2(
+      Platform::GetVmaAllocator(), vma_allocation_,
+      static_cast<VkExternalMemoryHandleTypeFlagBitsKHR>(external_memory_handle_type), nullptr, &handle));
   return handle;
 #  else
   return nullptr;
@@ -556,7 +587,7 @@ void Buffer::UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const
     throw std::runtime_error("Subrange buffer upload cannot grow the destination buffer.");
   }
   if (required_size > state->size)
-    ResizeOnGpuThread(state, required_size);
+    ResizeOnGpuThread(state, GrowBufferSize(state->size, required_size));
   if (state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
       state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
     void* mapping;
@@ -617,7 +648,7 @@ GpuWorkHandle Buffer::UploadSubDataAsync(const size_t size, const void* src, con
 
 void Buffer::DownloadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const size_t size, void* dst) {
   if (size > state->size)
-    ResizeOnGpuThread(state, size);
+    ResizeOnGpuThread(state, GrowBufferSize(state->size, size));
   if (state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT ||
       state->vma_allocation_create_info.flags & VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT) {
     void* mapping;
@@ -728,7 +759,11 @@ void Buffer::AllocateOnGpuThread(const std::shared_ptr<GpuState>& state, VkBuffe
 #endif
   if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info,
                                         &state->vk_buffer, &state->vma_allocation, &state->vma_allocation_info))) {
-    throw std::runtime_error("Failed to create buffer!");
+    throw std::runtime_error("Failed to create buffer: size=" +
+                             std::to_string(static_cast<unsigned long long>(buffer_create_info.size)) +
+                             " usage=" + std::to_string(buffer_create_info.usage) +
+                             " memory_usage=" + std::to_string(vma_allocation_create_info.usage) +
+                             " flags=" + std::to_string(vma_allocation_create_info.flags));
   }
   assert(buffer_create_info.usage != 0);
   state->flags = buffer_create_info.flags;
@@ -804,7 +839,11 @@ void Buffer::ResizeOnGpuThread(const std::shared_ptr<GpuState>& state, const VkD
   if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info,
                                         &state->vma_allocation_create_info, &state->vk_buffer, &state->vma_allocation,
                                         &state->vma_allocation_info))) {
-    throw std::runtime_error("Failed to create buffer!");
+    throw std::runtime_error("Failed to resize buffer: size=" +
+                             std::to_string(static_cast<unsigned long long>(buffer_create_info.size)) +
+                             " usage=" + std::to_string(buffer_create_info.usage) +
+                             " memory_usage=" + std::to_string(state->vma_allocation_create_info.usage) +
+                             " flags=" + std::to_string(state->vma_allocation_create_info.flags));
   }
   state->size = new_size;
 }
@@ -873,7 +912,7 @@ void Buffer::CopyFromBufferOnGpuThread(const std::shared_ptr<GpuState>& state, c
     throw std::runtime_error("Subrange buffer copy cannot grow the destination buffer.");
   }
   if (required_size > state->size) {
-    ResizeOnGpuThread(state, required_size);
+    ResizeOnGpuThread(state, GrowBufferSize(state->size, required_size));
   }
   Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
     VkBufferCopy copy_region{};
@@ -1133,6 +1172,9 @@ DescriptorSet::~DescriptorSet() {
 DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout) {
   if (!Platform::Initialized())
     return;
+  if (!target_layout) {
+    throw std::invalid_argument("Cannot allocate descriptor set with a null descriptor set layout.");
+  }
   VkDescriptorSetAllocateInfo alloc_info{};
   alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
   alloc_info.descriptorPool = Platform::GetDescriptorPool()->GetVkDescriptorPool();
@@ -1499,7 +1541,7 @@ VkQueue CommandQueue::GetVkQueue() const {
 
 BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
                                                                    const std::vector<glm::uvec3>& triangles) {
-  if (!Platform::Initialized())
+  if (!Platform::Initialized() || vertices.empty() || triangles.empty())
     return;
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1635,6 +1677,12 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
   render_instance_storage.deferred_render_instances->ForEachRenderInstance(
       [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
+        const auto mesh_render_instance = std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
+        if (!mesh_render_instance || !mesh_render_instance->mesh)
+          return;
+        const auto blas = mesh_render_instance->mesh->GetBlas();
+        if (!blas)
+          return;
         auto& acceleration_structure_instance = acceleration_structure_instances.emplace_back();
         const auto tt = glm::transpose(render_instance->model.value);
         memcpy(&acceleration_structure_instance.transform.matrix[0][0], glm::value_ptr(tt),
@@ -1643,10 +1691,11 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
         acceleration_structure_instance.mask = 0xFF;
         acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
         acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        acceleration_structure_instance.accelerationStructureReference =
-            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)
-                ->mesh->blas_->GetDeviceAddress();
+        acceleration_structure_instance.accelerationStructureReference = blas->GetDeviceAddress();
       });
+  if (acceleration_structure_instances.empty()) {
+    return;
+  }
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
