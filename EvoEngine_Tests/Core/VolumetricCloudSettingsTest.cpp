@@ -332,8 +332,11 @@ TEST(VolumetricCloudSettings, CloudSettingsDoNotFeedDdgiSceneChangeTriggers) {
             std::string::npos);
   EXPECT_NE(trigger_block.find("light_signatures != ddgi_previous_light_signatures_"), std::string::npos);
   EXPECT_NE(trigger_block.find("geometry_signatures != ddgi_previous_geometry_signatures_"), std::string::npos);
-  EXPECT_NE(trigger_block.find("blocks_changed(current_render_instances->GetMaterialInfoBlocks(), "
-                               "ddgi_previous_material_info_blocks_)"),
+  EXPECT_NE(trigger_block.find("blocks_changed(current_render_instances->GetGltfShadeMaterials(), "
+                               "ddgi_previous_gltf_shade_materials_)"),
+            std::string::npos);
+  EXPECT_NE(trigger_block.find("blocks_changed(current_render_instances->GetGltfTextureInfos(), "
+                               "ddgi_previous_gltf_texture_infos_)"),
             std::string::npos);
   EXPECT_EQ(trigger_block.find("volumetric_cloud_settings"), std::string::npos);
   EXPECT_EQ(trigger_block.find("VolumetricCloudSettings"), std::string::npos);

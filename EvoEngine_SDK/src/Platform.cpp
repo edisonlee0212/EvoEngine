@@ -1,4 +1,5 @@
 #include "Platform.hpp"
+#include <algorithm>
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "Console.hpp"
@@ -274,7 +275,10 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       std::to_string(capabilities.max_compute_work_group_invocations) + "\n#define EXT_TASK_SUBGROUP_COUNT " +
       std::to_string(capabilities.task_subgroup_count) + "\n#define EXT_MESH_SUBGROUP_COUNT " +
       std::to_string(capabilities.mesh_subgroup_count) + "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS " +
-      std::to_string(capabilities.task_work_group_invocations) + "\n";
+      std::to_string(capabilities.task_work_group_invocations) + "\n#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED " +
+      std::to_string(capabilities.support_shader_execution_reordering &&
+                     application_initialization_settings.graphics_settings.use_ray_tracing) +
+      "\n";
 }
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
@@ -1029,33 +1033,62 @@ void Platform::SelectPhysicalDevice() {
     EVOENGINE_LOG("Target device doesn't support mesh shader!");
   }
 
-  if (capabilities_.support_ray_tracing &&
+  const auto require_device_extension = [&](const char* extension_name) {
+    if (std::find(required_device_extension_names_.begin(), required_device_extension_names_.end(), extension_name) ==
+        required_device_extension_names_.end()) {
+      required_device_extension_names_.emplace_back(extension_name);
+    }
+  };
+  const bool ray_acceleration_structure_supported =
       selected_physical_device->CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
-      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
-
       selected_physical_device->CheckExtensionSupport(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) &&
-
       selected_physical_device->CheckExtensionSupport(VK_KHR_SPIRV_1_4_EXTENSION_NAME) &&
-
-      selected_physical_device->CheckExtensionSupport(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME)) {
-    required_device_extension_names_.emplace_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
-    required_device_extension_names_.emplace_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
-
-    required_device_extension_names_.emplace_back(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
-    required_device_extension_names_.emplace_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
-    required_device_extension_names_.emplace_back(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
-
-    required_device_extension_names_.emplace_back(VK_KHR_SPIRV_1_4_EXTENSION_NAME);
-
-    required_device_extension_names_.emplace_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+      selected_physical_device->CheckExtensionSupport(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+  const auto require_ray_acceleration_structure_extensions = [&]() {
+    require_device_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    require_device_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    require_device_extension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    require_device_extension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+    require_device_extension(VK_KHR_SPIRV_1_4_EXTENSION_NAME);
+    require_device_extension(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+  };
+  if (capabilities_.support_ray_tracing && ray_acceleration_structure_supported &&
+      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
+    require_ray_acceleration_structure_extensions();
+    require_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
     capabilities_.support_ray_tracing = true;
     EVOENGINE_LOG("Target device supports ray tracing!");
   } else {
     capabilities_.support_ray_tracing = false;
     EVOENGINE_LOG("Target device doesn't support ray tracing!");
   }
+  if (capabilities_.support_ray_query && ray_acceleration_structure_supported &&
+      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+    require_ray_acceleration_structure_extensions();
+    require_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+    capabilities_.support_ray_query = true;
+    EVOENGINE_LOG("Target device supports ray query!");
+  } else {
+    capabilities_.support_ray_query = false;
+    EVOENGINE_LOG("Target device doesn't support ray query!");
+  }
+#ifdef VK_NV_ray_tracing_invocation_reorder
+  if (capabilities_.support_ray_tracing &&
+      selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
+      selected_physical_device->ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder == VK_TRUE) {
+    require_device_extension(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
+    capabilities_.support_shader_execution_reordering = true;
+    EVOENGINE_LOG("Target device supports shader execution reordering!");
+  } else {
+    capabilities_.support_shader_execution_reordering = false;
+    EVOENGINE_LOG("Target device doesn't support shader execution reordering; SER settings use fallback.");
+  }
+#else
+  capabilities_.support_shader_execution_reordering = false;
+  EVOENGINE_LOG("Shader execution reordering headers are unavailable; SER settings use fallback.");
+#endif
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   if (selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)) {
     required_device_extension_names_.emplace_back(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME);
@@ -1093,11 +1126,17 @@ void Platform::PhysicalDevice::QueryInformation() {
   VkPhysicalDeviceFeatures2 device_features{};
   device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
   device_features.pNext = &acceleration_structure_features;
+  void* acceleration_features_tail = nullptr;
 #if ENABLE_NV_RAY_TRACING_VALIDATION
-  acceleration_structure_features.pNext = &ray_tracing_validation_features_nv;
-#else
-  acceleration_structure_features.pNext = nullptr;
+  acceleration_features_tail = &ray_tracing_validation_features_nv;
 #endif
+#ifdef VK_NV_ray_tracing_invocation_reorder
+  if (CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
+    ray_tracing_invocation_reorder_features_nv.pNext = acceleration_features_tail;
+    acceleration_features_tail = &ray_tracing_invocation_reorder_features_nv;
+  }
+#endif
+  acceleration_structure_features.pNext = acceleration_features_tail;
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features);
 
@@ -1107,7 +1146,14 @@ void Platform::PhysicalDevice::QueryInformation() {
   mesh_shader_properties_ext.pNext = &subgroup_size_control_properties;
   subgroup_size_control_properties.pNext = &ray_tracing_properties_ext;
   ray_tracing_properties_ext.pNext = &acceleration_structure_properties_khr;
-  acceleration_structure_properties_khr.pNext = nullptr;
+  void* acceleration_properties_tail = nullptr;
+#ifdef VK_NV_ray_tracing_invocation_reorder
+  if (CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
+    ray_tracing_invocation_reorder_properties_nv.pNext = acceleration_properties_tail;
+    acceleration_properties_tail = &ray_tracing_invocation_reorder_properties_nv;
+  }
+#endif
+  acceleration_structure_properties_khr.pNext = acceleration_properties_tail;
 
   vkGetPhysicalDeviceProperties2(vk_physical_device, &properties2);
   vkGetPhysicalDeviceMemoryProperties(vk_physical_device, &vk_physical_device_memory_properties);
@@ -1208,10 +1254,9 @@ void Platform::CreateLogicalDevice() {
   VkPhysicalDeviceRayTracingPipelineFeaturesKHR vk_physical_device_ray_tracing_pipeline_features_khr{};
   vk_physical_device_ray_tracing_pipeline_features_khr.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+  void* ray_feature_chain_tail = &vk_physical_device_shader_atomic_float_features;
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
-  vk_physical_device_ray_tracing_pipeline_features_khr.pNext = &vk_device_diagnostics_config_create_info_nv;
-#else
-  vk_physical_device_ray_tracing_pipeline_features_khr.pNext = &vk_physical_device_shader_atomic_float_features;
+  ray_feature_chain_tail = &vk_device_diagnostics_config_create_info_nv;
 #endif
 
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipeline = VK_TRUE;
@@ -1219,11 +1264,34 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplayMixed = VK_TRUE;
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineTraceRaysIndirect = VK_TRUE;
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTraversalPrimitiveCulling = VK_TRUE;
+  if (capabilities_.support_ray_tracing) {
+    vk_physical_device_ray_tracing_pipeline_features_khr.pNext = ray_feature_chain_tail;
+    ray_feature_chain_tail = &vk_physical_device_ray_tracing_pipeline_features_khr;
+  }
+
+#ifdef VK_NV_ray_tracing_invocation_reorder
+  VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV vk_physical_device_ray_tracing_invocation_reorder_features_nv{};
+  vk_physical_device_ray_tracing_invocation_reorder_features_nv.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV;
+  vk_physical_device_ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder = VK_TRUE;
+  if (capabilities_.support_shader_execution_reordering) {
+    vk_physical_device_ray_tracing_invocation_reorder_features_nv.pNext = ray_feature_chain_tail;
+    ray_feature_chain_tail = &vk_physical_device_ray_tracing_invocation_reorder_features_nv;
+  }
+#endif
+
+  VkPhysicalDeviceRayQueryFeaturesKHR vk_physical_device_ray_query_features_khr{};
+  vk_physical_device_ray_query_features_khr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+  vk_physical_device_ray_query_features_khr.rayQuery = VK_TRUE;
+  if (capabilities_.support_ray_query) {
+    vk_physical_device_ray_query_features_khr.pNext = ray_feature_chain_tail;
+    ray_feature_chain_tail = &vk_physical_device_ray_query_features_khr;
+  }
 
   VkPhysicalDeviceAccelerationStructureFeaturesKHR vk_physical_device_acceleration_structure_features_khr{};
   vk_physical_device_acceleration_structure_features_khr.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-  vk_physical_device_acceleration_structure_features_khr.pNext = &vk_physical_device_ray_tracing_pipeline_features_khr;
+  vk_physical_device_acceleration_structure_features_khr.pNext = ray_feature_chain_tail;
   vk_physical_device_acceleration_structure_features_khr.accelerationStructure = VK_TRUE;
   vk_physical_device_acceleration_structure_features_khr.accelerationStructureCaptureReplay = VK_FALSE;
   vk_physical_device_acceleration_structure_features_khr.accelerationStructureIndirectBuild = VK_FALSE;
@@ -1241,11 +1309,17 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_vulkan12_features.runtimeDescriptorArray = VK_TRUE;
   vk_physical_device_vulkan12_features.bufferDeviceAddress = VK_TRUE;
 
-  if (capabilities_.support_ray_tracing) {
-    vk_physical_device_vulkan12_features.pNext = &vk_physical_device_acceleration_structure_features_khr;
+  VkPhysicalDeviceVulkan11Features vk_physical_device_vulkan11_features{};
+  vk_physical_device_vulkan11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+  vk_physical_device_vulkan11_features.storageBuffer16BitAccess = VK_TRUE;
+  vk_physical_device_vulkan11_features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+
+  if (capabilities_.support_ray_tracing || capabilities_.support_ray_query) {
+    vk_physical_device_vulkan11_features.pNext = &vk_physical_device_acceleration_structure_features_khr;
   } else {
-    vk_physical_device_vulkan12_features.pNext = nullptr;
+    vk_physical_device_vulkan11_features.pNext = nullptr;
   }
+  vk_physical_device_vulkan12_features.pNext = &vk_physical_device_vulkan11_features;
 
   VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features{};
   shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
@@ -1956,6 +2030,16 @@ void Platform::LateUpdate() {
 bool Platform::RayTracingEnabled() {
   const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   return GetInstance().capabilities_.support_ray_tracing && graphics_settings.use_ray_tracing;
+}
+
+bool Platform::RayQueryEnabled() {
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  return GetInstance().capabilities_.support_ray_query && graphics_settings.use_ray_tracing;
+}
+
+bool Platform::ShaderExecutionReorderingEnabled() {
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  return GetInstance().capabilities_.support_shader_execution_reordering && graphics_settings.use_ray_tracing;
 }
 
 bool Platform::MeshShaderEnabled() {

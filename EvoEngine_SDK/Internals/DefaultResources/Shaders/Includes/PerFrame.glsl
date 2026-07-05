@@ -9,9 +9,7 @@
 #define EE_CAMERAS_BLOCK_SET 0
 #define EE_CAMERAS_BLOCK_BINDING 2
 #include "Cameras.glsl"
-#define EE_MATERIALS_BLOCK_SET 0
-#define EE_MATERIALS_BLOCK_BINDING 3
-#include "Materials.glsl"
+
 #define EE_INSTANCES_BLOCK_SET 0
 #define EE_INSTANCES_BLOCK_BINDING 4
 #include "Instances.glsl"
@@ -30,3 +28,9 @@
 #define EE_TEXTURE_2DS_BINDING 9
 #define EE_CUBEMAPS_BINDING 10
 #include "Textures.glsl"
+
+#define EE_GLTF_MATERIALS_BLOCK_SET 0
+#define EE_GLTF_MATERIALS_BLOCK_BINDING 11
+#define EE_GLTF_TEXTURE_INFOS_BLOCK_SET 0
+#define EE_GLTF_TEXTURE_INFOS_BLOCK_BINDING 12
+#include "GltfMaterial.glsl"

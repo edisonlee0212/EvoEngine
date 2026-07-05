@@ -38,6 +38,11 @@ class EnvironmentalMap final : public IAsset {
   AssetRef reflection_probe;
 
   /**
+   * @brief Reference to the HDR/environment-map sampling CDF used by ray tracing.
+   */
+  AssetRef environment_pdf_texture;
+
+  /**
    * @brief Builds sky illumination information based on the provided sky illumination data.
    *
    * @param sky_illumination The sky illumination data to be used for building.

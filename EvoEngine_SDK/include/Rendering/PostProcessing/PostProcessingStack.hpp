@@ -174,19 +174,65 @@ class Bloom : public IPostProcessing {
 
 class ToneMapping : public IPostProcessing {
  public:
-  struct PushConstant {
-    int32_t camera_index = 0;
-    float exposure;
-    float gamma;
+  enum class ToneMapMethod : int32_t {
+    Filmic = 0,
+    Uncharted2 = 1,
+    Clip = 2,
+    Aces = 3,
+    Agx = 4,
+    KhronosPbr = 5,
+    EvoEngineExponential = 6,
   };
 
+  struct PushConstant {
+    int32_t camera_index = 0;
+    int32_t method = static_cast<int32_t>(ToneMapMethod::EvoEngineExponential);
+    int32_t is_active = 1;
+    int32_t auto_exposure = 0;
+    int32_t enable_center_metering = 0;
+    int32_t average_mode = 1;
+    int32_t dither = 1;
+    float exposure = 2.0f;
+    float brightness = 1.0f;
+    float contrast = 1.0f;
+    float saturation = 1.0f;
+    float vignette = 0.0f;
+    float auto_exposure_speed = 0.0f;
+    float ev_min_value = -5.0f;
+    float ev_max_value = 10.0f;
+    float center_metering_size = 0.5f;
+  };
+
+  ToneMapMethod method = ToneMapMethod::EvoEngineExponential;
   float exposure = 2.f;
-  float gamma = 1.f;
+  float brightness = 1.f;
+  float contrast = 1.f;
+  float saturation = 1.f;
+  float vignette = 0.f;
+  bool auto_exposure = false;
+  float auto_exposure_speed = 5.f;
+  float ev_min_value = -5.f;
+  float ev_max_value = 10.f;
+  bool enable_center_metering = false;
+  float center_metering_size = 0.5f;
+  int average_mode = 1;
+  bool dither = true;
+  float auto_exposure_delta_time_override = -1.0f;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
+  std::shared_ptr<DescriptorSetLayout> auto_exposure_layout;
+  std::shared_ptr<DescriptorSet> auto_exposure_descriptor_set;
+  std::shared_ptr<Buffer> histogram_buffer;
+  std::shared_ptr<Buffer> luminance_buffer;
+  std::shared_ptr<ComputePipeline> histogram_pipeline;
+  std::shared_ptr<ComputePipeline> auto_exposure_pipeline;
   std::shared_ptr<ComputePipeline> pipeline;
+
+ private:
+  bool auto_exposure_time_initialized_ = false;
+  double last_auto_exposure_time_ = 0.0;
 };
 
 }  // namespace evo_engine

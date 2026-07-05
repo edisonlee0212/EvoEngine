@@ -1,8 +1,7 @@
 #extension GL_ARB_shading_language_include : enable
 
-#define EE_MATERIALS_BLOCK_SET 0
-#define EE_MATERIALS_BLOCK_BINDING 3
-#include "Materials.glsl"
+#include "PerFrame.glsl"
+#include "GltfRasterMaterial.glsl"
 #include "SSRConstants.glsl"
 
 layout (location = 0) out vec4 FragColor;
@@ -21,12 +20,11 @@ void main()
 {
     vec2 texCoord = fs_in.TexCoord;
 
-    int material_index = int(round(texture(inMaterial, texCoord).w));
-	vec2 materialTexCoord = texture(inMaterial, texCoord).xy;
-	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
-
-	float roughness = materialProperties.roughness;
-	float metallic = materialProperties.metallic;
+    vec4 material_sample = texture(inMaterial, texCoord);
+    int material_index = int(round(material_sample.z));
+    GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(uint(material_index), material_sample.xy, material_sample.xy);
+	float roughness = surface.roughness;
+	float metallic = surface.metallic;
 
     vec4 color = texture(originalColor, texCoord);
     vec4 reflected = texture(reflectedColorVisibility, texCoord);

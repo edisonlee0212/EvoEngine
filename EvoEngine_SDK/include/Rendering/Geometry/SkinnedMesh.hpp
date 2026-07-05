@@ -72,6 +72,12 @@ class BoneMatrices {
   [[nodiscard]] uint32_t GetVersion() const;
 };
 
+[[nodiscard]] Vertex BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_vertex,
+                                                  const std::vector<glm::mat4>& bone_matrices);
+
+[[nodiscard]] std::vector<Vertex> BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
+                                                                 const std::vector<glm::mat4>& bone_matrices);
+
 /**
  * @class SkinnedMesh
  * @brief Represents a skinned mesh used for skeletal animation and rendering.
@@ -84,12 +90,19 @@ class SkinnedMesh : public IAsset, public IGeometry {
   friend class Platform;
   friend class RenderLayer;
   friend class RenderInstanceStorage;
+  friend class TopLevelAccelerationStructure;
 
   SkinnedVertexAttributes skinned_vertex_attributes_;       /**< Attributes of the skinned vertices. */
   std::vector<SkinnedVertex> skinned_vertices_;             /**< List of skinned vertices. */
   std::vector<glm::uvec3> skinned_triangles_;               /**< List of triangles (indices) for the skinned mesh. */
   std::shared_ptr<RangeDescriptor> skinned_triangle_range_; /**< Range descriptor for skinned triangles. */
   std::shared_ptr<RangeDescriptor> skinned_meshlet_range_;  /**< Range descriptor for skinned meshlets. */
+  std::shared_ptr<RangeDescriptor>
+      ray_tracing_triangle_range_; /**< Static triangle payload range used by ray tracing hit shaders. */
+  std::shared_ptr<RangeDescriptor>
+      ray_tracing_meshlet_range_; /**< Static meshlet payload range used by the ray tracing mirror geometry. */
+  std::shared_ptr<BottomLevelAccelerationStructure>
+      blas_; /**< Bind-pose bottom-level acceleration structure for ray tracing. */
 
   friend struct SkinnedMeshBonesBlock;
 

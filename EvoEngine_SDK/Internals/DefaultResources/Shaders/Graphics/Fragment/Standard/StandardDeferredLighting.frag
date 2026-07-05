@@ -2,6 +2,7 @@
 
 #include "BasicConstants.glsl"
 #include "Basic.glsl"
+#include "GltfRasterMaterial.glsl"
 #include "Lighting.glsl"
 
 precision highp float;
@@ -33,13 +34,11 @@ void main()
 	int material_index = int(round(texture(inMaterial, fs_in.TexCoord).z));
 
 	vec2 tex_coord = texture(inMaterial, fs_in.TexCoord).xy;
-	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
-
-	float roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, tex_coord, vec4(materialProperties.roughness, 0, 0, 0)).r;
-	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, tex_coord, vec4(materialProperties.metallic, 0, 0, 0)).r;
-	float emission = materialProperties.emission;
-	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, tex_coord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
+	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(uint(material_index), tex_coord, tex_coord);
+	float roughness = surface.roughness;
+	float metallic = surface.metallic;
+	float ao = surface.occlusion;
+	vec4 albedo = surface.base_color;
 
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;
@@ -48,7 +47,7 @@ void main()
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0) +
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.xyz, normal, viewDir, fragPos);
-	vec3 outputColor = result + emission * normalize(albedo.xyz) + ambient * ao;
+	vec3 outputColor = result + surface.emissive + ambient * ao;
 
 	float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);
 	if(depth > EE_CAMERA_FAR(EE_CAMERA_INDEX) * fade_ratio){

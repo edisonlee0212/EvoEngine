@@ -86,7 +86,8 @@ bool universe_package::InspectUniverseLayer(InspectorContext &context, UniverseL
 void UniverseLayer::OnCreate() {
   particle_info_list_ref = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
   const auto star_material = AssetManager::CreateTemporaryAsset<Material>();
-  star_material->material_properties.emission = 3.f;
+  star_material->material_data.shade_material.emissive_factor = glm::vec3(3.f);
+  star_material->MarkDirty();
   star_material_ref = star_material;
   star_cluster_patterns_.resize(2);
   auto &star_cluster_pattern1 = star_cluster_patterns_[0];

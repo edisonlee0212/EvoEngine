@@ -3,6 +3,7 @@
 #include "GraphicsResources.hpp"
 
 #include <atomic>
+#include <cstddef>
 
 namespace evo_engine {
 
@@ -33,6 +34,11 @@ class Texture2DStorage {
    */
   glm::uvec2 new_resolution_{};
 
+  std::vector<std::byte> new_compressed_data_;
+  glm::uvec2 new_compressed_resolution_{};
+  VkFormat new_compressed_format_ = VK_FORMAT_UNDEFINED;
+  uint32_t new_compressed_mip_levels_ = 1;
+
   /**
    * @brief Immediately uploads any pending data to the GPU.
    */
@@ -50,6 +56,7 @@ class Texture2DStorage {
   ImTextureID im_texture_id = 0;  ///< ImGui texture ID for rendering.
   std::shared_ptr<std::atomic_size_t> gpu_upload_in_flight =
       std::make_shared<std::atomic_size_t>(0);  ///< Async GPU uploads currently mutating image state.
+  bool gpu_upload_pending_last_sync_ = false;
 
   /**
    * @brief Retrieves the Vulkan image layout of the texture.
@@ -91,6 +98,7 @@ class Texture2DStorage {
    * @param resolution The resolution of the texture.
    */
   void Initialize(const glm::uvec2& resolution);
+  void Initialize(const glm::uvec2& resolution, VkFormat format, bool storage_image, uint32_t mip_levels = 1);
 
   /**
    * @brief Sets texture data and uploads it asynchronously through the GPU service.
@@ -99,6 +107,8 @@ class Texture2DStorage {
    * @return A handle that completes when the GPU upload finishes.
    */
   [[nodiscard]] GpuWorkHandle SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  [[nodiscard]] GpuWorkHandle SetCompressedDataAsync(const std::vector<std::byte>& data, const glm::uvec2& resolution,
+                                                     VkFormat format, uint32_t mip_levels = 1);
 
   /**
    * @brief Sets texture data and queues it for upload during a batch process.
@@ -106,6 +116,11 @@ class Texture2DStorage {
    * @param resolution The resolution of the texture.
    */
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  void SetCompressedData(const std::vector<std::byte>& data, const glm::uvec2& resolution, VkFormat format,
+                         uint32_t mip_levels = 1);
+
+  [[nodiscard]] VkFormat GetFormat() const;
+  [[nodiscard]] uint32_t GetMipLevels() const;
 
   /**
    * @brief Clears the texture resources and data.

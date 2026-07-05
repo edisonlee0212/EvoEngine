@@ -5,6 +5,7 @@
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderInstanceStorage.hpp"
+#include "SkinnedMesh.hpp"
 #include "Utilities.hpp"
 
 #include <algorithm>
@@ -14,6 +15,28 @@ using namespace evo_engine;
 namespace {
 constexpr uint32_t kDdgiRayMaskGeometry = 0x01u;
 constexpr uint32_t kDdgiRayMaskShadow = 0x02u;
+
+VkGeometryInstanceFlagsKHR BuildGltfRayTracingInstanceFlags(
+    const RenderInstanceStorage::IRenderInstance& render_instance,
+    const std::vector<GltfShadeMaterial>& gltf_shade_materials) {
+  const auto material_index = render_instance.material_index;
+  if (material_index < 0 || static_cast<size_t>(material_index) >= gltf_shade_materials.size()) {
+    return VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+  }
+
+  const auto& material = gltf_shade_materials[material_index];
+  VkGeometryInstanceFlagsKHR flags{};
+  const bool opaque = material.transmission_factor == 0.0f &&
+                      material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque) &&
+                      material.diffuse_transmission_factor == 0.0f;
+  if (opaque) {
+    flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+  }
+  if (material.double_sided != 0 || material.thickness_factor > 0.0f || material.transmission_factor > 0.0f) {
+    flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+  }
+  return flags;
+}
 }  // namespace
 
 Fence::Fence(const VkFenceCreateInfo& vk_fence_create_info) {
@@ -366,6 +389,15 @@ void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuff
   region.imageOffset = {0, 0, 0};
   region.imageExtent = extent_;
   vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}
+
+void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer,
+                           const std::vector<VkBufferImageCopy>& regions) const {
+  if (regions.empty()) {
+    return;
+  }
+  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                         static_cast<uint32_t>(regions.size()), regions.data());
 }
 
 void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
@@ -1566,7 +1598,7 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   acceleration_structure_geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
   acceleration_structure_geometry.pNext = nullptr;
   acceleration_structure_geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-  acceleration_structure_geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+  acceleration_structure_geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
   acceleration_structure_geometry.geometry.triangles = {};
   acceleration_structure_geometry.geometry.triangles.sType =
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
@@ -1673,6 +1705,7 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   if (!Platform::Initialized())
     return;
   std::vector<VkAccelerationStructureInstanceKHR> acceleration_structure_instances;
+  const auto& gltf_shade_materials = render_instance_storage.GetGltfShadeMaterials();
   const auto register_mesh_acceleration_instance =
       [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance,
           const VkDeviceAddress bottom_level_acceleration_structure, const glm::mat4& model) {
@@ -1684,55 +1717,68 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
         acceleration_structure_instance.mask =
             kDdgiRayMaskGeometry | (render_instance->cast_shadow ? kDdgiRayMaskShadow : 0u);
         acceleration_structure_instance.instanceShaderBindingTableRecordOffset = 0;
-        acceleration_structure_instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+        acceleration_structure_instance.flags =
+            BuildGltfRayTracingInstanceFlags(*render_instance, gltf_shade_materials);
         acceleration_structure_instance.accelerationStructureReference = bottom_level_acceleration_structure;
       };
   const auto register_mesh_render_instance =
-      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-        const auto mesh_render_instance =
-            std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance);
-        if (!mesh_render_instance || !mesh_render_instance->mesh || !mesh_render_instance->mesh->blas_) {
+      [&](const std::shared_ptr<RenderInstanceStorage::MeshRenderInstance>& render_instance) {
+        if (!render_instance || !render_instance->mesh || !render_instance->mesh->blas_) {
           return;
         }
-        register_mesh_acceleration_instance(render_instance, mesh_render_instance->mesh->blas_->GetDeviceAddress(),
+        register_mesh_acceleration_instance(render_instance, render_instance->mesh->blas_->GetDeviceAddress(),
                                             render_instance->model.value);
       };
-  const auto register_instanced_mesh_render_instance =
-      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-        const auto instanced_render_instance =
-            std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance);
-        if (!instanced_render_instance || !instanced_render_instance->mesh || !instanced_render_instance->mesh->blas_ ||
-            !instanced_render_instance->particle_infos) {
+  const auto register_skinned_mesh_render_instance =
+      [&](const std::shared_ptr<RenderInstanceStorage::SkinnedMeshRenderInstance>& render_instance) {
+        if (!render_instance || !render_instance->skinned_mesh) {
           return;
         }
-        const auto bottom_level_acceleration_structure = instanced_render_instance->mesh->blas_->GetDeviceAddress();
-        for (const auto& particle_info : instanced_render_instance->particle_infos->PeekParticleInfoList()) {
+        const auto& blas = render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas
+                                                             : render_instance->skinned_mesh->blas_;
+        if (!blas) {
+          return;
+        }
+        register_mesh_acceleration_instance(render_instance, blas->GetDeviceAddress(), render_instance->model.value);
+      };
+  const auto register_instanced_mesh_render_instance =
+      [&](const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& render_instance) {
+        if (!render_instance || !render_instance->mesh || !render_instance->mesh->blas_ ||
+            !render_instance->particle_infos) {
+          return;
+        }
+        const auto bottom_level_acceleration_structure = render_instance->mesh->blas_->GetDeviceAddress();
+        for (const auto& particle_info : render_instance->particle_infos->PeekParticleInfoList()) {
           register_mesh_acceleration_instance(render_instance, bottom_level_acceleration_structure,
                                               render_instance->model.value * particle_info.instance_matrix.value);
         }
       };
   const auto register_external_ddgi_render_instance =
-      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-        const auto external_render_instance =
-            std::dynamic_pointer_cast<RenderInstanceStorage::ExternalRenderInstance>(render_instance);
-        if (!external_render_instance || !external_render_instance->HasDdgiRayTracingGeometry()) {
+      [&](const std::shared_ptr<RenderInstanceStorage::ExternalRenderInstance>& render_instance) {
+        if (!render_instance || !render_instance->HasDdgiRayTracingGeometry()) {
           return;
         }
         register_mesh_acceleration_instance(
-            render_instance,
-            external_render_instance->ddgi_geometry.bottom_level_acceleration_structure->GetDeviceAddress(),
+            render_instance, render_instance->ddgi_geometry.bottom_level_acceleration_structure->GetDeviceAddress(),
             render_instance->model.value);
       };
-  render_instance_storage.deferred_render_instances->ForEachRenderInstance(register_mesh_render_instance);
-  render_instance_storage.deferred_instanced_render_instances->ForEachRenderInstance(
+  render_instance_storage.deferred_render_instances->ForEachMeshRenderInstance(register_mesh_render_instance);
+  render_instance_storage.deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance(
+      register_skinned_mesh_render_instance);
+  render_instance_storage.deferred_instanced_render_instances->ForEachInstancedRenderInstance(
       register_instanced_mesh_render_instance);
-  render_instance_storage.forward_render_instances->ForEachRenderInstance(register_mesh_render_instance);
-  render_instance_storage.forward_instanced_render_instances->ForEachRenderInstance(
+  render_instance_storage.forward_render_instances->ForEachMeshRenderInstance(register_mesh_render_instance);
+  render_instance_storage.forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance(
+      register_skinned_mesh_render_instance);
+  render_instance_storage.forward_instanced_render_instances->ForEachInstancedRenderInstance(
       register_instanced_mesh_render_instance);
-  render_instance_storage.transparent_render_instances->ForEachRenderInstance(register_mesh_render_instance);
-  render_instance_storage.transparent_instanced_render_instances->ForEachRenderInstance(
+  render_instance_storage.transparent_render_instances->ForEachMeshRenderInstance(register_mesh_render_instance);
+  render_instance_storage.transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance(
+      register_skinned_mesh_render_instance);
+  render_instance_storage.transparent_instanced_render_instances->ForEachInstancedRenderInstance(
       register_instanced_mesh_render_instance);
-  render_instance_storage.external_render_instances->ForEachRenderInstance(register_external_ddgi_render_instance);
+  render_instance_storage.external_render_instances->ForEachExternalRenderInstance(
+      register_external_ddgi_render_instance);
   if (acceleration_structure_instances.empty()) {
     return;
   }
@@ -1754,7 +1800,7 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   VkAccelerationStructureGeometryKHR acceleration_structure_geometry{};
   acceleration_structure_geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
   acceleration_structure_geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-  acceleration_structure_geometry.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+  acceleration_structure_geometry.flags = 0;
   acceleration_structure_geometry.geometry.instances = {};
   acceleration_structure_geometry.geometry.instances.sType =
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;

@@ -1,0 +1,65 @@
+#extension GL_ARB_shading_language_include : enable
+#extension GL_ARB_shading_language_include : enable
+#include "RayTracingBasic.glsl"
+#include "Random.glsl"
+
+#include "CameraRayTracingPayload.glsl"
+
+layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
+layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image;
+layout(set = 2, binding = 2, rgba32f) uniform image2D radiance_history_image;
+
+layout(push_constant) uniform EE_CAMERA_CONSTANTS {
+  uint EE_CAMERA_INDEX;
+  uint EE_FRAME_ID;
+};
+
+layout(location = 0) rayPayloadEXT CameraRayTracingPayload hit_value;
+#define FLT_MAX 3.402823466e+38
+
+void main()
+{
+	const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
+	const uvec2 pixel_coordinate = gl_LaunchIDEXT.xy;
+	hit_value.seed = 1664525u * EE_FRAME_ID + pixel_coordinate.x + pixel_coordinate.x * pixel_coordinate.y;
+	hit_value.seed = uint(1664525u * EE_RANDOM(hit_value.seed));
+
+	vec3 linear_radiance = vec3(0, 0, 0);
+	const uint sample_size = camera.sample_size;
+	float primary_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
+
+
+	[[unroll]]
+	for(uint i = 0; i < sample_size; i++){
+
+		const vec2 sample_position = vec2(pixel_coordinate) + vec2(EE_RANDOM(hit_value.seed), EE_RANDOM(hit_value.seed));
+		const vec2 clip_coords = sample_position / vec2(gl_LaunchSizeEXT.xy) * 2.0 - 1.0;
+		vec4 view_position = camera.inverse_projection * vec4(clip_coords, -1.0, 1.0);
+		view_position /= view_position.w;
+		vec4 world_position = camera.inverse_view * view_position;
+		world_position /= world_position.w;
+		vec3 sample_origin = camera.inverse_view[3].xyz;
+		vec3 sample_direction = normalize(world_position.xyz - sample_origin);
+
+		hit_value.type = 0;
+		hit_value.hit_count = 0;
+		hit_value.initial_position = vec3(0.0f);
+		hit_value.initial_normal = vec3(0.0f);
+		hit_value.last_sample_pdf = 0.0f;
+		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, sample_origin, 0, sample_direction, 1e20f, 0);
+		linear_radiance += hit_value.color;
+		if (hit_value.hit_count > 0) {
+			primary_hit_distance = min(primary_hit_distance, distance(hit_value.initial_position, sample_origin));
+		}
+	}
+
+	linear_radiance /= sample_size;
+	if (EE_FRAME_ID > 0) {
+		vec3 previous_linear_radiance = imageLoad(radiance_history_image, ivec2(gl_LaunchIDEXT.xy)).xyz;
+		linear_radiance = (linear_radiance + previous_linear_radiance * EE_FRAME_ID) / (EE_FRAME_ID + 1);
+	}
+
+	imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(linear_radiance, 1));
+	imageStore(radiance_history_image, ivec2(gl_LaunchIDEXT.xy), vec4(linear_radiance, 1));
+	imageStore(ray_hit_distance_image, ivec2(gl_LaunchIDEXT.xy), vec4(primary_hit_distance));
+}

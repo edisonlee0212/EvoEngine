@@ -485,7 +485,7 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
       RayCastingSolver(parameters, compressed_map_uv, ray_tracer, thin_scale, max_ray_casting_distance);
   double loading_time = 0.;
   double processing_time = ApplicationContext::Get().GetTimes().Now() - time;
-  if (const auto ref_diffuse_texture = reference_material->GetAlbedoTexture();
+  if (const auto ref_diffuse_texture = reference_material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
       parameters.diffuse_enabled && ref_diffuse_texture) {
     std::vector diffuse_color(parameters.texture_resolution.x * parameters.texture_resolution.y,
                               parameters.empty_space_color);
@@ -493,42 +493,36 @@ void TextureBaker::Execute(const Parameters& parameters, const std::shared_ptr<M
               ref_diffuse_texture, diffuse_color, loading_time, processing_time);
     const auto target_diffuse_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_diffuse_texture->SetRgbaChannelData(diffuse_color, parameters.texture_resolution);
-    target_material->SetAlbedoTexture(target_diffuse_texture);
+    target_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, target_diffuse_texture);
   }
-  const auto ref_normal_texture = reference_material->GetNormalTexture();
+  const auto ref_normal_texture = reference_material->GetTexture(&GltfShadeMaterial::normal_texture);
   if (parameters.normal_enabled) {
     std::vector normal_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
     BakeNormal(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
                ref_normal_texture, normal_color, loading_time, processing_time);
     const auto target_normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_normal_texture->SetRgbChannelData(normal_color, parameters.texture_resolution);
-    target_material->SetNormalTexture(target_normal_texture);
+    target_material->SetTexture(&GltfShadeMaterial::normal_texture, target_normal_texture);
   }
-  if (const auto ref_roughness_texture = reference_material->GetRoughnessTexture();
-      parameters.roughness_enabled && ref_roughness_texture) {
-    std::vector roughness_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
+  if (const auto ref_metallic_roughness_texture =
+          reference_material->GetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture);
+      (parameters.roughness_enabled || parameters.metallic_enabled) && ref_metallic_roughness_texture) {
+    std::vector metallic_roughness_color(parameters.texture_resolution.x * parameters.texture_resolution.y,
+                                         glm::vec3(1.f));
     BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
-              ref_roughness_texture, roughness_color, loading_time, processing_time);
-    const auto target_roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
-    target_roughness_texture->SetRgbChannelData(roughness_color, parameters.texture_resolution);
-    target_material->SetRoughnessTexture(target_roughness_texture);
+              ref_metallic_roughness_texture, metallic_roughness_color, loading_time, processing_time);
+    const auto target_metallic_roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+    target_metallic_roughness_texture->SetRgbChannelData(metallic_roughness_color, parameters.texture_resolution);
+    target_material->SetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture, target_metallic_roughness_texture);
   }
-  if (const auto ref_metallic_texture = reference_material->GetMetallicTexture();
-      parameters.metallic_enabled && ref_metallic_texture) {
-    std::vector metallic_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
-    BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
-              ref_metallic_texture, metallic_color, loading_time, processing_time);
-    const auto target_metallic_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
-    target_metallic_texture->SetRgbChannelData(metallic_color, parameters.texture_resolution);
-    target_material->SetMetallicTexture(target_metallic_texture);
-  }
-  if (const auto ref_ao_texture = reference_material->GetAoTexture(); parameters.ao_enabled && ref_ao_texture) {
+  if (const auto ref_ao_texture = reference_material->GetTexture(&GltfShadeMaterial::occlusion_texture);
+      parameters.ao_enabled && ref_ao_texture) {
     std::vector ao_color(parameters.texture_resolution.x * parameters.texture_resolution.y, glm::vec3(0.f));
     BakeColor(parameters, compressed_map_uv, ray_casting_result, reference_mesh_vertices, reference_mesh_triangles,
               ref_ao_texture, ao_color, loading_time, processing_time);
     const auto target_ao_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     target_ao_texture->SetRgbChannelData(ao_color, parameters.texture_resolution);
-    target_material->SetAoTexture(target_ao_texture);
+    target_material->SetTexture(&GltfShadeMaterial::occlusion_texture, target_ao_texture);
   }
 #ifdef TEXTURE_BAKER_REPORT_TIME
   EVOENGINE_LOG("Texture baking finished!\nLoading time: " + std::to_string(loading_time) +

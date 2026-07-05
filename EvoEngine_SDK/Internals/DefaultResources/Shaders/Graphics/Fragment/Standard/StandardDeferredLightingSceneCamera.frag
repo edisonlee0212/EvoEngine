@@ -2,6 +2,7 @@
 
 #include "BasicConstants.glsl"
 #include "Basic.glsl"
+#include "GltfRasterMaterial.glsl"
 #include "Lighting.glsl"
 
 precision highp float;
@@ -36,7 +37,7 @@ void main()
     vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
     vec3 skyColor       = EE_SKY_COLOR(fragPos - cameraPosition);
 
-    // Precompute texel offset once; used in both “sky” and “solid” paths
+    // Precompute texel offset once; used in both "sky" and "solid" paths
     vec2 texelSize  = vec2(textureSize(inMaterial, 0));
     vec2 texOffset  = 1.0 / texelSize;
 
@@ -80,13 +81,11 @@ void main()
     // --------------------------------------------------------------------
     float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 
-    MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[material_index];
-
-    float roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, materialTexCoord, vec4(materialProperties.roughness, 0, 0, 0)).r;
-	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, materialTexCoord, vec4(materialProperties.metallic, 0, 0, 0)).r;
-	float emission = materialProperties.emission;
-	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, materialTexCoord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, materialTexCoord, materialProperties.albedo);
+    GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(uint(material_index), materialTexCoord, materialTexCoord);
+    float roughness = surface.roughness;
+	float metallic = surface.metallic;
+	float ao = surface.occlusion;
+	vec4 albedo = surface.base_color;
 
     // --------------------------------------------------------------------
     // Debug visualization (branchless override, but keeps default behavior)
@@ -132,7 +131,7 @@ void main()
                                                          normal, viewDir,
                                                          metallic, roughness, F0) +
                    EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fragPos);
-    vec3 color = direct + emission * normalize(albedo.rgb) + ambient * ao;
+    vec3 color = direct + surface.emissive + ambient * ao;
 
     // --------------------------------------------------------------------
     // Selection / neighborhood highlight

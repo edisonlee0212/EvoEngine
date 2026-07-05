@@ -339,58 +339,51 @@ void DynamicTreeStrands::OnCreate() {
   stop_all = std::make_shared<DsStopAll>();
   fungus_injection_operator = std::make_shared<DsFungusInjection>();
   enable_physics = true;
+  const auto configure_material = [](const std::shared_ptr<Material>& material, const glm::vec3& color,
+                                     const float roughness, const float metallic, const float transmission = 0.0f) {
+    auto& shade_material = material->material_data.shade_material;
+    shade_material.pbr_base_color_factor = glm::vec4(color, 1.0f);
+    shade_material.pbr_roughness_factor = roughness;
+    shade_material.pbr_metallic_factor = metallic;
+    shade_material.transmission_factor = transmission;
+    material->MarkDirty();
+  };
   if (!materials.bark_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.bark_material_ref = material;
-    material->material_properties.roughness = 0.5f;
-    material->material_properties.metallic = 0.1f;
-    material->material_properties.albedo_color = glm::vec3(0.4f, 0.3f, 0.2f);
+    configure_material(material, glm::vec3(0.4f, 0.3f, 0.2f), 0.5f, 0.1f);
   }
   if (!materials.inner_wood_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.inner_wood_material_ref = material;
-    material->material_properties.roughness = 0.5f;
-    material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
+    configure_material(material, glm::vec3(1.f, 0.6f, 0.3f), 0.5f, 0.0f);
   }
   if (!materials.splinter_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.splinter_material_ref = material;
-    material->material_properties.roughness = 0.5f;
-    material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(1.f, 0.6f, 0.3f);
+    configure_material(material, glm::vec3(1.f, 0.6f, 0.3f), 0.5f, 0.0f);
   }
   if (!materials.leaf_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.leaf_material_ref = material;
-    material->material_properties.roughness = 1.f;
-    material->material_properties.metallic = 0.3f;
-    material->material_properties.albedo_color = glm::vec3(0.2f, 0.5f, 0.05f);
+    configure_material(material, glm::vec3(0.2f, 0.5f, 0.05f), 1.f, 0.3f);
   }
   if (!materials.snow_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.snow_material_ref = material;
-    material->material_properties.roughness = 0.5f;
-    material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(1.0f);
+    configure_material(material, glm::vec3(1.0f), 0.5f, 0.0f);
   }
 
   if (!materials.segment_pair_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.segment_pair_material_ref = material;
-    material->material_properties.roughness = 0.5f;
-    material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(1.0f);
-    material->material_properties.transmission = 0.5f;
+    configure_material(material, glm::vec3(1.0f), 0.5f, 0.0f, 0.5f);
   }
 
   if (!materials.wireframe_material_ref.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     materials.wireframe_material_ref = material;
-    material->material_properties.roughness = 0.0f;
-    material->material_properties.metallic = 0.0f;
-    material->material_properties.albedo_color = glm::vec3(0.0f);
-    material->material_properties.transmission = 0.0f;
+    configure_material(material, glm::vec3(0.0f), 0.0f, 0.0f);
   }
   foliage_rendering_instance_handle = Handle();
 }
@@ -1309,7 +1302,8 @@ void DynamicTreeStrands::InitializeStrandParticles(const DtsStrandGroup& target_
 
   renderer->material = material;
   material->vertex_color_only = true;
-  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  material->material_data.shade_material.pbr_base_color_factor = glm::vec4(0.6f, 0.3f, 0.0f, 1.0f);
+  material->MarkDirty();
 }
 
 void DynamicTreeStrands::ClearStrandParticles() const {

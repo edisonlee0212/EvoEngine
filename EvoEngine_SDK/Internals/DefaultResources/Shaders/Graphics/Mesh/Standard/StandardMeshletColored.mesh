@@ -19,6 +19,7 @@ layout(location = 0) out MS_V_OUT {
 	vec3 FragPos;
 	vec3 Normal;
 	vec3 Tangent;
+	flat float TangentHandedness;
 	vec2 TexCoord;
 } ms_v_out[];
 
@@ -56,12 +57,11 @@ void main()
 
 		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
 		vec3 N = normalize(vec3(model * vec4(v.normal.xyz, 0.0)));
-		vec3 T = normalize(vec3(model * vec4(v.tangent.xyz, 0.0)));
-		// re-orthogonalize T with respect to N
-		T = normalize(T - dot(T, N) * N);
+		vec3 T = vec3(model * vec4(v.tangent.xyz, 0.0));
 		ms_v_out[vert].FragPos =	vec3(model * vec4(v.position.xyz, 1.0));
 		ms_v_out[vert].Normal = N;
 		ms_v_out[vert].Tangent = T;
+		ms_v_out[vert].TangentHandedness = v.vertex_info3 < 0.0 ? -1.0 : 1.0;
 		ms_v_out[vert].TexCoord = v.tex_coord.xy;
 		gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(ms_v_out[vert].FragPos, 1.0);
 		currentInstanceIndex[vert] = instanceIndex;

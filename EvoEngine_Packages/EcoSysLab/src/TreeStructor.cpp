@@ -8,6 +8,13 @@
 #include "rapidcsv.h"
 using namespace eco_sys_lab_package;
 
+namespace {
+void SetMaterialBaseColor(const std::shared_ptr<Material>& material, const glm::vec3& color) {
+  material->material_data.shade_material.pbr_base_color_factor = glm::vec4(color, 1.0f);
+  material->MarkDirty();
+}
+}  // namespace
+
 void TreeStructor::ApplyCurve(const OperatorBranch& branch) {
   auto& skeleton = skeletons[branch.skeleton_index];
   const auto chain_amount = branch.chain_node_handles.size();
@@ -1082,7 +1089,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = allocated_point_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = allocated_point_color;
+    SetMaterialBaseColor(material, allocated_point_color);
   }
   if (enable_scattered_points) {
     const auto scatter_point_info_entity = scene->CreateEntity("Scattered Points");
@@ -1092,7 +1099,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = scattered_point_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = scatter_point_color;
+    SetMaterialBaseColor(material, scatter_point_color);
   }
   if (enable_scattered_point_connections) {
     const auto scattered_point_connection_info_entity = scene->CreateEntity("Scattered Point Connections");
@@ -1103,7 +1110,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = scattered_point_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = scattered_point_connection_color;
+    SetMaterialBaseColor(material, scattered_point_connection_color);
   }
   if (enable_candidate_branch_connections) {
     const auto candidate_branch_connection_info_entity = scene->CreateEntity("Candidate Branch Connections");
@@ -1114,7 +1121,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = candidate_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = candidate_branch_connection_color;
+    SetMaterialBaseColor(material, candidate_branch_connection_color);
   }
   if (enable_reversed_candidate_branch_connections) {
     const auto reversed_candidate_branch_connection_info_entity =
@@ -1127,7 +1134,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = reversed_candidate_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = reversed_candidate_branch_connection_color;
+    SetMaterialBaseColor(material, reversed_candidate_branch_connection_color);
   }
   if (enable_filtered_branch_connections) {
     const auto filtered_branch_connection_info_entity = scene->CreateEntity("Filtered Branch Connections");
@@ -1138,7 +1145,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = filtered_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = filtered_branch_connection_color;
+    SetMaterialBaseColor(material, filtered_branch_connection_color);
   }
   if (enable_selected_branch_connections) {
     const auto branch_connection_info_entity = scene->CreateEntity("Selected Branch Connections");
@@ -1148,7 +1155,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = selected_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = selected_branch_connection_color;
+    SetMaterialBaseColor(material, selected_branch_connection_color);
   }
   if (enable_scatter_point_to_branch_connections) {
     const auto scatter_point_to_branch_connection = scene->CreateEntity("Scatter Point To Branch Connections");
@@ -1159,7 +1166,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = scatter_point_to_branch_connection_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = scatter_point_to_branch_connection_color;
+    SetMaterialBaseColor(material, scatter_point_to_branch_connection_color);
   }
   if (enable_selected_branches) {
     const auto predicted_branch_connection_info_entity = scene->CreateEntity("Selected Branches");
@@ -1169,7 +1176,7 @@ void TreeStructor::FormInfoEntities() const {
     particles->particle_info_list = selected_branch_info_list;
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     particles->material = material;
-    material->material_properties.albedo_color = selected_branch_color;
+    SetMaterialBaseColor(material, selected_branch_color);
   }
 }
 

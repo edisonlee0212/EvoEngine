@@ -55,6 +55,117 @@ std::shared_ptr<std::vector<std::byte>> BuildTextureUploadBytes(const std::vecto
       throw std::runtime_error("Unsupported Texture2D upload format.");
   }
 }
+
+bool SupportsSampledTextureFormat(const VkFormat format) {
+  if (!Platform::Initialized()) {
+    return false;
+  }
+  const auto& physical_device = Platform::GetSelectedPhysicalDevice();
+  if (!physical_device || physical_device->vk_physical_device == VK_NULL_HANDLE) {
+    return false;
+  }
+
+  VkFormatProperties format_properties{};
+  vkGetPhysicalDeviceFormatProperties(physical_device->vk_physical_device, format, &format_properties);
+  constexpr VkFormatFeatureFlags required_features =
+      VK_FORMAT_FEATURE_TRANSFER_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+  return (format_properties.optimalTilingFeatures & required_features) == required_features;
+}
+
+size_t CompressedTextureBlockSize(const VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_BC7_UNORM_BLOCK:
+    case VK_FORMAT_BC7_SRGB_BLOCK:
+      return 16;
+    default:
+      return 0;
+  }
+}
+
+std::vector<VkBufferImageCopy> BuildCompressedMipCopyRegions(const glm::uvec2& resolution, const uint32_t mip_levels,
+                                                             const VkFormat format) {
+  std::vector<VkBufferImageCopy> regions;
+  const auto block_size = CompressedTextureBlockSize(format);
+  if (resolution.x == 0 || resolution.y == 0 || mip_levels == 0 || block_size == 0) {
+    return regions;
+  }
+
+  regions.reserve(mip_levels);
+  VkDeviceSize offset = 0;
+  uint32_t width = resolution.x;
+  uint32_t height = resolution.y;
+  for (uint32_t mip_level = 0; mip_level < mip_levels; ++mip_level) {
+    VkBufferImageCopy region{};
+    region.bufferOffset = offset;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = mip_level;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0, 0, 0};
+    region.imageExtent = {width, height, 1};
+    regions.emplace_back(region);
+
+    const size_t block_width = (static_cast<size_t>(width) + 3) / 4;
+    const size_t block_height = (static_cast<size_t>(height) + 3) / 4;
+    offset += block_width * block_height * block_size;
+    width = width > 1 ? width / 2 : 1u;
+    height = height > 1 ? height / 2 : 1u;
+  }
+  return regions;
+}
+
+GpuWorkHandle EnqueueTextureUpload(const std::shared_ptr<Image>& target_image,
+                                   const std::shared_ptr<std::atomic_size_t>& pending_counter,
+                                   const std::shared_ptr<std::vector<std::byte>>& upload_bytes,
+                                   const bool generate_mipmaps, const std::string& debug_name,
+                                   std::vector<VkBufferImageCopy> copy_regions = {}) {
+  if (!target_image || !upload_bytes || upload_bytes->empty()) {
+    return {};
+  }
+
+  pending_counter->fetch_add(1);
+  GpuWorkOptions options;
+  options.debug_name = debug_name;
+  auto& gpu_service = Platform::GetGpuService();
+  try {
+    return gpu_service.EnqueueStaging(
+        upload_bytes->size(), options,
+        [target_image, pending_counter, upload_bytes, generate_mipmaps, copy_regions = std::move(copy_regions)]() {
+          const PendingGpuUploadCompletion pending_completion(pending_counter);
+          auto& gpu_service = Platform::GetGpuService();
+          auto staging_buffer = gpu_service.AcquireStagingBuffer(upload_bytes->size(), false);
+          try {
+            void* mapping;
+            Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
+            memcpy(mapping, upload_bytes->data(), upload_bytes->size());
+            vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
+            gpu_service.SubmitImmediate([target_image, staging_vk_buffer = staging_buffer.vk_buffer, generate_mipmaps,
+                                         copy_regions](const VkCommandBuffer vk_command_buffer) {
+              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+              if (copy_regions.empty()) {
+                target_image->CopyFromBuffer(vk_command_buffer, staging_vk_buffer);
+              } else {
+                target_image->CopyFromBuffer(vk_command_buffer, staging_vk_buffer, copy_regions);
+              }
+              if (generate_mipmaps) {
+                target_image->GenerateMipmaps(vk_command_buffer);
+              } else {
+                target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+              }
+            });
+            gpu_service.ReleaseStagingBuffer(staging_buffer);
+          } catch (...) {
+            gpu_service.ReleaseStagingBuffer(staging_buffer);
+            throw;
+          }
+        });
+  } catch (...) {
+    pending_counter->fetch_sub(1);
+    throw;
+  }
+}
 }  // namespace
 
 void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
@@ -198,23 +309,31 @@ bool Texture2DStorage::IsGpuUploadPending() const {
 }
 
 void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
+  Initialize(resolution, Platform::Constants::texture_2d, true);
+}
+
+void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat format, const bool storage_image,
+                                  const uint32_t mip_levels) {
   if (!Platform::Initialized())
     return;
   Clear();
-  constexpr uint32_t mip_levels = 1;
+  const uint32_t resolved_mip_levels = mip_levels > 0 ? mip_levels : 1u;
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   image_info.imageType = VK_IMAGE_TYPE_2D;
   image_info.extent.width = resolution.x;
   image_info.extent.height = resolution.y;
   image_info.extent.depth = 1;
-  image_info.mipLevels = mip_levels;
+  image_info.mipLevels = resolved_mip_levels;
   image_info.arrayLayers = 1;
-  image_info.format = Platform::Constants::texture_2d;
+  image_info.format = format;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+  image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  if (storage_image) {
+    image_info.usage |=
+        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+  }
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -223,7 +342,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   view_info.image = image->GetVkImage();
   view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  view_info.format = Platform::Constants::texture_2d;
+  view_info.format = format;
   view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   view_info.subresourceRange.baseMipLevel = 0;
   view_info.subresourceRange.levelCount = image_info.mipLevels;
@@ -239,15 +358,15 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
   sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  sampler_info.anisotropyEnable = VK_TRUE;
-  sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+  sampler_info.anisotropyEnable = VK_FALSE;
+  sampler_info.maxAnisotropy = 1.0f;
   sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   sampler_info.unnormalizedCoordinates = VK_FALSE;
   sampler_info.compareEnable = VK_FALSE;
   sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
   sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
   sampler_info.minLod = 0;
-  sampler_info.maxLod = static_cast<float>(image_info.mipLevels);
+  sampler_info.maxLod = VK_LOD_CLAMP_NONE;
   sampler_info.mipLodBias = 0.0f;
 
   sampler = std::make_shared<Sampler>(sampler_info);
@@ -270,39 +389,25 @@ GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data,
     return {};
   }
 
-  const auto target_image = image;
-  const auto pending_counter = gpu_upload_in_flight;
-  pending_counter->fetch_add(1);
-  GpuWorkOptions options;
-  options.debug_name = "Texture2DStorage::SetDataAsync";
-  auto& gpu_service = Platform::GetGpuService();
-  try {
-    return gpu_service.EnqueueStaging(upload_bytes->size(), options, [target_image, pending_counter, upload_bytes]() {
-      const PendingGpuUploadCompletion pending_completion(pending_counter);
-      auto& gpu_service = Platform::GetGpuService();
-      auto staging_buffer = gpu_service.AcquireStagingBuffer(upload_bytes->size(), false);
-      try {
-        void* mapping;
-        Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
-        memcpy(mapping, upload_bytes->data(), upload_bytes->size());
-        vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
-        gpu_service.SubmitImmediate(
-            [target_image, staging_vk_buffer = staging_buffer.vk_buffer](const VkCommandBuffer vk_command_buffer) {
-              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-              target_image->CopyFromBuffer(vk_command_buffer, staging_vk_buffer);
-              target_image->GenerateMipmaps(vk_command_buffer);
-              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            });
-        gpu_service.ReleaseStagingBuffer(staging_buffer);
-      } catch (...) {
-        gpu_service.ReleaseStagingBuffer(staging_buffer);
-        throw;
-      }
-    });
-  } catch (...) {
-    pending_counter->fetch_sub(1);
-    throw;
+  return EnqueueTextureUpload(image, gpu_upload_in_flight, upload_bytes, true, "Texture2DStorage::SetDataAsync");
+}
+
+GpuWorkHandle Texture2DStorage::SetCompressedDataAsync(const std::vector<std::byte>& data, const glm::uvec2& resolution,
+                                                       const VkFormat format, const uint32_t mip_levels) {
+  if (!Platform::Initialized() || data.empty() || resolution.x == 0 || resolution.y == 0 ||
+      format == VK_FORMAT_UNDEFINED) {
+    return {};
   }
+  if (!SupportsSampledTextureFormat(format)) {
+    EVOENGINE_ERROR("Texture2D compressed upload format is not supported by the selected device.")
+    return {};
+  }
+  const uint32_t resolved_mip_levels = mip_levels > 0 ? mip_levels : 1u;
+  Initialize(resolution, format, false, resolved_mip_levels);
+  auto upload_bytes = std::make_shared<std::vector<std::byte>>(data);
+  auto copy_regions = BuildCompressedMipCopyRegions(resolution, resolved_mip_levels, format);
+  return EnqueueTextureUpload(image, gpu_upload_in_flight, upload_bytes, false,
+                              "Texture2DStorage::SetCompressedDataAsync", std::move(copy_regions));
 }
 
 void Texture2DStorage::Clear() {
@@ -334,15 +439,59 @@ void CubemapStorage::Clear() {
 void Texture2DStorage::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution) {
   new_data_ = data;
   new_resolution_ = resolution;
+  new_compressed_data_.clear();
+  new_compressed_resolution_ = {};
+  new_compressed_format_ = VK_FORMAT_UNDEFINED;
+  new_compressed_mip_levels_ = 1;
+}
+
+void Texture2DStorage::SetCompressedData(const std::vector<std::byte>& data, const glm::uvec2& resolution,
+                                         const VkFormat format, const uint32_t mip_levels) {
+  new_compressed_data_ = data;
+  new_compressed_resolution_ = resolution;
+  new_compressed_format_ = format;
+  new_compressed_mip_levels_ = mip_levels > 0 ? mip_levels : 1u;
+  new_data_.clear();
+  new_resolution_ = {};
+}
+
+VkFormat Texture2DStorage::GetFormat() const {
+  if (image) {
+    return image->GetFormat();
+  }
+  if (!new_compressed_data_.empty()) {
+    return new_compressed_format_;
+  }
+  return Platform::Constants::texture_2d;
+}
+
+uint32_t Texture2DStorage::GetMipLevels() const {
+  if (image) {
+    return image->GetMipLevels();
+  }
+  if (!new_compressed_data_.empty()) {
+    return new_compressed_mip_levels_;
+  }
+  return 1;
 }
 
 void Texture2DStorage::UploadPendingDataImmediately() {
-  if (new_data_.empty()) {
+  if (new_data_.empty() && new_compressed_data_.empty()) {
     return;
   }
-  const auto upload = SetDataAsync(new_data_, new_resolution_);
-  new_data_.clear();
-  new_resolution_ = {};
+  GpuWorkHandle upload;
+  if (!new_compressed_data_.empty()) {
+    upload = SetCompressedDataAsync(new_compressed_data_, new_compressed_resolution_, new_compressed_format_,
+                                    new_compressed_mip_levels_);
+    new_compressed_data_.clear();
+    new_compressed_resolution_ = {};
+    new_compressed_format_ = VK_FORMAT_UNDEFINED;
+    new_compressed_mip_levels_ = 1;
+  } else {
+    upload = SetDataAsync(new_data_, new_resolution_);
+    new_data_.clear();
+    new_resolution_ = {};
+  }
   if (upload.Valid()) {
     Platform::GetGpuService().Wait(upload);
   }
@@ -355,7 +504,8 @@ uint32_t TextureStorage::GetVersion() {
 bool TextureStorage::HasPendingUploads() {
   const auto& storage = GetInstance();
   for (const auto& texture_storage : storage.texture_2ds_) {
-    if (!texture_storage.new_data_.empty() || texture_storage.IsGpuUploadPending()) {
+    if (!texture_storage.new_data_.empty() || !texture_storage.new_compressed_data_.empty() ||
+        texture_storage.IsGpuUploadPending()) {
       return true;
     }
   }
@@ -377,12 +527,27 @@ void TextureStorage::DeviceSync() {
   }
 
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
-    if (auto& texture_storage = storage.texture_2ds_[texture_index]; !texture_storage.new_data_.empty()) {
+    auto& texture_storage = storage.texture_2ds_[texture_index];
+    if (!texture_storage.new_compressed_data_.empty()) {
+      (void)texture_storage.SetCompressedDataAsync(
+          texture_storage.new_compressed_data_, texture_storage.new_compressed_resolution_,
+          texture_storage.new_compressed_format_, texture_storage.new_compressed_mip_levels_);
+      texture_storage.new_compressed_data_.clear();
+      texture_storage.new_compressed_resolution_ = {};
+      texture_storage.new_compressed_format_ = VK_FORMAT_UNDEFINED;
+      texture_storage.new_compressed_mip_levels_ = 1;
+      storage.version_++;
+    } else if (!texture_storage.new_data_.empty()) {
       (void)texture_storage.SetDataAsync(texture_storage.new_data_, texture_storage.new_resolution_);
       texture_storage.new_data_.clear();
       texture_storage.new_resolution_ = {};
       storage.version_++;
     }
+    const bool upload_pending = texture_storage.IsGpuUploadPending();
+    if (texture_storage.gpu_upload_pending_last_sync_ && !upload_pending) {
+      storage.version_++;
+    }
+    texture_storage.gpu_upload_pending_last_sync_ = upload_pending;
   }
 
   for (int texture_index = 0; texture_index < storage.cubemaps_.size(); texture_index++) {

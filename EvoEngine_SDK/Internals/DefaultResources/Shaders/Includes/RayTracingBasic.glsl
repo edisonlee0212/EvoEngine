@@ -1,5 +1,7 @@
 
+#ifndef EE_RAY_QUERY_SHADER
 #extension GL_EXT_ray_tracing : enable
+#endif
 
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
@@ -17,4 +19,3 @@ layout(std430, set = 1, binding = 1) readonly buffer EE_INDICES_BLOCK {
 };
 
 layout(set = 1, binding = 2) uniform accelerationStructureEXT EE_TLAS;
-

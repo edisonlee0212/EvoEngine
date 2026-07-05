@@ -66,10 +66,11 @@ bool ShouldRenderShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRe
   return render_instance->cast_shadow && BoundIntersectsClipSpace(render_instance->world_bound, light_space_matrix);
 }
 
-bool HasVisibleShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
-                              const glm::mat4& light_space_matrix, const bool alpha_tested) {
+bool HasVisibleMeshShadowInstance(
+    const std::shared_ptr<RenderInstanceStorage::MeshRenderInstanceCollection>& collection,
+    const glm::mat4& light_space_matrix, const bool alpha_tested) {
   bool has_visible_instance = false;
-  collection->ForEachRenderInstance([&](const auto& render_instance) {
+  collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
     if (!has_visible_instance && render_instance->alpha_tested_shadow == alpha_tested &&
         ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
       has_visible_instance = true;
@@ -151,8 +152,8 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                                              const std::shared_ptr<Buffer>& mesh_task_buffer,
                                              const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands) {
                 if (prim_count == 0 ||
-                    !HasVisibleShadowInstance(parameters.render_instances->deferred_render_instances,
-                                              light_space_matrix, alpha_tested) ||
+                    !HasVisibleMeshShadowInstance(parameters.render_instances->deferred_render_instances,
+                                                  light_space_matrix, alpha_tested) ||
                     !prepare_graphics_pipeline(target_pipeline)) {
                   return;
                 }
@@ -191,7 +192,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                 if (!prepare_graphics_pipeline(target_pipeline)) {
                   continue;
                 }
-                parameters.render_instances->deferred_render_instances->ForEachRenderInstance(
+                parameters.render_instances->deferred_render_instances->ForEachMeshRenderInstance(
                     [&](const auto& render_instance) {
                       if (render_instance->alpha_tested_shadow != alpha_tested ||
                           !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
@@ -215,7 +216,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
               if (!prepare_graphics_pipeline(target_pipeline)) {
                 continue;
               }
-              parameters.render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
+              parameters.render_instances->deferred_instanced_render_instances->ForEachInstancedRenderInstance(
                   [&](const auto& render_instance) {
                     if (render_instance->alpha_tested_shadow != alpha_tested ||
                         !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
@@ -238,7 +239,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
               if (!prepare_graphics_pipeline(target_pipeline)) {
                 continue;
               }
-              parameters.render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
+              parameters.render_instances->deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance(
                   [&](const auto& render_instance) {
                     if (render_instance->alpha_tested_shadow != alpha_tested ||
                         !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
@@ -257,7 +258,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
           GeometryStorage::BindStrandPoints(vk_command_buffer);
           {
             if (prepare_graphics_pipeline(parameters.strands_pipeline)) {
-              parameters.render_instances->deferred_strands_render_instances->ForEachRenderInstance(
+              parameters.render_instances->deferred_strands_render_instances->ForEachStrandsRenderInstance(
                   [&](const auto& render_instance) {
                     if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
                       return;

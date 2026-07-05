@@ -1,7 +1,10 @@
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_ray_tracing : require
 
+#define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
+#define EE_GLTF_TEXTURE_LOD 0.0
 #include "RayTracingBasic.glsl"
+#include "GltfRasterMaterial.glsl"
 #include "PointCloudRayTracingPayload.glsl"
 #include "Random.glsl"
 layout(location = 0) rayPayloadInEXT PointCloudRayTracingPayload hit_value;
@@ -55,8 +58,8 @@ vec3 BRDF(in float metallic, inout uint seed, in vec3 inDirection, in vec3 inNor
 void main() 
 {
 	const int instance_index = int(gl_InstanceCustomIndexEXT);
-	const MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[EE_INSTANCES[instance_index].material_index];
 	Instance instance = EE_INSTANCES[instance_index];
+	const uint material_index = uint(instance.material_index);
 	const int triangle_offset = instance.triangle_offset + gl_PrimitiveID;
 
 	// Vertex of the triangle
@@ -70,17 +73,17 @@ void main()
 	const vec2 tex_coord      = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
 	vec3 normal      = v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
 	const vec3 tangent      = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
-	normal = EE_SAMPLE_NORMAL(materialProperties.normal_map_index, tex_coord, normal, tangent);
+	const GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
+	normal = EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, normal, tangent);
 	
 	const vec3 worldPosition = vec3(gl_ObjectToWorldEXT * vec4(position, 1.0));  // Transforming the position to world space
 	const vec3 worldNormal = normalize(vec3(normal * gl_WorldToObjectEXT));  // Transforming the normal to world space
 	const vec3 worldTangent = normalize(vec3(tangent * gl_WorldToObjectEXT));  // Transforming the normal to world space
 	
-	float roughness = EE_SAMPLE_TEXTURE_2D(materialProperties.roughness_map_index, tex_coord, vec4(materialProperties.roughness, 0, 0, 0)).r;
-	float metallic = EE_SAMPLE_TEXTURE_2D(materialProperties.metallic_map_index, tex_coord, vec4(materialProperties.metallic, 0, 0, 0)).r;
-	float emission = materialProperties.emission;
-	float ao = EE_SAMPLE_TEXTURE_2D(materialProperties.ao_texture_index, tex_coord, vec4(materialProperties.ambient_occulusion, 0, 0, 0)).r;
-	vec4 albedo = EE_SAMPLE_TEXTURE_2D(materialProperties.albedo_map_index, tex_coord, materialProperties.albedo);
+	float roughness = surface.roughness;
+	float metallic = surface.metallic;
+	float ao = surface.occlusion;
+	vec4 albedo = surface.base_color;
 
 	//Proceed...
 	float f = 1.0f;
@@ -99,7 +102,7 @@ void main()
 	}else{
 		combined_color = EE_SKY_COLOR(worldNormal) * 1e-3f;
 	}
-	hit_value.hit_info.color = vec4(combined_color + emission * albedo.xyz, 1.0f);
+	hit_value.hit_info.color = vec4(combined_color + surface.emissive * albedo.xyz, 1.0f);
 
 	hit_value.hit_info.position = worldPosition;
 	hit_value.hit_info.normal = worldNormal;

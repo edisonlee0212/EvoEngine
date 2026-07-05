@@ -15,11 +15,11 @@ void CpuRayTracer::Initialize(
   Clear();
   uint32_t mesh_index = 0;
   std::map<Handle, uint32_t> mesh_instances_map;
-  render_instances->deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
+  render_instances->deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
     mesh_instances_map[render_instance->instance_index] = mesh_index;
     geometry_instances_.emplace_back();
     auto& mesh_instance = geometry_instances_.back();
-    const auto mesh = std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)->mesh;
+    const auto mesh = render_instance->mesh;
     mesh_instance.Initialize(mesh);
     mesh_binding(mesh_index, mesh);
     mesh_index++;
@@ -27,13 +27,11 @@ void CpuRayTracer::Initialize(
 
   uint32_t node_index = 0;
 
-  render_instances->deferred_render_instances->ForEachRenderInstance([&](const auto& render_instance) {
-    const auto mesh = std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance)->mesh;
+  render_instances->deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
+    const auto mesh = render_instance->mesh;
     node_instances_.emplace_back();
     auto& node_instance = node_instances_.back();
-    node_instance.Initialize(render_instances,
-                             std::dynamic_pointer_cast<RenderInstanceStorage::MeshRenderInstance>(render_instance),
-                             geometry_instances_, mesh_instances_map);
+    node_instance.Initialize(render_instances, render_instance, geometry_instances_, mesh_instances_map);
     node_binding(node_index, render_instance->owner);
     node_index++;
   });

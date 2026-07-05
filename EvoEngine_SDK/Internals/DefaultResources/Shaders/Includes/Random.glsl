@@ -33,3 +33,30 @@ uint EE_LCG(inout uint prev) {
 float EE_RANDOM(inout uint prev) {
   return (float(EE_LCG(prev)) / float(0x01000000));
 }
+
+uint EE_ROTATE_LEFT(const uint value, const uint count) {
+  return (value << count) | (value >> (32u - count));
+}
+
+// Reference parity helpers adapted from nvpro_core2/nvshaders/random.h.slang.
+uint EE_XXHASH32(const uvec3 p) {
+  const uvec4 primes = uvec4(2246822519u, 3266489917u, 668265263u, 374761393u);
+  uint h32 = p.z + primes.w + p.x * primes.y;
+  h32 = primes.z * EE_ROTATE_LEFT(h32, 17u);
+  h32 += p.y * primes.y;
+  h32 = primes.z * EE_ROTATE_LEFT(h32, 17u);
+  h32 = primes.x * (h32 ^ (h32 >> 15u));
+  h32 = primes.y * (h32 ^ (h32 >> 13u));
+  return h32 ^ (h32 >> 16u);
+}
+
+uint EE_PCG(inout uint state) {
+  const uint previous = state * 747796405u + 2891336453u;
+  const uint word = ((previous >> ((previous >> 28u) + 4u)) ^ previous) * 277803737u;
+  state = previous;
+  return (word >> 22u) ^ word;
+}
+
+float EE_REFERENCE_RANDOM(inout uint seed) {
+  return float(EE_PCG(seed)) * (1.0f / float(0xffffffffu));
+}

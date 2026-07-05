@@ -1348,16 +1348,17 @@ void ScotsPine::RebuildGeometry() {
       }
 
       internode_material->vertex_color_only = true;
-      internode_material->SetAlbedoTexture(nullptr);
-      internode_material->material_properties.albedo_color = glm::vec3(1.0f);
+      internode_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, nullptr);
+      internode_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(1.0f);
       internode_material->draw_settings.blending = false;
-      internode_material->material_properties.metallic = 0.0f;
-      internode_material->material_properties.specular = 0.12f;
-      internode_material->material_properties.specular_tint = 0.05f;
-      internode_material->material_properties.roughness = 0.86f;
-      internode_material->material_properties.transmission = 0.0f;
-      internode_material->material_properties.subsurface_factor = 0.0f;
-      internode_material->material_properties.clear_coat = 0.0f;
+      internode_material->material_data.shade_material.pbr_metallic_factor = 0.0f;
+      internode_material->material_data.shade_material.specular_factor = 0.12f;
+      internode_material->material_data.shade_material.specular_color_factor = glm::vec3(0.05f);
+      internode_material->material_data.shade_material.pbr_roughness_factor = 0.86f;
+      internode_material->material_data.shade_material.transmission_factor = 0.0f;
+      internode_material->material_data.shade_material.diffuse_transmission_factor = 0.0f;
+      internode_material->material_data.shade_material.clearcoat_factor = 0.0f;
+      internode_material->MarkDirty();
 
       if (auto* channel = render_target_->GetOrCreateInstanceChannel(kChannelInternodes, "Pine Internodes",
                                                                      internode_mesh, internode_material)) {
@@ -1430,24 +1431,25 @@ void ScotsPine::RebuildGeometry() {
                          0.0f, 2.0f);
 
           needle_material->vertex_color_only = true;
-          needle_material->SetAlbedoTexture(nullptr);
-          needle_material->material_properties.albedo_color =
-              color_mode == ColorMode::ByInstance ? by_instance_tint : glm::vec3(1.0f);
+          needle_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, nullptr);
+          needle_material->material_data.shade_material.pbr_base_color_factor =
+              glm::vec4(color_mode == ColorMode::ByInstance ? by_instance_tint : glm::vec3(1.0f), 1.0f);
           needle_material->draw_settings.blending = false;
           needle_material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
-          needle_material->material_properties.metallic = 0.0f;
-          needle_material->material_properties.specular = std::clamp(0.04f + 0.08f * needle_specularity, 0.04f, 0.12f);
-          needle_material->material_properties.specular_tint =
-              std::clamp(0.02f + 0.05f * stomatal_density, 0.0f, 0.10f);
-          needle_material->material_properties.roughness =
+          needle_material->material_data.shade_material.pbr_metallic_factor = 0.0f;
+          needle_material->material_data.shade_material.specular_factor =
+              std::clamp(0.04f + 0.08f * needle_specularity, 0.04f, 0.12f);
+          needle_material->material_data.shade_material.specular_color_factor =
+              glm::vec3(std::clamp(0.02f + 0.05f * stomatal_density, 0.0f, 0.10f));
+          needle_material->material_data.shade_material.pbr_roughness_factor =
               std::clamp(0.90f + 0.06f * needle_lignification, 0.85f, 0.98f);
-          needle_material->material_properties.subsurface_factor = 0.0f;
-          needle_material->material_properties.ior = 1.33f;
-          needle_material->material_properties.transmission = 0.0f;
-          needle_material->material_properties.transmission_roughness = 1.0f;
-          needle_material->material_properties.clear_coat = 0.0f;
-          needle_material->material_properties.clear_coat_roughness = 1.0f;
-          needle_material->material_properties.emission = 0.0f;
+          needle_material->material_data.shade_material.diffuse_transmission_factor = 0.0f;
+          needle_material->material_data.shade_material.ior = 1.33f;
+          needle_material->material_data.shade_material.transmission_factor = 0.0f;
+          needle_material->material_data.shade_material.clearcoat_factor = 0.0f;
+          needle_material->material_data.shade_material.clearcoat_roughness = 1.0f;
+          needle_material->material_data.shade_material.emissive_factor = glm::vec3(0.0f);
+          needle_material->MarkDirty();
         }
 
         VertexAttributes attrs{};
@@ -1522,9 +1524,10 @@ void ScotsPine::RebuildGeometry() {
       needle_mesh->SetVertices(attrs, oct_verts, oct_idx);
 
       needle_material->vertex_color_only = false;
-      needle_material->SetAlbedoTexture(nullptr);
-      needle_material->material_properties.albedo_color = glm::vec3(1.0f);
+      needle_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, nullptr);
+      needle_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(1.0f);
       needle_material->draw_settings.blending = false;
+      needle_material->MarkDirty();
 
       if (auto* channel = render_target_->GetOrCreateInstanceChannel(kChannelNeedles, "Pine Needles", needle_mesh,
                                                                      needle_material)) {

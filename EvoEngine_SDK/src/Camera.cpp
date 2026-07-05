@@ -1,8 +1,11 @@
 #include "Camera.hpp"
+#include <algorithm>
+#include <cctype>
 #include <unordered_map>
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
+#include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -13,6 +16,135 @@ using namespace evo_engine;
 
 namespace {
 std::unordered_map<uint64_t, glm::mat4> previous_camera_projection_views;
+
+std::string NormalizeRenderModeName(std::string value) {
+  value.erase(std::remove_if(value.begin(), value.end(),
+                             [](const char character) {
+                               return character == '-' || character == '_' ||
+                                      std::isspace(static_cast<unsigned char>(character));
+                             }),
+              value.end());
+  std::transform(value.begin(), value.end(), value.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  return value;
+}
+
+void ReportCameraRenderModeFallback(const Camera::CameraRenderMode requested_mode,
+                                    const Camera::CameraRenderMode fallback_mode) {
+  static bool ray_tracing_fallback_reported = false;
+  static bool ray_query_fallback_reported = false;
+  if (requested_mode == fallback_mode) {
+    return;
+  }
+  if (requested_mode == Camera::CameraRenderMode::RayTracing && !ray_tracing_fallback_reported) {
+    EVOENGINE_WARNING(std::string("Camera render mode RayTracing is unavailable; falling back to ") +
+                      Camera::GetCameraRenderModeName(fallback_mode) + ".")
+    ray_tracing_fallback_reported = true;
+  }
+  if (requested_mode == Camera::CameraRenderMode::RayQuery && !ray_query_fallback_reported) {
+    EVOENGINE_WARNING(std::string("Camera render mode RayQuery is unavailable; falling back to ") +
+                      Camera::GetCameraRenderModeName(fallback_mode) + ".")
+    ray_query_fallback_reported = true;
+  }
+}
+
+void ReportShaderExecutionReorderingFallback(const CameraSettings::ShaderExecutionReorderingMode requested_mode) {
+  static bool unsupported_reported = false;
+  if (requested_mode == CameraSettings::ShaderExecutionReorderingMode::Disabled ||
+      Platform::ShaderExecutionReorderingEnabled() || unsupported_reported) {
+    return;
+  }
+  EVOENGINE_WARNING("Shader Execution Reordering is unavailable; using standard ray tracing scheduling.")
+  unsupported_reported = true;
+}
+}  // namespace
+
+const std::vector<std::string>& Camera::GetCameraRenderModeNames() {
+  static const std::vector<std::string> render_mode_names{"Rasterization", "RayTracing", "RayQuery"};
+  return render_mode_names;
+}
+
+const char* Camera::GetCameraRenderModeName(const CameraRenderMode mode) {
+  const auto index = static_cast<uint32_t>(NormalizeCameraRenderMode(static_cast<uint32_t>(mode)));
+  return GetCameraRenderModeNames()[index].c_str();
+}
+
+const std::vector<std::string>& Camera::GetShaderExecutionReorderingModeNames() {
+  static const std::vector<std::string> mode_names{"Disabled", "Automatic", "Enabled"};
+  return mode_names;
+}
+
+const char* Camera::GetShaderExecutionReorderingModeName(const CameraSettings::ShaderExecutionReorderingMode mode) {
+  const auto index = static_cast<uint32_t>(NormalizeShaderExecutionReorderingMode(static_cast<uint32_t>(mode)));
+  return GetShaderExecutionReorderingModeNames()[index].c_str();
+}
+
+CameraSettings::ShaderExecutionReorderingMode Camera::ParseShaderExecutionReorderingMode(
+    const std::string& value, const CameraSettings::ShaderExecutionReorderingMode fallback) {
+  const auto normalized = NormalizeRenderModeName(value);
+  if (normalized == "0" || normalized == "off" || normalized == "disabled" || normalized == "disable") {
+    return CameraSettings::ShaderExecutionReorderingMode::Disabled;
+  }
+  if (normalized == "1" || normalized == "auto" || normalized == "automatic") {
+    return CameraSettings::ShaderExecutionReorderingMode::Automatic;
+  }
+  if (normalized == "2" || normalized == "on" || normalized == "enabled" || normalized == "enable") {
+    return CameraSettings::ShaderExecutionReorderingMode::Enabled;
+  }
+  return fallback;
+}
+
+CameraSettings::ShaderExecutionReorderingMode Camera::NormalizeShaderExecutionReorderingMode(const uint32_t mode) {
+  if (mode >= kShaderExecutionReorderingModeCount) {
+    return CameraSettings::ShaderExecutionReorderingMode::Disabled;
+  }
+  return static_cast<CameraSettings::ShaderExecutionReorderingMode>(mode);
+}
+
+bool Camera::ResolveShaderExecutionReorderingEnabled(
+    const CameraSettings::ShaderExecutionReorderingMode requested_mode) {
+  if (requested_mode == CameraSettings::ShaderExecutionReorderingMode::Disabled) {
+    return false;
+  }
+  ReportShaderExecutionReorderingFallback(requested_mode);
+  return Platform::ShaderExecutionReorderingEnabled();
+}
+
+Camera::CameraRenderMode Camera::ParseCameraRenderMode(const std::string& value, const CameraRenderMode fallback) {
+  const auto normalized = NormalizeRenderModeName(value);
+  if (normalized == "0" || normalized == "raster" || normalized == "rasterization") {
+    return CameraRenderMode::Rasterization;
+  }
+  if (normalized == "1" || normalized == "raytracing" || normalized == "pathtracing" || normalized == "pathtrace") {
+    return CameraRenderMode::RayTracing;
+  }
+  if (normalized == "2" || normalized == "rayquery") {
+    return CameraRenderMode::RayQuery;
+  }
+  return fallback;
+}
+
+Camera::CameraRenderMode Camera::NormalizeCameraRenderMode(const uint32_t mode) {
+  if (mode >= kCameraRenderModeCount) {
+    return CameraRenderMode::Rasterization;
+  }
+  return static_cast<CameraRenderMode>(mode);
+}
+
+bool Camera::IsRayCameraRenderMode(const CameraRenderMode mode) {
+  return mode == CameraRenderMode::RayTracing || mode == CameraRenderMode::RayQuery;
+}
+
+Camera::CameraRenderMode Camera::ResolveCameraRenderMode(const CameraRenderMode requested_mode) {
+  auto fallback_mode = requested_mode;
+  if (requested_mode == CameraRenderMode::RayTracing && !Platform::RayTracingEnabled()) {
+    fallback_mode = CameraRenderMode::Rasterization;
+  } else if (requested_mode == CameraRenderMode::RayQuery && !Platform::RayQueryEnabled()) {
+    fallback_mode = Platform::RayTracingEnabled() ? CameraRenderMode::RayTracing : CameraRenderMode::Rasterization;
+  }
+  ReportCameraRenderModeFallback(requested_mode, fallback_mode);
+  return fallback_mode;
 }
 
 glm::vec3 CameraInfoBlock::Project(const glm::vec3& position) const {
@@ -50,7 +182,18 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (bounce != other.bounce)
     return true;
-
+  if (firefly_clamp_enabled != other.firefly_clamp_enabled)
+    return true;
+  if (firefly_clamp_threshold != other.firefly_clamp_threshold)
+    return true;
+  if (auto_spp_enabled != other.auto_spp_enabled)
+    return true;
+  if (auto_spp_min_samples != other.auto_spp_min_samples)
+    return true;
+  if (auto_spp_max_samples != other.auto_spp_max_samples)
+    return true;
+  if (auto_spp_convergence_threshold != other.auto_spp_convergence_threshold)
+    return true;
   return false;
 }
 
@@ -258,6 +401,15 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.sample_size = camera_settings.sample_size;
   camera_info_block.bounce = camera_settings.bounce;
   camera_info_block.gamma = camera_settings.gamma;
+  camera_info_block.firefly_clamp_enabled = camera_settings.firefly_clamp_enabled ? 1u : 0u;
+  camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
+  const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));
+  const auto auto_spp_max_samples =
+      static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
+  camera_info_block.auto_spp_enabled = camera_settings.auto_spp_enabled ? 1u : 0u;
+  camera_info_block.auto_spp_min_samples = auto_spp_min_samples;
+  camera_info_block.auto_spp_max_samples = auto_spp_max_samples;
+  camera_info_block.auto_spp_convergence_threshold = glm::max(camera_settings.auto_spp_convergence_threshold, 0.0f);
 }
 
 void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos,
@@ -293,6 +445,10 @@ glm::uvec2 Camera::GetSize() const {
   return size_;
 }
 
+uint32_t Camera::GetFrameCount() const {
+  return frame_count_;
+}
+
 void Camera::Resize(const glm::uvec2& size) {
   if (size.x == 0 || size.y == 0)
     return;
@@ -301,6 +457,7 @@ void Camera::Resize(const glm::uvec2& size) {
   if (size_ == size)
     return;
   size_ = size;
+  ResetFrameCount();
   if (render_texture_) {
     render_texture_->Resize({size_.x, size_.y, 1});
     UpdateGBuffer();

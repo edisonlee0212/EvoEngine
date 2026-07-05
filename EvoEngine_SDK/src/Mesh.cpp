@@ -10,6 +10,20 @@
 #include "Utilities.hpp"
 using namespace evo_engine;
 
+namespace {
+glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback) {
+  const auto length_squared = glm::dot(value, value);
+  if (length_squared <= 0.0f) {
+    return fallback;
+  }
+  return value * glm::inversesqrt(length_squared);
+}
+
+float TangentHandedness(const glm::vec3& tangent, const glm::vec3& bitangent, const glm::vec3& normal) {
+  return glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f ? -1.0f : 1.0f;
+}
+}  // namespace
+
 bool Mesh::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".evemesh") {
     return Serialization::SaveAssetAsYaml(*this, path);
@@ -259,9 +273,11 @@ void Mesh::RecalculateNormal() {
 
 void Mesh::RecalculateTangent() {
   auto tangent_lists = std::vector<std::vector<glm::vec3>>();
+  auto handedness_sums = std::vector<float>();
   const auto size = vertices_.size();
   for (auto i = 0; i < size; i++) {
     tangent_lists.emplace_back();
+    handedness_sums.emplace_back(0.0f);
   }
   for (const auto& triangle : triangles_) {
     const auto i1 = triangle.x;
@@ -284,19 +300,29 @@ void Mesh::RecalculateTangent() {
     const auto d21 = uv2 - uv1;
     const auto e31 = p3 - p1;
     const auto d31 = uv3 - uv1;
-    const float f = 1.0f / (d21.x * d31.y - d31.x * d21.y);
-    auto tangent =
+    const float determinant = d21.x * d31.y - d31.x * d21.y;
+    if (glm::abs(determinant) <= 1e-8f) {
+      continue;
+    }
+    const float f = 1.0f / determinant;
+    const auto tangent =
         f * glm::vec3(d31.y * e21.x - d21.y * e31.x, d31.y * e21.y - d21.y * e31.y, d31.y * e21.z - d21.y * e31.z);
+    const auto bitangent =
+        f * glm::vec3(d31.x * e21.x - d21.x * e31.x, d31.x * e21.y - d21.x * e31.y, d31.x * e21.z - d21.x * e31.z);
     tangent_lists[i1].push_back(tangent);
     tangent_lists[i2].push_back(tangent);
     tangent_lists[i3].push_back(tangent);
+    handedness_sums[i1] += TangentHandedness(tangent, bitangent, vertices_[i1].normal);
+    handedness_sums[i2] += TangentHandedness(tangent, bitangent, vertices_[i2].normal);
+    handedness_sums[i3] += TangentHandedness(tangent, bitangent, vertices_[i3].normal);
   }
   for (auto i = 0; i < size; i++) {
     auto tangent = glm::vec3(0.0f);
     for (const auto& j : tangent_lists[i]) {
       tangent += j;
     }
-    vertices_[i].tangent = glm::normalize(tangent);
+    vertices_[i].tangent = NormalizeOrFallback(tangent, glm::vec3(1.0f, 0.0f, 0.0f));
+    vertices_[i].vertex_info3 = handedness_sums[i] < 0.0f ? -1.0f : 1.0f;
   }
 }
 

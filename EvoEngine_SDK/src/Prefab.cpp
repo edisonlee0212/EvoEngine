@@ -2,6 +2,8 @@
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "EditorLayer.hpp"
+#include "GltfMaterialCache.hpp"
+#include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
@@ -14,6 +16,9 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <optional>
+#include <unordered_set>
 
 using namespace evo_engine;
 void Prefab::OnCreate() {
@@ -59,6 +64,21 @@ void CalculateBoundingBox(const std::shared_ptr<Prefab>& walker, Bound& bound) {
       }
     }
   }
+}
+
+void SetPrefabLocalTransform(Prefab* prefab, const glm::mat4& value) {
+  for (const auto& data_component : prefab->data_components) {
+    if (data_component.data_component_type == Typeof<Transform>()) {
+      std::reinterpret_pointer_cast<Transform>(data_component.data_component)->value = value;
+      return;
+    }
+  }
+  auto transform = std::make_shared<Transform>();
+  transform->value = value;
+  DataComponentHolder holder;
+  holder.data_component_type = Typeof<Transform>();
+  holder.data_component = transform;
+  prefab->data_components.push_back(holder);
 }
 
 Bound Prefab::GetBoundingBox() const {
@@ -248,113 +268,289 @@ void ReadAnimations(const aiScene* importer_scene, const std::shared_ptr<Animati
     animator->animation_length[animation_name] = max_animation_time_stamp;
   }
 }
+void AddTextureImportCandidate(std::vector<std::filesystem::path>& candidates, std::unordered_set<std::string>& seen,
+                               const std::filesystem::path& path) {
+  const auto absolute_path = std::filesystem::absolute(path);
+  auto extension = absolute_path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  if (extension == ".dds") {
+    for (const auto* fallback_extension : {".png", ".tga", ".jpg", ".jpeg"}) {
+      auto fallback_path = absolute_path;
+      fallback_path.replace_extension(fallback_extension);
+      const auto fallback_key = fallback_path.lexically_normal().string();
+      if (seen.insert(fallback_key).second) {
+        candidates.emplace_back(fallback_path);
+      }
+    }
+  }
+
+  const auto key = absolute_path.lexically_normal().string();
+  if (seen.insert(key).second) {
+    candidates.emplace_back(absolute_path);
+  }
+}
+
+std::vector<std::filesystem::path> CollectTextureImportCandidates(const std::string& directory,
+                                                                  const std::string& path) {
+  const auto base_dir = std::filesystem::absolute(directory);
+  const auto texture_path = std::filesystem::path(path);
+  const auto texture_filename = texture_path.filename();
+  std::vector<std::filesystem::path> candidates;
+  std::unordered_set<std::string> seen;
+
+  AddTextureImportCandidate(candidates, seen, base_dir / texture_path);
+  AddTextureImportCandidate(candidates, seen, texture_path);
+  AddTextureImportCandidate(candidates, seen, base_dir / texture_filename);
+  AddTextureImportCandidate(candidates, seen, base_dir.parent_path() / texture_filename);
+  AddTextureImportCandidate(candidates, seen, base_dir.parent_path().parent_path() / "textures" / texture_filename);
+  AddTextureImportCandidate(candidates, seen, base_dir.parent_path().parent_path() / "texture" / texture_filename);
+  return candidates;
+}
+
 std::shared_ptr<Texture2D> CollectTexture(
     const std::string& directory, const std::string& path,
     std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures) {
-  const auto full_path_str = directory + "\\" + path;
-  std::string full_path = std::filesystem::absolute(std::filesystem::path(full_path_str)).string();
-  if (!std::filesystem::exists(full_path)) {
-    full_path = std::filesystem::absolute(path).string();
+  for (const auto& full_path : CollectTextureImportCandidates(directory, path)) {
+    if (!std::filesystem::exists(full_path)) {
+      continue;
+    }
+    const auto full_path_string = full_path.string();
+    if (const auto search = loaded_textures.find(full_path_string); search != loaded_textures.end()) {
+      return search->second;
+    }
+
+    std::shared_ptr<Texture2D> texture_2d;
+    if (ProjectManager::IsInAssetsFolder(full_path)) {
+      texture_2d = std::dynamic_pointer_cast<Texture2D>(
+          ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
+    } else {
+      texture_2d = AssetManager::CreateTemporaryAsset<Texture2D>();
+      if (!texture_2d->Import(full_path)) {
+        continue;
+      }
+    }
+    loaded_textures[full_path_string] = texture_2d;
+    return texture_2d;
   }
-  if (!std::filesystem::exists(full_path)) {
-    full_path = std::filesystem::absolute(directory + "\\" + std::filesystem::path(path).filename().string()).string();
+  return Resources::GetInstance().GetMissingTexture();
+}
+struct ImportedGltfMaterialData {
+  GltfMaterialData material_data;
+  std::vector<AssetRef> texture_refs;
+};
+
+bool TextureUriUsesDds(const std::string& texture_uri) {
+  auto extension = std::filesystem::path(texture_uri).extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  return extension == ".dds";
+}
+
+std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
+    const std::filesystem::path& path, const std::string& directory,
+    std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures) {
+  auto extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  if (extension != ".gltf") {
+    return {};
   }
 
-  if (!std::filesystem::exists(full_path)) {
-    const auto base_dir = std::filesystem::absolute(directory);
-    full_path =
-        std::filesystem::absolute(base_dir.parent_path() / std::filesystem::path(path).filename().string()).string();
+  try {
+    std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    const auto gltf = YAML::Load(string_stream.str());
+    std::unordered_map<int32_t, std::string> resolved_texture_uris;
+    std::unordered_map<int32_t, int32_t> resolved_texture_indices;
+    std::unordered_map<int32_t, std::shared_ptr<Texture2D>> resolved_textures_by_storage_index;
+    const auto resolve_texture_uri = [&](const int32_t texture_index) {
+      if (const auto search = resolved_texture_uris.find(texture_index); search != resolved_texture_uris.end()) {
+        return search->second;
+      }
+      const auto texture_uri = ResolveGltfTextureUri(gltf, texture_index);
+      resolved_texture_uris[texture_index] = texture_uri;
+      return texture_uri;
+    };
+    auto material_data = BuildGltfMaterialDataFromGltfNode(
+        gltf,
+        [&](const int32_t texture_index) {
+          if (texture_index < 0) {
+            return -1;
+          }
+          if (const auto search = resolved_texture_indices.find(texture_index);
+              search != resolved_texture_indices.end()) {
+            return search->second;
+          }
+          const auto texture_uri = resolve_texture_uri(texture_index);
+          const auto texture = texture_uri.empty() ? nullptr : CollectTexture(directory, texture_uri, loaded_textures);
+          const int32_t storage_index = texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
+          resolved_texture_indices[texture_index] = storage_index;
+          if (texture && storage_index >= 0) {
+            resolved_textures_by_storage_index[storage_index] = texture;
+          }
+          return storage_index;
+        },
+        [&](const int32_t texture_index) {
+          return texture_index >= 0 && TextureUriUsesDds(resolve_texture_uri(texture_index));
+        });
+    std::vector<ImportedGltfMaterialData> result;
+    result.reserve(material_data.size());
+    for (auto& data : material_data) {
+      ImportedGltfMaterialData imported;
+      imported.material_data = std::move(data);
+      imported.texture_refs.resize(imported.material_data.texture_infos.size());
+      for (size_t i = 1; i < imported.material_data.texture_infos.size(); ++i) {
+        const auto storage_index = imported.material_data.texture_infos[i].index;
+        if (const auto search = resolved_textures_by_storage_index.find(storage_index);
+            search != resolved_textures_by_storage_index.end()) {
+          imported.texture_refs[i] = search->second;
+        }
+      }
+      result.emplace_back(std::move(imported));
+    }
+    return result;
+  } catch (const std::exception& e) {
+    EVOENGINE_WARNING("Unable to read glTF material extension data from " + path.filename().string() + ": " + e.what())
+    return {};
   }
-  if (!std::filesystem::exists(full_path)) {
-    const auto base_dir = std::filesystem::absolute(directory);
-    full_path = std::filesystem::absolute(base_dir.parent_path().parent_path() / "textures" /
-                                          std::filesystem::path(path).filename().string())
-                    .string();
-  }
-  if (!std::filesystem::exists(full_path)) {
-    const auto base_dir = std::filesystem::absolute(directory);
-    full_path = std::filesystem::absolute(base_dir.parent_path().parent_path() / "texture" /
-                                          std::filesystem::path(path).filename().string())
-                    .string();
-  }
-  if (!std::filesystem::exists(full_path)) {
-    return Resources::GetInstance().GetMissingTexture();
-  }
-  if (const auto search = loaded_textures.find(full_path); search != loaded_textures.end()) {
-    return search->second;
-  }
-  std::shared_ptr<Texture2D> texture_2d;
-  if (ProjectManager::IsInAssetsFolder(full_path)) {
-    texture_2d = std::dynamic_pointer_cast<Texture2D>(
-        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
-  } else {
-    texture_2d = AssetManager::CreateTemporaryAsset<Texture2D>();
-    texture_2d->Import(full_path);
-  }
-  loaded_textures[full_path] = texture_2d;
-  return texture_2d;
 }
+
+int32_t ImportedTextureStorageIndex(const std::shared_ptr<Texture2D>& texture) {
+  return texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
+}
+
+bool ReadTexturePixelsForPacking(const std::shared_ptr<Texture2D>& texture, const glm::uvec2& resolution,
+                                 std::vector<glm::vec4>& pixels) {
+  if (!texture) {
+    return false;
+  }
+  const auto pixel_count = static_cast<size_t>(resolution.x) * resolution.y;
+  const auto& local_pixels = texture->PeekLocalData();
+  if (texture->GetResolution() == resolution && local_pixels.size() == pixel_count) {
+    pixels = local_pixels;
+    return true;
+  }
+  texture->GetRgbaChannelData(pixels, static_cast<int>(resolution.x), static_cast<int>(resolution.y));
+  return pixels.size() == pixel_count;
+}
+
+std::shared_ptr<Texture2D> BuildPackedMetallicRoughnessTexture(const std::shared_ptr<Texture2D>& roughness_texture,
+                                                               const std::shared_ptr<Texture2D>& metallic_texture,
+                                                               const float roughness_factor,
+                                                               const float metallic_factor) {
+  if (!roughness_texture && !metallic_texture) {
+    return nullptr;
+  }
+
+  const glm::uvec2 resolution =
+      roughness_texture ? roughness_texture->GetResolution() : metallic_texture->GetResolution();
+  if (resolution.x == 0 || resolution.y == 0) {
+    return nullptr;
+  }
+
+  const auto pixel_count = static_cast<size_t>(resolution.x) * resolution.y;
+  std::vector<glm::vec3> packed_pixels(pixel_count, glm::vec3(1.0f, roughness_factor, metallic_factor));
+
+  std::vector<glm::vec4> source_pixels;
+  if (roughness_texture) {
+    if (ReadTexturePixelsForPacking(roughness_texture, resolution, source_pixels)) {
+      for (size_t i = 0; i < pixel_count; ++i) {
+        packed_pixels[i].g = source_pixels[i].r;
+      }
+    }
+  }
+  if (metallic_texture) {
+    if (ReadTexturePixelsForPacking(metallic_texture, resolution, source_pixels)) {
+      for (size_t i = 0; i < pixel_count; ++i) {
+        packed_pixels[i].b = source_pixels[i].r;
+      }
+    }
+  }
+
+  auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  texture->SetRgbChannelData(packed_pixels, resolution, true);
+  return texture;
+}
+
 auto ReadMaterial(const std::string& directory,
                   std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures,
                   std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>>& opacity_maps,
-                  const aiMaterial* importer_material) -> std::shared_ptr<Material> {
+                  const aiMaterial* importer_material, const ImportedGltfMaterialData* imported_material_data)
+    -> std::shared_ptr<Material> {
   auto target_material = AssetManager::CreateTemporaryAsset<Material>();
-  if (importer_material) {
+  if (imported_material_data) {
+    target_material->SetGltfMaterialData(imported_material_data->material_data);
+    target_material->RefTextureRefs() = imported_material_data->texture_refs;
+  }
+  std::shared_ptr<Texture2D> base_color_texture;
+  std::shared_ptr<Texture2D> normal_texture;
+  std::shared_ptr<Texture2D> metallic_texture;
+  std::shared_ptr<Texture2D> roughness_texture;
+  std::shared_ptr<Texture2D> occlusion_texture;
+  if (importer_material && !imported_material_data) {
+    // Direct glTF material data owns extension texture/factor semantics; Assimp is the fallback path for other imports.
     // PBR
     if (importer_material->GetTextureCount(aiTextureType_BASE_COLOR) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_BASE_COLOR, 0, &str);
-      target_material->SetAlbedoTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      base_color_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
+      target_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, base_color_texture);
     }
     if (importer_material->GetTextureCount(aiTextureType_DIFFUSE) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_DIFFUSE, 0, &str);
-      target_material->SetAlbedoTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      base_color_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
+      target_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, base_color_texture);
     }
     if (importer_material->GetTextureCount(aiTextureType_NORMALS) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_NORMALS, 0, &str);
-      target_material->SetNormalTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      normal_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
+      target_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture);
     } else if (importer_material->GetTextureCount(aiTextureType_HEIGHT) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_HEIGHT, 0, &str);
-      target_material->SetNormalTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      normal_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
+      target_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture);
     } else if (importer_material->GetTextureCount(aiTextureType_NORMAL_CAMERA) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_NORMAL_CAMERA, 0, &str);
-      target_material->SetNormalTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      normal_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
+      target_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture);
     }
 
     if (importer_material->GetTextureCount(aiTextureType_METALNESS) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_METALNESS, 0, &str);
-      target_material->SetMetallicTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      metallic_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
     }
     if (importer_material->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &str);
-      target_material->SetRoughnessTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      roughness_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
     }
     if (importer_material->GetTextureCount(aiTextureType_AMBIENT_OCCLUSION) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_AMBIENT_OCCLUSION, 0, &str);
-      target_material->SetAoTexture(CollectTexture(directory, str.C_Str(), loaded_textures));
+      occlusion_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
+      target_material->SetTexture(&GltfShadeMaterial::occlusion_texture, occlusion_texture);
     }
     if (importer_material->GetTextureCount(aiTextureType_OPACITY) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_OPACITY, 0, &str);
       const auto opacity_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
-      const auto albedo_texture = target_material->GetAlbedoTexture();
-
-      opacity_maps.emplace_back(albedo_texture, opacity_texture);
+      opacity_maps.emplace_back(base_color_texture, opacity_texture);
     }
     if (importer_material->GetTextureCount(aiTextureType_TRANSMISSION) > 0) {
       aiString str;
       importer_material->GetTexture(aiTextureType_TRANSMISSION, 0, &str);
       const auto opacity_texture = CollectTexture(directory, str.C_Str(), loaded_textures);
-      const auto albedo_texture = target_material->GetAlbedoTexture();
-
-      opacity_maps.emplace_back(albedo_texture, opacity_texture);
+      opacity_maps.emplace_back(base_color_texture, opacity_texture);
     }
 
     int unknown_texture_size = 0;
@@ -389,23 +585,38 @@ auto ReadMaterial(const std::string& directory,
 
     aiColor3D color;
     if (importer_material->Get(AI_MATKEY_COLOR_DIFFUSE, color) == aiReturn_SUCCESS) {
-      target_material->material_properties.albedo_color = glm::vec3(color.r, color.g, color.b);
+      target_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(color.r, color.g, color.b, 1.0f);
     } else if (importer_material->Get(AI_MATKEY_BASE_COLOR, color) == aiReturn_SUCCESS) {
-      target_material->material_properties.albedo_color = glm::vec3(color.r, color.g, color.b);
+      target_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(color.r, color.g, color.b, 1.0f);
     }
     ai_real factor;
     if (importer_material->Get(AI_MATKEY_METALLIC_FACTOR, factor) == aiReturn_SUCCESS) {
-      target_material->material_properties.metallic = factor;
+      target_material->material_data.shade_material.pbr_metallic_factor = factor;
     }
     if (importer_material->Get(AI_MATKEY_ROUGHNESS_FACTOR, factor) == aiReturn_SUCCESS) {
-      target_material->material_properties.roughness = factor;
+      target_material->material_data.shade_material.pbr_roughness_factor = factor;
     }
     if (importer_material->Get(AI_MATKEY_SPECULAR_FACTOR, factor) == aiReturn_SUCCESS) {
-      target_material->material_properties.specular = factor;
+      target_material->material_data.shade_material.specular_factor = factor;
     }
   }
+  if (!imported_material_data) {
+    if (base_color_texture && !target_material->draw_settings.blending) {
+      target_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+      target_material->material_data.shade_material.alpha_cutoff = 0.5f;
+    }
+    target_material->SetTexture(
+        &GltfShadeMaterial::pbr_metallic_roughness_texture,
+        BuildPackedMetallicRoughnessTexture(roughness_texture, metallic_texture,
+                                            target_material->material_data.shade_material.pbr_roughness_factor,
+                                            target_material->material_data.shade_material.pbr_metallic_factor));
+  }
+  target_material->MarkDirty();
   return target_material;
 }
+
+float ImportedTangentHandedness(const aiMesh* mesh, int vertex_index);
+
 std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
   VertexAttributes attributes;
   std::vector<Vertex> vertices;
@@ -437,6 +648,7 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
       v3.y = importer_mesh->mTangents[i].y;
       v3.z = importer_mesh->mTangents[i].z;
       vertex.tangent = v3;
+      vertex.vertex_info3 = ImportedTangentHandedness(importer_mesh, i);
       attributes.tangent = true;
     } else {
       attributes.tangent = false;
@@ -458,7 +670,7 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
       attributes.tex_coord = true;
     } else {
       vertex.tex_coord = glm::vec2(0.0f, 0.0f);
-      attributes.color = false;
+      attributes.tex_coord = false;
     }
     vertices[i] = vertex;
   }
@@ -505,6 +717,7 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
       v3.y = importer_mesh->mTangents[i].y;
       v3.z = importer_mesh->mTangents[i].z;
       vertex.tangent = v3;
+      vertex.vertex_info3 = ImportedTangentHandedness(importer_mesh, i);
       skinned_vertex_attributes.tangent = true;
     }
     if (importer_mesh->HasVertexColors(0)) {
@@ -522,7 +735,7 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
       skinned_vertex_attributes.tex_coord = true;
     } else {
       vertex.tex_coord = glm::vec2(0.0f, 0.0f);
-      skinned_vertex_attributes.tex_coord = true;
+      skinned_vertex_attributes.tex_coord = false;
     }
     vertices[i] = vertex;
   }
@@ -606,15 +819,215 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
   return skinned_mesh;
 }
 
+struct ImportedPunctualLightStats {
+  uint32_t directional = 0;
+  uint32_t point = 0;
+  uint32_t spot = 0;
+
+  [[nodiscard]] uint32_t Total() const {
+    return directional + point + spot;
+  }
+};
+
+std::unordered_map<std::string, const aiLight*> BuildImportedLightMap(const aiScene& scene) {
+  std::unordered_map<std::string, const aiLight*> lights;
+  for (unsigned int light_index = 0; light_index < scene.mNumLights; ++light_index) {
+    const auto* light = scene.mLights[light_index];
+    if (!light)
+      continue;
+    lights.try_emplace(light->mName.C_Str(), light);
+  }
+  return lights;
+}
+
+glm::vec3 Vec3Cast(const aiVector3D& value) {
+  return {value.x, value.y, value.z};
+}
+
+glm::vec3 ColorCast(const aiColor3D& value) {
+  return {value.r, value.g, value.b};
+}
+
+float ImportedTangentHandedness(const aiMesh* mesh, const int vertex_index) {
+  if (!mesh || !mesh->HasTangentsAndBitangents() || !mesh->HasNormals()) {
+    return 1.0f;
+  }
+  const auto tangent = Vec3Cast(mesh->mTangents[vertex_index]);
+  const auto bitangent = Vec3Cast(mesh->mBitangents[vertex_index]);
+  const auto normal = Vec3Cast(mesh->mNormals[vertex_index]);
+  return glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f ? -1.0f : 1.0f;
+}
+
+std::string FormatVec3(const glm::vec3& value) {
+  return "(" + std::to_string(value.x) + ", " + std::to_string(value.y) + ", " + std::to_string(value.z) + ")";
+}
+
+std::string ImportedLightTypeName(const aiLightSourceType type) {
+  switch (type) {
+    case aiLightSource_DIRECTIONAL:
+      return "directional";
+    case aiLightSource_POINT:
+      return "point";
+    case aiLightSource_SPOT:
+      return "spot";
+    default:
+      return "unsupported";
+  }
+}
+
+std::optional<float> ReadImportedLightRange(const aiNode* importer_node) {
+  if (!importer_node || !importer_node->mMetaData) {
+    return std::nullopt;
+  }
+  float range = 0.0f;
+  if (!importer_node->mMetaData->Get("PBR_LightRange", range) || !std::isfinite(range) || range <= 0.0f) {
+    return std::nullopt;
+  }
+  return range;
+}
+
+glm::quat SafeLookAt(const glm::vec3& front, const glm::vec3& requested_up) {
+  if (glm::dot(front, front) <= 0.0f) {
+    return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+  }
+  const glm::vec3 normalized_front = glm::normalize(front);
+  glm::vec3 up =
+      glm::dot(requested_up, requested_up) > 0.0f ? glm::normalize(requested_up) : glm::vec3(0.0f, 1.0f, 0.0f);
+  if (const auto cross = glm::cross(normalized_front, up); glm::dot(cross, cross) <= 0.0001f) {
+    up = glm::abs(normalized_front.y) < 0.99f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+  }
+  return glm::quatLookAt(normalized_front, up);
+}
+
+void ApplyImportedLightColor(const aiLight& light, glm::vec3& diffuse, float& diffuse_brightness) {
+  const glm::vec3 color_with_intensity = glm::max(ColorCast(light.mColorDiffuse), glm::vec3(0.0f));
+  const float brightness = glm::max(glm::max(color_with_intensity.x, color_with_intensity.y), color_with_intensity.z);
+  if (brightness > 0.0f) {
+    diffuse = color_with_intensity / brightness;
+    diffuse_brightness = brightness;
+  } else {
+    diffuse = glm::vec3(0.0f);
+    diffuse_brightness = 0.0f;
+  }
+}
+
+Transform CreateImportedLightLocalTransform(const aiLight& light) {
+  Transform transform;
+  const glm::vec3 position = Vec3Cast(light.mPosition);
+  const glm::vec3 direction = Vec3Cast(light.mDirection);
+  const glm::vec3 up = Vec3Cast(light.mUp);
+  glm::quat rotation(1.0f, 0.0f, 0.0f, 0.0f);
+  if (light.mType == aiLightSource_DIRECTIONAL) {
+    rotation = SafeLookAt(-direction, up);
+  } else if (light.mType == aiLightSource_SPOT) {
+    rotation = SafeLookAt(direction, up);
+  }
+  transform.SetValue(position, rotation, glm::vec3(1.0f));
+  return transform;
+}
+
+void PushImportedLightPrefab(Prefab* model_node, const aiNode* importer_node,
+                             const std::shared_ptr<IPrivateComponent>& light_component,
+                             const Transform& light_local_transform, const std::string& type_name) {
+  auto light_node = AssetManager::CreateTemporaryAsset<Prefab>();
+  light_node->instance_name = std::string(importer_node->mName.C_Str()) + " " + type_name + " light";
+  SetPrefabLocalTransform(light_node.get(), light_local_transform.value);
+
+  PrivateComponentHolder holder;
+  holder.enabled = true;
+  holder.private_component = light_component;
+  light_node->private_components.push_back(holder);
+  model_node->child_prefabs.push_back(std::move(light_node));
+}
+
+void ApplyImportedLightRange(PointLight& light, const std::optional<float>& range) {
+  if (!range) {
+    return;
+  }
+  light.range = *range;
+  light.shadow_distance = *range;
+}
+
+void ApplyImportedLightRange(SpotLight& light, const std::optional<float>& range) {
+  if (!range) {
+    return;
+  }
+  light.range = *range;
+  light.shadow_distance = *range;
+}
+
+bool AttachImportedPunctualLight(Prefab* model_node, const aiNode* importer_node,
+                                 const std::unordered_map<std::string, const aiLight*>& imported_lights,
+                                 ImportedPunctualLightStats& stats) {
+  const auto search = imported_lights.find(importer_node->mName.C_Str());
+  if (search == imported_lights.end()) {
+    return false;
+  }
+  const aiLight& imported_light = *search->second;
+  const auto type_name = ImportedLightTypeName(imported_light.mType);
+  const auto range = ReadImportedLightRange(importer_node);
+  std::shared_ptr<IPrivateComponent> component;
+  switch (imported_light.mType) {
+    case aiLightSource_DIRECTIONAL: {
+      auto light = Serialization::ProduceSerializable<DirectionalLight>();
+      ApplyImportedLightColor(imported_light, light->diffuse, light->diffuse_brightness);
+      component = std::static_pointer_cast<IPrivateComponent>(light);
+      stats.directional++;
+    } break;
+    case aiLightSource_POINT: {
+      auto light = Serialization::ProduceSerializable<PointLight>();
+      ApplyImportedLightColor(imported_light, light->diffuse, light->diffuse_brightness);
+      light->constant = imported_light.mAttenuationConstant;
+      light->linear = imported_light.mAttenuationLinear;
+      light->quadratic = imported_light.mAttenuationQuadratic;
+      ApplyImportedLightRange(*light, range);
+      component = std::static_pointer_cast<IPrivateComponent>(light);
+      stats.point++;
+    } break;
+    case aiLightSource_SPOT: {
+      auto light = Serialization::ProduceSerializable<SpotLight>();
+      ApplyImportedLightColor(imported_light, light->diffuse, light->diffuse_brightness);
+      light->constant = imported_light.mAttenuationConstant;
+      light->linear = imported_light.mAttenuationLinear;
+      light->quadratic = imported_light.mAttenuationQuadratic;
+      light->inner_degrees = glm::degrees(imported_light.mAngleInnerCone);
+      light->outer_degrees = glm::degrees(imported_light.mAngleOuterCone);
+      ApplyImportedLightRange(*light, range);
+      component = std::static_pointer_cast<IPrivateComponent>(light);
+      stats.spot++;
+    } break;
+    default:
+      EVOENGINE_WARNING("Skipped unsupported imported punctual light '" + std::string(importer_node->mName.C_Str()) +
+                        "' of type " + std::to_string(static_cast<int>(imported_light.mType)))
+      return false;
+  }
+
+  const auto color_with_intensity = glm::max(ColorCast(imported_light.mColorDiffuse), glm::vec3(0.0f));
+  PushImportedLightPrefab(model_node, importer_node, component, CreateImportedLightLocalTransform(imported_light),
+                          type_name);
+  EVOENGINE_LOG("Imported punctual light '" + std::string(importer_node->mName.C_Str()) + "': type=" + type_name +
+                ", color_intensity=" + FormatVec3(color_with_intensity) +
+                ", range=" + (range ? std::to_string(*range) : std::string("derived")) +
+                ", inner_degrees=" + std::to_string(glm::degrees(imported_light.mAngleInnerCone)) +
+                ", outer_degrees=" + std::to_string(glm::degrees(imported_light.mAngleOuterCone)))
+  return true;
+}
+
 auto ProcessNode(const std::string& directory, Prefab* model_node,
                  std::unordered_map<unsigned, std::shared_ptr<Material>>& loaded_materials,
                  std::unordered_map<std::string, std::shared_ptr<Texture2D>>& texture_2ds_loaded,
                  std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>>& opacity_maps,
+                 const std::vector<ImportedGltfMaterialData>& gltf_material_data,
+                 const std::unordered_map<std::string, const aiLight*>& imported_lights,
+                 ImportedPunctualLightStats& imported_light_stats,
                  std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>>& bones_lists,
                  std::unordered_map<std::string, std::shared_ptr<Bone>>& bones_map, const aiNode* importer_node,
                  const std::shared_ptr<AssimpImportNode>& assimp_node, const aiScene* importer_scene,
                  const std::shared_ptr<Animation>& animation) -> bool {
   bool added_mesh_renderer = false;
+  SetPrefabLocalTransform(model_node,
+                          importer_node->mParent ? Mat4Cast(importer_node->mTransformation) : Transform().value);
+  added_mesh_renderer = AttachImportedPunctualLight(model_node, importer_node, imported_lights, imported_light_stats);
   for (unsigned i = 0; i < importer_node->mNumMeshes; i++) {
     // the modelNode object only contains indices to index the actual objects in the scene.
     // the scene contains all the data, modelNode is just to keep stuff organized (like relations between nodes).
@@ -630,7 +1043,10 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
       const aiMaterial* importer_material = nullptr;
       if (importer_mesh->mMaterialIndex != 0xffffffff && importer_mesh->mMaterialIndex < importer_scene->mNumMaterials)
         importer_material = importer_scene->mMaterials[importer_mesh->mMaterialIndex];
-      material = ReadMaterial(directory, texture_2ds_loaded, opacity_maps, importer_material);
+      const auto imported_material_data = importer_mesh->mMaterialIndex < gltf_material_data.size()
+                                              ? &gltf_material_data[importer_mesh->mMaterialIndex]
+                                              : nullptr;
+      material = ReadMaterial(directory, texture_2ds_loaded, opacity_maps, importer_material, imported_material_data);
       loaded_materials[importer_mesh->mMaterialIndex] = material;
     } else {
       material = search->second;
@@ -660,9 +1076,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
       child_node->private_components.push_back(holder);
     }
     auto transform = std::make_shared<Transform>();
-    transform->value = Mat4Cast(importer_node->mTransformation);
-    if (!importer_node->mParent)
-      transform->value = Transform().value;
+    transform->value = Transform().value;
 
     DataComponentHolder holder;
     holder.data_component_type = Typeof<Transform>();
@@ -678,8 +1092,9 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     auto child_assimp_node = std::make_shared<AssimpImportNode>(importer_node->mChildren[i]);
     child_assimp_node->parent_node = assimp_node;
     const bool child_add =
-        ProcessNode(directory, child_node.get(), loaded_materials, texture_2ds_loaded, opacity_maps, bones_lists,
-                    bones_map, importer_node->mChildren[i], child_assimp_node, importer_scene, animation);
+        ProcessNode(directory, child_node.get(), loaded_materials, texture_2ds_loaded, opacity_maps, gltf_material_data,
+                    imported_lights, imported_light_stats, bones_lists, bones_map, importer_node->mChildren[i],
+                    child_assimp_node, importer_scene, animation);
     if (child_add) {
       model_node->child_prefabs.push_back(std::move(child_node));
     }
@@ -734,11 +1149,20 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
 
   std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>> bones_lists;
   const auto process_nodes_start = PrefabImportClock::now();
-  if (std::unordered_map<std::string, std::shared_ptr<Texture2D>> loaded_textures;
-      !ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, bones_lists, bones_map,
-                   scene.mRootNode, root_assimp_node, &scene, animation)) {
+  std::unordered_map<std::string, std::shared_ptr<Texture2D>> loaded_textures;
+  const auto gltf_material_data = ReadGltfMaterialData(path, directory, loaded_textures);
+  const auto imported_lights = BuildImportedLightMap(scene);
+  ImportedPunctualLightStats imported_light_stats;
+  if (!ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, gltf_material_data,
+                   imported_lights, imported_light_stats, bones_lists, bones_map, scene.mRootNode, root_assimp_node,
+                   &scene, animation)) {
     EVOENGINE_ERROR("Model is empty!")
     return false;
+  }
+  if (imported_light_stats.Total() != 0) {
+    EVOENGINE_LOG("Imported punctual light count for " + path.filename().string() +
+                  ": directional=" + std::to_string(imported_light_stats.directional) + ", point=" +
+                  std::to_string(imported_light_stats.point) + ", spot=" + std::to_string(imported_light_stats.spot))
   }
   LogPrefabImportPhaseDuration(path, "Process nodes", process_nodes_start);
 
@@ -749,10 +1173,13 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
     const auto& opacity_texture = pair.second;
     if (!albedo_texture || !opacity_texture)
       continue;
-    albedo_texture->GetRgbaChannelData(color_data);
-    std::vector<glm::vec4> alpha_data;
     const auto resolution = albedo_texture->GetResolution();
-    opacity_texture->GetRgbaChannelData(alpha_data, resolution.x, resolution.y);
+    if (!ReadTexturePixelsForPacking(albedo_texture, resolution, color_data))
+      continue;
+    std::vector<glm::vec4> alpha_data;
+    ReadTexturePixelsForPacking(opacity_texture, resolution, alpha_data);
+    if (alpha_data.size() < color_data.size())
+      continue;
     Jobs::RunParallelFor(color_data.size(), [&](size_t i) {
       color_data[i].a = alpha_data[i].r;
     });
@@ -764,12 +1191,12 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
 
   const auto material_relink_start = PrefabImportClock::now();
   for (const auto& material : loaded_materials) {
-    const auto albedo_texture = material.second->GetAlbedoTexture();
-    if (!albedo_texture)
+    const auto base_color_texture = material.second->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
+    if (!base_color_texture)
       continue;
     for (const auto& pair : opacity_maps) {
-      if (albedo_texture->GetHandle() == pair.first->GetHandle()) {
-        material.second->SetAlbedoTexture(pair.second);
+      if (base_color_texture->GetHandle() == pair.first->GetHandle()) {
+        material.second->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, pair.second);
       }
     }
   }
@@ -1231,126 +1658,65 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
 
     exporter_material->AddProperty(&material_name, AI_MATKEY_NAME);
 
-    if (const auto albedo_texture = material->GetAlbedoTexture()) {
-      const auto search = collected_texture.find(albedo_texture);
-      SeparatedTexturePath info{};
+    auto export_texture = [&](const std::shared_ptr<Texture2D>& texture, const std::string& title,
+                              const bool split_opacity) {
+      const auto search = collected_texture.find(texture);
       if (search != collected_texture.end()) {
-        info = search->second;
-      } else {
-        if (albedo_texture->IsTemporary()) {
-          std::string diffuse_title = std::to_string(material_index) + "_diffuse.png";
-          info.color = aiString((std::filesystem::path("textures") / diffuse_title).string());
-          const auto succeed = albedo_texture->Export(texture_folder_path / diffuse_title);
-        } else {
-          info.color =
-              aiString((std::filesystem::path("textures") / albedo_texture->GetAbsolutePath().filename()).string());
-          std::filesystem::copy(albedo_texture->GetAbsolutePath(),
-                                texture_folder_path / albedo_texture->GetAbsolutePath().filename(),
-                                std::filesystem::copy_options::overwrite_existing);
-        }
-        if (albedo_texture->alpha_channel) {
-          info.has_opacity = true;
-          std::string opacity_title = std::to_string(material_index) + "_opacity.png";
-          info.m_opacity = aiString((std::filesystem::path("textures") / opacity_title).string());
-          std::vector<glm::vec4> data;
-          albedo_texture->GetRgbaChannelData(data);
-          std::vector<float> src(data.size() * 4);
-          Jobs::RunParallelFor(data.size(), [&](size_t i) {
-            src[i * 4] = data[i].a;
-            src[i * 4 + 1] = data[i].a;
-            src[i * 4 + 2] = data[i].a;
-            src[i * 4 + 3] = data[i].a;
-          });
-          auto resolution = albedo_texture->GetResolution();
-          Texture2D::StoreToPng(texture_folder_path / opacity_title, src, resolution.x, resolution.y, 4, 4);
-        }
+        return search->second;
       }
+      SeparatedTexturePath info{};
+      if (texture->IsTemporary()) {
+        const auto file_name = std::to_string(material_index) + "_" + title + ".png";
+        info.color = aiString((std::filesystem::path("textures") / file_name).string());
+        const auto succeed = texture->Export(texture_folder_path / file_name);
+      } else {
+        info.color = aiString((std::filesystem::path("textures") / texture->GetAbsolutePath().filename()).string());
+        std::filesystem::copy(texture->GetAbsolutePath(), texture_folder_path / texture->GetAbsolutePath().filename(),
+                              std::filesystem::copy_options::overwrite_existing);
+      }
+      if (split_opacity && texture->alpha_channel) {
+        info.has_opacity = true;
+        const auto opacity_title = std::to_string(material_index) + "_opacity.png";
+        info.m_opacity = aiString((std::filesystem::path("textures") / opacity_title).string());
+        std::vector<glm::vec4> data;
+        texture->GetRgbaChannelData(data);
+        std::vector<float> src(data.size() * 4);
+        Jobs::RunParallelFor(data.size(), [&](size_t i) {
+          src[i * 4] = data[i].a;
+          src[i * 4 + 1] = data[i].a;
+          src[i * 4 + 2] = data[i].a;
+          src[i * 4 + 3] = data[i].a;
+        });
+        const auto resolution = texture->GetResolution();
+        Texture2D::StoreToPng(texture_folder_path / opacity_title, src, resolution.x, resolution.y, 4, 4);
+      }
+      collected_texture[texture] = info;
+      return info;
+    };
 
+    if (const auto base_color_texture = material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture)) {
+      const auto info = export_texture(base_color_texture, "diffuse", true);
       exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE_DIFFUSE(0));
       if (info.has_opacity) {
         exporter_material->AddProperty(&info.m_opacity, AI_MATKEY_TEXTURE_OPACITY(0));
       }
     }
-
-    if (const auto normal_texture = material->GetNormalTexture()) {
-      const auto search = collected_texture.find(normal_texture);
-      SeparatedTexturePath info{};
-      if (search != collected_texture.end()) {
-        info = search->second;
-      } else {
-        if (normal_texture->IsTemporary()) {
-          std::string title = std::to_string(material_index) + "_normal.png";
-          info.color = aiString((std::filesystem::path("textures") / title).string());
-          const auto succeed = normal_texture->Export(texture_folder_path / title);
-        } else {
-          info.color =
-              aiString((std::filesystem::path("textures") / normal_texture->GetAbsolutePath().filename()).string());
-          std::filesystem::copy(normal_texture->GetAbsolutePath(),
-                                texture_folder_path / normal_texture->GetAbsolutePath().filename(),
-                                std::filesystem::copy_options::overwrite_existing);
-        }
-      }
-
+    if (const auto normal_texture = material->GetTexture(&GltfShadeMaterial::normal_texture)) {
+      const auto info = export_texture(normal_texture, "normal", false);
       exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE_NORMALS(0));
     }
-    if (const auto metallic_texture = material->GetMetallicTexture()) {
-      const auto search = collected_texture.find(metallic_texture);
-      SeparatedTexturePath info{};
-      if (search != collected_texture.end()) {
-        info = search->second;
-      } else {
-        if (metallic_texture->IsTemporary()) {
-          std::string title = std::to_string(material_index) + "_metallic.png";
-          info.color = aiString((std::filesystem::path("textures") / title).string());
-          const auto succeed = metallic_texture->Export(texture_folder_path / title);
-        } else {
-          info.color =
-              aiString((std::filesystem::path("textures") / metallic_texture->GetAbsolutePath().filename()).string());
-          std::filesystem::copy(metallic_texture->GetAbsolutePath(),
-                                texture_folder_path / metallic_texture->GetAbsolutePath().filename(),
-                                std::filesystem::copy_options::overwrite_existing);
-        }
-      }
-      exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE_SHININESS(0));
-    }
-    if (const auto roughness_texture = material->GetRoughnessTexture()) {
-      const auto search = collected_texture.find(roughness_texture);
-      SeparatedTexturePath info{};
-      if (search != collected_texture.end()) {
-        info = search->second;
-      } else {
-        if (roughness_texture->IsTemporary()) {
-          std::string title = std::to_string(material_index) + "_roughness.png";
-          info.color = aiString((std::filesystem::path("textures") / title).string());
-          const auto succeed = roughness_texture->Export(texture_folder_path / title);
-        } else {
-          info.color =
-              aiString((std::filesystem::path("textures") / roughness_texture->GetAbsolutePath().filename()).string());
-          std::filesystem::copy(roughness_texture->GetAbsolutePath(),
-                                texture_folder_path / roughness_texture->GetAbsolutePath().filename(),
-                                std::filesystem::copy_options::overwrite_existing);
-        }
-      }
+    if (const auto metallic_roughness_texture =
+            material->GetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture)) {
+      const auto info = export_texture(metallic_roughness_texture, "metallic_roughness", false);
       exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE(aiTextureType_DIFFUSE_ROUGHNESS, 0));
+      exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE(aiTextureType_METALNESS, 0));
     }
-    if (const auto ao_texture = material->GetAoTexture()) {
-      const auto search = collected_texture.find(ao_texture);
-      SeparatedTexturePath info{};
-      if (search != collected_texture.end()) {
-        info = search->second;
-      } else {
-        if (ao_texture->IsTemporary()) {
-          std::string title = std::to_string(material_index) + "_ao.png";
-          info.color = aiString((std::filesystem::path("textures") / title).string());
-          const auto succeed = ao_texture->Export(texture_folder_path / title);
-        } else {
-          info.color =
-              aiString((std::filesystem::path("textures") / ao_texture->GetAbsolutePath().filename()).string());
-          std::filesystem::copy(ao_texture->GetAbsolutePath(),
-                                texture_folder_path / ao_texture->GetAbsolutePath().filename(),
-                                std::filesystem::copy_options::overwrite_existing);
-        }
-      }
+    if (const auto emissive_texture = material->GetTexture(&GltfShadeMaterial::emissive_texture)) {
+      const auto info = export_texture(emissive_texture, "emissive", false);
+      exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE_EMISSIVE(0));
+    }
+    if (const auto ao_texture = material->GetTexture(&GltfShadeMaterial::occlusion_texture)) {
+      const auto info = export_texture(ao_texture, "ao", false);
       exporter_material->AddProperty(&info.color, AI_MATKEY_TEXTURE(aiTextureType_AMBIENT_OCCLUSION, 0));
     }
   }

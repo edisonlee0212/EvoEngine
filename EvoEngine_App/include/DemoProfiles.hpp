@@ -14,13 +14,15 @@ class Scene;
 
 enum class DemoProfileId {
   Rendering,
+  RenderingRegression,
   Ddgi,
   EcoSysLab,
   DigitalAgriculture,
   LSystem,
   ProceduralGalaxy,
   GaussianSplat,
-  Bicycle
+  Bicycle,
+  Bistro
 };
 
 struct DemoProfileDescriptor {

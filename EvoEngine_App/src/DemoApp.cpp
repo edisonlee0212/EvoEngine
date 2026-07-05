@@ -1508,11 +1508,12 @@ int ValidateRenderingDemoDdgiMaterialRefresh(Application& application, const Dem
     return FailSmokeTest(application, "Rendering demo point-light material is missing for DDGI material validation");
   }
 
-  const auto original_material_properties = material->material_properties;
+  const auto original_material_data = material->material_data;
   auto restore_material_state = MakeScopeExit([&]() {
-    material->material_properties = original_material_properties;
+    material->SetGltfMaterialData(original_material_data);
   });
-  material->material_properties.albedo_color = glm::vec3(1.0f, 0.6f, 0.15f);
+  material->material_data.shade_material.pbr_base_color_factor = glm::vec4(1.0f, 0.6f, 0.15f, 1.0f);
+  material->MarkDirty();
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI material-change validation completed");
   }

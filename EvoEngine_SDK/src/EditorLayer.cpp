@@ -961,6 +961,14 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "sample_size" << YAML::Value << settings.sample_size;
   out << YAML::Key << "bounce" << YAML::Value << settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << settings.gamma;
+  out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << settings.firefly_clamp_enabled;
+  out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
+  out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
+  out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
+  out << YAML::Key << "auto_spp_max_samples" << YAML::Value << settings.auto_spp_max_samples;
+  out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value << settings.auto_spp_convergence_threshold;
+  out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
+      << Camera::GetShaderExecutionReorderingModeName(settings.shader_execution_reordering_mode);
 }
 
 void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
@@ -975,6 +983,16 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "sample_size", settings.sample_size);
   ReadYamlValue(in, "bounce", settings.bounce);
   ReadYamlValue(in, "gamma", settings.gamma);
+  ReadYamlValue(in, "firefly_clamp_enabled", settings.firefly_clamp_enabled);
+  ReadYamlValue(in, "firefly_clamp_threshold", settings.firefly_clamp_threshold);
+  ReadYamlValue(in, "auto_spp_enabled", settings.auto_spp_enabled);
+  ReadYamlValue(in, "auto_spp_min_samples", settings.auto_spp_min_samples);
+  ReadYamlValue(in, "auto_spp_max_samples", settings.auto_spp_max_samples);
+  ReadYamlValue(in, "auto_spp_convergence_threshold", settings.auto_spp_convergence_threshold);
+  if (const auto mode = in["shader_execution_reordering_mode"]) {
+    settings.shader_execution_reordering_mode =
+        Camera::ParseShaderExecutionReorderingMode(mode.as<std::string>(), settings.shader_execution_reordering_mode);
+  }
 }
 
 bool IsFinite(const glm::vec3& value) {
@@ -1264,6 +1282,8 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
     out << YAML::Key << "scene_camera_rotation" << YAML::Value << cam.rotation;
     if (cam.camera) {
       out << YAML::Key << "scene_camera_settings" << YAML::Value << YAML::BeginMap;
+      out << YAML::Key << "render_mode" << YAML::Value
+          << Camera::GetCameraRenderModeName(cam.camera->camera_render_mode);
       SerializeCameraSettings(out, cam.camera->camera_settings);
       out << YAML::EndMap;
     }
@@ -1366,6 +1386,10 @@ void EditorLayer::DeserializeLayout(const YAML::Node& in) {
       default_scene_camera_rotation = cam.rotation;
     }
     if (const auto node = in["scene_camera_settings"]; node && cam.camera) {
+      if (const auto render_mode = node["render_mode"]) {
+        cam.camera->camera_render_mode =
+            Camera::ParseCameraRenderMode(render_mode.as<std::string>(), cam.camera->camera_render_mode);
+      }
       DeserializeCameraSettings(node, cam.camera->camera_settings);
       cam.camera->SetRequireRendering(true);
       cam.camera->ResetFrameCount();
@@ -3455,6 +3479,14 @@ void EditorLayer::RequestSceneCameraPreviewWindow(const glm::uvec2& size) {
   scene_camera_preview_window_size_ = {std::max(size.x, 1u), std::max(size.y, 1u)};
 }
 
+void EditorLayer::SetSceneCameraResolutionOverride(const std::optional<glm::uvec2>& size) {
+  scene_camera_resolution_override_ = size;
+  if (scene_camera_resolution_override_) {
+    scene_camera_resolution_override_->x = std::max(scene_camera_resolution_override_->x, 1u);
+    scene_camera_resolution_override_->y = std::max(scene_camera_resolution_override_->y, 1u);
+  }
+}
+
 void EditorLayer::DrawDockspace(const float top_offset) {
 #pragma region Dock
   static bool opt_fullscreen_persistent = true;
@@ -3618,8 +3650,13 @@ void EditorLayer::SceneCameraWindow() {
           scene_camera_window_focused_ = true;
         }
         view_port_size = ImGui::GetWindowSize();
-        scene_camera_resolution_x_ = static_cast<int>(view_port_size.x * scene_camera_resolution_multiplier);
-        scene_camera_resolution_y_ = static_cast<int>(view_port_size.y * scene_camera_resolution_multiplier);
+        if (scene_camera_resolution_override_) {
+          scene_camera_resolution_x_ = static_cast<int>(scene_camera_resolution_override_->x);
+          scene_camera_resolution_y_ = static_cast<int>(scene_camera_resolution_override_->y);
+        } else {
+          scene_camera_resolution_x_ = static_cast<int>(view_port_size.x * scene_camera_resolution_multiplier);
+          scene_camera_resolution_y_ = static_cast<int>(view_port_size.y * scene_camera_resolution_multiplier);
+        }
         const ImVec2 overlay_pos = ImGui::GetWindowPos();
         if (scene_camera && scene_camera->Rendered()) {
           // Because I use the texture from OpenGL, I need to invert the V from the UV.
@@ -3665,8 +3702,8 @@ void EditorLayer::SceneCameraWindow() {
               ImGui::Text("Mouse: <invalid>");
             }
             uint32_t mode = static_cast<uint32_t>(scene_camera->camera_render_mode);
-            if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
-              scene_camera->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+            if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
+              scene_camera->camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
               scene_camera->ResetFrameCount();
             }
           }
@@ -3814,8 +3851,8 @@ void EditorLayer::MainCameraWindow() {
               ImGui::Text("Mouse Pos: <invalid>");
             }
             uint32_t mode = static_cast<uint32_t>(main_camera->camera_render_mode);
-            if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
-              main_camera->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+            if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
+              main_camera->camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
               main_camera->ResetFrameCount();
             }
           }

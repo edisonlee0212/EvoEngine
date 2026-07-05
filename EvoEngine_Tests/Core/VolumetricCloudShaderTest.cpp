@@ -281,9 +281,11 @@ TEST(VolumetricCloudShader, RenderLayerSharesCloudPassBetweenRasterAndRayTracing
   EXPECT_EQ(CountOccurrences(render_layer_source, "VolumetricCloudsPass::Execute("), 2u);
   EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera)"),
             std::string::npos);
-  EXPECT_NE(
-      render_layer_source.find("VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera)"),
-      std::string::npos);
+  EXPECT_NE(render_layer_source.find("use_ray_query ? RenderPassNames::ray_query_camera : "
+                                     "RenderPassNames::ray_tracing_camera"),
+            std::string::npos);
+  EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRayTracingDescriptor(ray_camera_pass_name)"),
+            std::string::npos);
   EXPECT_NE(render_layer_source.find("active_camera_transient_resources, volumetric_cloud_settings, camera_index"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("RenderResourceNames::camera_ray_hit_distance, true"), std::string::npos);

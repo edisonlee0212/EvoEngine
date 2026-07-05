@@ -58,6 +58,14 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
   ClearGeometryEntities();
   const auto scene = GetScene();
   const auto owner = GetOwner();
+  const auto copy_material = [](const std::shared_ptr<Material>& target, const std::shared_ptr<Material>& source) {
+    if (!target || !source) {
+      return;
+    }
+    target->SetGltfMaterialData(source->material_data);
+    target->RefTextureRefs() = source->PeekTextureRefs();
+    target->MarkDirty();
+  };
   if (sorghum_mesh_generator_settings.enable_panicle && target_sorghum_descriptor->panicle.seed_amount > 0) {
     const auto panicle_entity = scene->CreateEntity("Panicle Mesh");
     const auto particles = scene->GetOrSetPrivateComponent<Particles>(panicle_entity).lock();
@@ -67,11 +75,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     particles->mesh = mesh;
     particles->material = material;
     const auto panicle_material = sorghum_layer->panicle_material.Get<Material>();
-    material->SetAlbedoTexture(panicle_material->GetAlbedoTexture());
-    material->SetNormalTexture(panicle_material->GetNormalTexture());
-    material->SetRoughnessTexture(panicle_material->GetRoughnessTexture());
-    material->SetMetallicTexture(panicle_material->GetMetallicTexture());
-    material->material_properties = panicle_material->material_properties;
+    copy_material(material, panicle_material);
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
 
@@ -92,11 +96,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
     const auto stem_material = sorghum_layer->leaf_material.Get<Material>();
-    material->SetAlbedoTexture(stem_material->GetAlbedoTexture());
-    material->SetNormalTexture(stem_material->GetNormalTexture());
-    material->SetRoughnessTexture(stem_material->GetRoughnessTexture());
-    material->SetMetallicTexture(stem_material->GetMetallicTexture());
-    material->material_properties = stem_material->material_properties;
+    copy_material(material, stem_material);
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
     target_sorghum_descriptor->stem.GenerateGeometry(vertices, indices);
@@ -129,11 +129,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
             mesh_renderer->mesh = mesh;
             mesh_renderer->material = material;
             const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-            material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-            material->SetNormalTexture(leaf_material->GetNormalTexture());
-            material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-            material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-            material->material_properties = leaf_material->material_properties;
+            copy_material(material, leaf_material);
           }
           std::vector<Vertex> vertices;
           std::vector<unsigned int> indices;
@@ -164,11 +160,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
             mesh_renderer->mesh = mesh;
             mesh_renderer->material = material;
             const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-            material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-            material->SetNormalTexture(leaf_material->GetNormalTexture());
-            material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-            material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-            material->material_properties = leaf_material->material_properties;
+            copy_material(material, leaf_material);
           }
           std::vector<Vertex> vertices;
           std::vector<unsigned int> indices;
@@ -199,11 +191,7 @@ void Sorghum::GenerateGeometryEntities(const SorghumMeshGeneratorSettings& sorgh
         mesh_renderer->mesh = mesh;
         mesh_renderer->material = material;
         const auto leaf_material = sorghum_layer->leaf_material.Get<Material>();
-        material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-        material->SetNormalTexture(leaf_material->GetNormalTexture());
-        material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-        material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-        material->material_properties = leaf_material->material_properties;
+        copy_material(material, leaf_material);
       }
       std::vector<Vertex> vertices;
       std::vector<unsigned int> indices;

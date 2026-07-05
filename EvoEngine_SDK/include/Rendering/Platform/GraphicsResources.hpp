@@ -202,6 +202,8 @@ class Image final : public IGraphicsResource {
    * @param src_offset Offset in the buffer from which to start copying. Defaults to 0.
    */
   void CopyFromBuffer(VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer, VkDeviceSize src_offset = 0) const;
+  void CopyFromBuffer(VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer,
+                      const std::vector<VkBufferImageCopy>& regions) const;
 
   /**
    * @brief Generates mipmaps for the image.

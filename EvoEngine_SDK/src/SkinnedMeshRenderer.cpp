@@ -1,5 +1,24 @@
 #include "SkinnedMeshRenderer.hpp"
+#include "Platform.hpp"
 using namespace evo_engine;
+
+namespace {
+bool BoneMatricesMatch(const std::vector<glm::mat4>& lhs, const std::vector<glm::mat4>& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (size_t matrix_index = 0; matrix_index < lhs.size(); matrix_index++) {
+    for (int column = 0; column < 4; column++) {
+      for (int row = 0; row < 4; row++) {
+        if (lhs[matrix_index][column][row] != rhs[matrix_index][column][row]) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+}  // namespace
 
 void SkinnedMeshRenderer::UpdateBoneMatrices() {
   const auto scene = GetScene();
@@ -32,6 +51,51 @@ void SkinnedMeshRenderer::UpdateBoneMatrices() {
       bone_matrices->value[i] = tmp->transform_chain_[tmp_mesh->bone_animator_indices[i]];
     }
   }
+}
+
+void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
+  const auto clear_ray_tracing_geometry = [&]() {
+    if (!ray_tracing_meshlet_range_ && !ray_tracing_triangle_range_ && !ray_tracing_blas_ &&
+        ray_tracing_bone_matrices_.empty() && ray_tracing_geometry_version_ == 0) {
+      return;
+    }
+    GeometryStorage::FreeMesh(GetHandle());
+    ray_tracing_meshlet_range_.reset();
+    ray_tracing_triangle_range_.reset();
+    ray_tracing_blas_.reset();
+    ray_tracing_bone_matrices_.clear();
+    ray_tracing_geometry_version_ = 0;
+  };
+  if (!Platform::RayTracingEnabled() || !bone_matrices) {
+    clear_ray_tracing_geometry();
+    return;
+  }
+  const auto mesh = skinned_mesh.Get<SkinnedMesh>();
+  if (!mesh || mesh->skinned_vertices_.empty() || mesh->skinned_triangles_.empty() || bone_matrices->value.empty()) {
+    clear_ray_tracing_geometry();
+    return;
+  }
+  const auto geometry_version = mesh->GetVersion();
+  if (ray_tracing_blas_ && ray_tracing_geometry_version_ == geometry_version &&
+      BoneMatricesMatch(ray_tracing_bone_matrices_, bone_matrices->value)) {
+    return;
+  }
+
+  if (!ray_tracing_meshlet_range_) {
+    ray_tracing_meshlet_range_ = std::make_shared<RangeDescriptor>();
+  }
+  if (!ray_tracing_triangle_range_) {
+    ray_tracing_triangle_range_ = std::make_shared<RangeDescriptor>();
+  }
+
+  GeometryStorage::FreeMesh(GetHandle());
+  auto vertices = BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value);
+  auto triangles = mesh->skinned_triangles_;
+  GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,
+                                ray_tracing_triangle_range_);
+  ray_tracing_blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
+  ray_tracing_geometry_version_ = geometry_version;
+  ray_tracing_bone_matrices_ = bone_matrices->value;
 }
 
 void SkinnedMeshRenderer::OnCreate() {
@@ -147,6 +211,12 @@ size_t SkinnedMeshRenderer::GetRagDollBoneSize() const {
   return bound_entities_.size();
 }
 void SkinnedMeshRenderer::OnDestroy() {
+  GeometryStorage::FreeMesh(GetHandle());
+  ray_tracing_meshlet_range_.reset();
+  ray_tracing_triangle_range_.reset();
+  ray_tracing_blas_.reset();
+  ray_tracing_bone_matrices_.clear();
+  ray_tracing_geometry_version_ = 0;
   rag_doll_transform_chain_.clear();
   bound_entities_.clear();
   animator.Clear();

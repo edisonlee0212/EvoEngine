@@ -171,6 +171,7 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   const auto size = camera.GetSize();
   out << YAML::Key << "x" << YAML::Value << size.x;
   out << YAML::Key << "y" << YAML::Value << size.y;
+  out << YAML::Key << "render_mode" << YAML::Value << Camera::GetCameraRenderModeName(camera.camera_render_mode);
   out << YAML::Key << "use_clear_color" << YAML::Value << camera.camera_settings.use_clear_color;
   out << YAML::Key << "clear_color" << YAML::Value << camera.camera_settings.clear_color;
   out << YAML::Key << "near_distance" << YAML::Value << camera.camera_settings.near_distance;
@@ -182,11 +183,27 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "sample_size" << YAML::Value << camera.camera_settings.sample_size;
   out << YAML::Key << "bounce" << YAML::Value << camera.camera_settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
+  out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << camera.camera_settings.firefly_clamp_enabled;
+  out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << camera.camera_settings.firefly_clamp_threshold;
+  out << YAML::Key << "auto_spp_enabled" << YAML::Value << camera.camera_settings.auto_spp_enabled;
+  out << YAML::Key << "auto_spp_min_samples" << YAML::Value << camera.camera_settings.auto_spp_min_samples;
+  out << YAML::Key << "auto_spp_max_samples" << YAML::Value << camera.camera_settings.auto_spp_max_samples;
+  out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value
+      << camera.camera_settings.auto_spp_convergence_threshold;
+  out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
+      << Camera::GetShaderExecutionReorderingModeName(camera.camera_settings.shader_execution_reordering_mode);
   camera.skybox.Save("skybox", out);
   camera.post_processing_stack_ref.Save("post_processing_stack_ref", out);
 }
 
 void DeserializeCamera(const YAML::Node& in, Camera& camera) {
+  if (in["render_mode"]) {
+    camera.camera_render_mode =
+        Camera::ParseCameraRenderMode(in["render_mode"].as<std::string>(), camera.camera_render_mode);
+  } else if (in["camera_render_mode"]) {
+    camera.camera_render_mode =
+        Camera::ParseCameraRenderMode(in["camera_render_mode"].as<std::string>(), camera.camera_render_mode);
+  }
   if (in["use_clear_color"])
     camera.camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
   if (in["clear_color"])
@@ -214,6 +231,22 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.bounce = in["bounce"].as<uint32_t>();
   if (in["gamma"])
     camera.camera_settings.gamma = in["gamma"].as<float>();
+  if (in["firefly_clamp_enabled"])
+    camera.camera_settings.firefly_clamp_enabled = in["firefly_clamp_enabled"].as<bool>();
+  if (in["firefly_clamp_threshold"])
+    camera.camera_settings.firefly_clamp_threshold = in["firefly_clamp_threshold"].as<float>();
+  if (in["auto_spp_enabled"])
+    camera.camera_settings.auto_spp_enabled = in["auto_spp_enabled"].as<bool>();
+  if (in["auto_spp_min_samples"])
+    camera.camera_settings.auto_spp_min_samples = in["auto_spp_min_samples"].as<int>();
+  if (in["auto_spp_max_samples"])
+    camera.camera_settings.auto_spp_max_samples = in["auto_spp_max_samples"].as<int>();
+  if (in["auto_spp_convergence_threshold"])
+    camera.camera_settings.auto_spp_convergence_threshold = in["auto_spp_convergence_threshold"].as<float>();
+  if (in["shader_execution_reordering_mode"])
+    camera.camera_settings.shader_execution_reordering_mode =
+        Camera::ParseShaderExecutionReorderingMode(in["shader_execution_reordering_mode"].as<std::string>(),
+                                                   camera.camera_settings.shader_execution_reordering_mode);
 }
 
 void SerializeAnimator(YAML::Emitter& out, const Animator& animator) {
@@ -333,87 +366,428 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   }
 }
 
-void SaveMaterialProperties(const std::string& name, const MaterialProperties& material_properties,
-                            YAML::Emitter& out) {
-  out << YAML::Key << name << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "albedo_color" << YAML::Value << material_properties.albedo_color;
-  out << YAML::Key << "subsurface_color" << YAML::Value << material_properties.subsurface_color;
-  out << YAML::Key << "subsurface_factor" << YAML::Value << material_properties.subsurface_factor;
-  out << YAML::Key << "subsurface_radius" << YAML::Value << material_properties.subsurface_radius;
-  out << YAML::Key << "metallic" << YAML::Value << material_properties.metallic;
-  out << YAML::Key << "specular" << YAML::Value << material_properties.specular;
-  out << YAML::Key << "specular_tint" << YAML::Value << material_properties.specular_tint;
-  out << YAML::Key << "roughness" << YAML::Value << material_properties.roughness;
-  out << YAML::Key << "sheen" << YAML::Value << material_properties.sheen;
-  out << YAML::Key << "sheen_tint" << YAML::Value << material_properties.sheen_tint;
-  out << YAML::Key << "clear_coat" << YAML::Value << material_properties.clear_coat;
-  out << YAML::Key << "clear_coat_roughness" << YAML::Value << material_properties.clear_coat_roughness;
-  out << YAML::Key << "ior" << YAML::Value << material_properties.ior;
-  out << YAML::Key << "transmission" << YAML::Value << material_properties.transmission;
-  out << YAML::Key << "transmission_roughness" << YAML::Value << material_properties.transmission_roughness;
-  out << YAML::Key << "emission" << YAML::Value << material_properties.emission;
+void SaveMat3x2(const std::string& name, const glm::mat3x2& value, YAML::Emitter& out) {
+  out << YAML::Key << name << YAML::Value << YAML::Flow << YAML::BeginSeq << value[0][0] << value[0][1] << value[1][0]
+      << value[1][1] << value[2][0] << value[2][1] << YAML::EndSeq;
+}
+
+glm::mat3x2 LoadMat3x2(const YAML::Node& node, const glm::mat3x2& fallback = glm::mat3x2(1.0f)) {
+  if (!node || !node.IsSequence() || node.size() < 6) {
+    return fallback;
+  }
+  return {node[0].as<float>(), node[1].as<float>(), node[2].as<float>(),
+          node[3].as<float>(), node[4].as<float>(), node[5].as<float>()};
+}
+
+void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out) {
+  out << YAML::Key << "shade_material" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "pbr_base_color_factor" << YAML::Value << material.pbr_base_color_factor;
+  out << YAML::Key << "emissive_factor" << YAML::Value << material.emissive_factor;
+  out << YAML::Key << "normal_texture_scale" << YAML::Value << material.normal_texture_scale;
+  out << YAML::Key << "pbr_roughness_factor" << YAML::Value << material.pbr_roughness_factor;
+  out << YAML::Key << "pbr_metallic_factor" << YAML::Value << material.pbr_metallic_factor;
+  out << YAML::Key << "alpha_mode" << YAML::Value << material.alpha_mode;
+  out << YAML::Key << "alpha_cutoff" << YAML::Value << material.alpha_cutoff;
+  out << YAML::Key << "occlusion_strength" << YAML::Value << material.occlusion_strength;
+  out << YAML::Key << "double_sided" << YAML::Value << material.double_sided;
+#if MAT_EXT_VOLUME
+  out << YAML::Key << "attenuation_color" << YAML::Value << material.attenuation_color;
+  out << YAML::Key << "thickness_factor" << YAML::Value << material.thickness_factor;
+  out << YAML::Key << "attenuation_distance" << YAML::Value << material.attenuation_distance;
+#endif
+#if MAT_EXT_IOR
+  out << YAML::Key << "ior" << YAML::Value << material.ior;
+#endif
+#if MAT_EXT_TRANSMISSION
+  out << YAML::Key << "transmission_factor" << YAML::Value << material.transmission_factor;
+#endif
+#if MAT_EXT_CLEARCOAT
+  out << YAML::Key << "clearcoat_factor" << YAML::Value << material.clearcoat_factor;
+  out << YAML::Key << "clearcoat_roughness" << YAML::Value << material.clearcoat_roughness;
+#endif
+#if MAT_EXT_SPECULAR
+  out << YAML::Key << "specular_color_factor" << YAML::Value << material.specular_color_factor;
+  out << YAML::Key << "specular_factor" << YAML::Value << material.specular_factor;
+#endif
+#if MAT_EXT_UNLIT
+  out << YAML::Key << "unlit" << YAML::Value << material.unlit;
+#endif
+#if MAT_EXT_IRIDESCENCE
+  out << YAML::Key << "iridescence_factor" << YAML::Value << material.iridescence_factor;
+  out << YAML::Key << "iridescence_thickness_minimum" << YAML::Value << material.iridescence_thickness_minimum;
+  out << YAML::Key << "iridescence_thickness_maximum" << YAML::Value << material.iridescence_thickness_maximum;
+  out << YAML::Key << "iridescence_ior" << YAML::Value << material.iridescence_ior;
+#endif
+#if MAT_EXT_ANISOTROPY
+  out << YAML::Key << "anisotropy_rotation" << YAML::Value << material.anisotropy_rotation;
+  out << YAML::Key << "anisotropy_strength" << YAML::Value << material.anisotropy_strength;
+#endif
+#if MAT_EXT_SHEEN
+  out << YAML::Key << "sheen_color_factor" << YAML::Value << material.sheen_color_factor;
+  out << YAML::Key << "sheen_roughness_factor" << YAML::Value << material.sheen_roughness_factor;
+#endif
+#if MAT_EXT_DISPERSION
+  out << YAML::Key << "dispersion" << YAML::Value << material.dispersion;
+#endif
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  out << YAML::Key << "pbr_model" << YAML::Value << material.pbr_model;
+  out << YAML::Key << "pbr_diffuse_factor" << YAML::Value << material.pbr_diffuse_factor;
+  out << YAML::Key << "pbr_specular_factor" << YAML::Value << material.pbr_specular_factor;
+  out << YAML::Key << "pbr_glossiness_factor" << YAML::Value << material.pbr_glossiness_factor;
+#endif
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+  out << YAML::Key << "diffuse_transmission_color" << YAML::Value << material.diffuse_transmission_color;
+  out << YAML::Key << "diffuse_transmission_factor" << YAML::Value << material.diffuse_transmission_factor;
+#endif
+#if MAT_EXT_VOLUME_SCATTER
+  out << YAML::Key << "multiscatter_color_factor" << YAML::Value << material.multiscatter_color_factor;
+  out << YAML::Key << "scatter_anisotropy" << YAML::Value << material.scatter_anisotropy;
+#endif
+  out << YAML::Key << "pbr_base_color_texture" << YAML::Value << material.pbr_base_color_texture;
+  out << YAML::Key << "normal_texture" << YAML::Value << material.normal_texture;
+  out << YAML::Key << "pbr_metallic_roughness_texture" << YAML::Value << material.pbr_metallic_roughness_texture;
+  out << YAML::Key << "emissive_texture" << YAML::Value << material.emissive_texture;
+  out << YAML::Key << "occlusion_texture" << YAML::Value << material.occlusion_texture;
+#if MAT_EXT_TRANSMISSION
+  out << YAML::Key << "transmission_texture" << YAML::Value << material.transmission_texture;
+#endif
+#if MAT_EXT_VOLUME
+  out << YAML::Key << "thickness_texture" << YAML::Value << material.thickness_texture;
+#endif
+#if MAT_EXT_CLEARCOAT
+  out << YAML::Key << "clearcoat_texture" << YAML::Value << material.clearcoat_texture;
+  out << YAML::Key << "clearcoat_roughness_texture" << YAML::Value << material.clearcoat_roughness_texture;
+  out << YAML::Key << "clearcoat_normal_texture" << YAML::Value << material.clearcoat_normal_texture;
+#endif
+#if MAT_EXT_SPECULAR
+  out << YAML::Key << "specular_texture" << YAML::Value << material.specular_texture;
+  out << YAML::Key << "specular_color_texture" << YAML::Value << material.specular_color_texture;
+#endif
+#if MAT_EXT_IRIDESCENCE
+  out << YAML::Key << "iridescence_texture" << YAML::Value << material.iridescence_texture;
+  out << YAML::Key << "iridescence_thickness_texture" << YAML::Value << material.iridescence_thickness_texture;
+#endif
+#if MAT_EXT_ANISOTROPY
+  out << YAML::Key << "anisotropy_texture" << YAML::Value << material.anisotropy_texture;
+#endif
+#if MAT_EXT_SHEEN
+  out << YAML::Key << "sheen_color_texture" << YAML::Value << material.sheen_color_texture;
+  out << YAML::Key << "sheen_roughness_texture" << YAML::Value << material.sheen_roughness_texture;
+#endif
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  out << YAML::Key << "pbr_diffuse_texture" << YAML::Value << material.pbr_diffuse_texture;
+  out << YAML::Key << "pbr_specular_glossiness_texture" << YAML::Value << material.pbr_specular_glossiness_texture;
+#endif
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+  out << YAML::Key << "diffuse_transmission_texture" << YAML::Value << material.diffuse_transmission_texture;
+  out << YAML::Key << "diffuse_transmission_color_texture" << YAML::Value
+      << material.diffuse_transmission_color_texture;
+#endif
   out << YAML::EndMap;
 }
 
-void LoadMaterialProperties(const std::string& name, MaterialProperties& material_properties, const YAML::Node& in) {
-  if (in[name]) {
-    const auto& in_material_properties = in[name];
-    if (in_material_properties["albedo_color"])
-      material_properties.albedo_color = in_material_properties["albedo_color"].as<glm::vec3>();
-    if (in_material_properties["subsurface_color"])
-      material_properties.subsurface_color = in_material_properties["subsurface_color"].as<glm::vec3>();
-    if (in_material_properties["subsurface_factor"])
-      material_properties.subsurface_factor = in_material_properties["subsurface_factor"].as<float>();
-    if (in_material_properties["subsurface_radius"])
-      material_properties.subsurface_radius = in_material_properties["subsurface_radius"].as<glm::vec3>();
-    if (in_material_properties["metallic"])
-      material_properties.metallic = in_material_properties["metallic"].as<float>();
-    if (in_material_properties["specular"])
-      material_properties.specular = in_material_properties["specular"].as<float>();
-    if (in_material_properties["specular_tint"])
-      material_properties.specular_tint = in_material_properties["specular_tint"].as<float>();
-    if (in_material_properties["roughness"])
-      material_properties.roughness = in_material_properties["roughness"].as<float>();
-    if (in_material_properties["m_sheen"])
-      material_properties.sheen = in_material_properties["sheen"].as<float>();
-    if (in_material_properties["sheen_tint"])
-      material_properties.sheen_tint = in_material_properties["sheen_tint"].as<float>();
-    if (in_material_properties["clear_coat"])
-      material_properties.clear_coat = in_material_properties["clear_coat"].as<float>();
-    if (in_material_properties["clear_coat_roughness"])
-      material_properties.clear_coat_roughness = in_material_properties["clear_coat_roughness"].as<float>();
-    if (in_material_properties["ior"])
-      material_properties.ior = in_material_properties["ior"].as<float>();
-    if (in_material_properties["transmission"])
-      material_properties.transmission = in_material_properties["transmission"].as<float>();
-    if (in_material_properties["transmission_roughness"])
-      material_properties.transmission_roughness = in_material_properties["transmission_roughness"].as<float>();
-    if (in_material_properties["emission"])
-      material_properties.emission = in_material_properties["emission"].as<float>();
+void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
+  if (!in) {
+    return;
+  }
+  if (in["pbr_base_color_factor"])
+    material.pbr_base_color_factor = in["pbr_base_color_factor"].as<glm::vec4>();
+  if (in["emissive_factor"])
+    material.emissive_factor = in["emissive_factor"].as<glm::vec3>();
+  if (in["normal_texture_scale"])
+    material.normal_texture_scale = in["normal_texture_scale"].as<float>();
+  if (in["pbr_roughness_factor"])
+    material.pbr_roughness_factor = in["pbr_roughness_factor"].as<float>();
+  if (in["pbr_metallic_factor"])
+    material.pbr_metallic_factor = in["pbr_metallic_factor"].as<float>();
+  if (in["alpha_mode"])
+    material.alpha_mode = in["alpha_mode"].as<int32_t>();
+  if (in["alpha_cutoff"])
+    material.alpha_cutoff = in["alpha_cutoff"].as<float>();
+  if (in["occlusion_strength"])
+    material.occlusion_strength = in["occlusion_strength"].as<float>();
+  if (in["double_sided"])
+    material.double_sided = in["double_sided"].as<int32_t>();
+#if MAT_EXT_VOLUME
+  if (in["attenuation_color"])
+    material.attenuation_color = in["attenuation_color"].as<glm::vec3>();
+  if (in["thickness_factor"])
+    material.thickness_factor = in["thickness_factor"].as<float>();
+  if (in["attenuation_distance"])
+    material.attenuation_distance = in["attenuation_distance"].as<float>();
+#endif
+#if MAT_EXT_IOR
+  if (in["ior"])
+    material.ior = in["ior"].as<float>();
+#endif
+#if MAT_EXT_TRANSMISSION
+  if (in["transmission_factor"])
+    material.transmission_factor = in["transmission_factor"].as<float>();
+#endif
+#if MAT_EXT_CLEARCOAT
+  if (in["clearcoat_factor"])
+    material.clearcoat_factor = in["clearcoat_factor"].as<float>();
+  if (in["clearcoat_roughness"])
+    material.clearcoat_roughness = in["clearcoat_roughness"].as<float>();
+#endif
+#if MAT_EXT_SPECULAR
+  if (in["specular_color_factor"])
+    material.specular_color_factor = in["specular_color_factor"].as<glm::vec3>();
+  if (in["specular_factor"])
+    material.specular_factor = in["specular_factor"].as<float>();
+#endif
+#if MAT_EXT_UNLIT
+  if (in["unlit"])
+    material.unlit = in["unlit"].as<int32_t>();
+#endif
+#if MAT_EXT_IRIDESCENCE
+  if (in["iridescence_factor"])
+    material.iridescence_factor = in["iridescence_factor"].as<float>();
+  if (in["iridescence_thickness_minimum"])
+    material.iridescence_thickness_minimum = in["iridescence_thickness_minimum"].as<float>();
+  if (in["iridescence_thickness_maximum"])
+    material.iridescence_thickness_maximum = in["iridescence_thickness_maximum"].as<float>();
+  if (in["iridescence_ior"])
+    material.iridescence_ior = in["iridescence_ior"].as<float>();
+#endif
+#if MAT_EXT_ANISOTROPY
+  if (in["anisotropy_rotation"])
+    material.anisotropy_rotation = in["anisotropy_rotation"].as<glm::vec2>();
+  if (in["anisotropy_strength"])
+    material.anisotropy_strength = in["anisotropy_strength"].as<float>();
+#endif
+#if MAT_EXT_SHEEN
+  if (in["sheen_color_factor"])
+    material.sheen_color_factor = in["sheen_color_factor"].as<glm::vec3>();
+  if (in["sheen_roughness_factor"])
+    material.sheen_roughness_factor = in["sheen_roughness_factor"].as<float>();
+#endif
+#if MAT_EXT_DISPERSION
+  if (in["dispersion"])
+    material.dispersion = in["dispersion"].as<float>();
+#endif
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  if (in["pbr_model"])
+    material.pbr_model = in["pbr_model"].as<int32_t>();
+  if (in["pbr_diffuse_factor"])
+    material.pbr_diffuse_factor = in["pbr_diffuse_factor"].as<glm::vec4>();
+  if (in["pbr_specular_factor"])
+    material.pbr_specular_factor = in["pbr_specular_factor"].as<glm::vec3>();
+  if (in["pbr_glossiness_factor"])
+    material.pbr_glossiness_factor = in["pbr_glossiness_factor"].as<float>();
+#endif
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+  if (in["diffuse_transmission_color"])
+    material.diffuse_transmission_color = in["diffuse_transmission_color"].as<glm::vec3>();
+  if (in["diffuse_transmission_factor"])
+    material.diffuse_transmission_factor = in["diffuse_transmission_factor"].as<float>();
+#endif
+#if MAT_EXT_VOLUME_SCATTER
+  if (in["multiscatter_color_factor"])
+    material.multiscatter_color_factor = in["multiscatter_color_factor"].as<glm::vec3>();
+  if (in["scatter_anisotropy"])
+    material.scatter_anisotropy = in["scatter_anisotropy"].as<float>();
+#endif
+  if (in["pbr_base_color_texture"])
+    material.pbr_base_color_texture = in["pbr_base_color_texture"].as<uint16_t>();
+  if (in["normal_texture"])
+    material.normal_texture = in["normal_texture"].as<uint16_t>();
+  if (in["pbr_metallic_roughness_texture"])
+    material.pbr_metallic_roughness_texture = in["pbr_metallic_roughness_texture"].as<uint16_t>();
+  if (in["emissive_texture"])
+    material.emissive_texture = in["emissive_texture"].as<uint16_t>();
+  if (in["occlusion_texture"])
+    material.occlusion_texture = in["occlusion_texture"].as<uint16_t>();
+#if MAT_EXT_TRANSMISSION
+  if (in["transmission_texture"])
+    material.transmission_texture = in["transmission_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_VOLUME
+  if (in["thickness_texture"])
+    material.thickness_texture = in["thickness_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_CLEARCOAT
+  if (in["clearcoat_texture"])
+    material.clearcoat_texture = in["clearcoat_texture"].as<uint16_t>();
+  if (in["clearcoat_roughness_texture"])
+    material.clearcoat_roughness_texture = in["clearcoat_roughness_texture"].as<uint16_t>();
+  if (in["clearcoat_normal_texture"])
+    material.clearcoat_normal_texture = in["clearcoat_normal_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_SPECULAR
+  if (in["specular_texture"])
+    material.specular_texture = in["specular_texture"].as<uint16_t>();
+  if (in["specular_color_texture"])
+    material.specular_color_texture = in["specular_color_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_IRIDESCENCE
+  if (in["iridescence_texture"])
+    material.iridescence_texture = in["iridescence_texture"].as<uint16_t>();
+  if (in["iridescence_thickness_texture"])
+    material.iridescence_thickness_texture = in["iridescence_thickness_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_ANISOTROPY
+  if (in["anisotropy_texture"])
+    material.anisotropy_texture = in["anisotropy_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_SHEEN
+  if (in["sheen_color_texture"])
+    material.sheen_color_texture = in["sheen_color_texture"].as<uint16_t>();
+  if (in["sheen_roughness_texture"])
+    material.sheen_roughness_texture = in["sheen_roughness_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  if (in["pbr_diffuse_texture"])
+    material.pbr_diffuse_texture = in["pbr_diffuse_texture"].as<uint16_t>();
+  if (in["pbr_specular_glossiness_texture"])
+    material.pbr_specular_glossiness_texture = in["pbr_specular_glossiness_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+  if (in["diffuse_transmission_texture"])
+    material.diffuse_transmission_texture = in["diffuse_transmission_texture"].as<uint16_t>();
+  if (in["diffuse_transmission_color_texture"])
+    material.diffuse_transmission_color_texture = in["diffuse_transmission_color_texture"].as<uint16_t>();
+#endif
+}
+
+void SaveGltfTextureInfos(const Material& material, YAML::Emitter& out) {
+  out << YAML::Key << "texture_infos" << YAML::Value << YAML::BeginSeq;
+  const auto& texture_refs = material.PeekTextureRefs();
+  for (size_t i = 0; i < material.material_data.texture_infos.size(); ++i) {
+    const auto& texture_info = material.material_data.texture_infos[i];
+    out << YAML::BeginMap;
+    out << YAML::Key << "tex_coord" << YAML::Value << texture_info.tex_coord;
+#if MAT_EXT_TEXTURE_TRANSFORM
+    SaveMat3x2("uv_transform", texture_info.uv_transform, out);
+#endif
+    if (i < texture_refs.size()) {
+      texture_refs[i].Save("texture", out);
+    }
+    out << YAML::EndMap;
+  }
+  out << YAML::EndSeq;
+}
+
+void LoadGltfTextureInfos(const YAML::Node& in, GltfMaterialData& data, std::vector<AssetRef>& texture_refs) {
+  data.texture_infos.clear();
+  texture_refs.clear();
+  if (in && in.IsSequence()) {
+    for (const auto& texture_info_node : in) {
+      GltfTextureInfo texture_info;
+      texture_info.index = -1;
+      if (texture_info_node["tex_coord"])
+        texture_info.tex_coord = texture_info_node["tex_coord"].as<int32_t>();
+#if MAT_EXT_TEXTURE_TRANSFORM
+      texture_info.uv_transform = LoadMat3x2(texture_info_node["uv_transform"]);
+#endif
+      AssetRef texture_ref;
+      texture_ref.Load("texture", texture_info_node);
+      if (const auto texture = texture_ref.Get<Texture2D>()) {
+        texture_info.index = static_cast<int32_t>(texture->GetTextureStorageIndex());
+      }
+      data.texture_infos.emplace_back(texture_info);
+      texture_refs.emplace_back(texture_ref);
+    }
+  }
+  if (data.texture_infos.empty()) {
+    data.texture_infos.emplace_back();
+    texture_refs.emplace_back();
   }
 }
 
+float LegacyFloat(const YAML::Node& node, const char* key, const float fallback) {
+  return node && node[key] ? node[key].as<float>() : fallback;
+}
+
+glm::vec3 LegacyVec3(const YAML::Node& node, const char* key, const glm::vec3& fallback) {
+  return node && node[key] ? node[key].as<glm::vec3>() : fallback;
+}
+
+glm::vec3 LegacyEmissionFactor(const glm::vec3& albedo_color, const float emission) {
+  if (emission <= 0.0f) {
+    return glm::vec3(0.0f);
+  }
+  const auto tint = glm::max(albedo_color, glm::vec3(0.0f));
+  const auto length = glm::length(tint);
+  return length <= 0.0f ? glm::vec3(0.0f) : tint / length * emission;
+}
+
+void MigrateLegacyEveMaterial(const YAML::Node& in, Material& material) {
+  material.draw_settings.Load("draw_settings", in);
+  const auto old_fields = in["material_properties"];
+  auto data = GltfMaterialData{};
+  auto& shade = data.shade_material;
+  const auto albedo = LegacyVec3(old_fields, "albedo_color", glm::vec3(1.0f));
+  const auto transmission = LegacyFloat(old_fields, "transmission", 0.0f);
+  shade.pbr_base_color_factor = glm::vec4(albedo, material.draw_settings.blending ? 1.0f - transmission : 1.0f);
+  shade.alpha_mode = material.draw_settings.blending ? static_cast<int32_t>(GltfAlphaMode::Blend)
+                                                     : static_cast<int32_t>(GltfAlphaMode::Opaque);
+  shade.double_sided = material.draw_settings.cull_mode == VK_CULL_MODE_NONE ? 1 : 0;
+  shade.pbr_metallic_factor = LegacyFloat(old_fields, "metallic", 0.0f);
+  shade.pbr_roughness_factor = LegacyFloat(old_fields, "roughness", 1.0f);
+  shade.emissive_factor = LegacyEmissionFactor(albedo, LegacyFloat(old_fields, "emission", 0.0f));
+#if MAT_EXT_IOR
+  shade.ior = LegacyFloat(old_fields, "ior", shade.ior);
+#endif
+#if MAT_EXT_TRANSMISSION
+  shade.transmission_factor = transmission;
+#endif
+#if MAT_EXT_CLEARCOAT
+  shade.clearcoat_factor = LegacyFloat(old_fields, "clear_coat", shade.clearcoat_factor);
+  shade.clearcoat_roughness = LegacyFloat(old_fields, "clear_coat_roughness", shade.clearcoat_roughness);
+#endif
+#if MAT_EXT_SPECULAR
+  shade.specular_factor = LegacyFloat(old_fields, "specular", shade.specular_factor);
+#endif
+#if MAT_EXT_SHEEN
+  shade.sheen_color_factor = glm::vec3(LegacyFloat(old_fields, "sheen", 0.0f));
+  shade.sheen_roughness_factor = LegacyFloat(old_fields, "sheen_tint", 0.0f);
+#endif
+  material.SetGltfMaterialData(data);
+
+  AssetRef albedo_texture;
+  AssetRef normal_texture;
+  AssetRef metallic_texture;
+  AssetRef roughness_texture;
+  AssetRef ao_texture;
+  albedo_texture.Load("albedo_texture_", in);
+  normal_texture.Load("normal_texture_", in);
+  metallic_texture.Load("metallic_texture_", in);
+  roughness_texture.Load("roughness_texture_", in);
+  ao_texture.Load("ao_texture_", in);
+  material.SetTextureRef(&GltfShadeMaterial::pbr_base_color_texture, albedo_texture);
+  material.SetTextureRef(&GltfShadeMaterial::normal_texture, normal_texture);
+  material.SetTextureRef(&GltfShadeMaterial::pbr_metallic_roughness_texture,
+                         roughness_texture.GetAssetHandle() != 0 ? roughness_texture : metallic_texture);
+  material.SetTextureRef(&GltfShadeMaterial::occlusion_texture, ao_texture);
+}
+
 void SerializeMaterial(YAML::Emitter& out, const Material& material) {
-  material.PeekAlbedoTextureRef().Save("albedo_texture_", out);
-  material.PeekNormalTextureRef().Save("normal_texture_", out);
-  material.PeekMetallicTextureRef().Save("metallic_texture_", out);
-  material.PeekRoughnessTextureRef().Save("roughness_texture_", out);
-  material.PeekAoTextureRef().Save("ao_texture_", out);
+  out << YAML::Key << "gltf_material" << YAML::Value << YAML::BeginMap;
+  SaveGltfShadeMaterial(material.material_data.shade_material, out);
+  SaveGltfTextureInfos(material, out);
+  out << YAML::EndMap;
   material.draw_settings.Save("draw_settings", out);
-  SaveMaterialProperties("material_properties", material.material_properties, out);
   out << YAML::Key << "vertex_color_only" << YAML::Value << material.vertex_color_only;
 }
 
 void DeserializeMaterial(const YAML::Node& in, Material& material) {
-  material.RefAlbedoTextureRef().Load("albedo_texture_", in);
-  material.RefNormalTextureRef().Load("normal_texture_", in);
-  material.RefMetallicTextureRef().Load("metallic_texture_", in);
-  material.RefRoughnessTextureRef().Load("roughness_texture_", in);
-  material.RefAoTextureRef().Load("ao_texture_", in);
-  material.draw_settings.Load("draw_settings", in);
-  LoadMaterialProperties("material_properties", material.material_properties, in);
+  if (in["gltf_material"]) {
+    auto data = GltfMaterialData{};
+    std::vector<AssetRef> texture_refs;
+    const auto gltf_material = in["gltf_material"];
+    LoadGltfShadeMaterial(gltf_material["shade_material"], data.shade_material);
+    LoadGltfTextureInfos(gltf_material["texture_infos"], data, texture_refs);
+    material.SetGltfMaterialData(data);
+    material.RefTextureRefs() = std::move(texture_refs);
+    material.draw_settings.Load("draw_settings", in);
+    material.SyncRenderStateFromGltfMaterial();
+  } else if (in["material_properties"] || in["albedo_texture_"] || in["normal_texture_"]) {
+    MigrateLegacyEveMaterial(in, material);
+  }
   if (in["vertex_color_only"])
     material.vertex_color_only = in["vertex_color_only"].as<bool>();
+  material.MarkDirty();
 }
 
 void SerializeShader(YAML::Emitter& out, const Shader& shader) {
@@ -586,6 +960,9 @@ void SerializeTexture2D(YAML::Emitter& out, const Texture2D& texture) {
   const auto resolution = texture.GetResolution();
   out << YAML::Key << "resolution" << YAML::Value << resolution;
   if (resolution.x == 0 || resolution.y == 0) {
+    return;
+  }
+  if (pixels.empty()) {
     return;
   }
   if (texture.hdr) {
@@ -1066,6 +1443,7 @@ void SerializeSpotLight(YAML::Emitter& out, const SpotLight& light) {
   out << YAML::Key << "diffuse" << YAML::Value << light.diffuse;
   out << YAML::Key << "diffuse_brightness" << YAML::Value << light.diffuse_brightness;
   out << YAML::Key << "light_size" << YAML::Value << light.light_size;
+  out << YAML::Key << "range" << YAML::Value << light.range;
 }
 
 void DeserializeSpotLight(const YAML::Node& in, SpotLight& light) {
@@ -1081,6 +1459,8 @@ void DeserializeSpotLight(const YAML::Node& in, SpotLight& light) {
   light.diffuse = in["diffuse"].as<glm::vec3>();
   light.diffuse_brightness = in["diffuse_brightness"].as<float>();
   light.light_size = in["light_size"].as<float>();
+  if (in["range"])
+    light.range = in["range"].as<float>();
 }
 
 void SerializePointLight(YAML::Emitter& out, const PointLight& light) {
@@ -1093,6 +1473,7 @@ void SerializePointLight(YAML::Emitter& out, const PointLight& light) {
   out << YAML::Key << "diffuse" << YAML::Value << light.diffuse;
   out << YAML::Key << "diffuse_brightness" << YAML::Value << light.diffuse_brightness;
   out << YAML::Key << "light_size" << YAML::Value << light.light_size;
+  out << YAML::Key << "range" << YAML::Value << light.range;
 }
 
 void DeserializePointLight(const YAML::Node& in, PointLight& light) {
@@ -1106,6 +1487,8 @@ void DeserializePointLight(const YAML::Node& in, PointLight& light) {
   light.diffuse = in["diffuse"].as<glm::vec3>();
   light.diffuse_brightness = in["diffuse_brightness"].as<float>();
   light.light_size = in["light_size"].as<float>();
+  if (in["range"])
+    light.range = in["range"].as<float>();
 }
 
 void SerializeDirectionalLight(YAML::Emitter& out, const DirectionalLight& light) {
@@ -1740,8 +2123,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<Strands>("Strands", {".evestrands", ".hair"});
   RegisterAsset<Prefab>(
       "Prefab", {".eveprefab", ".obj", ".gltf", ".glb", ".blend", ".ply", ".fbx", ".dae", ".x3d", ".OBJ", ".FBX"});
-  RegisterAsset<Texture2D>("Texture2D",
-                           {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr", ".TGA", ".PNG", ".JPG"});
+  RegisterAsset<Texture2D>(
+      "Texture2D", {".evetexture2d", ".png", ".jpg", ".jpeg", ".tga", ".hdr", ".dds", ".TGA", ".PNG", ".JPG", ".DDS"});
   RegisterAsset<Scene>("Scene", {".evescene"});
   RegisterAsset<ParticleInfoList>("ParticleInfoList", {".eveparticleinfolist"});
   RegisterAsset<Animation>("Animation", {".eveanimation"});

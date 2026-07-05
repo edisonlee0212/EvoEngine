@@ -2,6 +2,7 @@
 
 #include "BasicConstants.glsl"
 #include "Basic.glsl"
+#include "GltfRasterMaterial.glsl"
 
 layout (location = 0) in VS_OUT {
 	vec2 TexCoord;
@@ -12,11 +13,8 @@ layout(location = 5) in flat uint currentInstanceIndex;
 void main()
 {
 	uint instanceIndex = currentInstanceIndex;
-	MaterialProperties materialProperties = EE_MATERIAL_PROPERTIES[EE_INSTANCES[instanceIndex].material_index];
-	
+	uint material_index = uint(EE_INSTANCES[instanceIndex].material_index);
 	vec2 tex_coord = fs_in.TexCoord;
-	vec4 albedo = materialProperties.albedo;
-	if (materialProperties.albedo_map_index != -1) 
-		albedo = texture(EE_TEXTURE_2DS[materialProperties.albedo_map_index], tex_coord);
-	if (albedo.a <= 0.5) discard;
+	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
+	if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) discard;
 }

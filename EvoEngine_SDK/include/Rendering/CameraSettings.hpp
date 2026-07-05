@@ -8,6 +8,12 @@ namespace evo_engine {
  * @brief A structure to define the camera settings used in the engine.
  */
 struct CameraSettings {
+  enum class ShaderExecutionReorderingMode {
+    Disabled,
+    Automatic,
+    Enabled,
+  };
+
   /** @brief The near clipping distance for the camera. */
   float near_distance = 0.1f;
 
@@ -44,6 +50,34 @@ struct CameraSettings {
    * \brief Ray tracing camera gamma
    */
   float gamma = 2.2f;
+
+  /**
+   * \brief Clamp high-energy ray tracing samples before accumulation to reduce fireflies.
+   */
+  bool firefly_clamp_enabled = true;
+  /**
+   * \brief Luminance threshold used when firefly_clamp_enabled is true.
+   */
+  float firefly_clamp_threshold = 10.0f;
+
+  /**
+   * \brief Enables per-pixel adaptive ray tracing accumulation.
+   */
+  bool auto_spp_enabled = false;
+  /**
+   * \brief Minimum accumulated samples per pixel before convergence can stop a pixel.
+   */
+  int auto_spp_min_samples = 16;
+  /**
+   * \brief Maximum accumulated samples per pixel for adaptive accumulation.
+   */
+  int auto_spp_max_samples = 256;
+  /**
+   * \brief Relative luminance delta threshold used to mark an adaptive pixel converged.
+   */
+  float auto_spp_convergence_threshold = 0.01f;
+
+  ShaderExecutionReorderingMode shader_execution_reordering_mode = ShaderExecutionReorderingMode::Disabled;
 };
 
 }  // namespace evo_engine

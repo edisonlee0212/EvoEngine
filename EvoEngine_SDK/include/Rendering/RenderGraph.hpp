@@ -127,12 +127,14 @@ inline constexpr const char* directional_light_shadow = "DirectionalLightShadow"
 inline constexpr const char* deferred_geometry = "DeferredGeometry";
 inline constexpr const char* depth_pyramid = "DepthPyramid";
 inline constexpr const char* deferred_camera = "DeferredCamera";
+inline constexpr const char* transparent_geometry = "TransparentGeometry";
 inline constexpr const char* volumetric_clouds = "VolumetricClouds";
 inline constexpr const char* gaussian_splat_cull = "GaussianSplatCull";
 inline constexpr const char* gaussian_splat_sort = "GaussianSplatSort";
 inline constexpr const char* gaussian_splat = "GaussianSplat";
 inline constexpr const char* post_processing = "PostProcessing";
 inline constexpr const char* ray_tracing_camera = "RayTracingCamera";
+inline constexpr const char* ray_query_camera = "RayQueryCamera";
 }  // namespace RenderPassNames
 
 namespace RenderGraphConstants {
