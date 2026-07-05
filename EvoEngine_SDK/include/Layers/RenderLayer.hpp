@@ -136,7 +136,8 @@ class RenderLayer final : public ILayer {
     DdgiUpdateReasonManualReset = 1u << 1u,
     DdgiUpdateReasonSteadyState = 1u << 2u,
     DdgiUpdateReasonConverged = 1u << 3u,
-    DdgiUpdateReasonWarmup = 1u << 4u
+    DdgiUpdateReasonWarmup = 1u << 4u,
+    DdgiUpdateReasonSceneInput = 1u << 5u
   };
 
   struct DdgiVolumeRuntimeInfo {
@@ -448,6 +449,7 @@ class RenderLayer final : public ILayer {
   friend class RenderInstanceStorage;
   friend class TextureStorage;
 #pragma region DescriptorSet Layouts
+  std::shared_ptr<DescriptorSetLayout> empty_descriptor_set_layout_;
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
@@ -497,7 +499,12 @@ class RenderLayer final : public ILayer {
   int ddgi_previous_movement_type_ = static_cast<int>(DdgiVolumeMovementType::Default);
   bool ddgi_has_previous_scene_inputs_ = false;
   RenderInstanceStorage::EnvironmentInfoBlock ddgi_previous_environment_info_block_{};
-  std::vector<RenderInstanceStorage::MaterialInfoBlock> ddgi_previous_material_info_blocks_;
+  std::vector<GltfShadeMaterial> ddgi_previous_gltf_shade_materials_;
+  std::vector<GltfTextureInfo> ddgi_previous_gltf_texture_infos_;
+  uint32_t ddgi_previous_texture_storage_version_ = 0;
+  bool ddgi_scene_material_inputs_changed_ = false;
+  bool ddgi_deferred_scene_readiness_refresh_ = false;
+  uint32_t ddgi_scene_input_settle_frame_count_ = 0;
   std::vector<uint64_t> ddgi_previous_active_light_keys_;
   std::vector<uint64_t> ddgi_previous_light_signatures_;
   std::vector<uint64_t> ddgi_previous_geometry_signatures_;
@@ -743,6 +750,9 @@ class RenderLayer final : public ILayer {
   /// Graphics pipeline for performing the deferred shading lighting pass with scene cameras.
   std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline_scene_camera;
 
+  /// Graphics pipeline for rendering transparent normal meshes after deferred lighting.
+  std::shared_ptr<GraphicsPipeline> transparent_geometry_pipeline_normal;
+
   /// Graphics pipeline for rendering gizmos.
   std::shared_ptr<GraphicsPipeline> gizmos;
 
@@ -784,6 +794,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
+  std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
 
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.

@@ -4,6 +4,7 @@
 #include "ApplicationContext.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
+#include "GeometryStorage.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
@@ -82,9 +83,10 @@ std::shared_ptr<Material> CreateDefaultMaterial() {
   if (!material) {
     return {};
   }
-  material->material_properties.albedo_color = glm::vec3(0.72f);
-  material->material_properties.metallic = 0.0f;
-  material->material_properties.roughness = 0.45f;
+  material->material_data.shade_material.pbr_base_color_factor = glm::vec4(glm::vec3(0.72f), 1.0f);
+  material->material_data.shade_material.pbr_metallic_factor = 0.0f;
+  material->material_data.shade_material.pbr_roughness_factor = 0.45f;
+  material->MarkDirty();
   return material;
 }
 
@@ -105,6 +107,21 @@ void ConfigurePreviewLighting(const std::shared_ptr<Scene>& scene) {
     light->diffuse = glm::vec3(1.0f);
     light->diffuse_brightness = 2.4f;
     SetEntityTransform(scene, light_owner, light_transform);
+  }
+}
+
+void UploadPreviewResources(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material) {
+  if (!mesh || !material) {
+    return;
+  }
+
+  GeometryStorage::WaitForPendingUploads();
+
+  auto texture_refs = material->PeekTextureRefs();
+  for (auto& texture_ref : texture_refs) {
+    if (const auto texture = texture_ref.Get<Texture2D>()) {
+      texture->UnsafeUploadDataImmediately();
+    }
   }
 }
 
@@ -197,6 +214,7 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(cons
   mesh_renderer->mesh.Set(mesh);
   mesh_renderer->material.Set(material);
   mesh_renderer->cast_shadow = false;
+  UploadPreviewResources(mesh, material);
 
   const auto subject_rotation = CreateSubjectRotation(settings);
   GlobalTransform subject_transform;

@@ -1,5 +1,6 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
@@ -9,11 +10,17 @@
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 
 #ifdef EVOENGINE_WINDOWS
@@ -36,16 +43,74 @@ struct EditorCommandLine {
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
+  std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
+  std::optional<bool> preview_capture_firefly_clamp_enabled;
+  std::optional<float> preview_capture_firefly_clamp_threshold;
+  std::optional<bool> preview_capture_auto_spp_enabled;
+  std::optional<int> preview_capture_auto_spp_min_samples;
+  std::optional<int> preview_capture_auto_spp_max_samples;
+  std::optional<float> preview_capture_auto_spp_convergence_threshold;
+  std::optional<int> preview_capture_sample_size;
+  std::optional<glm::vec3> preview_capture_camera_position;
+  std::optional<glm::vec3> preview_capture_camera_look_at;
+  bool preview_capture_deterministic = false;
+  bool preview_capture_bistro_ddgi = false;
 };
 
 Camera::CameraRenderMode ParsePreviewRenderMode(const std::string& value) {
-  if (value == "rasterization" || value == "raster" || value == "Rasterization") {
-    return Camera::CameraRenderMode::Rasterization;
-  }
-  if (value == "raytracing" || value == "ray-tracing" || value == "RayTracing") {
-    return Camera::CameraRenderMode::RayTracing;
+  const auto raster_fallback = Camera::ParseCameraRenderMode(value, Camera::CameraRenderMode::Rasterization);
+  const auto ray_query_fallback = Camera::ParseCameraRenderMode(value, Camera::CameraRenderMode::RayQuery);
+  if (raster_fallback != Camera::CameraRenderMode::Rasterization ||
+      ray_query_fallback != Camera::CameraRenderMode::RayQuery) {
+    return raster_fallback;
   }
   throw std::invalid_argument("Unknown preview render mode: " + value);
+}
+
+CameraSettings::ShaderExecutionReorderingMode ParsePreviewShaderExecutionReorderingMode(const std::string& value) {
+  const auto disabled_fallback =
+      Camera::ParseShaderExecutionReorderingMode(value, CameraSettings::ShaderExecutionReorderingMode::Disabled);
+  const auto enabled_fallback =
+      Camera::ParseShaderExecutionReorderingMode(value, CameraSettings::ShaderExecutionReorderingMode::Enabled);
+  if (disabled_fallback != CameraSettings::ShaderExecutionReorderingMode::Disabled ||
+      enabled_fallback != CameraSettings::ShaderExecutionReorderingMode::Enabled) {
+    return disabled_fallback;
+  }
+  throw std::invalid_argument("Unknown preview SER mode: " + value);
+}
+
+bool ParsePreviewBool(const std::string& value, const std::string& argument) {
+  auto normalized = value;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (normalized == "1" || normalized == "on" || normalized == "true" || normalized == "enabled" ||
+      normalized == "enable") {
+    return true;
+  }
+  if (normalized == "0" || normalized == "off" || normalized == "false" || normalized == "disabled" ||
+      normalized == "disable") {
+    return false;
+  }
+  throw std::invalid_argument(argument + " requires enabled or disabled.");
+}
+
+glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const std::string& argument) {
+  if (arg_index + 1 >= argc) {
+    throw std::invalid_argument(argument + " requires x,y,z.");
+  }
+  std::string value = argv[++arg_index] ? argv[arg_index] : "";
+  std::replace(value.begin(), value.end(), ',', ' ');
+  std::stringstream stream(value);
+  glm::vec3 result{};
+  if (!(stream >> result.x >> result.y >> result.z)) {
+    throw std::invalid_argument(argument + " requires x,y,z.");
+  }
+  std::string trailing;
+  if (stream >> trailing) {
+    throw std::invalid_argument(argument + " requires exactly three numeric values.");
+  }
+  return result;
 }
 
 EditorCommandLine ParseCommandLine(const int argc, char** argv) {
@@ -92,6 +157,57 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-render-mode requires rasterization or raytracing.");
       }
       command_line.preview_capture_render_mode = ParsePreviewRenderMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-ser") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ser requires disabled, automatic, or enabled.");
+      }
+      command_line.preview_capture_ser_mode =
+          ParsePreviewShaderExecutionReorderingMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-firefly-clamp") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-firefly-clamp requires enabled or disabled.");
+      }
+      command_line.preview_capture_firefly_clamp_enabled =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-firefly-clamp-threshold") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
+      }
+      command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-auto-spp") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-auto-spp requires enabled or disabled.");
+      }
+      command_line.preview_capture_auto_spp_enabled =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-auto-spp-min-samples") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-auto-spp-min-samples requires a positive integer.");
+      }
+      command_line.preview_capture_auto_spp_min_samples = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-auto-spp-max-samples") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-auto-spp-max-samples requires a positive integer.");
+      }
+      command_line.preview_capture_auto_spp_max_samples = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-auto-spp-threshold") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-auto-spp-threshold requires a non-negative number.");
+      }
+      command_line.preview_capture_auto_spp_convergence_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-sample-size") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-sample-size requires a positive integer.");
+      }
+      command_line.preview_capture_sample_size = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-camera-position") {
+      command_line.preview_capture_camera_position = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-camera-look-at") {
+      command_line.preview_capture_camera_look_at = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-deterministic") {
+      command_line.preview_capture_deterministic = true;
+    } else if (argument == "--preview-bistro-ddgi") {
+      command_line.preview_capture_bistro_ddgi = true;
     } else {
       auto application_mode = command_line.application_mode;
       if (!ConsumeApplicationModeArgument(argc, argv, arg_index, application_mode)) {
@@ -113,6 +229,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.demo_preview_capture_path && !command_line.demo_profile_id) {
     throw std::invalid_argument("--capture-demo-preview requires --demo <profile-id>.");
   }
+  if (command_line.preview_capture_camera_position.has_value() !=
+      command_line.preview_capture_camera_look_at.has_value()) {
+    throw std::invalid_argument("--preview-camera-position and --preview-camera-look-at must be provided together.");
+  }
+  if ((command_line.preview_capture_camera_position || command_line.preview_capture_camera_look_at) &&
+      !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-camera-position requires --capture-demo-preview.");
+  }
+  if (command_line.preview_capture_bistro_ddgi && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-bistro-ddgi requires --capture-demo-preview.");
+  }
+  if (command_line.preview_capture_bistro_ddgi && command_line.demo_profile_id != DemoProfileId::Bistro) {
+    throw std::invalid_argument("--preview-bistro-ddgi requires --demo bistro.");
+  }
   if (command_line.demo_profile_id) {
     const auto& profile = GetDemoProfile(*command_line.demo_profile_id);
     if (!command_line.application_mode_explicit) {
@@ -129,6 +259,28 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     }
   }
   return command_line;
+}
+
+void ApplyPreviewCameraOverride(const std::shared_ptr<EditorLayer>& editor_layer,
+                                const std::optional<glm::vec3>& camera_position,
+                                const std::optional<glm::vec3>& camera_look_at) {
+  if (!camera_position || !camera_look_at) {
+    return;
+  }
+  const auto front = *camera_look_at - *camera_position;
+  if (glm::length(front) <= 0.0001f) {
+    throw std::invalid_argument("--preview-camera-position and --preview-camera-look-at must be different.");
+  }
+  const auto normalized_front = glm::normalize(front);
+  auto up = glm::vec3(0.0f, 1.0f, 0.0f);
+  if (glm::abs(glm::dot(normalized_front, up)) > 0.98f) {
+    up = glm::vec3(0.0f, 0.0f, 1.0f);
+  }
+  editor_layer->SetSceneCameraPosition(*camera_position);
+  editor_layer->SetSceneCameraRotation(glm::quatLookAt(normalized_front, up));
+  if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+    scene_camera->ResetFrameCount();
+  }
 }
 
 std::filesystem::path CurrentExecutablePath() {
@@ -192,6 +344,26 @@ void ConfigurePackageDemoNewSceneDefaults() {
   });
 }
 
+void ApplyBistroDemoEditorCameraDefaults() {
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (!editor_layer) {
+    return;
+  }
+  editor_layer->velocity = 15.0f;
+  editor_layer->enable_gizmos = false;
+  editor_layer->show_scene_info = true;
+  editor_layer->SetSelectedEntity({});
+  editor_layer->default_scene_camera_position = glm::vec3(3.0f, 25.0f, 150.0f);
+  editor_layer->default_scene_camera_rotation = glm::quat(glm::radians(glm::vec3(-5.0f, 0.0f, 0.0f)));
+  editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+  editor_layer->SetSceneCameraRotation(editor_layer->default_scene_camera_rotation);
+  if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+    scene_camera->camera_settings.fov = 60.0f;
+    scene_camera->camera_settings.far_distance = 500.0f;
+    scene_camera->ResetFrameCount();
+  }
+}
+
 void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode application_mode,
                           ApplicationInitializationSettings& application_info) {
   const auto missing_resources = MissingDemoProfileResourceRequirements(profile_id);
@@ -213,6 +385,9 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
     case DemoProfileId::Rendering:
       SetupDemoScene(DemoSetup::Rendering, application_info, resource_root);
       break;
+    case DemoProfileId::RenderingRegression:
+      SetupDemoScene(DemoSetup::RenderingRegression, application_info, resource_root, false);
+      break;
     case DemoProfileId::Ddgi:
       SetupDemoScene(DemoSetup::CornellBox, application_info, resource_root);
       ConfigureDdgiCornellBoxApplication(application_info, application_mode);
@@ -225,6 +400,9 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
       break;
     case DemoProfileId::Bicycle:
       SetupDemoScene(DemoSetup::Bicycle, application_info, resource_root, false);
+      break;
+    case DemoProfileId::Bistro:
+      SetupDemoScene(DemoSetup::Bistro, application_info, resource_root, false);
       break;
     case DemoProfileId::LSystem: {
       const auto& profile = GetDemoProfile(profile_id);
@@ -292,6 +470,10 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       editor_layer->default_scene_camera_position = glm::vec3(0.0f, 0.0f, 3.0f);
       editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       break;
+    case DemoProfileId::Bistro:
+      ApplyBistroDemoEditorCameraDefaults();
+      break;
+    case DemoProfileId::RenderingRegression:
     case DemoProfileId::Rendering:
     case DemoProfileId::Ddgi:
       break;
@@ -312,12 +494,44 @@ void WaitForDemoProfileProjectIdle() {
   }
 }
 
+bool DemoPreviewSceneInputsReady() {
+  return ProjectManager::IsProjectIdle() && !AssetManager::GetAssetLoadSnapshot().Active() &&
+         !TextureStorage::HasPendingUploads();
+}
+
+void WaitForDemoPreviewSceneInputsReady() {
+  constexpr size_t max_load_frames = 30000;
+  constexpr size_t settled_frame_count = 4;
+  size_t load_frame_count = 0;
+  size_t stable_frame_count = 0;
+  while (stable_frame_count < settled_frame_count) {
+    if (DemoPreviewSceneInputsReady()) {
+      ++stable_frame_count;
+    } else {
+      stable_frame_count = 0;
+    }
+    if (stable_frame_count >= settled_frame_count) {
+      break;
+    }
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error("Application ended before demo preview scene inputs were ready.");
+    }
+    ++load_frame_count;
+    if (load_frame_count >= max_load_frames) {
+      throw std::runtime_error("Demo preview scene input readiness timed out.");
+    }
+  }
+}
+
 void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const ApplicationMode application_mode) {
   switch (profile_id) {
     case DemoProfileId::Rendering:
       if (application_mode == ApplicationMode::Editor) {
         ApplyRenderingDemoEditorSetup();
       }
+      break;
+    case DemoProfileId::RenderingRegression:
+      ConfigureRenderingRegressionDemoScene(ApplicationContext::Get().GetActiveScene());
       break;
     case DemoProfileId::Ddgi:
       ConfigureDdgiCornellBoxScene(ApplicationContext::Get().GetActiveScene());
@@ -345,12 +559,23 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
     case DemoProfileId::Bicycle:
       ConfigureBicycleDemoScene(ApplicationContext::Get().GetActiveScene());
       break;
+    case DemoProfileId::Bistro:
+      ConfigureBistroDemoScene(ApplicationContext::Get().GetActiveScene());
+      break;
   }
 }
 
-void CaptureDemoPreview(const std::filesystem::path& output_path, const int width, const int height,
-                        const size_t warmup_frames,
-                        const std::optional<Camera::CameraRenderMode>& preview_render_mode) {
+void CaptureDemoPreview(
+    const std::filesystem::path& output_path, const int width, const int height, const size_t warmup_frames,
+    const std::optional<DemoProfileId> demo_profile_id,
+    const std::optional<Camera::CameraRenderMode>& preview_render_mode,
+    const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
+    const std::optional<bool>& preview_firefly_clamp_enabled,
+    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
+    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
+    const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
+    const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
+    const bool deterministic_capture, const bool preview_bistro_ddgi) {
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     window_layer->ResizeWindow(width, height);
@@ -361,36 +586,144 @@ void CaptureDemoPreview(const std::filesystem::path& output_path, const int widt
     throw std::runtime_error("Demo preview capture requires EditorLayer.");
   }
   editor_layer->RequestSceneCameraPreviewWindow(preview_resolution);
+  editor_layer->SetSceneCameraResolutionOverride(preview_resolution);
   const auto scene_camera = editor_layer->GetSceneCamera();
   if (!scene_camera) {
     throw std::runtime_error("Demo preview capture requires a scene camera.");
   }
+  ApplyPreviewCameraOverride(editor_layer, preview_camera_position, preview_camera_look_at);
   if (preview_render_mode) {
     scene_camera->camera_render_mode = *preview_render_mode;
     scene_camera->ResetFrameCount();
   }
+  if (preview_ser_mode) {
+    scene_camera->camera_settings.shader_execution_reordering_mode = *preview_ser_mode;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_firefly_clamp_enabled) {
+    scene_camera->camera_settings.firefly_clamp_enabled = *preview_firefly_clamp_enabled;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_firefly_clamp_threshold) {
+    scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_auto_spp_enabled) {
+    scene_camera->camera_settings.auto_spp_enabled = *preview_auto_spp_enabled;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_auto_spp_min_samples) {
+    scene_camera->camera_settings.auto_spp_min_samples = std::max(1, *preview_auto_spp_min_samples);
+    scene_camera->camera_settings.auto_spp_max_samples = std::max(scene_camera->camera_settings.auto_spp_max_samples,
+                                                                  scene_camera->camera_settings.auto_spp_min_samples);
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_auto_spp_max_samples) {
+    scene_camera->camera_settings.auto_spp_max_samples =
+        std::max(scene_camera->camera_settings.auto_spp_min_samples, *preview_auto_spp_max_samples);
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_auto_spp_convergence_threshold) {
+    scene_camera->camera_settings.auto_spp_convergence_threshold =
+        std::max(0.0f, *preview_auto_spp_convergence_threshold);
+    scene_camera->ResetFrameCount();
+  }
+  if (deterministic_capture || preview_sample_size) {
+    scene_camera->camera_settings.sample_size =
+        deterministic_capture ? preview_sample_size.value_or(1) : preview_sample_size.value();
+    scene_camera->ResetFrameCount();
+  }
+  if (deterministic_capture) {
+    if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+      post_processing_stack->enable_bloom = false;
+      post_processing_stack->enable_screen_space_ambient_occlusion = false;
+      post_processing_stack->enable_screen_space_reflection = false;
+      if (post_processing_stack->tone_mapping) {
+        post_processing_stack->tone_mapping->auto_exposure = false;
+        post_processing_stack->tone_mapping->dither = false;
+      }
+    }
+  }
+  const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
+  if (demo_profile_id == DemoProfileId::Bistro && Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    ConfigureBistroRayTracingPostProcessing(scene_camera);
+    if (deterministic_capture) {
+      if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+          post_processing_stack && post_processing_stack->tone_mapping) {
+        post_processing_stack->tone_mapping->auto_exposure = true;
+        post_processing_stack->tone_mapping->auto_exposure_delta_time_override = 1.0f / 60.0f;
+        post_processing_stack->tone_mapping->dither = false;
+      }
+    }
+  }
+  if (demo_profile_id == DemoProfileId::Bistro && !preview_bistro_ddgi) {
+    const auto active_scene = ApplicationContext::Get().GetActiveScene();
+    ConfigureBistroParityCapture(active_scene, scene_camera);
+    LogBistroParityCaptureState(active_scene, scene_camera, width, height,
+                                Camera::GetCameraRenderModeName(resolved_render_mode), output_path);
+  }
+  if (demo_profile_id == DemoProfileId::Bistro && deterministic_capture) {
+    if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+        post_processing_stack && post_processing_stack->tone_mapping) {
+      post_processing_stack->tone_mapping->auto_exposure = true;
+      post_processing_stack->tone_mapping->auto_exposure_delta_time_override = 1.0f / 60.0f;
+      post_processing_stack->tone_mapping->dither = false;
+    }
+  }
   scene_camera->Resize(preview_resolution);
-  for (size_t frame_index = 0; frame_index < warmup_frames; ++frame_index) {
+  WaitForDemoPreviewSceneInputsReady();
+  scene_camera->ResetFrameCount();
+  const auto capture_start_time = std::chrono::steady_clock::now();
+  const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode);
+  constexpr size_t max_capture_frame_slack = 30000;
+  const size_t max_capture_frames = warmup_frames + max_capture_frame_slack;
+  size_t capture_frame_count = 0;
+  while ((wait_for_ray_accumulation && scene_camera->GetFrameCount() < warmup_frames) ||
+         (!wait_for_ray_accumulation && capture_frame_count < warmup_frames)) {
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
+    ++capture_frame_count;
+    if (capture_frame_count >= max_capture_frames) {
+      throw std::runtime_error(wait_for_ray_accumulation
+                                   ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
+                                   : "Demo preview capture timed out.");
+    }
   }
+  const auto capture_elapsed_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - capture_start_time).count();
+  const auto capture_frames_per_second =
+      capture_elapsed_seconds > 0.0 ? static_cast<double>(capture_frame_count) / capture_elapsed_seconds : 0.0;
+  std::cout << "Demo preview capture timing: output=\"" << output_path.string()
+            << "\" render_mode=" << Camera::GetCameraRenderModeName(resolved_render_mode) << " ser_mode="
+            << Camera::GetShaderExecutionReorderingModeName(
+                   scene_camera->camera_settings.shader_execution_reordering_mode)
+            << " warmup_frames=" << warmup_frames << " rendered_frames=" << capture_frame_count
+            << " camera_frames=" << scene_camera->GetFrameCount() << " elapsed_seconds=" << capture_elapsed_seconds
+            << " frames_per_second=" << capture_frames_per_second << std::endl;
   const auto render_texture = scene_camera->GetRenderTexture();
   if (!render_texture) {
     throw std::runtime_error("Demo preview capture scene camera has no render texture.");
   }
+  const auto render_extent = render_texture->GetExtent();
+  if (render_extent.width != preview_resolution.x || render_extent.height != preview_resolution.y) {
+    throw std::runtime_error("Demo preview capture render texture resolution changed before saving.");
+  }
   if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
     std::filesystem::create_directories(parent_path);
   }
-  render_texture->StoreToPng(output_path, width, height);
+  render_texture->StoreToPng(output_path);
+  editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
 }
 }  // namespace
 
 int main(const int argc, char** argv) {
   Application application;
   bool initialized = false;
+  bool automated_capture = false;
   try {
     const auto command_line = ParseCommandLine(argc, argv);
+    automated_capture = command_line.demo_preview_capture_path.has_value();
     const auto& project_path = command_line.project_path;
     if (!project_path) {
       if (command_line.demo_profile_id) {
@@ -409,11 +742,20 @@ int main(const int argc, char** argv) {
         WaitForDemoProfileProjectIdle();
         ApplyDemoProfilePostLoadSetup(*command_line.demo_profile_id, command_line.application_mode);
         if (command_line.demo_preview_capture_path) {
-          CaptureDemoPreview(*command_line.demo_preview_capture_path, command_line.preview_capture_width,
-                             command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
-                             command_line.preview_capture_render_mode);
+          CaptureDemoPreview(
+              *command_line.demo_preview_capture_path, command_line.preview_capture_width,
+              command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
+              command_line.demo_profile_id, command_line.preview_capture_render_mode,
+              command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_enabled,
+              command_line.preview_capture_firefly_clamp_threshold, command_line.preview_capture_auto_spp_enabled,
+              command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
+              command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
+              command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
+              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi);
           ApplicationContext::Get().Terminate();
-          return 0;
+          std::cout.flush();
+          std::cerr.flush();
+          std::_Exit(0);
         }
         ApplicationContext::Get().Run();
         ApplicationContext::Get().Terminate();
@@ -453,6 +795,11 @@ int main(const int argc, char** argv) {
     EVOENGINE_ERROR(error.what())
     if (initialized) {
       ApplicationContext::Get().Terminate();
+    }
+    if (automated_capture) {
+      std::cout.flush();
+      std::cerr.flush();
+      std::_Exit(1);
     }
     return 1;
   }

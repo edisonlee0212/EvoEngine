@@ -41,7 +41,7 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
   static std::vector<VkVertexInputAttributeDescription> skinned_mesh{};
   static std::vector<VkVertexInputAttributeDescription> strands{};
   if (mesh.empty()) {
-    mesh.resize(5);
+    mesh.resize(6);
     mesh[0].binding = 0;
     mesh[0].location = 0;
     mesh[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -66,10 +66,15 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     mesh[4].location = 4;
     mesh[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     mesh[4].offset = offsetof(Vertex, color);
+
+    mesh[5].binding = 0;
+    mesh[5].location = 9;
+    mesh[5].format = VK_FORMAT_R32_SFLOAT;
+    mesh[5].offset = offsetof(Vertex, vertex_info3);
   }
 
   if (skinned_mesh.empty()) {
-    skinned_mesh.resize(9);
+    skinned_mesh.resize(10);
     skinned_mesh[0].binding = 0;
     skinned_mesh[0].location = 0;
     skinned_mesh[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -114,6 +119,11 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     skinned_mesh[8].location = 8;
     skinned_mesh[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     skinned_mesh[8].offset = offsetof(SkinnedVertex, weight2);
+
+    skinned_mesh[9].binding = 0;
+    skinned_mesh[9].location = 9;
+    skinned_mesh[9].format = VK_FORMAT_R32_SFLOAT;
+    skinned_mesh[9].offset = offsetof(SkinnedVertex, vertex_info3);
   }
 
   if (strands.empty()) {

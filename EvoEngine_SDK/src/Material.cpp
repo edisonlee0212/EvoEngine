@@ -4,14 +4,15 @@
 #include "RenderLayer.hpp"
 #include "Texture2D.hpp"
 
+#include <algorithm>
+
 using namespace evo_engine;
 
 void Material::CollectAssetRef(std::vector<AssetRef>& list) {
-  list.push_back(albedo_texture_);
-  list.push_back(normal_texture_);
-  list.push_back(metallic_texture_);
-  list.push_back(roughness_texture_);
-  list.push_back(ao_texture_);
+  ResizeTextureRefs();
+  for (const auto& texture_ref : texture_refs_) {
+    list.push_back(texture_ref);
+  }
 }
 
 void DrawSettings::ApplySettings(GraphicsPipelineStates& global_pipeline_state) const {
@@ -62,99 +63,128 @@ std::shared_ptr<Texture2D> Material::GenerateThumbnailTexture() {
   return EditorLayer::FindIcon("Material");
 }
 
+Material::Material() {
+  material_data.shade_material.pbr_metallic_factor = 0.0f;
+}
+
 Material::~Material() {
-  albedo_texture_.Clear();
-  normal_texture_.Clear();
-  metallic_texture_.Clear();
-  roughness_texture_.Clear();
-  ao_texture_.Clear();
+  for (auto& texture_ref : texture_refs_) {
+    texture_ref.Clear();
+  }
 }
 
-void Material::SetAlbedoTexture(const std::shared_ptr<Texture2D>& texture) {
-  albedo_texture_ = texture;
+void Material::ResizeTextureRefs() {
+  if (material_data.texture_infos.empty()) {
+    material_data.texture_infos.emplace_back();
+  }
+  if (texture_refs_.size() < material_data.texture_infos.size()) {
+    texture_refs_.resize(material_data.texture_infos.size());
+  }
+}
+
+uint16_t Material::SetTexture(uint16_t GltfShadeMaterial::* slot, const std::shared_ptr<Texture2D>& texture,
+                              const int32_t tex_coord, const glm::mat3x2& uv_transform) {
+  AssetRef texture_ref(texture);
+  return SetTextureRef(slot, texture_ref, tex_coord, uv_transform);
+}
+
+void Material::SetTexture(const uint16_t texture_info_slot, const std::shared_ptr<Texture2D>& texture) {
+  AssetRef texture_ref(texture);
+  SetTextureRef(texture_info_slot, texture_ref);
+}
+
+uint16_t Material::SetTextureRef(uint16_t GltfShadeMaterial::* slot, const AssetRef& texture_ref,
+                                 const int32_t tex_coord, const glm::mat3x2& uv_transform) {
+  auto resolved_ref = texture_ref;
+  const auto texture = resolved_ref.Get<Texture2D>();
+  uint16_t texture_info_slot = material_data.shade_material.*slot;
+  if (!texture && texture_ref.GetAssetHandle() == 0) {
+    if (texture_info_slot > 0 && texture_info_slot < texture_refs_.size()) {
+      texture_refs_[texture_info_slot].Clear();
+    }
+    if (texture_info_slot > 0 && texture_info_slot < material_data.texture_infos.size()) {
+      material_data.texture_infos[texture_info_slot].index = -1;
+    }
+    material_data.shade_material.*slot = 0;
+    need_update_ = true;
+    return 0;
+  }
+  ResizeTextureRefs();
+  if (texture_info_slot == 0 || texture_info_slot >= material_data.texture_infos.size()) {
+    texture_info_slot = static_cast<uint16_t>(material_data.texture_infos.size());
+    material_data.texture_infos.emplace_back();
+    texture_refs_.emplace_back();
+    material_data.shade_material.*slot = texture_info_slot;
+  }
+  auto& texture_info = material_data.texture_infos[texture_info_slot];
+  texture_info.index = texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
+  texture_info.tex_coord = std::clamp(tex_coord, 0, 1);
+#if MAT_EXT_TEXTURE_TRANSFORM
+  texture_info.uv_transform = uv_transform;
+#endif
+  texture_refs_[texture_info_slot] = texture_ref;
+  need_update_ = true;
+  return texture_info_slot;
+}
+
+void Material::SetTextureRef(const uint16_t texture_info_slot, const AssetRef& texture_ref) {
+  ResizeTextureRefs();
+  if (texture_info_slot == 0 || texture_info_slot >= material_data.texture_infos.size()) {
+    return;
+  }
+  auto resolved_ref = texture_ref;
+  const auto texture = resolved_ref.Get<Texture2D>();
+  material_data.texture_infos[texture_info_slot].index =
+      texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
+  texture_refs_[texture_info_slot] = texture_ref;
   need_update_ = true;
 }
 
-void Material::SetNormalTexture(const std::shared_ptr<Texture2D>& texture) {
-  normal_texture_ = texture;
+std::shared_ptr<Texture2D> Material::GetTexture(uint16_t GltfShadeMaterial::* slot) {
+  return GetTexture(material_data.shade_material.*slot);
+}
+
+std::shared_ptr<Texture2D> Material::GetTexture(const uint16_t texture_info_slot) {
+  if (texture_info_slot == 0 || texture_info_slot >= texture_refs_.size()) {
+    return {};
+  }
+  return texture_refs_[texture_info_slot].Get<Texture2D>();
+}
+
+const std::vector<AssetRef>& Material::PeekTextureRefs() const {
+  return texture_refs_;
+}
+
+std::vector<AssetRef>& Material::RefTextureRefs() {
+  ResizeTextureRefs();
+  need_update_ = true;
+  return texture_refs_;
+}
+
+GltfMaterialData Material::BuildGltfMaterialData() {
+  ResizeTextureRefs();
+  auto result = material_data;
+  for (size_t i = 1; i < result.texture_infos.size() && i < texture_refs_.size(); ++i) {
+    if (const auto texture = texture_refs_[i].Get<Texture2D>()) {
+      result.texture_infos[i].index = static_cast<int32_t>(texture->GetTextureStorageIndex());
+    }
+  }
+  return result;
+}
+
+void Material::SetGltfMaterialData(const GltfMaterialData& data) {
+  material_data = data;
+  texture_refs_.resize(material_data.texture_infos.size());
+  SyncRenderStateFromGltfMaterial();
   need_update_ = true;
 }
 
-void Material::SetMetallicTexture(const std::shared_ptr<Texture2D>& texture) {
-  metallic_texture_ = texture;
-  need_update_ = true;
-}
-
-void Material::SetRoughnessTexture(const std::shared_ptr<Texture2D>& texture) {
-  roughness_texture_ = texture;
-  need_update_ = true;
-}
-
-void Material::SetAoTexture(const std::shared_ptr<Texture2D>& texture) {
-  ao_texture_ = texture;
-  need_update_ = true;
-}
-
-std::shared_ptr<Texture2D> Material::GetAlbedoTexture() {
-  return albedo_texture_.Get<Texture2D>();
-}
-
-std::shared_ptr<Texture2D> Material::GetNormalTexture() {
-  return normal_texture_.Get<Texture2D>();
-}
-
-std::shared_ptr<Texture2D> Material::GetMetallicTexture() {
-  return metallic_texture_.Get<Texture2D>();
-}
-
-std::shared_ptr<Texture2D> Material::GetRoughnessTexture() {
-  return roughness_texture_.Get<Texture2D>();
-}
-
-std::shared_ptr<Texture2D> Material::GetAoTexture() {
-  return ao_texture_.Get<Texture2D>();
-}
-
-const AssetRef& Material::PeekAlbedoTextureRef() const {
-  return albedo_texture_;
-}
-
-const AssetRef& Material::PeekNormalTextureRef() const {
-  return normal_texture_;
-}
-
-const AssetRef& Material::PeekMetallicTextureRef() const {
-  return metallic_texture_;
-}
-
-const AssetRef& Material::PeekRoughnessTextureRef() const {
-  return roughness_texture_;
-}
-
-const AssetRef& Material::PeekAoTextureRef() const {
-  return ao_texture_;
-}
-
-AssetRef& Material::RefAlbedoTextureRef() {
-  return albedo_texture_;
-}
-
-AssetRef& Material::RefNormalTextureRef() {
-  return normal_texture_;
-}
-
-AssetRef& Material::RefMetallicTextureRef() {
-  return metallic_texture_;
-}
-
-AssetRef& Material::RefRoughnessTextureRef() {
-  return roughness_texture_;
-}
-
-AssetRef& Material::RefAoTextureRef() {
-  return ao_texture_;
+void Material::SyncRenderStateFromGltfMaterial() {
+  draw_settings.blending = material_data.shade_material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Blend);
+  draw_settings.cull_mode = VK_CULL_MODE_NONE;
 }
 
 void Material::MarkDirty() {
+  SyncRenderStateFromGltfMaterial();
   need_update_ = true;
 }

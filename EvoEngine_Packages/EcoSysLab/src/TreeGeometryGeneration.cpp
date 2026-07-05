@@ -7,6 +7,26 @@
 
 using namespace eco_sys_lab_package;
 
+namespace {
+void CopyMaterial(const std::shared_ptr<Material>& target, const std::shared_ptr<Material>& source) {
+  if (!target || !source) {
+    return;
+  }
+  target->SetGltfMaterialData(source->material_data);
+  target->RefTextureRefs() = source->PeekTextureRefs();
+  target->MarkDirty();
+}
+
+void ConfigureMaterial(const std::shared_ptr<Material>& material, const glm::vec3& color, const float roughness,
+                       const float metallic) {
+  auto& shade_material = material->material_data.shade_material;
+  shade_material.pbr_base_color_factor = glm::vec4(color, 1.0f);
+  shade_material.pbr_roughness_factor = roughness;
+  shade_material.pbr_metallic_factor = metallic;
+  material->MarkDirty();
+}
+}  // namespace
+
 void Tree::GenerateSkeletalGraph(const SkeletalGraphSettings& skeletal_graph_settings,
                                  SkeletonNodeHandle base_node_handle, const std::shared_ptr<Mesh>& point_mesh_sample,
                                  const std::shared_ptr<Mesh>& line_mesh_sample) const {
@@ -591,19 +611,13 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     if (td) {
       if (const auto bark_descriptor = td->bark_descriptor.Get<BasicBarkDescriptor>()) {
         if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
-          material->SetNormalTexture(bark_material->GetNormalTexture());
-          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
-          material->SetMetallicTexture(bark_material->GetMetallicTexture());
-          material->material_properties = bark_material->material_properties;
+          CopyMaterial(material, bark_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(109, 79, 75) / 255.0f, 1.0f, 0.0f);
     }
 
     std::vector<SkinnedVertex> skinned_vertices;
@@ -666,19 +680,13 @@ void Tree::GenerateAnimatedGeometryEntities(const TreeMeshGeneratorSettings& mes
     if (td) {
       if (const auto foliage_descriptor = td->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
         if (const auto leaf_material = foliage_descriptor->leaf_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-          material->SetNormalTexture(leaf_material->GetNormalTexture());
-          material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-          material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-          material->material_properties = leaf_material->material_properties;
+          CopyMaterial(material, leaf_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f), 1.0f, 0.0f);
     }
     std::vector<SkinnedVertex> skinned_vertices;
     std::vector<unsigned> indices;
@@ -834,19 +842,13 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     if (tree_descriptor) {
       if (const auto bark_descriptor = tree_descriptor->bark_descriptor.Get<BasicBarkDescriptor>()) {
         if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
-          material->SetNormalTexture(bark_material->GetNormalTexture());
-          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
-          material->SetMetallicTexture(bark_material->GetMetallicTexture());
-          material->material_properties = bark_material->material_properties;
+          CopyMaterial(material, bark_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(109, 79, 75) / 255.0f, 1.0f, 0.0f);
     }
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
@@ -861,19 +863,13 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     if (tree_descriptor) {
       if (const auto bark_descriptor = tree_descriptor->bark_descriptor.Get<BasicBarkDescriptor>()) {
         if (const auto bark_material = bark_descriptor->bark_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
-          material->SetNormalTexture(bark_material->GetNormalTexture());
-          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
-          material->SetMetallicTexture(bark_material->GetMetallicTexture());
-          material->material_properties = bark_material->material_properties;
+          CopyMaterial(material, bark_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(109, 79, 75) / 255.0f, 1.0f, 0.0f);
     }
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
@@ -889,19 +885,13 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
     if (tree_descriptor) {
       if (const auto bark_descriptor = tree_descriptor->fine_root_descriptor.Get<BasicFineRootDescriptor>()) {
         if (const auto bark_material = bark_descriptor->fine_root_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
-          material->SetNormalTexture(bark_material->GetNormalTexture());
-          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
-          material->SetMetallicTexture(bark_material->GetMetallicTexture());
-          material->material_properties = bark_material->material_properties;
+          CopyMaterial(material, bark_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(109, 79, 75) / 255.0f, 1.0f, 0.0f);
     }
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
@@ -918,19 +908,13 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
       if (tree_descriptor) {
         if (const auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
           if (const auto leaf_material = foliage_descriptor->leaf_material_ref.Get<Material>()) {
-            material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-            material->SetNormalTexture(leaf_material->GetNormalTexture());
-            material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-            material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-            material->material_properties = leaf_material->material_properties;
+            CopyMaterial(material, leaf_material);
             copied_material = true;
           }
         }
       }
       if (!copied_material) {
-        material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
-        material->material_properties.roughness = 1.0f;
-        material->material_properties.metallic = 0.0f;
+        ConfigureMaterial(material, glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f), 1.0f, 0.0f);
       }
       const auto particles = scene->GetOrSetPrivateComponent<Particles>(foliage_entity).lock();
       particles->mesh = mesh;
@@ -944,19 +928,13 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
       if (tree_descriptor) {
         if (const auto foliage_descriptor = tree_descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
           if (const auto leaf_material = foliage_descriptor->leaf_material_ref.Get<Material>()) {
-            material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-            material->SetNormalTexture(leaf_material->GetNormalTexture());
-            material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-            material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-            material->material_properties = leaf_material->material_properties;
+            CopyMaterial(material, leaf_material);
             copied_material = true;
           }
         }
       }
       if (!copied_material) {
-        material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
-        material->material_properties.roughness = 1.0f;
-        material->material_properties.metallic = 0.0f;
+        ConfigureMaterial(material, glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f), 1.0f, 0.0f);
       }
       mesh_renderer->mesh = mesh;
       mesh_renderer->material = material;
@@ -1063,7 +1041,7 @@ void Tree::InitializeStrandParticles() {
 
   renderer->material = material;
   material->vertex_color_only = true;
-  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  ConfigureMaterial(material, glm::vec3(0.6f, 0.3f, 0.0f), 1.0f, 0.0f);
 }
 
 void Tree::InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& particle_info_list) const {
@@ -1082,7 +1060,7 @@ void Tree::InitializeStrandParticles(const std::shared_ptr<ParticleInfoList>& pa
 
   renderer->material = material;
   material->vertex_color_only = true;
-  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  ConfigureMaterial(material, glm::vec3(0.6f, 0.3f, 0.0f), 1.0f, 0.0f);
 }
 
 void Tree::ClearStrandParticles() const {
@@ -1116,7 +1094,7 @@ void Tree::InitializeStrandRenderer() {
 
   renderer->material = material;
   material->vertex_color_only = true;
-  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  ConfigureMaterial(material, glm::vec3(0.6f, 0.3f, 0.0f), 1.0f, 0.0f);
 }
 
 void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) const {
@@ -1136,7 +1114,7 @@ void Tree::InitializeStrandRenderer(const std::shared_ptr<Strands>& strands) con
 
   renderer->material = material;
   material->vertex_color_only = true;
-  material->material_properties.albedo_color = glm::vec3(0.6f, 0.3f, 0.0f);
+  ConfigureMaterial(material, glm::vec3(0.6f, 0.3f, 0.0f), 1.0f, 0.0f);
 }
 
 void Tree::InitializeStrandModelMeshRenderer(
@@ -1161,19 +1139,13 @@ void Tree::InitializeStrandModelMeshRenderer(
     if (td) {
       if (const auto bd = td->bark_descriptor.Get<BasicBarkDescriptor>()) {
         if (const auto bark_material = bd->bark_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(bark_material->GetAlbedoTexture());
-          material->SetNormalTexture(bark_material->GetNormalTexture());
-          material->SetRoughnessTexture(bark_material->GetRoughnessTexture());
-          material->SetMetallicTexture(bark_material->GetMetallicTexture());
-          material->material_properties = bark_material->material_properties;
+          CopyMaterial(material, bark_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(109, 79, 75) / 255.0f;
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(109, 79, 75) / 255.0f, 1.0f, 0.0f);
     }
 
     mesh_renderer->mesh = mesh;
@@ -1189,19 +1161,13 @@ void Tree::InitializeStrandModelMeshRenderer(
     if (td) {
       if (const auto fd = td->foliage_descriptor.Get<BasicFoliageDescriptor>()) {
         if (const auto leaf_material = fd->leaf_material_ref.Get<Material>()) {
-          material->SetAlbedoTexture(leaf_material->GetAlbedoTexture());
-          material->SetNormalTexture(leaf_material->GetNormalTexture());
-          material->SetRoughnessTexture(leaf_material->GetRoughnessTexture());
-          material->SetMetallicTexture(leaf_material->GetMetallicTexture());
-          material->material_properties = leaf_material->material_properties;
+          CopyMaterial(material, leaf_material);
           copied_material = true;
         }
       }
     }
     if (!copied_material) {
-      material->material_properties.albedo_color = glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f);
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      ConfigureMaterial(material, glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f), 1.0f, 0.0f);
     }
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(foliage_entity).lock();
     mesh_renderer->mesh = mesh;

@@ -547,35 +547,35 @@ TEST(RenderGraph, CompileClassifiesBarrierPlansForImageAndBufferMemoryDependenci
   EXPECT_TRUE(saw_acquire_barriers);
 }
 
-TEST(RenderGraph, RenderLayerAppliesQueueFamilyOwnershipTransfersForQueueChangingBarriers) {
-  const auto render_layer_path =
-      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp";
-  std::ifstream render_layer_file(render_layer_path);
-  ASSERT_TRUE(render_layer_file.good()) << render_layer_path.string();
-  const std::string render_layer_source((std::istreambuf_iterator<char>(render_layer_file)),
-                                        std::istreambuf_iterator<char>());
+TEST(RenderGraph, RenderPassUtilitiesApplyQueueFamilyOwnershipTransfersForQueueChangingBarriers) {
+  const auto utilities_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" /
+                              "RenderPasses" / "RenderPassUtilities.cpp";
+  std::ifstream utilities_file(utilities_path);
+  ASSERT_TRUE(utilities_file.good()) << utilities_path.string();
+  const std::string utilities_source((std::istreambuf_iterator<char>(utilities_file)),
+                                     std::istreambuf_iterator<char>());
 
-  EXPECT_NE(render_layer_source.find("uint32_t GetRenderPassQueueFamilyIndex(const RenderPassQueue queue)"),
+  EXPECT_NE(utilities_source.find("uint32_t GetRenderPassQueueFamilyIndex(const RenderPassQueue queue)"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("TryGetQueueFamilyOwnershipTransfer"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("const auto expected_queue = release_barrier ? barrier.previous_queue : "
-                                     "barrier.next_queue"),
+  EXPECT_NE(utilities_source.find("TryGetQueueFamilyOwnershipTransfer"), std::string::npos);
+  EXPECT_NE(utilities_source.find("const auto expected_queue = release_barrier ? barrier.previous_queue : "
+                                  "barrier.next_queue"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("src_queue_family_index = GetRenderPassQueueFamilyIndex(barrier.previous_queue)"),
+  EXPECT_NE(utilities_source.find("src_queue_family_index = GetRenderPassQueueFamilyIndex(barrier.previous_queue)"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("dst_queue_family_index = GetRenderPassQueueFamilyIndex(barrier.next_queue)"),
+  EXPECT_NE(utilities_source.find("dst_queue_family_index = GetRenderPassQueueFamilyIndex(barrier.next_queue)"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("return src_queue_family_index != dst_queue_family_index"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("ApplyGraphImageQueueOwnershipBarrier"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("image->TransitImageLayout(vk_command_buffer, previous_layout, next_layout, "
-                                     "src_queue_family_index"),
+  EXPECT_NE(utilities_source.find("return src_queue_family_index != dst_queue_family_index"), std::string::npos);
+  EXPECT_NE(utilities_source.find("ApplyGraphImageQueueOwnershipBarrier"), std::string::npos);
+  EXPECT_NE(utilities_source.find("image->TransitImageLayout(vk_command_buffer, previous_layout, next_layout, "
+                                  "src_queue_family_index"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("ApplyGraphBufferQueueOwnershipBarrier"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("Platform::BufferMemoryBarrier(vk_command_buffer, *binding->buffer, "
-                                     "src_queue_family_index, dst_queue_family_index"),
+  EXPECT_NE(utilities_source.find("ApplyGraphBufferQueueOwnershipBarrier"), std::string::npos);
+  EXPECT_NE(utilities_source.find("Platform::BufferMemoryBarrier(vk_command_buffer, *binding->buffer, "
+                                  "src_queue_family_index, dst_queue_family_index"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("ApplyGraphResourceReleaseBarriers"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("context.GetCurrentPassReleaseBarriers()"), std::string::npos);
+  EXPECT_NE(utilities_source.find("ApplyGraphResourceReleaseBarriers"), std::string::npos);
+  EXPECT_NE(utilities_source.find("context.GetCurrentPassReleaseBarriers()"), std::string::npos);
 }
 
 TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {

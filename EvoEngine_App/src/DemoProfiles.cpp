@@ -80,11 +80,19 @@ int ScoreMaterialTextures(const std::shared_ptr<Material>& material) {
   if (!material) {
     return 0;
   }
+  const auto& texture_refs = material->PeekTextureRefs();
+  const auto score_texture = [&](const uint16_t texture_info_slot, const std::string& needle, const int weight) {
+    if (texture_info_slot == 0 || texture_info_slot >= texture_refs.size()) {
+      return 0;
+    }
+    return ScoreAssetTitle(texture_refs[texture_info_slot].GetAssetHandle(), needle, weight);
+  };
   int score = 0;
-  score += ScoreAssetTitle(material->PeekAlbedoTextureRef().GetAssetHandle(), "curtain", 5);
-  score += ScoreAssetTitle(material->PeekNormalTextureRef().GetAssetHandle(), "curtain", 3);
-  score += ScoreAssetTitle(material->PeekAlbedoTextureRef().GetAssetHandle(), "blue", 1);
-  score += ScoreAssetTitle(material->PeekAlbedoTextureRef().GetAssetHandle(), "green", 1);
+  const auto& shade_material = material->material_data.shade_material;
+  score += score_texture(shade_material.pbr_base_color_texture, "curtain", 5);
+  score += score_texture(shade_material.normal_texture, "curtain", 3);
+  score += score_texture(shade_material.pbr_base_color_texture, "blue", 1);
+  score += score_texture(shade_material.pbr_base_color_texture, "green", 1);
   return score;
 }
 
@@ -249,7 +257,7 @@ EditorLayoutSettings CreateRenderingDemoEditorLayout() {
   EditorLayoutSettings settings;
   settings.panels.scene = true;
   settings.panels.camera = true;
-  settings.panels.scene_info = false;
+  settings.panels.scene_info = true;
   settings.panels.camera_info = true;
   settings.panels.entity_explorer = true;
   settings.panels.entity_inspector = true;
@@ -318,6 +326,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
+      {DemoProfileId::RenderingRegression,
+       "rendering-regression",
+       "Rendering Regression",
+       "EvoEngineEditor",
+       "Cross-technique regression scene for materials, lights, skinning, and path tracing controls.",
+       "Launcher/DemoPreviews/rendering.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {}},
       {DemoProfileId::ProceduralGalaxy,
        "procedural-galaxy",
        "Procedural Galaxy",
@@ -342,6 +359,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        "EvoEngineEditor",
        "INRIA Bicycle Gaussian splat demo scene.",
        "Launcher/DemoPreviews/bicycle.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {}},
+      {DemoProfileId::Bistro,
+       "bistro",
+       "Bistro",
+       "EvoEngineEditor",
+       "Amazon Lumberyard Bistro glTF scene for path tracing validation.",
+       "Launcher/DemoPreviews/bistro.png",
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
@@ -428,6 +454,9 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
     case DemoProfileId::Rendering:
       return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "Rendering" /
                                                "Rendering.eveproj");
+    case DemoProfileId::RenderingRegression:
+      return path_utils::NormalizeAbsolutePath(resource_root / ".generated" / "EvoEngine-DemoProjects" /
+                                               "RenderingRegression" / "RenderingRegression.eveproj");
     case DemoProfileId::Ddgi:
       return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "CornellBox" /
                                                "CornellBox.eveproj");
@@ -453,6 +482,9 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
     case DemoProfileId::Bicycle:
       return path_utils::NormalizeAbsolutePath(resource_root / "EvoEngine-DemoProjects" / "Bicycle" /
                                                "Bicycle.eveproj");
+    case DemoProfileId::Bistro:
+      return path_utils::NormalizeAbsolutePath(resource_root / ".generated" / "EvoEngine-DemoProjects" / "Bistro" /
+                                               "Bistro.eveproj");
   }
   return {};
 }
@@ -465,7 +497,8 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     missing.emplace_back("Resources folder");
     return missing;
   }
-  if (id == DemoProfileId::Rendering || id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy) {
+  if (id == DemoProfileId::Rendering || id == DemoProfileId::RenderingRegression || id == DemoProfileId::Ddgi ||
+      id == DemoProfileId::ProceduralGalaxy) {
     return missing;
   }
   if (id == DemoProfileId::GaussianSplat) {
@@ -489,6 +522,33 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     }
     if (!std::filesystem::exists(asset_metadata_path) || std::filesystem::is_directory(asset_metadata_path)) {
       missing.emplace_back("bicycle.ply.evefilemeta");
+    }
+    return missing;
+  }
+  if (id == DemoProfileId::Bistro) {
+    const auto demo_root = resource_root / ".generated" / "EvoEngine-DemoProjects" / "Bistro";
+    const auto asset_root = demo_root / "Assets" / "Models" / "Bistro";
+    const auto asset_path = asset_root / "bistro.gltf";
+    const auto asset_metadata_path = std::filesystem::path(asset_path.string() + ".evefilemeta");
+    if (!std::filesystem::exists(demo_root / "Bistro.eveproj") ||
+        std::filesystem::is_directory(demo_root / "Bistro.eveproj")) {
+      missing.emplace_back("Bistro.eveproj");
+    }
+    if (!std::filesystem::exists(asset_path) || std::filesystem::is_directory(asset_path)) {
+      missing.emplace_back("bistro.gltf");
+    }
+    if (!std::filesystem::exists(asset_root / "bistro.bin") ||
+        std::filesystem::is_directory(asset_root / "bistro.bin")) {
+      missing.emplace_back("bistro.bin");
+    }
+    if (!std::filesystem::exists(asset_root / "textures") || !std::filesystem::is_directory(asset_root / "textures")) {
+      missing.emplace_back("textures");
+    }
+    if (!std::filesystem::exists(asset_root / "objects") || !std::filesystem::is_directory(asset_root / "objects")) {
+      missing.emplace_back("objects");
+    }
+    if (!std::filesystem::exists(asset_metadata_path) || std::filesystem::is_directory(asset_metadata_path)) {
+      missing.emplace_back("bistro.gltf.evefilemeta");
     }
     return missing;
   }
@@ -626,7 +686,7 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
       const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(owner).lock();
       const auto material = mesh_renderer ? mesh_renderer->material.Get<Material>() : nullptr;
       if (material) {
-        material->material_properties.emission = kDdgiCornellBoxCeilingLightEmission;
+        material->material_data.shade_material.emissive_factor = glm::vec3(kDdgiCornellBoxCeilingLightEmission);
         material->MarkDirty();
       }
     }

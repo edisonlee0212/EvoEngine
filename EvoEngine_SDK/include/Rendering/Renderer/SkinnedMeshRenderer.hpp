@@ -31,11 +31,19 @@ class SkinnedMeshRenderer : public IPrivateComponent {
   /// Stores the entities that are bound to the skinned mesh.
   std::vector<EntityRef> bound_entities_;
 
+  std::shared_ptr<RangeDescriptor> ray_tracing_meshlet_range_;
+  std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range_;
+  std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas_;
+  std::vector<glm::mat4> ray_tracing_bone_matrices_;
+  uint32_t ray_tracing_geometry_version_ = 0;
+
  public:
   /**
    * @brief Updates the bone matrices for the skinned mesh.
    */
   void UpdateBoneMatrices();
+
+  void UpdateRayTracingGeometry();
 
   /// A flag indicating whether the ragdoll should be frozen.
   bool rag_doll_freeze = false;

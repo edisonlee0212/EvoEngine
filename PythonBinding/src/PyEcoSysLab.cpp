@@ -195,7 +195,11 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .def_readwrite("background_intensity", &CameraSettings::background_intensity)
       .def_readwrite("sample_size", &CameraSettings::sample_size)
       .def_readwrite("bounce", &CameraSettings::bounce)
-      .def_readwrite("gamma", &CameraSettings::gamma);
+      .def_readwrite("gamma", &CameraSettings::gamma)
+      .def_readwrite("auto_spp_enabled", &CameraSettings::auto_spp_enabled)
+      .def_readwrite("auto_spp_min_samples", &CameraSettings::auto_spp_min_samples)
+      .def_readwrite("auto_spp_max_samples", &CameraSettings::auto_spp_max_samples)
+      .def_readwrite("auto_spp_convergence_threshold", &CameraSettings::auto_spp_convergence_threshold);
 
   py::class_<DatasetGenerator::CameraCaptureSettings>(m, "CameraCaptureSettings")
       .def(py::init<>())

@@ -54,9 +54,9 @@ class Cubemap final : public IAsset {
     glm::mat4 projection_view = {};
 
     /**
-     * @brief A preset value for additional configurations.
+     * @brief Equirectangular environment luminance-to-PDF scale.
      */
-    float preset_value = 0;
+    float environment_pdf_scale = 0.0f;
   };
 
   /**

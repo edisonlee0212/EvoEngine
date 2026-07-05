@@ -906,6 +906,7 @@ class EditorLayer : public ILayer {
   void DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& editor_layer);
   void RequestEditorLayout(const EditorLayoutSettings& settings);
   void RequestSceneCameraPreviewWindow(const glm::uvec2& size);
+  void SetSceneCameraResolutionOverride(const std::optional<glm::uvec2>& size);
 
  private:
   ImGuiID dock_space_id;
@@ -1093,6 +1094,7 @@ class EditorLayer : public ILayer {
 
   int scene_camera_resolution_x_ = 1; /**< Scene camera resolution width. */
   int scene_camera_resolution_y_ = 1; /**< Scene camera resolution height. */
+  std::optional<glm::uvec2> scene_camera_resolution_override_;
 
   bool lock_entity_selection_ = false; /**< Indicates if entity selection is locked. */
 

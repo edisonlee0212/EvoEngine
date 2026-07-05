@@ -1,5 +1,7 @@
 
 #pragma once
+#include <string>
+#include <vector>
 #include "Bound.hpp"
 #include "CameraSettings.hpp"
 #include "IPrivateComponent.hpp"
@@ -29,10 +31,18 @@ struct CameraInfoBlock {
   int camera_use_clear_color = 0;                  ///< Flag to indicate if the camera uses the clear color.
 
   // Ray tracing
-  uint32_t padding = 0;
+  uint32_t firefly_clamp_enabled = 1;
   float gamma = 2.2f;
   uint32_t sample_size = 4;
   uint32_t bounce = 4;
+  float firefly_clamp_threshold = 10.0f;
+  uint32_t auto_spp_enabled = 0;
+  uint32_t auto_spp_min_samples = 16;
+  uint32_t auto_spp_max_samples = 256;
+  float auto_spp_convergence_threshold = 0.01f;
+  uint32_t auto_spp_padding0 = 0;
+  uint32_t auto_spp_padding1 = 0;
+  uint32_t auto_spp_padding2 = 0;
 
   /**
    * @brief Projects a 3D world position into 2D screen space.
@@ -60,8 +70,30 @@ class Camera final : public IPrivateComponent {
    */
   enum class CameraRenderMode {
     Rasterization,  ///< Render using rasterization.
-    RayTracing      ///< Render using ray tracing.
+    RayTracing,     ///< Render using the ray tracing pipeline.
+    RayQuery        ///< Render using the ray-query camera path when supported, otherwise falls back.
   };
+
+  static constexpr uint32_t kCameraRenderModeCount = 3;
+  static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
+
+  [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
+  [[nodiscard]] static const char* GetCameraRenderModeName(CameraRenderMode mode);
+  [[nodiscard]] static const std::vector<std::string>& GetShaderExecutionReorderingModeNames();
+  [[nodiscard]] static const char* GetShaderExecutionReorderingModeName(
+      CameraSettings::ShaderExecutionReorderingMode mode);
+  [[nodiscard]] static CameraSettings::ShaderExecutionReorderingMode ParseShaderExecutionReorderingMode(
+      const std::string& value,
+      CameraSettings::ShaderExecutionReorderingMode fallback = CameraSettings::ShaderExecutionReorderingMode::Disabled);
+  [[nodiscard]] static CameraSettings::ShaderExecutionReorderingMode NormalizeShaderExecutionReorderingMode(
+      uint32_t mode);
+  [[nodiscard]] static bool ResolveShaderExecutionReorderingEnabled(
+      CameraSettings::ShaderExecutionReorderingMode requested_mode);
+  [[nodiscard]] static CameraRenderMode ParseCameraRenderMode(
+      const std::string& value, CameraRenderMode fallback = CameraRenderMode::Rasterization);
+  [[nodiscard]] static CameraRenderMode NormalizeCameraRenderMode(uint32_t mode);
+  [[nodiscard]] static bool IsRayCameraRenderMode(CameraRenderMode mode);
+  [[nodiscard]] static CameraRenderMode ResolveCameraRenderMode(CameraRenderMode requested_mode);
 
   CameraRenderMode camera_render_mode = CameraRenderMode::Rasterization;  ///< The current rendering mode.
 
@@ -105,6 +137,7 @@ class Camera final : public IPrivateComponent {
    * @return The resolution size as a 2D vector.
    */
   [[nodiscard]] glm::uvec2 GetSize() const;
+  [[nodiscard]] uint32_t GetFrameCount() const;
 
   /**
    * @brief Resizes the camera to the specified resolution size.

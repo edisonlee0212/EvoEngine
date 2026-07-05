@@ -43,19 +43,19 @@ void SetSoilPhysicalMaterial(procedural_noise::ProceduralNoise3D& c, procedural_
   clay_ratio = clay_ratio * compactness / weight;
   const float air_ratio = 1.f - compactness;
 
-  static glm::vec2 sand_material_properties = glm::vec2(0.9f, 15.0f);
-  static glm::vec2 silt_material_properties = glm::vec2(1.9f, 1.5f);
-  static glm::vec2 clay_material_properties = glm::vec2(2.1f, 0.05f);
-  static glm::vec2 air_material_properties = glm::vec2(5.0f, 30.0f);
+  static glm::vec2 sand_physical_coefficients = glm::vec2(0.9f, 15.0f);
+  static glm::vec2 silt_physical_coefficients = glm::vec2(1.9f, 1.5f);
+  static glm::vec2 clay_physical_coefficients = glm::vec2(2.1f, 0.05f);
+  static glm::vec2 air_physical_coefficients = glm::vec2(5.0f, 30.0f);
   /*
   c.noise_descriptors.resize(1);
   p.noise_descriptors.resize(1);
   c.noise_descriptors[0].type = 0;
   c.noise_descriptors[1].type = 0;
-  c.noise_descriptors[0].offset = sand_ratio * sand_material_properties.x + silt_ratio * silt_material_properties.x +
-                                  clay_ratio * clay_material_properties.x + air_ratio * air_material_properties.x;
-  p.noise_descriptors[0].offset = sand_ratio * sand_material_properties.y + silt_ratio * silt_material_properties.y +
-                                  clay_ratio * clay_material_properties.y + air_ratio * air_material_properties.y;*/
+  c.noise_descriptors[0].offset = sand_ratio * sand_physical_coefficients.x + silt_ratio * silt_physical_coefficients.x
+  + clay_ratio * clay_physical_coefficients.x + air_ratio * air_physical_coefficients.x; p.noise_descriptors[0].offset =
+  sand_ratio * sand_physical_coefficients.y + silt_ratio * silt_physical_coefficients.y + clay_ratio *
+  clay_physical_coefficients.y + air_ratio * air_physical_coefficients.y;*/
 }
 
 bool SoilLayerDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {

@@ -84,39 +84,41 @@ void SorghumLayer::RegisterTypes(Application& application) {
 }
 
 void SorghumLayer::OnCreate() {
+  const auto configure_material = [](const std::shared_ptr<Material>& material,
+                                     const std::shared_ptr<Texture2D>& texture, const glm::vec3& color,
+                                     const float roughness, const float metallic) {
+    material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, texture);
+    auto& shade_material = material->material_data.shade_material;
+    shade_material.pbr_base_color_factor = glm::vec4(color, 1.0f);
+    shade_material.pbr_roughness_factor = roughness;
+    shade_material.pbr_metallic_factor = metallic;
+    material->MarkDirty();
+  };
   if (!leaf_material.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     leaf_material = material;
-    material->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
-    material->material_properties.albedo_color = glm::vec3(113.0f / 255, 169.0f / 255, 44.0f / 255);
-    material->material_properties.roughness = 0.8f;
-    material->material_properties.metallic = 0.1f;
+    configure_material(material, leaf_albedo_texture.Get<Texture2D>(),
+                       glm::vec3(113.0f / 255, 169.0f / 255, 44.0f / 255), 0.8f, 0.1f);
   }
 
   if (!leaf_bottom_face_material.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     leaf_bottom_face_material = material;
-    material->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
-    material->material_properties.albedo_color = glm::vec3(113.0f / 255, 169.0f / 255, 44.0f / 255);
-    material->material_properties.roughness = 0.8f;
-    material->material_properties.metallic = 0.1f;
+    configure_material(material, leaf_albedo_texture.Get<Texture2D>(),
+                       glm::vec3(113.0f / 255, 169.0f / 255, 44.0f / 255), 0.8f, 0.1f);
   }
 
   if (!panicle_material.Get<Material>()) {
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     panicle_material = material;
-    material->material_properties.albedo_color = glm::vec3(255.0 / 255, 210.0 / 255, 0.0 / 255);
-    material->material_properties.roughness = 0.5f;
-    material->material_properties.metallic = 0.0f;
+    configure_material(material, nullptr, glm::vec3(255.0 / 255, 210.0 / 255, 0.0 / 255), 0.5f, 0.0f);
   }
 
   for (auto& i : segmented_leaf_materials) {
     if (!i.Get<Material>()) {
       const auto material = AssetManager::CreateTemporaryAsset<Material>();
       i = material;
-      material->material_properties.albedo_color = glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f));
-      material->material_properties.roughness = 1.0f;
-      material->material_properties.metallic = 0.0f;
+      configure_material(material, nullptr, glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)), 1.0f, 0.0f);
     }
   }
 }
@@ -247,14 +249,14 @@ bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context,
   if (editor_layer->DragAndDropButton<Texture2D>(leaf_albedo_texture, "Replace Leaf Albedo Texture")) {
     auto tex = leaf_albedo_texture.Get<Texture2D>();
     if (tex) {
-      leaf_material.Get<Material>()->SetAlbedoTexture(leaf_albedo_texture.Get<Texture2D>());
+      leaf_material.Get<Material>()->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, tex);
       if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
           sorghum_entities && !sorghum_entities->empty()) {
         for (const auto& sorghum_entity : *sorghum_entities) {
           for (const auto child : scene->GetChildren(sorghum_entity)) {
             if (scene->HasPrivateComponent<MeshRenderer>(child)) {
-              scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetAlbedoTexture(
-                  leaf_albedo_texture.Get<Texture2D>());
+              scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetTexture(
+                  &GltfShadeMaterial::pbr_base_color_texture, tex);
             }
           }
         }
@@ -265,14 +267,14 @@ bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context,
   if (editor_layer->DragAndDropButton<Texture2D>(leaf_normal_texture, "Replace Leaf Normal Texture")) {
     auto tex = leaf_normal_texture.Get<Texture2D>();
     if (tex) {
-      leaf_material.Get<Material>()->SetNormalTexture(leaf_normal_texture.Get<Texture2D>());
+      leaf_material.Get<Material>()->SetTexture(&GltfShadeMaterial::normal_texture, tex);
       if (const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
           sorghum_entities && !sorghum_entities->empty()) {
         for (const auto& sorghum_entity : *sorghum_entities) {
           for (const auto child : scene->GetChildren(sorghum_entity)) {
             if (scene->HasPrivateComponent<MeshRenderer>(child)) {
-              scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetNormalTexture(
-                  leaf_albedo_texture.Get<Texture2D>());
+              scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->material.Get<Material>()->SetTexture(
+                  &GltfShadeMaterial::normal_texture, tex);
             }
           }
         }

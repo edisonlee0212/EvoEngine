@@ -10,10 +10,6 @@
 #define SCENE_INFO_BLOCK_BINDING 2
 #include "Trace.glsl"
 
-#define EE_MATERIALS_BLOCK_SET 0
-#define EE_MATERIALS_BLOCK_BINDING 3
-#include "Materials.glsl"
-
 #define EE_INSTANCES_BLOCK_SET 0
 #define EE_INSTANCES_BLOCK_BINDING 4
 #include "Instances.glsl"
@@ -22,6 +18,11 @@
 #define EE_TEXTURE_2DS_BINDING 6
 #define EE_CUBEMAPS_BINDING 7
 #include "Textures.glsl"
+#define EE_GLTF_MATERIALS_BLOCK_SET 0
+#define EE_GLTF_MATERIALS_BLOCK_BINDING 11
+#define EE_GLTF_TEXTURE_INFOS_BLOCK_SET 0
+#define EE_GLTF_TEXTURE_INFOS_BLOCK_BINDING 12
+#include "GltfRasterMaterial.glsl"
 
 #include "Random.glsl"
 //Following resource will be bind via No.1 descriptor set.
@@ -87,15 +88,11 @@ void Execute(uint pixel_index) {
 	HitInfo hit_info = Trace(ray_descriptor, false, false, hit);
 	if (hit) {
 		uint material_index = EE_INSTANCES[hit_info.instance_index].material_index;
-		MaterialProperties mat_props = EE_MATERIAL_PROPERTIES[material_index];
 		Vertex p0, p1, p2;
 		GetTriangle(hit_info.triangle_index, p0, p1, p2);
 		vec2 tex_coord = hit_info.barycentric.x * p0.tex_coord + hit_info.barycentric.y * p1.tex_coord + hit_info.barycentric.z * p2.tex_coord;
-		vec4 albedo = mat_props.albedo;
-		if (mat_props.albedo_map_index != -1) {
-			albedo = texture(EE_TEXTURE_2DS[mat_props.albedo_map_index], tex_coord);
-		}
-		color = albedo;
+		GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
+		color = surface.base_color;
 	}
 	vec4 accumlated = imageLoad(result_image, ivec2(x_coordinate, y_coordinate)) * sample_count;
 	imageStore(result_image, ivec2(x_coordinate, y_coordinate), (color + accumlated) / (sample_count + 1));

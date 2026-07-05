@@ -1,8 +1,8 @@
 
 #pragma once
 #include "AssetRef.hpp"
+#include "GltfMaterial.hpp"
 #include "IAsset.hpp"
-#include "MaterialProperties.hpp"
 #include "Platform.hpp"
 #include "Texture2D.hpp"
 namespace evo_engine {
@@ -49,14 +49,14 @@ struct DrawSettings {
 class Material final : public IAsset {
   friend class RenderLayer;
 
-  bool need_update_ = true;     ///< Indicates if the material needs to be updated.
-  AssetRef albedo_texture_;     ///< Reference to the albedo (diffuse) texture.
-  AssetRef normal_texture_;     ///< Reference to the normal map texture.
-  AssetRef metallic_texture_;   ///< Reference to the metallic texture.
-  AssetRef roughness_texture_;  ///< Reference to the roughness texture.
-  AssetRef ao_texture_;         ///< Reference to the ambient occlusion texture.
+  bool need_update_ = true;  ///< Indicates if the material needs to be updated.
+  std::vector<AssetRef> texture_refs_{AssetRef{}};
+
+  void ResizeTextureRefs();
 
  public:
+  Material();
+
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
@@ -72,76 +72,19 @@ class Material final : public IAsset {
    */
   ~Material() override;
 
-  /**
-   * @brief Sets the albedo texture for the material.
-   * @param texture A shared pointer to the texture to be set.
-   */
-  void SetAlbedoTexture(const std::shared_ptr<Texture2D>& texture);
-
-  /**
-   * @brief Sets the normal texture for the material.
-   * @param texture A shared pointer to the texture to be set.
-   */
-  void SetNormalTexture(const std::shared_ptr<Texture2D>& texture);
-
-  /**
-   * @brief Sets the metallic texture for the material.
-   * @param texture A shared pointer to the texture to be set.
-   */
-  void SetMetallicTexture(const std::shared_ptr<Texture2D>& texture);
-
-  /**
-   * @brief Sets the roughness texture for the material.
-   * @param texture A shared pointer to the texture to be set.
-   */
-  void SetRoughnessTexture(const std::shared_ptr<Texture2D>& texture);
-
-  /**
-   * @brief Sets the ambient occlusion texture for the material.
-   * @param texture A shared pointer to the texture to be set.
-   */
-  void SetAoTexture(const std::shared_ptr<Texture2D>& texture);
-
-  /**
-   * @brief Retrieves the albedo texture.
-   * @return A shared pointer to the albedo texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GetAlbedoTexture();
-
-  /**
-   * @brief Retrieves the normal texture.
-   * @return A shared pointer to the normal texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GetNormalTexture();
-
-  /**
-   * @brief Retrieves the metallic texture.
-   * @return A shared pointer to the metallic texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GetMetallicTexture();
-
-  /**
-   * @brief Retrieves the roughness texture.
-   * @return A shared pointer to the roughness texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GetRoughnessTexture();
-
-  /**
-   * @brief Retrieves the ambient occlusion texture.
-   * @return A shared pointer to the ambient occlusion texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GetAoTexture();
-
-  [[nodiscard]] const AssetRef& PeekAlbedoTextureRef() const;
-  [[nodiscard]] const AssetRef& PeekNormalTextureRef() const;
-  [[nodiscard]] const AssetRef& PeekMetallicTextureRef() const;
-  [[nodiscard]] const AssetRef& PeekRoughnessTextureRef() const;
-  [[nodiscard]] const AssetRef& PeekAoTextureRef() const;
-  [[nodiscard]] AssetRef& RefAlbedoTextureRef();
-  [[nodiscard]] AssetRef& RefNormalTextureRef();
-  [[nodiscard]] AssetRef& RefMetallicTextureRef();
-  [[nodiscard]] AssetRef& RefRoughnessTextureRef();
-  [[nodiscard]] AssetRef& RefAoTextureRef();
+  uint16_t SetTexture(uint16_t GltfShadeMaterial::* slot, const std::shared_ptr<Texture2D>& texture,
+                      int32_t tex_coord = 0, const glm::mat3x2& uv_transform = glm::mat3x2(1.0f));
+  void SetTexture(uint16_t texture_info_slot, const std::shared_ptr<Texture2D>& texture);
+  uint16_t SetTextureRef(uint16_t GltfShadeMaterial::* slot, const AssetRef& texture_ref, int32_t tex_coord = 0,
+                         const glm::mat3x2& uv_transform = glm::mat3x2(1.0f));
+  void SetTextureRef(uint16_t texture_info_slot, const AssetRef& texture_ref);
+  [[nodiscard]] std::shared_ptr<Texture2D> GetTexture(uint16_t GltfShadeMaterial::* slot);
+  [[nodiscard]] std::shared_ptr<Texture2D> GetTexture(uint16_t texture_info_slot);
+  [[nodiscard]] const std::vector<AssetRef>& PeekTextureRefs() const;
+  [[nodiscard]] std::vector<AssetRef>& RefTextureRefs();
+  [[nodiscard]] GltfMaterialData BuildGltfMaterialData();
+  void SetGltfMaterialData(const GltfMaterialData& data);
+  void SyncRenderStateFromGltfMaterial();
 
   /**
    * @brief Marks the material as requiring a render data update.
@@ -150,8 +93,8 @@ class Material final : public IAsset {
 
   bool vertex_color_only = false;  ///< When true, only vertex colors are used for rendering this material.
 
-  MaterialProperties material_properties;  ///< Material-specific properties.
-  DrawSettings draw_settings;              ///< Rendering draw settings for the material.
+  GltfMaterialData material_data;
+  DrawSettings draw_settings;  ///< Rendering draw settings for the material.
 
   /**
    * @brief Collects references to all assets used by this material.

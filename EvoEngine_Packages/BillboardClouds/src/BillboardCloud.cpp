@@ -599,32 +599,45 @@ void PbrMaterial::Clear() {
 
 void PbrMaterial::ApplyMaterial(const std::shared_ptr<Material>& material,
                                 const BillboardCloud::RasterizeSettings& rasterize_settings) {
-  base_albedo = glm::vec4(material->material_properties.albedo_color, 1.f - material->material_properties.transmission);
-  base_roughness = material->material_properties.roughness;
-  base_metallic = material->material_properties.metallic;
+  const auto& shade_material = material->material_data.shade_material;
+  base_albedo = shade_material.pbr_base_color_factor;
+  base_roughness = shade_material.pbr_roughness_factor;
+  base_metallic = shade_material.pbr_metallic_factor;
   base_ao = 1.f;
 
-  if (const auto albedo_texture = material->GetAlbedoTexture();
+  if (const auto albedo_texture = material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
       rasterize_settings.transfer_albedo_map && albedo_texture) {
     albedo_texture->GetRgbaChannelData(albedo_texture_data);
     albedo_texture_resolution = albedo_texture->GetResolution();
   }
-  if (const auto normal_texture = material->GetNormalTexture();
+  if (const auto normal_texture = material->GetTexture(&GltfShadeMaterial::normal_texture);
       rasterize_settings.transfer_normal_map && normal_texture) {
     normal_texture->GetRgbChannelData(normal_texture_data);
     normal_texture_resolution = normal_texture->GetResolution();
   }
-  if (const auto roughness_texture = material->GetRoughnessTexture();
-      rasterize_settings.transfer_roughness_map && roughness_texture) {
-    roughness_texture->GetRedChannelData(roughness_texture_data);
-    roughness_texture_resolution = roughness_texture->GetResolution();
+  if (const auto metallic_roughness_texture = material->GetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture);
+      (rasterize_settings.transfer_roughness_map || rasterize_settings.transfer_metallic_map) &&
+      metallic_roughness_texture) {
+    std::vector<glm::vec3> metallic_roughness_data;
+    metallic_roughness_texture->GetRgbChannelData(metallic_roughness_data);
+    const auto resolution = metallic_roughness_texture->GetResolution();
+    if (rasterize_settings.transfer_roughness_map) {
+      roughness_texture_data.resize(metallic_roughness_data.size());
+      Jobs::RunParallelFor(metallic_roughness_data.size(), [&](const size_t pixel_index) {
+        roughness_texture_data[pixel_index] = metallic_roughness_data[pixel_index].g;
+      });
+      roughness_texture_resolution = resolution;
+    }
+    if (rasterize_settings.transfer_metallic_map) {
+      metallic_texture_data.resize(metallic_roughness_data.size());
+      Jobs::RunParallelFor(metallic_roughness_data.size(), [&](const size_t pixel_index) {
+        metallic_texture_data[pixel_index] = metallic_roughness_data[pixel_index].b;
+      });
+      metallic_texture_resolution = resolution;
+    }
   }
-  if (const auto metallic_texture = material->GetMetallicTexture();
-      rasterize_settings.transfer_metallic_map && metallic_texture) {
-    metallic_texture->GetRedChannelData(metallic_texture_data);
-    metallic_texture_resolution = metallic_texture->GetResolution();
-  }
-  if (const auto ao_texture = material->GetAoTexture(); rasterize_settings.transfer_ao_map && ao_texture) {
+  if (const auto ao_texture = material->GetTexture(&GltfShadeMaterial::occlusion_texture);
+      rasterize_settings.transfer_ao_map && ao_texture) {
     ao_texture->GetRedChannelData(ao_texture_data);
     ao_texture_resolution = ao_texture->GetResolution();
   }
@@ -642,8 +655,9 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
     auto material_handle = material->GetHandle();
     pbr_materials[material_handle].ApplyMaterial(material, rasterize_settings);
 
-    average_roughness += material->material_properties.roughness;
-    average_metallic += material->material_properties.metallic;
+    const auto& shade_material = material->material_data.shade_material;
+    average_roughness += shade_material.pbr_roughness_factor;
+    average_metallic += shade_material.pbr_metallic_factor;
     average_ao += 1.f;
   }
   average_roughness /= elements.size();
@@ -913,7 +927,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
         res, glm::uvec2(rasterize_settings.output_albedo_resolution.x, rasterize_settings.output_albedo_resolution.y));
   }
   albedo_texture->UnsafeUploadDataImmediately();
-  billboard_cloud_material->SetAlbedoTexture(albedo_texture);
+  billboard_cloud_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, albedo_texture);
 
   std::shared_ptr<Texture2D> normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
@@ -927,7 +941,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
                                                       rasterize_settings.output_material_props_resolution.y));
   }
   normal_texture->UnsafeUploadDataImmediately();
-  billboard_cloud_material->SetNormalTexture(normal_texture);
+  billboard_cloud_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture);
 
   std::shared_ptr<Texture2D> roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
@@ -941,7 +955,6 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
                                                          rasterize_settings.output_material_props_resolution.y));
   }
   roughness_texture->UnsafeUploadDataImmediately();
-  billboard_cloud_material->SetRoughnessTexture(roughness_texture);
 
   std::shared_ptr<Texture2D> metallic_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
@@ -955,7 +968,20 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
                                                         rasterize_settings.output_material_props_resolution.y));
   }
   metallic_texture->UnsafeUploadDataImmediately();
-  billboard_cloud_material->SetMetallicTexture(metallic_texture);
+
+  std::vector<float> roughness_data;
+  std::vector<float> metallic_data;
+  roughness_texture->GetRedChannelData(roughness_data);
+  metallic_texture->GetRedChannelData(metallic_data);
+  std::vector<glm::vec3> metallic_roughness_data(roughness_data.size(), glm::vec3(1.0f));
+  Jobs::RunParallelFor(metallic_roughness_data.size(), [&](const size_t pixel_index) {
+    metallic_roughness_data[pixel_index].g = roughness_data[pixel_index];
+    metallic_roughness_data[pixel_index].b = metallic_data[pixel_index];
+  });
+  const auto metallic_roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  metallic_roughness_texture->SetRgbChannelData(metallic_roughness_data, roughness_texture->GetResolution());
+  metallic_roughness_texture->UnsafeUploadDataImmediately();
+  billboard_cloud_material->SetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture, metallic_roughness_texture);
 
   std::shared_ptr<Texture2D> ao_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (rasterize_settings.base_resolution == rasterize_settings.output_material_props_resolution) {
@@ -969,7 +995,7 @@ void BillboardCloud::Rasterize(const RasterizeSettings& rasterize_settings) {
                                                   rasterize_settings.output_material_props_resolution.y));
   }
   ao_texture->UnsafeUploadDataImmediately();
-  billboard_cloud_material->SetAoTexture(ao_texture);
+  billboard_cloud_material->SetTexture(&GltfShadeMaterial::occlusion_texture, ao_texture);
 }
 
 void BillboardCloud::Generate(const GenerateSettings& generate_settings) {

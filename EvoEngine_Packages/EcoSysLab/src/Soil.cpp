@@ -10,6 +10,46 @@
 
 using namespace eco_sys_lab_package;
 
+namespace {
+std::shared_ptr<Texture2D> PackMetallicRoughnessTexture(const std::shared_ptr<Texture2D>& roughness_texture,
+                                                        const std::shared_ptr<Texture2D>& metallic_texture,
+                                                        const float roughness_factor = 1.0f,
+                                                        const float metallic_factor = 1.0f) {
+  const auto source_texture = roughness_texture ? roughness_texture : metallic_texture;
+  if (!source_texture) {
+    return nullptr;
+  }
+  const auto resolution = source_texture->GetResolution();
+  const auto pixel_count = static_cast<size_t>(resolution.x) * resolution.y;
+  std::vector<float> roughness_data(pixel_count, roughness_factor);
+  std::vector<float> metallic_data(pixel_count, metallic_factor);
+  if (roughness_texture && roughness_texture->GetResolution() == resolution) {
+    roughness_texture->GetRedChannelData(roughness_data);
+  }
+  if (metallic_texture && metallic_texture->GetResolution() == resolution) {
+    metallic_texture->GetRedChannelData(metallic_data);
+  }
+  std::vector<glm::vec3> metallic_roughness_data(pixel_count, glm::vec3(1.0f));
+  for (size_t i = 0; i < pixel_count; ++i) {
+    metallic_roughness_data[i].g = roughness_data[i];
+    metallic_roughness_data[i].b = metallic_data[i];
+  }
+  const auto metallic_roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  metallic_roughness_texture->SetRgbChannelData(metallic_roughness_data, resolution);
+  return metallic_roughness_texture;
+}
+
+void SetMaterialTextures(const std::shared_ptr<Material>& material, const std::shared_ptr<Texture2D>& albedo_texture,
+                         const std::shared_ptr<Texture2D>& normal_texture,
+                         const std::shared_ptr<Texture2D>& roughness_texture,
+                         const std::shared_ptr<Texture2D>& metallic_texture) {
+  material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, albedo_texture);
+  material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture);
+  material->SetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture,
+                       PackMetallicRoughnessTexture(roughness_texture, metallic_texture));
+}
+}  // namespace
+
 bool Soil::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (editor_layer->DragAndDropButton<SoilDescriptor>(soil_descriptor_ref, "SoilDescriptor", true)) {
@@ -279,10 +319,7 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
   normal_tex->SetRgbChannelData(normal_data, texture_resolution);
   metallic_tex->SetRedChannelData(metallic_data, texture_resolution);
   roughness_tex->SetRedChannelData(roughness_data, texture_resolution);
-  material->SetAlbedoTexture(albedo_tex);
-  material->SetNormalTexture(normal_tex);
-  material->SetMetallicTexture(metallic_tex);
-  material->SetRoughnessTexture(roughness_tex);
+  SetMaterialTextures(material, albedo_tex, normal_tex, roughness_tex, metallic_tex);
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(quad_entity).lock();
   mesh_renderer->material = material;
   material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
@@ -328,10 +365,7 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   normal_tex->SetRgbChannelData(normal_data, texture_resolution);
   metallic_tex->SetRedChannelData(metallic_data, texture_resolution);
   roughness_tex->SetRedChannelData(roughness_data, texture_resolution);
-  material->SetAlbedoTexture(albedo_tex);
-  material->SetNormalTexture(normal_tex);
-  material->SetMetallicTexture(metallic_tex);
-  material->SetRoughnessTexture(roughness_tex);
+  SetMaterialTextures(material, albedo_tex, normal_tex, roughness_tex, metallic_tex);
 
   mesh_renderer->material = material;
   material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
@@ -385,10 +419,10 @@ Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, fl
         if (auto first_descriptor = soil_layer_descriptors[0].Get<SoilLayerDescriptor>()) {
           auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(ground_surface).lock();
           auto mat = mmr->material.Get<Material>();
-          mat->SetAlbedoTexture(first_descriptor->albedo_texture.Get<Texture2D>());
-          mat->SetNormalTexture(first_descriptor->normal_texture.Get<Texture2D>());
-          mat->SetRoughnessTexture(first_descriptor->roughness_texture.Get<Texture2D>());
-          mat->SetMetallicTexture(first_descriptor->metallic_texture.Get<Texture2D>());
+          SetMaterialTextures(mat, first_descriptor->albedo_texture.Get<Texture2D>(),
+                              first_descriptor->normal_texture.Get<Texture2D>(),
+                              first_descriptor->roughness_texture.Get<Texture2D>(),
+                              first_descriptor->metallic_texture.Get<Texture2D>());
         }
       }
     }
@@ -419,10 +453,10 @@ Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool gro
         if (const auto first_descriptor = soil_layer_descriptors[0].Get<SoilLayerDescriptor>()) {
           auto mmr = scene->GetOrSetPrivateComponent<MeshRenderer>(surface).lock();
           auto mat = mmr->material.Get<Material>();
-          mat->SetAlbedoTexture(first_descriptor->albedo_texture.Get<Texture2D>());
-          mat->SetNormalTexture(first_descriptor->normal_texture.Get<Texture2D>());
-          mat->SetRoughnessTexture(first_descriptor->roughness_texture.Get<Texture2D>());
-          mat->SetMetallicTexture(first_descriptor->metallic_texture.Get<Texture2D>());
+          SetMaterialTextures(mat, first_descriptor->albedo_texture.Get<Texture2D>(),
+                              first_descriptor->normal_texture.Get<Texture2D>(),
+                              first_descriptor->roughness_texture.Get<Texture2D>(),
+                              first_descriptor->metallic_texture.Get<Texture2D>());
         }
       }
     }

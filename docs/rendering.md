@@ -53,11 +53,14 @@ reactivate probes after geometry or source changes; non-fixed inactive rays writ
 trace.
 Miss rays write explicit miss radiance from authored constant environment background when available, and back-facing
 triangle hits are encoded with negative ray radiance alpha so update passes can distinguish them from front-facing
-radiance samples. The DDGI TLAS contains mesh-compatible render instances: deferred, forward, transparent, and instanced
-`Mesh` instances that already have mesh BLAS data and the standard triangle/material payload.
-Skinned meshes and strands are intentionally ignored by DDGI. External render instances are also ignored by default; they
-can participate only when registered with `DdgiExternalGeometry`, which supplies a BLAS plus a triangle offset compatible
-with the standard `EE_INDICES`/`EE_VERTICES` and material payload used by the DDGI closest-hit shader. The closest-hit
+radiance samples. The DDGI TLAS contains mesh-compatible render instances: deferred, forward, transparent, instanced
+`Mesh` instances, and `SkinnedMesh` instances that already have BLAS data and the standard triangle/material payload.
+Skinned renderers build a per-renderer animated ray-tracing payload from current bone matrices before geometry uploads
+are flushed and TLAS is rebuilt; if an animated payload is not ready yet, the static bind-pose mirror remains the
+fallback. Strands are intentionally ignored by DDGI. External render instances are also
+ignored by default; they can participate only when registered with `DdgiExternalGeometry`, which supplies a BLAS plus a
+triangle offset compatible with the standard `EE_INDICES`/`EE_VERTICES` and material payload used by the DDGI closest-hit
+shader. The closest-hit
 shader currently uses geometry normals and material constant albedo, respects material cull mode for DDGI ray hits, then
 explicitly evaluates every enabled directional, point, and spot light at the hit point. Point and spot DDGI light queries
 respect the light-block far plane before applying attenuation, and shadow-casting direct lights cast hard TLAS shadow rays
@@ -72,8 +75,13 @@ classification feedback. Front-facing DDGI ray radiance remains HDR until the pr
 encoding clamp. It also samples the previous DDGI
 irradiance and visibility atlases at the hit point for a recursive diffuse bounce, with clamped recursive albedo to keep
 energy stable. Scene-owned DDGI runtime settings expose `indirect_intensity`, which drives both deferred DDGI diffuse
-sampling and recursive probe-hit sampling. The closest-hit path intentionally avoids material texture fetches because
-DDGI updates can run while scene texture descriptors are still being populated during load.
+sampling and recursive probe-hit sampling. The closest-hit path samples the same canonical glTF material data used by
+the camera render paths. During editor/project startup, RenderLayer defers persistent DDGI probe tracing while project
+assets are still loading or texture uploads are still pending, clears the probe atlases, contributes no indirect light,
+waits one stable frame after the first tracked or newly ready scene-input snapshot, and then performs a scene-input
+refresh after the project reaches idle so fallback material frames do not poison probe history. Scene-input and material
+refreshes clear the persistent atlases and recreate probe state, matching manual reset behavior for startup/material
+readiness without blocking the normal editor viewport.
 
 `DDGIProbeUpdate` consumes that ray-output buffer and writes directional octahedral irradiance tiles plus directional
 visibility-moment tiles through a graph compute pass. Steady-state probe updates use the configured hysteresis value.
@@ -175,10 +183,11 @@ authored-volume movement, and non-scroll DDGI source changes still fall back to 
 
 ### DDGI Baseline Notes
 
-The current Rendering Demo baseline disables static environment light, leaves the Capoeira entity disabled for idle
-editor accumulation, and enables a scene-owned DDGI volume at 10x6x16 probes, 1.5 spacing, local volume origin
-(0, 3, 3), 64 rays per probe, 16384 ray samples per frame, 0.02 normal/visibility bias, relocation enabled,
-classification disabled, adaptive ray-sample budgeting enabled, and probe visualization scale 2.0.
+The current Rendering Demo baseline disables static environment light, disables punctual lights imported inside the
+Sponza FBX prefab so they do not act as hidden direct lights, leaves the Capoeira entity disabled for idle editor
+accumulation, and enables a scene-owned DDGI volume at 10x6x16 probes, 1.5 spacing, local volume origin (0, 3, 3),
+64 rays per probe, 16384 ray samples per frame, 0.02 normal/visibility bias, relocation enabled, classification
+disabled, adaptive ray-sample budgeting enabled, and probe visualization scale 2.0.
 The expected comparison behavior is direct white/yellow scene lighting plus DDGI indirect response, no stale blue probe
 light after reset or disabled lights, scene-camera-only GPU probe visualization, and main-camera ray tracing configured after
 the scene loads for README/smoke setup. The visible yellow point-light sphere is marked non-shadow-casting so DDGI TLAS
@@ -246,7 +255,7 @@ aspect-fit presentation and mouse mapping as a fallback, so camera output is not
 Focused atlas seam-safety tests validate that wrapped border texels map back to same-tile interior texels for row,
 column, and corner borders.
 
-### 3DGS Demo Notes
+### Generated Demo Notes
 
 The `3dgs` launcher profile opens a script-generated 3D Gaussian Splatting project under
 `Resources/EvoEngine-DemoProjects/3DGS`. Run `python Scripts/generate_3dgs_demo.py` from the repository root to download
@@ -261,7 +270,112 @@ download INRIA's pretrained `models.zip`, extract only
 script removes `models.zip` after extraction by default; pass `--keep-archive` only when the local archive is
 intentionally needed. The Bicycle profile uses SH degree 3 by default because the pretrained scene includes SH rest data.
 
-The generator writes deterministic asset metadata for a `GaussianSplat` asset and can optionally run
+The `bistro` launcher profile opens a local ignored glTF validation project under
+`Resources/.generated/EvoEngine-DemoProjects/Bistro`. Run `python Scripts/generate_bistro_demo.py` from the repository
+root to fetch or reuse `https://github.com/zeux/niagara_bistro`, verify `bistro.gltf`, and prepare the project assets
+under `Assets/Models/Bistro`. The script records the selected source counts, including `MSFT_texture_dds` textures and
+image URI alternates, and falls back from symlinks to copies on Windows when symlink creation is unavailable. Bistro is
+kept under `Resources/.generated` so the large source checkout and generated demo project remain local branch evidence
+instead of Resources submodule content. The current `zeux/niagara_bistro` assets use BC7 DDS textures; EvoEngine now
+parses DX10 DDS headers for `DXGI_FORMAT_BC7_UNORM` and `_SRGB`, uploads the base mip as native sampled BC7 Vulkan
+textures, and applies the matching glTF texture-info V flip for DDS-selected texture sources. The profile matches
+`vk_gltf_renderer`'s Bistro screenshot framing by using the glTF camera 0 pose selected by
+the reference renderer's `--gltfCamera 0` benchmark option, then applying the corresponding offset to the imported
+Bistro scene root. The main camera and editor scene camera remain on the same EvoEngine demo pose while the scene root is
+translated and rotated into the reference camera's relative view. The alignment uses the glTF camera's y-FOV as the real
+vertical projection and derives the view rotation from the glTF camera forward vector plus world-up, matching the
+reference renderer's roll-free camera extraction. The generated project is both a scene/import validation target and the
+long-form `vk_gltf_renderer` parity scene for path tracing work. Rasterization and the ray-tracing camera raygen path
+now consume the imported glTF material cache, including Bistro
+`KHR_materials_pbrSpecularGlossiness` conversion, shared texture-info slots, texture transforms, normal scale, emissive,
+occlusion, and alpha settings. Point-cloud ray tracing diagnostics, DDGI probe ray diagnostics, and the legacy compute
+ray tracer camera also read the same glTF material and texture-info buffers with no parallel legacy material SSBO.
+The current ray-tracing camera integrator now owns path depth, direct light evaluation, environment misses, BSDF-sampled
+next-bounce rays, throughput, and Russian roulette in raygen; closest-hit only records surface hit data. The active
+raygen path builds a shader-side glTF PBR material, evaluates direct-light PDFs and BSDF values through the same
+interface, and updates sampled-path throughput from `bsdf_over_pdf` instead of a separate metallic/dielectric branch.
+The first BSDF implementation carries the glTF extension factors and textures needed for transmission, IOR, clearcoat,
+sheen, anisotropy, diffuse transmission, volume, and related terms through the shared material ABI. Camera ray tracing
+now installs a combined closest-hit plus any-hit triangle hit group; the any-hit shader evaluates the shared glTF alpha
+cutoff for primary and shadow rays before accepting an intersection. Raygen preserves imported tangent handedness for
+normal maps, clamps invalid shading normals back to the geometric normal using the same reflected-ray guard as the
+reference hit-state path, tracks maximum path roughness across bounces, and applies the reference-shaped per-sample
+firefly luminance clamp before accumulation. That clamp is camera-configurable in the RayTracing path and defaults to
+enabled at luminance `10.0`: it suppresses rare high-energy outliers for stability, but lowering the threshold trades
+energy preservation for fewer bright single-sample spikes. NaN/Inf radiance rejection is tracked separately from finite
+firefly clamping. RayTracing also exposes an Auto SPP convergence mode. When enabled, each pixel tracks its own
+accumulated sample count and relative luminance delta in a dedicated convergence history image; pixels keep accumulating
+until they have at least the configured minimum SPP, then stop once the delta falls below the configured threshold or the
+configured maximum SPP is reached. Manual SPP remains the default, and RayQuery Auto SPP support is deferred. The
+reference renderer's Auto SPP control is a frame-time/performance-target controller, so EvoEngine's mode is intentionally
+convergence-history based for this milestone. The material cache and shared raster evaluator now preserve glTF diffuse
+transmission and volume-scatter fields from imported materials, including their texture-info slots. The active ray
+tracing any-hit path now evaluates glTF opacity stochastically for blend materials, keeps mask materials as deterministic
+cutouts, and returns RGB direct-light shadow transmission through transmissive surfaces using the reference-style
+transmission, Fresnel, roughness/metalness, and shadow-segment volume attenuation terms. The surface path-tracing BSDF
+now separates diffuse transmission from specular transmission: diffuse transmission uses the imported
+`diffuseTransmissionColor`, while `KHR_materials_transmission` uses an IOR-aware GGX BTDF sample/evaluate path with
+total-internal-reflection fallback and only solid specular transmission toggles inside/outside path state.
+The active ray-tracing camera path now carries a current glTF volume medium while inside solid transmissive geometry,
+applies Beer absorption along each in-volume segment before the next surface bounce, converts
+`KHR_materials_volume_scatter` multiscatter albedo into a single-scatter coefficient, and can sample
+Henyey-Greenstein volume scatter with direct-light next-event estimation from the scatter point. Known path-tracing
+follow-ups remain explicit rather than hidden in the parity target: the M37 road-curb grazing-edge black-spot residual is
+deferred, RayQuery Auto SPP support is deferred, and nonessential reference-renderer integrations such as DLSS/OptiX
+denoising and broader compressed-texture feature coverage remain out of scope until a milestone pulls them in.
+
+The `rendering-regression` launcher profile is the M42 cross-technique validation scene. It is generated under
+`Resources/.generated/EvoEngine-DemoProjects/RenderingRegression` and can be captured without hand-editing assets:
+`EvoEngineEditor --demo rendering-regression --capture-demo-preview out/<name>.png --preview-render-mode rasterization`,
+`raytracing`, or `rayquery` when the device supports RayQuery. The scene combines local material probes, imported
+Sponza/Capoeira material texture slots, native directional/point/spot light probes, an enabled skinned Capoeira probe, a
+small high-emission firefly clamp probe, and low/high contrast Auto SPP convergence probes. Its purpose is regression
+coverage across shared scene buffers and camera controls; Bistro reference parity remains the long-form numeric
+comparison target against `vk_gltf_renderer`.
+
+Cross-technique regression tolerance:
+
+| Profile | Techniques | Accepted comparison |
+| --- | --- | --- |
+| `rendering-regression` | Rasterization, RayTracing, RayQuery where supported | Nonblank image, clean log with no crash/hang/validation/device-lost/missing-file errors, and visible material, punctual-light, skinned-mesh, firefly, and Auto SPP probe entities. Rasterization versus ray techniques is not expected to be pixel-equal because the integrators and post-processing histories differ. |
+| `rendering-regression` fixed same-technique reruns | RayTracing and RayQuery fixed seed/settings captures | Normalized RGB MAE <= `0.10` and RMS <= `0.20` unless the milestone records a tighter measured threshold for that check. |
+| Bistro reference parity | RayTracing 1920x1080, 2048 effective spp | Current accepted tracking target is normalized RGB MAE <= `0.02` and RMS <= `0.04` full-frame against the alpha-normalized `vk_gltf_renderer` reference. Focused diagnostic crops may use the same threshold family but must record their measured crop and residual statistics. |
+
+### Demo Capture Commands
+
+Preview captures should be run from an installed app tree when closing a milestone, so shader and resource installation
+is validated with the same executable a reviewer can launch:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m43-rendering-regression-rasterization.png --preview-render-mode rasterization --preview-warmup-frames 1800 --preview-width 1280 --preview-height 720
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m43-rendering-regression-raytracing.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m43-rendering-regression-rayquery.png --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+```
+
+`--preview-render-mode` accepts `rasterization`, `raytracing`, and `rayquery`. RayQuery captures require a device with
+RayQuery support. `--preview-sample-size` controls manual samples per rendered frame for ray techniques.
+`--preview-firefly-clamp enabled|disabled` and `--preview-firefly-clamp-threshold <value>` override the per-camera
+RayTracing firefly clamp. `--preview-auto-spp enabled|disabled`,
+`--preview-auto-spp-min-samples <n>`, `--preview-auto-spp-max-samples <n>`, and
+`--preview-auto-spp-threshold <value>` override the RayTracing Auto SPP convergence controls. `--preview-ser
+disabled|automatic|enabled` controls shader execution reordering for RayTracing on supported devices.
+
+Bistro reference parity captures use the generated Bistro glTF and the reference renderer from
+`C:\Users\lllll\Documents\GitHub\vk_gltf_renderer`. The reference input must carry the same
+`KHR_lights_punctual` directional light intensity as the EvoEngine scene; for Bistro light-unit comparisons this means
+using a copied/normalized glTF whose directional Sun intensity is `10`, not the raw downloaded `6830` asset value:
+
+```bat
+C:\Users\lllll\Documents\GitHub\vk_gltf_renderer\_bin\Release\vk_gltf_renderer.exe --headless --size 1920 1080 --scenefile C:\Users\lllll\Documents\GitHub\EvoEngine\Resources\.generated\niagara_bistro\bistro-directional-intensity-10.gltf --frames 512 --maxFrames 512 --ptSamples 4 --ptAdaptiveSampling 0 --renderSystem 0 --envSystem 0 --gltfCamera 0 --output out\m43-reference-bistro-raytracing-2048spp-1920x1080-raw.png
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\m43-evoengine-bistro-raytracing-2048spp-1920x1080.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1920 --preview-height 1080 --preview-deterministic
+python Scripts\compare_reference_render.py out\m43-reference-bistro-raytracing-2048spp-1920x1080-raw.png out\m43-evoengine-bistro-raytracing-2048spp-1920x1080.png --ignore-alpha --out out\m43-bistro-raytracing-2048spp-1920x1080-rgb-diff.json
+```
+
+Keep the raw reference PNG and an RGB-preserving comparison PNG whose alpha is forced to opaque when the reference
+renderer writes non-opaque alpha. The comparison script can ignore alpha, but the normalized artifact makes later visual
+inspection and image tooling less ambiguous.
+
+The Gaussian-splat generators write deterministic asset metadata for a `GaussianSplat` asset and can optionally run
 `EvoEngineEditor --demo 3dgs --capture-demo-preview` or `EvoEngineEditor --demo bicycle --capture-demo-preview` through
 `--editor <path-to-EvoEngineEditor.exe>`. The required Gaussian-splat preview checks use
 `--preview-render-mode rasterization`. On first launch, either profile creates and saves a scene containing one
@@ -337,9 +451,44 @@ affect scheduling instead of only adding memory and UI surface.
 `RenderInstanceStorage` converts scene state into GPU-friendly frame data. It collects cameras, materials, lights, mesh
 instances, skinned mesh instances, particle instances, strand instances, external render instances, indirect draw
 commands, and acceleration-structure inputs.
+glTF `KHR_lights_punctual` imports create native directional, point, and spot light components during prefab import.
+Assimp supplies glTF light color multiplied by intensity, optional point/spot `range` through node metadata, and spot
+cone angles in radians; EvoEngine stores those values in native light fields before `RenderInstanceStorage` uploads the
+shared directional, point, and spot light SSBOs used by rasterization and ray tracing shader include paths. The current
+active ray-tracing camera closest-hit path records hit data only: hit distance, instance index, primitive index,
+barycentrics, geometric normal, shading normal, material ID, and world-space hit position. The active camera raygen path
+reconstructs the surface from that payload, evaluates the shared glTF material, adds emissive and direct punctual or
+environment lighting, evaluates the ray-tracing BSDF contract for direct-light MIS, samples the next BSDF event, updates
+throughput from `bsdf_over_pdf`, handles environment-hit MIS, and terminates with camera bounce depth or Russian
+roulette. Direct lighting uses a shader-side `GltfLight`-shaped adapter over the shared native light SSBOs, then samples
+one punctual light or one environment direction with reference-style technique weights, light-selection PDFs,
+`radiance_over_pdf`, range smoothing, spot cone attenuation, optional nonzero-radius cone PDFs, alpha-tested TLAS shadow
+rays, and BSDF MIS. Directional lights use the same per-camera directional light block indexing as raster lighting.
+Point and spot lights keep EvoEngine native constant/linear/quadratic attenuation when those coefficients are authored,
+which avoids treating existing Rendering/Sponza native point lights as close-range glTF inverse-square emitters; lights
+without native coefficients fall back to the reference glTF inverse-square/range behavior. The camera ray tracing SBT
+buffers are allocated at the aligned shader-group handle stride consumed by `vkCmdTraceRaysKHR`. The M14 recursive
+lighting shaders are preserved as `CameraLegacy.rgen`, `CameraLegacy.rmiss`, and
+`CameraLegacy.rchit` fallback sources until the raygen-owned path loop passes regression checks. Ray-tracing camera
+accumulation stores linear HDR radiance in the per-camera history image; camera gamma is
+no longer applied in raygen. RayTracing now writes linear HDR into the camera color image and then schedules a
+tone-mapping-only post-processing pass for presentation, so screenshots capture the tonemapped image rather than a
+gamma-only raygen copy. The Bistro demo cameras opt into the reference `nvshaders` Filmic tonemapper defaults with
+auto exposure enabled, including the raster scene camera used for DDGI inspection. Directional light intensity is treated
+as a shared scene unit: import stores the numeric light intensity in `diffuse_brightness`, render storage uploads
+`diffuse * diffuse_brightness`, and raster, DDGI, RayTracing, and RayQuery consume that same value. Bistro demo setup
+currently sets its imported Sun to intensity `10`, uses a black color environment with no physical-sky or static ambient
+fill, and the parity capture path preserves that scene value instead of restoring the raw downloaded `6830` value.
+Transparent shadow transmission, stochastic sequence parity, and residual scene/import cleanup have milestone-specific
+coverage in the task log; the remaining accepted Bistro gap is the deferred M37 grazing-edge curb residual.
 
-`Camera` owns the camera render texture and GBuffer descriptor state. The current raster path uses a depth target plus
-normal and material GBuffer color targets, then resolves lighting into the camera color texture.
+`Camera` owns the camera render texture and GBuffer descriptor state. Camera render technique selection is serialized as
+`Rasterization`, `RayTracing`, or `RayQuery` and is exposed through the editor camera inspectors and demo preview capture
+arguments. `Rasterization` remains the default supported technique. `RayTracing` uses the Vulkan ray tracing pipeline when
+the device and graphics settings allow it, otherwise it falls back to Rasterization with a diagnostic. `RayQuery` uses the
+compute camera shader path when the device supports RayQuery; unsupported devices fall back through the resolved
+RayTracing/Rasterization path with a diagnostic. The current raster path uses a depth target plus normal and material
+GBuffer color targets, then resolves lighting into the camera color texture.
 
 `Platform` owns frame synchronization, swapchain image acquisition, command buffer recording, queue submission, and
 presentation. `WindowLayer` presents ImGui output or the main camera render texture to the swapchain.
@@ -397,7 +546,15 @@ Point and spot light shadow maps are prepared once before camera iteration. Gizm
 
 When Vulkan ray tracing is enabled, scene preparation updates the top-level acceleration structure and ray tracing
 descriptor set. Ray tracing cameras then bind the per-frame descriptor set, ray tracing descriptor set, and render
-texture storage descriptor set before tracing directly into the camera color image.
+texture storage descriptor set before tracing linear HDR radiance into the camera color image. A ray-tracing
+post-processing graph pass runs only tone mapping after the trace/cloud/gaussian dependency chain so raster-only
+post-process inputs are not required for RT. The active camera closest-hit shader
+records surface identity and geometry data into `CameraRayTracingPayload` without recursive color shading. The miss shader
+records environment radiance and an environment PDF in the same payload. Camera raygen owns the active path loop: it
+reconstructs hit UVs/normals from the payload and vertex buffers, evaluates `GltfRasterMaterial`, traces shadow rays for
+native punctual lights and direct environment samples, samples a next-bounce direction, and writes primary hit distance.
+The legacy recursive camera shader set remains in the default resources as a temporary fallback source, but the active
+camera path no longer depends on closest-hit-owned recursive shading.
 
 ## Extension Model
 
@@ -488,7 +645,19 @@ ordering constraints instead of depending on hidden callback timing.
 ## Validation
 
 Render-layer refactors should build the relevant executable target before manual editor or app testing. Local render/GPU
-validation is intentionally local-only. The focused local validation path is:
+validation is intentionally local-only. A milestone closeout gate should record the exact commands and executable path
+used. For the path-tracer overhaul, the default closeout sequence is:
+
+```bat
+python Scripts\format_cpp.py --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests
+cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target EvoEngineEditor
+python Scripts\test.py --render-only -C RelWithDebInfo
+python Scripts\install_apps.py --config RelWithDebInfo --no-open --incremental
+```
+
+After install, manually capture at least Bistro Rasterization and RayTracing from
+`out\install\vs2026-x64\bin\EvoEngineEditor.exe` and record whether logs contain crash, hang, validation, device-lost,
+missing-file, failed, or exception terms. The focused local render-test command is:
 
 ```bat
 python Scripts\test.py --render-only
@@ -497,13 +666,13 @@ python Scripts\test.py --render-only
 Direct CTest usage can select the same render-labeled tests:
 
 ```bat
-ctest --test-dir out/build/vs2026-x64 -C RelWithDebInfo -L render --output-on-failure
+ctest --test-dir out/build/vs2026-x64-tests -C RelWithDebInfo -L render --output-on-failure
 ```
 
 EcoSysLab compatibility has a focused render/GPU smoke test:
 
 ```bat
-ctest --test-dir out/build/vs2026-x64 -C RelWithDebInfo -R "EcoSysLab" --output-on-failure
+ctest --test-dir out/build/vs2026-x64-tests -C RelWithDebInfo -R "EcoSysLab" --output-on-failure
 ```
 
 That test opens the EcoSysLab project with the package layer registered in-process, instantiates the Apple tree

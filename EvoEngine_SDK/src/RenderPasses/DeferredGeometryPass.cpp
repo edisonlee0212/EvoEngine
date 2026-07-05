@@ -100,7 +100,7 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                                           sizeof(VkDrawIndexedIndirectCommand));
           }
         } else {
-          parameters.render_instances->deferred_render_instances->ForEachRenderInstance(
+          parameters.render_instances->deferred_render_instances->ForEachMeshRenderInstance(
               [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = parameters.camera_index;
@@ -122,7 +122,7 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.instanced_pipeline->Bind(vk_command_buffer);
           parameters.instanced_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-          parameters.render_instances->deferred_instanced_render_instances->ForEachRenderInstance(
+          parameters.render_instances->deferred_instanced_render_instances->ForEachInstancedRenderInstance(
               [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = parameters.camera_index;
@@ -145,7 +145,7 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.skinned_pipeline->Bind(vk_command_buffer);
           parameters.skinned_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                          parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-          parameters.render_instances->deferred_skinned_render_instances->ForEachRenderInstance(
+          parameters.render_instances->deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance(
               [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = parameters.camera_index;
@@ -169,7 +169,7 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.strands_pipeline->Bind(vk_command_buffer);
           parameters.strands_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                          parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-          parameters.render_instances->deferred_strands_render_instances->ForEachRenderInstance(
+          parameters.render_instances->deferred_strands_render_instances->ForEachStrandsRenderInstance(
               [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
                 push_constant.camera_index = parameters.camera_index;

@@ -121,6 +121,14 @@ class Platform final {
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties_khr = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
 
+#ifdef VK_NV_ray_tracing_invocation_reorder
+    VkPhysicalDeviceRayTracingInvocationReorderPropertiesNV ray_tracing_invocation_reorder_properties_nv = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_NV};
+
+    VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV ray_tracing_invocation_reorder_features_nv = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV};
+#endif
+
 #if ENABLE_NV_RAY_TRACING_VALIDATION
     /// Ray tracing validation features specific to NVIDIA Vulkan implementation.
     VkPhysicalDeviceRayTracingValidationFeaturesNV ray_tracing_validation_features_nv = {
@@ -358,6 +366,8 @@ class Platform final {
   struct Capabilities {
     bool support_mesh_shader = true;
     bool support_ray_tracing = true;
+    bool support_ray_query = true;
+    bool support_shader_execution_reordering = false;
     bool support_ray_tracing_validation = false;
     bool support_async_compute = false;
     uint32_t subgroup_size = 1;
@@ -381,6 +391,8 @@ class Platform final {
   [[nodiscard]] static QueueFamilySelection SelectQueueFamilies(const std::vector<QueueFamilySupport>& queue_families);
 
   static bool RayTracingEnabled();
+  static bool RayQueryEnabled();
+  static bool ShaderExecutionReorderingEnabled();
   static bool MeshShaderEnabled();
   /**
    * @brief Checks if the platform is initialized.

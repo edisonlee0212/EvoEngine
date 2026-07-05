@@ -550,6 +550,13 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
   ClearMeshRenderer();
   const auto scene = GetScene();
   const auto self = GetOwner();
+  const auto configure_vertex_color_material = [](const std::shared_ptr<Material>& material) {
+    auto& shade_material = material->material_data.shade_material;
+    shade_material.pbr_roughness_factor = 1.0f;
+    shade_material.pbr_metallic_factor = 0.0f;
+    material->vertex_color_only = true;
+    material->MarkDirty();
+  };
   if (const auto cylinder_entity = scene->CreateEntity("Log Wood Cylinder Mesh");
       scene->IsEntityValid(cylinder_entity)) {
     scene->SetParent(cylinder_entity, self);
@@ -557,9 +564,7 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     GenerateCylinderMesh(mesh, mesh_generator_settings);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(cylinder_entity).lock();
-    material->material_properties.roughness = 1.0f;
-    material->material_properties.metallic = 0.0f;
-    material->vertex_color_only = true;
+    configure_vertex_color_material(material);
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
   }
@@ -577,9 +582,7 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     GenerateFlatMesh(mesh, mesh_generator_settings, 90, 180);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity1).lock();
-    material->material_properties.roughness = 1.0f;
-    material->material_properties.metallic = 0.0f;
-    material->vertex_color_only = true;
+    configure_vertex_color_material(material);
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
   }
@@ -594,9 +597,7 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     GenerateFlatMesh(mesh, mesh_generator_settings, 0, 90);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity2).lock();
-    material->material_properties.roughness = 1.0f;
-    material->material_properties.metallic = 0.0f;
-    material->vertex_color_only = true;
+    configure_vertex_color_material(material);
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
   }
@@ -611,9 +612,7 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     GenerateFlatMesh(mesh, mesh_generator_settings, 270, 360);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity3).lock();
-    material->material_properties.roughness = 1.0f;
-    material->material_properties.metallic = 0.0f;
-    material->vertex_color_only = true;
+    configure_vertex_color_material(material);
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
   }
@@ -628,9 +627,7 @@ void LogGrader::InitializeMeshRenderer(const LogWoodMeshGenerationSettings& mesh
     GenerateFlatMesh(mesh, mesh_generator_settings, 180, 270);
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(flat_entity4).lock();
-    material->material_properties.roughness = 1.0f;
-    material->material_properties.metallic = 0.0f;
-    material->vertex_color_only = true;
+    configure_vertex_color_material(material);
     mesh_renderer->mesh = mesh;
     mesh_renderer->material = material;
   }

@@ -103,10 +103,8 @@ void RecordGaussianSplatCull(const VkCommandBuffer vk_command_buffer, const Rend
   parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                          parameters.per_frame_descriptor_set->GetVkDescriptorSet());
 
-  gaussian_splat_render_instances->ForEachRenderInstance(
-      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-        const auto gaussian_instance =
-            std::dynamic_pointer_cast<RenderInstanceStorage::GaussianSplatRenderInstance>(render_instance);
+  gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::GaussianSplatRenderInstance>& gaussian_instance) {
         if (!gaussian_instance || !gaussian_instance->gaussian_splat) {
           return;
         }
@@ -163,10 +161,8 @@ void RecordGaussianSplatRadixSort(const VkCommandBuffer vk_command_buffer, const
   }
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
-  gaussian_splat_render_instances->ForEachRenderInstance(
-      [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-        const auto gaussian_instance =
-            std::dynamic_pointer_cast<RenderInstanceStorage::GaussianSplatRenderInstance>(render_instance);
+  gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance(
+      [&](const std::shared_ptr<RenderInstanceStorage::GaussianSplatRenderInstance>& gaussian_instance) {
         if (!gaussian_instance || !gaussian_instance->gaussian_splat ||
             gaussian_instance->sort_mode != GaussianSplatSortMode::GpuRadix) {
           return;
@@ -285,10 +281,8 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
       bound_pipeline = pipeline;
     };
 
-    gaussian_splat_render_instances->ForEachRenderInstance(
-        [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance) {
-          const auto gaussian_instance =
-              std::dynamic_pointer_cast<RenderInstanceStorage::GaussianSplatRenderInstance>(render_instance);
+    gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance(
+        [&](const std::shared_ptr<RenderInstanceStorage::GaussianSplatRenderInstance>& gaussian_instance) {
           if (!gaussian_instance || !gaussian_instance->gaussian_splat) {
             return;
           }

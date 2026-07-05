@@ -6,7 +6,6 @@
 #include "Entities.hpp"
 #include "EntityMetadata.hpp"
 #include "Jobs.hpp"
-#include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "Resources.hpp"
 #include "Serialization.hpp"
@@ -1070,13 +1069,6 @@ void Scene::OnCreate() {
   main_camera_component->skybox = Resources::GetInstance().GetDefaultSkybox();
 #pragma endregion
 
-#pragma region Directional Light
-  const auto directional_light_entity = CreateEntity("Directional Light");
-  ltw.SetPosition(glm::vec3(0.0f, 0.0f, 0.0f));
-  ltw.SetEulerRotation(glm::radians(glm::vec3(90, 0, 0)));
-  SetDataComponent(directional_light_entity, ltw);
-  auto direction_light = GetOrSetPrivateComponent<DirectionalLight>(directional_light_entity).lock();
-#pragma endregion
   /*
 #pragma region Ground
   const auto ground_entity = CreateEntity("Ground");

@@ -55,7 +55,6 @@
 using namespace evo_engine;
 
 namespace {
-using MaterialTextureSetter = void (Material::*)(const std::shared_ptr<Texture2D>&);
 namespace pn = evo_engine::procedural_noise;
 using NoiseGraph = NodeGraph<pn::InputPinData, pn::OutputPinData, pn::NodeData, int>;
 
@@ -383,8 +382,8 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
 
   bool changed = false;
   uint32_t mode = static_cast<uint32_t>(camera.camera_render_mode);
-  if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
-    camera.camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+  if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
+    camera.camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
     camera.ResetFrameCount();
     changed = true;
   }
@@ -395,15 +394,70 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       ImGui::DragFloat("Fade factor", &camera.camera_settings.fade_factor, 0.01f, 0.01f, 1.0f)) {
     changed = true;
   }
-  if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+  if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
     if (ImGui::DragFloat("Gamma", &camera.camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
       changed = true;
     }
-    if (ImGui::SliderInt("Samples", &camera.camera_settings.sample_size, 1, 32)) {
+    const char* sample_label =
+        camera.camera_render_mode == Camera::CameraRenderMode::RayTracing && camera.camera_settings.auto_spp_enabled
+            ? "Samples/frame"
+            : "Samples";
+    if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
     if (ImGui::SliderInt("Bounce", &camera.camera_settings.bounce, 1, 8)) {
       changed = true;
+    }
+  }
+  if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+    if (ImGui::Checkbox("Firefly clamp", &camera.camera_settings.firefly_clamp_enabled)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (camera.camera_settings.firefly_clamp_enabled &&
+        ImGui::DragFloat("Firefly threshold", &camera.camera_settings.firefly_clamp_threshold, 0.1f, 0.0f, 1000.0f,
+                         "%.2f")) {
+      camera.camera_settings.firefly_clamp_threshold = glm::max(camera.camera_settings.firefly_clamp_threshold, 0.0f);
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (ImGui::Checkbox("Auto SPP", &camera.camera_settings.auto_spp_enabled)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (camera.camera_settings.auto_spp_enabled) {
+      if (ImGui::DragInt("Auto min SPP", &camera.camera_settings.auto_spp_min_samples, 1, 1, 4096)) {
+        camera.camera_settings.auto_spp_min_samples = glm::max(camera.camera_settings.auto_spp_min_samples, 1);
+        camera.camera_settings.auto_spp_max_samples =
+            glm::max(camera.camera_settings.auto_spp_max_samples, camera.camera_settings.auto_spp_min_samples);
+        camera.ResetFrameCount();
+        changed = true;
+      }
+      if (ImGui::DragInt("Auto max SPP", &camera.camera_settings.auto_spp_max_samples, 1,
+                         camera.camera_settings.auto_spp_min_samples, 8192)) {
+        camera.camera_settings.auto_spp_max_samples =
+            glm::max(camera.camera_settings.auto_spp_max_samples, camera.camera_settings.auto_spp_min_samples);
+        camera.ResetFrameCount();
+        changed = true;
+      }
+      if (ImGui::DragFloat("Auto threshold", &camera.camera_settings.auto_spp_convergence_threshold, 0.001f, 0.0f, 1.0f,
+                           "%.4f")) {
+        camera.camera_settings.auto_spp_convergence_threshold =
+            glm::max(camera.camera_settings.auto_spp_convergence_threshold, 0.0f);
+        camera.ResetFrameCount();
+        changed = true;
+      }
+    }
+    uint32_t ser_mode = static_cast<uint32_t>(camera.camera_settings.shader_execution_reordering_mode);
+    if (ImGui::Combo("Shader Execution Reordering", Camera::GetShaderExecutionReorderingModeNames(), ser_mode)) {
+      camera.camera_settings.shader_execution_reordering_mode =
+          Camera::NormalizeShaderExecutionReorderingMode(ser_mode);
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (!Platform::ShaderExecutionReorderingEnabled() && camera.camera_settings.shader_execution_reordering_mode !=
+                                                             CameraSettings::ShaderExecutionReorderingMode::Disabled) {
+      ImGui::TextUnformatted("SER unavailable; using standard ray tracing scheduling.");
     }
   }
   if (ImGui::TreeNode("Debug")) {
@@ -546,9 +600,39 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
 
 bool InspectToneMapping(ToneMapping& tone_mapping) {
   bool changed = false;
+  int method = static_cast<int>(tone_mapping.method);
+  if (ImGui::DragInt("Method", &method, 1, 0, static_cast<int>(ToneMapping::ToneMapMethod::EvoEngineExponential))) {
+    tone_mapping.method = static_cast<ToneMapping::ToneMapMethod>(method);
+    changed = true;
+  }
   if (ImGui::DragFloat("Exposure", &tone_mapping.exposure, 0.01f, 0.01f, 10.0f))
     changed = true;
-  if (ImGui::DragFloat("Gamma", &tone_mapping.gamma, 0.01f, 0.01f, 10.0f))
+  if (ImGui::DragFloat("Brightness", &tone_mapping.brightness, 0.01f, 0.01f, 10.0f))
+    changed = true;
+  if (ImGui::DragFloat("Contrast", &tone_mapping.contrast, 0.01f, 0.0f, 10.0f))
+    changed = true;
+  if (ImGui::DragFloat("Saturation", &tone_mapping.saturation, 0.01f, 0.0f, 10.0f))
+    changed = true;
+  if (ImGui::DragFloat("Vignette", &tone_mapping.vignette, 0.01f, 0.0f, 1.0f))
+    changed = true;
+  if (ImGui::Checkbox("Auto exposure", &tone_mapping.auto_exposure))
+    changed = true;
+  if (tone_mapping.auto_exposure) {
+    if (ImGui::DragFloat("Adaptation speed", &tone_mapping.auto_exposure_speed, 0.01f, 0.0f, 100.0f))
+      changed = true;
+    if (ImGui::DragFloat("Min EV100", &tone_mapping.ev_min_value, 0.01f, -24.0f, 24.0f))
+      changed = true;
+    if (ImGui::DragFloat("Max EV100", &tone_mapping.ev_max_value, 0.01f, -24.0f, 24.0f))
+      changed = true;
+    if (ImGui::Checkbox("Center metering", &tone_mapping.enable_center_metering))
+      changed = true;
+    if (tone_mapping.enable_center_metering &&
+        ImGui::DragFloat("Center metering size", &tone_mapping.center_metering_size, 0.01f, 0.01f, 1.0f))
+      changed = true;
+    if (ImGui::DragInt("Average mode", &tone_mapping.average_mode, 1, 0, 1))
+      changed = true;
+  }
+  if (ImGui::Checkbox("Dither", &tone_mapping.dither))
     changed = true;
   return changed;
 }
@@ -1798,7 +1882,7 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       modified = true;
   }
   if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const char* environment_types[]{"Environmental Map", "Color"};
+    const char* environment_types[]{"Environmental Map", "Color", "Physical Sky"};
     static int type = static_cast<int>(scene.environment.environment_type);
     if (ImGui::Combo("Environment type", &type, environment_types, IM_ARRAYSIZE(environment_types))) {
       scene.environment.environment_type = static_cast<Scene::EnvironmentType>(type);
@@ -1812,6 +1896,8 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       case Scene::EnvironmentType::Color: {
         if (ImGui::ColorEdit3("Background Color", &scene.environment.background_color.x))
           modified = true;
+      } break;
+      case Scene::EnvironmentType::PhysicalSky: {
       } break;
     }
     if (ImGui::DragFloat("Environmental light intensity", &scene.environment.ambient_light_intensity, 0.01f, 0.0f,
@@ -1880,6 +1966,8 @@ bool InspectSpotLight(InspectorContext&, SpotLight& light) {
     changed = false;
   if (ImGui::DragFloat("Intensity", &light.diffuse_brightness, 0.01f, 0.0f, 999.0f))
     changed = false;
+  if (ImGui::DragFloat("Range", &light.range, 0.01f, 0.0f, 9999.0f))
+    changed = false;
   if (ImGui::DragFloat("Bias", &light.bias, 0.001f, 0.0f, 999.0f))
     changed = false;
 
@@ -1909,6 +1997,8 @@ bool InspectPointLight(InspectorContext&, PointLight& light) {
   if (ImGui::ColorEdit3("Color", &light.diffuse[0]))
     changed = false;
   if (ImGui::DragFloat("Intensity", &light.diffuse_brightness, 0.01f, 0.0f, 999.0f))
+    changed = false;
+  if (ImGui::DragFloat("Range", &light.range, 0.01f, 0.0f, 9999.0f))
     changed = false;
   if (ImGui::DragFloat("Bias", &light.bias, 0.001f, 0.0f, 999.0f))
     changed = false;
@@ -2259,11 +2349,11 @@ bool InspectDdgiVolume(InspectorContext& context, DdgiVolume& volume) {
 }
 
 bool InspectMaterialTextureSlot(const std::shared_ptr<EditorLayer>& editor_layer, Material& material,
-                                const std::shared_ptr<Texture2D>& current_texture, const char* label,
-                                const MaterialTextureSetter setter) {
+                                uint16_t GltfShadeMaterial::* texture_slot, const char* label) {
+  const auto current_texture = material.GetTexture(texture_slot);
   AssetRef texture_ref(current_texture);
   if (editor_layer->DragAndDropButton<Texture2D>(texture_ref, label)) {
-    (material.*setter)(texture_ref.Get<Texture2D>());
+    material.SetTexture(texture_slot, texture_ref.Get<Texture2D>());
     return true;
   }
   return false;
@@ -2292,57 +2382,78 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
 
   ImGui::Separator();
   if (ImGui::TreeNodeEx("PBR##Material", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::ColorEdit3("Albedo##Material", &material.material_properties.albedo_color.x)) {
+    auto& shade_material = material.material_data.shade_material;
+    if (ImGui::ColorEdit4("Base Color##Material", &shade_material.pbr_base_color_factor.x)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Subsurface##Material", &material.material_properties.subsurface_factor, 0.01f, 0.0f, 1.0f)) {
+    if (ImGui::DragFloat("Metallic##Material", &shade_material.pbr_metallic_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
-    if (material.material_properties.subsurface_factor > 0.0f) {
-      if (ImGui::DragFloat3("Subsurface Radius##Material", &material.material_properties.subsurface_radius.x, 0.01f,
-                            0.0f, 999.0f)) {
+    if (ImGui::DragFloat("Roughness##Material", &shade_material.pbr_roughness_factor, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Specular##Material", &shade_material.specular_factor, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    if (ImGui::ColorEdit3("Specular Color##Material", &shade_material.specular_color_factor.x)) {
+      changed = true;
+    }
+    if (ImGui::ColorEdit3("Emissive##Material", &shade_material.emissive_factor.x)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Normal Scale##Material", &shade_material.normal_texture_scale, 0.01f, 0.0f, 10.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Occlusion Strength##Material", &shade_material.occlusion_strength, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    int alpha_mode = glm::clamp(shade_material.alpha_mode, 0, 2);
+    constexpr const char* alpha_modes[] = {"Opaque", "Mask", "Blend"};
+    if (ImGui::Combo("Alpha Mode##Material", &alpha_mode, alpha_modes, IM_ARRAYSIZE(alpha_modes))) {
+      shade_material.alpha_mode = alpha_mode;
+      changed = true;
+    }
+    if (ImGui::DragFloat("Alpha Cutoff##Material", &shade_material.alpha_cutoff, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    bool double_sided = shade_material.double_sided != 0;
+    if (ImGui::Checkbox("Double Sided##Material", &double_sided)) {
+      shade_material.double_sided = double_sided ? 1 : 0;
+      changed = true;
+    }
+    int pbr_model = glm::clamp(shade_material.pbr_model, 0, 1);
+    constexpr const char* pbr_models[] = {"Metallic Roughness", "Specular Glossiness"};
+    if (ImGui::Combo("PBR Model##Material", &pbr_model, pbr_models, IM_ARRAYSIZE(pbr_models))) {
+      shade_material.pbr_model = pbr_model;
+      changed = true;
+    }
+    if (shade_material.pbr_model == static_cast<int32_t>(GltfPbrModel::SpecularGlossiness)) {
+      if (ImGui::ColorEdit4("Diffuse Factor##Material", &shade_material.pbr_diffuse_factor.x)) {
         changed = true;
       }
-      if (ImGui::ColorEdit3("Subsurface Color##Material", &material.material_properties.subsurface_color.x)) {
+      if (ImGui::ColorEdit3("Specular Factor##Material", &shade_material.pbr_specular_factor.x)) {
+        changed = true;
+      }
+      if (ImGui::DragFloat("Glossiness##Material", &shade_material.pbr_glossiness_factor, 0.01f, 0.0f, 1.0f)) {
         changed = true;
       }
     }
-    if (ImGui::DragFloat("Metallic##Material", &material.material_properties.metallic, 0.01f, 0.0f, 1.0f)) {
+    if (ImGui::DragFloat("IOR##Material", &shade_material.ior, 0.01f, 0.0f, 5.0f)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Specular##Material", &material.material_properties.specular, 0.01f, 0.0f, 1.0f)) {
+    if (ImGui::DragFloat("Transmission##Material", &shade_material.transmission_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Specular Tint##Material", &material.material_properties.specular_tint, 0.01f, 0.0f, 1.0f)) {
+    if (ImGui::DragFloat("Clearcoat##Material", &shade_material.clearcoat_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Roughness##Material", &material.material_properties.roughness, 0.01f, 0.0f, 1.0f)) {
+    if (ImGui::DragFloat("Clearcoat Roughness##Material", &shade_material.clearcoat_roughness, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Sheen##Material", &material.material_properties.sheen, 0.01f, 0.0f, 1.0f)) {
+    if (ImGui::ColorEdit3("Sheen Color##Material", &shade_material.sheen_color_factor.x)) {
       changed = true;
     }
-    if (ImGui::DragFloat("Sheen Tint##Material", &material.material_properties.sheen_tint, 0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Clear Coat##Material", &material.material_properties.clear_coat, 0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Clear Coat Roughness##Material", &material.material_properties.clear_coat_roughness, 0.01f,
-                         0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("IOR##Material", &material.material_properties.ior, 0.01f, 0.0f, 5.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Transmission##Material", &material.material_properties.transmission, 0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Transmission Roughness##Material", &material.material_properties.transmission_roughness,
-                         0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Emission##Material", &material.material_properties.emission, 0.01f, 0.0f, 10.0f)) {
+    if (ImGui::DragFloat("Sheen Roughness##Material", &shade_material.sheen_roughness_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
 
@@ -2355,20 +2466,37 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Textures##Material", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = InspectMaterialTextureSlot(editor_layer, material, material.GetAlbedoTexture(), "Albedo Tex",
-                                         &Material::SetAlbedoTexture) ||
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::pbr_base_color_texture,
+                                         "Base Color Tex") ||
               changed;
-    changed = InspectMaterialTextureSlot(editor_layer, material, material.GetNormalTexture(), "Normal Tex",
-                                         &Material::SetNormalTexture) ||
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::normal_texture, "Normal Tex") || changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::pbr_metallic_roughness_texture,
+                                         "Metallic Roughness Tex") ||
               changed;
-    changed = InspectMaterialTextureSlot(editor_layer, material, material.GetMetallicTexture(), "Metallic Tex",
-                                         &Material::SetMetallicTexture) ||
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::emissive_texture, "Emissive Tex") ||
+        changed;
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::occlusion_texture, "Occlusion Tex") ||
+        changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::transmission_texture,
+                                         "Transmission Tex") ||
               changed;
-    changed = InspectMaterialTextureSlot(editor_layer, material, material.GetRoughnessTexture(), "Roughness Tex",
-                                         &Material::SetRoughnessTexture) ||
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::clearcoat_texture, "Clearcoat Tex") ||
+        changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::clearcoat_roughness_texture,
+                                         "Clearcoat Roughness Tex") ||
               changed;
-    changed = InspectMaterialTextureSlot(editor_layer, material, material.GetAoTexture(), "AO Tex",
-                                         &Material::SetAoTexture) ||
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::clearcoat_normal_texture,
+                                         "Clearcoat Normal Tex") ||
+              changed;
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::specular_texture, "Specular Tex") ||
+        changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::specular_color_texture,
+                                         "Specular Color Tex") ||
               changed;
 
     AssetRef rma_texture_ref;
@@ -2379,16 +2507,10 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
         const auto rma_resolution = rma_texture->GetResolution();
         std::vector<glm::vec3> temp_data(rma_data.size());
         Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
-          temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].x);
+          temp_data[pixel_index] = glm::vec3(1.0f, rma_data[pixel_index].x, rma_data[pixel_index].y);
         });
-        const auto roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
-        roughness_texture->SetRgbChannelData(temp_data, rma_resolution);
-
-        Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
-          temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].y);
-        });
-        const auto metallic_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
-        metallic_texture->SetRgbChannelData(temp_data, rma_resolution);
+        const auto metallic_roughness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+        metallic_roughness_texture->SetRgbChannelData(temp_data, rma_resolution);
 
         Jobs::RunParallelFor(temp_data.size(), [&](const size_t pixel_index) {
           temp_data[pixel_index] = glm::vec3(rma_data[pixel_index].z);
@@ -2396,9 +2518,8 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
         const auto ao_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
         ao_texture->SetRgbChannelData(temp_data, rma_resolution);
 
-        material.SetRoughnessTexture(roughness_texture);
-        material.SetMetallicTexture(metallic_texture);
-        material.SetAoTexture(ao_texture);
+        material.SetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture, metallic_roughness_texture);
+        material.SetTexture(&GltfShadeMaterial::occlusion_texture, ao_texture);
         changed = true;
       }
     }

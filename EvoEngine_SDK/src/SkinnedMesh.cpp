@@ -7,6 +7,30 @@
 #include "RenderLayer.hpp"
 #include "Serialization.hpp"
 using namespace evo_engine;
+
+namespace {
+bool AddBoneTransform(glm::mat4& bone_transform, const std::vector<glm::mat4>& bone_matrices, const int bone_id,
+                      const float weight) {
+  if (weight == 0.0f || bone_id < 0 || static_cast<size_t>(bone_id) >= bone_matrices.size()) {
+    return false;
+  }
+  bone_transform += bone_matrices[bone_id] * weight;
+  return true;
+}
+
+glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback) {
+  const auto length_squared = glm::dot(value, value);
+  if (length_squared <= 0.0f) {
+    return fallback;
+  }
+  return value * glm::inversesqrt(length_squared);
+}
+
+float TangentHandedness(const glm::vec3& tangent, const glm::vec3& bitangent, const glm::vec3& normal) {
+  return glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f ? -1.0f : 1.0f;
+}
+}  // namespace
+
 void SkinnedVertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
   out << YAML::Key << "tangent" << YAML::Value << tangent;
@@ -60,6 +84,48 @@ void BoneMatrices::UploadData() {
   buffer_info.buffer = bone_matrices_buffer_[current_frame_index]->GetVkBuffer();
   buffer_info.range = VK_WHOLE_SIZE;
   descriptor_set_[current_frame_index]->UpdateBufferDescriptorBinding(0, buffer_info);
+}
+
+Vertex evo_engine::BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_vertex,
+                                                const std::vector<glm::mat4>& bone_matrices) {
+  Vertex vertex{};
+  vertex.vertex_info1 = skinned_vertex.vertex_info1;
+  vertex.vertex_info2 = skinned_vertex.vertex_info2;
+  vertex.vertex_info3 = skinned_vertex.vertex_info3;
+  vertex.color = skinned_vertex.color;
+  vertex.tex_coord = skinned_vertex.tex_coord;
+  vertex.vertex_info4 = skinned_vertex.vertex_info4;
+
+  glm::mat4 bone_transform(0.0f);
+  bool has_valid_weight = false;
+  for (int i = 0; i < 4; i++) {
+    has_valid_weight |=
+        AddBoneTransform(bone_transform, bone_matrices, skinned_vertex.bond_id[i], skinned_vertex.weight[i]);
+    has_valid_weight |=
+        AddBoneTransform(bone_transform, bone_matrices, skinned_vertex.bond_id2[i], skinned_vertex.weight2[i]);
+  }
+  if (!has_valid_weight) {
+    bone_transform = glm::mat4(1.0f);
+  }
+
+  vertex.position = glm::vec3(bone_transform * glm::vec4(skinned_vertex.position, 1.0f));
+  vertex.normal =
+      NormalizeOrFallback(glm::vec3(bone_transform * glm::vec4(skinned_vertex.normal, 0.0f)), skinned_vertex.normal);
+  vertex.tangent =
+      NormalizeOrFallback(glm::vec3(bone_transform * glm::vec4(skinned_vertex.tangent, 0.0f)), skinned_vertex.tangent);
+  vertex.tangent =
+      NormalizeOrFallback(vertex.tangent - glm::dot(vertex.tangent, vertex.normal) * vertex.normal, vertex.tangent);
+  return vertex;
+}
+
+std::vector<Vertex> evo_engine::BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
+                                                               const std::vector<glm::mat4>& bone_matrices) {
+  std::vector<Vertex> vertices;
+  vertices.reserve(skinned_vertices.size());
+  for (const auto& skinned_vertex : skinned_vertices) {
+    vertices.emplace_back(BuildSkinnedRayTracingVertex(skinned_vertex, bone_matrices));
+  }
+  return vertices;
 }
 
 bool SkinnedMesh::SaveInternal(const std::filesystem::path& path) const {
@@ -138,8 +204,11 @@ bool SkinnedMesh::RegisterAssetIoHandlers(const std::string& owner_name, const s
 
 SkinnedMesh::~SkinnedMesh() {
   GeometryStorage::FreeSkinnedMesh(GetHandle());
+  GeometryStorage::FreeMesh(GetHandle());
   skinned_triangle_range_.reset();
   skinned_meshlet_range_.reset();
+  ray_tracing_triangle_range_.reset();
+  ray_tracing_meshlet_range_.reset();
 }
 
 void SkinnedMesh::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsPipelineStates& global_pipeline_state,
@@ -170,6 +239,8 @@ void SkinnedMesh::OnCreate() {
   bound_ = Bound();
   skinned_meshlet_range_ = std::make_shared<RangeDescriptor>();
   skinned_triangle_range_ = std::make_shared<RangeDescriptor>();
+  ray_tracing_meshlet_range_ = std::make_shared<RangeDescriptor>();
+  ray_tracing_triangle_range_ = std::make_shared<RangeDescriptor>();
 }
 
 void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
@@ -218,12 +289,21 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   skinned_vertex_attributes_.normal = true;
   skinned_vertex_attributes_.tangent = true;
 
-  if (version_ != 0)
+  if (version_ != 0) {
     GeometryStorage::FreeSkinnedMesh(GetHandle());
+    GeometryStorage::FreeMesh(GetHandle());
+  }
   GeometryStorage::AllocateSkinnedMesh(GetHandle(), skinned_vertices_, skinned_triangles_, skinned_meshlet_range_,
                                        skinned_triangle_range_);
 
   version_++;
+  if (Platform::RayTracingEnabled()) {
+    auto vertices = BuildSkinnedRayTracingVertices(skinned_vertices_, {});
+    auto triangles = skinned_triangles_;
+    GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,
+                                  ray_tracing_triangle_range_);
+    blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
+  }
   saved_ = false;
 }
 
@@ -264,9 +344,11 @@ void SkinnedMesh::RecalculateNormal() {
 
 void SkinnedMesh::RecalculateTangent() {
   auto tangent_lists = std::vector<std::vector<glm::vec3>>();
+  auto handedness_sums = std::vector<float>();
   auto size = skinned_vertices_.size();
   for (auto i = 0; i < size; i++) {
     tangent_lists.emplace_back();
+    handedness_sums.emplace_back(0.0f);
   }
   for (auto& triangle : skinned_triangles_) {
     const auto i1 = triangle.x;
@@ -283,19 +365,29 @@ void SkinnedMesh::RecalculateTangent() {
     auto d21 = uv2 - uv1;
     auto e31 = p3 - p1;
     auto d31 = uv3 - uv1;
-    float f = 1.0f / (d21.x * d31.y - d31.x * d21.y);
-    auto tangent =
+    const float determinant = d21.x * d31.y - d31.x * d21.y;
+    if (glm::abs(determinant) <= 1e-8f) {
+      continue;
+    }
+    const float f = 1.0f / determinant;
+    const auto tangent =
         f * glm::vec3(d31.y * e21.x - d21.y * e31.x, d31.y * e21.y - d21.y * e31.y, d31.y * e21.z - d21.y * e31.z);
+    const auto bitangent =
+        f * glm::vec3(d31.x * e21.x - d21.x * e31.x, d31.x * e21.y - d21.x * e31.y, d31.x * e21.z - d21.x * e31.z);
     tangent_lists[i1].push_back(tangent);
     tangent_lists[i2].push_back(tangent);
     tangent_lists[i3].push_back(tangent);
+    handedness_sums[i1] += TangentHandedness(tangent, bitangent, skinned_vertices_[i1].normal);
+    handedness_sums[i2] += TangentHandedness(tangent, bitangent, skinned_vertices_[i2].normal);
+    handedness_sums[i3] += TangentHandedness(tangent, bitangent, skinned_vertices_[i3].normal);
   }
   for (auto i = 0; i < size; i++) {
     auto tangent = glm::vec3(0.0f);
     for (auto j : tangent_lists[i]) {
       tangent += j;
     }
-    skinned_vertices_[i].tangent = glm::normalize(tangent);
+    skinned_vertices_[i].tangent = NormalizeOrFallback(tangent, glm::vec3(1.0f, 0.0f, 0.0f));
+    skinned_vertices_[i].vertex_info3 = handedness_sums[i] < 0.0f ? -1.0f : 1.0f;
   }
 }
 

@@ -1,5 +1,8 @@
 #include "Texture2D.hpp"
 
+#include <cstddef>
+#include <cstdint>
+
 #include <stb_image_write.h>
 #include "Application.hpp"
 #include "AssetManager.hpp"
@@ -9,6 +12,7 @@
 #include "Platform.hpp"
 #include "Serialization.hpp"
 #include "TextureStorage.hpp"
+
 using namespace evo_engine;
 
 namespace {
@@ -20,7 +24,121 @@ struct Texture2DStagedLoadPayload final : StagedAssetLoadPayload {
   bool hdr = false;
   glm::uvec2 resolution = glm::uvec2(0);
   std::vector<glm::vec4> pixels;
+  VkFormat compressed_format = VK_FORMAT_UNDEFINED;
+  uint32_t compressed_mip_levels = 1;
+  std::vector<std::byte> compressed_pixels;
 };
+
+constexpr uint32_t MakeFourCc(const char a, const char b, const char c, const char d) {
+  return static_cast<uint32_t>(static_cast<unsigned char>(a)) |
+         (static_cast<uint32_t>(static_cast<unsigned char>(b)) << 8) |
+         (static_cast<uint32_t>(static_cast<unsigned char>(c)) << 16) |
+         (static_cast<uint32_t>(static_cast<unsigned char>(d)) << 24);
+}
+
+uint32_t ReadLe32(const std::vector<std::byte>& bytes, const size_t offset) {
+  return static_cast<uint32_t>(std::to_integer<unsigned char>(bytes[offset])) |
+         (static_cast<uint32_t>(std::to_integer<unsigned char>(bytes[offset + 1])) << 8) |
+         (static_cast<uint32_t>(std::to_integer<unsigned char>(bytes[offset + 2])) << 16) |
+         (static_cast<uint32_t>(std::to_integer<unsigned char>(bytes[offset + 3])) << 24);
+}
+
+bool IsDdsPath(const std::filesystem::path& path) {
+  const auto extension = path.extension().string();
+  return extension == ".dds" || extension == ".DDS";
+}
+
+bool IsFloatTextureStorage(const Texture2DStorage& texture_storage) {
+  return texture_storage.GetFormat() == Platform::Constants::texture_2d;
+}
+
+bool LoadDdsTexturePayload(const std::filesystem::path& path, Texture2DStagedLoadPayload& payload) {
+  std::error_code error_code;
+  const auto file_size = std::filesystem::file_size(path, error_code);
+  if (error_code || file_size < 148) {
+    EVOENGINE_ERROR("DDS texture is too small or unavailable: " + path.filename().string())
+    return false;
+  }
+
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream) {
+    EVOENGINE_ERROR("DDS texture failed to open: " + path.filename().string())
+    return false;
+  }
+
+  std::vector<std::byte> bytes(static_cast<size_t>(file_size));
+  stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  if (stream.gcount() != static_cast<std::streamsize>(bytes.size())) {
+    EVOENGINE_ERROR("DDS texture failed to read completely: " + path.filename().string())
+    return false;
+  }
+
+  constexpr uint32_t dds_magic = MakeFourCc('D', 'D', 'S', ' ');
+  constexpr uint32_t dx10_four_cc = MakeFourCc('D', 'X', '1', '0');
+  if (ReadLe32(bytes, 0) != dds_magic || ReadLe32(bytes, 4) != 124 || ReadLe32(bytes, 76) != 32 ||
+      ReadLe32(bytes, 84) != dx10_four_cc) {
+    EVOENGINE_ERROR("DDS texture must use a DX10 header: " + path.filename().string())
+    return false;
+  }
+
+  constexpr uint32_t dxgi_format_bc7_unorm = 98;
+  constexpr uint32_t dxgi_format_bc7_unorm_srgb = 99;
+  const auto dxgi_format = ReadLe32(bytes, 128);
+  if (dxgi_format == dxgi_format_bc7_unorm) {
+    payload.compressed_format = VK_FORMAT_BC7_UNORM_BLOCK;
+  } else if (dxgi_format == dxgi_format_bc7_unorm_srgb) {
+    payload.compressed_format = VK_FORMAT_BC7_SRGB_BLOCK;
+  } else {
+    EVOENGINE_ERROR("DDS texture uses unsupported DXGI format " + std::to_string(dxgi_format) + ": " +
+                    path.filename().string())
+    return false;
+  }
+
+  const auto resource_dimension = ReadLe32(bytes, 132);
+  const auto array_size = ReadLe32(bytes, 140);
+  constexpr uint32_t d3d10_resource_dimension_texture2d = 3;
+  if (resource_dimension != d3d10_resource_dimension_texture2d || array_size != 1) {
+    EVOENGINE_ERROR("DDS texture must be a single 2D texture: " + path.filename().string())
+    return false;
+  }
+
+  const uint32_t width = ReadLe32(bytes, 16);
+  const uint32_t height = ReadLe32(bytes, 12);
+  const uint32_t authored_mip_levels = ReadLe32(bytes, 28);
+  const uint32_t mip_levels = authored_mip_levels > 0 ? authored_mip_levels : 1u;
+  if (width == 0 || height == 0) {
+    EVOENGINE_ERROR("DDS texture has invalid dimensions: " + path.filename().string())
+    return false;
+  }
+
+  constexpr size_t data_offset = 148;
+  constexpr size_t bc7_block_size = 16;
+  size_t mip_chain_size = 0;
+  uint32_t mip_width = width;
+  uint32_t mip_height = height;
+  for (uint32_t mip_level = 0; mip_level < mip_levels; ++mip_level) {
+    const size_t block_width = (static_cast<size_t>(mip_width) + 3) / 4;
+    const size_t block_height = (static_cast<size_t>(mip_height) + 3) / 4;
+    mip_chain_size += block_width * block_height * bc7_block_size;
+    mip_width = mip_width > 1 ? mip_width / 2 : 1u;
+    mip_height = mip_height > 1 ? mip_height / 2 : 1u;
+  }
+  if (bytes.size() < data_offset + mip_chain_size) {
+    EVOENGINE_ERROR("DDS texture does not contain the expected BC7 mip chain: " + path.filename().string())
+    return false;
+  }
+
+  payload.hdr = false;
+  payload.red_channel = true;
+  payload.green_channel = true;
+  payload.blue_channel = true;
+  payload.alpha_channel = true;
+  payload.resolution = glm::uvec2(width, height);
+  payload.pixels.clear();
+  payload.compressed_mip_levels = mip_levels;
+  payload.compressed_pixels.assign(bytes.begin() + data_offset, bytes.begin() + data_offset + mip_chain_size);
+  return true;
+}
 
 void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload& payload) {
   if (in["red_channel"])
@@ -95,6 +213,10 @@ void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& re
 void Texture2D::DownloadData() {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    local_data_.clear();
+    return;
+  }
   const auto resolution = GetResolution();
   local_data_.resize(resolution.x * resolution.y);
   Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
@@ -141,6 +263,31 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
     string_stream << stream.rdbuf();
     YAML::Node in = YAML::Load(string_stream.str());
     Serialization::DeserializeObject(in, static_cast<IAsset&>(*this));
+    return true;
+  }
+  if (IsDdsPath(path)) {
+    Texture2DStagedLoadPayload payload;
+    if (!LoadDdsTexturePayload(path, payload)) {
+      return false;
+    }
+    hdr = payload.hdr;
+    red_channel = payload.red_channel;
+    green_channel = payload.green_channel;
+    blue_channel = payload.blue_channel;
+    alpha_channel = payload.alpha_channel;
+    local_data_.clear();
+    auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
+    if (Platform::Initialized()) {
+      const auto upload = texture_storage.SetCompressedDataAsync(
+          payload.compressed_pixels, payload.resolution, payload.compressed_format, payload.compressed_mip_levels);
+      if (!upload.Valid()) {
+        return false;
+      }
+      Platform::GetGpuService().Wait(upload);
+    } else {
+      texture_storage.SetCompressedData(payload.compressed_pixels, payload.resolution, payload.compressed_format,
+                                        payload.compressed_mip_levels);
+    }
     return true;
   }
   hdr = false;
@@ -208,6 +355,12 @@ std::shared_ptr<StagedAssetLoadPayload> Texture2D::LoadStagedPayloadInternal(con
     DecodeSerializedTexture2D(in, *payload);
     return payload;
   }
+  if (IsDdsPath(path)) {
+    if (!LoadDdsTexturePayload(path, *payload)) {
+      return {};
+    }
+    return payload;
+  }
 
   payload->hdr = path.extension() == ".hdr";
   stbi_set_flip_vertically_on_load(true);
@@ -260,6 +413,27 @@ bool Texture2D::ApplyStagedPayloadInternal(const std::filesystem::path&,
   green_channel = texture_payload->green_channel;
   blue_channel = texture_payload->blue_channel;
   alpha_channel = texture_payload->alpha_channel;
+  if (texture_payload->compressed_format != VK_FORMAT_UNDEFINED) {
+    local_data_.clear();
+    if (!texture_payload->compressed_pixels.empty() && texture_payload->resolution.x != 0 &&
+        texture_payload->resolution.y != 0) {
+      auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
+      if (Platform::Initialized()) {
+        const auto upload = texture_storage.SetCompressedDataAsync(
+            texture_payload->compressed_pixels, texture_payload->resolution, texture_payload->compressed_format,
+            texture_payload->compressed_mip_levels);
+        if (!upload.Valid()) {
+          return false;
+        }
+        TrackPendingGpuWork(upload);
+      } else {
+        texture_storage.SetCompressedData(texture_payload->compressed_pixels, texture_payload->resolution,
+                                          texture_payload->compressed_format, texture_payload->compressed_mip_levels);
+      }
+    }
+    return true;
+  }
+
   local_data_ = texture_payload->pixels;
 
   if (!local_data_.empty() && texture_payload->resolution.x != 0 && texture_payload->resolution.y != 0) {
@@ -294,9 +468,13 @@ void Texture2D::ApplyOpacityMap(const std::shared_ptr<Texture2D>& target) {
   if (!target)
     return;
   GetRgbaChannelData(color_data);
+  if (color_data.empty())
+    return;
   std::vector<glm::vec4> alpha_data;
   const auto resolution = GetResolution();
   target->GetRgbaChannelData(alpha_data, resolution.x, resolution.y);
+  if (alpha_data.size() < color_data.size())
+    return;
   Jobs::RunParallelFor(color_data.size(), [&](size_t i) {
     color_data[i].a = alpha_data[i].r;
   });
@@ -343,6 +521,9 @@ Texture2D::~Texture2D() {
 glm::uvec2 Texture2D::GetResolution() const {
   const auto texture_storage = PeekTexture2DStorage();
   if (!texture_storage.image) {
+    if (texture_storage.new_compressed_resolution_.x != 0 && texture_storage.new_compressed_resolution_.y != 0) {
+      return texture_storage.new_compressed_resolution_;
+    }
     return texture_storage.new_resolution_;
   }
   return {texture_storage.image->GetExtent().width, texture_storage.image->GetExtent().height};
@@ -352,6 +533,9 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const int resize_x
                            const unsigned compression_level) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    return;
+  }
 
   const auto resolution = GetResolution();
 
@@ -415,6 +599,9 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const std::vector<
 void Texture2D::StoreToTga(const std::filesystem::path& path, const int resize_x, const int resize_y) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    return;
+  }
 
   const auto resolution = GetResolution();
 
@@ -448,6 +635,9 @@ void Texture2D::StoreToJpg(const std::filesystem::path& path, const int resize_x
                            const unsigned quality) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    return;
+  }
 
   const auto resolution = GetResolution();
 
@@ -578,6 +768,9 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const std::vector<
 void Texture2D::StoreToHdr(const std::filesystem::path& path, const int resize_x, const int resize_y) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    return;
+  }
 
   const auto resolution = GetResolution();
 
@@ -644,7 +837,7 @@ std::shared_ptr<Image> Texture2D::GetImage() const {
 }
 
 const std::vector<glm::vec4>& Texture2D::GetLocalData() {
-  if (local_data_.empty())
+  if (local_data_.empty() && IsFloatTextureStorage(PeekTexture2DStorage()))
     DownloadData();
   return local_data_;
 }
@@ -658,8 +851,12 @@ std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
   const glm::vec2 resolution = GetResolution();
   const float max_dim = glm::max(resolution.x, resolution.y);
   const glm::vec2 new_resolution = resolution * glm::min(1.f, 512.f / max_dim);
-  auto copy_data = GetLocalData();
-  Resize(GetLocalData(), resolution, copy_data, new_resolution);
+  const auto& local_data = GetLocalData();
+  if (local_data.empty()) {
+    return {};
+  }
+  auto copy_data = local_data;
+  Resize(local_data, resolution, copy_data, new_resolution);
   ret_val->SetRgbaChannelData(copy_data, new_resolution, false);
   return ret_val;
 }
@@ -667,6 +864,10 @@ std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
 void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize_x, const int resize_y) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    dst.clear();
+    return;
+  }
   const auto resolution = GetResolution();
   if ((resize_x == -1 && resize_y == -1) || (resolution.x == resize_x && resolution.y == resize_y)) {
     Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
@@ -689,6 +890,10 @@ void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize
 void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int resize_y) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    dst.clear();
+    return;
+  }
   const auto resolution = GetResolution();
   std::vector<glm::vec4> pixels;
   pixels.resize(resolution.x * resolution.y);
@@ -704,6 +909,10 @@ void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int
 void Texture2D::GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x, int resize_y) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    dst.clear();
+    return;
+  }
   const auto resolution = GetResolution();
   std::vector<glm::vec4> pixels;
   pixels.resize(resolution.x * resolution.y);
@@ -719,6 +928,10 @@ void Texture2D::GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x, int 
 void Texture2D::GetRedChannelData(std::vector<float>& dst, int resize_x, int resize_y) const {
   WaitForPendingGpuWork();
   const auto& texture_storage = PeekTexture2DStorage();
+  if (!texture_storage.image || !IsFloatTextureStorage(texture_storage)) {
+    dst.clear();
+    return;
+  }
   const auto resolution = GetResolution();
   std::vector<glm::vec4> pixels;
   pixels.resize(resolution.x * resolution.y);

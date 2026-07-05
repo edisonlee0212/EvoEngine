@@ -498,7 +498,7 @@ std::vector<Handle> ReadMaterialTextureHandles(const std::string& saved_text) {
   std::string line;
   bool reading_texture_ref = false;
   while (std::getline(stream, line)) {
-    if (line.find("_texture_:") != std::string::npos) {
+    if (line.find("texture:") != std::string::npos) {
       reading_texture_ref = true;
       continue;
     }
@@ -760,8 +760,12 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.screen_space_reflection->max_iteration_count = 96;
   stack.screen_space_reflection->blur = false;
   stack.tone_mapping = std::make_shared<ToneMapping>();
+  stack.tone_mapping->method = ToneMapping::ToneMapMethod::Filmic;
   stack.tone_mapping->exposure = 1.5f;
-  stack.tone_mapping->gamma = 2.2f;
+  stack.tone_mapping->brightness = 2.2f;
+  stack.tone_mapping->contrast = 1.1f;
+  stack.tone_mapping->saturation = 0.9f;
+  stack.tone_mapping->auto_exposure = true;
 
   YAML::Emitter stack_out;
   BeginMap(stack_out);
@@ -776,7 +780,11 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_EQ(stack_node["screen_space_ambient_occlusion"]["kernel_size"].as<int>(), 16);
   EXPECT_FLOAT_EQ(stack_node["bloom"]["filter_radius"].as<float>(), 0.02f);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
-  EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["gamma"].as<float>(), 2.2f);
+  EXPECT_EQ(stack_node["tone_mapping"]["method"].as<int>(), static_cast<int>(ToneMapping::ToneMapMethod::Filmic));
+  EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["brightness"].as<float>(), 2.2f);
+  EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["contrast"].as<float>(), 1.1f);
+  EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["saturation"].as<float>(), 0.9f);
+  EXPECT_TRUE(stack_node["tone_mapping"]["auto_exposure"].as<bool>());
 
   PostProcessingStack restored_stack;
   Serialization::DeserializeObject(YAML::Load(R"(
@@ -802,8 +810,20 @@ screen_space_reflection:
   thickness: 0.75
   blur: false
 tone_mapping:
+  method: 0
   exposure: 1.75
-  gamma: 2.4
+  brightness: 2.4
+  contrast: 1.2
+  saturation: 0.8
+  vignette: 0.1
+  auto_exposure: true
+  auto_exposure_speed: 4.0
+  ev_min_value: -6.0
+  ev_max_value: 9.0
+  enable_center_metering: true
+  center_metering_size: 0.4
+  average_mode: 0
+  dither: false
 )"),
                                    static_cast<IAsset&>(restored_stack));
   EXPECT_FALSE(restored_stack.enable_screen_space_ambient_occlusion);
@@ -820,8 +840,20 @@ tone_mapping:
   EXPECT_FALSE(restored_stack.screen_space_reflection->blur);
   EXPECT_EQ(restored_stack.screen_space_reflection->initial_steps, 12);
   ASSERT_TRUE(restored_stack.tone_mapping);
+  EXPECT_EQ(restored_stack.tone_mapping->method, ToneMapping::ToneMapMethod::Filmic);
   EXPECT_FLOAT_EQ(restored_stack.tone_mapping->exposure, 1.75f);
-  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->gamma, 2.4f);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->brightness, 2.4f);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->contrast, 1.2f);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->saturation, 0.8f);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->vignette, 0.1f);
+  EXPECT_TRUE(restored_stack.tone_mapping->auto_exposure);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->auto_exposure_speed, 4.0f);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->ev_min_value, -6.0f);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->ev_max_value, 9.0f);
+  EXPECT_TRUE(restored_stack.tone_mapping->enable_center_metering);
+  EXPECT_FLOAT_EQ(restored_stack.tone_mapping->center_metering_size, 0.4f);
+  EXPECT_EQ(restored_stack.tone_mapping->average_mode, 0);
+  EXPECT_FALSE(restored_stack.tone_mapping->dither);
 
   Shader shader;
   shader.RefShaderCode() = "void main() {}";
@@ -2022,6 +2054,54 @@ TEST(SerializationRegistry, AssetRefKeepsUnresolvedSerializedHandle) {
   EXPECT_FALSE(after_get.Active());
 }
 
+TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(material);
+  auto& shade_material = material->material_data.shade_material;
+  shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+  shade_material.alpha_cutoff = 0.37f;
+  shade_material.transmission_factor = 0.42f;
+  shade_material.attenuation_color = glm::vec3(0.2f, 0.4f, 0.8f);
+  shade_material.attenuation_distance = 12.0f;
+  shade_material.thickness_factor = 0.75f;
+  shade_material.diffuse_transmission_color = glm::vec3(0.7f, 0.8f, 0.9f);
+  shade_material.diffuse_transmission_factor = 0.65f;
+  shade_material.multiscatter_color_factor = glm::vec3(0.3f, 0.4f, 0.5f);
+  shade_material.scatter_anisotropy = -0.25f;
+  shade_material.transmission_texture = 3;
+  shade_material.thickness_texture = 4;
+  shade_material.diffuse_transmission_texture = 5;
+  shade_material.diffuse_transmission_color_texture = 6;
+
+  YAML::Emitter out;
+  BeginMap(out);
+  Serialization::SerializeObject(out, static_cast<IAsset&>(*material));
+  out << YAML::EndMap;
+
+  const auto restored = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(restored);
+  Serialization::DeserializeObject(YAML::Load(out.c_str()), static_cast<IAsset&>(*restored));
+  const auto& restored_material = restored->material_data.shade_material;
+  EXPECT_EQ(restored_material.alpha_mode, static_cast<int32_t>(GltfAlphaMode::Blend));
+  EXPECT_FLOAT_EQ(restored_material.alpha_cutoff, 0.37f);
+  EXPECT_FLOAT_EQ(restored_material.transmission_factor, 0.42f);
+  EXPECT_EQ(restored_material.attenuation_color, glm::vec3(0.2f, 0.4f, 0.8f));
+  EXPECT_FLOAT_EQ(restored_material.attenuation_distance, 12.0f);
+  EXPECT_FLOAT_EQ(restored_material.thickness_factor, 0.75f);
+  EXPECT_EQ(restored_material.diffuse_transmission_color, glm::vec3(0.7f, 0.8f, 0.9f));
+  EXPECT_FLOAT_EQ(restored_material.diffuse_transmission_factor, 0.65f);
+  EXPECT_EQ(restored_material.multiscatter_color_factor, glm::vec3(0.3f, 0.4f, 0.5f));
+  EXPECT_FLOAT_EQ(restored_material.scatter_anisotropy, -0.25f);
+  EXPECT_EQ(restored_material.transmission_texture, 3);
+  EXPECT_EQ(restored_material.thickness_texture, 4);
+  EXPECT_EQ(restored_material.diffuse_transmission_texture, 5);
+  EXPECT_EQ(restored_material.diffuse_transmission_color_texture, 6);
+}
+
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {
   const auto prefab_path = std::filesystem::temp_directory_path() / "EvoEngine_PrefabMaterialTextureRefs.eveprefab";
   std::filesystem::remove(prefab_path);
@@ -2046,21 +2126,21 @@ TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAnd
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     const auto albedo = CreateSinglePixelTexture(glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
     const auto normal = CreateSinglePixelTexture(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
-    const auto metallic = CreateSinglePixelTexture(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    const auto roughness = CreateSinglePixelTexture(glm::vec4(0.7f, 0.7f, 0.7f, 1.0f));
+    const auto metallic_roughness = CreateSinglePixelTexture(glm::vec4(1.0f, 0.7f, 0.0f, 1.0f));
+    const auto emissive = CreateSinglePixelTexture(glm::vec4(0.2f, 0.3f, 0.4f, 1.0f));
     const auto ao = CreateSinglePixelTexture(glm::vec4(1.0f));
     ASSERT_TRUE(material);
     ASSERT_TRUE(albedo);
     ASSERT_TRUE(normal);
-    ASSERT_TRUE(metallic);
-    ASSERT_TRUE(roughness);
+    ASSERT_TRUE(metallic_roughness);
+    ASSERT_TRUE(emissive);
     ASSERT_TRUE(ao);
 
-    material->SetAlbedoTexture(albedo);
-    material->SetNormalTexture(normal);
-    material->SetMetallicTexture(metallic);
-    material->SetRoughnessTexture(roughness);
-    material->SetAoTexture(ao);
+    material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, albedo);
+    material->SetTexture(&GltfShadeMaterial::normal_texture, normal);
+    material->SetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture, metallic_roughness);
+    material->SetTexture(&GltfShadeMaterial::emissive_texture, emissive);
+    material->SetTexture(&GltfShadeMaterial::occlusion_texture, ao);
     mesh_renderer->material = material;
 
     TestablePrefab prefab;
@@ -2071,12 +2151,12 @@ TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAnd
     EXPECT_EQ(local_assets.count(material->GetHandle()), 1);
     EXPECT_EQ(local_assets.count(albedo->GetHandle()), 1);
     EXPECT_EQ(local_assets.count(normal->GetHandle()), 1);
-    EXPECT_EQ(local_assets.count(metallic->GetHandle()), 1);
-    EXPECT_EQ(local_assets.count(roughness->GetHandle()), 1);
+    EXPECT_EQ(local_assets.count(metallic_roughness->GetHandle()), 1);
+    EXPECT_EQ(local_assets.count(emissive->GetHandle()), 1);
     EXPECT_EQ(local_assets.count(ao->GetHandle()), 1);
 
     material_handle = material->GetHandle();
-    texture_handles = {albedo->GetHandle(), normal->GetHandle(), metallic->GetHandle(), roughness->GetHandle(),
+    texture_handles = {albedo->GetHandle(), normal->GetHandle(), metallic_roughness->GetHandle(), emissive->GetHandle(),
                        ao->GetHandle()};
     ASSERT_TRUE(prefab.SaveTo(prefab_path));
   }
@@ -2104,20 +2184,21 @@ TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAnd
   const auto loaded_material = loaded_mesh_renderer->material.Get<Material>();
   ASSERT_TRUE(loaded_material);
   EXPECT_EQ(loaded_material->GetHandle(), material_handle);
-  const auto loaded_albedo = loaded_material->GetAlbedoTexture();
-  const auto loaded_normal = loaded_material->GetNormalTexture();
-  const auto loaded_metallic = loaded_material->GetMetallicTexture();
-  const auto loaded_roughness = loaded_material->GetRoughnessTexture();
-  const auto loaded_ao = loaded_material->GetAoTexture();
+  const auto loaded_albedo = loaded_material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
+  const auto loaded_normal = loaded_material->GetTexture(&GltfShadeMaterial::normal_texture);
+  const auto loaded_metallic_roughness =
+      loaded_material->GetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture);
+  const auto loaded_emissive = loaded_material->GetTexture(&GltfShadeMaterial::emissive_texture);
+  const auto loaded_ao = loaded_material->GetTexture(&GltfShadeMaterial::occlusion_texture);
   ASSERT_TRUE(loaded_albedo);
   ASSERT_TRUE(loaded_normal);
-  ASSERT_TRUE(loaded_metallic);
-  ASSERT_TRUE(loaded_roughness);
+  ASSERT_TRUE(loaded_metallic_roughness);
+  ASSERT_TRUE(loaded_emissive);
   ASSERT_TRUE(loaded_ao);
   EXPECT_EQ(loaded_albedo->GetHandle(), texture_handles[0]);
   EXPECT_EQ(loaded_normal->GetHandle(), texture_handles[1]);
-  EXPECT_EQ(loaded_metallic->GetHandle(), texture_handles[2]);
-  EXPECT_EQ(loaded_roughness->GetHandle(), texture_handles[3]);
+  EXPECT_EQ(loaded_metallic_roughness->GetHandle(), texture_handles[2]);
+  EXPECT_EQ(loaded_emissive->GetHandle(), texture_handles[3]);
   EXPECT_EQ(loaded_ao->GetHandle(), texture_handles[4]);
 }
 
@@ -2144,7 +2225,7 @@ TEST(SerializationRegistry, PrefabSaveKeepsProjectTextureHandlesExternal) {
 
     const auto material = AssetManager::CreateTemporaryAsset<Material>();
     ASSERT_TRUE(material);
-    material->SetAlbedoTexture(project_texture);
+    material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, project_texture);
     material_handle = material->GetHandle();
 
     const auto entity = scene->CreateEntity("Project Texture Prefab Source");
@@ -2177,7 +2258,7 @@ TEST(SerializationRegistry, PrefabSaveKeepsProjectTextureHandlesExternal) {
   ASSERT_TRUE(loaded_mesh_renderer);
   const auto loaded_material = loaded_mesh_renderer->material.Get<Material>();
   ASSERT_TRUE(loaded_material);
-  const auto loaded_albedo = loaded_material->GetAlbedoTexture();
+  const auto loaded_albedo = loaded_material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
   ASSERT_TRUE(loaded_albedo);
   EXPECT_EQ(loaded_albedo->GetHandle(), texture_handle);
 }

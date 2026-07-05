@@ -86,7 +86,8 @@ class PointLight : public IPrivateComponent {
   glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
   float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
   float light_size = 0.01f;            /**< Size of the light source. */
-  float shadow_distance = 100.f;       /**< Maximum shadow draw distance. */
+  float range = 0.0f;                  /**< Explicit light range. A non-positive value derives the range. */
+  float shadow_distance = 400.f;       /**< Maximum shadow draw distance. */
 
   /**
    * @brief Called when the component is created.
@@ -144,7 +145,8 @@ class SpotLight : public IPrivateComponent {
   glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
   float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
   float light_size = 0.01f;            /**< Size of the light source. */
-  float shadow_distance = 100.f;       /**< Maximum shadow draw distance. */
+  float range = 0.0f;                  /**< Explicit light range. A non-positive value derives the range. */
+  float shadow_distance = 400.f;       /**< Maximum shadow draw distance. */
 
   /**
    * @brief Called when the component is created.

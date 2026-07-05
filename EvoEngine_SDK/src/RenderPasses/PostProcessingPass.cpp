@@ -17,11 +17,33 @@ RenderPassDescriptor PostProcessingPass::CreateDescriptor(const char* dependency
           {dependency ? dependency : RenderPassNames::deferred_camera}};
 }
 
+RenderPassDescriptor PostProcessingPass::CreateRayTracingDescriptor(const char* dependency) {
+  return {RenderPassNames::post_processing,
+          RenderPassQueue::Graphics,
+          RenderPassScope::Camera,
+          {{RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
+          {dependency ? dependency : RenderPassNames::ray_tracing_camera}};
+}
+
 void PostProcessingPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   if (parameters.immediate || !parameters.camera) {
     return;
   }
   if (const auto post_processing_stack = parameters.camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+    if (parameters.tone_mapping_only) {
+      if (!post_processing_stack->enable_tone_mapping || !post_processing_stack->tone_mapping) {
+        return;
+      }
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+        ApplyGraphResourceBarriers(vk_command_buffer, context);
+      });
+      post_processing_stack->tone_mapping->BuildPipelines();
+      post_processing_stack->tone_mapping->Process(*post_processing_stack, parameters.camera);
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+      });
+      return;
+    }
     post_processing_stack->Process(parameters.camera, [&](const VkCommandBuffer vk_command_buffer) {
       ApplyGraphResourceBarriers(vk_command_buffer, context);
     });

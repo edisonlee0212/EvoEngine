@@ -8,6 +8,36 @@
 #include "TextureStorage.hpp"
 using namespace evo_engine;
 
+namespace {
+constexpr float kEnvironmentPi = 3.14159265358979323846f;
+
+float EnvironmentLuminance(const glm::vec3& value) {
+  return glm::max(glm::dot(glm::max(value, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f)), 0.0f);
+}
+
+float CalculateEnvironmentPdfScale(const std::shared_ptr<Texture2D>& texture) {
+  if (!texture)
+    return 0.0f;
+  const auto resolution = texture->GetResolution();
+  const auto& pixels = texture->GetLocalData();
+  if (resolution.x == 0 || resolution.y == 0 || pixels.size() != static_cast<size_t>(resolution.x) * resolution.y)
+    return 0.0f;
+
+  const float d_azimuth = 2.0f * kEnvironmentPi / static_cast<float>(resolution.x);
+  const float d_elevation = kEnvironmentPi / static_cast<float>(resolution.y);
+  double integral = 0.0;
+  for (uint32_t y = 0; y < resolution.y; ++y) {
+    const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(resolution.y);
+    const float elevation = (v - 0.5f) * kEnvironmentPi;
+    const float solid_angle = d_azimuth * d_elevation * glm::max(glm::cos(elevation), 0.0f);
+    for (uint32_t x = 0; x < resolution.x; ++x) {
+      integral += EnvironmentLuminance(glm::vec3(pixels[static_cast<size_t>(y) * resolution.x + x])) * solid_angle;
+    }
+  }
+  return integral > 0.0 ? 1.0f / static_cast<float>(integral) : 0.0f;
+}
+}  // namespace
+
 Cubemap::Cubemap() {
   texture_storage_handle_ = TextureStorage::RegisterCubemap();
 }
@@ -204,6 +234,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     EVOENGINE_ERROR("Target texture doesn't contain any content!");
     return;
   }
+  const float environment_pdf_scale = CalculateEnvironmentPdfScale(target_texture);
 #pragma region Depth
   VkImageCreateInfo depth_image_info{};
   depth_image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -345,6 +376,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       GeometryStorage::BindVertices(vk_command_buffer);
       EquirectangularToCubemapConstant constant{};
       constant.projection_view = capture_projection * capture_views[i];
+      constant.environment_pdf_scale = environment_pdf_scale;
       equirectangular_to_cubemap_pipeline_->PushConstant(vk_command_buffer, 0, constant);
       mesh->DrawIndexed(vk_command_buffer, equirectangular_to_cubemap_pipeline_->states, 1);
       Platform::EndRendering(vk_command_buffer);

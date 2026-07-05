@@ -18,10 +18,18 @@ struct Camera {
   int use_clear_color;
 
   // Ray tracing
-  uint padding;
+  uint firefly_clamp_enabled;
   float gamma;
   uint sample_size;
   uint bounce;
+  float firefly_clamp_threshold;
+  uint auto_spp_enabled;
+  uint auto_spp_min_samples;
+  uint auto_spp_max_samples;
+  float auto_spp_convergence_threshold;
+  uint auto_spp_padding0;
+  uint auto_spp_padding1;
+  uint auto_spp_padding2;
 };
 
 // Camera

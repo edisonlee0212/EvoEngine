@@ -3,6 +3,7 @@
 #include "Camera.hpp"
 #include "Entity.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "GltfMaterialCache.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -16,13 +17,14 @@ class DirectionalLightShadowPass;
 class GaussianSplatCullPass;
 class GaussianSplatSortPass;
 class GaussianSplatPass;
+class TransparentGeometryPass;
 
 /**
  * @brief Struct containing various render settings for the engine.
  */
 struct RenderSettings {
   bool stable_fit = true;                                       ///< Indicates whether rendering should use stable fit.
-  float max_shadow_distance = 100;                              ///< Maximum shadow distance in the scene.
+  float max_shadow_distance = 400;                              ///< Maximum shadow distance in the scene.
   float shadow_cascade_split[4] = {0.075f, 0.15f, 0.3f, 1.0f};  ///< Splits for shadow cascades.
   bool enable_debug_visualization = false;                      ///< Whether debug visualization is enabled.
 
@@ -48,8 +50,11 @@ struct RenderInstancePushConstant {
  * @brief Struct containing push constants for ray tracing.
  */
 struct RayTracingCameraPushConstant {
-  uint32_t camera_index = 0;  ///< Index of the camera for ray tracing.
-  uint32_t frame_id = 0;      ///< Frame ID for the current ray tracing operation.
+  uint32_t camera_index = 0;   ///< Index of the camera for ray tracing.
+  uint32_t frame_id = 0;       ///< Frame ID for the current ray tracing operation.
+  uint32_t total_samples = 0;  ///< Samples already accumulated before this dispatch.
+  uint32_t frame_samples = 1;  ///< Samples accumulated by this dispatch.
+  uint32_t shader_execution_reordering = 0;
 };
 
 /**
@@ -189,7 +194,8 @@ class RenderInstanceStorage {
     alignas(4) float environmental_map_gamma = 2.2f;                 ///< Gamma correction for the environmental map.
     alignas(4) float environmental_lighting_intensity = 0.8f;        ///< Intensity of the environmental lighting.
     alignas(4) float background_intensity = 1.0f;                    ///< Intensity of the background.
-    alignas(4) float environmental_padding2 = 0.0f;                  ///< Padding for alignment.
+    alignas(4) float environment_type = 0.0f;                        ///< Scene::EnvironmentType value.
+    alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
 
     /**
      * @brief Compares two EnvironmentInfoBlock objects for inequality.
@@ -219,48 +225,6 @@ class RenderInstanceStorage {
      * @return True if the objects are not equal.
      */
     bool operator!=(const InstanceInfoBlock& other) const;
-  };
-
-  /**
-   * @brief Struct to hold material-related rendering information.
-   */
-  struct MaterialInfoBlock {
-    alignas(4) int albedo_texture_index = -1;     ///< Albedo texture index.
-    alignas(4) int normal_texture_index = -1;     ///< Normal texture index.
-    alignas(4) int metallic_texture_index = -1;   ///< Metallic texture index.
-    alignas(4) int roughness_texture_index = -1;  ///< Roughness texture index.
-
-    alignas(4) int ao_texture_index = -1;  ///< Ambient occlusion texture index.
-    alignas(4) int cast_shadow = true;     ///< Indicates if the material casts shadows.
-    alignas(4) int receive_shadow = true;  ///< Indicates if the material receives shadows.
-    alignas(4) int enable_shadow = true;   ///< Indicates if shadows are enabled for the material.
-
-    alignas(4) int cull_mode = VK_CULL_MODE_NONE;  ///< Cull mode used by two-sided ray-hit shading.
-    alignas(4) int padding0 = 0;
-    alignas(4) int padding1 = 0;
-    alignas(4) int padding2 = 0;
-
-    glm::vec4 albedo_color_val = glm::vec4(1.0f);                     ///< Albedo color value.
-    glm::vec4 subsurface_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);   ///< Subsurface color.
-    glm::vec4 subsurface_radius = glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);  ///< Subsurface radius.
-
-    alignas(4) float metallic_val = 0.5f;   ///< Metallic value.
-    alignas(4) float roughness_val = 0.5f;  ///< Roughness value.
-    alignas(4) float ao_val = 1.0f;         ///< Ambient occlusion value.
-    alignas(4) float emission_val = 0.0f;   ///< Emission value.
-
-    /**
-     * @brief Applies the material settings to the target material.
-     * @param target_material Shared pointer to the material where settings will be applied.
-     */
-    void Apply(const std::shared_ptr<Material>& target_material);
-
-    /**
-     * @brief Compares two MaterialInfoBlock objects for inequality.
-     * @param other The other MaterialInfoBlock object to compare.
-     * @return True if the objects are not equal.
-     */
-    bool operator!=(const MaterialInfoBlock& other) const;
   };
 
   /**
@@ -369,9 +333,12 @@ class RenderInstanceStorage {
    * @brief Struct for skinned mesh render instance functionality.
    */
   struct SkinnedMeshRenderInstance : IRenderInstance {
-    uint32_t bone_matrices_version;               ///< Version of the bone matrices for the skinned mesh.
-    std::shared_ptr<SkinnedMesh> skinned_mesh;    ///< Shared pointer to the skinned mesh.
-    std::shared_ptr<BoneMatrices> bone_matrices;  ///< Shared pointer to bone matrices needed for animation.
+    uint32_t bone_matrices_version;  ///< Version of the bone matrices for the skinned mesh.
+    uint32_t ray_tracing_geometry_version = 0;
+    std::shared_ptr<SkinnedMesh> skinned_mesh;                           ///< Shared pointer to the skinned mesh.
+    std::shared_ptr<BoneMatrices> bone_matrices;                         ///< Shared pointer to bone matrices needed.
+    std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range;         ///< Animated ray tracing payload range.
+    std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas;  ///< Animated-pose BLAS for ray tracing.
 
     /**
      * @brief Compares two SkinnedMeshRenderInstance objects for inequality.
@@ -529,6 +496,9 @@ class RenderInstanceStorage {
      */
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
 
+    void ForEachExternalRenderInstance(
+        const std::function<void(const std::shared_ptr<ExternalRenderInstance>&)>& action) const;
+
     [[nodiscard]] bool HasDdgiRayTracingGeometry() const;
   };
 
@@ -563,6 +533,8 @@ class RenderInstanceStorage {
      * @param action The action to apply.
      */
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+
+    void ForEachMeshRenderInstance(const std::function<void(const std::shared_ptr<MeshRenderInstance>&)>& action) const;
   };
 
   /**
@@ -596,6 +568,9 @@ class RenderInstanceStorage {
      * @param action The action to apply.
      */
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+
+    void ForEachSkinnedMeshRenderInstance(
+        const std::function<void(const std::shared_ptr<SkinnedMeshRenderInstance>&)>& action) const;
   };
 
   /**
@@ -629,6 +604,9 @@ class RenderInstanceStorage {
      * @param action The action to apply.
      */
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+
+    void ForEachStrandsRenderInstance(
+        const std::function<void(const std::shared_ptr<StrandsRenderInstance>&)>& action) const;
   };
 
   class GaussianSplatRenderInstanceCollection : public IRenderInstanceCollection {
@@ -639,6 +617,9 @@ class RenderInstanceStorage {
     void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
     bool operator!=(const GaussianSplatRenderInstanceCollection& other) const;
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+
+    void ForEachGaussianSplatRenderInstance(
+        const std::function<void(const std::shared_ptr<GaussianSplatRenderInstance>&)>& action) const;
   };
 
   /**
@@ -672,6 +653,9 @@ class RenderInstanceStorage {
      * @param action The action to apply.
      */
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
+
+    void ForEachInstancedRenderInstance(
+        const std::function<void(const std::shared_ptr<InstancedRenderInstance>&)>& action) const;
   };
 
   /**
@@ -734,7 +718,8 @@ class RenderInstanceStorage {
   [[nodiscard]] int RegisterMaterial(const std::shared_ptr<Material>& material);
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   RenderSettings render_settings{};
-  std::shared_ptr<Buffer> material_info_descriptor_buffer = {};
+  std::shared_ptr<Buffer> gltf_material_descriptor_buffer = {};
+  std::shared_ptr<Buffer> gltf_texture_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> instance_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> environment_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> directional_light_info_descriptor_buffer = {};
@@ -855,11 +840,9 @@ class RenderInstanceStorage {
    */
   void Upload() const;
 
-  /**
-   * @brief Retrieves the list of material information blocks.
-   * @return Reference to the vector of MaterialInfoBlock objects.
-   */
-  [[nodiscard]] const std::vector<MaterialInfoBlock>& GetMaterialInfoBlocks() const;
+  [[nodiscard]] const std::vector<GltfShadeMaterial>& GetGltfShadeMaterials() const;
+
+  [[nodiscard]] const std::vector<GltfTextureInfo>& GetGltfTextureInfos() const;
 
   /**
    * @brief Retrieves the list of instance information blocks.
@@ -893,10 +876,7 @@ class RenderInstanceStorage {
    */
   std::unordered_map<Handle, int> camera_indices_;
 
-  /**
-   * @brief Holds the material information blocks.
-   */
-  std::vector<MaterialInfoBlock> material_info_blocks_{};
+  GltfMaterialCache gltf_material_cache_{};
 
   /**
    * @brief Holds the instance information blocks.
@@ -944,6 +924,7 @@ class RenderInstanceStorage {
   friend class GaussianSplatCullPass;
   friend class GaussianSplatSortPass;
   friend class GaussianSplatPass;
+  friend class TransparentGeometryPass;
   friend class CpuRayTracer;
   /**
    * @brief Collects entity renderers and calculates the world bounding box.
@@ -1024,13 +1005,7 @@ class RenderInstanceStorage {
                       const std::shared_ptr<GaussianSplatRenderer>& gaussian_splat_renderer, glm::vec3& min_bound,
                       glm::vec3& max_bound);
 
-  /**
-   * @brief Registers material information and returns its index.
-   * @param handle The handle associated with the material.
-   * @param material_info_block The material information block to register.
-   * @return Index of the registered material.
-   */
-  [[nodiscard]] int RegisterMaterial(const Handle& handle, const MaterialInfoBlock& material_info_block);
+  [[nodiscard]] int RegisterMaterial(const std::shared_ptr<Material>& material, const GltfMaterialData& material_data);
 
   /**
    * @brief Registers camera information and returns its index.

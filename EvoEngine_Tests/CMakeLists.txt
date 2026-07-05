@@ -23,6 +23,15 @@ set(EVOENGINE_TEST_SOURCES
 	Core/FileManagerTest.cpp
 	Core/PathUtilsTest.cpp
 	Core/LauncherUtilsTest.cpp
+	Core/BistroDemoScriptTest.cpp
+	Core/Texture2DTest.cpp
+	Core/GltfMaterialLayoutTest.cpp
+	Core/GltfMaterialConversionTest.cpp
+	Core/GltfRasterMaterialShaderTest.cpp
+	Core/GltfRayTracingMaterialShaderTest.cpp
+	Core/CameraRenderTechniqueTest.cpp
+	Core/RayTracingSkinnedInstanceTest.cpp
+	Core/PunctualLightImportTest.cpp
 	Core/GpuServiceTest.cpp
 	Core/PlatformQueueFamilyTest.cpp
 	Core/RenderGraphTest.cpp
@@ -132,6 +141,51 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER LauncherUtils.*
 	PROPERTIES LABELS "core,launcher"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER BistroDemoScript.*
+	PROPERTIES LABELS "core,demo,script"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER Texture2D.*
+	PROPERTIES LABELS "core,texture"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GltfMaterialLayout.*
+	PROPERTIES LABELS "core,render,material"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GltfMaterialConversion.*
+	PROPERTIES LABELS "core,render,material"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GltfRasterMaterial.*
+	PROPERTIES LABELS "core,render,material"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GltfRayTracingMaterial.*
+	PROPERTIES LABELS "core,render,material"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER CameraRenderTechnique.*
+	PROPERTIES LABELS "core,render,camera"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER RayTracingSkinned.*
+	PROPERTIES LABELS "core,render,ray-tracing"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER PunctualLightImport.*
+	PROPERTIES LABELS "core,render,ray-tracing,import"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

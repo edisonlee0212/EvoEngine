@@ -4,6 +4,7 @@
 #include "ComputePipeline.hpp"
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalMap.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
@@ -35,6 +36,7 @@
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
+#include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
@@ -66,6 +68,10 @@ constexpr int kDdgiProbeScrollClearZBit = 1 << 2;
 constexpr int kDdgiProbeScrollPositiveXBit = 1 << 3;
 constexpr int kDdgiProbeScrollPositiveYBit = 1 << 4;
 constexpr int kDdgiProbeScrollPositiveZBit = 1 << 5;
+constexpr uint32_t kDdgiSceneInputSettleFrameCount = 1;
+constexpr uint32_t kDdgiLightingIrradianceBinding = 17;
+constexpr uint32_t kDdgiLightingVisibilityBinding = 18;
+constexpr uint32_t kDdgiLightingProbeStateBinding = 19;
 
 float DdgiElapsedMilliseconds(const DdgiPerformanceClock::time_point start) {
   return std::chrono::duration<float, std::milli>(DdgiPerformanceClock::now() - start).count();
@@ -630,10 +636,28 @@ float CalculateDdgiEffectiveMaxRayDistance(const RenderLayer::DdgiSettings& sett
   return glm::max(settings.runtime.max_ray_distance, 0.05f);
 }
 
+uint32_t GetDdgiEnvironmentCubemapIndex(const std::shared_ptr<Scene>& scene, const glm::vec3& position) {
+  std::shared_ptr<ReflectionProbe> reflection_probe;
+  if (scene) {
+    reflection_probe = scene->environment.GetReflectionProbe(position);
+  }
+  if (!reflection_probe) {
+    if (const auto default_environment = Resources::GetInstance().GetDefaultEnvironmentalMap()) {
+      reflection_probe = default_environment->reflection_probe.Get<ReflectionProbe>();
+    }
+  }
+  if (!reflection_probe) {
+    return 0u;
+  }
+
+  const auto cubemap = reflection_probe->GetCubemap();
+  return cubemap ? cubemap->GetTextureStorageIndex() : 0u;
+}
+
 DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
     const RenderLayer::DdgiSettings& settings, const DdgiProbeRayDiagnosticSource& source,
     const RenderLayer::DdgiProbeUpdateWindow& update_window, const bool skip_inactive_probe_trace,
-    const bool skip_recursive_ddgi) {
+    const bool skip_recursive_ddgi, const uint32_t environment_cubemap_index) {
   DdgiProbeRayTracingPushConstant push_constant;
   const auto frame_index = static_cast<uint32_t>(Platform::GetFrameCount() & 0x00ffffffu);
   const auto ray_rotation = CreateDdgiProbeRayRotationQuaternion(frame_index, source.selected_volume_index);
@@ -645,7 +669,7 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
                                                         static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1)));
   push_constant.probe_offset_and_update_count = {update_window.start_probe_index,
                                                  glm::max(update_window.probe_count, 1u),
-                                                 skip_inactive_probe_trace ? 1u : 0u, 0u};
+                                                 skip_inactive_probe_trace ? 1u : 0u, environment_cubemap_index};
   push_constant.trace_parameters = {CalculateDdgiEffectiveMaxRayDistance(settings, source),
                                     glm::max(settings.runtime.normal_bias, 0.001f),
                                     source.enable_probe_relocation || source.enable_probe_classification ? 1.0f : 0.0f,
@@ -721,18 +745,24 @@ DdgiProbeClassificationPushConstant CreateDdgiProbeClassificationPushConstant(
   return push_constant;
 }
 
+bool BindDdgiLightingDescriptors(const std::shared_ptr<DescriptorSet>& lighting_descriptor_set,
+                                 const VkDescriptorImageInfo& irradiance_info,
+                                 const VkDescriptorImageInfo& visibility_info,
+                                 const std::shared_ptr<Buffer>& probe_state_buffer) {
+  if (!lighting_descriptor_set || !IsValidDescriptorImageInfo(irradiance_info) ||
+      !IsValidDescriptorImageInfo(visibility_info) || !probe_state_buffer) {
+    return false;
+  }
+  lighting_descriptor_set->UpdateImageDescriptorBinding(kDdgiLightingIrradianceBinding, irradiance_info);
+  lighting_descriptor_set->UpdateImageDescriptorBinding(kDdgiLightingVisibilityBinding, visibility_info);
+  lighting_descriptor_set->UpdateBufferDescriptorBinding(kDdgiLightingProbeStateBinding, probe_state_buffer);
+  return true;
+}
+
 void BindDdgiFallbackLightingDescriptors(const std::shared_ptr<DescriptorSet>& lighting_descriptor_set,
                                          const std::shared_ptr<Buffer>& fallback_probe_state_buffer) {
-  if (!lighting_descriptor_set) {
-    return;
-  }
   const auto image_info = CreateDdgiFallbackImageInfo();
-  if (!IsValidDescriptorImageInfo(image_info) || !fallback_probe_state_buffer) {
-    return;
-  }
-  lighting_descriptor_set->UpdateImageDescriptorBinding(17, image_info);
-  lighting_descriptor_set->UpdateImageDescriptorBinding(18, image_info);
-  lighting_descriptor_set->UpdateBufferDescriptorBinding(19, fallback_probe_state_buffer);
+  BindDdgiLightingDescriptors(lighting_descriptor_set, image_info, image_info, fallback_probe_state_buffer);
 }
 
 bool BindDdgiAtlasLightingDescriptors(const RenderGraphResourceRegistry& registry,
@@ -765,12 +795,12 @@ bool BindDdgiAtlasLightingDescriptors(const RenderGraphResourceRegistry& registr
   image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   image_info.sampler = atlas_sampler ? atlas_sampler->GetVkSampler() : fallback_info.sampler;
   image_info.imageView = irradiance_view->GetVkImageView();
-  lighting_descriptor_set->UpdateImageDescriptorBinding(17, image_info);
+  auto irradiance_info = image_info;
   image_info.imageView = visibility_view->GetVkImageView();
-  lighting_descriptor_set->UpdateImageDescriptorBinding(18, image_info);
-  lighting_descriptor_set->UpdateBufferDescriptorBinding(
-      19, state_binding && state_binding->buffer ? state_binding->buffer : fallback_probe_state_buffer);
-  return true;
+  auto visibility_info = image_info;
+  const auto probe_state_buffer =
+      state_binding && state_binding->buffer ? state_binding->buffer : fallback_probe_state_buffer;
+  return BindDdgiLightingDescriptors(lighting_descriptor_set, irradiance_info, visibility_info, probe_state_buffer);
 }
 
 void ApplyDdgiRenderInfo(RenderInstanceStorage::RenderInfoBlock& render_info, const RenderLayer::DdgiSettings& settings,
@@ -1134,7 +1164,7 @@ float RenderLayer::CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, c
 
 float RenderLayer::CalculateDdgiUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons,
                                                  const uint32_t warmup_frame_index) {
-  if ((update_reasons & (DdgiUpdateReasonSource | DdgiUpdateReasonManualReset)) != 0u) {
+  if ((update_reasons & (DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonSceneInput)) != 0u) {
     return 0.0f;
   }
   const auto hysteresis = glm::clamp(settings.runtime.hysteresis, 0.0f, 1.0f);
@@ -1172,6 +1202,7 @@ std::string RenderLayer::FormatDdgiUpdateReasons(const uint32_t reasons) {
   append_reason(DdgiUpdateReasonSteadyState, "Steady state");
   append_reason(DdgiUpdateReasonConverged, "Converged");
   append_reason(DdgiUpdateReasonWarmup, "Warm up");
+  append_reason(DdgiUpdateReasonSceneInput, "Scene input");
   return result.empty() ? "Unknown" : result;
 }
 
@@ -1251,6 +1282,10 @@ const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRenderTexturePresent
 
 void RenderLayer::InitializeCommonDescriptorSetLayouts(
     const ApplicationInitializationSettings& application_initialization_settings) {
+  if (!empty_descriptor_set_layout_) {
+    empty_descriptor_set_layout_ = std::make_shared<DescriptorSetLayout>();
+    empty_descriptor_set_layout_->Initialize();
+  }
   if (!render_texture_present_layout_) {
     render_texture_present_layout_ = std::make_shared<DescriptorSetLayout>();
     render_texture_present_layout_->PushDescriptorBinding(
@@ -1262,7 +1297,6 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     per_frame_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
@@ -1270,16 +1304,18 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     per_frame_layout_->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(
         9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT |
+            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
     per_frame_layout_->PushDescriptorBinding(
         10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT |
+            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
         application_initialization_settings.graphics_settings.max_cubemap_resource_size);
+    per_frame_layout_->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    per_frame_layout_->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->Initialize();
   }
   if (!meshlet_layout_) {
@@ -1307,25 +1343,25 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   }
   if (!ray_tracing_layout_) {
     ray_tracing_layout_ = std::make_shared<DescriptorSetLayout>();
-    ray_tracing_layout_->PushDescriptorBinding(
-        0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ray_tracing_layout_->PushDescriptorBinding(
-        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ray_tracing_layout_->PushDescriptorBinding(
-        2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    constexpr auto ray_camera_geometry_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
+                                                VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
+    ray_tracing_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
+    ray_tracing_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
+    ray_tracing_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
+                                               ray_camera_geometry_stages, 0);
     ray_tracing_layout_->Initialize();
   }
   if (!ray_tracing_camera_output_layout_) {
     ray_tracing_camera_output_layout_ = std::make_shared<DescriptorSetLayout>();
+    constexpr auto ray_camera_output_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
     ray_tracing_camera_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+                                                             ray_camera_output_stages, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+                                                             ray_camera_output_stages, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+                                                             ray_camera_output_stages, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             ray_camera_output_stages, 0);
     ray_tracing_camera_output_layout_->Initialize();
   }
   if (!ray_tracing_point_cloud_layout_) {
@@ -2265,6 +2301,27 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     deferred_lighting_pass_pipeline_scene_camera->Initialize();
   }
+  if (!transparent_geometry_pipeline_normal) {
+    transparent_geometry_pipeline_normal = std::make_shared<GraphicsPipeline>();
+    transparent_geometry_pipeline_normal->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.vert");
+    transparent_geometry_pipeline_normal->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardTransparent.frag");
+    transparent_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
+    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(lighting_layout_);
+    transparent_geometry_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
+    transparent_geometry_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    transparent_geometry_pipeline_normal->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    auto& push_constant_range = transparent_geometry_pipeline_normal->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RenderInstancePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    transparent_geometry_pipeline_normal->Initialize();
+  }
   if (!gizmos) {
     gizmos = std::make_shared<GraphicsPipeline>();
     gizmos->vertex_shader =
@@ -2502,8 +2559,9 @@ void RenderLayer::OnCreate() {
 #endif
 #pragma endregion
 #pragma region Ray Tracing Pipelines
-  constexpr auto ray_tracing_push_constant_stages =
-      VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+  constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
+                                                    VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
   if (Platform::RayTracingEnabled() && !ray_tracing_camera_pipeline) {
     ray_tracing_camera_pipeline = std::make_shared<RayTracingPipeline>();
     ray_tracing_camera_pipeline->raygen_shader =
@@ -2515,6 +2573,9 @@ void RenderLayer::OnCreate() {
     ray_tracing_camera_pipeline->closest_hit_shader =
         Shader::CreateTemporary(ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/Camera.rchit");
+    ray_tracing_camera_pipeline->any_hit_shader =
+        Shader::CreateTemporary(ShaderType::AnyHit, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/Camera.rahit");
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
     ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_camera_output_layout_);
@@ -2523,6 +2584,20 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = ray_tracing_push_constant_stages;
     ray_tracing_camera_pipeline->Initialize();
+  }
+  if (Platform::RayQueryEnabled() && !ray_query_camera_pipeline_) {
+    ray_query_camera_pipeline_ = std::make_shared<ComputePipeline>();
+    ray_query_camera_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.comp");
+    ray_query_camera_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ray_query_camera_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
+    ray_query_camera_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_camera_output_layout_);
+    auto& push_constant_range = ray_query_camera_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RayTracingCameraPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ray_query_camera_pipeline_->Initialize();
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
     ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();
@@ -2634,7 +2709,7 @@ void RenderLayer::ClearAllEditorCameras() const {
         i.second->prev_global_transform_ = i.first.value;
       }
       if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
-          (i.second->camera_render_mode == Camera::CameraRenderMode::RayTracing && i.second->frame_count_ == 0)) {
+          (Camera::IsRayCameraRenderMode(i.second->camera_render_mode) && i.second->frame_count_ == 0)) {
         if (const auto render_texture = i.second->GetRenderTexture()) {
           render_texture->Clear(vk_command_buffer);
         }
@@ -2717,7 +2792,7 @@ void RenderLayer::ClearAllCameras() const {
         i.second->prev_global_transform_ = i.first.value;
       }
       if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
-          (i.second->camera_render_mode == Camera::CameraRenderMode::RayTracing && i.second->frame_count_ == 0)) {
+          (Camera::IsRayCameraRenderMode(i.second->camera_render_mode) && i.second->frame_count_ == 0)) {
         if (const auto render_texture = i.second->GetRenderTexture()) {
           render_texture->Clear(vk_command_buffer);
         }
@@ -2839,6 +2914,33 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       !render_instances->mesh_top_level_acceleration_structure) {
     return;
   }
+  const bool texture_uploads_pending = TextureStorage::HasPendingUploads();
+  const bool project_scene_inputs_pending = ProjectManager::HasProject() && !ProjectManager::IsProjectIdle();
+  const bool scene_inputs_pending = texture_uploads_pending || project_scene_inputs_pending;
+  if (scene_inputs_pending) {
+    ddgi_deferred_scene_readiness_refresh_ = true;
+    ddgi_scene_input_settle_frame_count_ = 0;
+    ddgi_clear_probe_atlas_this_frame_ = true;
+    ddgi_last_probe_update_reasons_ = DdgiUpdateReasonSceneInput;
+    ddgi_active_probe_update_reasons_ = DdgiUpdateReasonNone;
+    ddgi_pending_probe_update_indices_.clear();
+    ddgi_pending_probe_update_cursor_ = 0;
+    ddgi_pending_probe_update_count_ = 0;
+    ddgi_frame_probe_update_indices_.clear();
+    return;
+  }
+  if (ddgi_deferred_scene_readiness_refresh_ &&
+      ddgi_scene_input_settle_frame_count_ < kDdgiSceneInputSettleFrameCount) {
+    ++ddgi_scene_input_settle_frame_count_;
+    ddgi_clear_probe_atlas_this_frame_ = true;
+    ddgi_last_probe_update_reasons_ = DdgiUpdateReasonSceneInput;
+    ddgi_active_probe_update_reasons_ = DdgiUpdateReasonNone;
+    ddgi_pending_probe_update_indices_.clear();
+    ddgi_pending_probe_update_cursor_ = 0;
+    ddgi_pending_probe_update_count_ = 0;
+    ddgi_frame_probe_update_indices_.clear();
+    return;
+  }
 
   const auto ray_count = static_cast<uint32_t>(glm::max(ddgi_settings.runtime.ray_count, 1));
   const auto effective_max_ray_distance = CalculateDdgiEffectiveMaxRayDistance(ddgi_settings, ddgi_ray_source);
@@ -2937,6 +3039,12 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   ddgi_ray_source.probe_scroll_directions = ddgi_probe_scroll_directions_;
   const bool ddgi_scroll_clear_this_frame =
       ddgi_probe_scroll_clear_.x != 0 || ddgi_probe_scroll_clear_.y != 0 || ddgi_probe_scroll_clear_.z != 0;
+  const bool scene_readiness_refresh = ddgi_deferred_scene_readiness_refresh_;
+  const bool scene_material_refresh =
+      ddgi_scene_material_inputs_changed_ &&
+      DdgiTriggerConditionEnabled(ddgi_scene_change_triggers, (ddgi_ray_source.warmup_trigger_conditions |
+                                                               ddgi_ray_source.variability_reset_trigger_conditions) &
+                                                                  DdgiVolumeTriggerConditionAll);
   uint32_t full_refresh_reasons = DdgiUpdateReasonNone;
   if (ddgi_ray_source_changed) {
     full_refresh_reasons |= DdgiUpdateReasonSource;
@@ -2944,20 +3052,23 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   if (reset_probe_history) {
     full_refresh_reasons |= DdgiUpdateReasonManualReset;
   }
+  if (scene_material_refresh || scene_readiness_refresh) {
+    full_refresh_reasons |= DdgiUpdateReasonSceneInput;
+  }
   ddgi_last_probe_update_reasons_ =
       full_refresh_reasons == DdgiUpdateReasonNone ? DdgiUpdateReasonSteadyState : full_refresh_reasons;
   ddgi_settings.runtime.reset_probe_history = false;
   ddgi_pending_probe_update_indices_.clear();
   ddgi_pending_probe_update_cursor_ = 0;
   ddgi_pending_probe_update_count_ = 0;
-  ddgi_clear_probe_atlas_this_frame_ =
-      ddgi_clear_probe_atlas_this_frame_ || ddgi_ray_source_changed || reset_probe_history;
+  ddgi_clear_probe_atlas_this_frame_ = ddgi_clear_probe_atlas_this_frame_ || ddgi_ray_source_changed ||
+                                       reset_probe_history || scene_material_refresh || scene_readiness_refresh;
   const auto probe_variability_enabled = ddgi_ray_source.enable_probe_variability;
   if (probe_variability_enabled && ddgi_probe_variability_sample_count_ != 0u) {
     ddgi_probe_variability_average_ = ReadDdgiProbeVariabilityAverage(ddgi_variability_readback_buffer_);
   }
-  const bool internal_ddgi_refresh =
-      ddgi_ray_source_changed || reset_probe_history || ddgi_resource_changed || ddgi_scroll_clear_this_frame;
+  const bool internal_ddgi_refresh = ddgi_ray_source_changed || reset_probe_history || ddgi_resource_changed ||
+                                     ddgi_scroll_clear_this_frame || scene_material_refresh || scene_readiness_refresh;
   const bool reset_ddgi_warmup_state =
       internal_ddgi_refresh ||
       DdgiTriggerConditionEnabled(ddgi_scene_change_triggers,
@@ -2989,7 +3100,8 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   ddgi_update_window.probe_count = ddgi_total_probe_count;
   ddgi_update_window.next_start_probe_index = 0;
   ddgi_update_window.remaining_probe_count = 0;
-  bool reset_probe_state = ddgi_ray_source_changed || reset_probe_history || !ddgi_probe_state_buffer_ ||
+  bool reset_probe_state = ddgi_ray_source_changed || reset_probe_history || scene_material_refresh ||
+                           scene_readiness_refresh || !ddgi_probe_state_buffer_ ||
                            ddgi_probe_state_buffer_->GetSize() != layout.probe_state_byte_size;
   if (reset_probe_state) {
     ddgi_probe_state_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_state_byte_size);
@@ -3006,8 +3118,10 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       ddgi_first_warmup_frame ? (std::numeric_limits<float>::max)()
                               : CalculateDdgiUpdateBrightnessThreshold(ddgi_settings, ddgi_last_probe_update_reasons_);
   ddgi_frame_probe_update_hysteresis_ = ddgi_update_hysteresis;
+  const auto ddgi_environment_cubemap_index = GetDdgiEnvironmentCubemapIndex(scene, ddgi_ray_source.first_probe);
   ddgi_frame_ray_push_constant_ = CreateDdgiProbeRayTracingPushConstant(
-      ddgi_settings, ddgi_ray_source, ddgi_update_window, skip_inactive_probe_trace, ddgi_first_warmup_frame);
+      ddgi_settings, ddgi_ray_source, ddgi_update_window, skip_inactive_probe_trace, ddgi_first_warmup_frame,
+      ddgi_environment_cubemap_index);
   ddgi_frame_probe_update_push_constant_ =
       CreateDdgiProbeAtlasUpdatePushConstant(ddgi_settings, ddgi_update_window, ddgi_total_probe_count, ddgi_ray_source,
                                              ddgi_update_hysteresis, ddgi_update_brightness_threshold);
@@ -3115,6 +3229,8 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   ddgi_frame_probe_relocation_enabled_ = ddgi_ray_source.enable_probe_relocation;
   ddgi_frame_probe_classification_reset_ = reset_probe_state;
   ddgi_frame_probe_classification_enabled_ = ddgi_ray_source.enable_probe_classification;
+  ddgi_deferred_scene_readiness_refresh_ = false;
+  ddgi_scene_input_settle_frame_count_ = 0;
   ddgi_frame_trace_probe_rays_ = true;
 }
 
@@ -3126,8 +3242,6 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
       1, render_instances->environment_info_descriptor_buffer);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
       2, render_instances->camera_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      3, render_instances->material_info_descriptor_buffer);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
       4, render_instances->instance_info_descriptor_buffer);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -3144,6 +3258,10 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
 
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      11, render_instances->gltf_material_descriptor_buffer);
+  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+      12, render_instances->gltf_texture_info_descriptor_buffer);
 }
 
 void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
@@ -3580,6 +3698,7 @@ void RenderLayer::ApplyAnimators() const {
       if (!skinned_mesh_renderer->IsEnabled())
         return;
       skinned_mesh_renderer->UpdateBoneMatrices();
+      skinned_mesh_renderer->UpdateRayTracingGeometry();
       skinned_mesh_renderer->bone_matrices->UploadData();
     }
   }
@@ -3893,6 +4012,7 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
   if (track_ddgi_scene_inputs) {
     const auto current_render_info = current_render_instances->render_info_block;
     PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
+    ddgi_scene_material_inputs_changed_ = false;
     const auto blocks_changed = [](const auto& current_blocks, const auto& previous_blocks) {
       if (current_blocks.size() != previous_blocks.size()) {
         return true;
@@ -3941,18 +4061,25 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
           light_signatures != ddgi_previous_light_signatures_) {
         ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionLightingConditionChanged;
       }
-      if (blocks_changed(current_render_instances->GetMaterialInfoBlocks(), ddgi_previous_material_info_blocks_) ||
-          geometry_signatures != ddgi_previous_geometry_signatures_) {
+      ddgi_scene_material_inputs_changed_ =
+          blocks_changed(current_render_instances->GetGltfShadeMaterials(), ddgi_previous_gltf_shade_materials_) ||
+          blocks_changed(current_render_instances->GetGltfTextureInfos(), ddgi_previous_gltf_texture_infos_) ||
+          current_render_instances->texture_storage_version != ddgi_previous_texture_storage_version_;
+      if (ddgi_scene_material_inputs_changed_ || geometry_signatures != ddgi_previous_geometry_signatures_) {
         ddgi_scene_change_triggers_ |= DdgiVolumeTriggerConditionGeometryChanged;
       }
       scene_render_inputs_updated =
           scene_render_inputs_updated || ddgi_scene_change_triggers_ != DdgiVolumeTriggerConditionNone;
     } else {
       scene_render_inputs_updated = true;
+      ddgi_deferred_scene_readiness_refresh_ = true;
+      ddgi_scene_input_settle_frame_count_ = 0;
     }
     ddgi_has_previous_scene_inputs_ = true;
     ddgi_previous_environment_info_block_ = current_render_instances->environment_info_block;
-    ddgi_previous_material_info_blocks_ = current_render_instances->GetMaterialInfoBlocks();
+    ddgi_previous_gltf_shade_materials_ = current_render_instances->GetGltfShadeMaterials();
+    ddgi_previous_gltf_texture_infos_ = current_render_instances->GetGltfTextureInfos();
+    ddgi_previous_texture_storage_version_ = current_render_instances->texture_storage_version;
     ddgi_previous_active_light_keys_ = std::move(active_light_keys);
     ddgi_previous_light_signatures_ = std::move(light_signatures);
     ddgi_previous_geometry_signatures_ = std::move(geometry_signatures);
@@ -4205,7 +4332,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       Platform::RecordCommandsMainQueue(action);
     }
   };
-  if (camera->camera_render_mode == Camera::CameraRenderMode::Rasterization) {
+  if (Camera::ResolveCameraRenderMode(camera->camera_render_mode) == Camera::CameraRenderMode::Rasterization) {
     const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
 
     const bool count_draw_calls = count_shadow_rendering_draw_calls;
@@ -4349,10 +4476,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                                   current_render_instances->total_gaussian_splats != 0u &&
                                                   current_render_instances->gaussian_splat_render_instances &&
                                                   !current_render_instances->gaussian_splat_render_instances->Empty();
+    const bool transparent_mesh_rendering_enabled = current_render_instances &&
+                                                    current_render_instances->transparent_render_instances &&
+                                                    !current_render_instances->transparent_render_instances->Empty();
     const char* post_lighting_dependency = RenderPassNames::deferred_camera;
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
-          VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
+          VolumetricCloudsPass::CreateRasterDescriptor(post_lighting_dependency),
           [&](const RenderGraphExecutionContext& context) {
             const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
             VolumetricCloudsPass::Execute(
@@ -4363,6 +4493,18 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                           camera->camera_settings.far_distance});
           });
       post_lighting_dependency = RenderPassNames::volumetric_clouds;
+    }
+    if (transparent_mesh_rendering_enabled) {
+      camera_render_graph.AddPass(TransparentGeometryPass::CreateDescriptor(post_lighting_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    TransparentGeometryPass::Execute(
+                                        context,
+                                        {camera, current_render_instances, transparent_geometry_pipeline_normal,
+                                         per_frame_descriptor_sets_[current_frame_index],
+                                         lighting_ ? lighting_->lighting_descriptor_set : nullptr, camera_index,
+                                         current_frame_index, count_draw_calls, wire_frame, record_commands});
+                                  });
+      post_lighting_dependency = RenderPassNames::transparent_geometry;
     }
     if (gaussian_splat_rendering_enabled) {
       camera_render_graph.AddPass(GaussianSplatCullPass::CreateDescriptor(post_lighting_dependency),
@@ -4478,7 +4620,12 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
 
-  if (camera->camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+  const auto resolved_render_mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
+  if (resolved_render_mode == Camera::CameraRenderMode::RayTracing ||
+      resolved_render_mode == Camera::CameraRenderMode::RayQuery) {
+    const bool use_ray_query = resolved_render_mode == Camera::CameraRenderMode::RayQuery;
+    const char* ray_camera_pass_name =
+        use_ray_query ? RenderPassNames::ray_query_camera : RenderPassNames::ray_tracing_camera;
     VolumetricCloudSettings volumetric_cloud_settings{};
     if (scene) {
       volumetric_cloud_settings = scene->environment.volumetric_cloud_settings;
@@ -4503,17 +4650,27 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                                         static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
     }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
-    camera_render_graph.AddPass(
-        RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-          RayTracingCameraPass::Execute(
-              context, {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
-                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
-                        record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
-        });
-    const char* post_ray_tracing_dependency = RenderPassNames::ray_tracing_camera;
+    if (use_ray_query) {
+      camera_render_graph.AddPass(
+          RayQueryCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+            RayQueryCameraPass::Execute(
+                context, {camera, ray_query_camera_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
+                          record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
+          });
+    } else {
+      camera_render_graph.AddPass(
+          RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+            RayTracingCameraPass::Execute(
+                context, {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
+                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
+                          record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
+          });
+    }
+    const char* post_ray_tracing_dependency = ray_camera_pass_name;
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
-          VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
+          VolumetricCloudsPass::CreateRayTracingDescriptor(ray_camera_pass_name),
           [&](const RenderGraphExecutionContext& context) {
             const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
             VolumetricCloudsPass::Execute(
@@ -4552,7 +4709,12 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                           static_cast<uint32_t>(glm::max(camera_index, 0)), false,
                           Platform::MeshShaderEnabled() && enable_meshlet, record_commands});
           });
+      post_ray_tracing_dependency = RenderPassNames::gaussian_splat;
     }
+    camera_render_graph.AddPass(PostProcessingPass::CreateRayTracingDescriptor(post_ray_tracing_dependency),
+                                [&](const RenderGraphExecutionContext& context) {
+                                  PostProcessingPass::Execute(context, {camera, false, true});
+                                });
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid ray tracing camera render graph.")
     }

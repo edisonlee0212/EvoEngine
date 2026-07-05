@@ -1,8 +1,11 @@
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_ray_tracing : require
 
+#define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
+#define EE_GLTF_TEXTURE_LOD 0.0
 #include "PointCloudRayTracingPayload.glsl"
 #include "RayTracingBasic.glsl"
+#include "GltfRasterMaterial.glsl"
 #include "DDGI.glsl"
 
 layout(location = 0) rayPayloadInEXT PointCloudRayTracingPayload hit_value;
@@ -246,21 +249,22 @@ void main() {
   const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
   const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
   const vec3 barycentrics = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-  const MaterialProperties material_properties = EE_MATERIAL_PROPERTIES[instance.material_index];
+  const uint material_index = uint(instance.material_index);
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
 
   const vec3 position = v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
   const vec2 tex_coord = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
   vec3 normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
   const vec3 tangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
+  const GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
+  normal = EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, normal, tangent);
   const vec3 world_position = vec3(gl_ObjectToWorldEXT * vec4(position, 1.0f));
   const vec3 triangle_world_normal =
       EE_DDGI_SAFE_NORMALIZE(vec3(normal * gl_WorldToObjectEXT), vec3(0.0f, 1.0f, 0.0f));
   const vec3 world_tangent = EE_DDGI_SAFE_NORMALIZE(vec3(tangent * gl_WorldToObjectEXT), vec3(1.0f, 0.0f, 0.0f));
   const bool ray_backface_hit = gl_HitKindEXT == gl_HitKindBackFacingTriangleEXT;
-  const bool material_culls_front_faces = (material_properties.cull_mode & 1) != 0;
-  const bool material_culls_back_faces = (material_properties.cull_mode & 2) != 0;
-  const bool hit_face_is_culled = ray_backface_hit ? material_culls_back_faces : material_culls_front_faces;
-  const bool visible_backface = ray_backface_hit && !material_culls_back_faces;
+  const bool hit_face_is_culled = ray_backface_hit && material.double_sided == 0;
+  const bool visible_backface = ray_backface_hit && material.double_sided != 0;
   const vec3 world_normal = visible_backface ? -triangle_world_normal : triangle_world_normal;
   const bool backface_hit = ray_backface_hit || hit_face_is_culled;
   const bool fixed_probe_ray = hit_value.seed == EE_DDGI_FIXED_RAY_PAYLOAD_FLAG;
@@ -270,9 +274,9 @@ void main() {
   hit_value.hit_info.position = world_position;
   hit_value.hit_info.normal = world_normal;
   hit_value.hit_info.tangent = world_tangent;
-  const vec3 albedo = max(material_properties.albedo.rgb, vec3(0.0f));
+  const vec3 albedo = max(surface.base_color.rgb, vec3(0.0f));
   const vec3 recursive_albedo = min(albedo, vec3(0.9f));
-  const vec3 emissive_radiance = material_properties.emission * albedo;
+  const vec3 emissive_radiance = surface.emissive;
   const bool skip_recursive_ddgi = trace_parameters.w > 0.5f;
   const vec3 recursive_irradiance =
       skip_recursive_ddgi ? vec3(0.0f) : EE_DDGI_RECURSIVE_IRRADIANCE(recursive_albedo, world_normal, world_position);
