@@ -123,11 +123,12 @@ Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string
 std::optional<Entity> FindEntityNamed(const std::shared_ptr<Scene>& scene, const std::string& name);
 
 void ConfigureMaterial(const std::shared_ptr<Material>& material, const glm::vec3& albedo, const float roughness = 1.0f,
-                       const float metallic = 1.0f, const float emission = 0.0f) {
+                       const float metallic = 1.0f, const float emission = 0.0f, const float transmission = 0.0f) {
   auto& shade_material = material->material_data.shade_material;
   shade_material.pbr_base_color_factor = glm::vec4(albedo, 1.0f);
   shade_material.pbr_roughness_factor = roughness;
   shade_material.pbr_metallic_factor = metallic;
+  shade_material.transmission_factor = transmission;
   const auto emissive_tint = glm::max(albedo, glm::vec3(0.0f));
   const auto emissive_length = glm::length(emissive_tint);
   shade_material.emissive_factor =
@@ -138,14 +139,14 @@ void ConfigureMaterial(const std::shared_ptr<Material>& material, const glm::vec
 Entity CreateRenderingRegressionProbe(const std::shared_ptr<Scene>& scene, const Entity& root, const std::string& name,
                                       const std::shared_ptr<Mesh>& mesh, const glm::vec3& position,
                                       const glm::vec3& scale, const glm::vec3& albedo, const float roughness,
-                                      const float metallic, const float emission = 0.0f,
-                                      const bool cast_shadow = true) {
+                                      const float metallic, const float emission = 0.0f, const bool cast_shadow = true,
+                                      const float transmission = 0.0f) {
   const auto entity = scene->CreateEntity(name);
   const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
   renderer->mesh = mesh;
   renderer->material = AssetManager::CreateTemporaryAsset<Material>();
   renderer->cast_shadow = cast_shadow;
-  ConfigureMaterial(renderer->material.Get<Material>(), albedo, roughness, metallic, emission);
+  ConfigureMaterial(renderer->material.Get<Material>(), albedo, roughness, metallic, emission, transmission);
   Transform transform;
   transform.SetValue(position, glm::vec3(0.0f), scale);
   scene->SetDataComponent(entity, transform);
@@ -1266,6 +1267,9 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
   CreateRenderingRegressionProbe(scene, root, "M42 Material Probe Rough", primitives.sphere,
                                  glm::vec3(0.55f, -0.08f, -1.0f), glm::vec3(0.32f), glm::vec3(0.42f, 0.72f, 0.58f),
                                  0.95f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 Material Probe Transmission", primitives.sphere,
+                                 glm::vec3(1.35f, -0.08f, -1.65f), glm::vec3(0.32f), glm::vec3(0.55f, 0.82f, 1.0f),
+                                 0.08f, 0.0f, 0.0f, true, 0.65f);
   CreateRenderingRegressionProbe(scene, root, "M42 Material Probe Emissive", primitives.cube,
                                  glm::vec3(1.75f, 0.02f, -1.0f), glm::vec3(0.28f), glm::vec3(0.35f, 0.65f, 1.0f), 0.8f,
                                  0.0f, 3.0f);
@@ -1502,6 +1506,16 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
         demo_transform.SetScale(glm::vec3(0.5f));
         scene->SetDataComponent(demo_scene, demo_transform);
         ConfigureRenderingDemoDdgi(scene);
+
+        const auto directional_light_entity = scene->CreateEntity("Top Down Directional Light");
+        const auto directional_light =
+            scene->GetOrSetPrivateComponent<DirectionalLight>(directional_light_entity).lock();
+        directional_light->diffuse = glm::vec3(1.0f);
+        directional_light->diffuse_brightness = 1.0f;
+        directional_light->light_size = 0.01f;
+        Transform directional_light_transform;
+        directional_light_transform.SetEulerRotation(glm::radians(glm::vec3(90.0f, 0.0f, 0.0f)));
+        scene->SetDataComponent(directional_light_entity, directional_light_transform);
 
         const auto left_point_light_right_entity = scene->CreateEntity("Left Point Light");
         const auto point_light_right_renderer =

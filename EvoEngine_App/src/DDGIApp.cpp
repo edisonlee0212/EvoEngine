@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -23,6 +24,7 @@ struct DdgiAppCommandLine {
   size_t exit_after_frames = 0;
   size_t max_load_frames = 600;
   size_t screenshot_warmup_frames = 360;
+  std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   DdgiCornellBoxDemoSettings scene_settings;
   std::filesystem::path screenshot_path;
 };
@@ -55,6 +57,12 @@ struct DdgiAppCommandLine {
       command_line.max_load_frames = ParseSizeArgument(argc, argv, arg_index, argument);
     } else if (argument == "--screenshot-warmup-frames") {
       command_line.screenshot_warmup_frames = ParseSizeArgument(argc, argv, arg_index, argument);
+    } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
+      }
+      command_line.shadow_map_resolution_quality =
+          ParseShadowMapResolutionQualityName(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--point-light-brightness") {
       command_line.scene_settings.point_light_brightness = ParseFloatArgument(argc, argv, arg_index, argument);
     } else if (argument == "--ddgi-indirect-intensity") {
@@ -150,6 +158,9 @@ int main(const int argc, char** argv) {
     SetupDemoScene(DemoSetup::CornellBox, application_info);
     ConfigureDdgiCornellBoxApplication(application_info, command_line.application_mode);
     ApplyApplicationModeDefaults(application_info);
+    if (command_line.shadow_map_resolution_quality) {
+      application_info.graphics_settings.SetShadowMapResolutionQuality(*command_line.shadow_map_resolution_quality);
+    }
 
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;

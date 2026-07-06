@@ -180,7 +180,7 @@ void Material::SetGltfMaterialData(const GltfMaterialData& data) {
 }
 
 void Material::SyncRenderStateFromGltfMaterial() {
-  draw_settings.blending = material_data.shade_material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Blend);
+  draw_settings.blending = GltfMaterialRequiresTransparentPass(material_data.shade_material);
   draw_settings.cull_mode = VK_CULL_MODE_NONE;
 }
 

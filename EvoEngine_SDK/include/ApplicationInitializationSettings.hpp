@@ -12,20 +12,67 @@ enum class ApplicationMode {
  */
 class GraphicsInitializationSettings {
  public:
+  /**
+   * @brief Named quality levels for shadow map resolution.
+   */
+  enum class ShadowMapResolutionQuality {
+    Low,      /**< 1024x1024 shadow maps. */
+    Medium,   /**< 2048x2048 shadow maps. */
+    High,     /**< 4096x4096 shadow maps. */
+    VeryHigh, /**< 8192x8192 shadow maps. */
+  };
+
+  /**
+   * @brief Returns the square shadow map resolution for a quality level.
+   */
+  [[nodiscard]] static constexpr uint32_t ShadowMapResolutionFromQuality(const ShadowMapResolutionQuality quality) {
+    switch (quality) {
+      case ShadowMapResolutionQuality::Low:
+        return 1024;
+      case ShadowMapResolutionQuality::Medium:
+        return 2048;
+      case ShadowMapResolutionQuality::High:
+        return 4096;
+      case ShadowMapResolutionQuality::VeryHigh:
+        return 8192;
+    }
+    return 4096;
+  }
+
+  /**
+   * @brief Returns a display name for a shadow map resolution quality level.
+   */
+  [[nodiscard]] static constexpr const char* ShadowMapResolutionQualityName(const ShadowMapResolutionQuality quality) {
+    switch (quality) {
+      case ShadowMapResolutionQuality::Low:
+        return "Low";
+      case ShadowMapResolutionQuality::Medium:
+        return "Medium";
+      case ShadowMapResolutionQuality::High:
+        return "High";
+      case ShadowMapResolutionQuality::VeryHigh:
+        return "Very High";
+    }
+    return "High";
+  }
+
   /// Flag to indicate the use of mesh shaders.
   bool use_mesh_shader = true;
 
   /// Flag to indicate the use of ray tracing.
   bool use_ray_tracing = true;
 
+  /// Quality level used to initialize shadow map resolution fields.
+  ShadowMapResolutionQuality shadow_map_resolution_quality = ShadowMapResolutionQuality::High;
+
   /// Resolution for directional light shadow maps.
-  uint32_t directional_light_shadow_map_resolution = 2048;
+  uint32_t directional_light_shadow_map_resolution = ShadowMapResolutionFromQuality(ShadowMapResolutionQuality::High);
 
   /// Resolution for point light shadow maps.
-  uint32_t point_light_shadow_map_resolution = 2048;
+  uint32_t point_light_shadow_map_resolution = ShadowMapResolutionFromQuality(ShadowMapResolutionQuality::High);
 
   /// Resolution for spot light shadow maps.
-  uint32_t spot_light_shadow_map_resolution = 2048;
+  uint32_t spot_light_shadow_map_resolution = ShadowMapResolutionFromQuality(ShadowMapResolutionQuality::High);
 
   /// Maximum 2D texture resource size.
   uint32_t max_texture_2d_resource_size = 2048;
@@ -41,6 +88,17 @@ class GraphicsInitializationSettings {
 
   /// Maximum number of spotlights supported.
   uint32_t max_spot_light_size = 16;
+
+  /**
+   * @brief Applies a shadow map resolution quality to all shadow-map resource settings.
+   */
+  void SetShadowMapResolutionQuality(const ShadowMapResolutionQuality quality) {
+    shadow_map_resolution_quality = quality;
+    const auto resolution = ShadowMapResolutionFromQuality(quality);
+    directional_light_shadow_map_resolution = resolution;
+    point_light_shadow_map_resolution = resolution;
+    spot_light_shadow_map_resolution = resolution;
+  }
 };
 
 /**

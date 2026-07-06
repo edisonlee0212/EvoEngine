@@ -37,6 +37,7 @@ struct EditorCommandLine {
   std::optional<std::filesystem::path> project_path;
   std::optional<DemoProfileId> demo_profile_id;
   std::optional<std::filesystem::path> demo_preview_capture_path;
+  std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   ApplicationMode application_mode = ApplicationMode::Editor;
   bool application_mode_explicit = false;
   int preview_capture_width = 1280;
@@ -53,6 +54,12 @@ struct EditorCommandLine {
   std::optional<int> preview_capture_sample_size;
   std::optional<glm::vec3> preview_capture_camera_position;
   std::optional<glm::vec3> preview_capture_camera_look_at;
+  std::optional<float> preview_shadow_split_lambda;
+  std::optional<float> preview_shadow_cascade_transition_width;
+  std::optional<float> preview_shadow_distance_fade;
+  std::optional<int> preview_shadow_debug_mode;
+  std::optional<int> preview_shadow_debug_cascade;
+  std::optional<int> preview_shadow_debug_light;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
 };
@@ -93,6 +100,33 @@ bool ParsePreviewBool(const std::string& value, const std::string& argument) {
     return false;
   }
   throw std::invalid_argument(argument + " requires enabled or disabled.");
+}
+
+int ParsePreviewShadowDebugMode(const std::string& value) {
+  auto normalized = value;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (normalized == "off" || normalized == "disabled" || normalized == "none") {
+    return 0;
+  }
+  if (normalized == "cascade" || normalized == "cascade-index" || normalized == "split" ||
+      normalized == "split-index") {
+    return 1;
+  }
+  if (normalized == "light-uv" || normalized == "uv") {
+    return 2;
+  }
+  if (normalized == "light-depth" || normalized == "depth") {
+    return 3;
+  }
+  if (normalized == "atlas-uv" || normalized == "atlas") {
+    return 4;
+  }
+  if (normalized == "texel-density" || normalized == "density") {
+    return 5;
+  }
+  throw std::invalid_argument("Unknown preview shadow debug mode: " + value);
 }
 
 glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const std::string& argument) {
@@ -204,6 +238,42 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_camera_position = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-camera-look-at") {
       command_line.preview_capture_camera_look_at = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-shadow-split-lambda") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-split-lambda requires a value between 0 and 1.");
+      }
+      command_line.preview_shadow_split_lambda = std::clamp(std::stof(argv[++arg_index]), 0.0f, 1.0f);
+    } else if (argument == "--preview-shadow-cascade-transition-width") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-cascade-transition-width requires a non-negative width.");
+      }
+      command_line.preview_shadow_cascade_transition_width = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-shadow-distance-fade") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-distance-fade requires a non-negative width.");
+      }
+      command_line.preview_shadow_distance_fade = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-shadow-debug") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-debug requires a mode.");
+      }
+      command_line.preview_shadow_debug_mode = ParsePreviewShadowDebugMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-shadow-debug-cascade") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-debug-cascade requires a cascade index.");
+      }
+      command_line.preview_shadow_debug_cascade = std::clamp(std::stoi(argv[++arg_index]), 0, 3);
+    } else if (argument == "--preview-shadow-debug-light") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-debug-light requires a directional light index.");
+      }
+      command_line.preview_shadow_debug_light = std::max(0, std::stoi(argv[++arg_index]));
+    } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
+      }
+      command_line.shadow_map_resolution_quality =
+          ParseShadowMapResolutionQualityName(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-deterministic") {
       command_line.preview_capture_deterministic = true;
     } else if (argument == "--preview-bistro-ddgi") {
@@ -240,6 +310,16 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_bistro_ddgi && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --capture-demo-preview.");
   }
+  if ((command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
+       command_line.preview_shadow_debug_light) &&
+      !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-shadow-debug requires --capture-demo-preview.");
+  }
+  if ((command_line.preview_shadow_split_lambda || command_line.preview_shadow_cascade_transition_width ||
+       command_line.preview_shadow_distance_fade) &&
+      !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("Preview shadow overrides require --capture-demo-preview.");
+  }
   if (command_line.preview_capture_bistro_ddgi && command_line.demo_profile_id != DemoProfileId::Bistro) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --demo bistro.");
   }
@@ -259,6 +339,13 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     }
   }
   return command_line;
+}
+
+void ApplyGraphicsCommandLineOverrides(const EditorCommandLine& command_line,
+                                       ApplicationInitializationSettings& application_info) {
+  if (command_line.shadow_map_resolution_quality) {
+    application_info.graphics_settings.SetShadowMapResolutionQuality(*command_line.shadow_map_resolution_quality);
+  }
 }
 
 void ApplyPreviewCameraOverride(const std::shared_ptr<EditorLayer>& editor_layer,
@@ -575,6 +662,10 @@ void CaptureDemoPreview(
     const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
+    const std::optional<float>& preview_shadow_split_lambda,
+    const std::optional<float>& preview_shadow_cascade_transition_width,
+    const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
+    const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
     const bool deterministic_capture, const bool preview_bistro_ddgi) {
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
@@ -642,6 +733,32 @@ void CaptureDemoPreview(
         post_processing_stack->tone_mapping->auto_exposure = false;
         post_processing_stack->tone_mapping->dither = false;
       }
+    }
+  }
+  if (preview_shadow_split_lambda || preview_shadow_cascade_transition_width || preview_shadow_distance_fade ||
+      preview_shadow_debug_mode || preview_shadow_debug_cascade || preview_shadow_debug_light) {
+    const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+    if (!render_layer) {
+      throw std::runtime_error("Preview shadow overrides require RenderLayer.");
+    }
+    if (preview_shadow_split_lambda) {
+      render_layer->render_settings.shadow_cascade_split_lambda = std::clamp(*preview_shadow_split_lambda, 0.0f, 1.0f);
+    }
+    if (preview_shadow_cascade_transition_width) {
+      render_layer->render_settings.shadow_cascade_transition_width =
+          std::max(0.0f, *preview_shadow_cascade_transition_width);
+    }
+    if (preview_shadow_distance_fade) {
+      render_layer->render_settings.shadow_distance_fade = std::max(0.0f, *preview_shadow_distance_fade);
+    }
+    if (preview_shadow_debug_mode) {
+      render_layer->render_settings.shadow_debug_mode = std::clamp(*preview_shadow_debug_mode, 0, 5);
+    }
+    if (preview_shadow_debug_cascade) {
+      render_layer->render_settings.shadow_debug_selected_cascade = std::clamp(*preview_shadow_debug_cascade, 0, 3);
+    }
+    if (preview_shadow_debug_light) {
+      render_layer->render_settings.shadow_debug_selected_light = std::max(0, *preview_shadow_debug_light);
     }
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
@@ -732,6 +849,7 @@ int main(const int argc, char** argv) {
         ApplicationInitializationSettings application_info{};
         ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info);
         ApplyApplicationModeDefaults(application_info);
+        ApplyGraphicsCommandLineOverrides(command_line, application_info);
         ApplicationContext::Get().Initialize(application_info);
         initialized = true;
         if (command_line.application_mode == ApplicationMode::Editor) {
@@ -751,6 +869,9 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
+              command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
+              command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
+              command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
               command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
@@ -784,6 +905,7 @@ int main(const int argc, char** argv) {
     application_info.startup_runtime_packages = launch_metadata.startup_runtime_packages;
     application_info.enable_runtime_packages = !application_info.startup_runtime_packages.empty();
     ApplyApplicationModeDefaults(application_info);
+    ApplyGraphicsCommandLineOverrides(command_line, application_info);
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

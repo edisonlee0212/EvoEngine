@@ -1257,40 +1257,61 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
 }
 
 void InspectShadowSettings(RenderSettings& render_settings) {
+  const char* shadow_debug_modes[] = {"Off", "Cascade Index", "Light UV", "Light Depth", "Atlas UV", "Texel Density"};
+  ImGui::TextUnformatted("Fit policy: Legacy Stable");
+  ImGui::TextUnformatted("Split policy: Practical Log/Uniform");
   if (ImGui::TreeNode("Distance")) {
     if (ImGui::DragFloat("Max shadow distance", &render_settings.max_shadow_distance, 1.0f, 10.f, 1000.f)) {
       render_settings.max_shadow_distance = glm::clamp(render_settings.max_shadow_distance, 10.f, 1000.f);
     }
-    if (ImGui::DragFloat("Split 1", &render_settings.shadow_cascade_split[0], 0.01f, 0.0f,
-                         render_settings.shadow_cascade_split[1])) {
-      render_settings.shadow_cascade_split[0] =
-          glm::clamp(render_settings.shadow_cascade_split[0], 0.f, render_settings.shadow_cascade_split[1]);
+    if (ImGui::DragFloat("Cascade transition width", &render_settings.shadow_cascade_transition_width, 0.1f, 0.0f,
+                         100.0f)) {
+      render_settings.shadow_cascade_transition_width = glm::max(render_settings.shadow_cascade_transition_width, 0.0f);
     }
-    if (ImGui::DragFloat("Split 2", &render_settings.shadow_cascade_split[1], 0.01f,
-                         render_settings.shadow_cascade_split[0], render_settings.shadow_cascade_split[2])) {
-      render_settings.shadow_cascade_split[1] =
-          glm::clamp(render_settings.shadow_cascade_split[1], render_settings.shadow_cascade_split[0],
-                     render_settings.shadow_cascade_split[2]);
+    if (ImGui::DragFloat("Distance fade", &render_settings.shadow_distance_fade, 0.5f, 0.0f,
+                         render_settings.max_shadow_distance)) {
+      render_settings.shadow_distance_fade =
+          glm::clamp(render_settings.shadow_distance_fade, 0.0f, render_settings.max_shadow_distance);
     }
-    if (ImGui::DragFloat("Split 3", &render_settings.shadow_cascade_split[2], 0.01f,
-                         render_settings.shadow_cascade_split[1], render_settings.shadow_cascade_split[3])) {
-      render_settings.shadow_cascade_split[2] =
-          glm::clamp(render_settings.shadow_cascade_split[2], render_settings.shadow_cascade_split[1],
-                     render_settings.shadow_cascade_split[3]);
+    if (ImGui::DragFloat("Split lambda", &render_settings.shadow_cascade_split_lambda, 0.01f, 0.0f, 1.0f)) {
+      render_settings.shadow_cascade_split_lambda = glm::clamp(render_settings.shadow_cascade_split_lambda, 0.0f, 1.0f);
     }
-    if (ImGui::DragFloat("Split 4", &render_settings.shadow_cascade_split[3], 0.01f,
-                         render_settings.shadow_cascade_split[2], 1.0f)) {
-      render_settings.shadow_cascade_split[3] =
-          glm::clamp(render_settings.shadow_cascade_split[3], render_settings.shadow_cascade_split[2], 1.f);
-    }
+    const auto split_0 = render_settings.GetShadowCascadeSplit(0);
+    const auto split_1 = render_settings.GetShadowCascadeSplit(1);
+    const auto split_2 = render_settings.GetShadowCascadeSplit(2);
+    ImGui::Text("Effective splits: %.3f, %.3f, %.3f, 1.000", split_0, split_1, split_2);
     ImGui::TreePop();
   }
-  if (ImGui::TreeNode("PCSS")) {
-    ImGui::DragInt("PCF Sample Size", &render_settings.pcf_sample_amount, 1, 1, 64);
+  if (ImGui::TreeNode("Sampling")) {
+    ImGui::TextUnformatted("Shadow filtering: PCF");
+    ImGui::DragInt("Filter samples", &render_settings.pcf_sample_amount, 1, 1, 64);
+    ImGui::TextUnformatted("PCF radius: 100 x light size.");
     ImGui::TreePop();
   }
-  ImGui::DragFloat("Seam fix ratio", &render_settings.seam_fix_ratio, 0.001f, 0.0f, 0.1f);
-  ImGui::Checkbox("Stable fit", &render_settings.stable_fit);
+  if (ImGui::TreeNode("Diagnostics")) {
+    const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+    const auto resolution = graphics_settings.directional_light_shadow_map_resolution;
+    ImGui::Text(
+        "Shadow map resolution: %s (%u x %u)",
+        GraphicsInitializationSettings::ShadowMapResolutionQualityName(graphics_settings.shadow_map_resolution_quality),
+        resolution, resolution);
+    ImGui::Text("Directional shadow layer: %u x %u", resolution, resolution);
+    ImGui::Text("Single shadow light viewport: %u x %u", resolution, resolution);
+    ImGui::Text("2-4 shadow light viewports: %u x %u", resolution / 2, resolution / 2);
+    if (ImGui::Combo("Mode", &render_settings.shadow_debug_mode, shadow_debug_modes,
+                     IM_ARRAYSIZE(shadow_debug_modes))) {
+      render_settings.shadow_debug_mode =
+          glm::clamp(render_settings.shadow_debug_mode, 0, static_cast<int>(IM_ARRAYSIZE(shadow_debug_modes)) - 1);
+    }
+    if (ImGui::DragInt("Directional light", &render_settings.shadow_debug_selected_light, 1, 0, 31)) {
+      render_settings.shadow_debug_selected_light = glm::max(render_settings.shadow_debug_selected_light, 0);
+    }
+    if (ImGui::DragInt("Cascade", &render_settings.shadow_debug_selected_cascade, 1, 0, 3)) {
+      render_settings.shadow_debug_selected_cascade = glm::clamp(render_settings.shadow_debug_selected_cascade, 0, 3);
+    }
+    ImGui::TextUnformatted("Light UV, light depth, atlas UV, and texel density use the selected cascade.");
+    ImGui::TreePop();
+  }
 }
 
 void InspectStrandsSettings(RenderSettings& render_settings) {
@@ -2025,6 +2046,8 @@ bool InspectDirectionalLight(InspectorContext&, DirectionalLight& light) {
   if (ImGui::DragFloat("Intensity", &light.diffuse_brightness, 0.01f, 0.0f, 999.0f))
     changed = false;
   if (ImGui::DragFloat("Bias", &light.bias, 0.001f, 0.0f, 999.0f))
+    changed = false;
+  if (ImGui::DragFloat("Slope Bias", &light.slope_bias, 0.001f, 0.0f, 999.0f))
     changed = false;
   if (ImGui::DragFloat("Normal Offset", &light.normal_offset, 0.001f, 0.0f, 999.0f))
     changed = false;

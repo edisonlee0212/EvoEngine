@@ -2826,7 +2826,6 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   }
   const bool render_instance_updated = UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras,
                                                                    update_editor_selection, track_ddgi_scene_inputs);
-  BindRenderInstanceStorage(current_frame_index, current_render_instances);
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayTracingEnabled();
   if (update_ray_tracing_resources) {
@@ -2845,6 +2844,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
     PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_change_triggers_);
   }
   current_render_instances->Upload();
+  BindRenderInstanceStorage(current_frame_index, current_render_instances);
 }
 
 void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,

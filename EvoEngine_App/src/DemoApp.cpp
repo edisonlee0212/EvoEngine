@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <utility>
 
 #ifdef PHYSX_PHYSICS_SERVICE
@@ -71,6 +72,7 @@ struct DemoAppRuntimeConfig {
   bool inspect_render_layer = false;
   bool ddgi_atlas_preview = false;
   bool ddgi_ray_overlay = false;
+  std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   std::filesystem::path ready_file;
   std::filesystem::path done_file;
   std::filesystem::path screenshot_file;
@@ -79,6 +81,7 @@ struct DemoAppRuntimeConfig {
 struct DemoAppCommandLine {
   std::optional<std::filesystem::path> run_config_path;
   std::optional<ApplicationMode> application_mode;
+  std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
 };
 
 DemoAppCommandLine ParseCommandLine(const int argc, char** argv) {
@@ -90,6 +93,12 @@ DemoAppCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--run-config requires a path.");
       }
       command_line.run_config_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
+      }
+      command_line.shadow_map_resolution_quality =
+          ParseShadowMapResolutionQualityName(argv[++arg_index] ? argv[arg_index] : "");
     } else {
       auto mode = command_line.application_mode.value_or(ApplicationMode::Editor);
       if (!ConsumeApplicationModeArgument(argc, argv, arg_index, mode)) {
@@ -168,6 +177,9 @@ DemoAppRuntimeConfig LoadRunConfig(const std::filesystem::path& path) {
   }
   if (const auto application_mode = root["application_mode"]) {
     config.application_mode = ParseApplicationModeName(application_mode.as<std::string>());
+  }
+  if (const auto shadow_map_resolution = root["shadow_map_resolution"]) {
+    config.shadow_map_resolution_quality = ParseShadowMapResolutionQualityName(shadow_map_resolution.as<std::string>());
   }
   if (const auto demo_setup = root["demo_setup"]) {
     config.demo_setup = ParseDemoSetup(demo_setup.as<std::string>());
@@ -298,6 +310,27 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
   }
   if (!found_ddgi_volume) {
     return FailSmokeTest(application, "DDGI probe volume is missing or not visualized");
+  }
+
+  const auto* directional_light_owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
+  if (!directional_light_owners) {
+    return FailSmokeTest(application, "Rendering demo directional light owner list is missing");
+  }
+  bool found_directional_light = false;
+  for (const auto& owner : *directional_light_owners) {
+    const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock();
+    if (directional_light && directional_light->IsEnabled() && scene->IsEntityEnabled(owner) &&
+        scene->GetEntityName(owner) == "Top Down Directional Light") {
+      if (directional_light->diffuse_brightness != 1.0f || directional_light->diffuse != glm::vec3(1.0f) ||
+          !directional_light->cast_shadow) {
+        return FailSmokeTest(application, "Rendering demo directional light is not configured");
+      }
+      found_directional_light = true;
+      break;
+    }
+  }
+  if (!found_directional_light) {
+    return FailSmokeTest(application, "Rendering demo top-down directional light is missing");
   }
 
   const auto* point_light_owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>();
@@ -2111,6 +2144,12 @@ int main(const int argc, char** argv) {
     }
     application_info.use_custom_title_bar = true;
     ApplyApplicationModeDefaults(application_info);
+    if (runtime_config && runtime_config->shadow_map_resolution_quality) {
+      application_info.graphics_settings.SetShadowMapResolutionQuality(*runtime_config->shadow_map_resolution_quality);
+    }
+    if (command_line.shadow_map_resolution_quality) {
+      application_info.graphics_settings.SetShadowMapResolutionQuality(*command_line.shadow_map_resolution_quality);
+    }
 
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;

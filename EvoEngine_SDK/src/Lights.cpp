@@ -130,6 +130,9 @@ void Lighting::Consume(glm::vec2 location, uint32_t resolution, uint32_t remaini
 
 void Lighting::AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector<glm::uvec3>& results) {
   results.clear();
+  if (size == 0) {
+    return;
+  }
   if (size == 1) {
     results.emplace_back(0, 0, max_resolution);
   } else {

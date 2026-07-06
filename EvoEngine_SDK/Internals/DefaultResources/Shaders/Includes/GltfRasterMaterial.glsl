@@ -266,11 +266,17 @@ vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(
   return EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord_0, tex_coord_1, normal, tangent, 1.0);
 }
 
+float EE_GLTF_RASTER_OPACITY(GltfRasterMaterial surface) {
+  const float alpha = clamp(surface.base_color.a, 0.0, 1.0);
+  const float transmission = clamp(max(surface.transmission, surface.diffuse_transmission_factor), 0.0, 1.0);
+  return alpha * (1.0 - transmission);
+}
+
 bool EE_GLTF_RASTER_SHOULD_DISCARD(GltfRasterMaterial surface) {
   if (surface.alpha_mode == EE_GLTF_ALPHA_MODE_MASK) {
     return surface.base_color.a < surface.alpha_cutoff;
   }
-  return surface.base_color.a <= 0.0;
+  return EE_GLTF_RASTER_OPACITY(surface) <= 0.0;
 }
 
 float EE_GLTF_RASTER_IOR_FRESNEL(const float ior, const float cos_theta) {

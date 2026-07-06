@@ -8,6 +8,8 @@
 #include "RenderLayer.hpp"
 #include "Texture2D.hpp"
 
+#include <cmath>
+
 using namespace evo_engine;
 
 namespace {
@@ -19,6 +21,10 @@ bool RequiresAlphaTestedShadow(const GltfShadeMaterial& material) {
     return true;
   }
   return material.pbr_base_color_factor.a <= material.alpha_cutoff;
+}
+
+bool UsesTransparentRasterPass(const Material& material, const GltfShadeMaterial& shade_material) {
+  return material.draw_settings.blending || GltfMaterialRequiresTransparentPass(shade_material);
 }
 
 VkDrawMeshTasksIndirectCommandEXT CreateMeshTaskCommand(const uint32_t meshlet_range) {
@@ -79,7 +85,27 @@ void ValidateDeferredMeshIndirectCommandCount(
 bool GaussianSplatGpuRadixSortSupported() {
   return Platform::Initialized() && Platform::GetInstance().GetCapabilities().subgroup_size >= 32u;
 }
+
 }  // namespace
+
+float RenderSettings::GetShadowCascadeSplit(const int split, const float near_distance) const {
+  const auto clamped_split = glm::clamp(split, 0, 3);
+  if (clamped_split == 3) {
+    return 1.0f;
+  }
+  const auto far_distance = glm::max(max_shadow_distance, 0.001f);
+  const auto near_clip_distance = glm::clamp(near_distance, 0.001f, far_distance);
+  const auto split_ratio = static_cast<float>(clamped_split + 1) / 4.0f;
+  const auto uniform_split = split_ratio;
+  const auto logarithmic_split =
+      near_clip_distance * std::pow(far_distance / near_clip_distance, split_ratio) / far_distance;
+  return glm::clamp(glm::mix(uniform_split, logarithmic_split, glm::clamp(shadow_cascade_split_lambda, 0.0f, 1.0f)),
+                    0.0f, 1.0f);
+}
+
+float RenderSettings::GetShadowCascadeSplitDistance(const int split, const float near_distance) const {
+  return max_shadow_distance * GetShadowCascadeSplit(split, near_distance);
+}
 
 bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
@@ -637,10 +663,7 @@ void RenderInstanceStorage::InstancedRenderInstanceCollection::ForEachInstancedR
 
 void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_render_settings) {
   for (int split = 0; split < 4; split++) {
-    float split_end = target_render_settings.max_shadow_distance;
-    if (split != 3)
-      split_end = target_render_settings.max_shadow_distance * target_render_settings.shadow_cascade_split[split];
-    split_distances[split] = split_end;
+    split_distances[split] = target_render_settings.GetShadowCascadeSplitDistance(split);
   }
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     brdflut_texture_index = render_layer->environmental_brdf_lut_->GetTextureStorageIndex();
@@ -651,7 +674,13 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
     debug_visualization = 0;
 
   pcf_sample_amount = target_render_settings.pcf_sample_amount;
-  seam_fix_ratio = target_render_settings.seam_fix_ratio;
+  shadow_cascade_transition_width = glm::max(target_render_settings.shadow_cascade_transition_width, 0.0f);
+  shadow_debug_parameters = glm::ivec4(glm::clamp(target_render_settings.shadow_debug_mode, 0, 5),
+                                       glm::clamp(target_render_settings.shadow_debug_selected_cascade, 0, 3),
+                                       glm::max(target_render_settings.shadow_debug_selected_light, 0), 0);
+  shadow_fade_parameters = glm::vec4(glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
+                                                glm::max(target_render_settings.max_shadow_distance, 0.0f)),
+                                     0.0f, 0.0f, 0.0f);
   strands_subdivision_x_factor = target_render_settings.strands_subdivision_x_factor;
   strands_subdivision_y_factor = target_render_settings.strands_subdivision_y_factor;
   strands_subdivision_max_x = target_render_settings.strands_subdivision_max_x;
@@ -665,7 +694,7 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
   if (pcf_sample_amount != other.pcf_sample_amount)
     return true;
 
-  if (seam_fix_ratio != other.seam_fix_ratio)
+  if (shadow_cascade_transition_width != other.shadow_cascade_transition_width)
     return true;
   if (ddgi_indirect_intensity != other.ddgi_indirect_intensity)
     return true;
@@ -707,6 +736,10 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
   if (ddgi_volume_parameters != other.ddgi_volume_parameters)
     return true;
   if (ddgi_sampling_parameters != other.ddgi_sampling_parameters)
+    return true;
+  if (shadow_debug_parameters != other.shadow_debug_parameters)
+    return true;
+  if (shadow_fade_parameters != other.shadow_fade_parameters)
     return true;
 
   return false;
@@ -1015,9 +1048,11 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       target_scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
   render_info_block.directional_light_size = 0;
   const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  const auto max_directional_light_size = graphics_settings.max_directional_light_size;
 
-  if (directional_light_entities && !directional_light_entities->empty()) {
-    directional_light_info_blocks_.resize(graphics_settings.max_directional_light_size * cameras.size());
+  if (directional_light_entities && !directional_light_entities->empty() && max_directional_light_size > 0) {
+    directional_light_info_blocks_.resize(max_directional_light_size * cameras.size());
+    uint32_t directional_light_size = 0;
     uint32_t directional_shadow_light_size = 0;
     for (const auto& light_entity : *directional_light_entities) {
       if (!target_scene->IsEntityEnabled(light_entity))
@@ -1025,11 +1060,14 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
       const auto dlc = target_scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
       if (!dlc->IsEnabled())
         continue;
-      render_info_block.directional_light_size++;
+      if (directional_light_size >= max_directional_light_size)
+        break;
+      directional_light_size++;
       if (dlc->cast_shadow) {
         directional_shadow_light_size++;
       }
     }
+    render_info_block.directional_light_size = static_cast<int>(directional_light_size);
     std::vector<glm::uvec3> viewport_results;
     Lighting::AllocateAtlas(directional_shadow_light_size, graphics_settings.directional_light_shadow_map_resolution,
                             viewport_results);
@@ -1043,7 +1081,9 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
         const auto dlc = target_scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
         if (!dlc->IsEnabled())
           continue;
-        const auto block_index = camera_index * graphics_settings.max_directional_light_size + directional_light_index;
+        if (directional_light_index >= max_directional_light_size)
+          break;
+        const auto block_index = camera_index * max_directional_light_size + directional_light_index;
         auto& viewport = directional_light_info_blocks_[block_index].viewport;
         viewport = glm::ivec4(0);
         if (dlc->cast_shadow && directional_shadow_light_index < viewport_results.size()) {
@@ -1068,71 +1108,30 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
         const auto dlc = target_scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
         if (!dlc->IsEnabled())
           continue;
+        if (directional_light_index >= max_directional_light_size)
+          break;
         glm::quat rotation = target_scene->GetDataComponent<GlobalTransform>(light_entity).GetRotation();
         glm::vec3 light_dir = glm::normalize(rotation * glm::vec3(0, 0, 1));
         float plane_distance = 0;
         glm::vec3 center;
-        const auto block_index = camera_index * graphics_settings.max_directional_light_size + directional_light_index;
+        const auto block_index = camera_index * max_directional_light_size + directional_light_index;
         directional_light_info_blocks_[block_index].direction = glm::vec4(light_dir, 0.0f);
         directional_light_info_blocks_[block_index].diffuse =
             glm::vec4(dlc->diffuse * dlc->diffuse_brightness, dlc->cast_shadow);
         directional_light_info_blocks_[block_index].specular = glm::vec4(0.0f);
+        const auto camera_near_distance = glm::max(camera->camera_settings.near_distance, 0.001f);
         for (int split = 0; split < 4; split++) {
           float split_start = 0;
-          float split_end = render_settings.max_shadow_distance;
+          float split_end = render_settings.GetShadowCascadeSplitDistance(split, camera_near_distance);
           if (split != 0)
-            split_start = render_settings.max_shadow_distance * render_settings.shadow_cascade_split[split - 1];
-          if (split != 4 - 1)
-            split_end = render_settings.max_shadow_distance * render_settings.shadow_cascade_split[split];
+            split_start = render_settings.GetShadowCascadeSplitDistance(split - 1, camera_near_distance);
           render_info_block.split_distances[split] = split_end;
           glm::mat4 light_projection, light_view;
-          float max_distance = 0;
+          float max_distance = split_end;
           glm::vec3 light_pos;
-          glm::vec3 corner_points[8];
-          Camera::CalculateFrustumPoints(camera, split_start, split_end, main_camera_pos, main_camera_rot,
-                                         corner_points);
           glm::vec3 camera_frustum_center =
               (main_camera_rot * glm::vec3(0, 0, -1)) * ((split_end - split_start) / 2.0f + split_start) +
               main_camera_pos;
-          if (render_settings.stable_fit) {
-            // Less detail but no shimmering when rotating the camera.
-            // max = glm::distance(cornerPoints[4], cameraFrustumCenter);
-            max_distance = split_end;
-          } else {
-            // More detail but cause shimmering when rotating camera.
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[0], Ray::ClosestPointOnLine(corner_points[0], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[1], Ray::ClosestPointOnLine(corner_points[1], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[2], Ray::ClosestPointOnLine(corner_points[2], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[3], Ray::ClosestPointOnLine(corner_points[3], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[4], Ray::ClosestPointOnLine(corner_points[4], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[5], Ray::ClosestPointOnLine(corner_points[5], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[6], Ray::ClosestPointOnLine(corner_points[6], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-            max_distance = glm::max(
-                max_distance,
-                glm::distance(corner_points[7], Ray::ClosestPointOnLine(corner_points[7], camera_frustum_center,
-                                                                        camera_frustum_center - light_dir)));
-          }
 
           glm::vec3 p0 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, max_bound.z),
                                                  camera_frustum_center, camera_frustum_center + light_dir);
@@ -1190,7 +1189,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           directional_light_info_blocks_[block_index].light_frustum_distance[split] = plane_distance;
           if (split == 4 - 1)
             directional_light_info_blocks_[block_index].reserved_parameters =
-                glm::vec4(dlc->light_size, 0, dlc->bias, dlc->normal_offset);
+                glm::vec4(dlc->light_size, dlc->slope_bias, dlc->bias, dlc->normal_offset);
         }
         directional_light_index++;
       }
@@ -1671,7 +1670,7 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
-  if (material->draw_settings.blending) {
+  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
     transparent_render_instances->Register(render_instance);
   } else {
     deferred_render_instances->Register(render_instance);
@@ -1714,7 +1713,7 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
-  if (material->draw_settings.blending) {
+  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
     transparent_instanced_render_instances->Register(render_instance);
   } else {
     deferred_instanced_render_instances->Register(render_instance);
@@ -1848,7 +1847,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
-  if (material->draw_settings.blending) {
+  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
     transparent_strands_render_instances->Register(render_instance);
   } else {
     deferred_strands_render_instances->Register(render_instance);
@@ -1943,7 +1942,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
-  if (material->draw_settings.blending) {
+  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
     transparent_render_instances->Register(render_instance);
   } else {
     deferred_render_instances->Register(render_instance);
@@ -2013,7 +2012,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
-  if (material->draw_settings.blending) {
+  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
     transparent_skinned_render_instances->Register(render_instance);
   } else {
     deferred_skinned_render_instances->Register(render_instance);
@@ -2071,7 +2070,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = material->draw_settings.cull_mode;
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
-  if (material->draw_settings.blending) {
+  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
     transparent_instanced_render_instances->Register(render_instance);
   } else {
     deferred_instanced_render_instances->Register(render_instance);

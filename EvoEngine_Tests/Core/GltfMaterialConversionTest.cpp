@@ -353,3 +353,31 @@ TEST(GltfMaterialConversion, CanonicalMaterialAssetSynchronizesDrawSettings) {
   EXPECT_TRUE(material.draw_settings.blending);
   EXPECT_EQ(material.draw_settings.cull_mode, VK_CULL_MODE_NONE);
 }
+
+TEST(GltfMaterialConversion, TransmissiveMaterialSynchronizesTransparentPass) {
+  Application app;
+  Material material;
+  auto& shade_material = material.material_data.shade_material;
+
+  shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Opaque);
+  shade_material.transmission_factor = 0.45f;
+  material.MarkDirty();
+
+  EXPECT_TRUE(GltfMaterialRequiresTransparentPass(shade_material));
+  EXPECT_TRUE(material.draw_settings.blending);
+
+  material.draw_settings.blending = false;
+  shade_material.transmission_factor = 0.0f;
+  shade_material.diffuse_transmission_factor = 0.35f;
+  material.MarkDirty();
+
+  EXPECT_TRUE(GltfMaterialRequiresTransparentPass(shade_material));
+  EXPECT_TRUE(material.draw_settings.blending);
+
+  material.draw_settings.blending = true;
+  shade_material.diffuse_transmission_factor = 0.0f;
+  material.MarkDirty();
+
+  EXPECT_FALSE(GltfMaterialRequiresTransparentPass(shade_material));
+  EXPECT_FALSE(material.draw_settings.blending);
+}
