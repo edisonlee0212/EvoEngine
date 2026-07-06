@@ -105,10 +105,11 @@ TEST(BistroDemoScript, GeneratesIgnoredProjectFromExistingSourceRoot) {
   const auto resource_root = temp.RootPath() / "Resources";
   WriteMinimalBistroSource(source_root);
 
-  const auto script_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Scripts" / "generate_bistro_demo.py";
-  const std::string command = Quote(EVOENGINE_TEST_PYTHON_EXECUTABLE) + " " + Quote(script_path) + " --resource-root " +
-                              Quote(resource_root) + " --source-root " + Quote(source_root) +
-                              " --no-download --asset-mode copy";
+  const auto script_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Scripts" / "prepare_demos.py";
+  const std::string command = Quote(EVOENGINE_TEST_PYTHON_EXECUTABLE) + " " + Quote(script_path) +
+                              " --demo bistro --validate --prepare --resource-root " + Quote(resource_root) +
+                              " --bistro-source-root " + Quote(source_root) +
+                              " --no-download --bistro-asset-mode copy --no-previews";
   ASSERT_EQ(std::system(SystemCommand(command).c_str()), 0);
 
   const auto demo_root = resource_root / ".generated" / "EvoEngine-DemoProjects" / "Bistro";

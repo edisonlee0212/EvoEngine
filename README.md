@@ -9,10 +9,9 @@ EvoEngine is a C++17 research framework for interactive simulation, digital fore
 
 Windows is the primary development platform. Linux builds are supported for the core stack, while some Services and packages are Windows-only or require optional SDKs.
 
-![EvoEngine rendering demo with DDGI debug probes](Resources/GitHub/RenderingDemo.png)
+![EvoEngine rendering demo in the editor](Resources/GitHub/RenderingDemo.png)
 
-The rendering demo image is captured from `DemoApp` with DDGI enabled; the yellow probe debug overlay shows the active
-`DdgiVolume` used for probe placement and atlas debugging.
+The rendering demo image is captured from the editor layout prepared by `Scripts/prepare_demos.py`.
 
 ## Quick Start
 
@@ -44,8 +43,8 @@ out/install/vs2026-x64/bin/
 
 Start with `EvoEngineLauncher.exe` to open demo profiles, create projects, or open recent projects. Use
 `EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
-Run `python Scripts\generate_demo_previews.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe` to refresh the
-static demo thumbnails shown by the launcher.
+Run `python Scripts\prepare_demos.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe` to validate and prepare
+generated demo resources and missing launcher thumbnails.
 
 For detailed setup, platform requirements, Linux commands, VSCode notes, and install layout, see [docs/building.md](docs/building.md).
 
@@ -94,9 +93,13 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 ## Demo Gallery
 
+| RT-Bistro | 3DGS-Bicycle |
+| --- | --- |
+| ![RT-Bistro demo](Resources/Launcher/DemoPreviews/bistro.png) | ![3DGS-Bicycle demo](Resources/Launcher/DemoPreviews/bicycle.png) |
+
 | Galaxy | EcoSysLab |
 | --- | --- |
-| ![Galaxy demo](Resources/GitHub/GalaxyDemo.png) | ![EcoSysLab demo](Resources/GitHub/TreeFrameworkDemo.png) | 
+| ![Galaxy demo](Resources/GitHub/GalaxyDemo.png) | ![EcoSysLab demo](Resources/GitHub/TreeFrameworkDemo.png) |
 
 | Strand Visualization | Tree Fracture |
 | --- | --- |
@@ -121,7 +124,7 @@ EvoEngine supports research workflows used in digital forestry and digital agric
 - [3D reconstruction identifies loci linked to variation in angle of individual sorghum leaves, PeerJ](https://peerj.com/articles/12628/)
 - [Sorghum segmentation and leaf counting using in silico trained deep neural model, The Plant Phenome Journal](https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/ppj2.70002)
 - [PlantSegNet: 3D point cloud instance segmentation of nearby plant organs with identical semantics, Computers and Electronics in Agriculture](https://www.sciencedirect.com/science/article/abs/pii/S0168169924003132)
-- [Woodstock](https://jango6324.github.io/woodstock/)
+- [Woodstock: Interactive Modeling of Fungal Wood Decay, SIGGRAPH 2026](https://jango6324.github.io/woodstock/)
 
 ## License
 

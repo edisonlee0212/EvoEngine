@@ -82,7 +82,7 @@ def assert_log_is_clean(log_path: Path, output: str) -> None:
             raise SystemExit(f"Error marker found in {log_path}: {line}")
 
 
-def ensure_bistro_resources(root: Path, editor: Path, skip_generate: bool) -> None:
+def ensure_bistro_resources(root: Path, skip_generate: bool) -> None:
     bistro_project = root / "Resources" / ".generated" / "EvoEngine-DemoProjects" / "Bistro" / "Bistro.eveproj"
     if bistro_project.exists():
         print(f"Bistro project: {bistro_project}", flush=True)
@@ -93,9 +93,12 @@ def ensure_bistro_resources(root: Path, editor: Path, skip_generate: bool) -> No
         "Generate Bistro demo resources",
         [
             sys.executable,
-            str(root / "Scripts" / "generate_bistro_demo.py"),
-            "--editor",
-            str(editor),
+            str(root / "Scripts" / "prepare_demos.py"),
+            "--demo",
+            "bistro",
+            "--validate",
+            "--prepare",
+            "--no-previews",
         ],
         root,
     )
@@ -351,7 +354,7 @@ def main() -> int:
         )
     if not editor.exists():
         raise SystemExit(f"Missing EvoEngineEditor: {editor}")
-    ensure_bistro_resources(root, editor, args.skip_bistro_generate)
+    ensure_bistro_resources(root, args.skip_bistro_generate)
 
     log_paths: list[Path] = []
     if not args.skip_smoke:
