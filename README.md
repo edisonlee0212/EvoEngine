@@ -11,7 +11,7 @@ Windows is the primary development platform. Linux builds are supported for the 
 
 ![EvoEngine rendering demo in the editor](Resources/GitHub/RenderingDemo.png)
 
-The rendering demo image is captured from the editor layout prepared by `Scripts/capture_readme_editor_screenshot.py`.
+The rendering demo image is captured from the editor layout prepared by `Scripts/prepare_demos.py`.
 
 ## Quick Start
 
@@ -43,8 +43,8 @@ out/install/vs2026-x64/bin/
 
 Start with `EvoEngineLauncher.exe` to open demo profiles, create projects, or open recent projects. Use
 `EvoEngineEditor.exe --project <path-to-project.eveproj>` when launching the editor directly.
-Run `python Scripts\generate_demo_previews.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe` to refresh the
-static demo thumbnails shown by the launcher.
+Run `python Scripts\prepare_demos.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe` to validate and prepare
+generated demo resources and missing launcher thumbnails.
 
 For detailed setup, platform requirements, Linux commands, VSCode notes, and install layout, see [docs/building.md](docs/building.md).
 
@@ -69,6 +69,9 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | Testing | [docs/testing.md](docs/testing.md) |
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
 | Rendering | [docs/rendering.md](docs/rendering.md) |
+| DDGI | [docs/ddgi.md](docs/ddgi.md) |
+| Rendering demos | [docs/rendering-demos.md](docs/rendering-demos.md) |
+| Rendering validation | [docs/rendering-validation.md](docs/rendering-validation.md) |
 | Projects, assets, and serialization | [docs/projects-assets-serialization.md](docs/projects-assets-serialization.md) |
 | Runtime packages | [docs/runtime-packages.md](docs/runtime-packages.md) |
 | Extending EvoEngine | [docs/extending-evoengine.md](docs/extending-evoengine.md) |
@@ -99,7 +102,7 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 | Galaxy | EcoSysLab |
 | --- | --- |
-| ![Galaxy demo](Resources/GitHub/GalaxyDemo.png) | ![EcoSysLab demo](Resources/GitHub/TreeFrameworkDemo.png) | 
+| ![Galaxy demo](Resources/GitHub/GalaxyDemo.png) | ![EcoSysLab demo](Resources/GitHub/TreeFrameworkDemo.png) |
 
 | Strand Visualization | Tree Fracture |
 | --- | --- |

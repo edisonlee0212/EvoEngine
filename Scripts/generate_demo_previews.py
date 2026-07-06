@@ -17,10 +17,12 @@ DEMO_PROFILE_IDS = (
     "digital-agriculture",
     "lsystem",
     "procedural-galaxy",
+    "rendering-regression",
 )
 DEFAULT_WARMUP_FRAMES = 8
 PROFILE_WARMUP_FRAMES = {
     "ddgi": 360,
+    "rendering-regression": 1800,
 }
 
 
