@@ -69,9 +69,6 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | Testing | [docs/testing.md](docs/testing.md) |
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
 | Rendering | [docs/rendering.md](docs/rendering.md) |
-| DDGI | [docs/ddgi.md](docs/ddgi.md) |
-| Rendering demos | [docs/rendering-demos.md](docs/rendering-demos.md) |
-| Rendering validation | [docs/rendering-validation.md](docs/rendering-validation.md) |
 | Projects, assets, and serialization | [docs/projects-assets-serialization.md](docs/projects-assets-serialization.md) |
 | Runtime packages | [docs/runtime-packages.md](docs/runtime-packages.md) |
 | Extending EvoEngine | [docs/extending-evoengine.md](docs/extending-evoengine.md) |
@@ -127,7 +124,7 @@ EvoEngine supports research workflows used in digital forestry and digital agric
 - [3D reconstruction identifies loci linked to variation in angle of individual sorghum leaves, PeerJ](https://peerj.com/articles/12628/)
 - [Sorghum segmentation and leaf counting using in silico trained deep neural model, The Plant Phenome Journal](https://acsess.onlinelibrary.wiley.com/doi/pdf/10.1002/ppj2.70002)
 - [PlantSegNet: 3D point cloud instance segmentation of nearby plant organs with identical semantics, Computers and Electronics in Agriculture](https://www.sciencedirect.com/science/article/abs/pii/S0168169924003132)
-- [Woodstock](https://jango6324.github.io/woodstock/)
+- [Woodstock: Interactive Modeling of Fungal Wood Decay, SIGGRAPH 2026](https://jango6324.github.io/woodstock/)
 
 ## License
 
