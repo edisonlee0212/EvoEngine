@@ -81,9 +81,8 @@ share viewport regions inside each cascade layer:
 - more than four shadow-casting lights recursively subdivide the fourth quadrant, subject to
   `max_directional_light_size`.
 
-This differs from Hazel's reference renderer, which creates per-cascade directional shadow passes over a cascaded depth
-image and renders one primary shadow-casting directional light. EvoEngine keeps its multi-directional-light viewport
-packing, while the diagnostics UI and texel-density debug view expose the effective viewport size.
+The diagnostics UI and texel-density debug view expose the effective directional-light viewport size for the selected
+light.
 
 The active shadow-map quality initializes directional, point, and spot shadow-map resolution fields together. The Shadow
 diagnostics UI displays the active quality, full directional layer size, and packed directional viewport sizes.

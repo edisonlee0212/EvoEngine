@@ -321,7 +321,7 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
     const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock();
     if (directional_light && directional_light->IsEnabled() && scene->IsEntityEnabled(owner) &&
         scene->GetEntityName(owner) == "Top Down Directional Light") {
-      if (directional_light->diffuse_brightness != 1.0f || directional_light->diffuse != glm::vec3(1.0f) ||
+      if (directional_light->diffuse_brightness != 5.0f || directional_light->diffuse != glm::vec3(1.0f) ||
           !directional_light->cast_shadow) {
         return FailSmokeTest(application, "Rendering demo directional light is not configured");
       }

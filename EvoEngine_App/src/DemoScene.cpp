@@ -1511,7 +1511,7 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
         const auto directional_light =
             scene->GetOrSetPrivateComponent<DirectionalLight>(directional_light_entity).lock();
         directional_light->diffuse = glm::vec3(1.0f);
-        directional_light->diffuse_brightness = 1.0f;
+        directional_light->diffuse_brightness = 5.0f;
         directional_light->light_size = 0.01f;
         Transform directional_light_transform;
         directional_light_transform.SetEulerRotation(glm::radians(glm::vec3(90.0f, 0.0f, 0.0f)));

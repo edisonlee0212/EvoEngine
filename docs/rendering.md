@@ -188,9 +188,10 @@ Sponza FBX prefab so they do not act as hidden direct lights, leaves the Capoeir
 accumulation, and enables a scene-owned DDGI volume at 10x6x16 probes, 1.5 spacing, local volume origin (0, 3, 3),
 64 rays per probe, 16384 ray samples per frame, 0.02 normal/visibility bias, relocation enabled, classification
 disabled, adaptive ray-sample budgeting enabled, and probe visualization scale 2.0.
-The expected comparison behavior is direct white/yellow scene lighting plus DDGI indirect response, no stale blue probe
-light after reset or disabled lights, scene-camera-only GPU probe visualization, and main-camera ray tracing configured after
-the scene loads for README/smoke setup. The visible yellow point-light sphere is marked non-shadow-casting so DDGI TLAS
+The expected comparison behavior is direct white/yellow scene lighting plus DDGI indirect response, including a
+scene-owned top-down white directional light with brightness 5.0, no stale blue probe light after reset or disabled
+lights, scene-camera-only GPU probe visualization, and main-camera ray tracing configured after the scene loads for
+README/smoke setup. The visible yellow point-light sphere is marked non-shadow-casting so DDGI TLAS
 shadow rays do not treat the light visualizer as an occluder for its own point light. The Rendering Demo smoke path
 validates that editor-mode main-camera ray tracing auto-fits the Camera panel, validates canonical DDGI runtime/volume
 values above, and validates the pre-play yellow
