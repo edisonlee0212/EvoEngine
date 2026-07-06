@@ -9,10 +9,9 @@ EvoEngine is a C++17 research framework for interactive simulation, digital fore
 
 Windows is the primary development platform. Linux builds are supported for the core stack, while some Services and packages are Windows-only or require optional SDKs.
 
-![EvoEngine rendering demo with DDGI debug probes](Resources/GitHub/RenderingDemo.png)
+![EvoEngine rendering demo in the editor](Resources/GitHub/RenderingDemo.png)
 
-The rendering demo image is captured from `DemoApp` with DDGI enabled; the yellow probe debug overlay shows the active
-`DdgiVolume` used for probe placement and atlas debugging.
+The rendering demo image is captured from the editor layout prepared by `Scripts/capture_readme_editor_screenshot.py`.
 
 ## Quick Start
 
@@ -93,6 +92,10 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | `cmake` | CMake helper modules. |
 
 ## Demo Gallery
+
+| Bistro | Bicycle |
+| --- | --- |
+| ![Bistro demo](Resources/Launcher/DemoPreviews/bistro.png) | ![Bicycle 3D Gaussian Splatting demo](Resources/Launcher/DemoPreviews/bicycle.png) |
 
 | Galaxy | EcoSysLab |
 | --- | --- |
