@@ -93,9 +93,9 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 ## Demo Gallery
 
-| Bistro | Bicycle |
+| RT-Bistro | 3DGS-Bicycle |
 | --- | --- |
-| ![Bistro demo](Resources/Launcher/DemoPreviews/bistro.png) | ![Bicycle 3D Gaussian Splatting demo](Resources/Launcher/DemoPreviews/bicycle.png) |
+| ![RT-Bistro demo](Resources/Launcher/DemoPreviews/bistro.png) | ![3DGS-Bicycle demo](Resources/Launcher/DemoPreviews/bicycle.png) |
 
 | Galaxy | EcoSysLab |
 | --- | --- |
