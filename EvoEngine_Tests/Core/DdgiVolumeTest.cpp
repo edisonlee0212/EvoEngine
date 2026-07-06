@@ -979,6 +979,96 @@ TEST(DdgiVolume, OffscreenPreviewRenderingDoesNotTouchSceneDdgiTracking) {
   EXPECT_LT(restore_storage, rebind_previous);
 }
 
+TEST(DdgiVolume, OffscreenPreviewThumbnailUploadCompletesBeforeReturn) {
+  const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
+  const auto preview_source = ReadTextFile(source_root / "src" / "OffscreenPreviewRenderer.cpp");
+  ASSERT_FALSE(preview_source.empty());
+
+  const auto read_texture =
+      preview_source.find("std::shared_ptr<Texture2D> OffscreenPreviewRenderer::ReadColorTexture");
+  const auto set_data = preview_source.find("texture->SetRgbaChannelData(pixels, resolution, false);", read_texture);
+  const auto upload = preview_source.find("texture->UnsafeUploadDataImmediately();", set_data);
+  const auto return_texture = preview_source.find("return texture;", set_data);
+  ASSERT_NE(read_texture, std::string::npos);
+  ASSERT_NE(set_data, std::string::npos);
+  ASSERT_NE(upload, std::string::npos);
+  ASSERT_NE(return_texture, std::string::npos);
+  EXPECT_LT(set_data, upload);
+  EXPECT_LT(upload, return_texture);
+}
+
+TEST(DdgiVolume, OffscreenPreviewCreatesDirectionalLightWhenSceneHasNone) {
+  const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
+  const auto preview_source = ReadTextFile(source_root / "src" / "OffscreenPreviewRenderer.cpp");
+  ASSERT_FALSE(preview_source.empty());
+
+  const auto configure_lighting = preview_source.find("void ConfigurePreviewLighting");
+  const auto missing_light_gate =
+      preview_source.find("if (!light_owners || light_owners->empty())", configure_lighting);
+  const auto create_light =
+      preview_source.find("configure_light(scene->CreateEntity(\"Preview Directional Light\"));", missing_light_gate);
+  const auto shadow_off = preview_source.find("light->cast_shadow = false;", configure_lighting);
+  const auto brightness = preview_source.find("light->diffuse_brightness = 2.4f;", configure_lighting);
+  ASSERT_NE(configure_lighting, std::string::npos);
+  ASSERT_NE(missing_light_gate, std::string::npos);
+  ASSERT_NE(create_light, std::string::npos);
+  EXPECT_LT(missing_light_gate, create_light);
+  EXPECT_NE(shadow_off, std::string::npos);
+  EXPECT_NE(brightness, std::string::npos);
+}
+
+TEST(DdgiVolume, RenderInstanceBuffersUploadBeforeDescriptorBinding) {
+  const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
+  const auto render_layer_source = ReadTextFile(source_root / "src" / "RenderLayer.cpp");
+  ASSERT_FALSE(render_layer_source.empty());
+
+  const auto prepare = render_layer_source.find("void RenderLayer::PrepareSceneForRendering");
+  const auto render_immediate = render_layer_source.find("void RenderLayer::RenderSceneToCameraImmediately", prepare);
+  const auto upload = render_layer_source.find("current_render_instances->Upload();", prepare);
+  const auto bind =
+      render_layer_source.find("BindRenderInstanceStorage(current_frame_index, current_render_instances);", upload);
+  ASSERT_NE(prepare, std::string::npos);
+  ASSERT_NE(render_immediate, std::string::npos);
+  ASSERT_NE(upload, std::string::npos);
+  ASSERT_NE(bind, std::string::npos);
+  EXPECT_LT(upload, bind);
+  EXPECT_LT(bind, render_immediate);
+}
+
+TEST(DdgiVolume, RasterTransmissionOpacityDrivesTransparentOutput) {
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  const auto raster_material_source = ReadTextFile(shader_root / "Includes" / "GltfRasterMaterial.glsl");
+  const auto transparent_source =
+      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.frag");
+  ASSERT_FALSE(raster_material_source.empty());
+  ASSERT_FALSE(transparent_source.empty());
+
+  EXPECT_NE(raster_material_source.find("float EE_GLTF_RASTER_OPACITY(GltfRasterMaterial surface)"), std::string::npos);
+  EXPECT_NE(raster_material_source.find("max(surface.transmission, surface.diffuse_transmission_factor)"),
+            std::string::npos);
+  EXPECT_NE(raster_material_source.find("return alpha * (1.0 - transmission);"), std::string::npos);
+  EXPECT_NE(transparent_source.find("FragColor = vec4(outputColor, EE_GLTF_RASTER_OPACITY(surface));"),
+            std::string::npos);
+}
+
+TEST(DdgiVolume, PunctualShadowFilteringUsesFixedPcf) {
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.glsl");
+  ASSERT_FALSE(lighting_source.empty());
+
+  EXPECT_NE(lighting_source.find("float EE_FUNC_SPOT_SHADOW_DEPTH(SpotLight light, vec2 lightUv)"), std::string::npos);
+  EXPECT_NE(lighting_source.find("float EE_FUNC_POINT_SHADOW_DEPTH(PointLight light, int slice, vec2 lightUv)"),
+            std::string::npos);
+  EXPECT_NE(lighting_source.find("light.cutoff_outer_inner_size_bias.z * 100.0f"), std::string::npos);
+  EXPECT_NE(lighting_source.find("light.reserved_parameters.y * 100.0f"), std::string::npos);
+  EXPECT_NE(lighting_source.find("clamp(EE_RENDER_INFO.shadow_sample_size, 1, 64)"), std::string::npos);
+  EXPECT_EQ(lighting_source.find("BLOCKER_SEARCH"), std::string::npos);
+  EXPECT_EQ(lighting_source.find("penumbraWidth"), std::string::npos);
+  EXPECT_EQ(lighting_source.find("blockerDistance"), std::string::npos);
+}
+
 TEST(DdgiVolume, DdgiProbeHitsExplicitlyEvaluateAnalyticSceneLights) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";

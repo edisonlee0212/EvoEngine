@@ -80,6 +80,11 @@ void main()
     // Opaque / solid fragment path
     // --------------------------------------------------------------------
     float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
+    vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
+    if (shadowDebugColor.a > 0.0f) {
+        FragColor = shadowDebugColor;
+        return;
+    }
 
     GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(uint(material_index), materialTexCoord, materialTexCoord);
     float roughness = surface.roughness;

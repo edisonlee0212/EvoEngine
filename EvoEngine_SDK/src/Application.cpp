@@ -1494,6 +1494,7 @@ void DeserializePointLight(const YAML::Node& in, PointLight& light) {
 void SerializeDirectionalLight(YAML::Emitter& out, const DirectionalLight& light) {
   out << YAML::Key << "cast_shadow" << YAML::Value << light.cast_shadow;
   out << YAML::Key << "bias" << YAML::Value << light.bias;
+  out << YAML::Key << "slope_bias" << YAML::Value << light.slope_bias;
   out << YAML::Key << "diffuse" << YAML::Value << light.diffuse;
   out << YAML::Key << "diffuse_brightness" << YAML::Value << light.diffuse_brightness;
   out << YAML::Key << "light_size" << YAML::Value << light.light_size;
@@ -1503,6 +1504,8 @@ void SerializeDirectionalLight(YAML::Emitter& out, const DirectionalLight& light
 void DeserializeDirectionalLight(const YAML::Node& in, DirectionalLight& light) {
   light.cast_shadow = in["cast_shadow"].as<bool>();
   light.bias = in["bias"].as<float>();
+  if (in["slope_bias"])
+    light.slope_bias = in["slope_bias"].as<float>();
   light.diffuse = in["diffuse"].as<glm::vec3>();
   light.diffuse_brightness = in["diffuse_brightness"].as<float>();
   light.light_size = in["light_size"].as<float>();

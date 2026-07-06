@@ -91,22 +91,28 @@ std::shared_ptr<Material> CreateDefaultMaterial() {
 }
 
 void ConfigurePreviewLighting(const std::shared_ptr<Scene>& scene) {
-  const auto* light_owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
-  if (!light_owners) {
-    return;
-  }
-
   GlobalTransform light_transform;
   light_transform.SetValue(glm::vec3(0.0f), glm::radians(glm::vec3(125.0f, -35.0f, 0.0f)), glm::vec3(1.0f));
-  for (const auto& light_owner : *light_owners) {
+
+  const auto configure_light = [&](const Entity& light_owner) {
     const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(light_owner).lock();
     if (!light) {
-      continue;
+      return;
     }
     light->cast_shadow = false;
     light->diffuse = glm::vec3(1.0f);
     light->diffuse_brightness = 2.4f;
     SetEntityTransform(scene, light_owner, light_transform);
+  };
+
+  const auto* light_owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
+  if (!light_owners || light_owners->empty()) {
+    configure_light(scene->CreateEntity("Preview Directional Light"));
+    return;
+  }
+
+  for (const auto& light_owner : *light_owners) {
+    configure_light(light_owner);
   }
 }
 
@@ -267,6 +273,7 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::ReadColorTexture(const std:
     pixel.a = 1.0f;
   }
   texture->SetRgbaChannelData(pixels, resolution, false);
+  texture->UnsafeUploadDataImmediately();
   return texture;
 }
 

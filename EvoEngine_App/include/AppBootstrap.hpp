@@ -6,6 +6,8 @@
 #include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <stdexcept>
 #include <string>
 
@@ -46,6 +48,27 @@ namespace evo_engine {
       return "--headless";
   }
   return "--editor";
+}
+
+[[nodiscard]] inline GraphicsInitializationSettings::ShadowMapResolutionQuality ParseShadowMapResolutionQualityName(
+    std::string quality_name) {
+  std::transform(quality_name.begin(), quality_name.end(), quality_name.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (quality_name == "low" || quality_name == "1k" || quality_name == "1024") {
+    return GraphicsInitializationSettings::ShadowMapResolutionQuality::Low;
+  }
+  if (quality_name == "medium" || quality_name == "med" || quality_name == "2k" || quality_name == "2048") {
+    return GraphicsInitializationSettings::ShadowMapResolutionQuality::Medium;
+  }
+  if (quality_name == "high" || quality_name == "4k" || quality_name == "4096") {
+    return GraphicsInitializationSettings::ShadowMapResolutionQuality::High;
+  }
+  if (quality_name == "very-high" || quality_name == "veryhigh" || quality_name == "ultra" || quality_name == "8k" ||
+      quality_name == "8192") {
+    return GraphicsInitializationSettings::ShadowMapResolutionQuality::VeryHigh;
+  }
+  throw std::invalid_argument("Unknown shadow map resolution quality: " + quality_name);
 }
 
 inline bool ConsumeApplicationModeArgument(const int argc, char** argv, int& arg_index, ApplicationMode& mode) {

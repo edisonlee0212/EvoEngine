@@ -44,5 +44,5 @@ void main()
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fs_in.FragPos);
 	vec3 outputColor = direct + surface.emissive + ambient * surface.occlusion;
 
-	FragColor = vec4(outputColor, clamp(albedo.a, 0.0, 1.0));
+	FragColor = vec4(outputColor, EE_GLTF_RASTER_OPACITY(surface));
 }

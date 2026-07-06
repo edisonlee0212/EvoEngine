@@ -30,6 +30,11 @@ void main()
 
 	vec3 normal = 		texture(inNormal, fs_in.TexCoord).xyz;
 	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
+	vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
+	if (shadowDebugColor.a > 0.0f) {
+		FragColor = shadowDebugColor;
+		return;
+	}
 
 	int material_index = int(round(texture(inMaterial, fs_in.TexCoord).z));
 

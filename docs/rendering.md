@@ -327,17 +327,17 @@ denoising and broader compressed-texture feature coverage remain out of scope un
 The `rendering-regression` launcher profile is the M42 cross-technique validation scene. It is generated under
 `Resources/.generated/EvoEngine-DemoProjects/RenderingRegression` and can be captured without hand-editing assets:
 `EvoEngineEditor --demo rendering-regression --capture-demo-preview out/<name>.png --preview-render-mode rasterization`,
-`raytracing`, or `rayquery` when the device supports RayQuery. The scene combines local material probes, imported
-Sponza/Capoeira material texture slots, native directional/point/spot light probes, an enabled skinned Capoeira probe, a
-small high-emission firefly clamp probe, and low/high contrast Auto SPP convergence probes. Its purpose is regression
-coverage across shared scene buffers and camera controls; Bistro reference parity remains the long-form numeric
-comparison target against `vk_gltf_renderer`.
+`raytracing`, or `rayquery` when the device supports RayQuery. The scene combines local opaque/metallic/rough/transmissive
+material probes, imported Sponza/Capoeira material texture slots, native directional/point/spot light probes, an enabled
+skinned Capoeira probe, a small high-emission firefly clamp probe, and low/high contrast Auto SPP convergence probes. Its
+purpose is regression coverage across shared scene buffers and camera controls; Bistro reference parity remains the
+long-form numeric comparison target against `vk_gltf_renderer`.
 
 Cross-technique regression tolerance:
 
 | Profile | Techniques | Accepted comparison |
 | --- | --- | --- |
-| `rendering-regression` | Rasterization, RayTracing, RayQuery where supported | Nonblank image, clean log with no crash/hang/validation/device-lost/missing-file errors, and visible material, punctual-light, skinned-mesh, firefly, and Auto SPP probe entities. Rasterization versus ray techniques is not expected to be pixel-equal because the integrators and post-processing histories differ. |
+| `rendering-regression` | Rasterization, RayTracing, RayQuery where supported | Nonblank image, clean log with no crash/hang/validation/device-lost/missing-file errors, and visible material including transmissive material, punctual-light, skinned-mesh, firefly, and Auto SPP probe entities. Rasterization versus ray techniques is not expected to be pixel-equal because the integrators and post-processing histories differ. |
 | `rendering-regression` fixed same-technique reruns | RayTracing and RayQuery fixed seed/settings captures | Normalized RGB MAE <= `0.10` and RMS <= `0.20` unless the milestone records a tighter measured threshold for that check. |
 | Bistro reference parity | RayTracing 1920x1080, 2048 effective spp | Current accepted tracking target is normalized RGB MAE <= `0.02` and RMS <= `0.04` full-frame against the alpha-normalized `vk_gltf_renderer` reference. Focused diagnostic crops may use the same threshold family but must record their measured crop and residual statistics. |
 

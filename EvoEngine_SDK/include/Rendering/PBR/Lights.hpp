@@ -35,9 +35,10 @@ class DirectionalLight : public IPrivateComponent {
   bool cast_shadow = true;             /**< Whether the light casts shadows. */
   glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
   float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
-  float bias = 0.1f;                   /**< Bias for shadow mapping to reduce artifacts. */
-  float normal_offset = 0.05f;         /**< Offset added to the surface normal for shadow calculations. */
-  float light_size = 0.01f;            /**< Size of the light source. */
+  float bias = 0.001f;                 /**< Bias for shadow mapping to reduce artifacts. */
+  float slope_bias = 0.001f;           /**< Additional shadow bias applied at grazing light angles. */
+  float normal_offset = 0.01f;         /**< Offset added to the surface normal for shadow calculations. */
+  float light_size = 0.001f;           /**< Size of the light source. */
 
   /**
    * @brief Called when the component is created.
@@ -203,10 +204,10 @@ class Lighting {
       VK_NULL_HANDLE; /**< Descriptor set for lighting resources. */
 
   /**
-   * @brief Allocates space on the shadow atlas.
-   * @param size Size of the atlas.
-   * @param max_resolution Maximum resolution of allocated blocks.
-   * @param results Output results vector.
+   * @brief Allocates square viewport regions inside one shadow-map layer.
+   * @param size Number of requested shadow-casting lights.
+   * @param max_resolution Full shadow-map layer resolution.
+   * @param results Output viewport origins and sizes.
    */
   static void AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector<glm::uvec3>& results);
 

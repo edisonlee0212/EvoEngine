@@ -7,7 +7,7 @@ struct RenderInfo {
 
   int shadow_sample_size;
   int debug_visualization;
-  float shadow_seam_fix;
+  float shadow_cascade_transition_width;
   float ddgi_indirect_intensity;
 
   float strand_subdivision_x;
@@ -29,6 +29,8 @@ struct RenderInfo {
   vec4 ddgi_atlas_parameters;
   vec4 ddgi_volume_parameters;
   vec4 ddgi_sampling_parameters;
+  ivec4 shadow_debug_parameters;
+  vec4 shadow_fade_parameters;
 };
 
 layout(set = EE_RENDER_INFO_BLOCK_SET, binding = EE_RENDER_INFO_BLOCK_BINDING) uniform EE_RENDER_INFO_BLOCK {

@@ -241,6 +241,23 @@ struct GltfShadeMaterial {
   uint64_t pad = 0;
 };
 
+inline bool GltfMaterialRequiresTransparentPass(const GltfShadeMaterial& material) {
+  if (material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Blend)) {
+    return true;
+  }
+#if MAT_EXT_TRANSMISSION
+  if (material.transmission_factor > 0.0f) {
+    return true;
+  }
+#endif
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+  if (material.diffuse_transmission_factor > 0.0f) {
+    return true;
+  }
+#endif
+  return false;
+}
+
 inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rhs) {
   if (lhs.pbr_base_color_factor != rhs.pbr_base_color_factor)
     return true;

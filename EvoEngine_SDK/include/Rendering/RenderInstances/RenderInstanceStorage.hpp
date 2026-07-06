@@ -23,18 +23,24 @@ class TransparentGeometryPass;
  * @brief Struct containing various render settings for the engine.
  */
 struct RenderSettings {
-  bool stable_fit = true;                                       ///< Indicates whether rendering should use stable fit.
-  float max_shadow_distance = 400;                              ///< Maximum shadow distance in the scene.
-  float shadow_cascade_split[4] = {0.075f, 0.15f, 0.3f, 1.0f};  ///< Splits for shadow cascades.
-  bool enable_debug_visualization = false;                      ///< Whether debug visualization is enabled.
+  float max_shadow_distance = 400;           ///< Maximum shadow distance in the scene.
+  float shadow_cascade_split_lambda = 0.5f;  ///< Blend factor for practical log/uniform cascade splits.
+  bool enable_debug_visualization = false;   ///< Whether debug visualization is enabled.
+  int shadow_debug_mode = 0;                 ///< CSM debug visualization mode.
+  int shadow_debug_selected_cascade = 0;     ///< Selected cascade for CSM diagnostics.
+  int shadow_debug_selected_light = 0;       ///< Selected directional light for CSM diagnostics.
 
-  int pcf_sample_amount = 32;   ///< Sample amount for PCF shadows.
-  float seam_fix_ratio = 0.1f;  ///< Ratio for fixing seam issues in shadows.
+  int pcf_sample_amount = 32;                    ///< Sample amount for directional PCF shadow filtering.
+  float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
+  float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
   int strands_subdivision_max_x = 15;          ///< Maximum subdivision in X-axis for strands.
   int strands_subdivision_max_y = 8;           ///< Maximum subdivision in Y-axis for strands.
+
+  [[nodiscard]] float GetShadowCascadeSplit(int split, float near_distance = 0.1f) const;
+  [[nodiscard]] float GetShadowCascadeSplitDistance(int split, float near_distance = 0.1f) const;
 };
 
 /**
@@ -146,10 +152,10 @@ class RenderInstanceStorage {
    * @brief Struct to hold information related to render settings applied.
    */
   struct RenderInfoBlock {
-    glm::vec4 split_distances = {};          ///< Distances for shadow cascade splits.
-    alignas(4) int pcf_sample_amount = 32;   ///< PCF sampling amount.
-    alignas(4) int debug_visualization = 0;  ///< Debug visualization flag.
-    alignas(4) float seam_fix_ratio = 0.1f;  ///< Ratio for seam fixes.
+    glm::vec4 split_distances = {};                           ///< Distances for shadow cascade splits.
+    alignas(4) int pcf_sample_amount = 32;                    ///< PCF sampling amount.
+    alignas(4) int debug_visualization = 0;                   ///< Debug visualization flag.
+    alignas(4) float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width.
     alignas(4) float ddgi_indirect_intensity = 0.0f;
 
     alignas(4) float strands_subdivision_x_factor = 50.0f;  ///< X factor for strands subdivision.
@@ -171,6 +177,8 @@ class RenderInstanceStorage {
     glm::vec4 ddgi_atlas_parameters = glm::vec4(1.0f);
     glm::vec4 ddgi_volume_parameters = glm::vec4(0.0f);
     glm::vec4 ddgi_sampling_parameters = glm::vec4(1.0f);
+    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);
+    glm::vec4 shadow_fade_parameters = glm::vec4(20.0f, 0.0f, 0.0f, 0.0f);
 
     /**
      * @brief Applies the settings from the target RenderSettings.
