@@ -438,51 +438,6 @@ vec3 EE_CAMERA_FRESNEL_SCHLICK_ROUGHNESS(const float cos_theta, const vec3 f0, c
   return f0 + (max(vec3(1.0f - roughness), f0) - f0) * pow(max(1.0f - cos_theta, 0.0f), 5.0f);
 }
 
-vec3 EE_CAMERA_PRIMARY_ENVIRONMENT_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction) {
-  const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-  if (camera.use_clear_color != 1 && EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    return vec3(0.0f);
-  }
-  const float environment_intensity = max(EE_ENVIRONMENT.light_intensity, 0.0f);
-  if (camera.use_clear_color != 1 && environment_intensity <= 0.0f) {
-    return vec3(0.0f);
-  }
-
-  const vec3 albedo = max(hit.surface.base_color.rgb, vec3(0.0f));
-  const float metallic = clamp(hit.surface.metallic, 0.0f, 1.0f);
-  const float roughness = clamp(hit.surface.roughness, 0.04f, 1.0f);
-  const float n_dot_v = max(dot(hit.normal, view_direction), 0.0f);
-  const vec3 f0 = mix(vec3(0.04f), albedo, metallic);
-  const vec3 fresnel = EE_CAMERA_FRESNEL_SCHLICK_ROUGHNESS(n_dot_v, f0, roughness);
-  const vec3 diffuse_weight = (vec3(1.0f) - fresnel) * (1.0f - metallic);
-
-  vec3 irradiance;
-  vec3 prefiltered_color;
-  float lighting_intensity = environment_intensity;
-  if (camera.use_clear_color == 1) {
-    lighting_intensity = 1.0f;
-    const float background_intensity = max(camera.clear_color.w, 0.0f);
-    irradiance = max(camera.clear_color.xyz, vec3(0.0f)) * background_intensity;
-    prefiltered_color = irradiance;
-  } else if (EE_ENVIRONMENT.background_color.w == 1.0f) {
-    irradiance = max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f));
-    prefiltered_color = irradiance;
-  } else {
-    const float background_intensity = max(camera.clear_color.w, 0.0f);
-    irradiance = EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, hit.normal, 0.0f) * background_intensity;
-    prefiltered_color =
-        EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, reflect(-view_direction, hit.normal),
-                                          roughness * 4.0f) *
-        background_intensity;
-  }
-
-  const vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(n_dot_v, roughness)).rg;
-  const vec3 diffuse = irradiance * albedo;
-  const vec3 specular = prefiltered_color * (fresnel * brdf.x + brdf.y);
-  return EE_CAMERA_SANITIZE_RADIANCE((diffuse_weight * diffuse + specular) * lighting_intensity *
-                                     max(hit.surface.occlusion, 0.0f));
-}
-
 float EE_CAMERA_BSDF_PDF(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction, const vec3 light_direction) {
   GltfRayTracingBsdfEvaluateData eval_data;
   eval_data.k1 = view_direction;

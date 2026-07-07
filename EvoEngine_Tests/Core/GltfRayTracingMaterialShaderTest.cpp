@@ -412,10 +412,12 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(source.find("EE_CAMERA_EVALUATE_DIRECT_BSDF"), std::string::npos);
   EXPECT_NE(source.find("EE_CAMERA_BALANCE_HEURISTIC(direct_light.pdf, bsdf_pdf)"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_RT_BSDF_EVALUATE(eval_data, hit.pbr)"), std::string::npos);
-  EXPECT_NE(source.find("EE_CAMERA_PRIMARY_ENVIRONMENT_LIGHTING"), std::string::npos);
+  EXPECT_EQ(source.find("EE_CAMERA_PRIMARY_ENVIRONMENT_LIGHTING"), std::string::npos);
+  EXPECT_EQ(ray_query.find("EE_CAMERA_PRIMARY_ENVIRONMENT_LIGHTING"), std::string::npos);
   EXPECT_EQ(source.find("#include \"DDGI.glsl\""), std::string::npos);
   EXPECT_EQ(source.find("EE_CAMERA_PRIMARY_DDGI_DIFFUSE"), std::string::npos);
-  EXPECT_NE(source.find("EE_RENDER_INFO.brdf_lut_map_index"), std::string::npos);
+  EXPECT_EQ(source.find("EE_RENDER_INFO.brdf_lut_map_index"), std::string::npos);
+  EXPECT_EQ(ray_query.find("EE_RENDER_INFO.brdf_lut_map_index"), std::string::npos);
   EXPECT_NE(source.find("EE_CAMERA_BACKGROUND_LIGHT_RADIANCE"), std::string::npos);
   EXPECT_NE(source.find("camera.skybox_tex_index"), std::string::npos);
   EXPECT_EQ(source.find("radiance += throughput * EE_CAMERA_PRIMARY_ENVIRONMENT_LIGHTING"), std::string::npos);
