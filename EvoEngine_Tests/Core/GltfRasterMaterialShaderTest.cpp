@@ -76,8 +76,6 @@ TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
 TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
   const std::filesystem::path paths[] = {
       ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"),
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.frag"),
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag"),
       ShaderPath("Graphics/Fragment/ShadowMapPassThrough.frag"),
       ShaderPath("Compute/PostProcessing/SSRCombine.comp"),
   };
@@ -89,6 +87,28 @@ TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
     EXPECT_NE(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
     EXPECT_EQ(source.find(std::string("EE_MATERIAL") + "_PROPERTIES"), std::string::npos) << path.string();
     EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos) << path.string();
+  }
+}
+
+TEST(GltfRasterMaterial, DeferredLightingReadsExpandedGBuffer) {
+  const std::filesystem::path paths[] = {
+      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.frag"),
+      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag"),
+  };
+
+  for (const auto& path : paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_EQ(source.find("#include \"GltfRasterMaterial.glsl\""), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 20) uniform sampler2D inBaseColorAO"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 21) uniform sampler2D inNormalRoughness"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 22) uniform sampler2D inPbrFlags"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 23) uniform sampler2D inEmissive"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float roughness = normalRoughness.a"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float metallic = pbrFlags.x"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float ao = baseColorAO.a"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("vec4 albedo = vec4(baseColorAO.rgb, 1.0)"), std::string::npos) << path.string();
   }
 }
 

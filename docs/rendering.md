@@ -78,9 +78,10 @@ The current GBuffer is a compatibility payload rather than a full material-attri
 | 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
-`StandardDeferred.frag` evaluates enough GLTF material state to discard masked fragments and normal-map the surface, but
-`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, and SSR combine paths still re-evaluate
-GLTF material textures from the material index and UV payload.
+`StandardDeferred.frag` evaluates GLTF material state once during geometry, writes the expanded payload, and still writes
+the compatibility normal/material payload for not-yet-retired consumers. `StandardDeferredLighting.frag` and
+`StandardDeferredLightingSceneCamera.frag` decode ordinary opaque material state from bindings 20-24. The scene-camera
+debug visualization and SSR combine paths still read compatibility payloads until their consumers are audited.
 
 The target Unreal-style deferred path stores ordinary opaque shading state in the geometry pass. The first migration
 keeps depth as-is and introduces this logical schema:

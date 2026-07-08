@@ -2,7 +2,6 @@
 
 #include "BasicConstants.glsl"
 #include "Basic.glsl"
-#include "GltfRasterMaterial.glsl"
 #include "Lighting.glsl"
 
 precision highp float;
@@ -12,8 +11,10 @@ layout (location = 0) in VS_OUT {
 } fs_in;
 
 layout(set = EE_PER_PASS_SET, binding = 17) uniform sampler2D inDepth;
-layout(set = EE_PER_PASS_SET, binding = 18) uniform sampler2D inNormal;
-layout(set = EE_PER_PASS_SET, binding = 19) uniform sampler2D inMaterial;
+layout(set = EE_PER_PASS_SET, binding = 20) uniform sampler2D inBaseColorAO;
+layout(set = EE_PER_PASS_SET, binding = 21) uniform sampler2D inNormalRoughness;
+layout(set = EE_PER_PASS_SET, binding = 22) uniform sampler2D inPbrFlags;
+layout(set = EE_PER_PASS_SET, binding = 23) uniform sampler2D inEmissive;
 
 layout (location = 0) out vec4 FragColor;
 
@@ -28,7 +29,12 @@ void main()
 		return;
 	}
 
-	vec3 normal = 		texture(inNormal, fs_in.TexCoord).xyz;
+	vec4 baseColorAO = texture(inBaseColorAO, fs_in.TexCoord);
+	vec4 normalRoughness = texture(inNormalRoughness, fs_in.TexCoord);
+	vec4 pbrFlags = texture(inPbrFlags, fs_in.TexCoord);
+	vec3 emissive = texture(inEmissive, fs_in.TexCoord).rgb;
+
+	vec3 normal = normalize(normalRoughness.xyz);
 	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
 	vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
 	if (shadowDebugColor.a > 0.0f) {
@@ -36,14 +42,10 @@ void main()
 		return;
 	}
 
-	int material_index = int(round(texture(inMaterial, fs_in.TexCoord).z));
-
-	vec2 tex_coord = texture(inMaterial, fs_in.TexCoord).xy;
-	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(uint(material_index), tex_coord, tex_coord);
-	float roughness = surface.roughness;
-	float metallic = surface.metallic;
-	float ao = surface.occlusion;
-	vec4 albedo = surface.base_color;
+	float roughness = normalRoughness.a;
+	float metallic = pbrFlags.x;
+	float ao = baseColorAO.a;
+	vec4 albedo = vec4(baseColorAO.rgb, 1.0);
 
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;
@@ -52,7 +54,7 @@ void main()
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0) +
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.xyz, normal, viewDir, fragPos);
-	vec3 outputColor = result + surface.emissive + ambient * ao;
+	vec3 outputColor = result + emissive + ambient * ao;
 
 	float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);
 	if(depth > EE_CAMERA_FAR(EE_CAMERA_INDEX) * fade_ratio){
