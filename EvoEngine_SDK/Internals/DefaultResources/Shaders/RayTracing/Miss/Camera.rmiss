@@ -2,7 +2,6 @@
 
 #include "RayTracingBasic.glsl"
 #include "CameraRayTracingPayload.glsl"
-#include "PhysicalSky.glsl"
 
 layout(location = 0) rayPayloadInEXT CameraRayTracingPayload hit_value;
 
@@ -14,7 +13,6 @@ layout(push_constant) uniform EE_CAMERA_CONSTANTS {
 const float EE_CAMERA_PI = 3.14159265359f;
 const uint EE_CAMERA_RAY_PAYLOAD_SHADOW = 1u;
 const uint EE_CAMERA_RAY_PAYLOAD_MISS = 2u;
-const float EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY = 2.0f;
 
 vec3 EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(const int cubemap_index, const vec3 direction, const float lod) {
   vec3 environment_color = textureLod(EE_CUBEMAPS[cubemap_index], normalize(direction), lod).rgb;
@@ -48,10 +46,6 @@ vec3 EE_CAMERA_SKY_RADIANCE(const vec3 ray_direction) {
   if (camera.use_clear_color == 1) {
     return max(camera.clear_color.xyz, vec3(0.0f)) * max(camera.clear_color.w, 0.0f);
   }
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    return max(EE_PHYSICAL_SKY_EVALUATE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(ray_direction)), vec3(0.0f));
-  }
-
   return EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, ray_direction, 0.0f) *
          max(camera.clear_color.w, 0.0f);
 }
@@ -60,9 +54,6 @@ vec3 EE_CAMERA_ENVIRONMENT_RADIANCE(const vec3 ray_direction) {
   const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
   if (camera.use_clear_color == 1) {
     return EE_CAMERA_SKY_RADIANCE(ray_direction);
-  }
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    return max(EE_PHYSICAL_SKY_EVALUATE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(ray_direction)), vec3(0.0f));
   }
   if (EE_ENVIRONMENT.background_color.w == 1.0f) {
     return max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f)) * max(EE_ENVIRONMENT.light_intensity, 0.0f);
@@ -73,15 +64,10 @@ vec3 EE_CAMERA_ENVIRONMENT_RADIANCE(const vec3 ray_direction) {
 }
 
 float EE_CAMERA_ENVIRONMENT_PDF() {
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY &&
-      EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
-    return EE_PHYSICAL_SKY_PDF(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(gl_WorldRayDirectionEXT));
-  }
   if (EE_ENVIRONMENT.light_intensity <= 0.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
     return 0.0f;
   }
-  if (EE_ENVIRONMENT.environment_type != EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY &&
-      EE_ENVIRONMENT.background_color.w != 1.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
+  if (EE_ENVIRONMENT.background_color.w != 1.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
     return EE_CAMERA_ENVIRONMENT_MAP_PDF(normalize(gl_WorldRayDirectionEXT));
   }
   return 1.0f / (4.0f * EE_CAMERA_PI);

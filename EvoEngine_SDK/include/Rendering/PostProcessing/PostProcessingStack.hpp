@@ -45,8 +45,8 @@ class PostProcessingStack : public IAsset {
   void GaussianBlur(const glm::uvec2& size) const;
 
   bool enable_screen_space_ambient_occlusion = true;
-  bool enable_bloom = true;
-  bool enable_screen_space_reflection = true;
+  bool enable_bloom = false;
+  bool enable_screen_space_reflection = false;
   bool enable_tone_mapping = true;
 };
 
@@ -71,7 +71,7 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
     float avoid_distance;
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
   };
-  float avoid_distance = 1.f;
+  float avoid_distance = 0.1f;
   std::shared_ptr<DescriptorSetLayout> combine_layout;
   std::shared_ptr<DescriptorSet> combine_descriptor_set;
   /**
@@ -79,9 +79,9 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
    */
   int kernel_size = 64;
   float radius = 0.15f;
-  float bias = 0.001f;
+  float bias = 0.01f;
   float factor = 0.0f;
-  float intensity = 1.0f;
+  float intensity = 3.0f;
   struct PushConstant {
     int camera_index;
     // parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
@@ -186,7 +186,7 @@ class ToneMapping : public IPostProcessing {
 
   struct PushConstant {
     int32_t camera_index = 0;
-    int32_t method = static_cast<int32_t>(ToneMapMethod::EvoEngineExponential);
+    int32_t method = static_cast<int32_t>(ToneMapMethod::Filmic);
     int32_t is_active = 1;
     int32_t auto_exposure = 0;
     int32_t enable_center_metering = 0;
@@ -203,13 +203,13 @@ class ToneMapping : public IPostProcessing {
     float center_metering_size = 0.5f;
   };
 
-  ToneMapMethod method = ToneMapMethod::EvoEngineExponential;
-  float exposure = 2.f;
+  ToneMapMethod method = ToneMapMethod::Filmic;
+  float exposure = 1.f;
   float brightness = 1.f;
   float contrast = 1.f;
   float saturation = 1.f;
   float vignette = 0.f;
-  bool auto_exposure = false;
+  bool auto_exposure = true;
   float auto_exposure_speed = 5.f;
   float ev_min_value = -5.f;
   float ev_max_value = 10.f;

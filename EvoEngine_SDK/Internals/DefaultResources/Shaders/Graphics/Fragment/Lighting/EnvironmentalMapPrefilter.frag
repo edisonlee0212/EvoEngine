@@ -90,8 +90,8 @@ void main()
             float HdotV = max(dot(H, V), 0.0);
             float pdf = D * NdotH / (4.0 * HdotV) + 0.0001; 
 
-            float resolution = 512.0; // resolution of source cubemap (per face)
-            float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
+            vec2 sourceSize = max(vec2(textureSize(environmentMap, 0)), vec2(1.0));
+            float saTexel  = 4.0 * PI / (6.0 * sourceSize.x * sourceSize.y);
             float saSample = 1.0 / (float(SAMPLE_COUNT) * pdf + 0.0001);
 
             float mipLevel = PRESET_VALUE == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel); 

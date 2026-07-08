@@ -200,8 +200,9 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
 	vec3 diffuse = irradiance * albedo;
 
 	// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
-	const float MAX_REFLECTION_LOD = 4.0f;
-	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index], R, roughness * MAX_REFLECTION_LOD).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	int prefilteredMapIndex = EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index;
+	float reflectionLodScale = float(textureQueryLevels(EE_CUBEMAPS[prefilteredMapIndex]));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
 	vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 	vec3 ambient = (kD * diffuse + specular) * EE_ENVIRONMENT.light_intensity;

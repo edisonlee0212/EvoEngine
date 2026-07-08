@@ -1346,10 +1346,6 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
       environment_info_block.background_color = glm::vec4(target_scene->environment.background_color, 1.0f);
       environment_info_block.environment_type = 1.0f;
     } break;
-    case Scene::EnvironmentType::PhysicalSky: {
-      environment_info_block.background_color.w = 0.0f;
-      environment_info_block.environment_type = 2.0f;
-    } break;
   }
   environment_info_block.environmental_map_gamma = target_scene->environment.environment_gamma;
   environment_info_block.environmental_lighting_intensity = target_scene->environment.ambient_light_intensity;

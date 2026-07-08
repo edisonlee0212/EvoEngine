@@ -4234,7 +4234,8 @@ bool EditorLayer::DragAndDropButton(EntityRef& entity_ref, const std::string& na
       selected_entity_ = entity;
     }
   } else {
-    ImGui::Button("none");
+    const std::string none_title = "None##" + name;
+    ImGui::Button(none_title.c_str());
   }
   status_changed = Droppable(entity_ref) || status_changed;
   return status_changed;
@@ -4435,7 +4436,8 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
       OpenAssetInspector(ptr);
     }
   } else {
-    ImGui::Button("none");
+    const std::string none_title = "None##" + name;
+    ImGui::Button(none_title.c_str());
   }
   ImGui::PopStyleColor(3);
   status_changed = UnsafeDroppableAsset(target, acceptable_type_names) || status_changed;
@@ -4459,7 +4461,8 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
       status_changed = Remove(target);
     }
   } else {
-    ImGui::Button("none");
+    const std::string none_title = "None##" + name;
+    ImGui::Button(none_title.c_str());
   }
   ImGui::PopStyleColor(3);
   status_changed = UnsafeDroppablePrivateComponent(target, acceptable_type_names) || status_changed;

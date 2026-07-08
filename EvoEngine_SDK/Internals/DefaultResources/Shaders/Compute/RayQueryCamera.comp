@@ -7,7 +7,6 @@
 #include "GltfRasterMaterial.glsl"
 #include "GltfRayTracingBsdf.glsl"
 #include "CameraRayTracingPayload.glsl"
-#include "PhysicalSky.glsl"
 
 layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
 layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image;
@@ -34,7 +33,6 @@ const uint EE_CAMERA_RAY_PAYLOAD_SHADOW = 1u;
 const uint EE_CAMERA_RAY_PAYLOAD_MISS = 2u;
 const uint EE_CAMERA_RAY_MASK_SHADOW = 0x02u;
 const float EE_CAMERA_ENVIRONMENT_TYPE_COLOR = 1.0f;
-const float EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY = 2.0f;
 const float EE_CAMERA_FIREFLY_CLAMP_THRESHOLD = 10.0f;
 const float EE_CAMERA_ANTIALIASING_STANDARD_DEVIATION = 0.4246609f;
 const float EE_CAMERA_MIN_SHADOW_TRANSMISSION = 0.01f;
@@ -194,10 +192,6 @@ vec3 EE_CAMERA_BACKGROUND_LIGHT_RADIANCE(const vec3 ray_direction) {
     return EE_CAMERA_SANITIZE_RADIANCE(max(camera.clear_color.xyz, vec3(0.0f)) *
                                        max(camera.clear_color.w, 0.0f));
   }
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    return EE_CAMERA_SANITIZE_RADIANCE(
-        EE_PHYSICAL_SKY_EVALUATE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(ray_direction)));
-  }
   if (EE_ENVIRONMENT.light_intensity <= 0.0f) {
     return vec3(0.0f);
   }
@@ -215,10 +209,6 @@ vec3 EE_CAMERA_PATH_ENVIRONMENT_RADIANCE(const vec3 ray_direction) {
 }
 
 float EE_CAMERA_PATH_ENVIRONMENT_PDF(const vec3 light_direction) {
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY &&
-      EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
-    return EE_PHYSICAL_SKY_PDF(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(light_direction));
-  }
   if (EE_ENVIRONMENT.environment_type != EE_CAMERA_ENVIRONMENT_TYPE_COLOR &&
       EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
     return EE_CAMERA_ENVIRONMENT_MAP_PDF(light_direction);
@@ -230,10 +220,6 @@ bool EE_CAMERA_HAS_ENVIRONMENT_LIGHTING() {
   const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
   if (camera.use_clear_color == 1) {
     return dot(max(camera.clear_color.xyz, vec3(0.0f)), vec3(1.0f)) * max(camera.clear_color.w, 0.0f) > 0.0f;
-  }
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    const EEPhysicalSkyParameters physical_sky = EE_PHYSICAL_SKY_DEFAULT_PARAMETERS();
-    return physical_sky.multiplier > 0.0f;
   }
   if (EE_ENVIRONMENT.light_intensity <= 0.0f) {
     return false;
@@ -254,7 +240,7 @@ float EE_CAMERA_BALANCE_HEURISTIC(const float sampled_pdf, const float other_pdf
   return pdf_sum > EE_CAMERA_PDF_EPSILON ? safe_sampled_pdf / pdf_sum : 0.0f;
 }
 
-float EE_CAMERA_ENVIRONMENT_PDF(const vec3 normal, const vec3 light_direction) {
+float EE_CAMERA_ENVIRONMENT_PDF(const vec3 light_direction) {
   if (!EE_CAMERA_HAS_ENVIRONMENT_LIGHTING()) {
     return 0.0f;
   }
@@ -375,16 +361,7 @@ EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_ENVIRONMENT_MAP(inout uint seed) {
   return ray_sample.pdf > EE_CAMERA_PDF_EPSILON ? ray_sample : EE_CAMERA_SAMPLE_SPHERE(seed);
 }
 
-EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(inout uint seed, const vec3 normal) {
-  EE_CAMERA_DIRECTION_SAMPLE sample_result;
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY &&
-      EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
-    const EEPhysicalSkySamplingResult sky_sample =
-        EE_PHYSICAL_SKY_SAMPLE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), vec2(EE_RANDOM(seed), EE_RANDOM(seed)));
-    sample_result.direction = sky_sample.direction;
-    sample_result.pdf = sky_sample.pdf;
-    return sample_result;
-  }
+EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(inout uint seed) {
   return EE_CAMERA_SAMPLE_ENVIRONMENT_MAP(seed);
 }
 
@@ -438,51 +415,6 @@ vec3 EE_CAMERA_FRESNEL_SCHLICK_ROUGHNESS(const float cos_theta, const vec3 f0, c
   return f0 + (max(vec3(1.0f - roughness), f0) - f0) * pow(max(1.0f - cos_theta, 0.0f), 5.0f);
 }
 
-vec3 EE_CAMERA_PRIMARY_ENVIRONMENT_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction) {
-  const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-  if (camera.use_clear_color != 1 && EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    return vec3(0.0f);
-  }
-  const float environment_intensity = max(EE_ENVIRONMENT.light_intensity, 0.0f);
-  if (camera.use_clear_color != 1 && environment_intensity <= 0.0f) {
-    return vec3(0.0f);
-  }
-
-  const vec3 albedo = max(hit.surface.base_color.rgb, vec3(0.0f));
-  const float metallic = clamp(hit.surface.metallic, 0.0f, 1.0f);
-  const float roughness = clamp(hit.surface.roughness, 0.04f, 1.0f);
-  const float n_dot_v = max(dot(hit.normal, view_direction), 0.0f);
-  const vec3 f0 = mix(vec3(0.04f), albedo, metallic);
-  const vec3 fresnel = EE_CAMERA_FRESNEL_SCHLICK_ROUGHNESS(n_dot_v, f0, roughness);
-  const vec3 diffuse_weight = (vec3(1.0f) - fresnel) * (1.0f - metallic);
-
-  vec3 irradiance;
-  vec3 prefiltered_color;
-  float lighting_intensity = environment_intensity;
-  if (camera.use_clear_color == 1) {
-    lighting_intensity = 1.0f;
-    const float background_intensity = max(camera.clear_color.w, 0.0f);
-    irradiance = max(camera.clear_color.xyz, vec3(0.0f)) * background_intensity;
-    prefiltered_color = irradiance;
-  } else if (EE_ENVIRONMENT.background_color.w == 1.0f) {
-    irradiance = max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f));
-    prefiltered_color = irradiance;
-  } else {
-    const float background_intensity = max(camera.clear_color.w, 0.0f);
-    irradiance = EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, hit.normal, 0.0f) * background_intensity;
-    prefiltered_color =
-        EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, reflect(-view_direction, hit.normal),
-                                          roughness * 4.0f) *
-        background_intensity;
-  }
-
-  const vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(n_dot_v, roughness)).rg;
-  const vec3 diffuse = irradiance * albedo;
-  const vec3 specular = prefiltered_color * (fresnel * brdf.x + brdf.y);
-  return EE_CAMERA_SANITIZE_RADIANCE((diffuse_weight * diffuse + specular) * lighting_intensity *
-                                     max(hit.surface.occlusion, 0.0f));
-}
-
 float EE_CAMERA_BSDF_PDF(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction, const vec3 light_direction) {
   GltfRayTracingBsdfEvaluateData eval_data;
   eval_data.k1 = view_direction;
@@ -533,23 +465,15 @@ vec3 EE_CAMERA_RAY_QUERY_SKY_RADIANCE(const vec3 ray_direction) {
   if (camera.use_clear_color == 1) {
     return max(camera.clear_color.xyz, vec3(0.0f)) * max(camera.clear_color.w, 0.0f);
   }
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY) {
-    return max(EE_PHYSICAL_SKY_EVALUATE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(ray_direction)), vec3(0.0f));
-  }
   return EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, ray_direction, 0.0f) *
          max(camera.clear_color.w, 0.0f);
 }
 
 float EE_CAMERA_RAY_QUERY_ENVIRONMENT_PDF(const vec3 ray_direction) {
-  if (EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY &&
-      EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
-    return EE_PHYSICAL_SKY_PDF(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS(), normalize(ray_direction));
-  }
   if (EE_ENVIRONMENT.light_intensity <= 0.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
     return 0.0f;
   }
-  if (EE_ENVIRONMENT.environment_type != EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY &&
-      EE_ENVIRONMENT.background_color.w != 1.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
+  if (EE_ENVIRONMENT.background_color.w != 1.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
     return EE_CAMERA_ENVIRONMENT_MAP_PDF(normalize(ray_direction));
   }
   return 1.0f / (4.0f * EE_CAMERA_PI);
@@ -1038,7 +962,7 @@ void EE_CAMERA_SAMPLE_DIRECT_LIGHT(const EE_CAMERA_SURFACE_HIT hit, const vec3 v
 
   if (environment_weight > 0.0f && direct_light.pdf != EE_CAMERA_DIRAC_PDF) {
     if (!sample_light) {
-      const EE_CAMERA_DIRECTION_SAMPLE environment_sample = EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed, hit.normal);
+      const EE_CAMERA_DIRECTION_SAMPLE environment_sample = EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed);
       direct_light.direction = environment_sample.direction;
       direct_light.distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
       direct_light.cast_shadow = 1.0f;
@@ -1048,7 +972,7 @@ void EE_CAMERA_SAMPLE_DIRECT_LIGHT(const EE_CAMERA_SURFACE_HIT hit, const vec3 v
                    max(environment_pdf * environment_weight, EE_CAMERA_PDF_EPSILON);
       }
     } else {
-      environment_pdf = EE_CAMERA_ENVIRONMENT_PDF(hit.normal, direct_light.direction);
+      environment_pdf = EE_CAMERA_ENVIRONMENT_PDF(direct_light.direction);
     }
   }
 
@@ -1216,7 +1140,7 @@ vec3 EE_CAMERA_VOLUME_SCATTER_NEE(const EE_CAMERA_VOLUME_MEDIUM medium, const ve
 
   if (environment_weight > 0.0f && direct_light.pdf != EE_CAMERA_DIRAC_PDF) {
     if (!sample_light) {
-      const EE_CAMERA_DIRECTION_SAMPLE environment_sample = EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed, wi_before_scatter);
+      const EE_CAMERA_DIRECTION_SAMPLE environment_sample = EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed);
       direct_light.direction = environment_sample.direction;
       direct_light.distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
       direct_light.cast_shadow = 1.0f;
@@ -1226,7 +1150,7 @@ vec3 EE_CAMERA_VOLUME_SCATTER_NEE(const EE_CAMERA_VOLUME_MEDIUM medium, const ve
                    max(environment_pdf * environment_weight, EE_CAMERA_PDF_EPSILON);
       }
     } else {
-      environment_pdf = EE_CAMERA_ENVIRONMENT_PDF(wi_before_scatter, direct_light.direction);
+      environment_pdf = EE_CAMERA_ENVIRONMENT_PDF(direct_light.direction);
     }
   }
 

@@ -1195,8 +1195,12 @@ void Scene::Environment::Deserialize(const YAML::Node& in) {
     environment_gamma = in["environment_gamma"].as<float>();
   if (in["ambient_light_intensity"])
     ambient_light_intensity = in["ambient_light_intensity"].as<float>();
-  if (in["environment_type"])
-    environment_type = static_cast<EnvironmentType>(in["environment_type"].as<unsigned>());
+  if (in["environment_type"]) {
+    const auto serialized_type = in["environment_type"].as<unsigned>();
+    environment_type = serialized_type == static_cast<unsigned>(EnvironmentType::Color)
+                           ? EnvironmentType::Color
+                           : EnvironmentType::EnvironmentalMap;
+  }
   environmental_map.Load("environmental_map", in);
   if (in["volumetric_cloud_settings"])
     DeserializeVolumetricCloudSettings(in["volumetric_cloud_settings"], volumetric_cloud_settings);
