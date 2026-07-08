@@ -123,7 +123,10 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   foliage_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   foliage_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  foliage_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+  foliage_render_pipeline->color_attachment_formats = {
+      Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+      Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+      Platform::Constants::g_buffer_utility};
   auto& push_constant_range = foliage_render_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(FoliageRenderPushConstant);
   push_constant_range.offset = 0;

@@ -549,12 +549,6 @@ class Platform final {
     /// Color format for render textures.
     constexpr static VkFormat render_texture_color = VK_FORMAT_R32G32B32A32_SFLOAT;
 
-    /// Color format for G-buffer.
-    constexpr static VkFormat g_buffer_color = VK_FORMAT_R32G32B32A32_SFLOAT;
-
-    /// Material format for G-buffer.
-    constexpr static VkFormat g_buffer_material = VK_FORMAT_R32G32B32A32_SFLOAT;
-
     /// Attribute format for expanded G-buffer attachments.
     constexpr static VkFormat g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT;
 

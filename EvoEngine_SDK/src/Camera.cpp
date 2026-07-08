@@ -261,51 +261,19 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
 void Camera::UpdateGBuffer() {
   if (!Platform::Initialized())
     return;
-  g_buffer_normal_view_.reset();
-  g_buffer_material_view_.reset();
-  g_buffer_material_tex_coord_view_.reset();
-  g_buffer_material_indices_view_.reset();
   g_buffer_base_color_ao_view_.reset();
   g_buffer_normal_roughness_view_.reset();
   g_buffer_pbr_flags_view_.reset();
   g_buffer_emissive_view_.reset();
   g_buffer_utility_view_.reset();
 
-  g_buffer_normal_.reset();
-  g_buffer_material_.reset();
   g_buffer_base_color_ao_.reset();
   g_buffer_normal_roughness_.reset();
   g_buffer_pbr_flags_.reset();
   g_buffer_emissive_.reset();
   g_buffer_utility_.reset();
 
-  {
-    CreateGBufferAttachment(render_texture_->GetExtent(), Platform::Constants::g_buffer_color, g_buffer_normal_,
-                            g_buffer_normal_view_);
-    g_buffer_normal_sampler_ = CreateGBufferSampler();
-  }
-  {
-    CreateGBufferAttachment(render_texture_->GetExtent(), Platform::Constants::g_buffer_material, g_buffer_material_,
-                            g_buffer_material_view_);
-
-    VkComponentMapping tex_coord_components{};
-    tex_coord_components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-    tex_coord_components.g = VK_COMPONENT_SWIZZLE_ZERO;
-    tex_coord_components.b = VK_COMPONENT_SWIZZLE_G;
-    tex_coord_components.a = VK_COMPONENT_SWIZZLE_ONE;
-    g_buffer_material_tex_coord_view_ =
-        CreateGBufferImageView(g_buffer_material_, Platform::Constants::g_buffer_material, tex_coord_components);
-
-    VkComponentMapping indices_components{};
-    indices_components.r = VK_COMPONENT_SWIZZLE_B;
-    indices_components.g = VK_COMPONENT_SWIZZLE_ZERO;
-    indices_components.b = VK_COMPONENT_SWIZZLE_A;
-    indices_components.a = VK_COMPONENT_SWIZZLE_ONE;
-    g_buffer_material_indices_view_ =
-        CreateGBufferImageView(g_buffer_material_, Platform::Constants::g_buffer_material, indices_components);
-
-    g_buffer_material_sampler_ = CreateGBufferSampler();
-  }
+  g_buffer_sampler_ = CreateGBufferSampler();
   const auto g_buffer_attribute_format = Platform::Constants::g_buffer_attribute;
   CreateGBufferAttachment(render_texture_->GetExtent(), g_buffer_attribute_format, g_buffer_base_color_ao_,
                           g_buffer_base_color_ao_view_);
@@ -321,24 +289,24 @@ void Camera::UpdateGBuffer() {
     TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
 
-  EditorLayer::UpdateTextureId(g_buffer_normal_im_texture_id_, g_buffer_normal_sampler_->GetVkSampler(),
-                               g_buffer_normal_view_->GetVkImageView(), g_buffer_normal_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_material_tex_coord_im_texture_id_, g_buffer_material_sampler_->GetVkSampler(),
-                               g_buffer_material_tex_coord_view_->GetVkImageView(), g_buffer_material_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_material_indices_im_texture_id_, g_buffer_material_sampler_->GetVkSampler(),
-                               g_buffer_material_indices_view_->GetVkImageView(), g_buffer_material_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_base_color_ao_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
+                               g_buffer_base_color_ao_view_->GetVkImageView(), g_buffer_base_color_ao_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_normal_roughness_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
+                               g_buffer_normal_roughness_view_->GetVkImageView(),
+                               g_buffer_normal_roughness_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_pbr_flags_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
+                               g_buffer_pbr_flags_view_->GetVkImageView(), g_buffer_pbr_flags_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_emissive_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
+                               g_buffer_emissive_view_->GetVkImageView(), g_buffer_emissive_->GetLayout());
+  EditorLayer::UpdateTextureId(g_buffer_utility_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
+                               g_buffer_utility_view_->GetVkImageView(), g_buffer_utility_->GetLayout());
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_info.imageView = render_texture_->GetDepthImageView()->GetVkImageView();
     image_info.sampler = render_texture_->GetDepthSampler()->GetVkSampler();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(17, image_info);
-    image_info.imageView = g_buffer_normal_view_->GetVkImageView();
-    image_info.sampler = g_buffer_normal_sampler_->GetVkSampler();
-    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(18, image_info);
-    image_info.imageView = g_buffer_material_view_->GetVkImageView();
-    image_info.sampler = g_buffer_material_sampler_->GetVkSampler();
-    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(19, image_info);
+    image_info.sampler = g_buffer_sampler_->GetVkSampler();
     image_info.imageView = g_buffer_base_color_ao_view_->GetVkImageView();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(20, image_info);
     image_info.imageView = g_buffer_normal_roughness_view_->GetVkImageView();
@@ -353,8 +321,6 @@ void Camera::UpdateGBuffer() {
 }
 
 void Camera::TransitGBufferImageLayout(const VkCommandBuffer vk_command_buffer, VkImageLayout target_layout) const {
-  g_buffer_normal_->TransitImageLayout(vk_command_buffer, target_layout);
-  g_buffer_material_->TransitImageLayout(vk_command_buffer, target_layout);
   g_buffer_base_color_ao_->TransitImageLayout(vk_command_buffer, target_layout);
   g_buffer_normal_roughness_->TransitImageLayout(vk_command_buffer, target_layout);
   g_buffer_pbr_flags_->TransitImageLayout(vk_command_buffer, target_layout);
@@ -442,8 +408,6 @@ void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachment
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_normal_view_);
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_material_view_);
   AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_);
   AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_normal_roughness_view_);
   AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_pbr_flags_view_);
@@ -663,20 +627,28 @@ const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
   return g_buffer_descriptor_set_;
 }
 
-const std::shared_ptr<Image>& Camera::GetGBufferNormalImage() const {
-  return g_buffer_normal_;
+const std::shared_ptr<Image>& Camera::GetGBufferUtilityImage() const {
+  return g_buffer_utility_;
 }
 
-ImTextureID Camera::GetGBufferNormalImTextureId() const {
-  return g_buffer_normal_im_texture_id_;
+ImTextureID Camera::GetGBufferBaseColorAoImTextureId() const {
+  return g_buffer_base_color_ao_im_texture_id_;
 }
 
-ImTextureID Camera::GetGBufferMaterialTexCoordImTextureId() const {
-  return g_buffer_material_tex_coord_im_texture_id_;
+ImTextureID Camera::GetGBufferNormalRoughnessImTextureId() const {
+  return g_buffer_normal_roughness_im_texture_id_;
 }
 
-ImTextureID Camera::GetGBufferMaterialIndicesImTextureId() const {
-  return g_buffer_material_indices_im_texture_id_;
+ImTextureID Camera::GetGBufferPbrFlagsImTextureId() const {
+  return g_buffer_pbr_flags_im_texture_id_;
+}
+
+ImTextureID Camera::GetGBufferEmissiveImTextureId() const {
+  return g_buffer_emissive_im_texture_id_;
+}
+
+ImTextureID Camera::GetGBufferUtilityImTextureId() const {
+  return g_buffer_utility_im_texture_id_;
 }
 
 void Camera::SetRendered() {

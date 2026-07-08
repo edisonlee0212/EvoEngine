@@ -11,7 +11,6 @@ layout (location = 0) in VS_OUT {
 } fs_in;
 
 layout(set = EE_PER_PASS_SET, binding = 17) uniform sampler2D inDepth;
-layout(set = EE_PER_PASS_SET, binding = 19) uniform sampler2D inMaterial;
 layout(set = EE_PER_PASS_SET, binding = 20) uniform sampler2D inBaseColorAO;
 layout(set = EE_PER_PASS_SET, binding = 21) uniform sampler2D inNormalRoughness;
 layout(set = EE_PER_PASS_SET, binding = 22) uniform sampler2D inPbrFlags;
@@ -22,10 +21,8 @@ layout (location = 0) out vec4 FragColor;
 
 void main()
 {
-    // --- Common data fetches (reuse components instead of resampling) ---
     float ndcDepth = texture(inDepth, fs_in.TexCoord).x;
 
-    vec4 matSample = texture(inMaterial, fs_in.TexCoord);
     vec4 utilitySample = texture(inUtility, fs_in.TexCoord);
     int  instance_index = int(round(utilitySample.x));
     int  info_index     = int(round(utilitySample.y));
@@ -43,13 +40,9 @@ void main()
     vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
     vec3 skyColor       = EE_SKY_COLOR(fragPos - cameraPosition);
 
-    // Precompute texel offset once; used in both "sky" and "solid" paths
     vec2 texelSize  = vec2(textureSize(inUtility, 0));
     vec2 texOffset  = 1.0 / texelSize;
 
-    // --------------------------------------------------------------------
-    // Background (depth == 1.0) path
-    // --------------------------------------------------------------------
     if (ndcDepth == 1.0) {
         if (!instance_selected && EE_INSTANCE_INDEX == 1) {
             bool foundNeighbor = false;
@@ -82,9 +75,6 @@ void main()
         return;
     }
 
-    // --------------------------------------------------------------------
-    // Opaque / solid fragment path
-    // --------------------------------------------------------------------
     float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
     vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
     if (shadowDebugColor.a > 0.0f) {
@@ -97,10 +87,7 @@ void main()
 	float ao = baseColorAO.a;
 	vec4 albedo = vec4(baseColorAO.rgb, 1.0);
 
-    // --------------------------------------------------------------------
-    // Debug visualization (branchless override, but keeps default behavior)
-    // --------------------------------------------------------------------
-    vec3 base  = matSample.rgb;
+    vec3 base  = baseColorAO.rgb;
     vec3 kMat  = abs(EE_UNIFORM_KERNEL[material_index  % MAX_KERNEL_AMOUNT].xyz);
     vec3 kInst = abs(EE_UNIFORM_KERNEL[instance_index  % MAX_KERNEL_AMOUNT].xyz);
     vec3 kInfo = abs(EE_UNIFORM_KERNEL[info_index      % MAX_KERNEL_AMOUNT].xyz);
@@ -120,13 +107,9 @@ void main()
           kInst * is2 +
           kInfo * is3;
 
-    // Only override albedo if a debug mode is active; otherwise keep PBR albedo
     vec3 finalAlbedoRGB = mix(albedo.rgb, debugColor, anyDebug);
     albedo = vec4(finalAlbedoRGB, albedo.a);
 
-    // --------------------------------------------------------------------
-    // Lighting
-    // --------------------------------------------------------------------
     vec3 viewDir = normalize(cameraPosition - fragPos);
     bool receiveShadow = true;
 
@@ -143,9 +126,6 @@ void main()
                    EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fragPos);
     vec3 color = direct + emissive + ambient * ao;
 
-    // --------------------------------------------------------------------
-    // Selection / neighborhood highlight
-    // --------------------------------------------------------------------
     vec4 outputColor;
 
     if (!instance_selected && EE_INSTANCE_INDEX == 1) {
@@ -176,9 +156,6 @@ void main()
         outputColor = vec4(color, 1.0);
     }
 
-    // --------------------------------------------------------------------
-    // Distance-based sky fade
-    // --------------------------------------------------------------------
     float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);
     float camFar     = EE_CAMERA_FAR(EE_CAMERA_INDEX);
     float fadeStart  = camFar * fade_ratio;

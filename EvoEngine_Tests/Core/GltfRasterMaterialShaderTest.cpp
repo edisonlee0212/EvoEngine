@@ -22,6 +22,10 @@ std::filesystem::path ShaderPath(const std::filesystem::path& relative_path) {
 std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / relative_path;
 }
+
+std::filesystem::path RepoPath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+}
 }  // namespace
 
 TEST(GltfRasterMaterial, EvaluatorUsesCanonicalGltfTextureInfo) {
@@ -146,16 +150,13 @@ TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
   const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"));
   ASSERT_FALSE(deferred.empty());
 
-  EXPECT_NE(deferred.find("layout (location = 0) out vec4 outNormal"), std::string::npos);
-  EXPECT_NE(deferred.find("layout (location = 1) out vec4 outMaterial"), std::string::npos);
-  EXPECT_NE(deferred.find("layout (location = 2) out vec4 outGBufferBaseColorAO"), std::string::npos);
-  EXPECT_NE(deferred.find("layout (location = 3) out vec4 outGBufferNormalRoughness"), std::string::npos);
-  EXPECT_NE(deferred.find("layout (location = 4) out vec4 outGBufferPbrFlags"), std::string::npos);
-  EXPECT_NE(deferred.find("layout (location = 5) out vec4 outGBufferEmissive"), std::string::npos);
-  EXPECT_NE(deferred.find("layout (location = 6) out vec4 outGBufferUtility"), std::string::npos);
-  EXPECT_NE(deferred.find("outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, "
-                          "instance.info_index)"),
-            std::string::npos);
+  EXPECT_EQ(deferred.find("outNormal"), std::string::npos);
+  EXPECT_EQ(deferred.find("outMaterial"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 0) out vec4 outGBufferBaseColorAO"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 1) out vec4 outGBufferNormalRoughness"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 2) out vec4 outGBufferPbrFlags"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 3) out vec4 outGBufferEmissive"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 4) out vec4 outGBufferUtility"), std::string::npos);
   EXPECT_NE(deferred.find("outGBufferBaseColorAO = vec4(max(surface.base_color.rgb, vec3(0.0)), "
                           "max(surface.occlusion, 0.0))"),
             std::string::npos);
@@ -167,27 +168,90 @@ TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
             std::string::npos);
 }
 
-TEST(GltfRasterMaterial, DeferredGBufferCompatibilityBindingsAreReserved) {
+TEST(GltfRasterMaterial, DeferredGBufferLegacyBindingsAreRetired) {
   const auto platform = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
+  const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
   const auto camera = ReadTextFile(SdkPath("src/Camera.cpp"));
+  const auto editor = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto inspection = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   ASSERT_FALSE(platform.empty());
+  ASSERT_FALSE(camera_header.empty());
   ASSERT_FALSE(camera.empty());
+  ASSERT_FALSE(editor.empty());
+  ASSERT_FALSE(inspection.empty());
   ASSERT_FALSE(render_layer.empty());
 
   EXPECT_NE(platform.find("g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT"), std::string::npos);
   EXPECT_NE(platform.find("g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT"), std::string::npos);
+  EXPECT_EQ(platform.find("g_buffer_color"), std::string::npos);
+  EXPECT_EQ(platform.find("g_buffer_material"), std::string::npos);
   EXPECT_NE(render_layer.find("CreateDeferredGBufferColorAttachmentFormats"), std::string::npos);
+  EXPECT_EQ(render_layer.find("camera_g_buffer_layout_->PushDescriptorBinding(18"), std::string::npos);
+  EXPECT_EQ(render_layer.find("camera_g_buffer_layout_->PushDescriptorBinding(19"), std::string::npos);
 
   for (uint32_t binding = 20; binding <= 24; binding++) {
     EXPECT_NE(render_layer.find("PushDescriptorBinding(" + std::to_string(binding)), std::string::npos);
     EXPECT_NE(camera.find("UpdateImageDescriptorBinding(" + std::to_string(binding)), std::string::npos);
   }
+  EXPECT_EQ(camera.find("UpdateImageDescriptorBinding(18"), std::string::npos);
+  EXPECT_EQ(camera.find("UpdateImageDescriptorBinding(19"), std::string::npos);
 
   EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_)"),
             std::string::npos);
   EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_)"),
             std::string::npos);
+  EXPECT_EQ(camera.find("g_buffer_material_"), std::string::npos);
+  EXPECT_EQ(camera_header.find("g_buffer_material_"), std::string::npos);
+  EXPECT_NE(editor.find("GetGBufferUtilityImage()"), std::string::npos);
+  EXPECT_NE(editor.find("val = glm::round(ptr[0])"), std::string::npos);
+  EXPECT_EQ(editor.find("GetGBufferNormalImage()"), std::string::npos);
+  EXPECT_EQ(inspection.find("GetGBufferMaterialTexCoordImTextureId"), std::string::npos);
+  EXPECT_EQ(inspection.find("GetGBufferMaterialIndicesImTextureId"), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
+  const std::filesystem::path shader_paths[] = {
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/Foliage.frag"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/SmallSegments.frag"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/SmallSegmentsVisualization.frag"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/AlphaShapeMeshing/Branches.frag"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/KineticVoronoiMeshing/Branches.frag"),
+  };
+
+  for (const auto& path : shader_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_EQ(source.find("outNormal"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("outMaterial"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("layout(location = 0) out vec4 outGBufferBaseColorAO"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("layout(location = 1) out vec4 outGBufferNormalRoughness"), std::string::npos)
+        << path.string();
+    EXPECT_NE(source.find("layout(location = 2) out vec4 outGBufferPbrFlags"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("layout(location = 3) out vec4 outGBufferEmissive"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("layout(location = 4) out vec4 outGBufferUtility"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("outGBufferUtility = vec4(float(EE_INSTANCE_INDEX)"), std::string::npos) << path.string();
+  }
+
+  const std::filesystem::path pipeline_paths[] = {
+      RepoPath("EvoEngine_Packages/EcoSysLab/src/DsAlphaShapeBranchesRendering.cpp"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/src/DsAlphaShapeSmallSegmentsRendering.cpp"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/src/DsKineticVoronoiMeshing.cpp"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/src/DynamicStrandsFoliageRendering.cpp"),
+  };
+
+  for (const auto& path : pipeline_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_EQ(source.find("g_buffer_color"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("Platform::Constants::g_buffer_attribute"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("Platform::Constants::g_buffer_utility"), std::string::npos) << path.string();
+  }
 }
 
 TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {

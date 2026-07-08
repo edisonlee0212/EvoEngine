@@ -4350,7 +4350,7 @@ void EditorLayer::MouseEntitySelection() {
 Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
                                          const glm::vec2& mouse_position) const {
   Entity ret_val;
-  const auto& g_buffer_normal = target_camera->GetGBufferNormalImage();
+  const auto& g_buffer_utility = target_camera->GetGBufferUtilityImage();
   const glm::vec2 resolution = target_camera->GetSize();
   glm::vec2 point = resolution;
   point.x = mouse_position.x;
@@ -4370,17 +4370,17 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageOffset.x = static_cast<int32_t>(point.x);
     image_copy.imageOffset.y = static_cast<int32_t>(point.y);
     image_copy.imageOffset.z = 0;
-    entity_index_read_buffer_->CopyFromImage(*g_buffer_normal, image_copy);
+    entity_index_read_buffer_->CopyFromImage(*g_buffer_utility, image_copy);
     float val = -1;
-    switch (Platform::Constants::texture_2d) {
+    switch (Platform::Constants::g_buffer_utility) {
       case VK_FORMAT_R32G32B32A32_SFLOAT: {
         const auto* ptr = static_cast<float*>(mapped_entity_index_data_);
-        val = glm::round(ptr[3]);
+        val = glm::round(ptr[0]);
         break;
       }
       case VK_FORMAT_R16G16B16A16_SFLOAT: {
         const auto* ptr = static_cast<glm::detail::hdata*>(mapped_entity_index_data_);
-        val = glm::round(glm::detail::toFloat32(ptr[3]));
+        val = glm::round(glm::detail::toFloat32(ptr[0]));
         break;
       }
     }

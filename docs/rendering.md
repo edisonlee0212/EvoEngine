@@ -65,24 +65,22 @@ after deferred lighting.
 
 ### Deferred GBuffer Contract
 
-The current GBuffer is a compatibility payload rather than a full material-attribute buffer:
+The current GBuffer stores evaluated material attributes for ordinary opaque raster shading. Bindings 18 and 19 are
+intentionally absent; the old normal and UV/material-index compatibility attachments have been retired.
 
 | Binding | Current image | Current payload |
 | --- | --- | --- |
 | 17 | Camera depth | NDC depth. |
-| 18 | Normal | `xyz = world normal`, `w = instance index`. |
-| 19 | Material | `xy = material UV`, `z = material index`, `w = instance info index`. |
 | 20 | Base color / AO | `rgb = evaluated linear base color`, `a = evaluated occlusion`. |
 | 21 | Normal / roughness | `xyz = world normal`, `a = evaluated roughness`. |
 | 22 | PBR / flags | `x = evaluated metallic`, `y = default-lit shading model id`, `z/w = reserved`. |
 | 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
-`StandardDeferred.frag` evaluates GLTF material state once during geometry, writes the expanded payload, and still writes
-the compatibility normal/material payload for not-yet-retired consumers. `StandardDeferredLighting.frag`,
-`StandardDeferredLightingSceneCamera.frag`, SSR, and SSAO decode ordinary opaque material or normal state from bindings
-20-24. The scene-camera debug visualization, editor GBuffer preview images, and editor mouse picking still read
-compatibility payloads because they visualize or select legacy debug values rather than shade ordinary opaque pixels.
+`StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
+`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, SSAO, scene-camera debug
+visualization, editor GBuffer preview images, and editor mouse picking decode material, normal, or selection state from
+bindings 20-24. Editor picking reads the instance index from Utility.x.
 
 The target Unreal-style deferred path stores ordinary opaque shading state in the geometry pass. The first migration
 keeps depth as-is and introduces this logical schema:
@@ -101,10 +99,9 @@ Masked alpha remains a geometry-pass discard. Transparent blend, transmission, d
 clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their existing transparent, forward, ray, or
 documented fallback paths until a later milestone defines their GBuffer representation.
 
-During migration, compatibility data may be kept beside the new attributes so each milestone can pass the render image
-gate. After deferred lighting switches to the new schema, ordinary opaque lighting must not call
-`EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is allowed only for an explicitly documented
-fallback or debug path.
+Ordinary opaque lighting must not call `EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is
+allowed only for an explicitly documented fallback or debug path. The retired normal/material attachments should not be
+reintroduced for ordinary opaque shading.
 
 Current shadow policy:
 

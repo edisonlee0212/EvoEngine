@@ -13,13 +13,11 @@ layout (location = 0) in VS_OUT {
 	vec2 TexCoord;
 } fs_in;
 
-layout (location = 0) out vec4 outNormal;
-layout (location = 1) out vec4 outMaterial;
-layout (location = 2) out vec4 outGBufferBaseColorAO;
-layout (location = 3) out vec4 outGBufferNormalRoughness;
-layout (location = 4) out vec4 outGBufferPbrFlags;
-layout (location = 5) out vec4 outGBufferEmissive;
-layout (location = 6) out vec4 outGBufferUtility;
+layout (location = 0) out vec4 outGBufferBaseColorAO;
+layout (location = 1) out vec4 outGBufferNormalRoughness;
+layout (location = 2) out vec4 outGBufferPbrFlags;
+layout (location = 3) out vec4 outGBufferEmissive;
+layout (location = 4) out vec4 outGBufferUtility;
 
 layout(location = 5) in flat uint currentInstanceIndex;
 
@@ -34,10 +32,6 @@ void main()
 	vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL(
 		material_index, tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
 	vec3 world_normal = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
-	// also store the per-fragment normals into the gbuffer
-	outNormal.rgb = world_normal;
-	outNormal.a = instance_index;
-	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);
 	outGBufferBaseColorAO = vec4(max(surface.base_color.rgb, vec3(0.0)), max(surface.occlusion, 0.0));
 	outGBufferNormalRoughness = vec4(world_normal, surface.roughness);
 	outGBufferPbrFlags = vec4(surface.metallic, 0.0, 0.0, 0.0);

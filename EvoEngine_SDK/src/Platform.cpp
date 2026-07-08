@@ -501,7 +501,7 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
   barrier.dstQueueFamilyIndex = dst_queue_family_index;
   barrier.image = target_image;
   if (image_format == Constants::texture_2d || image_format == Constants::render_texture_color ||
-      image_format == Constants::g_buffer_color) {
+      image_format == Constants::g_buffer_attribute || image_format == Constants::g_buffer_utility) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   } else if (image_format == Constants::render_texture_depth || image_format == Constants::shadow_map) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;

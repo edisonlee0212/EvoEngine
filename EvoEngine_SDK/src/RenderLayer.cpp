@@ -74,8 +74,7 @@ constexpr uint32_t kDdgiLightingVisibilityBinding = 18;
 constexpr uint32_t kDdgiLightingProbeStateBinding = 19;
 
 std::vector<VkFormat> CreateDeferredGBufferColorAttachmentFormats() {
-  return {Platform::Constants::g_buffer_color,     Platform::Constants::g_buffer_material,
-          Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+  return {Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
           Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
           Platform::Constants::g_buffer_utility};
 }
@@ -1405,10 +1404,6 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   if (!camera_g_buffer_layout_) {
     camera_g_buffer_layout_ = std::make_shared<DescriptorSetLayout>();
     camera_g_buffer_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    camera_g_buffer_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    camera_g_buffer_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                    VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->PushDescriptorBinding(20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                    VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -4603,9 +4598,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     if (camera) {
       camera_render_graph_resources.BindImages(
           RenderResourceNames::camera_g_buffer,
-          {camera->g_buffer_normal_, camera->g_buffer_material_, camera->g_buffer_base_color_ao_,
-           camera->g_buffer_normal_roughness_, camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_,
-           camera->g_buffer_utility_});
+          {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_, camera->g_buffer_pbr_flags_,
+           camera->g_buffer_emissive_, camera->g_buffer_utility_});
     }
     if (lighting_ && lighting_->directional_light_shadow_map_) {
       camera_render_graph_resources.BindImage(RenderResourceNames::lighting_directional_shadow_map,

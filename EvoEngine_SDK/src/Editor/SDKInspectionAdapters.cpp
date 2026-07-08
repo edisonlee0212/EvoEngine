@@ -3109,16 +3109,24 @@ bool InspectLodGroup(InspectorContext&, LodGroup& lod_group) {
 void evo_engine::DrawCameraDebugViews(const Camera& camera, const float debug_scale) {
   const auto size = camera.GetSize();
   const ImVec2 image_size(size.x * debug_scale, size.y * debug_scale);
-  if (ImGui::TreeNodeEx("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Image(camera.GetGBufferNormalImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNodeEx("Base color / AO", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Image(camera.GetGBufferBaseColorAoImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
-  if (ImGui::TreeNodeEx("UV", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Image(camera.GetGBufferMaterialTexCoordImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNodeEx("Normal / Roughness", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Image(camera.GetGBufferNormalRoughnessImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
-  if (ImGui::TreeNode("Instance/Material Index")) {
-    ImGui::Image(camera.GetGBufferMaterialIndicesImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNode("PBR / Flags")) {
+    ImGui::Image(camera.GetGBufferPbrFlagsImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Emissive")) {
+    ImGui::Image(camera.GetGBufferEmissiveImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Utility")) {
+    ImGui::Image(camera.GetGBufferUtilityImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Depth")) {

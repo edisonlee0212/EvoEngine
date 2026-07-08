@@ -243,10 +243,12 @@ class Camera final : public IPrivateComponent {
    */
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
-  [[nodiscard]] const std::shared_ptr<Image>& GetGBufferNormalImage() const;
-  [[nodiscard]] ImTextureID GetGBufferNormalImTextureId() const;
-  [[nodiscard]] ImTextureID GetGBufferMaterialTexCoordImTextureId() const;
-  [[nodiscard]] ImTextureID GetGBufferMaterialIndicesImTextureId() const;
+  [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
+  [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
+  [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
+  [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;
+  [[nodiscard]] ImTextureID GetGBufferEmissiveImTextureId() const;
+  [[nodiscard]] ImTextureID GetGBufferUtilityImTextureId() const;
 
   void SetRendered();
   void ResetRenderState();
@@ -259,30 +261,22 @@ class Camera final : public IPrivateComponent {
 
   std::shared_ptr<RenderTexture> render_texture_;  ///< The render texture used by the camera.
 
-  // Deferred shading GBuffer resources
-  std::shared_ptr<Image> g_buffer_normal_ = {};                       ///< GBuffer normal image.
-  std::shared_ptr<ImageView> g_buffer_normal_view_ = {};              ///< GBuffer normal image view.
-  std::shared_ptr<Sampler> g_buffer_normal_sampler_ = {};             ///< GBuffer normal sampler.
-  ImTextureID g_buffer_normal_im_texture_id_ = {};                    ///< ImTextureID for GBuffer normal.
-  std::shared_ptr<Image> g_buffer_material_ = {};                     ///< GBuffer material image.
-  std::shared_ptr<ImageView> g_buffer_material_view_ = {};            ///< GBuffer material image view.
-  std::shared_ptr<ImageView> g_buffer_material_tex_coord_view_ = {};  ///< GBuffer texcoord image view.
-  std::shared_ptr<ImageView> g_buffer_material_indices_view_ = {};    ///< GBuffer material indices view.
-
-  std::shared_ptr<Sampler> g_buffer_material_sampler_ = {};     ///< GBuffer material sampler.
-  ImTextureID g_buffer_material_tex_coord_im_texture_id_ = {};  ///< ImTextureID for GBuffer texcoords.
-  ImTextureID g_buffer_material_indices_im_texture_id_ = {};    ///< ImTextureID for GBuffer material indices.
-
+  std::shared_ptr<Sampler> g_buffer_sampler_ = {};                  ///< GBuffer sampler.
   std::shared_ptr<Image> g_buffer_base_color_ao_ = {};              ///< Expanded GBuffer base color/AO image.
   std::shared_ptr<ImageView> g_buffer_base_color_ao_view_ = {};     ///< Expanded GBuffer base color/AO view.
+  ImTextureID g_buffer_base_color_ao_im_texture_id_ = {};           ///< ImTextureID for base color/AO.
   std::shared_ptr<Image> g_buffer_normal_roughness_ = {};           ///< Expanded GBuffer normal/roughness image.
   std::shared_ptr<ImageView> g_buffer_normal_roughness_view_ = {};  ///< Expanded GBuffer normal/roughness view.
+  ImTextureID g_buffer_normal_roughness_im_texture_id_ = {};        ///< ImTextureID for normal/roughness.
   std::shared_ptr<Image> g_buffer_pbr_flags_ = {};                  ///< Expanded GBuffer PBR/flags image.
   std::shared_ptr<ImageView> g_buffer_pbr_flags_view_ = {};         ///< Expanded GBuffer PBR/flags view.
+  ImTextureID g_buffer_pbr_flags_im_texture_id_ = {};               ///< ImTextureID for PBR/flags.
   std::shared_ptr<Image> g_buffer_emissive_ = {};                   ///< Expanded GBuffer emissive image.
   std::shared_ptr<ImageView> g_buffer_emissive_view_ = {};          ///< Expanded GBuffer emissive view.
+  ImTextureID g_buffer_emissive_im_texture_id_ = {};                ///< ImTextureID for emissive.
   std::shared_ptr<Image> g_buffer_utility_ = {};                    ///< Expanded GBuffer utility image.
   std::shared_ptr<ImageView> g_buffer_utility_view_ = {};           ///< Expanded GBuffer utility view.
+  ImTextureID g_buffer_utility_im_texture_id_ = {};                 ///< ImTextureID for utility.
 
   uint32_t frame_count_ = 0;  ///< Frame count used for tracking rendering updates.
 
