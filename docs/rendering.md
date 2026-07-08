@@ -63,6 +63,42 @@ Raster cameras render shadow maps, then write GBuffer targets for opaque geometr
 lights, shadow maps, image-based lighting, and DDGI when available. Transparent and forward-only geometry is rendered
 after deferred lighting.
 
+### Deferred GBuffer Contract
+
+The current GBuffer is a compatibility payload rather than a full material-attribute buffer:
+
+| Binding | Current image | Current payload |
+| --- | --- | --- |
+| 17 | Camera depth | NDC depth. |
+| 18 | Normal | `xyz = world normal`, `w = instance index`. |
+| 19 | Material | `xy = material UV`, `z = material index`, `w = instance info index`. |
+
+`StandardDeferred.frag` evaluates enough GLTF material state to discard masked fragments and normal-map the surface, but
+`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, and SSR combine paths still re-evaluate
+GLTF material textures from the material index and UV payload.
+
+The target Unreal-style deferred path stores ordinary opaque shading state in the geometry pass. The first migration
+keeps depth as-is and introduces this logical schema:
+
+| Logical attachment | Initial format target | Payload |
+| --- | --- | --- |
+| Base color / AO | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = linear base color`, `a = occlusion`. |
+| Normal / roughness | `VK_FORMAT_R16G16B16A16_SFLOAT` | `xyz = world normal`, `a = roughness`. A later compact packing may replace full-vector normal storage after validation. |
+| PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `y = shading model id`, `z = material flags`, `w = reserved custom data`. |
+| Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = emissive radiance`, `a = reserved custom data`. |
+| Utility | `VK_FORMAT_R32G32B32A32_SFLOAT` | `x = instance index`, `y = instance info index`, `z = optional material index for debug or fallback`, `w = reserved`. |
+
+The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials and specular-glossiness
+materials are both reduced to base color, metallic, roughness, normal, occlusion, and emissive by the geometry pass.
+Masked alpha remains a geometry-pass discard. Transparent blend, transmission, diffuse transmission, volume/scatter,
+clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their existing transparent, forward, ray, or
+documented fallback paths until a later milestone defines their GBuffer representation.
+
+During migration, compatibility data may be kept beside the new attributes so each milestone can pass the render image
+gate. After deferred lighting switches to the new schema, ordinary opaque lighting must not call
+`EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is allowed only for an explicitly documented
+fallback or debug path.
+
 Current shadow policy:
 
 - directional CSM uses Legacy Stable fitting;
