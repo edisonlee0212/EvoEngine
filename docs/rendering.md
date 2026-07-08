@@ -72,11 +72,11 @@ The current GBuffer is a compatibility payload rather than a full material-attri
 | 17 | Camera depth | NDC depth. |
 | 18 | Normal | `xyz = world normal`, `w = instance index`. |
 | 19 | Material | `xy = material UV`, `z = material index`, `w = instance info index`. |
-| 20 | Base color / AO | Reserved for the expanded GBuffer schema during compatibility migration. |
-| 21 | Normal / roughness | Reserved for the expanded GBuffer schema during compatibility migration. |
-| 22 | PBR / flags | Reserved for the expanded GBuffer schema during compatibility migration. |
-| 23 | Emissive | Reserved for the expanded GBuffer schema during compatibility migration. |
-| 24 | Utility | Reserved for the expanded GBuffer schema during compatibility migration. |
+| 20 | Base color / AO | `rgb = evaluated linear base color`, `a = evaluated occlusion`. |
+| 21 | Normal / roughness | `xyz = world normal`, `a = evaluated roughness`. |
+| 22 | PBR / flags | `x = evaluated metallic`, `y = default-lit shading model id`, `z/w = reserved`. |
+| 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
+| 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
 `StandardDeferred.frag` evaluates enough GLTF material state to discard masked fragments and normal-map the surface, but
 `StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, and SSR combine paths still re-evaluate

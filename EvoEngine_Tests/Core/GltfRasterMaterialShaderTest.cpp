@@ -106,6 +106,15 @@ TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
   EXPECT_NE(deferred.find("outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, "
                           "instance.info_index)"),
             std::string::npos);
+  EXPECT_NE(deferred.find("outGBufferBaseColorAO = vec4(max(surface.base_color.rgb, vec3(0.0)), "
+                          "max(surface.occlusion, 0.0))"),
+            std::string::npos);
+  EXPECT_NE(deferred.find("outGBufferNormalRoughness = vec4(world_normal, surface.roughness)"), std::string::npos);
+  EXPECT_NE(deferred.find("outGBufferPbrFlags = vec4(surface.metallic, 0.0, 0.0, 0.0)"), std::string::npos);
+  EXPECT_NE(deferred.find("outGBufferEmissive = vec4(surface.emissive, 0.0)"), std::string::npos);
+  EXPECT_NE(deferred.find("outGBufferUtility = vec4(float(instance_index), float(instance.info_index), "
+                          "float(instance.material_index), 0.0)"),
+            std::string::npos);
 }
 
 TEST(GltfRasterMaterial, DeferredGBufferCompatibilityBindingsAreReserved) {

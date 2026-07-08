@@ -33,13 +33,14 @@ void main()
 	if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) discard;
 	vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL(
 		material_index, tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
+	vec3 world_normal = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
 	// also store the per-fragment normals into the gbuffer
-	outNormal.rgb = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
+	outNormal.rgb = world_normal;
 	outNormal.a = instance_index;
 	outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, instance.info_index);
-	outGBufferBaseColorAO = vec4(0.0, 0.0, 0.0, 1.0);
-	outGBufferNormalRoughness = vec4(0.5, 0.5, 1.0, 1.0);
-	outGBufferPbrFlags = vec4(0.0);
-	outGBufferEmissive = vec4(0.0);
-	outGBufferUtility = vec4(0.0);
+	outGBufferBaseColorAO = vec4(max(surface.base_color.rgb, vec3(0.0)), max(surface.occlusion, 0.0));
+	outGBufferNormalRoughness = vec4(world_normal, surface.roughness);
+	outGBufferPbrFlags = vec4(surface.metallic, 0.0, 0.0, 0.0);
+	outGBufferEmissive = vec4(surface.emissive, 0.0);
+	outGBufferUtility = vec4(float(instance_index), float(instance.info_index), float(instance.material_index), 0.0);
 }
