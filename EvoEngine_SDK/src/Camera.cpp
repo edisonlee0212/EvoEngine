@@ -58,6 +58,67 @@ void ReportShaderExecutionReorderingFallback(const CameraSettings::ShaderExecuti
   EVOENGINE_WARNING("Shader Execution Reordering is unavailable; using standard ray tracing scheduling.")
   unsupported_reported = true;
 }
+
+std::shared_ptr<ImageView> CreateGBufferImageView(const std::shared_ptr<Image>& image, const VkFormat format,
+                                                  const VkComponentMapping components = VkComponentMapping{}) {
+  VkImageViewCreateInfo view_info{};
+  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  view_info.image = image->GetVkImage();
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  view_info.format = format;
+  view_info.components = components;
+  view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  view_info.subresourceRange.baseMipLevel = 0;
+  view_info.subresourceRange.levelCount = 1;
+  view_info.subresourceRange.baseArrayLayer = 0;
+  view_info.subresourceRange.layerCount = 1;
+  return std::make_unique<ImageView>(view_info);
+}
+
+void CreateGBufferAttachment(const VkExtent3D extent, const VkFormat format, std::shared_ptr<Image>& image,
+                             std::shared_ptr<ImageView>& view) {
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.extent = extent;
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = format;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+  image = std::make_unique<Image>(image_info);
+  view = CreateGBufferImageView(image, format);
+}
+
+std::shared_ptr<Sampler> CreateGBufferSampler() {
+  VkSamplerCreateInfo sampler_info{};
+  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_info.magFilter = VK_FILTER_NEAREST;
+  sampler_info.minFilter = VK_FILTER_NEAREST;
+  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+  sampler_info.anisotropyEnable = VK_TRUE;
+  sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
+  sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  sampler_info.unnormalizedCoordinates = VK_FALSE;
+  sampler_info.compareEnable = VK_FALSE;
+  sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
+  sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  return std::make_unique<Sampler>(sampler_info);
+}
+
+void AppendGBufferAttachmentInfo(std::vector<VkRenderingAttachmentInfo>& attachment_infos,
+                                 VkRenderingAttachmentInfo attachment, const std::shared_ptr<ImageView>& view) {
+  attachment.clearValue = {0, 0, 0, 0};
+  attachment.imageView = view->GetVkImageView();
+  attachment_infos.push_back(attachment);
+}
 }  // namespace
 
 const std::vector<std::string>& Camera::GetCameraRenderModeNames() {
@@ -202,116 +263,60 @@ void Camera::UpdateGBuffer() {
     return;
   g_buffer_normal_view_.reset();
   g_buffer_material_view_.reset();
+  g_buffer_material_tex_coord_view_.reset();
+  g_buffer_material_indices_view_.reset();
+  g_buffer_base_color_ao_view_.reset();
+  g_buffer_normal_roughness_view_.reset();
+  g_buffer_pbr_flags_view_.reset();
+  g_buffer_emissive_view_.reset();
+  g_buffer_utility_view_.reset();
 
   g_buffer_normal_.reset();
   g_buffer_material_.reset();
+  g_buffer_base_color_ao_.reset();
+  g_buffer_normal_roughness_.reset();
+  g_buffer_pbr_flags_.reset();
+  g_buffer_emissive_.reset();
+  g_buffer_utility_.reset();
 
   {
-    VkImageCreateInfo image_info{};
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent = render_texture_->GetExtent();
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = 1;
-    image_info.format = Platform::Constants::g_buffer_color;
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    g_buffer_normal_ = std::make_unique<Image>(image_info);
-
-    VkImageViewCreateInfo view_info{};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = g_buffer_normal_->GetVkImage();
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = Platform::Constants::g_buffer_color;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    view_info.subresourceRange.baseMipLevel = 0;
-    view_info.subresourceRange.levelCount = 1;
-    view_info.subresourceRange.baseArrayLayer = 0;
-    view_info.subresourceRange.layerCount = 1;
-
-    g_buffer_normal_view_ = std::make_unique<ImageView>(view_info);
-
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_NEAREST;
-    sampler_info.minFilter = VK_FILTER_NEAREST;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
-    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_info.compareEnable = VK_FALSE;
-    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-
-    g_buffer_normal_sampler_ = std::make_unique<Sampler>(sampler_info);
+    CreateGBufferAttachment(render_texture_->GetExtent(), Platform::Constants::g_buffer_color, g_buffer_normal_,
+                            g_buffer_normal_view_);
+    g_buffer_normal_sampler_ = CreateGBufferSampler();
   }
   {
-    VkImageCreateInfo image_info{};
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent = render_texture_->GetExtent();
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = 1;
-    image_info.format = Platform::Constants::g_buffer_color;
-    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    CreateGBufferAttachment(render_texture_->GetExtent(), Platform::Constants::g_buffer_material, g_buffer_material_,
+                            g_buffer_material_view_);
 
-    g_buffer_material_ = std::make_unique<Image>(image_info);
+    VkComponentMapping tex_coord_components{};
+    tex_coord_components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+    tex_coord_components.g = VK_COMPONENT_SWIZZLE_ZERO;
+    tex_coord_components.b = VK_COMPONENT_SWIZZLE_G;
+    tex_coord_components.a = VK_COMPONENT_SWIZZLE_ONE;
+    g_buffer_material_tex_coord_view_ =
+        CreateGBufferImageView(g_buffer_material_, Platform::Constants::g_buffer_material, tex_coord_components);
 
-    VkImageViewCreateInfo view_info{};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = g_buffer_material_->GetVkImage();
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = Platform::Constants::g_buffer_material;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    view_info.subresourceRange.baseMipLevel = 0;
-    view_info.subresourceRange.levelCount = 1;
-    view_info.subresourceRange.baseArrayLayer = 0;
-    view_info.subresourceRange.layerCount = 1;
+    VkComponentMapping indices_components{};
+    indices_components.r = VK_COMPONENT_SWIZZLE_B;
+    indices_components.g = VK_COMPONENT_SWIZZLE_ZERO;
+    indices_components.b = VK_COMPONENT_SWIZZLE_A;
+    indices_components.a = VK_COMPONENT_SWIZZLE_ONE;
+    g_buffer_material_indices_view_ =
+        CreateGBufferImageView(g_buffer_material_, Platform::Constants::g_buffer_material, indices_components);
 
-    g_buffer_material_view_ = std::make_unique<ImageView>(view_info);
-
-    view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-    view_info.components.g = VK_COMPONENT_SWIZZLE_ZERO;
-    view_info.components.b = VK_COMPONENT_SWIZZLE_G;
-    view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
-    g_buffer_material_tex_coord_view_ = std::make_unique<ImageView>(view_info);
-
-    view_info.components.r = VK_COMPONENT_SWIZZLE_B;
-    view_info.components.g = VK_COMPONENT_SWIZZLE_ZERO;
-    view_info.components.b = VK_COMPONENT_SWIZZLE_A;
-    view_info.components.a = VK_COMPONENT_SWIZZLE_ONE;
-    g_buffer_material_indices_view_ = std::make_unique<ImageView>(view_info);
-
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_NEAREST;
-    sampler_info.minFilter = VK_FILTER_NEAREST;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-    sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
-    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_info.compareEnable = VK_FALSE;
-    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-
-    g_buffer_material_sampler_ = std::make_unique<Sampler>(sampler_info);
+    g_buffer_material_sampler_ = CreateGBufferSampler();
   }
+  const auto g_buffer_attribute_format = Platform::Constants::g_buffer_attribute;
+  CreateGBufferAttachment(render_texture_->GetExtent(), g_buffer_attribute_format, g_buffer_base_color_ao_,
+                          g_buffer_base_color_ao_view_);
+  CreateGBufferAttachment(render_texture_->GetExtent(), g_buffer_attribute_format, g_buffer_normal_roughness_,
+                          g_buffer_normal_roughness_view_);
+  CreateGBufferAttachment(render_texture_->GetExtent(), g_buffer_attribute_format, g_buffer_pbr_flags_,
+                          g_buffer_pbr_flags_view_);
+  CreateGBufferAttachment(render_texture_->GetExtent(), g_buffer_attribute_format, g_buffer_emissive_,
+                          g_buffer_emissive_view_);
+  CreateGBufferAttachment(render_texture_->GetExtent(), Platform::Constants::g_buffer_utility, g_buffer_utility_,
+                          g_buffer_utility_view_);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
@@ -334,12 +339,27 @@ void Camera::UpdateGBuffer() {
     image_info.imageView = g_buffer_material_view_->GetVkImageView();
     image_info.sampler = g_buffer_material_sampler_->GetVkSampler();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(19, image_info);
+    image_info.imageView = g_buffer_base_color_ao_view_->GetVkImageView();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(20, image_info);
+    image_info.imageView = g_buffer_normal_roughness_view_->GetVkImageView();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(21, image_info);
+    image_info.imageView = g_buffer_pbr_flags_view_->GetVkImageView();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(22, image_info);
+    image_info.imageView = g_buffer_emissive_view_->GetVkImageView();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(23, image_info);
+    image_info.imageView = g_buffer_utility_view_->GetVkImageView();
+    g_buffer_descriptor_set_->UpdateImageDescriptorBinding(24, image_info);
   }
 }
 
 void Camera::TransitGBufferImageLayout(const VkCommandBuffer vk_command_buffer, VkImageLayout target_layout) const {
   g_buffer_normal_->TransitImageLayout(vk_command_buffer, target_layout);
   g_buffer_material_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_base_color_ao_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_normal_roughness_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_pbr_flags_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_emissive_->TransitImageLayout(vk_command_buffer, target_layout);
+  g_buffer_utility_->TransitImageLayout(vk_command_buffer, target_layout);
 }
 void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const GlobalTransform& global_transform) {
   const auto rotation = global_transform.GetRotation();
@@ -422,13 +442,13 @@ void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachment
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
-  attachment.clearValue = {0, 0, 0, 0};
-  attachment.imageView = g_buffer_normal_view_->GetVkImageView();
-  attachment_infos.push_back(attachment);
-
-  attachment.clearValue = {0, 0, 0, 0};
-  attachment.imageView = g_buffer_material_view_->GetVkImageView();
-  attachment_infos.push_back(attachment);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_normal_view_);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_material_view_);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_normal_roughness_view_);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_pbr_flags_view_);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_emissive_view_);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_);
 }
 
 float Camera::GetSizeRatio() const {

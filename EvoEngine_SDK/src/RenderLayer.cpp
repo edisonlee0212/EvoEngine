@@ -73,6 +73,13 @@ constexpr uint32_t kDdgiLightingIrradianceBinding = 17;
 constexpr uint32_t kDdgiLightingVisibilityBinding = 18;
 constexpr uint32_t kDdgiLightingProbeStateBinding = 19;
 
+std::vector<VkFormat> CreateDeferredGBufferColorAttachmentFormats() {
+  return {Platform::Constants::g_buffer_color,     Platform::Constants::g_buffer_material,
+          Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+          Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+          Platform::Constants::g_buffer_utility};
+}
+
 float DdgiElapsedMilliseconds(const DdgiPerformanceClock::time_point start) {
   return std::chrono::duration<float, std::milli>(DdgiPerformanceClock::now() - start).count();
 }
@@ -1403,6 +1410,16 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                    VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                    VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(20, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(22, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(23, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    camera_g_buffer_layout_->PushDescriptorBinding(24, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                   VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->Initialize();
   }
   if (!render_texture_storage_layout_) {
@@ -2157,7 +2174,7 @@ void RenderLayer::OnCreate() {
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    deferred_prepass_pipeline_normal->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    deferred_prepass_pipeline_normal->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
     auto& push_constant_range = deferred_prepass_pipeline_normal->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -2180,7 +2197,7 @@ void RenderLayer::OnCreate() {
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
     deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    deferred_prepass_pipeline_mesh->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    deferred_prepass_pipeline_mesh->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
     auto& push_constant_range = deferred_prepass_pipeline_mesh->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -2200,7 +2217,7 @@ void RenderLayer::OnCreate() {
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     instanced_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    instanced_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    instanced_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
     auto& push_constant_range = instanced_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -2220,7 +2237,7 @@ void RenderLayer::OnCreate() {
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    skinned_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    skinned_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
     auto& push_constant_range = skinned_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -2251,7 +2268,7 @@ void RenderLayer::OnCreate() {
     strands_deferred_prepass_pipeline->tessellation_patch_control_points = 4;
     strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    strands_deferred_prepass_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+    strands_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
     auto& push_constant_range = strands_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
@@ -4584,8 +4601,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     auto camera_render_graph_resources =
         CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
     if (camera) {
-      camera_render_graph_resources.BindImages(RenderResourceNames::camera_g_buffer,
-                                               {camera->g_buffer_normal_, camera->g_buffer_material_});
+      camera_render_graph_resources.BindImages(
+          RenderResourceNames::camera_g_buffer,
+          {camera->g_buffer_normal_, camera->g_buffer_material_, camera->g_buffer_base_color_ao_,
+           camera->g_buffer_normal_roughness_, camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_,
+           camera->g_buffer_utility_});
     }
     if (lighting_ && lighting_->directional_light_shadow_map_) {
       camera_render_graph_resources.BindImage(RenderResourceNames::lighting_directional_shadow_map,

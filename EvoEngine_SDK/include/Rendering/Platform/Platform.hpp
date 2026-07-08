@@ -555,6 +555,12 @@ class Platform final {
     /// Material format for G-buffer.
     constexpr static VkFormat g_buffer_material = VK_FORMAT_R32G32B32A32_SFLOAT;
 
+    /// Attribute format for expanded G-buffer attachments.
+    constexpr static VkFormat g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    /// Utility format for expanded G-buffer attachments.
+    constexpr static VkFormat g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT;
+
     /// Format for shadow maps.
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
 

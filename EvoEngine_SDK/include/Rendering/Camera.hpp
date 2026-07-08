@@ -273,6 +273,17 @@ class Camera final : public IPrivateComponent {
   ImTextureID g_buffer_material_tex_coord_im_texture_id_ = {};  ///< ImTextureID for GBuffer texcoords.
   ImTextureID g_buffer_material_indices_im_texture_id_ = {};    ///< ImTextureID for GBuffer material indices.
 
+  std::shared_ptr<Image> g_buffer_base_color_ao_ = {};              ///< Expanded GBuffer base color/AO image.
+  std::shared_ptr<ImageView> g_buffer_base_color_ao_view_ = {};     ///< Expanded GBuffer base color/AO view.
+  std::shared_ptr<Image> g_buffer_normal_roughness_ = {};           ///< Expanded GBuffer normal/roughness image.
+  std::shared_ptr<ImageView> g_buffer_normal_roughness_view_ = {};  ///< Expanded GBuffer normal/roughness view.
+  std::shared_ptr<Image> g_buffer_pbr_flags_ = {};                  ///< Expanded GBuffer PBR/flags image.
+  std::shared_ptr<ImageView> g_buffer_pbr_flags_view_ = {};         ///< Expanded GBuffer PBR/flags view.
+  std::shared_ptr<Image> g_buffer_emissive_ = {};                   ///< Expanded GBuffer emissive image.
+  std::shared_ptr<ImageView> g_buffer_emissive_view_ = {};          ///< Expanded GBuffer emissive view.
+  std::shared_ptr<Image> g_buffer_utility_ = {};                    ///< Expanded GBuffer utility image.
+  std::shared_ptr<ImageView> g_buffer_utility_view_ = {};           ///< Expanded GBuffer utility view.
+
   uint32_t frame_count_ = 0;  ///< Frame count used for tracking rendering updates.
 
   glm::mat4 prev_global_transform_{};

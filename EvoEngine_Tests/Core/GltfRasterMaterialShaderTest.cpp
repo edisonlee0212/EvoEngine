@@ -92,6 +92,45 @@ TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
   }
 }
 
+TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
+  const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"));
+  ASSERT_FALSE(deferred.empty());
+
+  EXPECT_NE(deferred.find("layout (location = 0) out vec4 outNormal"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 1) out vec4 outMaterial"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 2) out vec4 outGBufferBaseColorAO"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 3) out vec4 outGBufferNormalRoughness"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 4) out vec4 outGBufferPbrFlags"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 5) out vec4 outGBufferEmissive"), std::string::npos);
+  EXPECT_NE(deferred.find("layout (location = 6) out vec4 outGBufferUtility"), std::string::npos);
+  EXPECT_NE(deferred.find("outMaterial = vec4(tex_coord.x, tex_coord.y, instance.material_index, "
+                          "instance.info_index)"),
+            std::string::npos);
+}
+
+TEST(GltfRasterMaterial, DeferredGBufferCompatibilityBindingsAreReserved) {
+  const auto platform = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
+  const auto camera = ReadTextFile(SdkPath("src/Camera.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  ASSERT_FALSE(platform.empty());
+  ASSERT_FALSE(camera.empty());
+  ASSERT_FALSE(render_layer.empty());
+
+  EXPECT_NE(platform.find("g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT"), std::string::npos);
+  EXPECT_NE(platform.find("g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT"), std::string::npos);
+  EXPECT_NE(render_layer.find("CreateDeferredGBufferColorAttachmentFormats"), std::string::npos);
+
+  for (uint32_t binding = 20; binding <= 24; binding++) {
+    EXPECT_NE(render_layer.find("PushDescriptorBinding(" + std::to_string(binding)), std::string::npos);
+    EXPECT_NE(camera.find("UpdateImageDescriptorBinding(" + std::to_string(binding)), std::string::npos);
+  }
+
+  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_)"),
+            std::string::npos);
+  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_)"),
+            std::string::npos);
+}
+
 TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   const auto geometry = ReadTextFile(SdkPath("src/IGeometry.cpp"));
   const auto standard = ReadTextFile(ShaderPath("Graphics/Vertex/Standard/Standard.vert"));
