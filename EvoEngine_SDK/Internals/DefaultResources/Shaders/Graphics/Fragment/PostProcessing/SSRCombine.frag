@@ -1,7 +1,6 @@
 #extension GL_ARB_shading_language_include : enable
 
 #include "PerFrame.glsl"
-#include "GltfRasterMaterial.glsl"
 #include "SSRConstants.glsl"
 
 layout (location = 0) out vec4 FragColor;
@@ -12,19 +11,15 @@ layout (location = 0) in VS_OUT {
 layout(set = 1, binding = 0) uniform sampler2D originalColor;
 layout(set = 1, binding = 1) uniform sampler2D reflectedColorVisibility;
 
-layout(set = 2, binding = 17) uniform sampler2D inDepth;
-layout(set = 2, binding = 18) uniform sampler2D inNormal;
-layout(set = 2, binding = 19) uniform sampler2D inMaterial;
+layout(set = 2, binding = 21) uniform sampler2D inNormalRoughness;
+layout(set = 2, binding = 22) uniform sampler2D inPbrFlags;
 
 void main()
 {
     vec2 texCoord = fs_in.TexCoord;
 
-    vec4 material_sample = texture(inMaterial, texCoord);
-    int material_index = int(round(material_sample.z));
-    GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(uint(material_index), material_sample.xy, material_sample.xy);
-	float roughness = surface.roughness;
-	float metallic = surface.metallic;
+    float roughness = texture(inNormalRoughness, texCoord).a;
+	float metallic = texture(inPbrFlags, texCoord).x;
 
     vec4 color = texture(originalColor, texCoord);
     vec4 reflected = texture(reflectedColorVisibility, texCoord);

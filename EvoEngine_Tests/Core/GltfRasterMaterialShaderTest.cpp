@@ -77,7 +77,6 @@ TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
   const std::filesystem::path paths[] = {
       ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"),
       ShaderPath("Graphics/Fragment/ShadowMapPassThrough.frag"),
-      ShaderPath("Compute/PostProcessing/SSRCombine.comp"),
   };
 
   for (const auto& path : paths) {
@@ -87,6 +86,37 @@ TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
     EXPECT_NE(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
     EXPECT_EQ(source.find(std::string("EE_MATERIAL") + "_PROPERTIES"), std::string::npos) << path.string();
     EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos) << path.string();
+  }
+}
+
+TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
+  const std::filesystem::path normal_paths[] = {
+      ShaderPath("Compute/PostProcessing/SSRReflect.comp"),
+      ShaderPath("Compute/PostProcessing/SSAOGeometry.comp"),
+      ShaderPath("Graphics/Fragment/PostProcessing/SSRReflect.frag"),
+  };
+  for (const auto& path : normal_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_NE(source.find("binding = 21) uniform sampler2D inNormalRoughness"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("texture(inNormalRoughness"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("uniform sampler2D inMaterial"), std::string::npos) << path.string();
+  }
+
+  const std::filesystem::path combine_paths[] = {
+      ShaderPath("Compute/PostProcessing/SSRCombine.comp"),
+      ShaderPath("Graphics/Fragment/PostProcessing/SSRCombine.frag"),
+  };
+  for (const auto& path : combine_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_EQ(source.find("#include \"GltfRasterMaterial.glsl\""), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 21) uniform sampler2D inNormalRoughness"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 22) uniform sampler2D inPbrFlags"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float roughness = texture(inNormalRoughness, texCoord).a"), std::string::npos)
+        << path.string();
+    EXPECT_NE(source.find("float metallic = texture(inPbrFlags, texCoord).x"), std::string::npos) << path.string();
   }
 }
 

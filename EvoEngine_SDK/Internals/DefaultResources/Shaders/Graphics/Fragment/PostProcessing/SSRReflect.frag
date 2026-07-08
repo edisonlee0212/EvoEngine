@@ -12,12 +12,11 @@ layout (location = 0) in VS_OUT {
 
 
 layout(set = 1, binding = 17) uniform sampler2D inDepth;
-layout(set = 1, binding = 18) uniform sampler2D inNormal;
-layout(set = 1, binding = 19) uniform sampler2D inMaterial;
+layout(set = 1, binding = 21) uniform sampler2D inNormalRoughness;
 layout(set = 2, binding = 0) uniform sampler2D inColor;
 
 vec3 GetNormal(in vec2 texCoord){
-	return texture(inNormal, texCoord).rgb;
+	return texture(inNormalRoughness, texCoord).rgb;
 }
 
 vec3 GetViewNormal(in vec2 texCoord){
