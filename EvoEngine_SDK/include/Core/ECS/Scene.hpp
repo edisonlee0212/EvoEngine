@@ -233,8 +233,7 @@ class Scene final : public IAsset {
    */
   enum class EnvironmentType {
     EnvironmentalMap,  ///< Uses an environmental map for rendering the environment.
-    Color,             ///< Uses a color for rendering the environment.
-    PhysicalSky        ///< Uses the reference physical Sun/Sky model for ray-traced environment lighting.
+    Color              ///< Uses a color for rendering the environment.
   };
 
   /**

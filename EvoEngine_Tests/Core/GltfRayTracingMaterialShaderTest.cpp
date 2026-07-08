@@ -1123,10 +1123,10 @@ TEST(GltfRayTracingMaterial, CameraMissRecordsEnvironmentForRaygenLoop) {
   EXPECT_NE(source.find("hit_value.hit_t = EE_CAMERA_FAR(int(EE_CAMERA_INDEX))"), std::string::npos);
   EXPECT_NE(source.find("vec3 EE_CAMERA_SKY_RADIANCE"), std::string::npos);
   EXPECT_NE(source.find("vec3 EE_CAMERA_ENVIRONMENT_RADIANCE"), std::string::npos);
-  EXPECT_NE(source.find("#include \"PhysicalSky.glsl\""), std::string::npos);
-  EXPECT_NE(source.find("EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY"), std::string::npos);
-  EXPECT_NE(source.find("EE_PHYSICAL_SKY_EVALUATE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS()"), std::string::npos);
-  EXPECT_NE(source.find("EE_PHYSICAL_SKY_PDF(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS()"), std::string::npos);
+  EXPECT_EQ(source.find(std::string("#include \"Physical") + "Sky.glsl\""), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL") + "_SKY"), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_") + "PHYSICAL_SKY_EVALUATE"), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_") + "PHYSICAL_SKY_PDF"), std::string::npos);
   EXPECT_NE(source.find("EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index"), std::string::npos);
   EXPECT_NE(source.find("camera.skybox_tex_index"), std::string::npos);
   EXPECT_NE(source.find("camera.clear_color.w"), std::string::npos);
@@ -1153,14 +1153,14 @@ TEST(GltfRayTracingMaterial, CameraRaygenLightsFromCameraBackground) {
 
   EXPECT_NE(source.find("vec3 EE_CAMERA_BACKGROUND_LIGHT_RADIANCE"), std::string::npos);
   EXPECT_NE(source.find("return EE_CAMERA_BACKGROUND_LIGHT_RADIANCE(ray_direction)"), std::string::npos);
-  EXPECT_NE(source.find("#include \"PhysicalSky.glsl\""), std::string::npos);
-  EXPECT_NE(source.find("EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY = 2.0f"), std::string::npos);
-  EXPECT_NE(source.find("EE_PHYSICAL_SKY_SAMPLE(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS()"), std::string::npos);
-  EXPECT_NE(source.find("EE_PHYSICAL_SKY_PDF(EE_PHYSICAL_SKY_DEFAULT_PARAMETERS()"), std::string::npos);
-  EXPECT_NE(source.find("EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed, hit.normal)"), std::string::npos);
-  EXPECT_NE(source.find("EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL_SKY"),
+  EXPECT_EQ(source.find(std::string("#include \"Physical") + "Sky.glsl\""), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL") + "_SKY"), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_") + "PHYSICAL_SKY_SAMPLE"), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_") + "PHYSICAL_SKY_PDF"), std::string::npos);
+  EXPECT_NE(source.find("EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed)"), std::string::npos);
+  EXPECT_EQ(source.find(std::string("EE_ENVIRONMENT.environment_type == EE_CAMERA_ENVIRONMENT_TYPE_PHYSICAL") + "_SKY"),
             std::string::npos);
-  EXPECT_NE(source.find("return vec3(0.0f);\n  }\n  const float environment_intensity"), std::string::npos);
+  EXPECT_NE(source.find("if (EE_ENVIRONMENT.light_intensity <= 0.0f)"), std::string::npos);
   EXPECT_NE(source.find("camera.use_clear_color == 1"), std::string::npos);
   EXPECT_NE(source.find("camera.clear_color.xyz"), std::string::npos);
   EXPECT_NE(source.find("EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index"), std::string::npos);
@@ -1169,36 +1169,61 @@ TEST(GltfRayTracingMaterial, CameraRaygenLightsFromCameraBackground) {
   EXPECT_EQ(source.find("camera.irradiance_map_index"), std::string::npos);
 }
 
-TEST(GltfRayTracingMaterial, PhysicalSkyEnvironmentModeUsesReferenceSkySampler) {
+TEST(GltfRayTracingMaterial, DirectSkyEnvironmentModeRemoved) {
   const auto environment_include = ReadTextFile(ShaderPath("Includes/Environment.glsl"));
-  const auto physical_sky = ReadTextFile(ShaderPath("Includes/PhysicalSky.glsl"));
   const auto scene_header = ReadTextFile(SdkPath("include/Core/ECS/Scene.hpp"));
   const auto render_storage_header =
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
   const auto render_storage_source = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto editor_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto miss = ReadTextFile(ShaderPath("RayTracing/Miss/Camera.rmiss"));
+  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
 
   ASSERT_FALSE(environment_include.empty());
-  ASSERT_FALSE(physical_sky.empty());
   ASSERT_FALSE(scene_header.empty());
   ASSERT_FALSE(render_storage_header.empty());
   ASSERT_FALSE(render_storage_source.empty());
+  ASSERT_FALSE(editor_source.empty());
+  ASSERT_FALSE(raygen.empty());
+  ASSERT_FALSE(miss.empty());
+  ASSERT_FALSE(ray_query.empty());
 
   EXPECT_NE(environment_include.find("float environment_type"), std::string::npos);
-  EXPECT_NE(scene_header.find("PhysicalSky"), std::string::npos);
   EXPECT_NE(render_storage_header.find("float environment_type"), std::string::npos);
-  EXPECT_NE(render_storage_source.find("environment_info_block.environment_type = 2.0f"), std::string::npos);
-  EXPECT_NE(render_storage_source.find("case Scene::EnvironmentType::PhysicalSky"), std::string::npos);
-
-  EXPECT_NE(physical_sky.find("nvpro_core2 nvshaders sky_io.h.slang and sky_functions.h.slang"), std::string::npos);
-  EXPECT_NE(physical_sky.find("SPDX-License-Identifier: Apache-2.0"), std::string::npos);
-  EXPECT_NE(physical_sky.find("params.rgb_unit_conversion = vec3(1.0f / 80000.0f)"), std::string::npos);
-  EXPECT_NE(physical_sky.find("params.multiplier = 0.1f"), std::string::npos);
-  EXPECT_NE(physical_sky.find("params.sun_direction = vec3(-1.23413404e-08f, 0.707106829f, 0.707106709f)"),
+  EXPECT_EQ(scene_header.find(std::string("Physical") + "Sky"), std::string::npos);
+  EXPECT_EQ(editor_source.find(std::string("Physical") + " Sky"), std::string::npos);
+  EXPECT_EQ(render_storage_source.find(std::string("EnvironmentType::Physical") + "Sky"), std::string::npos);
+  EXPECT_EQ(render_storage_source.find(std::string("environment_info_block.environment_type = ") + "2.0f"),
             std::string::npos);
-  EXPECT_NE(physical_sky.find("vec3 EE_PHYSICAL_SKY_EVALUATE"), std::string::npos);
-  EXPECT_NE(physical_sky.find("float EE_PHYSICAL_SKY_PDF"), std::string::npos);
-  EXPECT_NE(physical_sky.find("EEPhysicalSkySamplingResult EE_PHYSICAL_SKY_SAMPLE"), std::string::npos);
-  EXPECT_NE(physical_sky.find("EE_PHYSICAL_SKY_SUN_PROBABILITY"), std::string::npos);
+  EXPECT_EQ(raygen.find(std::string("EE_") + "PHYSICAL_SKY"), std::string::npos);
+  EXPECT_EQ(miss.find(std::string("EE_") + "PHYSICAL_SKY"), std::string::npos);
+  EXPECT_EQ(ray_query.find(std::string("EE_") + "PHYSICAL_SKY"), std::string::npos);
+  EXPECT_FALSE(
+      std::filesystem::exists(ShaderPath(std::filesystem::path("Includes") / (std::string("Physical") + "Sky.glsl"))));
+}
+
+TEST(GltfRayTracingMaterial, SkyIlluminationCubemapBuildUsesNishitaAtmosphere) {
+  const auto atmosphere = ReadTextFile(ShaderPath("Includes/Atmosphere.glsl"));
+  const auto atmosphere_to_cubemap = ReadTextFile(ShaderPath("Graphics/Fragment/Lighting/AtmosphereToCubemap.frag"));
+  const auto cubemap_source = ReadTextFile(SdkPath("src/Cubemap.cpp"));
+  const auto environmental_map_source = ReadTextFile(SdkPath("src/EnvironmentalMap.cpp"));
+  const auto editor_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+
+  ASSERT_FALSE(atmosphere.empty());
+  ASSERT_FALSE(atmosphere_to_cubemap.empty());
+  ASSERT_FALSE(cubemap_source.empty());
+  ASSERT_FALSE(environmental_map_source.empty());
+  ASSERT_FALSE(editor_source.empty());
+
+  EXPECT_NE(atmosphere.find("NishitaSkyIncidentLight"), std::string::npos);
+  EXPECT_NE(atmosphere_to_cubemap.find("NishitaSkyIncidentLight(atmosphere"), std::string::npos);
+  EXPECT_NE(cubemap_source.find("Cubemap::BuildSkyIllumination"), std::string::npos);
+  EXPECT_NE(cubemap_source.find("AtmosphereToCubemap.frag"), std::string::npos);
+  EXPECT_NE(environmental_map_source.find("EnvironmentalMap::BuildSkyIllumination"), std::string::npos);
+  EXPECT_NE(editor_source.find("InspectSkyIllumination"), std::string::npos);
+  EXPECT_NE(editor_source.find("cubemap.BuildSkyIllumination(sky_illumination)"), std::string::npos);
+  EXPECT_NE(editor_source.find("environmental_map.BuildSkyIllumination(sky_illumination)"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, EnvironmentMapModeUsesGeneratedPdfTexture) {

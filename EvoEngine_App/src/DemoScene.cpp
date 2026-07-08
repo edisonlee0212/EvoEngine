@@ -389,8 +389,6 @@ const char* BistroEnvironmentTypeName(const Scene::EnvironmentType environment_t
       return "EnvironmentalMap";
     case Scene::EnvironmentType::Color:
       return "Color";
-    case Scene::EnvironmentType::PhysicalSky:
-      return "PhysicalSky";
   }
   return "Unknown";
 }
@@ -414,7 +412,6 @@ void ConfigureBistroCameraPostProcessing(const std::shared_ptr<Camera>& camera) 
     camera->post_processing_stack_ref = post_processing_stack;
   }
   post_processing_stack->enable_bloom = false;
-  post_processing_stack->enable_screen_space_ambient_occlusion = false;
   post_processing_stack->enable_screen_space_reflection = false;
 }
 

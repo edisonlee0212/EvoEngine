@@ -640,30 +640,30 @@ bool InspectToneMapping(ToneMapping& tone_mapping) {
 bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
   bool changed = false;
 
-  if (ImGui::Checkbox("SSAO", &stack.enable_screen_space_ambient_occlusion))
+  if (ImGui::Checkbox("SSAO##0", &stack.enable_screen_space_ambient_occlusion))
     changed = true;
-  if (stack.enable_screen_space_ambient_occlusion && ImGui::TreeNodeEx("SSAO", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (stack.enable_screen_space_ambient_occlusion && ImGui::TreeNodeEx("SSAO##1", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (InspectScreenSpaceAmbientOcclusion(*stack.screen_space_ambient_occlusion))
       changed = true;
     ImGui::TreePop();
   }
-  if (ImGui::Checkbox("Bloom", &stack.enable_bloom))
+  if (ImGui::Checkbox("Bloom##0", &stack.enable_bloom))
     changed = true;
-  if (stack.enable_bloom && ImGui::TreeNodeEx("Bloom", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (stack.enable_bloom && ImGui::TreeNodeEx("Bloom##1", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (InspectBloom(*stack.bloom))
       changed = true;
     ImGui::TreePop();
   }
-  if (ImGui::Checkbox("SSR", &stack.enable_screen_space_reflection))
+  if (ImGui::Checkbox("SSR##0", &stack.enable_screen_space_reflection))
     changed = true;
-  if (stack.enable_screen_space_reflection && ImGui::TreeNodeEx("SSR", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (stack.enable_screen_space_reflection && ImGui::TreeNodeEx("SSR##1", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (InspectScreenSpaceReflection(*stack.screen_space_reflection))
       changed = true;
     ImGui::TreePop();
   }
-  if (ImGui::Checkbox("Tone Mapping", &stack.enable_tone_mapping))
+  if (ImGui::Checkbox("Tone Mapping##0", &stack.enable_tone_mapping))
     changed = true;
-  if (stack.enable_tone_mapping && ImGui::TreeNodeEx("Tong Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (stack.enable_tone_mapping && ImGui::TreeNodeEx("Tong Mapping##1", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (InspectToneMapping(*stack.tone_mapping))
       changed = true;
     ImGui::TreePop();
@@ -1903,8 +1903,8 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       modified = true;
   }
   if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const char* environment_types[]{"Environmental Map", "Color", "Physical Sky"};
-    static int type = static_cast<int>(scene.environment.environment_type);
+    const char* environment_types[]{"Environmental Map", "Color"};
+    int type = static_cast<int>(scene.environment.environment_type);
     if (ImGui::Combo("Environment type", &type, environment_types, IM_ARRAYSIZE(environment_types))) {
       scene.environment.environment_type = static_cast<Scene::EnvironmentType>(type);
       modified = true;
@@ -1917,8 +1917,6 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       case Scene::EnvironmentType::Color: {
         if (ImGui::ColorEdit3("Background Color", &scene.environment.background_color.x))
           modified = true;
-      } break;
-      case Scene::EnvironmentType::PhysicalSky: {
       } break;
     }
     if (ImGui::DragFloat("Environmental light intensity", &scene.environment.ambient_light_intensity, 0.01f, 0.0f,
