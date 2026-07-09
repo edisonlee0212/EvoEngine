@@ -565,17 +565,33 @@ void TextureStorage::BindTexture2DToDescriptorSet(const std::shared_ptr<Descript
                                                   const uint32_t binding) {
   const auto& storage = GetInstance();
   for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
-    auto& texture_storage = storage.texture_2ds_[texture_index];
-    if (texture_storage.IsGpuUploadPending())
-      continue;
-    if (texture_storage.GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED)
-      continue;
     VkDescriptorImageInfo image_info;
-    image_info.imageLayout = texture_storage.GetLayout();
-    image_info.imageView = texture_storage.GetVkImageView();
-    image_info.sampler = texture_storage.GetVkSampler();
-    descriptor_set->UpdateImageDescriptorBinding(binding, image_info, texture_index);
+    if (TryGetTexture2DDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info)) {
+      descriptor_set->UpdateImageDescriptorBinding(binding, image_info, texture_index);
+    }
   }
+}
+
+bool TextureStorage::TryGetTexture2DDescriptorImageInfo(const uint32_t texture_index,
+                                                        VkDescriptorImageInfo& image_info) {
+  const auto& storage = GetInstance();
+  if (texture_index >= storage.texture_2ds_.size()) {
+    return false;
+  }
+  const auto& texture_storage = storage.texture_2ds_[texture_index];
+  if (!texture_storage.image || !texture_storage.image_view || !texture_storage.sampler ||
+      texture_storage.IsGpuUploadPending()) {
+    return false;
+  }
+  const auto layout = texture_storage.GetLayout();
+  if (layout == VK_IMAGE_LAYOUT_UNDEFINED || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
+      texture_storage.GetVkSampler() == VK_NULL_HANDLE) {
+    return false;
+  }
+  image_info.imageLayout = layout;
+  image_info.imageView = texture_storage.GetVkImageView();
+  image_info.sampler = texture_storage.GetVkSampler();
+  return true;
 }
 
 void TextureStorage::BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set,

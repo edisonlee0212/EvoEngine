@@ -239,6 +239,14 @@ class TextureStorage final {
   static void BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
 
   /**
+   * @brief Resolves a single 2D texture storage index to a sampled image descriptor.
+   * @param texture_index Index in texture storage.
+   * @param image_info Output descriptor image info when the texture is ready for sampling.
+   * @return True when a valid descriptor was produced.
+   */
+  static bool TryGetTexture2DDescriptorImageInfo(uint32_t texture_index, VkDescriptorImageInfo& image_info);
+
+  /**
    * @brief Binds a cubemap to a specified descriptor set at the given binding.
    * @param descriptor_set The descriptor set to bind the cubemap to.
    * @param binding The binding index within the descriptor set.

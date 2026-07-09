@@ -1286,6 +1286,10 @@ const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRenderTexturePresent
   return render_texture_present_layout_;
 }
 
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRasterMaterialDescriptorSetLayout() const {
+  return raster_material_layout_;
+}
+
 void RenderLayer::InitializeCommonDescriptorSetLayouts(
     const ApplicationInitializationSettings& application_initialization_settings) {
   if (!empty_descriptor_set_layout_) {
@@ -1323,6 +1327,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     per_frame_layout_->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     per_frame_layout_->Initialize();
+  }
+  if (!raster_material_layout_) {
+    raster_material_layout_ = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < RenderInstanceStorage::kRasterMaterialTextureSlotCount; binding++) {
+      raster_material_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    }
+    raster_material_layout_->Initialize();
   }
   if (!meshlet_layout_) {
     meshlet_layout_ = std::make_shared<DescriptorSetLayout>();
@@ -2707,6 +2719,41 @@ void RenderLayer::OnCreate() {
   lighting_->Initialize();
 }
 
+void RenderLayer::EnsureRasterMaterialFallbackTextures() const {
+  const auto create_fallback_texture = [](const glm::vec4& color) {
+    auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+    texture->SetRgbaChannelData({color}, {1, 1}, false);
+    texture->UnsafeUploadDataImmediately();
+    return texture;
+  };
+  if (!raster_material_white_fallback_texture_) {
+    raster_material_white_fallback_texture_ = create_fallback_texture(glm::vec4(1.0f));
+  }
+  if (!raster_material_black_fallback_texture_) {
+    raster_material_black_fallback_texture_ = create_fallback_texture(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+  }
+  if (!raster_material_flat_normal_fallback_texture_) {
+    raster_material_flat_normal_fallback_texture_ = create_fallback_texture(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
+  }
+}
+
+std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount>
+RenderLayer::GetRasterMaterialFallbackDescriptorImageInfos() const {
+  EnsureRasterMaterialFallbackTextures();
+  std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount> image_infos{};
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
+                                                     image_infos[0]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
+                                                     image_infos[1]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(
+      raster_material_flat_normal_fallback_texture_->GetTextureStorageIndex(), image_infos[2]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_black_fallback_texture_->GetTextureStorageIndex(),
+                                                     image_infos[3]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
+                                                     image_infos[4]);
+  return image_infos;
+}
+
 void RenderLayer::ClearAllEditorCameras() const {
   const auto scene = GetScene();
   if (!scene)
@@ -3248,6 +3295,9 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
 
 void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
                                             const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
+  render_instances->RefreshRasterMaterialDescriptorSets(raster_material_layout_,
+                                                        GetRasterMaterialFallbackDescriptorImageInfos());
+
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
       0, render_instances->render_info_descriptor_buffer);
   per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(

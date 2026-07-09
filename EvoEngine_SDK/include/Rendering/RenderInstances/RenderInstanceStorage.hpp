@@ -9,9 +9,13 @@
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 
+#include <array>
+
 namespace evo_engine {
 
 class BottomLevelAccelerationStructure;
+class DescriptorSet;
+class DescriptorSetLayout;
 class DeferredGeometryPass;
 class DirectionalLightShadowPass;
 class GaussianSplatCullPass;
@@ -148,6 +152,8 @@ enum class RenderInstanceType {
  */
 class RenderInstanceStorage {
  public:
+  static constexpr uint32_t kRasterMaterialTextureSlotCount = 5;
+
   /**
    * @brief Struct to hold information related to render settings applied.
    */
@@ -724,6 +730,10 @@ class RenderInstanceStorage {
    * @return Index of the registered material.
    */
   [[nodiscard]] int RegisterMaterial(const std::shared_ptr<Material>& material);
+  void RefreshRasterMaterialDescriptorSets(
+      const std::shared_ptr<DescriptorSetLayout>& raster_material_layout,
+      const std::array<VkDescriptorImageInfo, kRasterMaterialTextureSlotCount>& fallback_image_infos);
+  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetRasterMaterialDescriptorSet(uint32_t material_index) const;
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   RenderSettings render_settings{};
   std::shared_ptr<Buffer> gltf_material_descriptor_buffer = {};
@@ -737,6 +747,7 @@ class RenderInstanceStorage {
   std::shared_ptr<Buffer> camera_info_descriptor_buffer = {};
 
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
+  std::vector<std::shared_ptr<DescriptorSet>> raster_material_descriptor_sets;
 
   std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands;
   std::shared_ptr<Buffer> mesh_draw_indexed_indirect_commands_buffer;
@@ -905,6 +916,7 @@ class RenderInstanceStorage {
   std::vector<SpotLightInfoBlock> spot_light_info_blocks_;
 
   std::vector<CameraInfoBlock> camera_info_blocks_{};
+  uint32_t raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
   std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
   std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;

@@ -11,6 +11,7 @@
 #include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
 
+#include <array>
 #include <limits>
 #include <string>
 
@@ -375,6 +376,7 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetCameraGBufferDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
 
  private:
   std::vector<
@@ -472,9 +474,16 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_radix_sort_layout_;
+  std::shared_ptr<DescriptorSetLayout> raster_material_layout_;
+  mutable std::shared_ptr<Texture2D> raster_material_white_fallback_texture_;
+  mutable std::shared_ptr<Texture2D> raster_material_black_fallback_texture_;
+  mutable std::shared_ptr<Texture2D> raster_material_flat_normal_fallback_texture_;
 
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
+  void EnsureRasterMaterialFallbackTextures() const;
+  [[nodiscard]] std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount>
+  GetRasterMaterialFallbackDescriptorImageInfos() const;
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;

@@ -106,6 +106,50 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
             std::string::npos);
 }
 
+TEST(GltfRasterMaterial, RasterMaterialDescriptorCompatibilityResourcesArePresent) {
+  const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto render_instance_header =
+      ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
+  const auto render_instance = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto texture_storage_header = ReadTextFile(SdkPath("include/Rendering/Texture/TextureStorage.hpp"));
+  const auto texture_storage = ReadTextFile(SdkPath("src/TextureStorage.cpp"));
+  ASSERT_FALSE(render_layer_header.empty());
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(render_instance_header.empty());
+  ASSERT_FALSE(render_instance.empty());
+  ASSERT_FALSE(texture_storage_header.empty());
+  ASSERT_FALSE(texture_storage.empty());
+
+  EXPECT_NE(render_instance_header.find("kRasterMaterialTextureSlotCount = 5"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("GetRasterMaterialDescriptorSetLayout"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("raster_material_white_fallback_texture_"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("raster_material_black_fallback_texture_"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("raster_material_flat_normal_fallback_texture_"), std::string::npos);
+  EXPECT_NE(render_layer.find("raster_material_layout_->PushDescriptorBinding"), std::string::npos);
+  EXPECT_NE(render_layer.find("VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER"), std::string::npos);
+  EXPECT_NE(render_layer.find("VK_SHADER_STAGE_FRAGMENT_BIT"), std::string::npos);
+  EXPECT_NE(render_layer.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
+  EXPECT_NE(render_layer.find("glm::vec4(1.0f)"), std::string::npos);
+  EXPECT_NE(render_layer.find("glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)"), std::string::npos);
+  EXPECT_NE(render_layer.find("glm::vec4(0.5f, 0.5f, 1.0f, 1.0f)"), std::string::npos);
+
+  EXPECT_NE(render_instance_header.find("raster_material_descriptor_sets"), std::string::npos);
+  EXPECT_NE(render_instance_header.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
+  EXPECT_NE(render_instance.find("TextureStorage::GetVersion()"), std::string::npos);
+  EXPECT_NE(render_instance.find("raster_material_descriptor_sets.resize(shade_materials.size())"), std::string::npos);
+  EXPECT_NE(render_instance.find("std::make_shared<DescriptorSet>(raster_material_layout)"), std::string::npos);
+  EXPECT_NE(render_instance.find("GltfPbrModel::SpecularGlossiness"), std::string::npos);
+  for (uint32_t binding = 0; binding < 5; binding++) {
+    EXPECT_NE(render_instance.find("UpdateImageDescriptorBinding(" + std::to_string(binding)), std::string::npos);
+  }
+
+  EXPECT_NE(texture_storage_header.find("TryGetTexture2DDescriptorImageInfo"), std::string::npos);
+  EXPECT_NE(texture_storage.find("TextureStorage::TryGetTexture2DDescriptorImageInfo"), std::string::npos);
+  EXPECT_NE(texture_storage.find("texture_storage.IsGpuUploadPending()"), std::string::npos);
+}
+
 TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
   const std::filesystem::path paths[] = {
       ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"),

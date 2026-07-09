@@ -1508,6 +1508,8 @@ void RenderInstanceStorage::Clear() {
 
   camera_info_blocks_.clear();
   gltf_material_cache_.Clear();
+  raster_material_descriptor_sets.clear();
+  raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   instance_info_blocks_.clear();
   directional_light_info_blocks_.clear();
   point_light_info_blocks_.clear();
@@ -1560,6 +1562,67 @@ const std::vector<GltfTextureInfo>& RenderInstanceStorage::GetGltfTextureInfos()
 
 const std::vector<RenderInstanceStorage::InstanceInfoBlock>& RenderInstanceStorage::GetInstanceInfoBlocks() const {
   return instance_info_blocks_;
+}
+
+void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
+    const std::shared_ptr<DescriptorSetLayout>& raster_material_layout,
+    const std::array<VkDescriptorImageInfo, kRasterMaterialTextureSlotCount>& fallback_image_infos) {
+  if (!Platform::Initialized() || !raster_material_layout) {
+    return;
+  }
+  const auto& shade_materials = gltf_material_cache_.GetShadeMaterials();
+  const auto current_texture_storage_version = TextureStorage::GetVersion();
+  if (raster_material_descriptor_sets.size() == shade_materials.size() &&
+      raster_material_descriptor_texture_storage_version_ == current_texture_storage_version) {
+    return;
+  }
+
+  const auto& texture_infos = gltf_material_cache_.GetTextureInfos();
+  raster_material_descriptor_sets.resize(shade_materials.size());
+  const auto resolve_image_info = [&](const uint16_t texture_info_slot,
+                                      const uint32_t fallback_binding) -> VkDescriptorImageInfo {
+    auto image_info = fallback_image_infos[fallback_binding];
+    if (texture_info_slot >= texture_infos.size()) {
+      return image_info;
+    }
+    const auto texture_index = texture_infos[texture_info_slot].index;
+    if (texture_index >= 0) {
+      TextureStorage::TryGetTexture2DDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info);
+    }
+    return image_info;
+  };
+
+  for (uint32_t material_index = 0; material_index < shade_materials.size(); material_index++) {
+    auto& descriptor_set = raster_material_descriptor_sets[material_index];
+    if (!descriptor_set) {
+      descriptor_set = std::make_shared<DescriptorSet>(raster_material_layout);
+    }
+    const auto& material = shade_materials[material_index];
+#if MAT_EXT_SPECULAR_GLOSSINESS
+    const bool specular_glossiness = material.pbr_model == static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
+    const auto base_color_texture =
+        specular_glossiness ? material.pbr_diffuse_texture : material.pbr_base_color_texture;
+    const auto metallic_roughness_texture =
+        specular_glossiness ? material.pbr_specular_glossiness_texture : material.pbr_metallic_roughness_texture;
+#else
+    const auto base_color_texture = material.pbr_base_color_texture;
+    const auto metallic_roughness_texture = material.pbr_metallic_roughness_texture;
+#endif
+    descriptor_set->UpdateImageDescriptorBinding(0, resolve_image_info(base_color_texture, 0));
+    descriptor_set->UpdateImageDescriptorBinding(1, resolve_image_info(metallic_roughness_texture, 1));
+    descriptor_set->UpdateImageDescriptorBinding(2, resolve_image_info(material.normal_texture, 2));
+    descriptor_set->UpdateImageDescriptorBinding(3, resolve_image_info(material.emissive_texture, 3));
+    descriptor_set->UpdateImageDescriptorBinding(4, resolve_image_info(material.occlusion_texture, 4));
+  }
+  raster_material_descriptor_texture_storage_version_ = current_texture_storage_version;
+}
+
+const std::shared_ptr<DescriptorSet>& RenderInstanceStorage::GetRasterMaterialDescriptorSet(
+    const uint32_t material_index) const {
+  if (material_index >= raster_material_descriptor_sets.size()) {
+    throw std::runtime_error("Unable to find raster material descriptor set.");
+  }
+  return raster_material_descriptor_sets[material_index];
 }
 
 void RenderInstanceStorage::CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,
