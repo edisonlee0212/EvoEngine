@@ -22,6 +22,7 @@ struct CameraInfoBlock {
   glm::mat4 inverse_projection_view = {};          ///< The inverse of the combined projection and view matrix.
   glm::mat4 previous_projection_view = {};         ///< The previous frame's combined projection and view matrix.
   glm::vec4 clear_color = {};                      ///< The clear color for rendering.
+  glm::vec4 jitter = {};                           ///< xy current jitter, zw previous jitter in clip-space units.
   glm::vec2 resolution;                            ///< The resolution of the camera.
   float fade_ratio;                                ///< The fade ratio for transitions.
   float fade_factor;                               ///< The fade factor for effects.

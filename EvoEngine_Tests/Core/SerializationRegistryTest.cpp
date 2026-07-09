@@ -764,19 +764,23 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_EQ(restored_prefab.child_prefabs[0]->GetHandle().GetValue(), child_handle.GetValue());
 
   PostProcessingStack stack;
-  stack.enable_screen_space_ambient_occlusion = false;
+  stack.enable_ambient_occlusion = false;
   stack.enable_bloom = false;
   stack.enable_screen_space_reflection = true;
+  stack.enable_temporal_anti_aliasing = false;
   stack.enable_tone_mapping = false;
-  stack.screen_space_ambient_occlusion = std::make_shared<ScreenSpaceAmbientOcclusion>();
-  stack.screen_space_ambient_occlusion->kernel_size = 16;
-  stack.screen_space_ambient_occlusion->radius = 0.35f;
+  stack.ambient_occlusion = std::make_shared<AmbientOcclusion>();
+  stack.ambient_occlusion->algorithm = AmbientOcclusion::Algorithm::Ssao;
+  stack.ambient_occlusion->kernel_size = 16;
+  stack.ambient_occlusion->radius = 0.35f;
   stack.bloom = std::make_shared<Bloom>();
   stack.bloom->filter_radius = 0.02f;
   stack.bloom->bloom_chain_length = 4;
   stack.screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   stack.screen_space_reflection->max_iteration_count = 96;
   stack.screen_space_reflection->blur = false;
+  stack.temporal_anti_aliasing = std::make_shared<TemporalAntiAliasing>();
+  stack.temporal_anti_aliasing->feedback = 0.85f;
   stack.tone_mapping = std::make_shared<ToneMapping>();
   stack.tone_mapping->method = ToneMapping::ToneMapMethod::Filmic;
   stack.tone_mapping->exposure = 1.5f;
@@ -791,13 +795,17 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack_out << YAML::EndMap;
 
   const auto stack_node = YAML::Load(stack_out.c_str());
-  EXPECT_FALSE(stack_node["enable_screen_space_ambient_occlusion"].as<bool>());
+  EXPECT_FALSE(stack_node["enable_ambient_occlusion"].as<bool>());
   EXPECT_FALSE(stack_node["enable_bloom"].as<bool>());
   EXPECT_TRUE(stack_node["enable_screen_space_reflection"].as<bool>());
+  EXPECT_FALSE(stack_node["enable_temporal_anti_aliasing"].as<bool>());
   EXPECT_FALSE(stack_node["enable_tone_mapping"].as<bool>());
-  EXPECT_EQ(stack_node["screen_space_ambient_occlusion"]["kernel_size"].as<int>(), 16);
+  EXPECT_EQ(stack_node["ambient_occlusion"]["algorithm"].as<int>(),
+            static_cast<int>(AmbientOcclusion::Algorithm::Ssao));
+  EXPECT_EQ(stack_node["ambient_occlusion"]["kernel_size"].as<int>(), 16);
   EXPECT_FLOAT_EQ(stack_node["bloom"]["filter_radius"].as<float>(), 0.02f);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
+  EXPECT_FLOAT_EQ(stack_node["temporal_anti_aliasing"]["feedback"].as<float>(), 0.85f);
   EXPECT_EQ(stack_node["tone_mapping"]["method"].as<int>(), static_cast<int>(ToneMapping::ToneMapMethod::Filmic));
   EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["brightness"].as<float>(), 2.2f);
   EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["contrast"].as<float>(), 1.1f);
@@ -844,13 +852,13 @@ tone_mapping:
   dither: false
 )"),
                                    static_cast<IAsset&>(restored_stack));
-  EXPECT_FALSE(restored_stack.enable_screen_space_ambient_occlusion);
+  EXPECT_TRUE(restored_stack.enable_ambient_occlusion);
   EXPECT_TRUE(restored_stack.enable_bloom);
   EXPECT_FALSE(restored_stack.enable_screen_space_reflection);
   EXPECT_TRUE(restored_stack.enable_tone_mapping);
-  ASSERT_TRUE(restored_stack.screen_space_ambient_occlusion);
-  EXPECT_FLOAT_EQ(restored_stack.screen_space_ambient_occlusion->avoid_distance, 3.5f);
-  EXPECT_EQ(restored_stack.screen_space_ambient_occlusion->kernel_size, 24);
+  ASSERT_TRUE(restored_stack.ambient_occlusion);
+  EXPECT_EQ(restored_stack.ambient_occlusion->algorithm, AmbientOcclusion::Algorithm::Gtao);
+  EXPECT_EQ(restored_stack.ambient_occlusion->kernel_size, 64);
   ASSERT_TRUE(restored_stack.bloom);
   EXPECT_FLOAT_EQ(restored_stack.bloom->filter_radius, 0.03f);
   EXPECT_EQ(restored_stack.bloom->bloom_chain_length, 5);

@@ -81,6 +81,8 @@ Other useful preview flags:
 - `--preview-auto-spp-max-samples <n>`
 - `--preview-auto-spp-threshold <value>`
 - `--preview-ser disabled|automatic|enabled`
+- `--preview-ao ssao|gtao|disabled`
+- `--preview-taa enabled|disabled`
 
 ## DemoApp Smoke Run
 

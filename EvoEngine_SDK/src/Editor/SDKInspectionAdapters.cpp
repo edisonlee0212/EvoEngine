@@ -634,22 +634,63 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
   return changed;
 }
 
-bool InspectScreenSpaceAmbientOcclusion(ScreenSpaceAmbientOcclusion& ssao) {
+bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
   bool changed = false;
-  if (ImGui::DragInt("Kernel size", &ssao.kernel_size, 1, 1, 64))
+  int algorithm = static_cast<int>(ambient_occlusion.algorithm);
+  const char* algorithms[] = {"SSAO", "GTAO"};
+  if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
+    ambient_occlusion.algorithm =
+        algorithm == 0 ? AmbientOcclusion::Algorithm::Ssao : AmbientOcclusion::Algorithm::Gtao;
     changed = true;
-  if (ImGui::DragFloat("Disk radius", &ssao.radius, 0.001f, 0.0f, 10.f))
-    changed = true;
-  if (ImGui::DragFloat("Bias", &ssao.bias, 0.001f, 0.0f, 1.f))
-    changed = true;
-  if (ImGui::DragFloat("Factor", &ssao.factor, 0.01f, 0.0f, 5.f))
-    changed = true;
-  if (ImGui::DragFloat("Intensity", &ssao.intensity, 0.01f, 0.0f, 5.f))
-    changed = true;
-  if (ImGui::DragFloat("Avoid distance", &ssao.avoid_distance, 0.1f, 0.0f, 100.f))
-    changed = true;
+  }
+  if (ambient_occlusion.algorithm == AmbientOcclusion::Algorithm::Ssao) {
+    if (ImGui::DragInt("Kernel size", &ambient_occlusion.kernel_size, 1, 1, 64))
+      changed = true;
+    if (ImGui::DragFloat("Disk radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
+      changed = true;
+    if (ImGui::DragFloat("Bias", &ambient_occlusion.bias, 0.001f, 0.0f, 1.f))
+      changed = true;
+    if (ImGui::DragFloat("Factor", &ambient_occlusion.factor, 0.01f, 0.0f, 5.f))
+      changed = true;
+    if (ImGui::DragFloat("Intensity", &ambient_occlusion.intensity, 0.01f, 0.0f, 5.f))
+      changed = true;
+    if (ImGui::DragFloat("Avoid distance", &ambient_occlusion.avoid_distance, 0.1f, 0.0f, 100.f))
+      changed = true;
+  } else {
+    if (ImGui::DragFloat("Radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
+      changed = true;
+    if (ImGui::DragFloat("Thickness", &ambient_occlusion.thickness, 0.01f, 0.001f, 10.f))
+      changed = true;
+    if (ImGui::DragInt("Slice count", &ambient_occlusion.slice_count, 1, 1, 16))
+      changed = true;
+    if (ImGui::DragInt("Steps per slice", &ambient_occlusion.steps_per_slice, 1, 1, 16))
+      changed = true;
+    if (ImGui::DragFloat("Intensity", &ambient_occlusion.intensity, 0.01f, 0.0f, 5.f))
+      changed = true;
+    if (ImGui::DragFloat("Denoise radius", &ambient_occlusion.denoise_radius, 0.01f, 0.0f, 100.f))
+      changed = true;
+    if (ImGui::DragFloat("Bias", &ambient_occlusion.bias, 0.001f, 0.0f, 1.f))
+      changed = true;
+  }
   if (ImGui::Button("Rebuild pipelines")) {
-    ssao.BuildPipelines();
+    ambient_occlusion.BuildPipelines();
+  }
+  return changed;
+}
+
+bool InspectTemporalAntiAliasing(TemporalAntiAliasing& temporal_anti_aliasing) {
+  bool changed = false;
+  if (ImGui::DragFloat("Feedback", &temporal_anti_aliasing.feedback, 0.001f, 0.0f, 0.98f))
+    changed = true;
+  if (ImGui::DragFloat("Clamp strength", &temporal_anti_aliasing.clamp_strength, 0.01f, 0.0f, 10.f))
+    changed = true;
+  if (ImGui::DragFloat("Sharpen", &temporal_anti_aliasing.sharpen, 0.01f, 0.0f, 1.f))
+    changed = true;
+  if (ImGui::Button("Reset history")) {
+    temporal_anti_aliasing.reset_history = true;
+  }
+  if (ImGui::Button("Rebuild pipelines")) {
+    temporal_anti_aliasing.BuildPipelines();
   }
   return changed;
 }
@@ -728,17 +769,10 @@ bool InspectToneMapping(ToneMapping& tone_mapping) {
 bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
   bool changed = false;
 
-  if (ImGui::Checkbox("SSAO##0", &stack.enable_screen_space_ambient_occlusion))
+  if (ImGui::Checkbox("AO##0", &stack.enable_ambient_occlusion))
     changed = true;
-  if (stack.enable_screen_space_ambient_occlusion && ImGui::TreeNodeEx("SSAO##1", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (InspectScreenSpaceAmbientOcclusion(*stack.screen_space_ambient_occlusion))
-      changed = true;
-    ImGui::TreePop();
-  }
-  if (ImGui::Checkbox("Bloom##0", &stack.enable_bloom))
-    changed = true;
-  if (stack.enable_bloom && ImGui::TreeNodeEx("Bloom##1", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (InspectBloom(*stack.bloom))
+  if (stack.enable_ambient_occlusion && ImGui::TreeNodeEx("AO##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectAmbientOcclusion(*stack.ambient_occlusion))
       changed = true;
     ImGui::TreePop();
   }
@@ -746,6 +780,20 @@ bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
     changed = true;
   if (stack.enable_screen_space_reflection && ImGui::TreeNodeEx("SSR##1", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (InspectScreenSpaceReflection(*stack.screen_space_reflection))
+      changed = true;
+    ImGui::TreePop();
+  }
+  if (ImGui::Checkbox("TAA##0", &stack.enable_temporal_anti_aliasing))
+    changed = true;
+  if (stack.enable_temporal_anti_aliasing && ImGui::TreeNodeEx("TAA##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectTemporalAntiAliasing(*stack.temporal_anti_aliasing))
+      changed = true;
+    ImGui::TreePop();
+  }
+  if (ImGui::Checkbox("Bloom##0", &stack.enable_bloom))
+    changed = true;
+  if (stack.enable_bloom && ImGui::TreeNodeEx("Bloom##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectBloom(*stack.bloom))
       changed = true;
     ImGui::TreePop();
   }

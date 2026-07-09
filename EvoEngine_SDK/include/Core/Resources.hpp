@@ -96,7 +96,7 @@ class Resources {
   friend class ReflectionProbe;
   friend class Bloom;
   friend class PostProcessingStack;
-  friend class ScreenSpaceAmbientOcclusion;
+  friend class AmbientOcclusion;
   friend class ScreenSpaceReflection;
   friend class RenderLayer;
   friend class WindowLayer;

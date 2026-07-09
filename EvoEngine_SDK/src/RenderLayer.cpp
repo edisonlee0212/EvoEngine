@@ -4601,6 +4601,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);
     camera->rendered_ = true;
     camera->require_rendering_ = false;
+    camera->frame_count_++;
   }
 }
 

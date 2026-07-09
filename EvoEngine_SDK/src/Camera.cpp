@@ -16,6 +16,23 @@ using namespace evo_engine;
 
 namespace {
 std::unordered_map<uint64_t, glm::mat4> previous_camera_projection_views;
+struct CameraJitterState {
+  glm::vec2 current = {};
+  glm::vec2 previous = {};
+  uint32_t frame_index = 0;
+};
+std::unordered_map<uint64_t, CameraJitterState> camera_jitter_states;
+
+float Halton(uint32_t index, const uint32_t base) {
+  float result = 0.0f;
+  float fraction = 1.0f / static_cast<float>(base);
+  while (index > 0) {
+    result += static_cast<float>(index % base) * fraction;
+    index /= base;
+    fraction /= static_cast<float>(base);
+  }
+  return result;
+}
 
 std::string NormalizeRenderModeName(std::string value) {
   value.erase(std::remove_if(value.begin(), value.end(),
@@ -219,7 +236,13 @@ glm::vec3 CameraInfoBlock::UnProject(const glm::vec3& position) const {
   return start / start.w;
 }
 bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
-  if (projection_view != other.projection_view)
+  const auto unjittered_projection_view = [](const CameraInfoBlock& block) {
+    auto projection = block.projection;
+    projection[2][0] -= block.jitter.x;
+    projection[2][1] -= block.jitter.y;
+    return projection * block.view;
+  };
+  if (unjittered_projection_view(*this) != unjittered_projection_view(other))
     return true;
   if (clear_color != other.clear_color)
     return true;
@@ -336,6 +359,23 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
 
   camera_info_block.projection = glm::perspective(glm::radians(camera_settings.fov * 0.5f), ratio,
                                                   camera_settings.near_distance, camera_settings.far_distance);
+  auto& jitter_state = camera_jitter_states[GetHandle().GetValue()];
+  jitter_state.previous = jitter_state.current;
+  jitter_state.current = {};
+  const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
+  const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
+                           post_processing_stack->enable_temporal_anti_aliasing &&
+                           post_processing_stack->temporal_anti_aliasing;
+  if (taa_enabled && size_.x != 0 && size_.y != 0) {
+    const uint32_t sequence_index = jitter_state.frame_index % 16u + 1u;
+    jitter_state.current = glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
+    jitter_state.current *= 2.0f / glm::vec2(size_);
+    camera_info_block.projection[2][0] += jitter_state.current.x;
+    camera_info_block.projection[2][1] += jitter_state.current.y;
+    ++jitter_state.frame_index;
+  } else {
+    jitter_state.frame_index = 0;
+  }
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
@@ -348,6 +388,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   previous_camera_projection_views[GetHandle().GetValue()] = camera_info_block.projection_view;
   camera_info_block.clear_color =
       glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
+  camera_info_block.jitter = glm::vec4(jitter_state.current, jitter_state.previous);
   camera_info_block.resolution = size_;
   camera_info_block.fade_factor = camera_settings.fade_factor;
   camera_info_block.fade_ratio = camera_settings.fade_ratio;

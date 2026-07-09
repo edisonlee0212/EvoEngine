@@ -5,12 +5,14 @@
 #include "RenderTexture.hpp"
 
 #include <functional>
+#include <unordered_map>
 
 namespace evo_engine {
 class ToneMapping;
 class ScreenSpaceReflection;
 class Bloom;
-class ScreenSpaceAmbientOcclusion;
+class AmbientOcclusion;
+class TemporalAntiAliasing;
 class Camera;
 
 class PostProcessingStack : public IAsset {
@@ -37,16 +39,20 @@ class PostProcessingStack : public IAsset {
   void OnCreate() override;
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
-  std::shared_ptr<ScreenSpaceAmbientOcclusion> screen_space_ambient_occlusion{};
+  std::shared_ptr<AmbientOcclusion> ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
   std::shared_ptr<ScreenSpaceReflection> screen_space_reflection{};
+  std::shared_ptr<TemporalAntiAliasing> temporal_anti_aliasing{};
   std::shared_ptr<ToneMapping> tone_mapping{};
 
   void GaussianBlur(const glm::uvec2& size) const;
+  void ProcessRayCamera(const std::shared_ptr<Camera>& target_camera,
+                        const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
 
-  bool enable_screen_space_ambient_occlusion = true;
+  bool enable_ambient_occlusion = true;
   bool enable_bloom = false;
   bool enable_screen_space_reflection = false;
+  bool enable_temporal_anti_aliasing = true;
   bool enable_tone_mapping = true;
 };
 
@@ -57,8 +63,10 @@ class IPostProcessing {
   virtual void BuildPipelines(bool force_rebuild = false) = 0;
 };
 
-class ScreenSpaceAmbientOcclusion : public IPostProcessing {
+class AmbientOcclusion : public IPostProcessing {
  public:
+  enum class Algorithm : int32_t { Ssao = 0, Gtao = 1 };
+
   std::shared_ptr<DescriptorSetLayout> blur_layout;
   std::shared_ptr<ComputePipeline> blur_pipeline;
 
@@ -77,11 +85,16 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
   /**
    * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
    */
+  Algorithm algorithm = Algorithm::Gtao;
   int kernel_size = 64;
   float radius = 0.15f;
   float bias = 0.01f;
   float factor = 0.0f;
   float intensity = 2.0f;
+  float thickness = 1.0f;
+  int slice_count = 4;
+  int steps_per_slice = 4;
+  float denoise_radius = 0.1f;
   struct PushConstant {
     int camera_index;
     // parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
@@ -90,6 +103,10 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
     float bias;
     float factor;
     float intensity;
+    int algorithm;
+    int slice_count;
+    int steps_per_slice;
+    float thickness;
   };
   std::shared_ptr<DescriptorSetLayout> geometry_output_layout;
   std::shared_ptr<DescriptorSet> geometry_output_descriptor_set;
@@ -100,6 +117,51 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
   void BuildPipelines(bool force_rebuild = false) override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
+};
+
+class TemporalAntiAliasing : public IPostProcessing {
+ public:
+  struct PushConstant {
+    int32_t camera_index = 0;
+    int32_t history_valid = 0;
+    float feedback = 0.75f;
+    float clamp_strength = 1.0f;
+    float sharpen = 0.2f;
+  };
+
+  float feedback = 0.75f;
+  float clamp_strength = 1.0f;
+  float sharpen = 0.2f;
+  bool reset_history = false;
+
+  std::shared_ptr<DescriptorSetLayout> copy_layout;
+  std::shared_ptr<DescriptorSetLayout> resolve_layout;
+  std::shared_ptr<DescriptorSet> copy_descriptor_set;
+  std::shared_ptr<DescriptorSet> resolve_descriptor_set;
+  std::shared_ptr<ComputePipeline> copy_pipeline;
+  std::shared_ptr<ComputePipeline> resolve_pipeline;
+
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
+  void ResetHistory(const std::shared_ptr<Camera>& target_camera = nullptr);
+  void BuildPipelines(bool force_rebuild = false) override;
+  void Serialize(YAML::Emitter& out) const;
+  void Deserialize(const YAML::Node& in);
+
+ private:
+  struct HistoryResources {
+    std::shared_ptr<RenderTexture> textures[2];
+    glm::uvec2 size = glm::uvec2(0);
+    uint32_t frame_index = 0;
+    uint32_t last_processed_frame = 0;
+    float feedback = 0.0f;
+    float clamp_strength = 0.0f;
+    float sharpen = 0.0f;
+    bool valid = false;
+  };
+
+  void PruneHistory(uint32_t current_frame_index, uint64_t active_camera_handle);
+
+  std::unordered_map<uint64_t, HistoryResources> history_resources_;
 };
 
 class ScreenSpaceReflection : public IPostProcessing {

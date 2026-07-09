@@ -54,6 +54,9 @@ struct EditorCommandLine {
   std::optional<int> preview_capture_sample_size;
   std::optional<glm::vec3> preview_capture_camera_position;
   std::optional<glm::vec3> preview_capture_camera_look_at;
+  std::optional<bool> preview_ambient_occlusion_enabled;
+  std::optional<AmbientOcclusion::Algorithm> preview_ambient_occlusion_algorithm;
+  std::optional<bool> preview_temporal_anti_aliasing_enabled;
   std::optional<float> preview_shadow_split_lambda;
   std::optional<float> preview_shadow_cascade_transition_width;
   std::optional<float> preview_shadow_distance_fade;
@@ -100,6 +103,28 @@ bool ParsePreviewBool(const std::string& value, const std::string& argument) {
     return false;
   }
   throw std::invalid_argument(argument + " requires enabled or disabled.");
+}
+
+std::optional<AmbientOcclusion::Algorithm> ParsePreviewAmbientOcclusionAlgorithm(const std::string& value,
+                                                                                 bool& enabled) {
+  auto normalized = value;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (normalized == "ssao") {
+    enabled = true;
+    return AmbientOcclusion::Algorithm::Ssao;
+  }
+  if (normalized == "gtao") {
+    enabled = true;
+    return AmbientOcclusion::Algorithm::Gtao;
+  }
+  if (normalized == "0" || normalized == "off" || normalized == "false" || normalized == "disabled" ||
+      normalized == "disable" || normalized == "none") {
+    enabled = false;
+    return {};
+  }
+  throw std::invalid_argument("--preview-ao requires ssao, gtao, or disabled.");
 }
 
 int ParsePreviewShadowDebugMode(const std::string& value) {
@@ -238,6 +263,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_camera_position = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-camera-look-at") {
       command_line.preview_capture_camera_look_at = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-ao") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ao requires ssao, gtao, or disabled.");
+      }
+      bool preview_ambient_occlusion_enabled = false;
+      command_line.preview_ambient_occlusion_algorithm = ParsePreviewAmbientOcclusionAlgorithm(
+          argv[++arg_index] ? argv[arg_index] : "", preview_ambient_occlusion_enabled);
+      command_line.preview_ambient_occlusion_enabled = preview_ambient_occlusion_enabled;
+    } else if (argument == "--preview-taa") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-taa requires enabled or disabled.");
+      }
+      command_line.preview_temporal_anti_aliasing_enabled =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-shadow-split-lambda") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-shadow-split-lambda requires a value between 0 and 1.");
@@ -306,6 +345,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if ((command_line.preview_capture_camera_position || command_line.preview_capture_camera_look_at) &&
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-camera-position requires --capture-demo-preview.");
+  }
+  if ((command_line.preview_ambient_occlusion_enabled || command_line.preview_ambient_occlusion_algorithm ||
+       command_line.preview_temporal_anti_aliasing_enabled) &&
+      !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("Preview post-processing overrides require --capture-demo-preview.");
   }
   if (command_line.preview_capture_bistro_ddgi && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --capture-demo-preview.");
@@ -662,6 +706,9 @@ void CaptureDemoPreview(
     const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
+    const std::optional<bool>& preview_ambient_occlusion_enabled,
+    const std::optional<AmbientOcclusion::Algorithm>& preview_ambient_occlusion_algorithm,
+    const std::optional<bool>& preview_temporal_anti_aliasing_enabled,
     const std::optional<float>& preview_shadow_split_lambda,
     const std::optional<float>& preview_shadow_cascade_transition_width,
     const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
@@ -727,12 +774,34 @@ void CaptureDemoPreview(
   if (deterministic_capture) {
     if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
       post_processing_stack->enable_bloom = false;
-      post_processing_stack->enable_screen_space_ambient_occlusion = false;
+      post_processing_stack->enable_ambient_occlusion = false;
       post_processing_stack->enable_screen_space_reflection = false;
+      post_processing_stack->enable_temporal_anti_aliasing = false;
       if (post_processing_stack->tone_mapping) {
         post_processing_stack->tone_mapping->auto_exposure = false;
         post_processing_stack->tone_mapping->dither = false;
       }
+    }
+  }
+  if (preview_ambient_occlusion_enabled || preview_ambient_occlusion_algorithm ||
+      preview_temporal_anti_aliasing_enabled) {
+    if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+      if (preview_ambient_occlusion_enabled) {
+        post_processing_stack->enable_ambient_occlusion = *preview_ambient_occlusion_enabled;
+      }
+      if (preview_ambient_occlusion_algorithm) {
+        post_processing_stack->enable_ambient_occlusion = true;
+        if (post_processing_stack->ambient_occlusion) {
+          post_processing_stack->ambient_occlusion->algorithm = *preview_ambient_occlusion_algorithm;
+        }
+      }
+      if (preview_temporal_anti_aliasing_enabled) {
+        post_processing_stack->enable_temporal_anti_aliasing = *preview_temporal_anti_aliasing_enabled;
+        if (post_processing_stack->temporal_anti_aliasing) {
+          post_processing_stack->temporal_anti_aliasing->ResetHistory(scene_camera);
+        }
+      }
+      scene_camera->ResetFrameCount();
     }
   }
   if (preview_shadow_split_lambda || preview_shadow_cascade_transition_width || preview_shadow_distance_fade ||
@@ -869,10 +938,12 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
-              command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
-              command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
-              command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
-              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi);
+              command_line.preview_ambient_occlusion_enabled, command_line.preview_ambient_occlusion_algorithm,
+              command_line.preview_temporal_anti_aliasing_enabled, command_line.preview_shadow_split_lambda,
+              command_line.preview_shadow_cascade_transition_width, command_line.preview_shadow_distance_fade,
+              command_line.preview_shadow_debug_mode, command_line.preview_shadow_debug_cascade,
+              command_line.preview_shadow_debug_light, command_line.preview_capture_deterministic,
+              command_line.preview_capture_bistro_ddgi);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

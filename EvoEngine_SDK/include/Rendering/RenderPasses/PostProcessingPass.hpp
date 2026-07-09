@@ -9,7 +9,7 @@ class PostProcessingPass final {
   struct Parameters {
     std::shared_ptr<Camera> camera;
     bool immediate = false;
-    bool tone_mapping_only = false;
+    bool ray_camera = false;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(const char* dependency);

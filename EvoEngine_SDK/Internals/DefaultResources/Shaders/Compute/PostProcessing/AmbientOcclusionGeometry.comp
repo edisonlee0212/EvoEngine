@@ -1,0 +1,145 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "PerFrame.glsl"
+#include "VogelDisk.glsl"
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 1, binding = 17) uniform sampler2D inDepth;
+layout(set = 1, binding = 21) uniform sampler2D inNormalRoughness;
+layout(set = 2, binding = 0) uniform sampler2D inColor;
+layout(set = 3, binding = 0, rgba32f) uniform writeonly image2D outSrcColor;
+layout(set = 3, binding = 1, rgba32f) uniform writeonly image2D outAmbientOcclusion;
+
+layout(push_constant) uniform EE_AO_CONSTANTS {
+  int EE_CAMERA_INDEX;
+  int kernelSize;
+  float radius;
+  float bias;
+  float factor;
+  float intensity;
+  int algorithm;
+  int sliceCount;
+  int stepsPerSlice;
+  float thickness;
+};
+
+const int EE_AO_SSAO = 0;
+const int EE_AO_GTAO = 1;
+
+vec3 GetNormal(in vec2 texCoord) {
+  return texture(inNormalRoughness, texCoord).rgb;
+}
+
+vec3 GetViewNormal(in vec2 texCoord) {
+  return normalize((EE_CAMERAS[EE_CAMERA_INDEX].view * vec4(GetNormal(texCoord), 0.0f)).xyz);
+}
+
+bool GetViewPosition(in vec2 texCoord, out vec3 position) {
+  if (texCoord.x < 0.0f || texCoord.x > 1.0f || texCoord.y < 0.0f || texCoord.y > 1.0f) {
+    return false;
+  }
+  float ndcDepth = texture(inDepth, texCoord).x;
+  if (ndcDepth == 1.0f) {
+    return false;
+  }
+  position = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
+  return true;
+}
+
+float ComputeSsao(in vec2 texCoord, in vec3 viewPos, in vec3 normal) {
+  vec3 randomVec = EE_UNIFORM_KERNEL[int(EE_INTERLEAVED_GRADIENT_NOISE(viewPos * 3141) * MAX_KERNEL_AMOUNT) %
+                                     MAX_KERNEL_AMOUNT]
+                       .xyz;
+  mat4 projection = EE_CAMERAS[EE_CAMERA_INDEX].projection;
+
+  vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+  vec3 bitangent = cross(normal, tangent);
+  mat3 TBN = mat3(tangent, bitangent, normal);
+  float occlusion = 0.0f;
+  int sampleCount = clamp(kernelSize, 1, MAX_KERNEL_AMOUNT);
+  for (int i = 0; i < sampleCount; ++i) {
+    vec3 point = EE_UNIFORM_KERNEL[i].xyz;
+    point.z = abs(point.z);
+    vec3 samplePos = TBN * point;
+    samplePos = viewPos + samplePos * radius;
+    vec4 offset = vec4(samplePos, 1.0f);
+    offset = projection * offset;
+    offset.xyz /= offset.w;
+    offset.xyz = offset.xyz * 0.5f + 0.5f;
+
+    vec3 sampleViewPos;
+    if (!GetViewPosition(offset.xy, sampleViewPos)) {
+      continue;
+    }
+    float sampleDepth = sampleViewPos.z;
+    float rangeCheck = smoothstep(0.0f, 1.0f, pow((radius - distance(viewPos, sampleViewPos)) / radius, factor));
+    occlusion += (sampleDepth >= (samplePos.z + bias) ? 1.0f : 0.0f) * rangeCheck;
+  }
+  return max(0.0f, 1.0f - occlusion / float(sampleCount) * intensity);
+}
+
+float ComputeGtao(in vec2 texCoord, in vec3 viewPos, in vec3 normal, in vec2 resolution) {
+  int slices = clamp(sliceCount, 1, 16);
+  int steps = clamp(stepsPerSlice, 1, 16);
+  float viewDepth = max(-viewPos.z, 0.001f);
+  float effectiveRadius = max(radius, 1.0f);
+  float pixelRadius = max(1.0f, effectiveRadius * EE_CAMERAS[EE_CAMERA_INDEX].projection[1][1] * resolution.y / viewDepth);
+  float noise = EE_INTERLEAVED_GRADIENT_NOISE(vec3(texCoord, viewDepth));
+  float occlusion = 0.0f;
+
+  for (int slice = 0; slice < slices; ++slice) {
+    float angle = (float(slice) + noise) * 3.14159265f / float(slices);
+    vec2 direction = vec2(cos(angle), sin(angle));
+    float sliceOcclusion = 0.0f;
+
+    for (int side = 0; side < 2; ++side) {
+      vec2 signedDirection = side == 0 ? direction : -direction;
+      float horizon = 0.0f;
+      for (int stepIndex = 1; stepIndex <= steps; ++stepIndex) {
+        float stepRatio = float(stepIndex) / float(steps);
+        vec2 sampleCoord = texCoord + signedDirection * pixelRadius * stepRatio / resolution;
+        vec3 sampleViewPos;
+        if (!GetViewPosition(sampleCoord, sampleViewPos)) {
+          continue;
+        }
+        vec3 delta = sampleViewPos - viewPos;
+        float distanceToSample = length(delta);
+        if (distanceToSample <= 0.0001f || distanceToSample > effectiveRadius) {
+          continue;
+        }
+        float falloff = pow(max(0.0f, 1.0f - distanceToSample / effectiveRadius), max(thickness, 0.001f));
+        float normalOffset = dot(delta, normal) - bias;
+        float tangentDistance = length(delta - normal * dot(delta, normal));
+        float horizonSlope = max(0.0f, normalOffset) / max(tangentDistance, 0.001f);
+        horizon = max(horizon, horizonSlope / (1.0f + horizonSlope) * falloff);
+      }
+      sliceOcclusion += horizon;
+    }
+    occlusion += sliceOcclusion * 0.5f;
+  }
+
+  return 1.0f - clamp(occlusion / float(slices) * intensity, 0.0f, 1.0f);
+}
+
+void main() {
+  uvec2 pixel = gl_GlobalInvocationID.xy;
+  uvec2 resolution = uvec2(imageSize(outSrcColor));
+  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
+    return;
+  }
+
+  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
+  imageStore(outSrcColor, ivec2(pixel), texture(inColor, texCoord));
+
+  vec3 viewPos;
+  if (!GetViewPosition(texCoord, viewPos)) {
+    imageStore(outAmbientOcclusion, ivec2(pixel), vec4(1, 1, 1, 1));
+    return;
+  }
+
+  vec3 normal = GetViewNormal(texCoord);
+  float ambientOcclusion =
+      algorithm == EE_AO_SSAO ? ComputeSsao(texCoord, viewPos, normal) : ComputeGtao(texCoord, viewPos, normal, vec2(resolution));
+  imageStore(outAmbientOcclusion, ivec2(pixel), vec4(vec3(ambientOcclusion), 1.0f));
+}

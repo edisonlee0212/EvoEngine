@@ -78,7 +78,7 @@ intentionally absent; the old normal and UV/material-index compatibility attachm
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
 `StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
-`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, SSAO, scene-camera debug
+`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, AO, TAA, scene-camera debug
 visualization, editor GBuffer preview images, and editor mouse picking decode material, normal, or selection state from
 bindings 20-24. Editor picking reads the instance index from Utility.x.
 
@@ -188,12 +188,16 @@ and triangle offset data.
 
 ## Current Migration Notes
 
+The raster post-processing stack runs in HDR order: ambient occlusion, SSR/reflections, TAA resolve, bloom, then tone
+mapping. `AmbientOcclusion` owns the SSAO/GTAO algorithm selection. New post-processing stacks default to GTAO, TAA,
+bloom, and tone mapping enabled. Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
+
 The renderer has moved many built-in resources into explicit graph resources, but some legacy areas remain:
 
-- SSAO is still a graphics-bound fullscreen render-pass path.
-- The depth pyramid pass currently exists as a graph resource but is still a clear-only producer rather than a
-  hierarchical reduction.
-- Post-processing still contains graphics-bound passes that should move carefully after camera graph ownership is stable.
+- TAA currently owns its own per-camera history textures until graph history resources expose explicit ping-pong bindings.
+- The depth pyramid pass is a graph resource with hierarchical reduction and can be used by future post-processing
+  optimizations when resource ownership is explicit.
+- Post-processing still contains owned resources that should move carefully after camera graph ownership is stable.
 - Async compute/graphics overlap should wait until the remaining resource ownership boundaries are explicit.
 
 ## File Map

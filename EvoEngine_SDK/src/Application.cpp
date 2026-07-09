@@ -307,14 +307,14 @@ void DeserializeAnimator(const YAML::Node& in, Animator& animator) {
 }
 
 void SerializePostProcessingStack(YAML::Emitter& out, const PostProcessingStack& stack) {
-  out << YAML::Key << "enable_screen_space_ambient_occlusion" << YAML::Value
-      << stack.enable_screen_space_ambient_occlusion;
+  out << YAML::Key << "enable_ambient_occlusion" << YAML::Value << stack.enable_ambient_occlusion;
   out << YAML::Key << "enable_bloom" << YAML::Value << stack.enable_bloom;
   out << YAML::Key << "enable_screen_space_reflection" << YAML::Value << stack.enable_screen_space_reflection;
+  out << YAML::Key << "enable_temporal_anti_aliasing" << YAML::Value << stack.enable_temporal_anti_aliasing;
   out << YAML::Key << "enable_tone_mapping" << YAML::Value << stack.enable_tone_mapping;
-  if (stack.screen_space_ambient_occlusion) {
-    out << YAML::Key << "screen_space_ambient_occlusion" << YAML::Value << YAML::BeginMap;
-    stack.screen_space_ambient_occlusion->Serialize(out);
+  if (stack.ambient_occlusion) {
+    out << YAML::Key << "ambient_occlusion" << YAML::Value << YAML::BeginMap;
+    stack.ambient_occlusion->Serialize(out);
     out << YAML::EndMap;
   }
   if (stack.bloom) {
@@ -327,6 +327,11 @@ void SerializePostProcessingStack(YAML::Emitter& out, const PostProcessingStack&
     stack.screen_space_reflection->Serialize(out);
     out << YAML::EndMap;
   }
+  if (stack.temporal_anti_aliasing) {
+    out << YAML::Key << "temporal_anti_aliasing" << YAML::Value << YAML::BeginMap;
+    stack.temporal_anti_aliasing->Serialize(out);
+    out << YAML::EndMap;
+  }
   if (stack.tone_mapping) {
     out << YAML::Key << "tone_mapping" << YAML::Value << YAML::BeginMap;
     stack.tone_mapping->Serialize(out);
@@ -335,19 +340,21 @@ void SerializePostProcessingStack(YAML::Emitter& out, const PostProcessingStack&
 }
 
 void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& stack) {
-  if (in["enable_screen_space_ambient_occlusion"])
-    stack.enable_screen_space_ambient_occlusion = in["enable_screen_space_ambient_occlusion"].as<bool>();
+  if (in["enable_ambient_occlusion"])
+    stack.enable_ambient_occlusion = in["enable_ambient_occlusion"].as<bool>();
   if (in["enable_bloom"])
     stack.enable_bloom = in["enable_bloom"].as<bool>();
   if (in["enable_screen_space_reflection"])
     stack.enable_screen_space_reflection = in["enable_screen_space_reflection"].as<bool>();
+  if (in["enable_temporal_anti_aliasing"])
+    stack.enable_temporal_anti_aliasing = in["enable_temporal_anti_aliasing"].as<bool>();
   if (in["enable_tone_mapping"])
     stack.enable_tone_mapping = in["enable_tone_mapping"].as<bool>();
 
-  if (in["screen_space_ambient_occlusion"]) {
-    if (!stack.screen_space_ambient_occlusion)
-      stack.screen_space_ambient_occlusion = std::make_shared<ScreenSpaceAmbientOcclusion>();
-    stack.screen_space_ambient_occlusion->Deserialize(in["screen_space_ambient_occlusion"]);
+  if (in["ambient_occlusion"]) {
+    if (!stack.ambient_occlusion)
+      stack.ambient_occlusion = std::make_shared<AmbientOcclusion>();
+    stack.ambient_occlusion->Deserialize(in["ambient_occlusion"]);
   }
   if (in["bloom"]) {
     if (!stack.bloom)
@@ -358,6 +365,11 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
     if (!stack.screen_space_reflection)
       stack.screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
     stack.screen_space_reflection->Deserialize(in["screen_space_reflection"]);
+  }
+  if (in["temporal_anti_aliasing"]) {
+    if (!stack.temporal_anti_aliasing)
+      stack.temporal_anti_aliasing = std::make_shared<TemporalAntiAliasing>();
+    stack.temporal_anti_aliasing->Deserialize(in["temporal_anti_aliasing"]);
   }
   if (in["tone_mapping"]) {
     if (!stack.tone_mapping)

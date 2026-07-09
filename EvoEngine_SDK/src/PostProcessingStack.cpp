@@ -12,6 +12,193 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 
+void TemporalAntiAliasing::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "feedback" << YAML::Value << feedback;
+  out << YAML::Key << "clamp_strength" << YAML::Value << clamp_strength;
+  out << YAML::Key << "sharpen" << YAML::Value << sharpen;
+}
+
+void TemporalAntiAliasing::Deserialize(const YAML::Node& in) {
+  if (in["feedback"])
+    feedback = in["feedback"].as<float>();
+  if (in["clamp_strength"])
+    clamp_strength = in["clamp_strength"].as<float>();
+  if (in["sharpen"])
+    sharpen = in["sharpen"].as<float>();
+}
+
+void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_stack,
+                                   const std::shared_ptr<Camera>& target_camera) {
+  if (!copy_pipeline || !copy_pipeline->Initialized() || !resolve_pipeline || !resolve_pipeline->Initialized()) {
+    return;
+  }
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto size = target_camera->GetSize();
+  const uint64_t camera_handle = target_camera->GetHandle().GetValue();
+  const uint32_t current_frame_index = Platform::GetFrameCount();
+  PruneHistory(current_frame_index, camera_handle);
+  auto& history = history_resources_[camera_handle];
+  if (history.size != size || !history.textures[0] || !history.textures[1]) {
+    RenderTextureCreateInfo create_info{};
+    create_info.depth = false;
+    create_info.extent = {size.x, size.y, 1};
+    history.textures[0] = std::make_shared<RenderTexture>(create_info);
+    history.textures[1] = std::make_shared<RenderTexture>(create_info);
+    history.size = size;
+    history.frame_index = 0;
+    history.valid = false;
+  }
+  const uint32_t previous_history_index = history.frame_index % 2u;
+  const uint32_t output_history_index = 1u - previous_history_index;
+  const bool skipped_frame = history.valid && current_frame_index > history.last_processed_frame + 1u;
+  const bool settings_changed =
+      history.valid &&
+      (history.feedback != feedback || history.clamp_strength != clamp_strength || history.sharpen != sharpen);
+  const bool history_valid =
+      history.valid && !reset_history && !skipped_frame && !settings_changed && target_camera->GetFrameCount() != 0u;
+  reset_history = false;
+
+  {
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
+    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
+    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  }
+  {
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = history.textures[previous_history_index]->GetColorImageView()->GetVkImageView();
+    image_info.sampler = history.textures[previous_history_index]->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
+    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    image_info.imageView = history.textures[output_history_index]->GetColorImageView()->GetVkImageView();
+    image_info.sampler = history.textures[output_history_index]->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
+  }
+
+  PushConstant push_constant{};
+  push_constant.camera_index =
+      render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
+  push_constant.history_valid = history_valid ? 1 : 0;
+  push_constant.feedback = glm::clamp(feedback, 0.0f, 0.98f);
+  push_constant.clamp_strength = glm::max(clamp_strength, 0.0f);
+  push_constant.sharpen = glm::max(sharpen, 0.0f);
+
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                    VK_IMAGE_LAYOUT_GENERAL);
+    copy_pipeline->Bind(vk_command_buffer);
+    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
+    copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
+    Platform::EverythingBarrier(vk_command_buffer);
+
+    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    history.textures[previous_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                  VK_IMAGE_LAYOUT_GENERAL);
+    history.textures[output_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                VK_IMAGE_LAYOUT_GENERAL);
+    resolve_pipeline->Bind(vk_command_buffer);
+    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                        render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                        target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
+    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set->GetVkDescriptorSet());
+    resolve_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    resolve_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
+    Platform::EverythingBarrier(vk_command_buffer);
+  });
+
+  history.valid = true;
+  history.frame_index++;
+  history.last_processed_frame = current_frame_index;
+  history.feedback = feedback;
+  history.clamp_strength = clamp_strength;
+  history.sharpen = sharpen;
+}
+
+void TemporalAntiAliasing::ResetHistory(const std::shared_ptr<Camera>& target_camera) {
+  if (!target_camera) {
+    for (auto& history_pair : history_resources_) {
+      history_pair.second.valid = false;
+    }
+    return;
+  }
+  if (const auto search = history_resources_.find(target_camera->GetHandle().GetValue());
+      search != history_resources_.end()) {
+    search->second.valid = false;
+  }
+}
+
+void TemporalAntiAliasing::PruneHistory(const uint32_t current_frame_index, const uint64_t active_camera_handle) {
+  constexpr uint32_t kRetainFrameCount = 120u;
+  for (auto iterator = history_resources_.begin(); iterator != history_resources_.end();) {
+    const auto last_processed_frame = iterator->second.last_processed_frame;
+    if (iterator->first != active_camera_handle && current_frame_index >= last_processed_frame &&
+        current_frame_index - last_processed_frame > kRetainFrameCount) {
+      iterator = history_resources_.erase(iterator);
+    } else {
+      ++iterator;
+    }
+  }
+}
+
+void TemporalAntiAliasing::BuildPipelines(const bool force_rebuild) {
+  if (force_rebuild || !copy_layout) {
+    copy_layout = std::make_shared<DescriptorSetLayout>();
+    copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    copy_layout->Initialize();
+  }
+  if (force_rebuild || !resolve_layout) {
+    resolve_layout = std::make_shared<DescriptorSetLayout>();
+    resolve_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->Initialize();
+  }
+  if (force_rebuild || !copy_descriptor_set) {
+    copy_descriptor_set = std::make_shared<DescriptorSet>(copy_layout);
+  }
+  if (force_rebuild || !resolve_descriptor_set) {
+    resolve_descriptor_set = std::make_shared<DescriptorSet>(resolve_layout);
+  }
+  if (force_rebuild || !copy_pipeline) {
+    copy_pipeline = std::make_shared<ComputePipeline>();
+    copy_pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAACopy.comp");
+    copy_pipeline->descriptor_set_layouts.emplace_back(copy_layout);
+    copy_pipeline->Initialize();
+  }
+  if (force_rebuild || !resolve_pipeline) {
+    resolve_pipeline = std::make_shared<ComputePipeline>();
+    resolve_pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAAResolve.comp");
+    resolve_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
+    resolve_pipeline->descriptor_set_layouts.emplace_back(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
+    resolve_pipeline->descriptor_set_layouts.emplace_back(resolve_layout);
+    auto& push_constant_range = resolve_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(PushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    resolve_pipeline->Initialize();
+  }
+}
+
 void Bloom::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "filter_radius" << YAML::Value << filter_radius;
   out << YAML::Key << "bloom_chain_length" << YAML::Value << bloom_chain_length;
@@ -282,9 +469,10 @@ void PostProcessingStack::OnCreate() {
   source_color_texture = std::make_unique<RenderTexture>(render_texture_create_info);
   result_texture = std::make_unique<RenderTexture>(render_texture_create_info);
   swap_texture = std::make_unique<RenderTexture>(render_texture_create_info);
-  screen_space_ambient_occlusion = std::make_shared<ScreenSpaceAmbientOcclusion>();
+  ambient_occlusion = std::make_shared<AmbientOcclusion>();
   bloom = std::make_shared<Bloom>();
   screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
+  temporal_anti_aliasing = std::make_shared<TemporalAntiAliasing>();
   tone_mapping = std::make_shared<ToneMapping>();
   pipeline_build_step_ = 0;
   pipelines_ready_ = false;
@@ -293,9 +481,10 @@ void PostProcessingStack::OnCreate() {
     }
   }
 
-  enable_screen_space_ambient_occlusion = true;
+  enable_ambient_occlusion = true;
   enable_bloom = true;
   enable_screen_space_reflection = true;
+  enable_temporal_anti_aliasing = true;
   enable_tone_mapping = true;
 }
 
@@ -303,20 +492,23 @@ bool PostProcessingStack::BuildNextPipeline() {
   if (pipelines_ready_) {
     return true;
   }
-  if (!screen_space_ambient_occlusion || !bloom || !screen_space_reflection || !tone_mapping) {
+  if (!ambient_occlusion || !bloom || !screen_space_reflection || !temporal_anti_aliasing || !tone_mapping) {
     return false;
   }
   switch (pipeline_build_step_) {
     case 0:
-      screen_space_ambient_occlusion->BuildPipelines();
+      ambient_occlusion->BuildPipelines();
       break;
     case 1:
-      bloom->BuildPipelines();
-      break;
-    case 2:
       screen_space_reflection->BuildPipelines();
       break;
+    case 2:
+      temporal_anti_aliasing->BuildPipelines();
+      break;
     case 3:
+      bloom->BuildPipelines();
+      break;
+    case 4:
       tone_mapping->BuildPipelines();
       break;
     default:
@@ -324,7 +516,7 @@ bool PostProcessingStack::BuildNextPipeline() {
       return true;
   }
   ++pipeline_build_step_;
-  pipelines_ready_ = pipeline_build_step_ > 3;
+  pipelines_ready_ = pipeline_build_step_ > 4;
   return false;
 }
 
@@ -361,16 +553,41 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
     Platform::RecordCommandsMainQueue(pre_process);
   }
 
-  if (enable_screen_space_ambient_occlusion) {
-    screen_space_ambient_occlusion->Process(*this, target_camera);
-  }
-  if (enable_bloom) {
-    bloom->Process(*this, target_camera);
+  if (enable_ambient_occlusion) {
+    ambient_occlusion->Process(*this, target_camera);
   }
   if (enable_screen_space_reflection) {
     screen_space_reflection->Process(*this, target_camera);
   }
+  if (enable_temporal_anti_aliasing) {
+    temporal_anti_aliasing->Process(*this, target_camera);
+  } else {
+    temporal_anti_aliasing->ResetHistory(target_camera);
+  }
+  if (enable_bloom) {
+    bloom->Process(*this, target_camera);
+  }
 
+  if (enable_tone_mapping) {
+    tone_mapping->Process(*this, target_camera);
+  }
+}
+
+void PostProcessingStack::ProcessRayCamera(const std::shared_ptr<Camera>& target_camera,
+                                           const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process) {
+  if (!target_camera) {
+    return;
+  }
+  if (!BuildNextPipeline()) {
+    return;
+  }
+  Resize(target_camera->GetSize());
+  if (pre_process) {
+    Platform::RecordCommandsMainQueue(pre_process);
+  }
+  if (enable_bloom) {
+    bloom->Process(*this, target_camera);
+  }
   if (enable_tone_mapping) {
     tone_mapping->Process(*this, target_camera);
   }
