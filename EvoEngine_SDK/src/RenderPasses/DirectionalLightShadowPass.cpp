@@ -128,10 +128,19 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
             if (!target_pipeline) {
               return false;
             }
+            const bool alpha_tested_pipeline = target_pipeline == parameters.directional_pipeline ||
+                                               target_pipeline == parameters.instanced_pipeline ||
+                                               target_pipeline == parameters.skinned_pipeline;
+            const auto& per_frame_descriptor_set =
+                alpha_tested_pipeline && parameters.raster_material_per_frame_descriptor_set
+                    ? parameters.raster_material_per_frame_descriptor_set
+                    : parameters.per_frame_descriptor_set;
+            if (!per_frame_descriptor_set) {
+              return false;
+            }
             target_pipeline->states.ResetAllStates(0);
             target_pipeline->Bind(vk_command_buffer);
-            target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                               parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+            target_pipeline->BindDescriptorSet(vk_command_buffer, 0, per_frame_descriptor_set->GetVkDescriptorSet());
             if (parameters.use_mesh_shader && parameters.meshlet_descriptor_set &&
                 (target_pipeline == parameters.directional_pipeline ||
                  target_pipeline == parameters.directional_opaque_pipeline)) {

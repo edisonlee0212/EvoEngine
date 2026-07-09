@@ -94,6 +94,8 @@ TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
 
   EXPECT_NE(per_frame.find("EE_GLTF_MATERIALS_BLOCK_BINDING 11"), std::string::npos);
   EXPECT_NE(per_frame.find("EE_GLTF_TEXTURE_INFOS_BLOCK_BINDING 12"), std::string::npos);
+  EXPECT_NE(per_frame.find("#ifndef EE_SKIP_PER_FRAME_BINDLESS_TEXTURES"), std::string::npos);
+  EXPECT_NE(per_frame.find("#include \"Textures.glsl\""), std::string::npos);
   EXPECT_NE(per_frame.find("#include \"GltfMaterial.glsl\""), std::string::npos);
 
   const auto material = ReadTextFile(ShaderPath("Includes/GltfMaterial.glsl"));
@@ -126,9 +128,17 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
             std::string::npos);
   EXPECT_NE(rendering_docs.find("bypasses all-in-one indirect deferred draws"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Material-batched indirect buffers are the planned path"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("raster material per-frame descriptor set that keeps the shared per-frame buffers"),
+            std::string::npos);
+  EXPECT_NE(rendering_docs.find("omits bindless"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("texture and cubemap array bindings"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Built-in shadow alpha and transparent mesh pipelines"), std::string::npos);
   EXPECT_NE(rendering_docs.find("alpha-tested shadow indirect draws are temporarily routed through direct submission"),
             std::string::npos);
+  EXPECT_NE(rendering_docs.find("Alpha-tested built-in shadow pipelines also use the raster material per-frame"),
+            std::string::npos);
+  EXPECT_NE(rendering_docs.find("Transparent mesh lighting still uses bindless BRDF"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("lookups until the raster global/pass texture migration"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Package or external forward callbacks"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Bindless texture arrays are reserved for ray tracing and ray query paths"),
             std::string::npos);
@@ -155,11 +165,19 @@ TEST(GltfRasterMaterial, RasterMaterialDescriptorCompatibilityResourcesArePresen
 
   EXPECT_NE(render_instance_header.find("kRasterMaterialTextureSlotCount = 5"), std::string::npos);
   EXPECT_NE(render_layer_header.find("GetRasterMaterialDescriptorSetLayout"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("raster_material_per_frame_layout_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("raster_material_per_frame_descriptor_sets_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_material_white_fallback_texture_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_material_black_fallback_texture_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_material_flat_normal_fallback_texture_"), std::string::npos);
   EXPECT_NE(render_layer.find("raster_material_layout_->PushDescriptorBinding"), std::string::npos);
+  EXPECT_NE(render_layer.find("PushPerFrameSceneDescriptorBindings(raster_material_per_frame_layout_)"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("PushPerFrameMaterialBufferDescriptorBindings(raster_material_per_frame_layout_)"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("PushPerFrameBindlessTextureDescriptorBindings(per_frame_layout_"), std::string::npos);
+  EXPECT_NE(render_layer.find("std::make_shared<DescriptorSet>(raster_material_per_frame_layout_)"), std::string::npos);
   EXPECT_NE(render_layer.find("VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER"), std::string::npos);
   EXPECT_NE(render_layer.find("VK_SHADER_STAGE_FRAGMENT_BIT"), std::string::npos);
   EXPECT_NE(render_layer.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
@@ -193,46 +211,56 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   ASSERT_FALSE(utilities.empty());
 
   EXPECT_NE(render_layer.find("std::string CreateRasterMaterialShaderDefines()"), std::string::npos);
+  EXPECT_NE(render_layer.find("std::string CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
+  EXPECT_NE(render_layer.find("#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1"), std::string::npos);
   EXPECT_NE(render_layer.find("#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1"), std::string::npos);
 
-  const std::string normal_pipeline = ExtractSourceRange(
-      render_layer, "deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);",
-      "deferred_prepass_pipeline_normal->depth_attachment_format");
+  const std::string normal_pipeline = ExtractSourceRange(render_layer, "if (!deferred_prepass_pipeline_normal)",
+                                                         "deferred_prepass_pipeline_normal->depth_attachment_format");
+  EXPECT_NE(normal_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
+  EXPECT_NE(normal_pipeline.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
   EXPECT_EQ(CountOccurrences(normal_pipeline, "empty_descriptor_set_layout_"), 2);
   EXPECT_NE(normal_pipeline.find("raster_material_layout_"), std::string::npos);
 
-  const std::string mesh_pipeline = ExtractSourceRange(
-      render_layer, "deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout_);",
-      "deferred_prepass_pipeline_mesh->depth_attachment_format");
+  const std::string mesh_pipeline =
+      ExtractSourceRange(render_layer,
+                         "if (Platform::GetInstance().GetCapabilities().support_mesh_shader && "
+                         "!deferred_prepass_pipeline_mesh)",
+                         "deferred_prepass_pipeline_mesh->depth_attachment_format");
+  EXPECT_NE(mesh_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
+  EXPECT_NE(mesh_pipeline.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
   EXPECT_NE(mesh_pipeline.find("meshlet_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(mesh_pipeline, "empty_descriptor_set_layout_"), 1);
   EXPECT_NE(mesh_pipeline.find("raster_material_layout_"), std::string::npos);
 
-  const std::string instanced_pipeline = ExtractSourceRange(
-      render_layer, "instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);",
-      "instanced_deferred_prepass_pipeline->depth_attachment_format");
+  const std::string instanced_pipeline =
+      ExtractSourceRange(render_layer, "if (!instanced_deferred_prepass_pipeline)",
+                         "instanced_deferred_prepass_pipeline->depth_attachment_format");
+  EXPECT_NE(instanced_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
+  EXPECT_NE(instanced_pipeline.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
   EXPECT_NE(instanced_pipeline.find("particle_instanced_data_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(instanced_pipeline, "empty_descriptor_set_layout_"), 1);
   EXPECT_NE(instanced_pipeline.find("raster_material_layout_"), std::string::npos);
 
-  const std::string skinned_pipeline = ExtractSourceRange(
-      render_layer, "skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);",
-      "skinned_deferred_prepass_pipeline->depth_attachment_format");
+  const std::string skinned_pipeline = ExtractSourceRange(render_layer, "if (!skinned_deferred_prepass_pipeline)",
+                                                          "skinned_deferred_prepass_pipeline->depth_attachment_format");
+  EXPECT_NE(skinned_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
+  EXPECT_NE(skinned_pipeline.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
   EXPECT_NE(skinned_pipeline.find("bone_matrices_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(skinned_pipeline, "empty_descriptor_set_layout_"), 1);
   EXPECT_NE(skinned_pipeline.find("raster_material_layout_"), std::string::npos);
 
-  const std::string strands_pipeline = ExtractSourceRange(
-      render_layer, "strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);",
-      "strands_deferred_prepass_pipeline->tessellation_patch_control_points");
+  const std::string strands_pipeline =
+      ExtractSourceRange(render_layer, "if (!strands_deferred_prepass_pipeline)",
+                         "strands_deferred_prepass_pipeline->tessellation_patch_control_points");
+  EXPECT_NE(strands_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
+  EXPECT_NE(strands_pipeline.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
   EXPECT_NE(strands_pipeline.find("particle_instanced_data_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(strands_pipeline, "empty_descriptor_set_layout_"), 1);
   EXPECT_NE(strands_pipeline.find("raster_material_layout_"), std::string::npos);
 
-  EXPECT_NE(
-      render_layer.find(
-          "camera_index, current_frame_index, use_mesh_shader, enable_indirect_rendering, true, count_draw_calls"),
-      std::string::npos);
+  EXPECT_NE(render_layer.find("raster_material_per_frame_descriptor_sets_[current_frame_index]"), std::string::npos);
+  EXPECT_NE(render_layer.find("enable_indirect_rendering, true, count_draw_calls, wire_frame"), std::string::npos);
 
   EXPECT_NE(pass_header.find("bind_raster_material_descriptor_sets"), std::string::npos);
   EXPECT_NE(pass.find("BindRasterMaterialDescriptorSet"), std::string::npos);
@@ -267,16 +295,18 @@ TEST(GltfRasterMaterial, ShadowAndTransparentPassesBindRasterMaterialDescriptors
     const std::string block =
         ExtractSourceRange(render_layer, std::string(pipeline) + "->fragment_shader = Shader::CreateTemporary",
                            std::string(pipeline) + "->depth_attachment_format");
-    EXPECT_NE(block.find("CreateRasterMaterialShaderDefines()"), std::string::npos) << pipeline;
+    EXPECT_NE(block.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos) << pipeline;
+    EXPECT_NE(block.find("raster_material_per_frame_layout_"), std::string::npos) << pipeline;
     EXPECT_NE(block.find("raster_material_layout_"), std::string::npos) << pipeline;
   }
 
   const std::string shadow_mesh_helper =
       ExtractSourceRange(render_layer, "std::shared_ptr<GraphicsPipeline> CreateShadowMeshPipeline",
                          "std::shared_ptr<GraphicsPipeline> CreateGaussianSplatPipeline");
-  EXPECT_NE(shadow_mesh_helper.find("CreateRasterMaterialShaderDefines()"), std::string::npos);
+  EXPECT_NE(shadow_mesh_helper.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
+  EXPECT_NE(shadow_mesh_helper.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
   EXPECT_EQ(CountOccurrences(render_layer,
-                             "{per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, "
+                             "{raster_material_per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, "
                              "raster_material_layout_}"),
             3);
 
@@ -292,12 +322,17 @@ TEST(GltfRasterMaterial, ShadowAndTransparentPassesBindRasterMaterialDescriptors
 
   EXPECT_NE(utilities_header.find("BindRasterMaterialDescriptorSet"), std::string::npos);
   EXPECT_NE(directional_header.find("bind_raster_material_descriptor_sets"), std::string::npos);
+  EXPECT_NE(directional_header.find("raster_material_per_frame_descriptor_set"), std::string::npos);
   EXPECT_NE(
       directional.find("parameters.enable_indirect_rendering && !parameters.bind_raster_material_descriptor_sets"),
       std::string::npos);
+  EXPECT_NE(directional.find("alpha_tested_pipeline && parameters.raster_material_per_frame_descriptor_set"),
+            std::string::npos);
   EXPECT_EQ(CountOccurrences(directional, "alpha_tested && parameters.bind_raster_material_descriptor_sets"), 3);
   EXPECT_NE(render_layer.find("const bool bind_raster_material_descriptor_sets = true"), std::string::npos);
   EXPECT_NE(render_layer.find("enable_indirect_rendering && !bind_raster_material_descriptor_sets"), std::string::npos);
+  EXPECT_NE(render_layer.find("const auto& per_frame_descriptor_set = alpha_tested_pipeline"), std::string::npos);
+  EXPECT_NE(render_layer.find("raster_material_per_frame_descriptor_sets_[current_frame_index]"), std::string::npos);
   EXPECT_NE(render_layer.find("point_light_info_block.viewport, false, true"), std::string::npos);
   EXPECT_NE(render_layer.find("spot_light_info_block.viewport, false, true"), std::string::npos);
   EXPECT_NE(render_layer.find("BindRasterMaterialDescriptorSet(vk_command_buffer, target_pipeline, "

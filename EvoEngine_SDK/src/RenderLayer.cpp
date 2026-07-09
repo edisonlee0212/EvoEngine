@@ -147,6 +147,47 @@ std::string CreateRasterMaterialShaderDefines() {
   return Platform::GetShaderGlobalDefines() + "\n#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
 }
 
+std::string CreateRasterNoBindlessTextureShaderDefines() {
+  return Platform::GetShaderGlobalDefines() + "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n";
+}
+
+std::string CreateRasterMaterialNoBindlessShaderDefines() {
+  return CreateRasterNoBindlessTextureShaderDefines() + "#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+}
+
+void PushPerFrameSceneDescriptorBindings(const std::shared_ptr<DescriptorSetLayout>& layout) {
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+}
+
+void PushPerFrameBindlessTextureDescriptorBindings(
+    const std::shared_ptr<DescriptorSetLayout>& layout,
+    const ApplicationInitializationSettings& application_initialization_settings) {
+  layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT |
+                                    VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+                                application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
+  layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT |
+                                    VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+                                application_initialization_settings.graphics_settings.max_cubemap_resource_size);
+}
+
+void PushPerFrameMaterialBufferDescriptorBindings(const std::shared_ptr<DescriptorSetLayout>& layout) {
+  layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+}
+
 std::shared_ptr<GraphicsPipeline> CreateShadowVertexPipeline(
     const std::filesystem::path& vertex_shader_path, const std::filesystem::path& fragment_shader_path,
     const GeometryType geometry_type,
@@ -176,11 +217,11 @@ std::shared_ptr<GraphicsPipeline> CreateShadowMeshPipeline(
     const std::initializer_list<std::shared_ptr<DescriptorSetLayout>>& descriptor_set_layouts) {
   auto pipeline = std::make_shared<GraphicsPipeline>();
   pipeline->task_shader =
-      Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(), task_shader_path);
+      Shader::CreateTemporary(ShaderType::Task, CreateRasterNoBindlessTextureShaderDefines(), task_shader_path);
   pipeline->mesh_shader =
-      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(), mesh_shader_path);
-  pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, CreateRasterMaterialShaderDefines(), fragment_shader_path);
+      Shader::CreateTemporary(ShaderType::Mesh, CreateRasterNoBindlessTextureShaderDefines(), mesh_shader_path);
+  pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(), fragment_shader_path);
   pipeline->geometry_type = GeometryType::Mesh;
   for (const auto& descriptor_set_layout : descriptor_set_layouts) {
     pipeline->descriptor_set_layouts.emplace_back(descriptor_set_layout);
@@ -1308,29 +1349,16 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   }
   if (!per_frame_layout_) {
     per_frame_layout_ = std::make_shared<DescriptorSetLayout>();
-    per_frame_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(
-        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
-        application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
-    per_frame_layout_->PushDescriptorBinding(
-        10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
-        application_initialization_settings.graphics_settings.max_cubemap_resource_size);
-    per_frame_layout_->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    per_frame_layout_->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    PushPerFrameSceneDescriptorBindings(per_frame_layout_);
+    PushPerFrameBindlessTextureDescriptorBindings(per_frame_layout_, application_initialization_settings);
+    PushPerFrameMaterialBufferDescriptorBindings(per_frame_layout_);
     per_frame_layout_->Initialize();
+  }
+  if (!raster_material_per_frame_layout_) {
+    raster_material_per_frame_layout_ = std::make_shared<DescriptorSetLayout>();
+    PushPerFrameSceneDescriptorBindings(raster_material_per_frame_layout_);
+    PushPerFrameMaterialBufferDescriptorBindings(raster_material_per_frame_layout_);
+    raster_material_per_frame_layout_->Initialize();
   }
   if (!raster_material_layout_) {
     raster_material_layout_ = std::make_shared<DescriptorSetLayout>();
@@ -1779,13 +1807,13 @@ void RenderLayer::OnCreate() {
   if (!point_light_shadow_pipeline_normal) {
     point_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     point_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.vert");
     point_light_shadow_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     point_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
-    point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     point_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -1830,18 +1858,18 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.task",
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.mesh",
         shadow_alpha_fragment_shader_path,
-        {per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, raster_material_layout_});
+        {raster_material_per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, raster_material_layout_});
   }
   if (!spot_light_shadow_pipeline_normal) {
     spot_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.vert");
     spot_light_shadow_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     spot_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
-    spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     spot_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -1886,18 +1914,18 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.task",
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.mesh",
         shadow_alpha_fragment_shader_path,
-        {per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, raster_material_layout_});
+        {raster_material_per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, raster_material_layout_});
   }
   if (!directional_light_shadow_pipeline_normal) {
     directional_light_shadow_pipeline_normal = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert");
     directional_light_shadow_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     directional_light_shadow_pipeline_normal->geometry_type = GeometryType::Mesh;
-    directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     directional_light_shadow_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -1942,18 +1970,18 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.task",
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh",
         shadow_alpha_fragment_shader_path,
-        {per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, raster_material_layout_});
+        {raster_material_per_frame_layout_, meshlet_layout_, empty_descriptor_set_layout_, raster_material_layout_});
   }
   if (!instanced_point_light_shadow_pipeline) {
     instanced_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_point_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert");
     instanced_point_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_point_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     instanced_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -1973,13 +2001,13 @@ void RenderLayer::OnCreate() {
   if (!instanced_spot_light_shadow_pipeline) {
     instanced_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_spot_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert");
     instanced_spot_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_spot_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     instanced_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -1999,14 +2027,14 @@ void RenderLayer::OnCreate() {
   if (!instanced_directional_light_shadow_pipeline) {
     instanced_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_directional_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Shader::CreateTemporary(ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
                                 Resources::GetDefaultResourcesPath() /
                                     "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert");
     instanced_directional_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     instanced_directional_light_shadow_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     instanced_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2027,13 +2055,13 @@ void RenderLayer::OnCreate() {
   if (!skinned_point_light_shadow_pipeline) {
     skinned_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_point_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert");
     skinned_point_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_point_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     skinned_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2053,13 +2081,13 @@ void RenderLayer::OnCreate() {
   if (!skinned_spot_light_shadow_pipeline) {
     skinned_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_spot_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert");
     skinned_spot_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_spot_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     skinned_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2079,14 +2107,14 @@ void RenderLayer::OnCreate() {
   if (!skinned_directional_light_shadow_pipeline) {
     skinned_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_directional_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Shader::CreateTemporary(ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
                                 Resources::GetDefaultResourcesPath() /
                                     "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert");
     skinned_directional_light_shadow_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/ShadowMapPassThrough.frag");
     skinned_directional_light_shadow_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     skinned_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2200,13 +2228,13 @@ void RenderLayer::OnCreate() {
   if (!deferred_prepass_pipeline_normal) {
     deferred_prepass_pipeline_normal = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.vert");
     deferred_prepass_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
-    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2222,16 +2250,16 @@ void RenderLayer::OnCreate() {
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !deferred_prepass_pipeline_mesh) {
     deferred_prepass_pipeline_mesh = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_mesh->task_shader =
-        Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
+        Shader::CreateTemporary(ShaderType::Task, CreateRasterNoBindlessTextureShaderDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/Standard.task");
     deferred_prepass_pipeline_mesh->mesh_shader =
-        Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+        Shader::CreateTemporary(ShaderType::Mesh, CreateRasterNoBindlessTextureShaderDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/Standard.mesh");
     deferred_prepass_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2247,13 +2275,13 @@ void RenderLayer::OnCreate() {
   if (!instanced_deferred_prepass_pipeline) {
     instanced_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
     instanced_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2269,13 +2297,13 @@ void RenderLayer::OnCreate() {
   if (!skinned_deferred_prepass_pipeline) {
     skinned_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardSkinned.vert");
     skinned_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2292,22 +2320,22 @@ void RenderLayer::OnCreate() {
   if (!strands_deferred_prepass_pipeline) {
     strands_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     strands_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardStrands.vert");
     strands_deferred_prepass_pipeline->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
+        ShaderType::TessellationControl, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Standard/StandardStrands.tesc");
     strands_deferred_prepass_pipeline->tessellation_evaluation_shader = Shader::CreateTemporary(
-        ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
+        ShaderType::TessellationEvaluation, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationEvaluation/Standard/StandardStrands.tese");
     strands_deferred_prepass_pipeline->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
+        ShaderType::Geometry, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
@@ -2727,6 +2755,12 @@ void RenderLayer::OnCreate() {
   for (size_t i = 0; i < max_frames_in_flight; i++) {
     auto descriptor_set = std::make_shared<DescriptorSet>(per_frame_layout_);
     per_frame_descriptor_sets_.emplace_back(descriptor_set);
+  }
+
+  raster_material_per_frame_descriptor_sets_.clear();
+  for (size_t i = 0; i < max_frames_in_flight; i++) {
+    auto descriptor_set = std::make_shared<DescriptorSet>(raster_material_per_frame_layout_);
+    raster_material_per_frame_descriptor_sets_.emplace_back(descriptor_set);
   }
 
   meshlet_descriptor_sets_.clear();
@@ -3338,32 +3372,26 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
   render_instances->RefreshRasterMaterialDescriptorSets(raster_material_layout_,
                                                         GetRasterMaterialFallbackDescriptorImageInfos());
 
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      0, render_instances->render_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      1, render_instances->environment_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      2, render_instances->camera_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      4, render_instances->instance_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      5, kernel_descriptor_buffers_[current_frame_index]);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      6, render_instances->directional_light_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      7, render_instances->point_light_info_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      8, render_instances->spot_light_info_descriptor_buffer);
+  const auto update_per_frame_buffers = [&](const std::shared_ptr<DescriptorSet>& descriptor_set) {
+    descriptor_set->UpdateBufferDescriptorBinding(0, render_instances->render_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(1, render_instances->environment_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(2, render_instances->camera_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(4, render_instances->instance_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(5, kernel_descriptor_buffers_[current_frame_index]);
+    descriptor_set->UpdateBufferDescriptorBinding(6, render_instances->directional_light_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(7, render_instances->point_light_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(8, render_instances->spot_light_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(11, render_instances->gltf_material_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(12, render_instances->gltf_texture_info_descriptor_buffer);
+  };
+  update_per_frame_buffers(per_frame_descriptor_sets_[current_frame_index]);
+  update_per_frame_buffers(raster_material_per_frame_descriptor_sets_[current_frame_index]);
 
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
 
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      11, render_instances->gltf_material_descriptor_buffer);
-  per_frame_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-      12, render_instances->gltf_texture_info_descriptor_buffer);
 }
 
 void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
@@ -3828,10 +3856,18 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       if (!target_pipeline) {
         return false;
       }
+      const bool alpha_tested_pipeline = target_pipeline == point_light_shadow_pipeline ||
+                                         target_pipeline == spot_light_shadow_pipeline ||
+                                         target_pipeline == instanced_point_light_shadow_pipeline ||
+                                         target_pipeline == instanced_spot_light_shadow_pipeline ||
+                                         target_pipeline == skinned_point_light_shadow_pipeline ||
+                                         target_pipeline == skinned_spot_light_shadow_pipeline;
+      const auto& per_frame_descriptor_set = alpha_tested_pipeline
+                                                 ? raster_material_per_frame_descriptor_sets_[current_frame_index]
+                                                 : per_frame_descriptor_sets_[current_frame_index];
       target_pipeline->states.ResetAllStates(0);
       target_pipeline->Bind(vk_command_buffer);
-      target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                         per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+      target_pipeline->BindDescriptorSet(vk_command_buffer, 0, per_frame_descriptor_set->GetVkDescriptorSet());
       if (use_mesh_shader &&
           (target_pipeline == point_light_shadow_pipeline || target_pipeline == point_light_shadow_opaque_pipeline ||
            target_pipeline == spot_light_shadow_pipeline || target_pipeline == spot_light_shadow_opaque_pipeline)) {
@@ -4501,6 +4537,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                skinned_directional_light_shadow_pipeline_opaque,
                strands_directional_light_shadow_pipeline,
                per_frame_descriptor_sets_[current_frame_index],
+               raster_material_per_frame_descriptor_sets_[current_frame_index],
                meshlet_descriptor_sets_[current_frame_index],
                camera_index,
                static_cast<int>(graphics_settings.max_directional_light_size),
@@ -4533,9 +4570,9 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               context,
               {camera, current_render_instances, deferred_prepass_pipeline, instanced_deferred_prepass_pipeline,
                skinned_deferred_prepass_pipeline, strands_deferred_prepass_pipeline,
-               per_frame_descriptor_sets_[current_frame_index], meshlet_descriptor_sets_[current_frame_index],
-               camera_index, current_frame_index, use_mesh_shader, enable_indirect_rendering, true, count_draw_calls,
-               wire_frame,
+               raster_material_per_frame_descriptor_sets_[current_frame_index],
+               meshlet_descriptor_sets_[current_frame_index], camera_index, current_frame_index, use_mesh_shader,
+               enable_indirect_rendering, true, count_draw_calls, wire_frame,
                [&](const VkCommandBuffer vk_command_buffer,
                    const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {
                  for (const auto& func : deferred_rendering_external_functions) {

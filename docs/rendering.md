@@ -130,14 +130,18 @@ bind the documented fallback textures.
 Opaque deferred direct draw pipelines currently enable the fixed raster material backend. While per-material descriptor
 sets are bound per draw, `DeferredGeometryPass` bypasses all-in-one indirect deferred draws so each draw can bind the
 correct material descriptor set. Material-batched indirect buffers are the planned path for restoring indirect deferred
-rendering without returning opaque raster material sampling to bindless texture arrays.
+rendering without returning opaque raster material sampling to bindless texture arrays. These opaque material-producing
+pipelines use a raster material per-frame descriptor set that keeps the shared per-frame buffers but omits bindless
+texture and cubemap array bindings.
 
 Built-in shadow alpha and transparent mesh pipelines also use the fixed raster material backend and bind the material
 descriptor set before direct material-sampling draws. Opaque shadow indirect draws may remain indirect because they use a
 texture-free empty fragment shader; alpha-tested shadow indirect draws are temporarily routed through direct submission
 until material-batched indirect buffers can bind one material descriptor per batch. Package or external forward callbacks
 that evaluate glTF raster materials are explicit migration fallbacks until their owners provide fixed material
-descriptors or material-batched submission.
+descriptors or material-batched submission. Alpha-tested built-in shadow pipelines also use the raster material per-frame
+descriptor set without bindless texture arrays. Transparent mesh lighting still uses bindless BRDF and environment
+lookups until the raster global/pass texture migration replaces those dependencies.
 
 Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and `OffscreenPreviewRenderer`, which build a
 temporary scene, upload referenced preview textures, force a raster camera, disable preview-only volumetric clouds and

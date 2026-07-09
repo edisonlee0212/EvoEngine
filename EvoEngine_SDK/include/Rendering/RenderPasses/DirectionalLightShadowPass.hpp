@@ -27,6 +27,7 @@ class DirectionalLightShadowPass final {
     std::shared_ptr<GraphicsPipeline> skinned_opaque_pipeline;
     std::shared_ptr<GraphicsPipeline> strands_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
+    std::shared_ptr<DescriptorSet> raster_material_per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> meshlet_descriptor_set;
     int camera_index = -1;
     int max_directional_light_count = 0;
