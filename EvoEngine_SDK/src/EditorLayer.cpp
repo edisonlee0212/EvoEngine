@@ -120,6 +120,44 @@ bool TryMapAspectFitMouseToTexture(const AspectFitRect& rect, const glm::uvec2& 
          texture_mouse_position.y < static_cast<float>(texture_size.y);
 }
 
+std::string FormatRenderCounter(const size_t value) {
+  if (value < 999) {
+    return std::to_string(value);
+  }
+  if (value < 999999) {
+    return std::to_string(static_cast<int>(value / 1000)) + "K";
+  }
+  return std::to_string(static_cast<int>(value / 1000000)) + "M";
+}
+
+void DrawRenderCounterSummary(const Platform& graphics, const uint32_t current_frame_index) {
+  const auto prim_count =
+      current_frame_index < graphics.prim_count.size() ? graphics.prim_count[current_frame_index] : 0u;
+  const auto draw_call_count =
+      current_frame_index < graphics.draw_call.size() ? graphics.draw_call[current_frame_index] : 0u;
+  ImGui::Text("%s tris", FormatRenderCounter(prim_count).c_str());
+  ImGui::Text("%llu draw submissions", static_cast<unsigned long long>(draw_call_count));
+  if (current_frame_index >= graphics.render_pass_draw_stats.size()) {
+    return;
+  }
+  if (!ImGui::TreeNode("Pass draws")) {
+    return;
+  }
+  for (size_t bucket_index = 0; bucket_index < Platform::kRenderPassDrawBucketCount; bucket_index++) {
+    const auto& stats = graphics.render_pass_draw_stats[current_frame_index][bucket_index];
+    if (stats.TotalDrawCalls() == 0 && stats.prim_count == 0 && stats.indirect_draw_commands == 0) {
+      continue;
+    }
+    ImGui::Text("%s: %llu direct, %llu indirect, %llu records, %s prims",
+                Platform::GetRenderPassDrawBucketName(static_cast<RenderPassDrawBucket>(bucket_index)),
+                static_cast<unsigned long long>(stats.direct_draw_calls),
+                static_cast<unsigned long long>(stats.indirect_draw_calls),
+                static_cast<unsigned long long>(stats.indirect_draw_commands),
+                FormatRenderCounter(stats.prim_count).c_str());
+  }
+  ImGui::TreePop();
+}
+
 bool CurrentTitleBarAccent(ImU32& accent) {
   switch (ApplicationContext::Get().GetApplicationStatus()) {
     case Application::ExecutionStatus::Playing:
@@ -3681,18 +3719,8 @@ void EditorLayer::SceneCameraWindow() {
               ImGui::BeginChild("Info", ImVec2(150, 150), child_flags, window_flags)) {
             ImGui::Text("Info:");
             ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
-            std::string draw_call_info = {};
             const auto current_frame_index = Platform::GetCurrentFrameIndex();
-            if (graphics.prim_count[current_frame_index] < 999)
-              draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
-            else if (graphics.prim_count[current_frame_index] < 999999)
-              draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
-            else
-              draw_call_info +=
-                  std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
-            draw_call_info += " tris";
-            ImGui::Text(draw_call_info.c_str());
-            ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
+            DrawRenderCounterSummary(graphics, current_frame_index);
             ImGui::Text("Idle: %.3f", graphics.cpu_wait_time);
             ImGui::Separator();
             if (ImGui::IsMousePosValid()) {
@@ -3831,18 +3859,8 @@ void EditorLayer::MainCameraWindow() {
               ImGui::DragFloat("Resolution multiplier", &main_camera_resolution_multiplier_, 0.1f, 0.1f, 4.0f);
             }
             ImGui::PopItemWidth();
-            std::string draw_call_info = {};
             const auto current_frame_index = Platform::GetCurrentFrameIndex();
-            if (graphics.prim_count[current_frame_index] < 999)
-              draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
-            else if (graphics.prim_count[current_frame_index] < 999999)
-              draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
-            else
-              draw_call_info +=
-                  std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
-            draw_call_info += " tris";
-            ImGui::Text(draw_call_info.c_str());
-            ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
+            DrawRenderCounterSummary(graphics, current_frame_index);
             ImGui::Separator();
             if (ImGui::IsMousePosValid()) {
               const auto pos = Input::GetMousePosition();

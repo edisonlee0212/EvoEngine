@@ -14,13 +14,13 @@
 using namespace evo_engine;
 
 namespace {
-void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const uint32_t prim_count) {
+void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const size_t prim_count,
+                  const RenderDrawCallKind kind = RenderDrawCallKind::Direct, const size_t indirect_draw_commands = 0) {
   if (!count_draw_calls) {
     return;
   }
-  auto& platform = Platform::GetInstance();
-  platform.draw_call[current_frame_index]++;
-  platform.prim_count[current_frame_index] += prim_count;
+  Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow, kind, current_frame_index, prim_count,
+                                indirect_draw_commands);
 }
 
 bool LightCastsShadow(const glm::vec4& diffuse) {
@@ -174,7 +174,9 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                 push_constant.instance_index = 0;
                 target_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 target_pipeline->states.ApplyAllStates(vk_command_buffer);
-                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
+                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
+                             RenderDrawCallKind::Indirect,
+                             parameters.use_mesh_shader ? mesh_task_commands.size() : indexed_commands.size());
                 if (parameters.use_mesh_shader) {
                   Platform::DrawMeshTasksIndirect(vk_command_buffer, *mesh_task_buffer, 0, mesh_task_commands.size(),
                                                   sizeof(VkDrawMeshTasksIndirectCommandEXT));

@@ -33,6 +33,80 @@ Platform::Capabilities& Platform::GetCapabilities() {
   return capabilities_;
 }
 
+size_t RenderPassDrawStats::TotalDrawCalls() const {
+  return direct_draw_calls + indirect_draw_calls;
+}
+
+const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket bucket) {
+  switch (bucket) {
+    case RenderPassDrawBucket::FrameExternal:
+      return "Frame external";
+    case RenderPassDrawBucket::PointLightShadow:
+      return "Point shadow";
+    case RenderPassDrawBucket::SpotLightShadow:
+      return "Spot shadow";
+    case RenderPassDrawBucket::DirectionalLightShadow:
+      return "Directional shadow";
+    case RenderPassDrawBucket::DeferredGeometry:
+      return "Deferred geometry";
+    case RenderPassDrawBucket::DeferredLighting:
+      return "Deferred lighting";
+    case RenderPassDrawBucket::TransparentGeometry:
+      return "Transparent geometry";
+    case RenderPassDrawBucket::ForwardExternal:
+      return "Forward external";
+    case RenderPassDrawBucket::CameraExternal:
+      return "Camera external";
+    case RenderPassDrawBucket::DdgiProbeVisualization:
+      return "DDGI probes";
+    case RenderPassDrawBucket::DdgiProbeRayVisualization:
+      return "DDGI probe rays";
+    case RenderPassDrawBucket::Count:
+      break;
+  }
+  return "Unknown";
+}
+
+void Platform::ResetRenderPassDrawStats(const uint32_t frame_index) {
+  auto& graphics = GetInstance();
+  if (frame_index < graphics.draw_call.size()) {
+    graphics.draw_call[frame_index] = 0;
+  }
+  if (frame_index < graphics.prim_count.size()) {
+    graphics.prim_count[frame_index] = 0;
+  }
+  if (frame_index >= graphics.render_pass_draw_stats.size()) {
+    return;
+  }
+  for (auto& stats : graphics.render_pass_draw_stats[frame_index]) {
+    stats = {};
+  }
+}
+
+void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
+                                   const uint32_t frame_index, const size_t prim_count,
+                                   const size_t indirect_draw_commands) {
+  auto& graphics = GetInstance();
+  if (frame_index < graphics.draw_call.size()) {
+    graphics.draw_call[frame_index]++;
+  }
+  if (frame_index < graphics.prim_count.size()) {
+    graphics.prim_count[frame_index] += prim_count;
+  }
+  const auto bucket_index = static_cast<size_t>(bucket);
+  if (frame_index >= graphics.render_pass_draw_stats.size() || bucket_index >= kRenderPassDrawBucketCount) {
+    return;
+  }
+  auto& stats = graphics.render_pass_draw_stats[frame_index][bucket_index];
+  stats.prim_count += prim_count;
+  if (kind == RenderDrawCallKind::Indirect) {
+    stats.indirect_draw_calls++;
+    stats.indirect_draw_commands += indirect_draw_commands;
+  } else {
+    stats.direct_draw_calls++;
+  }
+}
+
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
   shader_include_paths_.emplace(path);
 }
@@ -235,6 +309,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   TextureStorage::Initialize();
   graphics.draw_call.resize(graphics.max_frame_in_flight_);
   graphics.prim_count.resize(graphics.max_frame_in_flight_);
+  graphics.render_pass_draw_stats.resize(graphics.max_frame_in_flight_);
   auto& capabilities = graphics.capabilities_;
 
   const uint32_t subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;

@@ -6,6 +6,9 @@
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <set>
 
@@ -26,6 +29,32 @@
 namespace evo_engine {
 class GpuService;
 class PlatformLifecycleTestAccess;
+
+enum class RenderPassDrawBucket : uint8_t {
+  FrameExternal,
+  PointLightShadow,
+  SpotLightShadow,
+  DirectionalLightShadow,
+  DeferredGeometry,
+  DeferredLighting,
+  TransparentGeometry,
+  ForwardExternal,
+  CameraExternal,
+  DdgiProbeVisualization,
+  DdgiProbeRayVisualization,
+  Count
+};
+
+enum class RenderDrawCallKind : uint8_t { Direct, Indirect };
+
+struct RenderPassDrawStats {
+  size_t direct_draw_calls = 0;
+  size_t indirect_draw_calls = 0;
+  size_t indirect_draw_commands = 0;
+  size_t prim_count = 0;
+
+  [[nodiscard]] size_t TotalDrawCalls() const;
+};
 
 /**
  * @brief Class representing platform-specific Vulkan setup and utilities.
@@ -394,6 +423,11 @@ class Platform final {
   static bool RayQueryEnabled();
   static bool ShaderExecutionReorderingEnabled();
   static bool MeshShaderEnabled();
+  static constexpr size_t kRenderPassDrawBucketCount = static_cast<size_t>(RenderPassDrawBucket::Count);
+  [[nodiscard]] static const char* GetRenderPassDrawBucketName(RenderPassDrawBucket bucket);
+  static void ResetRenderPassDrawStats(uint32_t frame_index);
+  static void CountRenderPassDraw(RenderPassDrawBucket bucket, RenderDrawCallKind kind, uint32_t frame_index,
+                                  size_t prim_count, size_t indirect_draw_commands = 0);
   /**
    * @brief Checks if the platform is initialized.
    *
@@ -513,6 +547,9 @@ class Platform final {
 
   /// List of draw calls for debugging purposes.
   std::vector<size_t> draw_call{};
+
+  /// Per-pass draw call and primitive counts for debugging purposes.
+  std::vector<std::array<RenderPassDrawStats, kRenderPassDrawBucketCount>> render_pass_draw_stats{};
 
   /**
    * @brief Constants used for internal configuration and limits.

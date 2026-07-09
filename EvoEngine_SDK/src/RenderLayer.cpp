@@ -2985,9 +2985,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
     return;
   const ProfilerScope profiler_scope("RenderLayer::PrepareSceneForRendering", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  auto& graphics = Platform::GetInstance();
-  graphics.prim_count[current_frame_index] = 0;
-  graphics.draw_call[current_frame_index] = 0;
+  Platform::ResetRenderPassDrawStats(current_frame_index);
   const auto current_render_instances = render_instances_list_[current_frame_index];
   if (update_editor_selection) {
     ApplyAnimators();
@@ -3679,8 +3677,8 @@ void RenderLayer::RenderAll() {
               prim_count = external_pass.func(vk_command_buffer);
             }
             if (count_shadow_rendering_draw_calls) {
-              platform.draw_call[current_frame_index]++;
-              platform.prim_count[current_frame_index] += prim_count;
+              Platform::CountRenderPassDraw(RenderPassDrawBucket::FrameExternal, RenderDrawCallKind::Direct,
+                                            current_frame_index, prim_count);
             }
           });
         });
@@ -3956,9 +3954,14 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       use_mesh_shader ? spot_light_shadow_pipeline_mesh_shader_alpha_tested : spot_light_shadow_pipeline_normal;
   const auto& spot_light_shadow_opaque_pipeline =
       use_mesh_shader ? spot_light_shadow_pipeline_mesh_shader : spot_light_shadow_pipeline_normal_opaque;
-  auto& platform = Platform::GetInstance();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    const auto account_draw = [&](const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
+                                  const size_t prim_count, const size_t indirect_draw_commands = 0) {
+      if (count_draw_calls) {
+        Platform::CountRenderPassDraw(bucket, kind, current_frame_index, prim_count, indirect_draw_commands);
+      }
+    };
     const auto prepare_graphics_pipeline = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline,
                                                const glm::ivec4& view_port) {
       if (!target_pipeline) {
@@ -3986,7 +3989,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       return true;
     };
     const auto render_shadow_collection =
-        [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
+        [&](const RenderPassDrawBucket bucket,
+            const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
             const std::shared_ptr<GraphicsPipeline>& alpha_tested_pipeline,
             const std::shared_ptr<GraphicsPipeline>& opaque_pipeline, const glm::mat4& light_space_matrix,
             const int light_index, const int split_index, const glm::ivec4& viewport, const bool render_opaque = true,
@@ -4013,14 +4017,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                                                 render_instance->material_index);
               }
               const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
-              if (count_draw_calls) {
-                platform.draw_call[current_frame_index]++;
-                platform.prim_count[current_frame_index] += prim_count;
-              }
+              account_draw(bucket, RenderDrawCallKind::Direct, prim_count);
             });
           }
         };
-    const auto draw_shadow_indirect = [&](const bool alpha_tested,
+    const auto draw_shadow_indirect = [&](const RenderPassDrawBucket bucket, const bool alpha_tested,
                                           const std::shared_ptr<GraphicsPipeline>& target_pipeline,
                                           const uint32_t prim_count, const std::shared_ptr<Buffer>& indexed_buffer,
                                           const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
@@ -4040,10 +4041,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       push_constant.instance_index = 0;
       target_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
       target_pipeline->states.ApplyAllStates(vk_command_buffer);
-      if (count_draw_calls) {
-        platform.draw_call[current_frame_index]++;
-        platform.prim_count[current_frame_index] += prim_count;
-      }
+      account_draw(bucket, RenderDrawCallKind::Indirect, prim_count,
+                   use_mesh_shader ? mesh_task_commands.size() : indexed_commands.size());
       if (use_mesh_shader) {
         Platform::DrawMeshTasksIndirect(vk_command_buffer, *mesh_task_buffer, 0, mesh_task_commands.size(),
                                         sizeof(VkDrawMeshTasksIndirectCommandEXT));
@@ -4053,7 +4052,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
       }
     };
     const auto render_strands_shadow_collection =
-        [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
+        [&](const RenderPassDrawBucket bucket,
+            const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
             const std::shared_ptr<GraphicsPipeline>& pipeline, const glm::mat4& light_space_matrix,
             const int light_index, const int split_index, const glm::ivec4& viewport) {
           if (!prepare_graphics_pipeline(pipeline, viewport)) {
@@ -4068,10 +4068,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             push_constant.light_split_index = split_index;
             push_constant.instance_index = render_instance->instance_index;
             const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, pipeline);
-            if (count_draw_calls) {
-              platform.draw_call[current_frame_index]++;
-              platform.prim_count[current_frame_index] += prim_count;
-            }
+            account_draw(bucket, RenderDrawCallKind::Direct, prim_count);
           });
         };
 
@@ -4103,7 +4100,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             if (enable_indirect_rendering &&
                 !current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
               draw_shadow_indirect(
-                  false, point_light_shadow_opaque_pipeline,
+                  RenderPassDrawBucket::PointLightShadow, false, point_light_shadow_opaque_pipeline,
                   current_render_instances->total_opaque_shadow_mesh_triangles,
                   current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
                   current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
@@ -4112,7 +4109,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                   face, point_light_info_block.viewport);
               if (use_alpha_tested_indirect_shadow) {
                 draw_shadow_indirect(
-                    true, point_light_shadow_pipeline,
+                    RenderPassDrawBucket::PointLightShadow, true, point_light_shadow_pipeline,
                     current_render_instances->total_alpha_tested_shadow_mesh_triangles,
                     current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
                     current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
@@ -4120,42 +4117,42 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                     current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands,
                     light_space_matrix, i, face, point_light_info_block.viewport);
               } else {
-                render_shadow_collection(current_render_instances->deferred_render_instances,
+                render_shadow_collection(RenderPassDrawBucket::PointLightShadow,
+                                         current_render_instances->deferred_render_instances,
                                          point_light_shadow_pipeline, point_light_shadow_opaque_pipeline,
                                          light_space_matrix, i, face, point_light_info_block.viewport, false, true);
               }
             } else {
-              render_shadow_collection(current_render_instances->deferred_render_instances, point_light_shadow_pipeline,
+              render_shadow_collection(RenderPassDrawBucket::PointLightShadow,
+                                       current_render_instances->deferred_render_instances, point_light_shadow_pipeline,
                                        point_light_shadow_opaque_pipeline, light_space_matrix, i, face,
                                        point_light_info_block.viewport);
             }
           }
           {
-            render_shadow_collection(current_render_instances->deferred_instanced_render_instances,
-                                     instanced_point_light_shadow_pipeline,
-                                     instanced_point_light_shadow_pipeline_opaque, light_space_matrix, i, face,
-                                     point_light_info_block.viewport);
+            render_shadow_collection(
+                RenderPassDrawBucket::PointLightShadow, current_render_instances->deferred_instanced_render_instances,
+                instanced_point_light_shadow_pipeline, instanced_point_light_shadow_pipeline_opaque, light_space_matrix,
+                i, face, point_light_info_block.viewport);
           }
           GeometryStorage::BindSkinnedVertices(vk_command_buffer);
           {
-            render_shadow_collection(current_render_instances->deferred_skinned_render_instances,
+            render_shadow_collection(RenderPassDrawBucket::PointLightShadow,
+                                     current_render_instances->deferred_skinned_render_instances,
                                      skinned_point_light_shadow_pipeline, skinned_point_light_shadow_pipeline_opaque,
                                      light_space_matrix, i, face, point_light_info_block.viewport);
           }
 #ifdef EVOENGINE_WINDOWS
           GeometryStorage::BindStrandPoints(vk_command_buffer);
           {
-            render_strands_shadow_collection(current_render_instances->deferred_strands_render_instances,
-                                             strands_point_light_shadow_pipeline, light_space_matrix, i, face,
-                                             point_light_info_block.viewport);
+            render_strands_shadow_collection(
+                RenderPassDrawBucket::PointLightShadow, current_render_instances->deferred_strands_render_instances,
+                strands_point_light_shadow_pipeline, light_space_matrix, i, face, point_light_info_block.viewport);
           }
 #endif
           for (const auto& func : point_light_shadow_map_external_functions) {
             const auto prim_count = func(vk_command_buffer, {i, face, point_light_info_block.viewport});
-            if (count_draw_calls) {
-              platform.draw_call[current_frame_index]++;
-              platform.prim_count[current_frame_index] += prim_count;
-            }
+            account_draw(RenderPassDrawBucket::PointLightShadow, RenderDrawCallKind::Direct, prim_count);
           }
         }
       });
@@ -4188,7 +4185,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
         {
           if (enable_indirect_rendering &&
               !current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
-            draw_shadow_indirect(false, spot_light_shadow_opaque_pipeline,
+            draw_shadow_indirect(RenderPassDrawBucket::SpotLightShadow, false, spot_light_shadow_opaque_pipeline,
                                  current_render_instances->total_opaque_shadow_mesh_triangles,
                                  current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
                                  current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
@@ -4197,48 +4194,50 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                                  light_space_matrix, i, 0, spot_light_info_block.viewport);
             if (use_alpha_tested_indirect_shadow) {
               draw_shadow_indirect(
-                  true, spot_light_shadow_pipeline, current_render_instances->total_alpha_tested_shadow_mesh_triangles,
+                  RenderPassDrawBucket::SpotLightShadow, true, spot_light_shadow_pipeline,
+                  current_render_instances->total_alpha_tested_shadow_mesh_triangles,
                   current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
                   current_render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
                   current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
                   current_render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands,
                   light_space_matrix, i, 0, spot_light_info_block.viewport);
             } else {
-              render_shadow_collection(current_render_instances->deferred_render_instances, spot_light_shadow_pipeline,
+              render_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
+                                       current_render_instances->deferred_render_instances, spot_light_shadow_pipeline,
                                        spot_light_shadow_opaque_pipeline, light_space_matrix, i, 0,
                                        spot_light_info_block.viewport, false, true);
             }
           } else {
-            render_shadow_collection(current_render_instances->deferred_render_instances, spot_light_shadow_pipeline,
+            render_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
+                                     current_render_instances->deferred_render_instances, spot_light_shadow_pipeline,
                                      spot_light_shadow_opaque_pipeline, light_space_matrix, i, 0,
                                      spot_light_info_block.viewport);
           }
         }
         {
-          render_shadow_collection(current_render_instances->deferred_instanced_render_instances,
+          render_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
+                                   current_render_instances->deferred_instanced_render_instances,
                                    instanced_spot_light_shadow_pipeline, instanced_spot_light_shadow_pipeline_opaque,
                                    light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
         GeometryStorage::BindSkinnedVertices(vk_command_buffer);
         {
-          render_shadow_collection(current_render_instances->deferred_skinned_render_instances,
+          render_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
+                                   current_render_instances->deferred_skinned_render_instances,
                                    skinned_spot_light_shadow_pipeline, skinned_spot_light_shadow_pipeline_opaque,
                                    light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
 #ifdef EVOENGINE_WINDOWS
         GeometryStorage::BindStrandPoints(vk_command_buffer);
         {
-          render_strands_shadow_collection(current_render_instances->deferred_strands_render_instances,
-                                           strands_spot_light_shadow_pipeline, light_space_matrix, i, 0,
-                                           spot_light_info_block.viewport);
+          render_strands_shadow_collection(
+              RenderPassDrawBucket::SpotLightShadow, current_render_instances->deferred_strands_render_instances,
+              strands_spot_light_shadow_pipeline, light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
 #endif
         for (const auto& func : spot_light_shadow_map_external_functions) {
           const auto prim_count = func(vk_command_buffer, {i, spot_light_info_block.viewport});
-          if (count_draw_calls) {
-            platform.draw_call[current_frame_index]++;
-            platform.prim_count[current_frame_index] += prim_count;
-          }
+          account_draw(RenderPassDrawBucket::SpotLightShadow, RenderDrawCallKind::Direct, prim_count);
         }
       }
     });
@@ -4608,7 +4607,6 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
 
     const bool count_draw_calls = count_shadow_rendering_draw_calls;
     const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
-    auto& platform = Platform::GetInstance();
     RenderGraphTransientResourceStore* active_camera_transient_resources = nullptr;
     RenderGraph camera_render_graph;
     AddDefaultRasterCameraResources(camera_render_graph);
@@ -4665,8 +4663,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                  for (const auto& func : directional_light_shadow_map_external_functions) {
                    const auto prim_count = func(vk_command_buffer, {light_index, split_index, viewport});
                    if (count_draw_calls) {
-                     platform.draw_call[current_frame_index]++;
-                     platform.prim_count[current_frame_index] += prim_count;
+                     Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow,
+                                                   RenderDrawCallKind::Direct, current_frame_index, prim_count);
                    }
                  }
                },
@@ -4688,8 +4686,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                  for (const auto& func : deferred_rendering_external_functions) {
                    const auto prim_count = func(vk_command_buffer, color_attachment_infos, {camera_index, viewport});
                    if (count_draw_calls) {
-                     platform.draw_call[current_frame_index]++;
-                     platform.prim_count[current_frame_index] += prim_count;
+                     Platform::CountRenderPassDraw(RenderPassDrawBucket::DeferredGeometry, RenderDrawCallKind::Direct,
+                                                   current_frame_index, prim_count);
                    }
                  }
                },
@@ -4709,13 +4707,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               context,
               {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
                lighting_ ? lighting_->lighting_descriptor_set : nullptr, raster_lighting_texture_descriptor_set,
-               camera_index, fade_selection, selection_alpha,
+               camera_index, current_frame_index, count_draw_calls, fade_selection, selection_alpha,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
                  for (const auto& func : forward_rendering_external_functions) {
                    const auto prim_count = func(vk_command_buffer, camera, {camera_index, viewport});
                    if (count_draw_calls) {
-                     platform.draw_call[current_frame_index]++;
-                     platform.prim_count[current_frame_index] += prim_count;
+                     Platform::CountRenderPassDraw(RenderPassDrawBucket::ForwardExternal, RenderDrawCallKind::Direct,
+                                                   current_frame_index, prim_count);
                    }
                  }
                },
@@ -4740,8 +4738,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                 prim_count = external_pass.func(vk_command_buffer, camera, {camera_index, view_port});
               }
               if (count_draw_calls) {
-                platform.draw_call[current_frame_index]++;
-                platform.prim_count[current_frame_index] += prim_count;
+                Platform::CountRenderPassDraw(RenderPassDrawBucket::CameraExternal, RenderDrawCallKind::Direct,
+                                              current_frame_index, prim_count);
               }
             });
           });
@@ -4821,8 +4819,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                           &ddgi_last_performance_stats_.probe_visualization_record_ms, record_commands});
             ddgi_last_performance_stats_.visualized_probe_count += ddgi_visualization_probe_count;
             if (count_draw_calls) {
-              platform.draw_call[current_frame_index]++;
-              platform.prim_count[current_frame_index] += ddgi_visualization_probe_count;
+              Platform::CountRenderPassDraw(RenderPassDrawBucket::DdgiProbeVisualization, RenderDrawCallKind::Direct,
+                                            current_frame_index, ddgi_visualization_probe_count);
             }
           });
     }
@@ -4839,8 +4837,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                           ddgi_probe_ray_visualization_push_constant,
                           &ddgi_last_performance_stats_.probe_ray_visualization_record_ms, record_commands});
             if (count_draw_calls) {
-              platform.draw_call[current_frame_index]++;
-              platform.prim_count[current_frame_index] += selected_ray_sample_count;
+              Platform::CountRenderPassDraw(RenderPassDrawBucket::DdgiProbeRayVisualization, RenderDrawCallKind::Direct,
+                                            current_frame_index, selected_ray_sample_count);
             }
           });
     }

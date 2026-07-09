@@ -121,7 +121,6 @@ void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context
       parameters.mesh_pipeline->BindDescriptorSet(
           vk_command_buffer, 4, parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
 
-      auto& platform = Platform::GetInstance();
       for (const auto& sorted_instance : sorted_instances) {
         const auto& render_instance = sorted_instance.render_instance;
         if (!render_instance || !render_instance->mesh || !render_instance->material) {
@@ -144,8 +143,9 @@ void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context
         parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         render_instance->mesh->DrawIndexed(vk_command_buffer, parameters.mesh_pipeline->states, 1);
         if (parameters.count_draw_calls) {
-          platform.draw_call[parameters.current_frame_index]++;
-          platform.prim_count[parameters.current_frame_index] += render_instance->mesh->GetTriangleAmount() * 3u;
+          Platform::CountRenderPassDraw(RenderPassDrawBucket::TransparentGeometry, RenderDrawCallKind::Direct,
+                                        parameters.current_frame_index,
+                                        render_instance->mesh->GetTriangleAmount() * 3u);
         }
       }
     });

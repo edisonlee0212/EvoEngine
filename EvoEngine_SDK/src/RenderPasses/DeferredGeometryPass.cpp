@@ -11,13 +11,13 @@
 using namespace evo_engine;
 
 namespace {
-void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const uint32_t prim_count) {
+void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const size_t prim_count,
+                  const RenderDrawCallKind kind = RenderDrawCallKind::Direct, const size_t indirect_draw_commands = 0) {
   if (!count_draw_calls) {
     return;
   }
-  auto& platform = Platform::GetInstance();
-  platform.draw_call[current_frame_index]++;
-  platform.prim_count[current_frame_index] += prim_count;
+  Platform::CountRenderPassDraw(RenderPassDrawBucket::DeferredGeometry, kind, current_frame_index, prim_count,
+                                indirect_draw_commands);
 }
 
 VkPolygonMode ResolvePolygonMode(const bool wire_frame, const VkPolygonMode instance_polygon_mode) {
@@ -101,7 +101,8 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                                             batch.material_index);
             parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
             parameters.mesh_pipeline->states.ApplyAllStates(vk_command_buffer);
-            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, batch.triangle_count);
+            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, batch.triangle_count,
+                         RenderDrawCallKind::Indirect, batch.command_count);
             if (parameters.use_mesh_shader) {
               Platform::DrawMeshTasksIndirect(
                   vk_command_buffer, *parameters.render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer,
@@ -122,7 +123,10 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
           parameters.mesh_pipeline->states.ApplyAllStates(vk_command_buffer);
           AccountDraws(parameters.count_draw_calls, parameters.current_frame_index,
-                       parameters.render_instances->total_mesh_triangles);
+                       parameters.render_instances->total_mesh_triangles, RenderDrawCallKind::Indirect,
+                       parameters.use_mesh_shader
+                           ? parameters.render_instances->mesh_draw_mesh_tasks_indirect_commands.size()
+                           : parameters.render_instances->mesh_draw_indexed_indirect_commands.size());
           if (parameters.use_mesh_shader) {
             Platform::DrawMeshTasksIndirect(
                 vk_command_buffer, *parameters.render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer, 0,

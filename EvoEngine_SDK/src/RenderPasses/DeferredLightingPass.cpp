@@ -77,6 +77,10 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
         parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
         mesh->DrawIndexed(vk_command_buffer, parameters.pipeline->states, 1);
+        if (parameters.count_draw_calls) {
+          Platform::CountRenderPassDraw(RenderPassDrawBucket::DeferredLighting, RenderDrawCallKind::Direct,
+                                        parameters.current_frame_index, mesh->GetTriangleAmount() * 3u);
+        }
       });
     }
 
