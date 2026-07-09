@@ -81,7 +81,7 @@ class ScreenSpaceAmbientOcclusion : public IPostProcessing {
   float radius = 0.15f;
   float bias = 0.01f;
   float factor = 0.0f;
-  float intensity = 3.0f;
+  float intensity = 2.0f;
   struct PushConstant {
     int camera_index;
     // parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
