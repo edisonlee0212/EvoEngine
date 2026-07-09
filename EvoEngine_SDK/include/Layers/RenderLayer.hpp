@@ -477,6 +477,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_radix_sort_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_material_layout_;
+  bool per_frame_bindless_texture_descriptors_enabled_ = false;
   mutable std::shared_ptr<Texture2D> raster_material_white_fallback_texture_;
   mutable std::shared_ptr<Texture2D> raster_material_black_fallback_texture_;
   mutable std::shared_ptr<Texture2D> raster_material_flat_normal_fallback_texture_;

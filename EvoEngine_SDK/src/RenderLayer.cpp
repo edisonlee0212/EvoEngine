@@ -171,6 +171,10 @@ std::string CreateRasterMaterialFixedLightingShaderDefines(const uint32_t lighti
          "#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
 }
 
+bool ShouldCreatePerFrameBindlessTextureDescriptors() {
+  return Platform::RayTracingEnabled() || Platform::RayQueryEnabled();
+}
+
 void PushPerFrameSceneDescriptorBindings(const std::shared_ptr<DescriptorSetLayout>& layout) {
   layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
   layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_ALL, 0);
@@ -1366,7 +1370,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   if (!per_frame_layout_) {
     per_frame_layout_ = std::make_shared<DescriptorSetLayout>();
     PushPerFrameSceneDescriptorBindings(per_frame_layout_);
-    PushPerFrameBindlessTextureDescriptorBindings(per_frame_layout_, application_initialization_settings);
+    per_frame_bindless_texture_descriptors_enabled_ = ShouldCreatePerFrameBindlessTextureDescriptors();
+    if (per_frame_bindless_texture_descriptors_enabled_) {
+      PushPerFrameBindlessTextureDescriptorBindings(per_frame_layout_, application_initialization_settings);
+    }
     PushPerFrameMaterialBufferDescriptorBindings(per_frame_layout_);
     per_frame_layout_->Initialize();
   }
@@ -3421,8 +3428,10 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
 
-  TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
-  TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+  if (per_frame_bindless_texture_descriptors_enabled_) {
+    TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
+    TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+  }
 }
 
 std::shared_ptr<DescriptorSet> RenderLayer::GetRasterLightingTextureDescriptorSet(
