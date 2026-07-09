@@ -77,6 +77,35 @@ TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
   EXPECT_NE(material.find("layout(scalar, set = EE_GLTF_TEXTURE_INFOS_BLOCK_SET"), std::string::npos);
 }
 
+TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
+  const auto rendering_docs = ReadTextFile(RepoPath("docs/rendering.md"));
+  ASSERT_FALSE(rendering_docs.empty());
+
+  EXPECT_NE(rendering_docs.find("Raster material descriptors use descriptor set 3"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("set 1 remains available for"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("instanced/strand data"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("set 2 remains available for lighting or pass descriptors"), std::string::npos);
+  EXPECT_NE(
+      rendering_docs.find("Raster shaders must not use descriptor arrays such as `sampler2D[]` or `samplerCube[]`"),
+      std::string::npos);
+  EXPECT_NE(rendering_docs.find("Fixed-binding image arrays and atlases are allowed for raster"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("| 0 | Base color or diffuse | White. |"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("| 1 | Metallic-roughness or specular-glossiness | White. |"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("| 2 | Normal | Flat normal. |"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("| 3 | Emissive | Black. |"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("| 4 | Occlusion | White. |"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("renderer-owned runtime state keyed by material index"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("does not deduplicate descriptor sets across material indices"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("Each descriptor slot uses the texture's existing combined image sampler"),
+            std::string::npos);
+  EXPECT_NE(rendering_docs.find("Bindless texture arrays are reserved for ray tracing and ray query paths"),
+            std::string::npos);
+  EXPECT_NE(rendering_docs.find("Raster-only or lower-end device mode must avoid"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("bindless descriptor layouts"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("tracing compute texture users also migrate to fixed descriptor sets"),
+            std::string::npos);
+}
+
 TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
   const std::filesystem::path paths[] = {
       ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"),

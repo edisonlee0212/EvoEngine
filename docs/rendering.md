@@ -103,6 +103,36 @@ Ordinary opaque lighting must not call `EE_EVALUATE_GLTF_RASTER_SURFACE`; materi
 allowed only for an explicitly documented fallback or debug path. The retired normal/material attachments should not be
 reintroduced for ordinary opaque shading.
 
+### Raster Texture Descriptor Contract
+
+Raster material descriptors use descriptor set 3. Set 0 remains the per-frame set, set 1 remains available for
+meshlet/bone/instanced/strand data, and set 2 remains available for lighting or pass descriptors. Pipelines that need the
+material set but do not use intermediate sets should bind empty layouts for the unused set slots.
+
+Raster material texture sampling targets fixed individual texture bindings rather than bindless descriptor arrays.
+Raster shaders must not use descriptor arrays such as `sampler2D[]` or `samplerCube[]`, `nonuniformEXT`, or dynamic
+descriptor indexing for texture sampling. Fixed-binding image arrays and atlases are allowed for raster when the descriptor
+itself is a normal fixed binding, such as a shadow-map array or atlas texture.
+
+| Material binding | Fixed raster texture | Fallback |
+| --- | --- | --- |
+| 0 | Base color or diffuse | White. |
+| 1 | Metallic-roughness or specular-glossiness | White. |
+| 2 | Normal | Flat normal. |
+| 3 | Emissive | Black. |
+| 4 | Occlusion | White. |
+
+Raster material descriptor sets are renderer-owned runtime state keyed by material index. The first migration intentionally
+does not deduplicate descriptor sets across material indices because material indices can change while the renderer is
+running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
+bind the documented fallback textures.
+
+Bindless texture arrays are reserved for ray tracing and ray query paths. Raster-only or lower-end device mode must avoid
+creating bindless descriptor layouts when ray tracing and ray query are unavailable or disabled. BRDF LUTs, environment
+cubemaps, DDGI atlases, volumetric cloud textures, and pass-local textures may remain in fixed global or pass descriptor
+sets during migration, but rasterization should not sample them through bindless descriptor arrays at the end. Non-ray-
+tracing compute texture users also migrate to fixed descriptor sets before final cleanup.
+
 Current shadow policy:
 
 - directional CSM uses Legacy Stable fitting;
