@@ -140,8 +140,12 @@ texture-free empty fragment shader; alpha-tested shadow indirect draws are tempo
 until material-batched indirect buffers can bind one material descriptor per batch. Package or external forward callbacks
 that evaluate glTF raster materials are explicit migration fallbacks until their owners provide fixed material
 descriptors or material-batched submission. Alpha-tested built-in shadow pipelines also use the raster material per-frame
-descriptor set without bindless texture arrays. Transparent mesh lighting still uses bindless BRDF and environment
-lookups until the raster global/pass texture migration replaces those dependencies.
+descriptor set without bindless texture arrays.
+
+Raster lighting uses a fixed raster-global texture descriptor set for image-based lighting inputs instead of sampling the
+bindless texture arrays. Deferred lighting binds this set after the shared lighting descriptor set, and transparent mesh
+lighting binds it after the material descriptor set. The fixed slots are BRDF LUT, skybox cubemap, irradiance cubemap, and
+prefiltered environment cubemap. Set 2 still owns shared shadow-map and DDGI atlas bindings.
 
 Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and `OffscreenPreviewRenderer`, which build a
 temporary scene, upload referenced preview textures, force a raster camera, disable preview-only volumetric clouds and

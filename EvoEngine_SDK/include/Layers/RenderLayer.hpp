@@ -465,6 +465,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
+  std::shared_ptr<DescriptorSetLayout> raster_lighting_texture_layout_;
   std::shared_ptr<DescriptorSetLayout> depth_pyramid_layout_;
   std::shared_ptr<DescriptorSetLayout> volumetric_clouds_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
@@ -640,6 +641,9 @@ class RenderLayer final : public ILayer {
                                    bool track_ddgi_scene_inputs = true);
   void BindRenderInstanceStorage(uint32_t current_frame_index,
                                  const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
+  [[nodiscard]] std::shared_ptr<DescriptorSet> GetRasterLightingTextureDescriptorSet(
+      uint32_t current_frame_index, int camera_index,
+      const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
 
   /**
    * \brief Applies all animators associated with this render layer.
@@ -654,6 +658,7 @@ class RenderLayer final : public ILayer {
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> raster_material_per_frame_descriptor_sets_ = {};
+  mutable std::vector<std::vector<std::shared_ptr<DescriptorSet>>> raster_lighting_texture_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};

@@ -65,7 +65,8 @@ RenderPassDescriptor TransparentGeometryPass::CreateDescriptor(const char* depen
 void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   if (!parameters.record_commands || !parameters.camera || !parameters.camera->GetRenderTexture() ||
       !parameters.render_instances || !parameters.mesh_pipeline || !parameters.per_frame_descriptor_set ||
-      !parameters.lighting_descriptor_set || parameters.camera_index < 0) {
+      !parameters.lighting_descriptor_set || !parameters.raster_lighting_texture_descriptor_set ||
+      parameters.camera_index < 0) {
     return;
   }
   if (static_cast<size_t>(parameters.camera_index) >= parameters.render_instances->camera_info_blocks_.size()) {
@@ -117,6 +118,8 @@ void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context
                                                   parameters.per_frame_descriptor_set->GetVkDescriptorSet());
       parameters.mesh_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                                   parameters.lighting_descriptor_set->GetVkDescriptorSet());
+      parameters.mesh_pipeline->BindDescriptorSet(
+          vk_command_buffer, 4, parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
 
       auto& platform = Platform::GetInstance();
       for (const auto& sorted_instance : sorted_instances) {

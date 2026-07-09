@@ -594,6 +594,23 @@ bool TextureStorage::TryGetTexture2DDescriptorImageInfo(const uint32_t texture_i
   return true;
 }
 
+bool TextureStorage::TryGetCubemapDescriptorImageInfo(const uint32_t texture_index, VkDescriptorImageInfo& image_info) {
+  const auto& storage = GetInstance();
+  if (texture_index >= storage.cubemaps_.size()) {
+    return false;
+  }
+  const auto& texture_storage = storage.cubemaps_[texture_index];
+  const auto layout = texture_storage.GetLayout();
+  if (layout == VK_IMAGE_LAYOUT_UNDEFINED || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
+      texture_storage.GetVkSampler() == VK_NULL_HANDLE) {
+    return false;
+  }
+  image_info.imageLayout = layout;
+  image_info.imageView = texture_storage.GetVkImageView();
+  image_info.sampler = texture_storage.GetVkSampler();
+  return true;
+}
+
 void TextureStorage::BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set,
                                                 const uint32_t binding) {
   const auto& storage = GetInstance();

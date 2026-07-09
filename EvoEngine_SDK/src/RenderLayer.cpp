@@ -72,6 +72,10 @@ constexpr uint32_t kDdgiSceneInputSettleFrameCount = 1;
 constexpr uint32_t kDdgiLightingIrradianceBinding = 17;
 constexpr uint32_t kDdgiLightingVisibilityBinding = 18;
 constexpr uint32_t kDdgiLightingProbeStateBinding = 19;
+constexpr uint32_t kRasterLightingBrdfLutBinding = 0;
+constexpr uint32_t kRasterLightingSkyboxBinding = 1;
+constexpr uint32_t kRasterLightingIrradianceBinding = 2;
+constexpr uint32_t kRasterLightingPrefilteredBinding = 3;
 
 std::vector<VkFormat> CreateDeferredGBufferColorAttachmentFormats() {
   return {Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
@@ -153,6 +157,18 @@ std::string CreateRasterNoBindlessTextureShaderDefines() {
 
 std::string CreateRasterMaterialNoBindlessShaderDefines() {
   return CreateRasterNoBindlessTextureShaderDefines() + "#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+}
+
+std::string CreateRasterFixedLightingShaderDefines(const uint32_t lighting_texture_set) {
+  return CreateRasterNoBindlessTextureShaderDefines() +
+         "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define "
+         "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET " +
+         std::to_string(lighting_texture_set) + "\n";
+}
+
+std::string CreateRasterMaterialFixedLightingShaderDefines(const uint32_t lighting_texture_set) {
+  return CreateRasterFixedLightingShaderDefines(lighting_texture_set) +
+         "#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
 }
 
 void PushPerFrameSceneDescriptorBindings(const std::shared_ptr<DescriptorSetLayout>& layout) {
@@ -1368,6 +1384,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     }
     raster_material_layout_->Initialize();
   }
+  if (!raster_lighting_texture_layout_) {
+    raster_lighting_texture_layout_ = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 4; binding++) {
+      raster_lighting_texture_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                             VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    }
+    raster_lighting_texture_layout_->Initialize();
+  }
   if (!meshlet_layout_) {
     meshlet_layout_ = std::make_shared<DescriptorSetLayout>();
     meshlet_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -2355,12 +2379,13 @@ void RenderLayer::OnCreate() {
     deferred_lighting_pass_pipeline->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     deferred_lighting_pass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        ShaderType::Fragment, CreateRasterFixedLightingShaderDefines(3),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.frag");
     deferred_lighting_pass_pipeline->geometry_type = GeometryType::Mesh;
-    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
     deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(lighting_layout_);
+    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
     deferred_lighting_pass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_lighting_pass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_lighting_pass_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
@@ -2375,13 +2400,15 @@ void RenderLayer::OnCreate() {
     deferred_lighting_pass_pipeline_scene_camera->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
     deferred_lighting_pass_pipeline_scene_camera->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Shader::CreateTemporary(ShaderType::Fragment, CreateRasterFixedLightingShaderDefines(3),
                                 Resources::GetDefaultResourcesPath() /
                                     "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
     deferred_lighting_pass_pipeline_scene_camera->geometry_type = GeometryType::Mesh;
-    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(
+        raster_material_per_frame_layout_);
     deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
     deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(lighting_layout_);
+    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
     deferred_lighting_pass_pipeline_scene_camera->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_lighting_pass_pipeline_scene_camera->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_lighting_pass_pipeline_scene_camera->color_attachment_formats = {
@@ -2395,16 +2422,17 @@ void RenderLayer::OnCreate() {
   if (!transparent_geometry_pipeline_normal) {
     transparent_geometry_pipeline_normal = std::make_shared<GraphicsPipeline>();
     transparent_geometry_pipeline_normal->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.vert");
     transparent_geometry_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
+        ShaderType::Fragment, CreateRasterMaterialFixedLightingShaderDefines(4),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardTransparent.frag");
     transparent_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
-    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(lighting_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
     transparent_geometry_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     transparent_geometry_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     transparent_geometry_pipeline_normal->color_attachment_formats = {1, Platform::Constants::render_texture_color};
@@ -2762,6 +2790,9 @@ void RenderLayer::OnCreate() {
     auto descriptor_set = std::make_shared<DescriptorSet>(raster_material_per_frame_layout_);
     raster_material_per_frame_descriptor_sets_.emplace_back(descriptor_set);
   }
+
+  raster_lighting_texture_descriptor_sets_.clear();
+  raster_lighting_texture_descriptor_sets_.resize(max_frames_in_flight);
 
   meshlet_descriptor_sets_.clear();
   for (size_t i = 0; i < max_frames_in_flight; i++) {
@@ -3392,6 +3423,74 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
 
   TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
   TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+}
+
+std::shared_ptr<DescriptorSet> RenderLayer::GetRasterLightingTextureDescriptorSet(
+    const uint32_t current_frame_index, const int camera_index,
+    const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
+  if (current_frame_index >= raster_lighting_texture_descriptor_sets_.size() || camera_index < 0 ||
+      !raster_lighting_texture_layout_ || !render_instances ||
+      static_cast<size_t>(camera_index) >= render_instances->camera_info_blocks_.size()) {
+    return {};
+  }
+
+  auto& frame_descriptor_sets = raster_lighting_texture_descriptor_sets_[current_frame_index];
+  if (frame_descriptor_sets.size() <= static_cast<size_t>(camera_index)) {
+    frame_descriptor_sets.resize(static_cast<size_t>(camera_index) + 1);
+  }
+  auto& descriptor_set = frame_descriptor_sets[camera_index];
+  if (!descriptor_set) {
+    descriptor_set = std::make_shared<DescriptorSet>(raster_lighting_texture_layout_);
+  }
+  EnsureRasterMaterialFallbackTextures();
+
+  const auto bind_texture_2d = [&](const uint32_t binding, const uint32_t texture_index,
+                                   const std::shared_ptr<Texture2D>& fallback) {
+    VkDescriptorImageInfo image_info{};
+    if (TextureStorage::TryGetTexture2DDescriptorImageInfo(texture_index, image_info) ||
+        (fallback &&
+         TextureStorage::TryGetTexture2DDescriptorImageInfo(fallback->GetTextureStorageIndex(), image_info))) {
+      descriptor_set->UpdateImageDescriptorBinding(binding, image_info);
+    }
+  };
+  const auto bind_cubemap = [&](const uint32_t binding, const int texture_index,
+                                const std::shared_ptr<Cubemap>& fallback) {
+    VkDescriptorImageInfo image_info{};
+    if ((texture_index >= 0 &&
+         TextureStorage::TryGetCubemapDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info)) ||
+        (fallback &&
+         TextureStorage::TryGetCubemapDescriptorImageInfo(fallback->GetTextureStorageIndex(), image_info))) {
+      descriptor_set->UpdateImageDescriptorBinding(binding, image_info);
+    }
+  };
+
+  auto default_skybox = Resources::GetInstance().GetDefaultSkybox();
+  std::shared_ptr<Cubemap> default_irradiance;
+  std::shared_ptr<Cubemap> default_prefiltered;
+  if (const auto default_environment = Resources::GetInstance().GetDefaultEnvironmentalMap()) {
+    if (const auto light_probe = default_environment->light_probe.Get<LightProbe>()) {
+      default_irradiance = light_probe->GetCubemap();
+    }
+    if (const auto reflection_probe = default_environment->reflection_probe.Get<ReflectionProbe>()) {
+      default_prefiltered = reflection_probe->GetCubemap();
+    }
+  }
+  if (!default_irradiance) {
+    default_irradiance = default_skybox;
+  }
+  if (!default_prefiltered) {
+    default_prefiltered = default_skybox;
+  }
+
+  const auto& camera_info = render_instances->camera_info_blocks_[camera_index];
+  bind_texture_2d(kRasterLightingBrdfLutBinding,
+                  environmental_brdf_lut_ ? environmental_brdf_lut_->GetTextureStorageIndex() : 0u,
+                  raster_material_white_fallback_texture_);
+  bind_cubemap(kRasterLightingSkyboxBinding, camera_info.skybox_texture_index, default_skybox);
+  bind_cubemap(kRasterLightingIrradianceBinding, camera_info.environmental_irradiance_texture_index,
+               default_irradiance);
+  bind_cubemap(kRasterLightingPrefilteredBinding, camera_info.environmental_prefiltered_index, default_prefiltered);
+  return descriptor_set;
 }
 
 void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
@@ -4430,6 +4529,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
+  const auto raster_lighting_texture_descriptor_set =
+      GetRasterLightingTextureDescriptorSet(current_frame_index, camera_index, current_render_instances);
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
   VolumetricCloudSettings volumetric_cloud_settings{};
@@ -4597,8 +4698,9 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
           DeferredLightingPass::Execute(
               context,
-              {camera, deferred_lighting_pipeline, per_frame_descriptor_sets_[current_frame_index],
-               lighting_ ? lighting_->lighting_descriptor_set : nullptr, camera_index, fade_selection, selection_alpha,
+              {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
+               lighting_ ? lighting_->lighting_descriptor_set : nullptr, raster_lighting_texture_descriptor_set,
+               camera_index, fade_selection, selection_alpha,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
                  for (const auto& func : forward_rendering_external_functions) {
                    const auto prim_count = func(vk_command_buffer, camera, {camera_index, viewport});
@@ -4658,15 +4760,16 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       post_lighting_dependency = RenderPassNames::volumetric_clouds;
     }
     if (transparent_mesh_rendering_enabled) {
-      camera_render_graph.AddPass(TransparentGeometryPass::CreateDescriptor(post_lighting_dependency),
-                                  [&](const RenderGraphExecutionContext& context) {
-                                    TransparentGeometryPass::Execute(
-                                        context,
-                                        {camera, current_render_instances, transparent_geometry_pipeline_normal,
-                                         per_frame_descriptor_sets_[current_frame_index],
-                                         lighting_ ? lighting_->lighting_descriptor_set : nullptr, camera_index,
-                                         current_frame_index, count_draw_calls, wire_frame, record_commands});
-                                  });
+      camera_render_graph.AddPass(
+          TransparentGeometryPass::CreateDescriptor(post_lighting_dependency),
+          [&](const RenderGraphExecutionContext& context) {
+            TransparentGeometryPass::Execute(
+                context,
+                {camera, current_render_instances, transparent_geometry_pipeline_normal,
+                 raster_material_per_frame_descriptor_sets_[current_frame_index],
+                 lighting_ ? lighting_->lighting_descriptor_set : nullptr, raster_lighting_texture_descriptor_set,
+                 camera_index, current_frame_index, count_draw_calls, wire_frame, record_commands});
+          });
       post_lighting_dependency = RenderPassNames::transparent_geometry;
     }
     if (gaussian_splat_rendering_enabled) {

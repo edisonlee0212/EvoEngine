@@ -19,6 +19,7 @@ class DeferredLightingPass final {
     std::shared_ptr<GraphicsPipeline> pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> lighting_descriptor_set;
+    std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set;
     int camera_index = -1;
     bool fade_selection = false;
     int selection_alpha = 0;

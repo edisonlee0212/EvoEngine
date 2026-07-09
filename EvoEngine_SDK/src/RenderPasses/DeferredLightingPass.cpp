@@ -43,7 +43,8 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
 
     const auto& g_buffer_descriptor_set = parameters.camera->GetGBufferDescriptorSet();
     if (parameters.pipeline && parameters.pipeline->Initialized() && parameters.per_frame_descriptor_set &&
-        g_buffer_descriptor_set && parameters.lighting_descriptor_set) {
+        g_buffer_descriptor_set && parameters.lighting_descriptor_set &&
+        parameters.raster_lighting_texture_descriptor_set) {
       GeometryStorage::BindVertices(vk_command_buffer);
       std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
       parameters.camera->GetRenderTexture()->AppendColorAttachmentInfos(
@@ -66,6 +67,8 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
         parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, g_buffer_descriptor_set->GetVkDescriptorSet());
         parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                                parameters.lighting_descriptor_set->GetVkDescriptorSet());
+        parameters.pipeline->BindDescriptorSet(vk_command_buffer, 3,
+                                               parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
         RenderInstancePushConstant push_constant;
         push_constant.camera_index = parameters.camera_index;
         push_constant.light_split_index =

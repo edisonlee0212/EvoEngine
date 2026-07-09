@@ -247,6 +247,14 @@ class TextureStorage final {
   static bool TryGetTexture2DDescriptorImageInfo(uint32_t texture_index, VkDescriptorImageInfo& image_info);
 
   /**
+   * @brief Resolves a single cubemap storage index to a sampled image descriptor.
+   * @param texture_index Index in cubemap storage.
+   * @param image_info Output descriptor image info when the cubemap is ready for sampling.
+   * @return True when a valid descriptor was produced.
+   */
+  static bool TryGetCubemapDescriptorImageInfo(uint32_t texture_index, VkDescriptorImageInfo& image_info);
+
+  /**
    * @brief Binds a cubemap to a specified descriptor set at the given binding.
    * @param descriptor_set The descriptor set to bind the cubemap to.
    * @param binding The binding index within the descriptor set.
