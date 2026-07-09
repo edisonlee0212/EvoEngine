@@ -773,6 +773,8 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.ambient_occlusion->algorithm = AmbientOcclusion::Algorithm::Ssao;
   stack.ambient_occlusion->kernel_size = 16;
   stack.ambient_occlusion->radius = 0.35f;
+  stack.ambient_occlusion->gtao_radius = 1.25f;
+  stack.ambient_occlusion->gtao_intensity = 1.75f;
   stack.bloom = std::make_shared<Bloom>();
   stack.bloom->filter_radius = 0.02f;
   stack.bloom->bloom_chain_length = 4;
@@ -803,6 +805,8 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_EQ(stack_node["ambient_occlusion"]["algorithm"].as<int>(),
             static_cast<int>(AmbientOcclusion::Algorithm::Ssao));
   EXPECT_EQ(stack_node["ambient_occlusion"]["kernel_size"].as<int>(), 16);
+  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["gtao_radius"].as<float>(), 1.25f);
+  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["gtao_intensity"].as<float>(), 1.75f);
   EXPECT_FLOAT_EQ(stack_node["bloom"]["filter_radius"].as<float>(), 0.02f);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
   EXPECT_FLOAT_EQ(stack_node["temporal_anti_aliasing"]["feedback"].as<float>(), 0.85f);
@@ -814,17 +818,25 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
 
   PostProcessingStack restored_stack;
   Serialization::DeserializeObject(YAML::Load(R"(
-enable_screen_space_ambient_occlusion: false
+enable_ambient_occlusion: true
 enable_bloom: true
 enable_screen_space_reflection: false
 enable_tone_mapping: true
-screen_space_ambient_occlusion:
+ambient_occlusion:
+  algorithm: 1
   avoid_distance: 3.5
-  kernel_size: 24
+  kernel_size: 64
   radius: 0.45
   bias: 0.04
   factor: 1.25
   intensity: 2.5
+  gtao_radius: 0.4
+  gtao_bias: 0.02
+  gtao_intensity: 1.5
+  thickness: 1.0
+  slice_count: 8
+  steps_per_slice: 6
+  denoise_radius: 0.1
 bloom:
   filter_radius: 0.03
   bloom_chain_length: 5
@@ -859,6 +871,8 @@ tone_mapping:
   ASSERT_TRUE(restored_stack.ambient_occlusion);
   EXPECT_EQ(restored_stack.ambient_occlusion->algorithm, AmbientOcclusion::Algorithm::Gtao);
   EXPECT_EQ(restored_stack.ambient_occlusion->kernel_size, 64);
+  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->gtao_radius, 0.4f);
+  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->gtao_intensity, 1.5f);
   ASSERT_TRUE(restored_stack.bloom);
   EXPECT_FLOAT_EQ(restored_stack.bloom->filter_radius, 0.03f);
   EXPECT_EQ(restored_stack.bloom->bloom_chain_length, 5);

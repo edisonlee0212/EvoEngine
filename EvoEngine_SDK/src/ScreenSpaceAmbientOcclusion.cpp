@@ -16,6 +16,9 @@ void AmbientOcclusion::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "bias" << YAML::Value << bias;
   out << YAML::Key << "factor" << YAML::Value << factor;
   out << YAML::Key << "intensity" << YAML::Value << intensity;
+  out << YAML::Key << "gtao_radius" << YAML::Value << gtao_radius;
+  out << YAML::Key << "gtao_bias" << YAML::Value << gtao_bias;
+  out << YAML::Key << "gtao_intensity" << YAML::Value << gtao_intensity;
   out << YAML::Key << "thickness" << YAML::Value << thickness;
   out << YAML::Key << "slice_count" << YAML::Value << slice_count;
   out << YAML::Key << "steps_per_slice" << YAML::Value << steps_per_slice;
@@ -39,6 +42,12 @@ void AmbientOcclusion::Deserialize(const YAML::Node& in) {
     factor = in["factor"].as<float>();
   if (in["intensity"])
     intensity = in["intensity"].as<float>();
+  if (in["gtao_radius"])
+    gtao_radius = in["gtao_radius"].as<float>();
+  if (in["gtao_bias"])
+    gtao_bias = in["gtao_bias"].as<float>();
+  if (in["gtao_intensity"])
+    gtao_intensity = in["gtao_intensity"].as<float>();
   if (in["thickness"])
     thickness = in["thickness"].as<float>();
   if (in["slice_count"])
@@ -98,10 +107,10 @@ void AmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
   const auto size = target_camera->GetSize();
   PushConstant push_constant;
   push_constant.kernel_size = kernel_size;
-  push_constant.radius = radius;
-  push_constant.bias = bias;
+  push_constant.radius = algorithm == Algorithm::Gtao ? gtao_radius : radius;
+  push_constant.bias = algorithm == Algorithm::Gtao ? gtao_bias : bias;
   push_constant.factor = factor;
-  push_constant.intensity = intensity;
+  push_constant.intensity = algorithm == Algorithm::Gtao ? gtao_intensity : intensity;
   push_constant.algorithm = static_cast<int>(algorithm);
   push_constant.slice_count = slice_count;
   push_constant.steps_per_slice = steps_per_slice;

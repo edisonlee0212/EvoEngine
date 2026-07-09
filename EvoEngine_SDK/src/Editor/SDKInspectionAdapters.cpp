@@ -657,7 +657,7 @@ bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
     if (ImGui::DragFloat("Avoid distance", &ambient_occlusion.avoid_distance, 0.1f, 0.0f, 100.f))
       changed = true;
   } else {
-    if (ImGui::DragFloat("Radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
+    if (ImGui::DragFloat("Radius", &ambient_occlusion.gtao_radius, 0.001f, 0.0f, 10.f))
       changed = true;
     if (ImGui::DragFloat("Thickness", &ambient_occlusion.thickness, 0.01f, 0.001f, 10.f))
       changed = true;
@@ -665,11 +665,11 @@ bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
       changed = true;
     if (ImGui::DragInt("Steps per slice", &ambient_occlusion.steps_per_slice, 1, 1, 16))
       changed = true;
-    if (ImGui::DragFloat("Intensity", &ambient_occlusion.intensity, 0.01f, 0.0f, 5.f))
+    if (ImGui::DragFloat("Intensity", &ambient_occlusion.gtao_intensity, 0.01f, 0.0f, 5.f))
       changed = true;
     if (ImGui::DragFloat("Denoise radius", &ambient_occlusion.denoise_radius, 0.01f, 0.0f, 100.f))
       changed = true;
-    if (ImGui::DragFloat("Bias", &ambient_occlusion.bias, 0.001f, 0.0f, 1.f))
+    if (ImGui::DragFloat("Bias", &ambient_occlusion.gtao_bias, 0.001f, 0.0f, 1.f))
       changed = true;
   }
   if (ImGui::Button("Rebuild pipelines")) {

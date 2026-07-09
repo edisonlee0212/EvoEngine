@@ -82,44 +82,102 @@ float ComputeSsao(in vec2 texCoord, in vec3 viewPos, in vec3 normal) {
 float ComputeGtao(in vec2 texCoord, in vec3 viewPos, in vec3 normal, in vec2 resolution) {
   int slices = clamp(sliceCount, 1, 16);
   int steps = clamp(stepsPerSlice, 1, 16);
-  float viewDepth = max(-viewPos.z, 0.001f);
-  float effectiveRadius = max(radius, 1.0f);
-  float pixelRadius = max(1.0f, effectiveRadius * EE_CAMERAS[EE_CAMERA_INDEX].projection[1][1] * resolution.y / viewDepth);
+  vec3 centerPos = viewPos;
+  centerPos.z *= 0.9992f;
+  float viewDepth = max(-centerPos.z, 0.001f);
+  float effectiveRadius = max(radius * 1.457f, 0.001f);
   float noise = EE_INTERLEAVED_GRADIENT_NOISE(vec3(texCoord, viewDepth));
-  float occlusion = 0.0f;
+  float centerDepth = texture(inDepth, texCoord).x;
+  vec2 pixelSize = 1.0f / resolution;
+  vec3 pixelAxisX = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, clamp(texCoord + vec2(pixelSize.x, 0.0f), vec2(0.0f), vec2(1.0f)),
+                                         centerDepth) -
+                    viewPos;
+  vec3 pixelAxisY = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, clamp(texCoord + vec2(0.0f, pixelSize.y), vec2(0.0f), vec2(1.0f)),
+                                         centerDepth) -
+                    viewPos;
+  float falloffRange = max(effectiveRadius * 0.615f, 0.001f);
+  float falloffFrom = effectiveRadius - falloffRange;
+  float falloffMul = -1.0f / falloffRange;
+  float falloffAdd = falloffFrom / falloffRange + 1.0f;
+  vec3 viewVec = normalize(-centerPos);
+  float visibility = 0.0f;
 
   for (int slice = 0; slice < slices; ++slice) {
     float angle = (float(slice) + noise) * 3.14159265f / float(slices);
     vec2 direction = vec2(cos(angle), sin(angle));
-    float sliceOcclusion = 0.0f;
-
-    for (int side = 0; side < 2; ++side) {
-      vec2 signedDirection = side == 0 ? direction : -direction;
-      float horizon = 0.0f;
-      for (int stepIndex = 1; stepIndex <= steps; ++stepIndex) {
-        float stepRatio = float(stepIndex) / float(steps);
-        vec2 sampleCoord = texCoord + signedDirection * pixelRadius * stepRatio / resolution;
-        vec3 sampleViewPos;
-        if (!GetViewPosition(sampleCoord, sampleViewPos)) {
-          continue;
-        }
-        vec3 delta = sampleViewPos - viewPos;
-        float distanceToSample = length(delta);
-        if (distanceToSample <= 0.0001f || distanceToSample > effectiveRadius) {
-          continue;
-        }
-        float falloff = pow(max(0.0f, 1.0f - distanceToSample / effectiveRadius), max(thickness, 0.001f));
-        float normalOffset = dot(delta, normal) - bias;
-        float tangentDistance = length(delta - normal * dot(delta, normal));
-        float horizonSlope = max(0.0f, normalOffset) / max(tangentDistance, 0.001f);
-        horizon = max(horizon, horizonSlope / (1.0f + horizonSlope) * falloff);
-      }
-      sliceOcclusion += horizon;
+    vec3 directionStep = pixelAxisX * direction.x + pixelAxisY * direction.y;
+    float directionStepLength = length(directionStep);
+    if (directionStepLength <= 0.0001f) {
+      continue;
     }
-    occlusion += sliceOcclusion * 0.5f;
+    float pixelRadius = max(1.0f, effectiveRadius / directionStepLength);
+    float minStep = 1.3f / pixelRadius;
+    vec3 directionVec = directionStep / directionStepLength;
+    vec3 orthoDirectionVec = directionVec - dot(directionVec, viewVec) * viewVec;
+    float orthoDirectionLength = length(orthoDirectionVec);
+    if (orthoDirectionLength <= 0.0001f) {
+      continue;
+    }
+    orthoDirectionVec /= orthoDirectionLength;
+    vec3 axisVec = cross(orthoDirectionVec, viewVec);
+    float axisLength = length(axisVec);
+    if (axisLength <= 0.0001f) {
+      continue;
+    }
+    axisVec /= axisLength;
+    vec3 projectedNormalVec = normal - axisVec * dot(normal, axisVec);
+    float projectedNormalLength = length(projectedNormalVec);
+    if (projectedNormalLength <= 0.0001f) {
+      continue;
+    }
+    float signNorm = sign(dot(orthoDirectionVec, projectedNormalVec));
+    float cosNorm = clamp(dot(projectedNormalVec, viewVec) / projectedNormalLength, 0.0f, 1.0f);
+    float n = signNorm * acos(cosNorm);
+    float lowHorizonCos0 = cos(n + 1.57079633f);
+    float lowHorizonCos1 = cos(n - 1.57079633f);
+    float horizonCos0 = lowHorizonCos0;
+    float horizonCos1 = lowHorizonCos1;
+
+    for (int stepIndex = 0; stepIndex < steps; ++stepIndex) {
+      float stepNoise = fract(noise + float(slice + stepIndex * steps) * 0.61803398875f);
+      float stepRatio = pow((float(stepIndex) + stepNoise) / float(steps), 2.0f) + minStep;
+      vec2 sampleOffset = round(direction * pixelRadius * stepRatio) / resolution;
+
+      vec3 sampleViewPos0;
+      if (GetViewPosition(texCoord + sampleOffset, sampleViewPos0)) {
+        vec3 delta = sampleViewPos0 - centerPos;
+        float distanceToSample = length(delta);
+        if (distanceToSample > max(bias, 0.0001f)) {
+          float weight = clamp(distanceToSample * falloffMul + falloffAdd, 0.0f, 1.0f);
+          float sampleHorizonCos = dot(delta / distanceToSample, viewVec);
+          sampleHorizonCos = mix(lowHorizonCos0, sampleHorizonCos, weight);
+          horizonCos0 = max(horizonCos0, sampleHorizonCos);
+        }
+      }
+
+      vec3 sampleViewPos1;
+      if (GetViewPosition(texCoord - sampleOffset, sampleViewPos1)) {
+        vec3 delta = sampleViewPos1 - centerPos;
+        float distanceToSample = length(delta);
+        if (distanceToSample > max(bias, 0.0001f)) {
+          float weight = clamp(distanceToSample * falloffMul + falloffAdd, 0.0f, 1.0f);
+          float sampleHorizonCos = dot(delta / distanceToSample, viewVec);
+          sampleHorizonCos = mix(lowHorizonCos1, sampleHorizonCos, weight);
+          horizonCos1 = max(horizonCos1, sampleHorizonCos);
+        }
+      }
+    }
+
+    projectedNormalLength = mix(projectedNormalLength, 1.0f, 0.05f);
+    float h0 = -acos(clamp(horizonCos1, -1.0f, 1.0f));
+    float h1 = acos(clamp(horizonCos0, -1.0f, 1.0f));
+    float iarc0 = (cosNorm + 2.0f * h0 * sin(n) - cos(2.0f * h0 - n)) * 0.25f;
+    float iarc1 = (cosNorm + 2.0f * h1 * sin(n) - cos(2.0f * h1 - n)) * 0.25f;
+    visibility += projectedNormalLength * (iarc0 + iarc1);
   }
 
-  return 1.0f - clamp(occlusion / float(slices) * intensity, 0.0f, 1.0f);
+  visibility = clamp(visibility / float(slices), 0.0f, 1.0f);
+  return max(0.03f, pow(visibility, max(intensity, 0.001f)));
 }
 
 void main() {
