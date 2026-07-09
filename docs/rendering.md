@@ -132,6 +132,13 @@ sets are bound per draw, `DeferredGeometryPass` bypasses all-in-one indirect def
 correct material descriptor set. Material-batched indirect buffers are the planned path for restoring indirect deferred
 rendering without returning opaque raster material sampling to bindless texture arrays.
 
+Built-in shadow alpha and transparent mesh pipelines also use the fixed raster material backend and bind the material
+descriptor set before direct material-sampling draws. Opaque shadow indirect draws may remain indirect because they use a
+texture-free empty fragment shader; alpha-tested shadow indirect draws are temporarily routed through direct submission
+until material-batched indirect buffers can bind one material descriptor per batch. Package or external forward callbacks
+that evaluate glTF raster materials are explicit migration fallbacks until their owners provide fixed material
+descriptors or material-batched submission.
+
 Bindless texture arrays are reserved for ray tracing and ray query paths. Raster-only or lower-end device mode must avoid
 creating bindless descriptor layouts when ray tracing and ray query are unavailable or disabled. BRDF LUTs, environment
 cubemaps, DDGI atlases, volumetric cloud textures, and pass-local textures may remain in fixed global or pass descriptor

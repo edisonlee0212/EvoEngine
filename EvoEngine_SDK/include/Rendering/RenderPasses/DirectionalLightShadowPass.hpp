@@ -34,6 +34,7 @@ class DirectionalLightShadowPass final {
     VkExtent2D shadow_map_extent{};
     bool use_mesh_shader = false;
     bool enable_indirect_rendering = false;
+    bool bind_raster_material_descriptor_sets = false;
     bool count_draw_calls = false;
     GetDepthAttachment get_depth_attachment;
     ExternalShadowRendering external_shadow_rendering;

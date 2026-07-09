@@ -23,17 +23,6 @@ void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_inde
 VkPolygonMode ResolvePolygonMode(const bool wire_frame, const VkPolygonMode instance_polygon_mode) {
   return wire_frame ? VK_POLYGON_MODE_LINE : instance_polygon_mode;
 }
-
-void BindRasterMaterialDescriptorSet(const VkCommandBuffer vk_command_buffer,
-                                     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline,
-                                     const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                                     const int32_t material_index) {
-  if (!graphics_pipeline || !render_instances || material_index < 0) {
-    return;
-  }
-  const auto& descriptor_set = render_instances->GetRasterMaterialDescriptorSet(static_cast<uint32_t>(material_index));
-  graphics_pipeline->BindDescriptorSet(vk_command_buffer, 3, descriptor_set->GetVkDescriptorSet());
-}
 }  // namespace
 
 RenderPassDescriptor DeferredGeometryPass::CreateDescriptor() {

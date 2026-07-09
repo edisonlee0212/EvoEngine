@@ -143,6 +143,8 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
           };
           GeometryStorage::BindVertices(vk_command_buffer);
           {
+            const bool use_alpha_tested_indirect_shadow =
+                parameters.enable_indirect_rendering && !parameters.bind_raster_material_descriptor_sets;
             if (parameters.enable_indirect_rendering &&
                 !parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
               const auto draw_indirect = [&](const bool alpha_tested,
@@ -178,15 +180,25 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                             parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
                             parameters.render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
                             parameters.render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands);
-              draw_indirect(
-                  true, parameters.directional_pipeline,
-                  parameters.render_instances->total_alpha_tested_shadow_mesh_triangles,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands);
-            } else {
+              if (use_alpha_tested_indirect_shadow) {
+                draw_indirect(
+                    true, parameters.directional_pipeline,
+                    parameters.render_instances->total_alpha_tested_shadow_mesh_triangles,
+                    parameters.render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
+                    parameters.render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
+                    parameters.render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                    parameters.render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands);
+              }
+            }
+            if (!parameters.enable_indirect_rendering ||
+                parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty() ||
+                !use_alpha_tested_indirect_shadow) {
               for (const bool alpha_tested : {false, true}) {
+                if (parameters.enable_indirect_rendering &&
+                    !parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty() &&
+                    !alpha_tested) {
+                  continue;
+                }
                 const auto target_pipeline =
                     alpha_tested ? parameters.directional_pipeline : parameters.directional_opaque_pipeline;
                 if (!prepare_graphics_pipeline(target_pipeline)) {
@@ -202,6 +214,10 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                       push_constant.camera_index = light_block_index;
                       push_constant.light_split_index = split;
                       push_constant.instance_index = render_instance->instance_index;
+                      if (alpha_tested && parameters.bind_raster_material_descriptor_sets) {
+                        BindRasterMaterialDescriptorSet(vk_command_buffer, target_pipeline, parameters.render_instances,
+                                                        render_instance->material_index);
+                      }
                       const auto prim_count =
                           render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
                       AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
@@ -226,6 +242,10 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                     push_constant.camera_index = light_block_index;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
+                    if (alpha_tested && parameters.bind_raster_material_descriptor_sets) {
+                      BindRasterMaterialDescriptorSet(vk_command_buffer, target_pipeline, parameters.render_instances,
+                                                      render_instance->material_index);
+                    }
                     const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
                     AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
@@ -249,6 +269,10 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                     push_constant.camera_index = light_block_index;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
+                    if (alpha_tested && parameters.bind_raster_material_descriptor_sets) {
+                      BindRasterMaterialDescriptorSet(vk_command_buffer, target_pipeline, parameters.render_instances,
+                                                      render_instance->material_index);
+                    }
                     const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
                     AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
