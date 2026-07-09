@@ -749,6 +749,19 @@ class RenderInstanceStorage {
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
   std::vector<std::shared_ptr<DescriptorSet>> raster_material_descriptor_sets;
 
+  struct DeferredMeshIndirectBatch {
+    int32_t material_index = -1;
+    int32_t first_instance_index = 0;
+    uint32_t first_command = 0;
+    uint32_t command_count = 0;
+    uint32_t triangle_count = 0;
+    float line_width = 1.0f;
+    VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
+    VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
+  };
+
+  std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches;
+
   std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands;
   std::shared_ptr<Buffer> mesh_draw_indexed_indirect_commands_buffer;
 

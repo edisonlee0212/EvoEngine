@@ -923,6 +923,7 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
 void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   total_opaque_shadow_mesh_triangles = 0;
   total_alpha_tested_shadow_mesh_triangles = 0;
+  deferred_mesh_indirect_batches.clear();
   opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
   alpha_tested_shadow_mesh_draw_indexed_indirect_commands.clear();
@@ -988,8 +989,37 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     alpha_tested_shadow_mesh_draw_indexed_indirect_commands.emplace_back(alpha_tested_draw);
     alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(alpha_tested_mesh_task);
   };
+  uint32_t deferred_mesh_command_index = 0;
+  const auto register_deferred_mesh_indirect_batch = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
+    if (!render_instance || !render_instance->mesh ||
+        deferred_mesh_command_index >= mesh_draw_indexed_indirect_commands.size() ||
+        deferred_mesh_command_index >= mesh_draw_mesh_tasks_indirect_commands.size()) {
+      deferred_mesh_command_index++;
+      return;
+    }
+    const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
+      return batch.material_index == render_instance->material_index &&
+             batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+             batch.polygon_mode == render_instance->polygon_mode &&
+             batch.first_instance_index + static_cast<int32_t>(batch.command_count) == render_instance->instance_index;
+    };
+    if (deferred_mesh_indirect_batches.empty() || !same_batch(deferred_mesh_indirect_batches.back())) {
+      auto& batch = deferred_mesh_indirect_batches.emplace_back();
+      batch.material_index = render_instance->material_index;
+      batch.first_instance_index = render_instance->instance_index;
+      batch.first_command = deferred_mesh_command_index;
+      batch.line_width = render_instance->line_width;
+      batch.cull_mode = render_instance->cull_mode;
+      batch.polygon_mode = render_instance->polygon_mode;
+    }
+    auto& batch = deferred_mesh_indirect_batches.back();
+    batch.command_count++;
+    batch.triangle_count += render_instance->mesh->triangle_range_->prev_frame_index_count;
+    deferred_mesh_command_index++;
+  };
   deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance);
+    register_deferred_mesh_indirect_batch(render_instance);
     register_shadow_mesh_indirect_command(render_instance);
   });
   ValidateDeferredMeshIndirectCommandCount(deferred_render_instances, mesh_draw_indexed_indirect_commands,
@@ -1520,6 +1550,7 @@ void RenderInstanceStorage::Clear() {
 
   mesh_draw_indexed_indirect_commands.clear();
   mesh_draw_mesh_tasks_indirect_commands.clear();
+  deferred_mesh_indirect_batches.clear();
   opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
   alpha_tested_shadow_mesh_draw_indexed_indirect_commands.clear();

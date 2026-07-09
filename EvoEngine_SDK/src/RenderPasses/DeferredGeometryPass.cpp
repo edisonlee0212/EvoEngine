@@ -80,9 +80,42 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.mesh_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                                       parameters.meshlet_descriptor_set->GetVkDescriptorSet());
         }
-        const bool use_indirect_deferred_draws =
+        const bool use_material_batched_indirect_deferred_draws =
+            parameters.enable_indirect_rendering && parameters.bind_raster_material_descriptor_sets &&
+            !parameters.render_instances->deferred_mesh_indirect_batches.empty();
+        const bool use_legacy_indirect_deferred_draws =
             parameters.enable_indirect_rendering && !parameters.bind_raster_material_descriptor_sets;
-        if (use_indirect_deferred_draws && !parameters.render_instances->deferred_render_instances->Empty()) {
+        if (use_material_batched_indirect_deferred_draws) {
+          for (const auto& batch : parameters.render_instances->deferred_mesh_indirect_batches) {
+            if (batch.command_count == 0) {
+              continue;
+            }
+            RenderInstancePushConstant push_constant;
+            push_constant.camera_index = parameters.camera_index;
+            push_constant.instance_index = batch.first_instance_index;
+            parameters.mesh_pipeline->states.polygon_mode =
+                ResolvePolygonMode(parameters.wire_frame, batch.polygon_mode);
+            parameters.mesh_pipeline->states.cull_mode = batch.cull_mode;
+            parameters.mesh_pipeline->states.line_width = batch.line_width;
+            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline, parameters.render_instances,
+                                            batch.material_index);
+            parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+            parameters.mesh_pipeline->states.ApplyAllStates(vk_command_buffer);
+            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, batch.triangle_count);
+            if (parameters.use_mesh_shader) {
+              Platform::DrawMeshTasksIndirect(
+                  vk_command_buffer, *parameters.render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer,
+                  batch.first_command * sizeof(VkDrawMeshTasksIndirectCommandEXT), batch.command_count,
+                  sizeof(VkDrawMeshTasksIndirectCommandEXT));
+            } else {
+              Platform::DrawIndexedIndirect(vk_command_buffer,
+                                            *parameters.render_instances->mesh_draw_indexed_indirect_commands_buffer,
+                                            batch.first_command * sizeof(VkDrawIndexedIndirectCommand),
+                                            batch.command_count, sizeof(VkDrawIndexedIndirectCommand));
+            }
+          }
+        } else if (use_legacy_indirect_deferred_draws &&
+                   !parameters.render_instances->deferred_render_instances->Empty()) {
           RenderInstancePushConstant push_constant;
           push_constant.camera_index = parameters.camera_index;
           push_constant.instance_index = 0;

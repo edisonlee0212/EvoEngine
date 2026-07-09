@@ -127,12 +127,13 @@ does not deduplicate descriptor sets across material indices because material in
 running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
 bind the documented fallback textures.
 
-Opaque deferred direct draw pipelines currently enable the fixed raster material backend. While per-material descriptor
-sets are bound per draw, `DeferredGeometryPass` bypasses all-in-one indirect deferred draws so each draw can bind the
-correct material descriptor set. Material-batched indirect buffers are the planned path for restoring indirect deferred
-rendering without returning opaque raster material sampling to bindless texture arrays. These opaque material-producing
-pipelines use a raster material per-frame descriptor set that keeps the shared per-frame buffers but omits bindless
-texture and cubemap array bindings.
+Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
+sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
+contiguous range has one material descriptor, one compatible pipeline-state key, one push-constant base instance, and an
+offset/count into the shared indirect command buffers. This restores deferred mesh indirect rendering without returning
+opaque raster material sampling to bindless texture arrays. These opaque material-producing pipelines use a raster
+material per-frame descriptor set that keeps the shared per-frame buffers but omits bindless texture and cubemap array
+bindings.
 
 Built-in shadow alpha and transparent mesh pipelines also use the fixed raster material backend and bind the material
 descriptor set before direct material-sampling draws. Opaque shadow indirect draws may remain indirect because they use a

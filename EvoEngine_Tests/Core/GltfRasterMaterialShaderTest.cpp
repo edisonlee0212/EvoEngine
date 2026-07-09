@@ -126,12 +126,12 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
   EXPECT_NE(rendering_docs.find("does not deduplicate descriptor sets across material indices"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Each descriptor slot uses the texture's existing combined image sampler"),
             std::string::npos);
-  EXPECT_NE(rendering_docs.find("bypasses all-in-one indirect deferred draws"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Material-batched indirect buffers are the planned path"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("raster material per-frame descriptor set that keeps the shared per-frame buffers"),
+  EXPECT_NE(rendering_docs.find("uses material-batched indirect ranges"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("restores deferred mesh indirect rendering"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("material per-frame descriptor set that keeps the shared per-frame buffers"),
             std::string::npos);
   EXPECT_NE(rendering_docs.find("omits bindless"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("texture and cubemap array bindings"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("cubemap array"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Built-in shadow alpha and transparent mesh pipelines"), std::string::npos);
   EXPECT_NE(rendering_docs.find("alpha-tested shadow indirect draws are temporarily routed through direct submission"),
             std::string::npos);
@@ -271,11 +271,43 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
 
   EXPECT_NE(pass_header.find("bind_raster_material_descriptor_sets"), std::string::npos);
   EXPECT_NE(pass.find("BindRasterMaterialDescriptorSet"), std::string::npos);
-  EXPECT_NE(pass.find("parameters.enable_indirect_rendering && !parameters.bind_raster_material_descriptor_sets"),
-            std::string::npos);
-  EXPECT_EQ(CountOccurrences(pass, "BindRasterMaterialDescriptorSet(vk_command_buffer, parameters."), 4);
+  EXPECT_NE(pass.find("use_material_batched_indirect_deferred_draws"), std::string::npos);
+  EXPECT_NE(pass.find("deferred_mesh_indirect_batches"), std::string::npos);
+  EXPECT_NE(pass.find("batch.first_instance_index"), std::string::npos);
+  EXPECT_NE(pass.find("batch.first_command * sizeof(VkDrawIndexedIndirectCommand)"), std::string::npos);
+  EXPECT_EQ(CountOccurrences(pass, "BindRasterMaterialDescriptorSet(vk_command_buffer, parameters."), 5);
   EXPECT_NE(utilities.find("GetRasterMaterialDescriptorSet(static_cast<uint32_t>(material_index))"), std::string::npos);
   EXPECT_NE(utilities.find("BindDescriptorSet(vk_command_buffer, 3"), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, DeferredIndirectUsesMaterialBatchedFixedDescriptors) {
+  const auto render_instance_header =
+      ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
+  const auto render_instance = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto pass = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
+  ASSERT_FALSE(render_instance_header.empty());
+  ASSERT_FALSE(render_instance.empty());
+  ASSERT_FALSE(pass.empty());
+
+  EXPECT_NE(render_instance_header.find("struct DeferredMeshIndirectBatch"), std::string::npos);
+  EXPECT_NE(render_instance_header.find("std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches"),
+            std::string::npos);
+  EXPECT_NE(render_instance.find("deferred_mesh_indirect_batches.clear()"), std::string::npos);
+  EXPECT_NE(render_instance.find("batch.material_index == render_instance->material_index"), std::string::npos);
+  EXPECT_NE(render_instance.find("batch.first_instance_index + static_cast<int32_t>(batch.command_count) =="),
+            std::string::npos);
+  EXPECT_NE(render_instance.find("batch.first_command = deferred_mesh_command_index"), std::string::npos);
+  EXPECT_NE(render_instance.find("batch.command_count++"), std::string::npos);
+  EXPECT_NE(render_instance.find("batch.triangle_count +="), std::string::npos);
+
+  EXPECT_NE(pass.find("use_material_batched_indirect_deferred_draws"), std::string::npos);
+  EXPECT_NE(pass.find("parameters.bind_raster_material_descriptor_sets"), std::string::npos);
+  EXPECT_NE(pass.find("BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline"),
+            std::string::npos);
+  EXPECT_NE(pass.find("push_constant.instance_index = batch.first_instance_index"), std::string::npos);
+  EXPECT_NE(pass.find("ResolvePolygonMode(parameters.wire_frame, batch.polygon_mode)"), std::string::npos);
+  EXPECT_NE(pass.find("batch.first_command * sizeof(VkDrawMeshTasksIndirectCommandEXT)"), std::string::npos);
+  EXPECT_NE(pass.find("batch.first_command * sizeof(VkDrawIndexedIndirectCommand)"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, ShadowAndTransparentPassesBindRasterMaterialDescriptors) {
