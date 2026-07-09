@@ -26,6 +26,20 @@ std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
 std::filesystem::path RepoPath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
 }
+
+std::string ExtractSourceRange(const std::string& source, const std::string& begin, const std::string& end) {
+  const auto begin_pos = source.find(begin);
+  EXPECT_NE(begin_pos, std::string::npos) << begin;
+  if (begin_pos == std::string::npos) {
+    return {};
+  }
+  const auto end_pos = source.find(end, begin_pos);
+  EXPECT_NE(end_pos, std::string::npos) << end;
+  if (end_pos == std::string::npos) {
+    return {};
+  }
+  return source.substr(begin_pos, end_pos - begin_pos);
+}
 }  // namespace
 
 TEST(GltfRasterMaterial, EvaluatorUsesCanonicalGltfTextureInfo) {
@@ -36,6 +50,8 @@ TEST(GltfRasterMaterial, EvaluatorUsesCanonicalGltfTextureInfo) {
   EXPECT_NE(source.find("return uint(texture_info_slot) > 0u"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_TEXTURE_INFOS[uint(texture_info_slot)]"), std::string::npos);
   EXPECT_NE(source.find("texture_info.uv_transform"), std::string::npos);
+  EXPECT_NE(source.find("#ifndef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_SAMPLE_BINDLESS_TEXTURE"), std::string::npos);
   EXPECT_NE(source.find("EE_TEXTURE_2DS[nonuniformEXT(texture_info.index)]"), std::string::npos);
   EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos);
 }
@@ -148,6 +164,48 @@ TEST(GltfRasterMaterial, RasterMaterialDescriptorCompatibilityResourcesArePresen
   EXPECT_NE(texture_storage_header.find("TryGetTexture2DDescriptorImageInfo"), std::string::npos);
   EXPECT_NE(texture_storage.find("TextureStorage::TryGetTexture2DDescriptorImageInfo"), std::string::npos);
   EXPECT_NE(texture_storage.find("texture_storage.IsGpuUploadPending()"), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, FixedRasterBackendUsesIndividualTextureBindings) {
+  const auto source = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
+  ASSERT_FALSE(source.empty());
+
+  EXPECT_NE(source.find("EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_MATERIAL_SET 3"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_BASE_COLOR_TEXTURE_BINDING 0"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_METALLIC_ROUGHNESS_TEXTURE_BINDING 1"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_NORMAL_TEXTURE_BINDING 2"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_EMISSIVE_TEXTURE_BINDING 3"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_OCCLUSION_TEXTURE_BINDING 4"), std::string::npos);
+
+  const std::string fixed_declarations =
+      ExtractSourceRange(source, "#ifdef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES", "struct GltfRasterMaterial");
+  EXPECT_NE(fixed_declarations.find("uniform sampler2D"), std::string::npos);
+  EXPECT_EQ(fixed_declarations.find("sampler2D[]"), std::string::npos);
+  EXPECT_EQ(fixed_declarations.find("EE_TEXTURE_2DS"), std::string::npos);
+  EXPECT_EQ(fixed_declarations.find("nonuniformEXT"), std::string::npos);
+
+  const std::string fixed_sampling =
+      ExtractSourceRange(source, "vec4 EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE", "vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT");
+  EXPECT_NE(fixed_sampling.find("texture(EE_GLTF_RASTER_BASE_COLOR_TEXTURE"), std::string::npos);
+  EXPECT_NE(fixed_sampling.find("texture(EE_GLTF_RASTER_METALLIC_ROUGHNESS_TEXTURE"), std::string::npos);
+  EXPECT_NE(fixed_sampling.find("texture(EE_GLTF_RASTER_NORMAL_TEXTURE"), std::string::npos);
+  EXPECT_NE(fixed_sampling.find("texture(EE_GLTF_RASTER_EMISSIVE_TEXTURE"), std::string::npos);
+  EXPECT_NE(fixed_sampling.find("texture(EE_GLTF_RASTER_OCCLUSION_TEXTURE"), std::string::npos);
+  EXPECT_EQ(fixed_sampling.find("EE_TEXTURE_2DS"), std::string::npos);
+  EXPECT_EQ(fixed_sampling.find("nonuniformEXT"), std::string::npos);
+  EXPECT_EQ(fixed_sampling.find("sampler2D[]"), std::string::npos);
+
+  EXPECT_NE(source.find("material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
+  EXPECT_NE(source.find("material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
+  EXPECT_NE(source.find("material.pbr_metallic_roughness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
+            std::string::npos);
+  EXPECT_NE(source.find("material.pbr_specular_glossiness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
+            std::string::npos);
+  EXPECT_NE(source.find("material.normal_texture, EE_GLTF_RASTER_TEXTURE_NORMAL"), std::string::npos);
+  EXPECT_NE(source.find("material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE"), std::string::npos);
+  EXPECT_NE(source.find("material.occlusion_texture, EE_GLTF_RASTER_TEXTURE_OCCLUSION"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_TEXTURE_UNSUPPORTED_EXTENSION"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {

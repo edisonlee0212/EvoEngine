@@ -77,7 +77,7 @@ TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
   EXPECT_NE(evaluator.find("float EE_GLTF_RASTER_OPACITY_LOD0"), std::string::npos);
   EXPECT_NE(evaluator.find("material.alpha_mode == EE_GLTF_ALPHA_MODE_MASK"), std::string::npos);
   EXPECT_NE(evaluator.find("base_color_alpha *= vertex_alpha"), std::string::npos);
-  EXPECT_NE(evaluator.find("EE_GLTF_SAMPLE_TEXTURE_LOD0(material.pbr_base_color_texture"), std::string::npos);
+  EXPECT_NE(evaluator.find("material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
   EXPECT_NE(any_hit.find("vertex_color.a"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_RANDOM(hit_value.seed) > opacity"), std::string::npos);
   EXPECT_NE(any_hit.find("ignoreIntersectionEXT"), std::string::npos);
