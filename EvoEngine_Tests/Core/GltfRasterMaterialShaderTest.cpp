@@ -308,6 +308,52 @@ TEST(GltfRasterMaterial, ShadowAndTransparentPassesBindRasterMaterialDescriptors
             std::string::npos);
 }
 
+TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
+  const auto docs = ReadTextFile(RepoPath("docs/rendering.md"));
+  const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
+  const auto offscreen_preview = ReadTextFile(SdkPath("src/OffscreenPreviewRenderer.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  ASSERT_FALSE(docs.empty());
+  ASSERT_FALSE(thumbnail_provider.empty());
+  ASSERT_FALSE(offscreen_preview.empty());
+  ASSERT_FALSE(render_layer.empty());
+
+  EXPECT_NE(docs.find("Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and "
+                      "`OffscreenPreviewRenderer`"),
+            std::string::npos);
+  EXPECT_NE(docs.find("do not own separate glTF raster"), std::string::npos);
+  EXPECT_NE(docs.find("material pipelines"), std::string::npos);
+  EXPECT_NE(docs.find("inherits the same fixed material descriptor layouts"), std::string::npos);
+
+  EXPECT_NE(thumbnail_provider.find("RegisterAssetPreviewHandler<Material>"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("OffscreenPreviewRenderer::RenderMaterial(material, settings)"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("RegisterAssetPreviewHandler<Mesh>"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("OffscreenPreviewRenderer::RenderMesh(mesh, {}, settings)"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("Serialization::GenerateAssetThumbnail(asset, settings)"), std::string::npos);
+
+  EXPECT_NE(offscreen_preview.find("RenderMeshWithMaterial(mesh, material"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("scene->environment.volumetric_cloud_settings.enabled = false"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("scene->environment.ddgi_settings.runtime.enabled = false"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("UploadPreviewResources(mesh, material)"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("camera->camera_render_mode = Camera::CameraRenderMode::Rasterization"),
+            std::string::npos);
+  EXPECT_NE(offscreen_preview.find("render_layer->RenderSceneToCameraImmediately(scene, camera_transform, camera)"),
+            std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("GltfRasterMaterial.glsl"), std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("StandardDeferred.frag"), std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("StandardTransparent.frag"), std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("ShadowMapPassThrough.frag"), std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("Shader::CreateTemporary"), std::string::npos);
+
+  const std::string immediate_render = ExtractSourceRange(
+      render_layer, "void RenderLayer::RenderSceneToCameraImmediately", "void RenderLayer::RenderAll");
+  EXPECT_NE(immediate_render.find("std::make_shared<RenderInstanceStorage>()"), std::string::npos);
+  EXPECT_NE(immediate_render.find("PrepareSceneForRendering(scene, false, false, false, false)"), std::string::npos);
+  EXPECT_NE(immediate_render.find("RenderToCamera(scene, camera_global_transform, camera, true)"), std::string::npos);
+  EXPECT_NE(immediate_render.find("BindRenderInstanceStorage(current_frame_index, previous_render_instances)"),
+            std::string::npos);
+}
+
 TEST(GltfRasterMaterial, FixedRasterBackendUsesIndividualTextureBindings) {
   const auto source = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
   ASSERT_FALSE(source.empty());

@@ -139,6 +139,12 @@ until material-batched indirect buffers can bind one material descriptor per bat
 that evaluate glTF raster materials are explicit migration fallbacks until their owners provide fixed material
 descriptors or material-batched submission.
 
+Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and `OffscreenPreviewRenderer`, which build a
+temporary scene, upload referenced preview textures, force a raster camera, disable preview-only volumetric clouds and
+DDGI state, and call `RenderLayer::RenderSceneToCameraImmediately`. These preview paths do not own separate glTF raster
+material pipelines, so material-sampling preview output inherits the same fixed material descriptor layouts and per-draw
+descriptor binding used by the normal RenderLayer camera passes.
+
 Bindless texture arrays are reserved for ray tracing and ray query paths. Raster-only or lower-end device mode must avoid
 creating bindless descriptor layouts when ray tracing and ray query are unavailable or disabled. BRDF LUTs, environment
 cubemaps, DDGI atlases, volumetric cloud textures, and pass-local textures may remain in fixed global or pass descriptor
