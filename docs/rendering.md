@@ -135,13 +135,12 @@ opaque raster material sampling to bindless texture arrays. These opaque materia
 material per-frame descriptor set that keeps the shared per-frame buffers but omits bindless texture and cubemap array
 bindings.
 
-Built-in shadow alpha and transparent mesh pipelines also use the fixed raster material backend and bind the material
-descriptor set before direct material-sampling draws. Opaque shadow indirect draws may remain indirect because they use a
-texture-free empty fragment shader; alpha-tested shadow indirect draws are temporarily routed through direct submission
-until material-batched indirect buffers can bind one material descriptor per batch. Package or external forward callbacks
-that evaluate glTF raster materials are explicit migration fallbacks until their owners provide fixed material
-descriptors or material-batched submission. Alpha-tested built-in shadow pipelines also use the raster material per-frame
-descriptor set without bindless texture arrays.
+Built-in shadow-map passes treat all mesh materials as opaque. They use texture-free depth shaders, do not bind raster
+material descriptor sets, and do not sample material textures for alpha discard. This keeps regular mesh shadow draws on
+the opaque shadow indirect command path when indirect rendering is enabled. Transparent mesh pipelines still use the
+fixed raster material backend and bind the material descriptor set before direct material-sampling draws. Package or
+external forward callbacks that evaluate glTF raster materials are explicit migration fallbacks until their owners
+provide fixed material descriptors or material-batched submission.
 
 Raster lighting uses a fixed raster-global texture descriptor set for image-based lighting inputs instead of sampling the
 bindless texture arrays. Deferred lighting binds this set after the shared lighting descriptor set, and transparent mesh

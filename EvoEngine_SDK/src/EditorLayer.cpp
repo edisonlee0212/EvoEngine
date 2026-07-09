@@ -137,25 +137,6 @@ void DrawRenderCounterSummary(const Platform& graphics, const uint32_t current_f
       current_frame_index < graphics.draw_call.size() ? graphics.draw_call[current_frame_index] : 0u;
   ImGui::Text("%s tris", FormatRenderCounter(prim_count).c_str());
   ImGui::Text("%llu draw submissions", static_cast<unsigned long long>(draw_call_count));
-  if (current_frame_index >= graphics.render_pass_draw_stats.size()) {
-    return;
-  }
-  if (!ImGui::TreeNode("Pass draws")) {
-    return;
-  }
-  for (size_t bucket_index = 0; bucket_index < Platform::kRenderPassDrawBucketCount; bucket_index++) {
-    const auto& stats = graphics.render_pass_draw_stats[current_frame_index][bucket_index];
-    if (stats.TotalDrawCalls() == 0 && stats.prim_count == 0 && stats.indirect_draw_commands == 0) {
-      continue;
-    }
-    ImGui::Text("%s: %llu direct, %llu indirect, %llu records, %s prims",
-                Platform::GetRenderPassDrawBucketName(static_cast<RenderPassDrawBucket>(bucket_index)),
-                static_cast<unsigned long long>(stats.direct_draw_calls),
-                static_cast<unsigned long long>(stats.indirect_draw_calls),
-                static_cast<unsigned long long>(stats.indirect_draw_commands),
-                FormatRenderCounter(stats.prim_count).c_str());
-  }
-  ImGui::TreePop();
 }
 
 bool CurrentTitleBarAccent(ImU32& accent) {

@@ -665,76 +665,40 @@ class RenderLayer final : public ILayer {
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
 
 #pragma region Graphics Pipelines
-  /// Graphics pipeline for rendering point light shadows with normal meshes.
-  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal;
-
-  /// Depth-only pipeline for rendering opaque point light shadows with normal meshes.
+  /// Depth-only pipeline for rendering point light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal_opaque;
 
   /// Graphics pipeline for rendering point light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader;
 
-  /// Alpha-tested mesh-shader pipeline for rendering point light shadows.
-  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader_alpha_tested;
-
-  /// Graphics pipeline for rendering spot light shadows with normal meshes.
-  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal;
-
-  /// Depth-only pipeline for rendering opaque spot light shadows with normal meshes.
+  /// Depth-only pipeline for rendering spot light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal_opaque;
 
   /// Graphics pipeline for rendering spot light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader;
 
-  /// Alpha-tested mesh-shader pipeline for rendering spot light shadows.
-  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader_alpha_tested;
-
-  /// Graphics pipeline for rendering directional light shadows with normal meshes.
-  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal;
-
-  /// Depth-only pipeline for rendering opaque directional light shadows with normal meshes.
+  /// Depth-only pipeline for rendering directional light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal_opaque;
 
   /// Graphics pipeline for rendering directional light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
 
-  /// Alpha-tested mesh-shader pipeline for rendering directional light shadows.
-  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader_alpha_tested;
-
-  /// Graphics pipeline for rendering instanced point light shadows.
-  std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque instanced point light shadows.
+  /// Depth-only pipeline for rendering instanced point light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering instanced spot light shadows.
-  std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque instanced spot light shadows.
+  /// Depth-only pipeline for rendering instanced spot light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering instanced directional light shadows.
-  std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque instanced directional light shadows.
+  /// Depth-only pipeline for rendering instanced directional light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering point light shadows with skinned meshes.
-  std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque point light shadows with skinned meshes.
+  /// Depth-only pipeline for rendering point light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering spot light shadows with skinned meshes.
-  std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque spot light shadows with skinned meshes.
+  /// Depth-only pipeline for rendering spot light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering directional light shadows with skinned meshes.
-  std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque directional light shadows with skinned meshes.
+  /// Depth-only pipeline for rendering directional light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline_opaque;
 
   /// Graphics pipeline for rendering point light shadows with hair strands.

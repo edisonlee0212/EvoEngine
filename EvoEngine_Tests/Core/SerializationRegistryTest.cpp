@@ -12,6 +12,7 @@
 #include "AssetRef.hpp"
 #include "AssetThumbnailProvider.hpp"
 #include "Camera.hpp"
+#include "EnvironmentalMap.hpp"
 #include "FileManager.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
@@ -640,6 +641,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(UnknownSystem).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(PostProcessingStack).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Material).hash_code()), nullptr);
+  ASSERT_NE(Serialization::FindSerializationHandler(typeid(EnvironmentalMap).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Shader).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(procedural_noise::ProceduralNoise2D).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(procedural_noise::ProceduralNoise3D).hash_code()), nullptr);
@@ -715,6 +717,22 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_EQ(restored_animator.PeekOffsetMatrices().size(), 1);
   ASSERT_EQ(restored_animator.PeekBoneNames().size(), 1);
   EXPECT_EQ(restored_animator.PeekBoneNames()[0], "Root");
+
+  EnvironmentalMap environmental_map;
+  YAML::Emitter environmental_map_out;
+  BeginMap(environmental_map_out);
+  Serialization::SerializeObject(environmental_map_out, static_cast<IAsset&>(environmental_map));
+  environmental_map_out << YAML::EndMap;
+  const auto environmental_map_node = YAML::Load(environmental_map_out.c_str());
+  EXPECT_TRUE(environmental_map_node["light_probe"]);
+  EXPECT_TRUE(environmental_map_node["reflection_probe"]);
+  EXPECT_TRUE(environmental_map_node["environment_pdf_texture"]);
+
+  EnvironmentalMap restored_environmental_map;
+  Serialization::DeserializeObject(YAML::Load("{}"), static_cast<IAsset&>(restored_environmental_map));
+  EXPECT_EQ(restored_environmental_map.light_probe.GetAssetHandle().GetValue(), 0);
+  EXPECT_EQ(restored_environmental_map.reflection_probe.GetAssetHandle().GetValue(), 0);
+  EXPECT_EQ(restored_environmental_map.environment_pdf_texture.GetAssetHandle().GetValue(), 0);
 
   Prefab prefab;
   prefab.instance_name = "Parent";

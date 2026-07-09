@@ -19,15 +19,11 @@ class DirectionalLightShadowPass final {
 
   struct Parameters {
     std::shared_ptr<RenderInstanceStorage> render_instances;
-    std::shared_ptr<GraphicsPipeline> directional_pipeline;
     std::shared_ptr<GraphicsPipeline> directional_opaque_pipeline;
-    std::shared_ptr<GraphicsPipeline> instanced_pipeline;
     std::shared_ptr<GraphicsPipeline> instanced_opaque_pipeline;
-    std::shared_ptr<GraphicsPipeline> skinned_pipeline;
     std::shared_ptr<GraphicsPipeline> skinned_opaque_pipeline;
     std::shared_ptr<GraphicsPipeline> strands_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
-    std::shared_ptr<DescriptorSet> raster_material_per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> meshlet_descriptor_set;
     int camera_index = -1;
     int max_directional_light_count = 0;
@@ -35,7 +31,6 @@ class DirectionalLightShadowPass final {
     VkExtent2D shadow_map_extent{};
     bool use_mesh_shader = false;
     bool enable_indirect_rendering = false;
-    bool bind_raster_material_descriptor_sets = false;
     bool count_draw_calls = false;
     GetDepthAttachment get_depth_attachment;
     ExternalShadowRendering external_shadow_rendering;

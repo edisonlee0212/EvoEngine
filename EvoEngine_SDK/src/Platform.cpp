@@ -23,6 +23,19 @@
 
 using namespace evo_engine;
 
+namespace {
+void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, const size_t prim_count,
+                  const size_t indirect_draw_commands) {
+  stats.prim_count += prim_count;
+  if (kind == RenderDrawCallKind::Indirect) {
+    stats.indirect_draw_calls++;
+    stats.indirect_draw_commands += indirect_draw_commands;
+  } else {
+    stats.direct_draw_calls++;
+  }
+}
+}  // namespace
+
 Platform::~Platform() = default;
 
 const Platform::Capabilities& Platform::GetCapabilities() const {
@@ -35,6 +48,17 @@ Platform::Capabilities& Platform::GetCapabilities() {
 
 size_t RenderPassDrawStats::TotalDrawCalls() const {
   return direct_draw_calls + indirect_draw_calls;
+}
+
+RenderPassDrawStats RenderCameraDrawStats::Total() const {
+  RenderPassDrawStats total;
+  for (const auto& stats : pass_stats) {
+    total.direct_draw_calls += stats.direct_draw_calls;
+    total.indirect_draw_calls += stats.indirect_draw_calls;
+    total.indirect_draw_commands += stats.indirect_draw_commands;
+    total.prim_count += stats.prim_count;
+  }
+  return total;
 }
 
 const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket bucket) {
@@ -75,12 +99,29 @@ void Platform::ResetRenderPassDrawStats(const uint32_t frame_index) {
   if (frame_index < graphics.prim_count.size()) {
     graphics.prim_count[frame_index] = 0;
   }
+  if (graphics.active_render_camera_draw_scope_ &&
+      graphics.active_render_camera_draw_scope_->frame_index == frame_index) {
+    graphics.active_render_camera_draw_scope_.reset();
+  }
+  if (frame_index < graphics.render_camera_draw_stats.size()) {
+    graphics.render_camera_draw_stats[frame_index].clear();
+  }
   if (frame_index >= graphics.render_pass_draw_stats.size()) {
     return;
   }
   for (auto& stats : graphics.render_pass_draw_stats[frame_index]) {
     stats = {};
   }
+}
+
+void Platform::BeginRenderCameraDrawScope(const uint32_t frame_index, const uint64_t camera_handle,
+                                          const uint32_t entity_index, const bool scene_camera) {
+  auto& graphics = GetInstance();
+  graphics.active_render_camera_draw_scope_ = {frame_index, camera_handle, entity_index, scene_camera};
+}
+
+void Platform::EndRenderCameraDrawScope() {
+  GetInstance().active_render_camera_draw_scope_.reset();
 }
 
 void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
@@ -98,13 +139,28 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
     return;
   }
   auto& stats = graphics.render_pass_draw_stats[frame_index][bucket_index];
-  stats.prim_count += prim_count;
-  if (kind == RenderDrawCallKind::Indirect) {
-    stats.indirect_draw_calls++;
-    stats.indirect_draw_commands += indirect_draw_commands;
-  } else {
-    stats.direct_draw_calls++;
+  AddDrawStats(stats, kind, prim_count, indirect_draw_commands);
+  if (!graphics.active_render_camera_draw_scope_ ||
+      graphics.active_render_camera_draw_scope_->frame_index != frame_index ||
+      frame_index >= graphics.render_camera_draw_stats.size()) {
+    return;
   }
+  const auto& scope = *graphics.active_render_camera_draw_scope_;
+  auto& camera_stats_list = graphics.render_camera_draw_stats[frame_index];
+  auto camera_stats =
+      std::find_if(camera_stats_list.begin(), camera_stats_list.end(), [&](const RenderCameraDrawStats& candidate) {
+        return candidate.camera_handle == scope.camera_handle && candidate.scene_camera == scope.scene_camera;
+      });
+  if (camera_stats == camera_stats_list.end()) {
+    RenderCameraDrawStats stats_entry;
+    stats_entry.camera_handle = scope.camera_handle;
+    stats_entry.entity_index = scope.entity_index;
+    stats_entry.scene_camera = scope.scene_camera;
+    camera_stats = camera_stats_list.emplace(camera_stats_list.end(), stats_entry);
+  } else {
+    camera_stats->entity_index = scope.entity_index;
+  }
+  AddDrawStats(camera_stats->pass_stats[bucket_index], kind, prim_count, indirect_draw_commands);
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
@@ -310,6 +366,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   graphics.draw_call.resize(graphics.max_frame_in_flight_);
   graphics.prim_count.resize(graphics.max_frame_in_flight_);
   graphics.render_pass_draw_stats.resize(graphics.max_frame_in_flight_);
+  graphics.render_camera_draw_stats.resize(graphics.max_frame_in_flight_);
   auto& capabilities = graphics.capabilities_;
 
   const uint32_t subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
