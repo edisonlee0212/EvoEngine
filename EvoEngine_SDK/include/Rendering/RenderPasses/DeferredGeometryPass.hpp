@@ -31,6 +31,7 @@ class DeferredGeometryPass final {
     uint32_t current_frame_index = 0;
     bool use_mesh_shader = false;
     bool enable_indirect_rendering = false;
+    bool bind_raster_material_descriptor_sets = false;
     bool count_draw_calls = false;
     bool wire_frame = false;
     ExternalDeferredRendering external_deferred_rendering;

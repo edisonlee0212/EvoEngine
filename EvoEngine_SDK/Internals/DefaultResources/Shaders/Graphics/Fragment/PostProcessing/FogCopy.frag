@@ -10,8 +10,6 @@ layout (location = 0) in VS_OUT {
 } fs_in;
 
 layout(set = 0, binding = 17) uniform sampler2D inDepth;
-layout(set = 0, binding = 18) uniform sampler2D inNormal;
-layout(set = 0, binding = 19) uniform sampler2D inMaterial;
 
 layout(set = 1, binding = 0) uniform sampler2D inColor;
 

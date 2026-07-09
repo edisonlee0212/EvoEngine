@@ -19,11 +19,8 @@ class DirectionalLightShadowPass final {
 
   struct Parameters {
     std::shared_ptr<RenderInstanceStorage> render_instances;
-    std::shared_ptr<GraphicsPipeline> directional_pipeline;
     std::shared_ptr<GraphicsPipeline> directional_opaque_pipeline;
-    std::shared_ptr<GraphicsPipeline> instanced_pipeline;
     std::shared_ptr<GraphicsPipeline> instanced_opaque_pipeline;
-    std::shared_ptr<GraphicsPipeline> skinned_pipeline;
     std::shared_ptr<GraphicsPipeline> skinned_opaque_pipeline;
     std::shared_ptr<GraphicsPipeline> strands_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;

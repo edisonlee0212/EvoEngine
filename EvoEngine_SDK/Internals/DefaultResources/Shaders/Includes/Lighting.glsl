@@ -13,11 +13,23 @@ layout(set = EE_PER_GROUP_SET, binding = 19) readonly buffer EE_DDGI_PROBE_STATE
   vec4 EE_DDGI_PROBE_STATE[];
 };
 
+#ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
+layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 0) uniform sampler2D EE_RASTER_BRDF_LUT;
+layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 1) uniform samplerCube EE_RASTER_SKYBOX;
+layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 2) uniform samplerCube EE_RASTER_IRRADIANCE_MAP;
+layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 3) uniform samplerCube EE_RASTER_PREFILTERED_MAP;
+#endif
+
 vec3 EE_SKY_COLOR(vec3 direction) {
 	Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-	return camera.use_clear_color == 1 ?
-		camera.clear_color.xyz * camera.clear_color.w
-		: pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+	if (camera.use_clear_color == 1) {
+		return camera.clear_color.xyz * camera.clear_color.w;
+	}
+#ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
+	return pow(texture(EE_RASTER_SKYBOX, normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+#else
+	return pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+#endif
 }
 
 const float PI = 3.14159265359;
@@ -196,14 +208,24 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
 	vec3 kD = 1.0f - kS;
 	kD *= 1.0f - metallic;
 
+#ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
+	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_RASTER_IRRADIANCE_MAP, normal).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+#else
 	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], normal).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+#endif
 	vec3 diffuse = irradiance * albedo;
 
 	// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
+#ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
+	float reflectionLodScale = float(textureQueryLevels(EE_RASTER_PREFILTERED_MAP));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_RASTER_PREFILTERED_MAP, R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec2 brdf = texture(EE_RASTER_BRDF_LUT, vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
+#else
 	int prefilteredMapIndex = EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index;
 	float reflectionLodScale = float(textureQueryLevels(EE_CUBEMAPS[prefilteredMapIndex]));
 	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
+#endif
 	vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 	vec3 ambient = (kD * diffuse + specular) * EE_ENVIRONMENT.light_intensity;
 	return ambient;

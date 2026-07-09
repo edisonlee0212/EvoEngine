@@ -6,7 +6,11 @@
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
+#include <optional>
 #include <set>
 
 #define ENABLE_EXTERNAL_MEMORY true
@@ -26,6 +30,48 @@
 namespace evo_engine {
 class GpuService;
 class PlatformLifecycleTestAccess;
+
+enum class RenderPassDrawBucket : uint8_t {
+  FrameExternal,
+  PointLightShadow,
+  SpotLightShadow,
+  DirectionalLightShadow,
+  DeferredGeometry,
+  DeferredLighting,
+  TransparentGeometry,
+  ForwardExternal,
+  CameraExternal,
+  DdgiProbeVisualization,
+  DdgiProbeRayVisualization,
+  Count
+};
+
+enum class RenderDrawCallKind : uint8_t { Direct, Indirect };
+
+struct RenderPassDrawStats {
+  size_t direct_draw_calls = 0;
+  size_t indirect_draw_calls = 0;
+  size_t indirect_draw_commands = 0;
+  size_t prim_count = 0;
+
+  [[nodiscard]] size_t TotalDrawCalls() const;
+};
+
+struct RenderCameraDrawStats {
+  uint64_t camera_handle = 0;
+  uint32_t entity_index = 0;
+  bool scene_camera = false;
+  std::array<RenderPassDrawStats, static_cast<size_t>(RenderPassDrawBucket::Count)> pass_stats{};
+
+  [[nodiscard]] RenderPassDrawStats Total() const;
+};
+
+struct RenderCameraDrawScope {
+  uint32_t frame_index = 0;
+  uint64_t camera_handle = 0;
+  uint32_t entity_index = 0;
+  bool scene_camera = false;
+};
 
 /**
  * @brief Class representing platform-specific Vulkan setup and utilities.
@@ -394,6 +440,14 @@ class Platform final {
   static bool RayQueryEnabled();
   static bool ShaderExecutionReorderingEnabled();
   static bool MeshShaderEnabled();
+  static constexpr size_t kRenderPassDrawBucketCount = static_cast<size_t>(RenderPassDrawBucket::Count);
+  [[nodiscard]] static const char* GetRenderPassDrawBucketName(RenderPassDrawBucket bucket);
+  static void ResetRenderPassDrawStats(uint32_t frame_index);
+  static void BeginRenderCameraDrawScope(uint32_t frame_index, uint64_t camera_handle, uint32_t entity_index,
+                                         bool scene_camera);
+  static void EndRenderCameraDrawScope();
+  static void CountRenderPassDraw(RenderPassDrawBucket bucket, RenderDrawCallKind kind, uint32_t frame_index,
+                                  size_t prim_count, size_t indirect_draw_commands = 0);
   /**
    * @brief Checks if the platform is initialized.
    *
@@ -514,6 +568,12 @@ class Platform final {
   /// List of draw calls for debugging purposes.
   std::vector<size_t> draw_call{};
 
+  /// Per-pass draw call and primitive counts for debugging purposes.
+  std::vector<std::array<RenderPassDrawStats, kRenderPassDrawBucketCount>> render_pass_draw_stats{};
+
+  /// Per-camera per-pass draw call and primitive counts for debugging purposes.
+  std::vector<std::vector<RenderCameraDrawStats>> render_camera_draw_stats{};
+
   /**
    * @brief Constants used for internal configuration and limits.
    */
@@ -549,11 +609,11 @@ class Platform final {
     /// Color format for render textures.
     constexpr static VkFormat render_texture_color = VK_FORMAT_R32G32B32A32_SFLOAT;
 
-    /// Color format for G-buffer.
-    constexpr static VkFormat g_buffer_color = VK_FORMAT_R32G32B32A32_SFLOAT;
+    /// Attribute format for expanded G-buffer attachments.
+    constexpr static VkFormat g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT;
 
-    /// Material format for G-buffer.
-    constexpr static VkFormat g_buffer_material = VK_FORMAT_R32G32B32A32_SFLOAT;
+    /// Utility format for expanded G-buffer attachments.
+    constexpr static VkFormat g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT;
 
     /// Format for shadow maps.
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
@@ -820,5 +880,8 @@ class Platform final {
    * @return True if the layer is supported, false otherwise.
    */
   [[nodiscard]] static bool CheckLayerSupport(const std::string& layer_name);
+
+ private:
+  std::optional<RenderCameraDrawScope> active_render_camera_draw_scope_{};
 };
 }  // namespace evo_engine

@@ -103,7 +103,8 @@ For each milestone, inspect the generated previews and, when the change affects 
 - Near/far sharpness: check Bistro curb stones, plant pot, motorbike front, and distant building shadows.
 - Grazing surfaces: check curb edges and shallow-angle road surfaces.
 - Camera motion: translate and rotate the camera to catch cascade swimming or shimmer.
-- Alpha-tested foliage: check Bistro trees and plant leaves where visible.
+- Foliage shadow silhouettes: shadow maps intentionally treat material alpha as opaque; check Bistro trees and plant
+  leaves for acceptable solid-shadow coverage where visible.
 - Rendering demo coverage: check near primitives, far surfaces, camera rotation, and camera translation.
 
 If a milestone intentionally changes output, keep the before/after captures under that milestone folder or note the comparison in `validation-report.md`.

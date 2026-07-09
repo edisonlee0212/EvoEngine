@@ -436,7 +436,10 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   small_segments_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   small_segments_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  small_segments_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+  small_segments_render_pipeline->color_attachment_formats = {
+      Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+      Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+      Platform::Constants::g_buffer_utility};
   auto& render_range = small_segments_render_pipeline->push_constant_ranges.emplace_back();
   render_range.size = sizeof(SmallSegmentsRenderPushConstant);
   render_range.offset = 0;
@@ -465,7 +468,10 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
   small_segments_visualization_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
   small_segments_visualization_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-  small_segments_visualization_render_pipeline->color_attachment_formats = {2, Platform::Constants::g_buffer_color};
+  small_segments_visualization_render_pipeline->color_attachment_formats = {
+      Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+      Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
+      Platform::Constants::g_buffer_utility};
   auto& visualization_render = small_segments_visualization_render_pipeline->push_constant_ranges.emplace_back();
   visualization_render.size = sizeof(SmallSegmentsVisualizationRenderPushConstant);
   visualization_render.offset = 0;

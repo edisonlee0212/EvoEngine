@@ -1,7 +1,9 @@
 #include "RenderPasses/RenderPassUtilities.hpp"
 
+#include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "Platform.hpp"
+#include "RenderInstanceStorage.hpp"
 
 using namespace evo_engine;
 
@@ -216,6 +218,17 @@ void evo_engine::ApplyGraphResourceReleaseBarriers(const VkCommandBuffer vk_comm
     }
     ApplyGraphResourceBarrier(vk_command_buffer, context, *barrier, recorded_queue, true);
   }
+}
+
+void evo_engine::BindRasterMaterialDescriptorSet(const VkCommandBuffer vk_command_buffer,
+                                                 const std::shared_ptr<GraphicsPipeline>& graphics_pipeline,
+                                                 const std::shared_ptr<RenderInstanceStorage>& render_instances,
+                                                 const int32_t material_index) {
+  if (!graphics_pipeline || !render_instances || material_index < 0) {
+    return;
+  }
+  const auto& descriptor_set = render_instances->GetRasterMaterialDescriptorSet(static_cast<uint32_t>(material_index));
+  graphics_pipeline->BindDescriptorSet(vk_command_buffer, 3, descriptor_set->GetVkDescriptorSet());
 }
 
 void evo_engine::ClearGraphColorImage(const VkCommandBuffer vk_command_buffer, const std::shared_ptr<Image>& image,

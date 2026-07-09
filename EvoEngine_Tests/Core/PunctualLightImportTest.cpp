@@ -97,14 +97,12 @@ TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
   EXPECT_NE(lights.find("EE_DIRECTIONAL_LIGHTS[]"), std::string::npos);
   EXPECT_NE(lights.find("EE_POINT_LIGHTS[]"), std::string::npos);
   EXPECT_NE(lights.find("EE_SPOT_LIGHTS[]"), std::string::npos);
-  EXPECT_NE(render_layer.find(
-                "UpdateBufferDescriptorBinding(\n      6, render_instances->directional_light_info_descriptor_buffer)"),
+  EXPECT_NE(
+      render_layer.find("UpdateBufferDescriptorBinding(6, render_instances->directional_light_info_descriptor_buffer)"),
+      std::string::npos);
+  EXPECT_NE(render_layer.find("UpdateBufferDescriptorBinding(7, render_instances->point_light_info_descriptor_buffer)"),
             std::string::npos);
-  EXPECT_NE(render_layer.find(
-                "UpdateBufferDescriptorBinding(\n      7, render_instances->point_light_info_descriptor_buffer)"),
-            std::string::npos);
-  EXPECT_NE(render_layer.find(
-                "UpdateBufferDescriptorBinding(\n      8, render_instances->spot_light_info_descriptor_buffer)"),
+  EXPECT_NE(render_layer.find("UpdateBufferDescriptorBinding(8, render_instances->spot_light_info_descriptor_buffer)"),
             std::string::npos);
 
   EXPECT_NE(ddgi_closest_hit.find("EE_DIRECTIONAL_LIGHTS[i]"), std::string::npos);

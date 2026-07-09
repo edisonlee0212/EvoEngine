@@ -366,6 +366,18 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   }
 }
 
+void SerializeEnvironmentalMap(YAML::Emitter& out, const EnvironmentalMap& environmental_map) {
+  environmental_map.light_probe.Save("light_probe", out);
+  environmental_map.reflection_probe.Save("reflection_probe", out);
+  environmental_map.environment_pdf_texture.Save("environment_pdf_texture", out);
+}
+
+void DeserializeEnvironmentalMap(const YAML::Node& in, EnvironmentalMap& environmental_map) {
+  environmental_map.light_probe.Load("light_probe", in);
+  environmental_map.reflection_probe.Load("reflection_probe", in);
+  environmental_map.environment_pdf_texture.Load("environment_pdf_texture", in);
+}
+
 void SaveMat3x2(const std::string& name, const glm::mat3x2& value, YAML::Emitter& out) {
   out << YAML::Key << name << YAML::Value << YAML::Flow << YAML::BeginSeq << value[0][0] << value[0][1] << value[1][0]
       << value[1][1] << value[2][0] << value[2][1] << YAML::EndSeq;
@@ -1741,6 +1753,8 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<PostProcessingStack>(
       SerializePostProcessingStack, DeserializePostProcessingStack, {}, "PostProcessingStack");
   Serialization::RegisterSerializationHandler<Material>(SerializeMaterial, DeserializeMaterial, {}, "Material");
+  Serialization::RegisterSerializationHandler<EnvironmentalMap>(SerializeEnvironmentalMap, DeserializeEnvironmentalMap,
+                                                                {}, "EnvironmentalMap");
   Serialization::RegisterSerializationHandler<Shader>(SerializeShader, DeserializeShader, {}, "Shader");
   Serialization::RegisterSerializationHandler<procedural_noise::ProceduralNoise2D>(
       SerializeProceduralNoise<procedural_noise::ProceduralNoise2D>,

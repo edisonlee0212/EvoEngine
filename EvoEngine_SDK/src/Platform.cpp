@@ -23,6 +23,19 @@
 
 using namespace evo_engine;
 
+namespace {
+void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, const size_t prim_count,
+                  const size_t indirect_draw_commands) {
+  stats.prim_count += prim_count;
+  if (kind == RenderDrawCallKind::Indirect) {
+    stats.indirect_draw_calls++;
+    stats.indirect_draw_commands += indirect_draw_commands;
+  } else {
+    stats.direct_draw_calls++;
+  }
+}
+}  // namespace
+
 Platform::~Platform() = default;
 
 const Platform::Capabilities& Platform::GetCapabilities() const {
@@ -31,6 +44,123 @@ const Platform::Capabilities& Platform::GetCapabilities() const {
 
 Platform::Capabilities& Platform::GetCapabilities() {
   return capabilities_;
+}
+
+size_t RenderPassDrawStats::TotalDrawCalls() const {
+  return direct_draw_calls + indirect_draw_calls;
+}
+
+RenderPassDrawStats RenderCameraDrawStats::Total() const {
+  RenderPassDrawStats total;
+  for (const auto& stats : pass_stats) {
+    total.direct_draw_calls += stats.direct_draw_calls;
+    total.indirect_draw_calls += stats.indirect_draw_calls;
+    total.indirect_draw_commands += stats.indirect_draw_commands;
+    total.prim_count += stats.prim_count;
+  }
+  return total;
+}
+
+const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket bucket) {
+  switch (bucket) {
+    case RenderPassDrawBucket::FrameExternal:
+      return "Frame external";
+    case RenderPassDrawBucket::PointLightShadow:
+      return "Point shadow";
+    case RenderPassDrawBucket::SpotLightShadow:
+      return "Spot shadow";
+    case RenderPassDrawBucket::DirectionalLightShadow:
+      return "Directional shadow";
+    case RenderPassDrawBucket::DeferredGeometry:
+      return "Deferred geometry";
+    case RenderPassDrawBucket::DeferredLighting:
+      return "Deferred lighting";
+    case RenderPassDrawBucket::TransparentGeometry:
+      return "Transparent geometry";
+    case RenderPassDrawBucket::ForwardExternal:
+      return "Forward external";
+    case RenderPassDrawBucket::CameraExternal:
+      return "Camera external";
+    case RenderPassDrawBucket::DdgiProbeVisualization:
+      return "DDGI probes";
+    case RenderPassDrawBucket::DdgiProbeRayVisualization:
+      return "DDGI probe rays";
+    case RenderPassDrawBucket::Count:
+      break;
+  }
+  return "Unknown";
+}
+
+void Platform::ResetRenderPassDrawStats(const uint32_t frame_index) {
+  auto& graphics = GetInstance();
+  if (frame_index < graphics.draw_call.size()) {
+    graphics.draw_call[frame_index] = 0;
+  }
+  if (frame_index < graphics.prim_count.size()) {
+    graphics.prim_count[frame_index] = 0;
+  }
+  if (graphics.active_render_camera_draw_scope_ &&
+      graphics.active_render_camera_draw_scope_->frame_index == frame_index) {
+    graphics.active_render_camera_draw_scope_.reset();
+  }
+  if (frame_index < graphics.render_camera_draw_stats.size()) {
+    graphics.render_camera_draw_stats[frame_index].clear();
+  }
+  if (frame_index >= graphics.render_pass_draw_stats.size()) {
+    return;
+  }
+  for (auto& stats : graphics.render_pass_draw_stats[frame_index]) {
+    stats = {};
+  }
+}
+
+void Platform::BeginRenderCameraDrawScope(const uint32_t frame_index, const uint64_t camera_handle,
+                                          const uint32_t entity_index, const bool scene_camera) {
+  auto& graphics = GetInstance();
+  graphics.active_render_camera_draw_scope_ = {frame_index, camera_handle, entity_index, scene_camera};
+}
+
+void Platform::EndRenderCameraDrawScope() {
+  GetInstance().active_render_camera_draw_scope_.reset();
+}
+
+void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
+                                   const uint32_t frame_index, const size_t prim_count,
+                                   const size_t indirect_draw_commands) {
+  auto& graphics = GetInstance();
+  if (frame_index < graphics.draw_call.size()) {
+    graphics.draw_call[frame_index]++;
+  }
+  if (frame_index < graphics.prim_count.size()) {
+    graphics.prim_count[frame_index] += prim_count;
+  }
+  const auto bucket_index = static_cast<size_t>(bucket);
+  if (frame_index >= graphics.render_pass_draw_stats.size() || bucket_index >= kRenderPassDrawBucketCount) {
+    return;
+  }
+  auto& stats = graphics.render_pass_draw_stats[frame_index][bucket_index];
+  AddDrawStats(stats, kind, prim_count, indirect_draw_commands);
+  if (!graphics.active_render_camera_draw_scope_ ||
+      graphics.active_render_camera_draw_scope_->frame_index != frame_index ||
+      frame_index >= graphics.render_camera_draw_stats.size()) {
+    return;
+  }
+  const auto& scope = *graphics.active_render_camera_draw_scope_;
+  auto& camera_stats_list = graphics.render_camera_draw_stats[frame_index];
+  auto camera_stats =
+      std::find_if(camera_stats_list.begin(), camera_stats_list.end(), [&](const RenderCameraDrawStats& candidate) {
+        return candidate.camera_handle == scope.camera_handle && candidate.scene_camera == scope.scene_camera;
+      });
+  if (camera_stats == camera_stats_list.end()) {
+    RenderCameraDrawStats stats_entry;
+    stats_entry.camera_handle = scope.camera_handle;
+    stats_entry.entity_index = scope.entity_index;
+    stats_entry.scene_camera = scope.scene_camera;
+    camera_stats = camera_stats_list.emplace(camera_stats_list.end(), stats_entry);
+  } else {
+    camera_stats->entity_index = scope.entity_index;
+  }
+  AddDrawStats(camera_stats->pass_stats[bucket_index], kind, prim_count, indirect_draw_commands);
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
@@ -235,6 +365,8 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   TextureStorage::Initialize();
   graphics.draw_call.resize(graphics.max_frame_in_flight_);
   graphics.prim_count.resize(graphics.max_frame_in_flight_);
+  graphics.render_pass_draw_stats.resize(graphics.max_frame_in_flight_);
+  graphics.render_camera_draw_stats.resize(graphics.max_frame_in_flight_);
   auto& capabilities = graphics.capabilities_;
 
   const uint32_t subgroup_size = selected_physical_device->vulkan11_properties.subgroupSize;
@@ -501,7 +633,7 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
   barrier.dstQueueFamilyIndex = dst_queue_family_index;
   barrier.image = target_image;
   if (image_format == Constants::texture_2d || image_format == Constants::render_texture_color ||
-      image_format == Constants::g_buffer_color) {
+      image_format == Constants::g_buffer_attribute || image_format == Constants::g_buffer_utility) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   } else if (image_format == Constants::render_texture_depth || image_format == Constants::shadow_map) {
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;

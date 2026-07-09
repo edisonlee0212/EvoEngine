@@ -63,6 +63,102 @@ Raster cameras render shadow maps, then write GBuffer targets for opaque geometr
 lights, shadow maps, image-based lighting, and DDGI when available. Transparent and forward-only geometry is rendered
 after deferred lighting.
 
+### Deferred GBuffer Contract
+
+The current GBuffer stores evaluated material attributes for ordinary opaque raster shading. Bindings 18 and 19 are
+intentionally absent; the old normal and UV/material-index compatibility attachments have been retired.
+
+| Binding | Current image | Current payload |
+| --- | --- | --- |
+| 17 | Camera depth | NDC depth. |
+| 20 | Base color / AO | `rgb = evaluated linear base color`, `a = evaluated occlusion`. |
+| 21 | Normal / roughness | `xyz = world normal`, `a = evaluated roughness`. |
+| 22 | PBR / flags | `x = evaluated metallic`, `y = default-lit shading model id`, `z/w = reserved`. |
+| 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
+| 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
+
+`StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
+`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, SSAO, scene-camera debug
+visualization, editor GBuffer preview images, and editor mouse picking decode material, normal, or selection state from
+bindings 20-24. Editor picking reads the instance index from Utility.x.
+
+The target Unreal-style deferred path stores ordinary opaque shading state in the geometry pass. The first migration
+keeps depth as-is and introduces this logical schema:
+
+| Logical attachment | Initial format target | Payload |
+| --- | --- | --- |
+| Base color / AO | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = linear base color`, `a = occlusion`. |
+| Normal / roughness | `VK_FORMAT_R16G16B16A16_SFLOAT` | `xyz = world normal`, `a = roughness`. A later compact packing may replace full-vector normal storage after validation. |
+| PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `y = shading model id`, `z = material flags`, `w = reserved custom data`. |
+| Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = emissive radiance`, `a = reserved custom data`. |
+| Utility | `VK_FORMAT_R32G32B32A32_SFLOAT` | `x = instance index`, `y = instance info index`, `z = optional material index for debug or fallback`, `w = reserved`. |
+
+The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials and specular-glossiness
+materials are both reduced to base color, metallic, roughness, normal, occlusion, and emissive by the geometry pass.
+Masked alpha remains a geometry-pass discard. Transparent blend, transmission, diffuse transmission, volume/scatter,
+clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their existing transparent, forward, ray, or
+documented fallback paths until a later milestone defines their GBuffer representation.
+
+Ordinary opaque lighting must not call `EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is
+allowed only for an explicitly documented fallback or debug path. The retired normal/material attachments should not be
+reintroduced for ordinary opaque shading.
+
+### Raster Texture Descriptor Contract
+
+Raster material descriptors use descriptor set 3. Set 0 remains the per-frame set, set 1 remains available for
+meshlet/bone/instanced/strand data, and set 2 remains available for lighting or pass descriptors. Pipelines that need the
+material set but do not use intermediate sets should bind empty layouts for the unused set slots.
+
+Raster material texture sampling targets fixed individual texture bindings rather than bindless descriptor arrays.
+Raster shaders must not use descriptor arrays such as `sampler2D[]` or `samplerCube[]`, `nonuniformEXT`, or dynamic
+descriptor indexing for texture sampling. Fixed-binding image arrays and atlases are allowed for raster when the descriptor
+itself is a normal fixed binding, such as a shadow-map array or atlas texture.
+
+| Material binding | Fixed raster texture | Fallback |
+| --- | --- | --- |
+| 0 | Base color or diffuse | White. |
+| 1 | Metallic-roughness or specular-glossiness | White. |
+| 2 | Normal | Flat normal. |
+| 3 | Emissive | Black. |
+| 4 | Occlusion | White. |
+
+Raster material descriptor sets are renderer-owned runtime state keyed by material index. The first migration intentionally
+does not deduplicate descriptor sets across material indices because material indices can change while the renderer is
+running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
+bind the documented fallback textures.
+
+Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
+sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
+contiguous range has one material descriptor, one compatible pipeline-state key, one push-constant base instance, and an
+offset/count into the shared indirect command buffers. This restores deferred mesh indirect rendering without returning
+opaque raster material sampling to bindless texture arrays. These opaque material-producing pipelines use a raster
+material per-frame descriptor set that keeps the shared per-frame buffers but omits bindless texture and cubemap array
+bindings.
+
+Built-in shadow-map passes treat all mesh materials as opaque. They use texture-free depth shaders, do not bind raster
+material descriptor sets, and do not sample material textures for alpha discard. This keeps regular mesh shadow draws on
+the opaque shadow indirect command path when indirect rendering is enabled. Transparent mesh pipelines still use the
+fixed raster material backend and bind the material descriptor set before direct material-sampling draws. Package or
+external forward callbacks that evaluate glTF raster materials are explicit migration fallbacks until their owners
+provide fixed material descriptors or material-batched submission.
+
+Raster lighting uses a fixed raster-global texture descriptor set for image-based lighting inputs instead of sampling the
+bindless texture arrays. Deferred lighting binds this set after the shared lighting descriptor set, and transparent mesh
+lighting binds it after the material descriptor set. The fixed slots are BRDF LUT, skybox cubemap, irradiance cubemap, and
+prefiltered environment cubemap. Set 2 still owns shared shadow-map and DDGI atlas bindings.
+
+Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and `OffscreenPreviewRenderer`, which build a
+temporary scene, upload referenced preview textures, force a raster camera, disable preview-only volumetric clouds and
+DDGI state, and call `RenderLayer::RenderSceneToCameraImmediately`. These preview paths do not own separate glTF raster
+material pipelines, so material-sampling preview output inherits the same fixed material descriptor layouts and per-draw
+descriptor binding used by the normal RenderLayer camera passes.
+
+Bindless texture arrays are reserved for ray tracing and ray query paths. When ray tracing and ray query are unavailable
+or disabled, `RenderLayer` creates the ordinary per-frame descriptor layout without texture or cubemap descriptor arrays
+and skips binding the global texture storage arrays. Raster material textures, raster lighting inputs, DDGI atlases,
+volumetric cloud textures, pass-local textures, and non-ray-tracing compute texture inputs use fixed material, global, or
+pass descriptor sets. Ray tracing, ray query, and ray diagnostics keep their bindless texture access.
+
 Current shadow policy:
 
 - directional CSM uses Legacy Stable fitting;

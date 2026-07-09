@@ -120,6 +120,25 @@ bool TryMapAspectFitMouseToTexture(const AspectFitRect& rect, const glm::uvec2& 
          texture_mouse_position.y < static_cast<float>(texture_size.y);
 }
 
+std::string FormatRenderCounter(const size_t value) {
+  if (value < 999) {
+    return std::to_string(value);
+  }
+  if (value < 999999) {
+    return std::to_string(static_cast<int>(value / 1000)) + "K";
+  }
+  return std::to_string(static_cast<int>(value / 1000000)) + "M";
+}
+
+void DrawRenderCounterSummary(const Platform& graphics, const uint32_t current_frame_index) {
+  const auto prim_count =
+      current_frame_index < graphics.prim_count.size() ? graphics.prim_count[current_frame_index] : 0u;
+  const auto draw_call_count =
+      current_frame_index < graphics.draw_call.size() ? graphics.draw_call[current_frame_index] : 0u;
+  ImGui::Text("%s tris", FormatRenderCounter(prim_count).c_str());
+  ImGui::Text("%llu draw submissions", static_cast<unsigned long long>(draw_call_count));
+}
+
 bool CurrentTitleBarAccent(ImU32& accent) {
   switch (ApplicationContext::Get().GetApplicationStatus()) {
     case Application::ExecutionStatus::Playing:
@@ -3681,18 +3700,8 @@ void EditorLayer::SceneCameraWindow() {
               ImGui::BeginChild("Info", ImVec2(150, 150), child_flags, window_flags)) {
             ImGui::Text("Info:");
             ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
-            std::string draw_call_info = {};
             const auto current_frame_index = Platform::GetCurrentFrameIndex();
-            if (graphics.prim_count[current_frame_index] < 999)
-              draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
-            else if (graphics.prim_count[current_frame_index] < 999999)
-              draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
-            else
-              draw_call_info +=
-                  std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
-            draw_call_info += " tris";
-            ImGui::Text(draw_call_info.c_str());
-            ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
+            DrawRenderCounterSummary(graphics, current_frame_index);
             ImGui::Text("Idle: %.3f", graphics.cpu_wait_time);
             ImGui::Separator();
             if (ImGui::IsMousePosValid()) {
@@ -3831,18 +3840,8 @@ void EditorLayer::MainCameraWindow() {
               ImGui::DragFloat("Resolution multiplier", &main_camera_resolution_multiplier_, 0.1f, 0.1f, 4.0f);
             }
             ImGui::PopItemWidth();
-            std::string draw_call_info = {};
             const auto current_frame_index = Platform::GetCurrentFrameIndex();
-            if (graphics.prim_count[current_frame_index] < 999)
-              draw_call_info += std::to_string(graphics.prim_count[current_frame_index]);
-            else if (graphics.prim_count[current_frame_index] < 999999)
-              draw_call_info += std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000)) + "K";
-            else
-              draw_call_info +=
-                  std::to_string(static_cast<int>(graphics.prim_count[current_frame_index] / 1000000)) + "M";
-            draw_call_info += " tris";
-            ImGui::Text(draw_call_info.c_str());
-            ImGui::Text("%d drawcall", graphics.draw_call[current_frame_index]);
+            DrawRenderCounterSummary(graphics, current_frame_index);
             ImGui::Separator();
             if (ImGui::IsMousePosValid()) {
               const auto pos = Input::GetMousePosition();
@@ -4350,7 +4349,7 @@ void EditorLayer::MouseEntitySelection() {
 Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
                                          const glm::vec2& mouse_position) const {
   Entity ret_val;
-  const auto& g_buffer_normal = target_camera->GetGBufferNormalImage();
+  const auto& g_buffer_utility = target_camera->GetGBufferUtilityImage();
   const glm::vec2 resolution = target_camera->GetSize();
   glm::vec2 point = resolution;
   point.x = mouse_position.x;
@@ -4370,17 +4369,17 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageOffset.x = static_cast<int32_t>(point.x);
     image_copy.imageOffset.y = static_cast<int32_t>(point.y);
     image_copy.imageOffset.z = 0;
-    entity_index_read_buffer_->CopyFromImage(*g_buffer_normal, image_copy);
+    entity_index_read_buffer_->CopyFromImage(*g_buffer_utility, image_copy);
     float val = -1;
-    switch (Platform::Constants::texture_2d) {
+    switch (Platform::Constants::g_buffer_utility) {
       case VK_FORMAT_R32G32B32A32_SFLOAT: {
         const auto* ptr = static_cast<float*>(mapped_entity_index_data_);
-        val = glm::round(ptr[3]);
+        val = glm::round(ptr[0]);
         break;
       }
       case VK_FORMAT_R16G16B16A16_SFLOAT: {
         const auto* ptr = static_cast<glm::detail::hdata*>(mapped_entity_index_data_);
-        val = glm::round(glm::detail::toFloat32(ptr[3]));
+        val = glm::round(glm::detail::toFloat32(ptr[0]));
         break;
       }
     }

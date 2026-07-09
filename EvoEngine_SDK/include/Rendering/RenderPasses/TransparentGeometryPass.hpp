@@ -19,6 +19,7 @@ class TransparentGeometryPass final {
     std::shared_ptr<GraphicsPipeline> mesh_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> lighting_descriptor_set;
+    std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set;
     int camera_index = -1;
     uint32_t current_frame_index = 0;
     bool count_draw_calls = false;

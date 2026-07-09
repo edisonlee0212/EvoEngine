@@ -13,16 +13,6 @@
 using namespace evo_engine;
 
 namespace {
-bool RequiresAlphaTestedShadow(const GltfShadeMaterial& material) {
-  if (material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque)) {
-    return true;
-  }
-  if (material.pbr_base_color_texture != 0 || material.pbr_diffuse_texture != 0) {
-    return true;
-  }
-  return material.pbr_base_color_factor.a <= material.alpha_cutoff;
-}
-
 bool UsesTransparentRasterPass(const Material& material, const GltfShadeMaterial& shade_material) {
   return material.draw_settings.blending || GltfMaterialRequiresTransparentPass(shade_material);
 }
@@ -126,8 +116,6 @@ bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRen
     return true;
   if (cast_shadow != other.cast_shadow)
     return true;
-  if (alpha_tested_shadow != other.alpha_tested_shadow)
-    return true;
   if (line_width != other.line_width)
     return true;
   if (cull_mode != other.cull_mode)
@@ -182,8 +170,6 @@ bool RenderInstanceStorage::MeshRenderInstance::operator!=(const MeshRenderInsta
   if (material_version != other.material_version)
     return true;
   if (cast_shadow != other.cast_shadow)
-    return true;
-  if (alpha_tested_shadow != other.alpha_tested_shadow)
     return true;
   if (line_width != other.line_width)
     return true;
@@ -254,8 +240,6 @@ bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedM
     return true;
   if (cast_shadow != other.cast_shadow)
     return true;
-  if (alpha_tested_shadow != other.alpha_tested_shadow)
-    return true;
   if (line_width != other.line_width)
     return true;
   if (cull_mode != other.cull_mode)
@@ -317,8 +301,6 @@ bool RenderInstanceStorage::InstancedRenderInstance::operator!=(const InstancedR
     return true;
   if (cast_shadow != other.cast_shadow)
     return true;
-  if (alpha_tested_shadow != other.alpha_tested_shadow)
-    return true;
   if (line_width != other.line_width)
     return true;
   if (cull_mode != other.cull_mode)
@@ -370,8 +352,6 @@ bool RenderInstanceStorage::StrandsRenderInstance::operator!=(const StrandsRende
     return true;
 
   if (cast_shadow != other.cast_shadow)
-    return true;
-  if (alpha_tested_shadow != other.alpha_tested_shadow)
     return true;
   if (line_width != other.line_width)
     return true;
@@ -922,11 +902,9 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
 
 void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   total_opaque_shadow_mesh_triangles = 0;
-  total_alpha_tested_shadow_mesh_triangles = 0;
+  deferred_mesh_indirect_batches.clear();
   opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
-  alpha_tested_shadow_mesh_draw_indexed_indirect_commands.clear();
-  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
 
   const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
     render_instance->instance_index = instance_info_blocks_.size();
@@ -965,31 +943,50 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
     VkDrawIndexedIndirectCommand opaque_draw{};
     VkDrawMeshTasksIndirectCommandEXT opaque_mesh_task{};
-    VkDrawIndexedIndirectCommand alpha_tested_draw{};
-    VkDrawMeshTasksIndirectCommandEXT alpha_tested_mesh_task{};
 
     if (render_instance && render_instance->cast_shadow && render_instance->mesh) {
       const auto triangle_offset = render_instance->mesh->triangle_range_->prev_frame_offset;
       const auto triangle_index_count = render_instance->mesh->triangle_range_->prev_frame_index_count;
       const auto meshlet_range = render_instance->mesh->meshlet_range_->prev_frame_range;
-      if (render_instance->alpha_tested_shadow) {
-        alpha_tested_draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
-        alpha_tested_mesh_task = CreateMeshTaskCommand(meshlet_range);
-        total_alpha_tested_shadow_mesh_triangles += triangle_index_count;
-      } else {
-        opaque_draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
-        opaque_mesh_task = CreateMeshTaskCommand(meshlet_range);
-        total_opaque_shadow_mesh_triangles += triangle_index_count;
-      }
+      opaque_draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
+      opaque_mesh_task = CreateMeshTaskCommand(meshlet_range);
+      total_opaque_shadow_mesh_triangles += triangle_index_count;
     }
 
     opaque_shadow_mesh_draw_indexed_indirect_commands.emplace_back(opaque_draw);
     opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(opaque_mesh_task);
-    alpha_tested_shadow_mesh_draw_indexed_indirect_commands.emplace_back(alpha_tested_draw);
-    alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(alpha_tested_mesh_task);
+  };
+  uint32_t deferred_mesh_command_index = 0;
+  const auto register_deferred_mesh_indirect_batch = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
+    if (!render_instance || !render_instance->mesh ||
+        deferred_mesh_command_index >= mesh_draw_indexed_indirect_commands.size() ||
+        deferred_mesh_command_index >= mesh_draw_mesh_tasks_indirect_commands.size()) {
+      deferred_mesh_command_index++;
+      return;
+    }
+    const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
+      return batch.material_index == render_instance->material_index &&
+             batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+             batch.polygon_mode == render_instance->polygon_mode &&
+             batch.first_instance_index + static_cast<int32_t>(batch.command_count) == render_instance->instance_index;
+    };
+    if (deferred_mesh_indirect_batches.empty() || !same_batch(deferred_mesh_indirect_batches.back())) {
+      auto& batch = deferred_mesh_indirect_batches.emplace_back();
+      batch.material_index = render_instance->material_index;
+      batch.first_instance_index = render_instance->instance_index;
+      batch.first_command = deferred_mesh_command_index;
+      batch.line_width = render_instance->line_width;
+      batch.cull_mode = render_instance->cull_mode;
+      batch.polygon_mode = render_instance->polygon_mode;
+    }
+    auto& batch = deferred_mesh_indirect_batches.back();
+    batch.command_count++;
+    batch.triangle_count += render_instance->mesh->triangle_range_->prev_frame_index_count;
+    deferred_mesh_command_index++;
   };
   deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance);
+    register_deferred_mesh_indirect_batch(render_instance);
     register_shadow_mesh_indirect_command(render_instance);
   });
   ValidateDeferredMeshIndirectCommandCount(deferred_render_instances, mesh_draw_indexed_indirect_commands,
@@ -1440,18 +1437,6 @@ RenderInstanceStorage::RenderInstanceStorage() {
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
-  buffer_create_info.size =
-      glm::max(static_cast<size_t>(1),
-               sizeof(VkDrawIndexedIndirectCommand) * alpha_tested_shadow_mesh_draw_indexed_indirect_commands.size());
-  alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer =
-      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-
-  buffer_create_info.size =
-      glm::max(static_cast<size_t>(1), sizeof(VkDrawMeshTasksIndirectCommandEXT) *
-                                           alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.size());
-  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
-      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-
   deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
   deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
   deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
@@ -1474,7 +1459,6 @@ RenderInstanceStorage::RenderInstanceStorage() {
 void RenderInstanceStorage::Clear() {
   total_mesh_triangles = 0;
   total_opaque_shadow_mesh_triangles = 0;
-  total_alpha_tested_shadow_mesh_triangles = 0;
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
@@ -1508,6 +1492,8 @@ void RenderInstanceStorage::Clear() {
 
   camera_info_blocks_.clear();
   gltf_material_cache_.Clear();
+  raster_material_descriptor_sets.clear();
+  raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   instance_info_blocks_.clear();
   directional_light_info_blocks_.clear();
   point_light_info_blocks_.clear();
@@ -1518,10 +1504,9 @@ void RenderInstanceStorage::Clear() {
 
   mesh_draw_indexed_indirect_commands.clear();
   mesh_draw_mesh_tasks_indirect_commands.clear();
+  deferred_mesh_indirect_batches.clear();
   opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
-  alpha_tested_shadow_mesh_draw_indexed_indirect_commands.clear();
-  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
 }
 
 void RenderInstanceStorage::Upload() const {
@@ -1542,10 +1527,6 @@ void RenderInstanceStorage::Upload() const {
       opaque_shadow_mesh_draw_indexed_indirect_commands);
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(
       opaque_shadow_mesh_draw_mesh_tasks_indirect_commands);
-  alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer->UploadVector(
-      alpha_tested_shadow_mesh_draw_indexed_indirect_commands);
-  alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(
-      alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands);
 
   environment_info_descriptor_buffer->Upload(environment_info_block);
 }
@@ -1560,6 +1541,67 @@ const std::vector<GltfTextureInfo>& RenderInstanceStorage::GetGltfTextureInfos()
 
 const std::vector<RenderInstanceStorage::InstanceInfoBlock>& RenderInstanceStorage::GetInstanceInfoBlocks() const {
   return instance_info_blocks_;
+}
+
+void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
+    const std::shared_ptr<DescriptorSetLayout>& raster_material_layout,
+    const std::array<VkDescriptorImageInfo, kRasterMaterialTextureSlotCount>& fallback_image_infos) {
+  if (!Platform::Initialized() || !raster_material_layout) {
+    return;
+  }
+  const auto& shade_materials = gltf_material_cache_.GetShadeMaterials();
+  const auto current_texture_storage_version = TextureStorage::GetVersion();
+  if (raster_material_descriptor_sets.size() == shade_materials.size() &&
+      raster_material_descriptor_texture_storage_version_ == current_texture_storage_version) {
+    return;
+  }
+
+  const auto& texture_infos = gltf_material_cache_.GetTextureInfos();
+  raster_material_descriptor_sets.resize(shade_materials.size());
+  const auto resolve_image_info = [&](const uint16_t texture_info_slot,
+                                      const uint32_t fallback_binding) -> VkDescriptorImageInfo {
+    auto image_info = fallback_image_infos[fallback_binding];
+    if (texture_info_slot >= texture_infos.size()) {
+      return image_info;
+    }
+    const auto texture_index = texture_infos[texture_info_slot].index;
+    if (texture_index >= 0) {
+      TextureStorage::TryGetTexture2DDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info);
+    }
+    return image_info;
+  };
+
+  for (uint32_t material_index = 0; material_index < shade_materials.size(); material_index++) {
+    auto& descriptor_set = raster_material_descriptor_sets[material_index];
+    if (!descriptor_set) {
+      descriptor_set = std::make_shared<DescriptorSet>(raster_material_layout);
+    }
+    const auto& material = shade_materials[material_index];
+#if MAT_EXT_SPECULAR_GLOSSINESS
+    const bool specular_glossiness = material.pbr_model == static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
+    const auto base_color_texture =
+        specular_glossiness ? material.pbr_diffuse_texture : material.pbr_base_color_texture;
+    const auto metallic_roughness_texture =
+        specular_glossiness ? material.pbr_specular_glossiness_texture : material.pbr_metallic_roughness_texture;
+#else
+    const auto base_color_texture = material.pbr_base_color_texture;
+    const auto metallic_roughness_texture = material.pbr_metallic_roughness_texture;
+#endif
+    descriptor_set->UpdateImageDescriptorBinding(0, resolve_image_info(base_color_texture, 0));
+    descriptor_set->UpdateImageDescriptorBinding(1, resolve_image_info(metallic_roughness_texture, 1));
+    descriptor_set->UpdateImageDescriptorBinding(2, resolve_image_info(material.normal_texture, 2));
+    descriptor_set->UpdateImageDescriptorBinding(3, resolve_image_info(material.emissive_texture, 3));
+    descriptor_set->UpdateImageDescriptorBinding(4, resolve_image_info(material.occlusion_texture, 4));
+  }
+  raster_material_descriptor_texture_storage_version_ = current_texture_storage_version;
+}
+
+const std::shared_ptr<DescriptorSet>& RenderInstanceStorage::GetRasterMaterialDescriptorSet(
+    const uint32_t material_index) const {
+  if (material_index >= raster_material_descriptor_sets.size()) {
+    throw std::runtime_error("Unable to find raster material descriptor set.");
+  }
+  return raster_material_descriptor_sets[material_index];
 }
 
 void RenderInstanceStorage::CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,
@@ -1657,7 +1699,6 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   render_instance->model = model;
   render_instance->renderer_handle = 0;
   render_instance->cast_shadow = cast_shadow;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
@@ -1701,7 +1742,6 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   render_instance->particle_info_list_version = particle_info_list->GetVersion();
   render_instance->renderer_handle = 0;
   render_instance->cast_shadow = cast_shadow;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
@@ -1743,7 +1783,6 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
   render_instance->renderer_handle = renderer_handle;
   render_instance->material = material;
   render_instance->cast_shadow = false;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->ddgi_geometry = ddgi_geometry;
   render_instance->geometry_version = ddgi_geometry.IsValid() ? ddgi_geometry.geometry_version : 0;
   render_instance->material_version = material->GetVersion();
@@ -1833,7 +1872,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->strands = strands;
   render_instance->material = material;
   render_instance->cast_shadow = strands_renderer->cast_shadow;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = strands->GetVersion();
   render_instance->material_version = material->GetVersion();
@@ -1929,7 +1967,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->entity_handle = target_scene->GetEntityHandle(owner);
   render_instance->renderer_handle = mesh_renderer->GetHandle();
   render_instance->cast_shadow = mesh_renderer->cast_shadow;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
@@ -1993,7 +2030,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->skinned_mesh = skinned_mesh;
   render_instance->material = material;
   render_instance->cast_shadow = skinned_mesh_renderer->cast_shadow;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->world_bound = mesh_bound;
   render_instance->bone_matrices = skinned_mesh_renderer->bone_matrices;
   render_instance->geometry_version = skinned_mesh->GetVersion();
@@ -2055,7 +2091,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->mesh = mesh;
   render_instance->material = material;
   render_instance->cast_shadow = particles->cast_shadow;
-  render_instance->alpha_tested_shadow = RequiresAlphaTestedShadow(material_data.shade_material);
   render_instance->particle_infos = particle_info_list;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();

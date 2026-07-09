@@ -1,5 +1,6 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
+#include "Platform.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
@@ -10,14 +11,78 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <string>
 
 using namespace evo_engine;
 
 namespace {
 constexpr const char* kTestDebugOutputResource = "Frame.TestDebugOutput";
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+  std::ifstream file(path);
+  EXPECT_TRUE(file.good()) << path.string();
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / relative_path;
+}
 }  // namespace
+
+TEST(RenderGraph, RenderPassDrawStatsExposeDirectIndirectBreakdown) {
+  RenderPassDrawStats stats;
+  stats.direct_draw_calls = 2;
+  stats.indirect_draw_calls = 3;
+  stats.indirect_draw_commands = 10;
+  stats.prim_count = 42;
+
+  EXPECT_EQ(stats.TotalDrawCalls(), 5);
+  EXPECT_EQ(Platform::kRenderPassDrawBucketCount, static_cast<size_t>(RenderPassDrawBucket::Count));
+  EXPECT_STREQ("Deferred geometry", Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::DeferredGeometry));
+  EXPECT_STREQ("Directional shadow",
+               Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::DirectionalLightShadow));
+}
+
+TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
+  const auto platform_header = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
+  const auto platform_source = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto editor_layer = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto deferred_geometry = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
+  const auto deferred_lighting = ReadTextFile(SdkPath("src/RenderPasses/DeferredLightingPass.cpp"));
+  const auto directional_shadow = ReadTextFile(SdkPath("src/RenderPasses/DirectionalLightShadowPass.cpp"));
+  const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
+  ASSERT_FALSE(platform_header.empty());
+  ASSERT_FALSE(platform_source.empty());
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(editor_layer.empty());
+  ASSERT_FALSE(deferred_geometry.empty());
+  ASSERT_FALSE(deferred_lighting.empty());
+  ASSERT_FALSE(directional_shadow.empty());
+  ASSERT_FALSE(transparent.empty());
+
+  EXPECT_NE(platform_header.find("render_pass_draw_stats"), std::string::npos);
+  EXPECT_NE(platform_source.find("graphics.render_pass_draw_stats.resize"), std::string::npos);
+  EXPECT_NE(platform_source.find("stats.indirect_draw_commands += indirect_draw_commands"), std::string::npos);
+  EXPECT_NE(render_layer.find("Platform::ResetRenderPassDrawStats(current_frame_index)"), std::string::npos);
+  EXPECT_NE(editor_layer.find("DrawRenderCounterSummary"), std::string::npos);
+
+  EXPECT_NE(deferred_geometry.find("RenderPassDrawBucket::DeferredGeometry"), std::string::npos);
+  EXPECT_NE(deferred_geometry.find("RenderDrawCallKind::Indirect"), std::string::npos);
+  EXPECT_NE(deferred_lighting.find("RenderPassDrawBucket::DeferredLighting"), std::string::npos);
+  EXPECT_NE(directional_shadow.find("RenderPassDrawBucket::DirectionalLightShadow"), std::string::npos);
+  EXPECT_NE(transparent.find("RenderPassDrawBucket::TransparentGeometry"), std::string::npos);
+  EXPECT_NE(render_layer.find("RenderPassDrawBucket::PointLightShadow"), std::string::npos);
+  EXPECT_NE(render_layer.find("RenderPassDrawBucket::SpotLightShadow"), std::string::npos);
+  EXPECT_NE(render_layer.find("RenderPassDrawBucket::ForwardExternal"), std::string::npos);
+  EXPECT_EQ(render_layer.find("platform.draw_call"), std::string::npos);
+  EXPECT_EQ(deferred_geometry.find("platform.draw_call"), std::string::npos);
+  EXPECT_EQ(directional_shadow.find("platform.draw_call"), std::string::npos);
+  EXPECT_EQ(transparent.find("platform.draw_call"), std::string::npos);
+}
 
 TEST(RenderGraph, ExecutesPassesInInsertionOrderAndKeepsDescriptors) {
   RenderGraph graph;

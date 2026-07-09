@@ -11,6 +11,7 @@
 #include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
 
+#include <array>
 #include <limits>
 #include <string>
 
@@ -375,6 +376,7 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetCameraGBufferDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
 
  private:
   std::vector<
@@ -451,6 +453,7 @@ class RenderLayer final : public ILayer {
 #pragma region DescriptorSet Layouts
   std::shared_ptr<DescriptorSetLayout> empty_descriptor_set_layout_;
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
+  std::shared_ptr<DescriptorSetLayout> raster_material_per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_layout_;
@@ -462,6 +465,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
+  std::shared_ptr<DescriptorSetLayout> raster_lighting_texture_layout_;
   std::shared_ptr<DescriptorSetLayout> depth_pyramid_layout_;
   std::shared_ptr<DescriptorSetLayout> volumetric_clouds_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
@@ -472,9 +476,17 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_radix_sort_layout_;
+  std::shared_ptr<DescriptorSetLayout> raster_material_layout_;
+  bool per_frame_bindless_texture_descriptors_enabled_ = false;
+  mutable std::shared_ptr<Texture2D> raster_material_white_fallback_texture_;
+  mutable std::shared_ptr<Texture2D> raster_material_black_fallback_texture_;
+  mutable std::shared_ptr<Texture2D> raster_material_flat_normal_fallback_texture_;
 
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
+  void EnsureRasterMaterialFallbackTextures() const;
+  [[nodiscard]] std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount>
+  GetRasterMaterialFallbackDescriptorImageInfos() const;
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
@@ -630,6 +642,9 @@ class RenderLayer final : public ILayer {
                                    bool track_ddgi_scene_inputs = true);
   void BindRenderInstanceStorage(uint32_t current_frame_index,
                                  const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
+  [[nodiscard]] std::shared_ptr<DescriptorSet> GetRasterLightingTextureDescriptorSet(
+      uint32_t current_frame_index, int camera_index,
+      const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
 
   /**
    * \brief Applies all animators associated with this render layer.
@@ -643,81 +658,47 @@ class RenderLayer final : public ILayer {
 
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
+  std::vector<std::shared_ptr<DescriptorSet>> raster_material_per_frame_descriptor_sets_ = {};
+  mutable std::vector<std::vector<std::shared_ptr<DescriptorSet>>> raster_lighting_texture_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
 
 #pragma region Graphics Pipelines
-  /// Graphics pipeline for rendering point light shadows with normal meshes.
-  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal;
-
-  /// Depth-only pipeline for rendering opaque point light shadows with normal meshes.
+  /// Depth-only pipeline for rendering point light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal_opaque;
 
   /// Graphics pipeline for rendering point light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader;
 
-  /// Alpha-tested mesh-shader pipeline for rendering point light shadows.
-  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader_alpha_tested;
-
-  /// Graphics pipeline for rendering spot light shadows with normal meshes.
-  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal;
-
-  /// Depth-only pipeline for rendering opaque spot light shadows with normal meshes.
+  /// Depth-only pipeline for rendering spot light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal_opaque;
 
   /// Graphics pipeline for rendering spot light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader;
 
-  /// Alpha-tested mesh-shader pipeline for rendering spot light shadows.
-  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader_alpha_tested;
-
-  /// Graphics pipeline for rendering directional light shadows with normal meshes.
-  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal;
-
-  /// Depth-only pipeline for rendering opaque directional light shadows with normal meshes.
+  /// Depth-only pipeline for rendering directional light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal_opaque;
 
   /// Graphics pipeline for rendering directional light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
 
-  /// Alpha-tested mesh-shader pipeline for rendering directional light shadows.
-  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader_alpha_tested;
-
-  /// Graphics pipeline for rendering instanced point light shadows.
-  std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque instanced point light shadows.
+  /// Depth-only pipeline for rendering instanced point light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering instanced spot light shadows.
-  std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque instanced spot light shadows.
+  /// Depth-only pipeline for rendering instanced spot light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering instanced directional light shadows.
-  std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque instanced directional light shadows.
+  /// Depth-only pipeline for rendering instanced directional light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering point light shadows with skinned meshes.
-  std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque point light shadows with skinned meshes.
+  /// Depth-only pipeline for rendering point light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering spot light shadows with skinned meshes.
-  std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque spot light shadows with skinned meshes.
+  /// Depth-only pipeline for rendering spot light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline_opaque;
 
-  /// Graphics pipeline for rendering directional light shadows with skinned meshes.
-  std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline;
-
-  /// Depth-only pipeline for rendering opaque directional light shadows with skinned meshes.
+  /// Depth-only pipeline for rendering directional light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline_opaque;
 
   /// Graphics pipeline for rendering point light shadows with hair strands.

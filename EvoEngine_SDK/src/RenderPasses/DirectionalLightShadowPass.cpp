@@ -14,13 +14,13 @@
 using namespace evo_engine;
 
 namespace {
-void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const uint32_t prim_count) {
+void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const size_t prim_count,
+                  const RenderDrawCallKind kind = RenderDrawCallKind::Direct, const size_t indirect_draw_commands = 0) {
   if (!count_draw_calls) {
     return;
   }
-  auto& platform = Platform::GetInstance();
-  platform.draw_call[current_frame_index]++;
-  platform.prim_count[current_frame_index] += prim_count;
+  Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow, kind, current_frame_index, prim_count,
+                                indirect_draw_commands);
 }
 
 bool LightCastsShadow(const glm::vec4& diffuse) {
@@ -68,11 +68,10 @@ bool ShouldRenderShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRe
 
 bool HasVisibleMeshShadowInstance(
     const std::shared_ptr<RenderInstanceStorage::MeshRenderInstanceCollection>& collection,
-    const glm::mat4& light_space_matrix, const bool alpha_tested) {
+    const glm::mat4& light_space_matrix) {
   bool has_visible_instance = false;
   collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    if (!has_visible_instance && render_instance->alpha_tested_shadow == alpha_tested &&
-        ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+    if (!has_visible_instance && ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
       has_visible_instance = true;
     }
   });
@@ -96,7 +95,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
   if (!parameters.record_commands || !parameters.render_instances || !parameters.per_frame_descriptor_set ||
       !parameters.get_depth_attachment || parameters.shadow_map_extent.width == 0 ||
       parameters.shadow_map_extent.height == 0 || parameters.camera_index < 0 ||
-      parameters.max_directional_light_count <= 0 || !parameters.directional_pipeline) {
+      parameters.max_directional_light_count <= 0 || !parameters.directional_opaque_pipeline) {
     return;
   }
 
@@ -128,13 +127,15 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
             if (!target_pipeline) {
               return false;
             }
+            if (!parameters.per_frame_descriptor_set) {
+              return false;
+            }
             target_pipeline->states.ResetAllStates(0);
             target_pipeline->Bind(vk_command_buffer);
             target_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                parameters.per_frame_descriptor_set->GetVkDescriptorSet());
             if (parameters.use_mesh_shader && parameters.meshlet_descriptor_set &&
-                (target_pipeline == parameters.directional_pipeline ||
-                 target_pipeline == parameters.directional_opaque_pipeline)) {
+                target_pipeline == parameters.directional_opaque_pipeline) {
               target_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                                  parameters.meshlet_descriptor_set->GetVkDescriptorSet());
             }
@@ -145,15 +146,14 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
           {
             if (parameters.enable_indirect_rendering &&
                 !parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
-              const auto draw_indirect = [&](const bool alpha_tested,
-                                             const std::shared_ptr<GraphicsPipeline>& target_pipeline,
+              const auto draw_indirect = [&](const std::shared_ptr<GraphicsPipeline>& target_pipeline,
                                              const uint32_t prim_count, const std::shared_ptr<Buffer>& indexed_buffer,
                                              const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
                                              const std::shared_ptr<Buffer>& mesh_task_buffer,
                                              const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands) {
                 if (prim_count == 0 ||
                     !HasVisibleMeshShadowInstance(parameters.render_instances->deferred_render_instances,
-                                                  light_space_matrix, alpha_tested) ||
+                                                  light_space_matrix) ||
                     !prepare_graphics_pipeline(target_pipeline)) {
                   return;
                 }
@@ -163,7 +163,9 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                 push_constant.instance_index = 0;
                 target_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 target_pipeline->states.ApplyAllStates(vk_command_buffer);
-                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
+                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
+                             RenderDrawCallKind::Indirect,
+                             parameters.use_mesh_shader ? mesh_task_commands.size() : indexed_commands.size());
                 if (parameters.use_mesh_shader) {
                   Platform::DrawMeshTasksIndirect(vk_command_buffer, *mesh_task_buffer, 0, mesh_task_commands.size(),
                                                   sizeof(VkDrawMeshTasksIndirectCommandEXT));
@@ -172,84 +174,63 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                                                 sizeof(VkDrawIndexedIndirectCommand));
                 }
               };
-              draw_indirect(false, parameters.directional_opaque_pipeline,
+              draw_indirect(parameters.directional_opaque_pipeline,
                             parameters.render_instances->total_opaque_shadow_mesh_triangles,
                             parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
                             parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
                             parameters.render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
                             parameters.render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands);
-              draw_indirect(
-                  true, parameters.directional_pipeline,
-                  parameters.render_instances->total_alpha_tested_shadow_mesh_triangles,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands_buffer,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_indexed_indirect_commands,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
-                  parameters.render_instances->alpha_tested_shadow_mesh_draw_mesh_tasks_indirect_commands);
-            } else {
-              for (const bool alpha_tested : {false, true}) {
-                const auto target_pipeline =
-                    alpha_tested ? parameters.directional_pipeline : parameters.directional_opaque_pipeline;
-                if (!prepare_graphics_pipeline(target_pipeline)) {
-                  continue;
-                }
+            }
+            if (!parameters.enable_indirect_rendering ||
+                parameters.render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
+              if (prepare_graphics_pipeline(parameters.directional_opaque_pipeline)) {
                 parameters.render_instances->deferred_render_instances->ForEachMeshRenderInstance(
                     [&](const auto& render_instance) {
-                      if (render_instance->alpha_tested_shadow != alpha_tested ||
-                          !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+                      if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
                         return;
                       }
                       RenderInstancePushConstant push_constant;
                       push_constant.camera_index = light_block_index;
                       push_constant.light_split_index = split;
                       push_constant.instance_index = render_instance->instance_index;
-                      const auto prim_count =
-                          render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
+                      const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
+                                                                      parameters.directional_opaque_pipeline);
                       AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                     });
               }
             }
           }
           {
-            for (const bool alpha_tested : {false, true}) {
-              const auto target_pipeline =
-                  alpha_tested ? parameters.instanced_pipeline : parameters.instanced_opaque_pipeline;
-              if (!prepare_graphics_pipeline(target_pipeline)) {
-                continue;
-              }
+            if (prepare_graphics_pipeline(parameters.instanced_opaque_pipeline)) {
               parameters.render_instances->deferred_instanced_render_instances->ForEachInstancedRenderInstance(
                   [&](const auto& render_instance) {
-                    if (render_instance->alpha_tested_shadow != alpha_tested ||
-                        !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+                    if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
                       return;
                     }
                     RenderInstancePushConstant push_constant;
                     push_constant.camera_index = light_block_index;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
-                    const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
+                    const auto prim_count =
+                        render_instance->Render(vk_command_buffer, push_constant, parameters.instanced_opaque_pipeline);
                     AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
             }
           }
           GeometryStorage::BindSkinnedVertices(vk_command_buffer);
           {
-            for (const bool alpha_tested : {false, true}) {
-              const auto target_pipeline =
-                  alpha_tested ? parameters.skinned_pipeline : parameters.skinned_opaque_pipeline;
-              if (!prepare_graphics_pipeline(target_pipeline)) {
-                continue;
-              }
+            if (prepare_graphics_pipeline(parameters.skinned_opaque_pipeline)) {
               parameters.render_instances->deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance(
                   [&](const auto& render_instance) {
-                    if (render_instance->alpha_tested_shadow != alpha_tested ||
-                        !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+                    if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
                       return;
                     }
                     RenderInstancePushConstant push_constant;
                     push_constant.camera_index = light_block_index;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
-                    const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, target_pipeline);
+                    const auto prim_count =
+                        render_instance->Render(vk_command_buffer, push_constant, parameters.skinned_opaque_pipeline);
                     AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
             }

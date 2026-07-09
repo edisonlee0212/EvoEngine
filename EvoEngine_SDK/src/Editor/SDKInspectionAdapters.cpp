@@ -47,6 +47,7 @@
 #include "Utilities.hpp"
 #include "WayPoints.hpp"
 
+#include <array>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -79,6 +80,93 @@ const char* blending_factor_string[]{"Zero",
                                      "OneMinusSrc1Color",
                                      "Src1Alpha",
                                      "OneMinusSrc1Alpha"};
+
+std::string FormatRenderCounter(const size_t value) {
+  if (value < 999) {
+    return std::to_string(value);
+  }
+  if (value < 999999) {
+    return std::to_string(static_cast<int>(value / 1000)) + "K";
+  }
+  return std::to_string(static_cast<int>(value / 1000000)) + "M";
+}
+
+bool HasDrawStats(const RenderPassDrawStats& stats) {
+  return stats.TotalDrawCalls() != 0 || stats.indirect_draw_commands != 0 || stats.prim_count != 0;
+}
+
+size_t SaturatingSubtract(const size_t value, const size_t subtraction) {
+  return value > subtraction ? value - subtraction : 0;
+}
+
+void SubtractDrawStats(RenderPassDrawStats& stats, const RenderPassDrawStats& subtraction) {
+  stats.direct_draw_calls = SaturatingSubtract(stats.direct_draw_calls, subtraction.direct_draw_calls);
+  stats.indirect_draw_calls = SaturatingSubtract(stats.indirect_draw_calls, subtraction.indirect_draw_calls);
+  stats.indirect_draw_commands = SaturatingSubtract(stats.indirect_draw_commands, subtraction.indirect_draw_commands);
+  stats.prim_count = SaturatingSubtract(stats.prim_count, subtraction.prim_count);
+}
+
+RenderPassDrawStats TotalDrawStats(
+    const std::array<RenderPassDrawStats, Platform::kRenderPassDrawBucketCount>& pass_stats) {
+  RenderPassDrawStats total;
+  for (const auto& stats : pass_stats) {
+    total.direct_draw_calls += stats.direct_draw_calls;
+    total.indirect_draw_calls += stats.indirect_draw_calls;
+    total.indirect_draw_commands += stats.indirect_draw_commands;
+    total.prim_count += stats.prim_count;
+  }
+  return total;
+}
+
+std::string BuildCameraDrawStatsLabel(const RenderCameraDrawStats& stats, const std::shared_ptr<Scene>& scene) {
+  if (stats.scene_camera) {
+    return "Scene";
+  }
+  if (stats.entity_index != 0 && scene) {
+    const Scene& scene_ref = *scene;
+    const auto entity = scene_ref.GetEntity(static_cast<size_t>(stats.entity_index));
+    if (scene->IsEntityValid(entity)) {
+      return std::to_string(entity.GetIndex()) + ": " + scene->GetEntityName(entity);
+    }
+    return std::to_string(stats.entity_index) + ": <deleted camera>";
+  }
+  return "Camera " + std::to_string(stats.camera_handle);
+}
+
+void DrawRenderPassStatsRows(const std::array<RenderPassDrawStats, Platform::kRenderPassDrawBucketCount>& pass_stats) {
+  for (size_t bucket_index = 0; bucket_index < Platform::kRenderPassDrawBucketCount; bucket_index++) {
+    const auto& stats = pass_stats[bucket_index];
+    if (!HasDrawStats(stats)) {
+      continue;
+    }
+    ImGui::TableNextRow();
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(Platform::GetRenderPassDrawBucketName(static_cast<RenderPassDrawBucket>(bucket_index)));
+    ImGui::TableNextColumn();
+    ImGui::Text("%llu", static_cast<unsigned long long>(stats.direct_draw_calls));
+    ImGui::TableNextColumn();
+    ImGui::Text("%llu", static_cast<unsigned long long>(stats.indirect_draw_calls));
+    ImGui::TableNextColumn();
+    ImGui::Text("%llu", static_cast<unsigned long long>(stats.indirect_draw_commands));
+    ImGui::TableNextColumn();
+    ImGui::TextUnformatted(FormatRenderCounter(stats.prim_count).c_str());
+  }
+}
+
+void DrawRenderPassStatsTable(const char* id,
+                              const std::array<RenderPassDrawStats, Platform::kRenderPassDrawBucketCount>& pass_stats) {
+  if (!ImGui::BeginTable(id, 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
+    return;
+  }
+  ImGui::TableSetupColumn("Pass");
+  ImGui::TableSetupColumn("Direct");
+  ImGui::TableSetupColumn("Indirect");
+  ImGui::TableSetupColumn("Records");
+  ImGui::TableSetupColumn("Prims");
+  ImGui::TableHeadersRow();
+  DrawRenderPassStatsRows(pass_stats);
+  ImGui::EndTable();
+}
 
 int ShaderStringResizeCallback(ImGuiInputTextCallbackData* data) {
   if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
@@ -1256,6 +1344,64 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
   ImGui::Checkbox("Show entities", &render_layer.render_settings.enable_debug_visualization);
 }
 
+void InspectRenderLayerStats() {
+  const auto& graphics = Platform::GetInstance();
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto prim_count =
+      current_frame_index < graphics.prim_count.size() ? graphics.prim_count[current_frame_index] : 0u;
+  const auto draw_call_count =
+      current_frame_index < graphics.draw_call.size() ? graphics.draw_call[current_frame_index] : 0u;
+  ImGui::Text("Frame: %u", current_frame_index);
+  ImGui::Text("%s prims", FormatRenderCounter(prim_count).c_str());
+  ImGui::Text("%llu draw submissions", static_cast<unsigned long long>(draw_call_count));
+  ImGui::Separator();
+
+  std::array<RenderPassDrawStats, Platform::kRenderPassDrawBucketCount> frame_pass_stats{};
+  if (current_frame_index < graphics.render_pass_draw_stats.size()) {
+    frame_pass_stats = graphics.render_pass_draw_stats[current_frame_index];
+  }
+
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  bool drew_camera_stats = false;
+  if (current_frame_index < graphics.render_camera_draw_stats.size()) {
+    const auto& camera_stats_list = graphics.render_camera_draw_stats[current_frame_index];
+    for (size_t camera_stats_index = 0; camera_stats_index < camera_stats_list.size(); camera_stats_index++) {
+      const auto& camera_stats = camera_stats_list[camera_stats_index];
+      for (size_t bucket_index = 0; bucket_index < Platform::kRenderPassDrawBucketCount; bucket_index++) {
+        SubtractDrawStats(frame_pass_stats[bucket_index], camera_stats.pass_stats[bucket_index]);
+      }
+      const auto total = camera_stats.Total();
+      if (!HasDrawStats(total)) {
+        continue;
+      }
+      drew_camera_stats = true;
+      const auto label = BuildCameraDrawStatsLabel(camera_stats, scene);
+      const auto tree_id = label + "##RenderCameraDrawStats" + std::to_string(camera_stats_index) + "_" +
+                           std::to_string(camera_stats.camera_handle);
+      if (ImGui::TreeNodeEx(tree_id.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Text("%s prims, %llu draw submissions", FormatRenderCounter(total.prim_count).c_str(),
+                    static_cast<unsigned long long>(total.TotalDrawCalls()));
+        const auto table_id = "RenderCameraDrawStatsTable" + std::to_string(camera_stats_index);
+        DrawRenderPassStatsTable(table_id.c_str(), camera_stats.pass_stats);
+        ImGui::TreePop();
+      }
+    }
+  }
+  if (!drew_camera_stats) {
+    ImGui::TextUnformatted("No camera draw stats recorded for the current frame.");
+  }
+
+  const auto frame_total = TotalDrawStats(frame_pass_stats);
+  if (HasDrawStats(frame_total)) {
+    if (ImGui::TreeNodeEx("Frame##RenderFrameDrawStats", ImGuiTreeNodeFlags_DefaultOpen)) {
+      ImGui::Text("%s prims, %llu draw submissions", FormatRenderCounter(frame_total.prim_count).c_str(),
+                  static_cast<unsigned long long>(frame_total.TotalDrawCalls()));
+      DrawRenderPassStatsTable("RenderFrameDrawStatsTable", frame_pass_stats);
+      ImGui::TreePop();
+    }
+  }
+}
+
 void InspectShadowSettings(RenderSettings& render_settings) {
   const char* shadow_debug_modes[] = {"Off", "Cascade Index", "Light UV", "Light Depth", "Atlas UV", "Texel Density"};
   ImGui::TextUnformatted("Fit policy: Legacy Stable");
@@ -1871,6 +2017,10 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
     }
     if (ImGui::BeginTabItem("General")) {
       InspectRenderLayerGeneralSettings(render_layer);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Stats")) {
+      InspectRenderLayerStats();
       ImGui::EndTabItem();
     }
     if (!render_layer.force_ddgi_inspection_layout) {
@@ -3109,16 +3259,24 @@ bool InspectLodGroup(InspectorContext&, LodGroup& lod_group) {
 void evo_engine::DrawCameraDebugViews(const Camera& camera, const float debug_scale) {
   const auto size = camera.GetSize();
   const ImVec2 image_size(size.x * debug_scale, size.y * debug_scale);
-  if (ImGui::TreeNodeEx("Normal", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Image(camera.GetGBufferNormalImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNodeEx("Base color / AO", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Image(camera.GetGBufferBaseColorAoImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
-  if (ImGui::TreeNodeEx("UV", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Image(camera.GetGBufferMaterialTexCoordImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNodeEx("Normal / Roughness", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::Image(camera.GetGBufferNormalRoughnessImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
-  if (ImGui::TreeNode("Instance/Material Index")) {
-    ImGui::Image(camera.GetGBufferMaterialIndicesImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNode("PBR / Flags")) {
+    ImGui::Image(camera.GetGBufferPbrFlagsImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Emissive")) {
+    ImGui::Image(camera.GetGBufferEmissiveImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Utility")) {
+    ImGui::Image(camera.GetGBufferUtilityImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Depth")) {
