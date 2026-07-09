@@ -157,8 +157,9 @@ descriptor binding used by the normal RenderLayer camera passes.
 Bindless texture arrays are reserved for ray tracing and ray query paths. Raster-only or lower-end device mode must avoid
 creating bindless descriptor layouts when ray tracing and ray query are unavailable or disabled. BRDF LUTs, environment
 cubemaps, DDGI atlases, volumetric cloud textures, and pass-local textures may remain in fixed global or pass descriptor
-sets during migration, but rasterization should not sample them through bindless descriptor arrays at the end. Non-ray-
-tracing compute texture users also migrate to fixed descriptor sets before final cleanup.
+sets during migration, but rasterization should not sample them through bindless descriptor arrays at the end.
+Non-ray-tracing compute passes use fixed global or pass descriptor sets; ray tracing, ray query, and ray diagnostics keep
+their bindless texture access.
 
 Current shadow policy:
 

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 namespace {
 std::string ReadTextFile(const std::filesystem::path& path) {
@@ -146,7 +147,7 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
             std::string::npos);
   EXPECT_NE(rendering_docs.find("Raster-only or lower-end device mode must avoid"), std::string::npos);
   EXPECT_NE(rendering_docs.find("bindless descriptor layouts"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("tracing compute texture users also migrate to fixed descriptor sets"),
+  EXPECT_NE(rendering_docs.find("Non-ray-tracing compute passes use fixed global or pass descriptor sets"),
             std::string::npos);
 }
 
@@ -445,6 +446,40 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(transparent.find("parameters.raster_lighting_texture_descriptor_set"), std::string::npos);
   EXPECT_NE(transparent.find("vk_command_buffer, 4, parameters.raster_lighting_texture_descriptor_set"),
             std::string::npos);
+}
+
+TEST(GltfRasterMaterial, NonRayTracingComputeShadersAvoidBindlessTextureArrays) {
+  const auto compute_root = ShaderPath("Compute");
+  ASSERT_TRUE(std::filesystem::exists(compute_root));
+  const std::vector<std::string> bindless_compute_allowlist = {"RayQueryCamera.comp", "RayTracerCamera.comp"};
+  bool saw_ray_query = false;
+  bool saw_ray_tracer = false;
+
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(compute_root)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".comp") {
+      continue;
+    }
+    const auto source = ReadTextFile(entry.path());
+    ASSERT_FALSE(source.empty()) << entry.path().string();
+    const bool uses_bindless_texture_arrays =
+        source.find("EE_TEXTURE_2DS") != std::string::npos || source.find("EE_CUBEMAPS") != std::string::npos ||
+        source.find("Textures.glsl") != std::string::npos || source.find("nonuniformEXT") != std::string::npos;
+    if (!uses_bindless_texture_arrays) {
+      continue;
+    }
+
+    const auto filename = entry.path().filename().string();
+    bool allowlisted = false;
+    for (const auto& allowed_filename : bindless_compute_allowlist) {
+      allowlisted = allowlisted || filename == allowed_filename;
+    }
+    EXPECT_TRUE(allowlisted) << entry.path().string();
+    saw_ray_query = saw_ray_query || filename == "RayQueryCamera.comp";
+    saw_ray_tracer = saw_ray_tracer || filename == "RayTracerCamera.comp";
+  }
+
+  EXPECT_TRUE(saw_ray_query);
+  EXPECT_TRUE(saw_ray_tracer);
 }
 
 TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
