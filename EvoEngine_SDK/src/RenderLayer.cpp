@@ -229,6 +229,10 @@ bool LightCastsShadow(const glm::vec4& diffuse) {
   return diffuse.w > 0.5f;
 }
 
+std::string CreateRasterMaterialShaderDefines() {
+  return Platform::GetShaderGlobalDefines() + "\n#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+}
+
 bool IsFiniteBound(const Bound& bound) {
   return std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z) &&
          std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z) &&
@@ -2175,10 +2179,13 @@ void RenderLayer::OnCreate() {
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.vert");
     deferred_prepass_pipeline_normal->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
     deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_prepass_pipeline_normal->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2197,11 +2204,13 @@ void RenderLayer::OnCreate() {
         Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/Standard.mesh");
     deferred_prepass_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
+    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_layout_);
     deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_prepass_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_prepass_pipeline_mesh->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2217,11 +2226,13 @@ void RenderLayer::OnCreate() {
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
     instanced_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
+    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
     instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     instanced_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     instanced_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2237,11 +2248,13 @@ void RenderLayer::OnCreate() {
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardSkinned.vert");
     skinned_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
+    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
     skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     skinned_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2267,11 +2280,13 @@ void RenderLayer::OnCreate() {
         ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        ShaderType::Fragment, CreateRasterMaterialShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
+    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
     strands_deferred_prepass_pipeline->tessellation_patch_control_points = 4;
     strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -4470,7 +4485,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               {camera, current_render_instances, deferred_prepass_pipeline, instanced_deferred_prepass_pipeline,
                skinned_deferred_prepass_pipeline, strands_deferred_prepass_pipeline,
                per_frame_descriptor_sets_[current_frame_index], meshlet_descriptor_sets_[current_frame_index],
-               camera_index, current_frame_index, use_mesh_shader, enable_indirect_rendering, count_draw_calls,
+               camera_index, current_frame_index, use_mesh_shader, enable_indirect_rendering, true, count_draw_calls,
                wire_frame,
                [&](const VkCommandBuffer vk_command_buffer,
                    const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {

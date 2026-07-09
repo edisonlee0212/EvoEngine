@@ -127,6 +127,11 @@ does not deduplicate descriptor sets across material indices because material in
 running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
 bind the documented fallback textures.
 
+Opaque deferred direct draw pipelines currently enable the fixed raster material backend. While per-material descriptor
+sets are bound per draw, `DeferredGeometryPass` bypasses all-in-one indirect deferred draws so each draw can bind the
+correct material descriptor set. Material-batched indirect buffers are the planned path for restoring indirect deferred
+rendering without returning opaque raster material sampling to bindless texture arrays.
+
 Bindless texture arrays are reserved for ray tracing and ray query paths. Raster-only or lower-end device mode must avoid
 creating bindless descriptor layouts when ray tracing and ray query are unavailable or disabled. BRDF LUTs, environment
 cubemaps, DDGI atlases, volumetric cloud textures, and pass-local textures may remain in fixed global or pass descriptor

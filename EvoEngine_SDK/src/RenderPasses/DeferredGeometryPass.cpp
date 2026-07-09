@@ -23,6 +23,17 @@ void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_inde
 VkPolygonMode ResolvePolygonMode(const bool wire_frame, const VkPolygonMode instance_polygon_mode) {
   return wire_frame ? VK_POLYGON_MODE_LINE : instance_polygon_mode;
 }
+
+void BindRasterMaterialDescriptorSet(const VkCommandBuffer vk_command_buffer,
+                                     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline,
+                                     const std::shared_ptr<RenderInstanceStorage>& render_instances,
+                                     const int32_t material_index) {
+  if (!graphics_pipeline || !render_instances || material_index < 0) {
+    return;
+  }
+  const auto& descriptor_set = render_instances->GetRasterMaterialDescriptorSet(static_cast<uint32_t>(material_index));
+  graphics_pipeline->BindDescriptorSet(vk_command_buffer, 3, descriptor_set->GetVkDescriptorSet());
+}
 }  // namespace
 
 RenderPassDescriptor DeferredGeometryPass::CreateDescriptor() {
@@ -80,7 +91,9 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.mesh_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                                       parameters.meshlet_descriptor_set->GetVkDescriptorSet());
         }
-        if (parameters.enable_indirect_rendering && !parameters.render_instances->deferred_render_instances->Empty()) {
+        const bool use_indirect_deferred_draws =
+            parameters.enable_indirect_rendering && !parameters.bind_raster_material_descriptor_sets;
+        if (use_indirect_deferred_draws && !parameters.render_instances->deferred_render_instances->Empty()) {
           RenderInstancePushConstant push_constant;
           push_constant.camera_index = parameters.camera_index;
           push_constant.instance_index = 0;
@@ -109,6 +122,10 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                     ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
                 parameters.mesh_pipeline->states.cull_mode = render_instance->cull_mode;
                 parameters.mesh_pipeline->states.line_width = render_instance->line_width;
+                if (parameters.bind_raster_material_descriptor_sets) {
+                  BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline,
+                                                  parameters.render_instances, render_instance->material_index);
+                }
                 const auto prim_count =
                     render_instance->Render(vk_command_buffer, push_constant, parameters.mesh_pipeline);
                 AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
@@ -131,6 +148,10 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                     ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
                 parameters.instanced_pipeline->states.cull_mode = render_instance->cull_mode;
                 parameters.instanced_pipeline->states.line_width = render_instance->line_width;
+                if (parameters.bind_raster_material_descriptor_sets) {
+                  BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.instanced_pipeline,
+                                                  parameters.render_instances, render_instance->material_index);
+                }
                 const auto prim_count =
                     render_instance->Render(vk_command_buffer, push_constant, parameters.instanced_pipeline);
                 AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
@@ -154,6 +175,10 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                     ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
                 parameters.skinned_pipeline->states.cull_mode = render_instance->cull_mode;
                 parameters.skinned_pipeline->states.line_width = render_instance->line_width;
+                if (parameters.bind_raster_material_descriptor_sets) {
+                  BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.skinned_pipeline,
+                                                  parameters.render_instances, render_instance->material_index);
+                }
                 const auto prim_count =
                     render_instance->Render(vk_command_buffer, push_constant, parameters.skinned_pipeline);
                 AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
@@ -178,6 +203,10 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                     ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
                 parameters.strands_pipeline->states.cull_mode = render_instance->cull_mode;
                 parameters.strands_pipeline->states.line_width = render_instance->line_width;
+                if (parameters.bind_raster_material_descriptor_sets) {
+                  BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.strands_pipeline,
+                                                  parameters.render_instances, render_instance->material_index);
+                }
                 const auto prim_count =
                     render_instance->Render(vk_command_buffer, push_constant, parameters.strands_pipeline);
                 AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
