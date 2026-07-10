@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two PNG render outputs and report exact-match plus error metrics."""
+"""Compare PNG or linear Radiance HDR render outputs and report error metrics."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import struct
 import sys
 import tempfile
 import zlib
+from array import array
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +24,15 @@ class PngImage:
     width: int
     height: int
     rgba: bytes
+    digest: str
+
+
+@dataclass(frozen=True)
+class HdrImage:
+    path: Path
+    width: int
+    height: int
+    rgb: array
     digest: str
 
 
@@ -146,6 +156,91 @@ def read_png(path: Path) -> PngImage:
     return PngImage(path=path, width=width, height=height, rgba=bytes(rgba), digest=hashlib.sha256(data).hexdigest())
 
 
+def decode_rgbe(rgbe: bytes, output: array) -> None:
+    for index in range(0, len(rgbe), 4):
+        red, green, blue, exponent = rgbe[index : index + 4]
+        if exponent == 0:
+            output.extend((0.0, 0.0, 0.0))
+            continue
+        scale = math.ldexp(1.0, exponent - (128 + 8))
+        output.extend((red * scale, green * scale, blue * scale))
+
+
+def decode_hdr_scanline(data: bytes, offset: int, width: int) -> tuple[bytes, int]:
+    if offset + 4 > len(data):
+        raise ValueError("Truncated Radiance HDR scanline")
+    header = data[offset : offset + 4]
+    if width < 8 or width > 0x7FFF or header[0:2] != b"\x02\x02" or header[2] & 0x80:
+        byte_count = width * 4
+        if offset + byte_count > len(data):
+            raise ValueError("Truncated uncompressed Radiance HDR scanline")
+        return data[offset : offset + byte_count], offset + byte_count
+    encoded_width = (header[2] << 8) | header[3]
+    if encoded_width != width:
+        raise ValueError(f"Radiance HDR scanline width mismatch: {encoded_width} != {width}")
+    offset += 4
+    channels = [bytearray() for _ in range(4)]
+    for channel in channels:
+        while len(channel) < width:
+            if offset >= len(data):
+                raise ValueError("Truncated Radiance HDR RLE packet")
+            count = data[offset]
+            offset += 1
+            if count > 128:
+                run_length = count - 128
+                if run_length == 0 or offset >= len(data) or len(channel) + run_length > width:
+                    raise ValueError("Invalid Radiance HDR RLE run")
+                channel.extend((data[offset],) * run_length)
+                offset += 1
+            else:
+                if count == 0 or offset + count > len(data) or len(channel) + count > width:
+                    raise ValueError("Invalid Radiance HDR RLE literal")
+                channel.extend(data[offset : offset + count])
+                offset += count
+    scanline = bytearray(width * 4)
+    for pixel in range(width):
+        for channel_index in range(4):
+            scanline[pixel * 4 + channel_index] = channels[channel_index][pixel]
+    return bytes(scanline), offset
+
+
+def read_hdr(path: Path) -> HdrImage:
+    data = path.read_bytes()
+    if not data.startswith((b"#?RADIANCE\n", b"#?RGBE\n")):
+        raise ValueError(f"Not a Radiance HDR file: {path}")
+    header_end = data.find(b"\n\n")
+    if header_end < 0:
+        raise ValueError(f"Missing Radiance HDR header terminator: {path}")
+    header = data[:header_end].decode("ascii", errors="strict")
+    if "FORMAT=32-bit_rle_rgbe" not in header:
+        raise ValueError(f"Unsupported Radiance HDR encoding: {path}")
+    resolution_start = header_end + 2
+    resolution_end = data.find(b"\n", resolution_start)
+    if resolution_end < 0:
+        raise ValueError(f"Missing Radiance HDR resolution: {path}")
+    resolution = data[resolution_start:resolution_end].decode("ascii", errors="strict").split()
+    if len(resolution) != 4 or resolution[0] not in ("-Y", "+Y") or resolution[2] not in ("+X", "-X"):
+        raise ValueError(f"Unsupported Radiance HDR orientation: {path}")
+    height = int(resolution[1])
+    width = int(resolution[3])
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid Radiance HDR dimensions: {path}")
+
+    offset = resolution_end + 1
+    scanlines: list[bytes] = []
+    for _ in range(height):
+        scanline, offset = decode_hdr_scanline(data, offset, width)
+        scanlines.append(scanline)
+    if resolution[0] == "+Y":
+        scanlines.reverse()
+    if resolution[2] == "-X":
+        scanlines = [b"".join(scanline[index : index + 4] for index in range(len(scanline) - 4, -1, -4)) for scanline in scanlines]
+    rgb = array("f")
+    for scanline in scanlines:
+        decode_rgbe(scanline, rgb)
+    return HdrImage(path=path, width=width, height=height, rgb=rgb, digest=hashlib.sha256(data).hexdigest())
+
+
 def compare_images(reference: PngImage, candidate: PngImage, ignore_alpha: bool) -> dict[str, object]:
     summary: dict[str, object] = {
         "reference": str(reference.path),
@@ -213,6 +308,80 @@ def compare_images(reference: PngImage, candidate: PngImage, ignore_alpha: bool)
     return summary
 
 
+def compare_hdr_images(reference: HdrImage, candidate: HdrImage) -> dict[str, object]:
+    summary: dict[str, object] = {
+        "reference": str(reference.path),
+        "candidate": str(candidate.path),
+        "reference_sha256": reference.digest,
+        "candidate_sha256": candidate.digest,
+        "reference_size": [reference.width, reference.height],
+        "candidate_size": [candidate.width, candidate.height],
+        "encoding": "radiance_rgbe_linear",
+    }
+    if (reference.width, reference.height) != (candidate.width, candidate.height):
+        summary.update({"exact_match": False, "same_dimensions": False, "reason": "image dimensions differ"})
+        return summary
+
+    value_count = len(reference.rgb)
+    if value_count != len(candidate.rgb):
+        raise ValueError("Radiance HDR payload lengths differ despite equal dimensions")
+    channel_diff_sum = [0.0, 0.0, 0.0]
+    channel_diff_square_sum = [0.0, 0.0, 0.0]
+    channel_max = [0.0, 0.0, 0.0]
+    relative_sum = 0.0
+    relative_square_sum = 0.0
+    mismatch_count = 0
+    for index, (reference_value, candidate_value) in enumerate(zip(reference.rgb, candidate.rgb)):
+        channel = index % 3
+        difference = abs(reference_value - candidate_value)
+        channel_diff_sum[channel] += difference
+        channel_diff_square_sum[channel] += difference * difference
+        channel_max[channel] = max(channel_max[channel], difference)
+        denominator = abs(reference_value) + abs(candidate_value) + 1.0e-6
+        relative = 2.0 * difference / denominator
+        relative_sum += relative
+        relative_square_sum += relative * relative
+        mismatch_count += difference != 0.0
+    pixels = reference.width * reference.height
+    total_diff_sum = sum(channel_diff_sum)
+    total_diff_square_sum = sum(channel_diff_square_sum)
+    summary.update(
+        {
+            "exact_match": mismatch_count == 0,
+            "same_dimensions": True,
+            "pixels": pixels,
+            "channels_compared": ["r", "g", "b"],
+            "value_mismatch_count": mismatch_count,
+            "max_abs_error": max(channel_max),
+            "max_abs_error_per_channel": channel_max,
+            "mean_abs_error": total_diff_sum / value_count,
+            "mean_abs_error_per_channel": [value / pixels for value in channel_diff_sum],
+            "rms_error": math.sqrt(total_diff_square_sum / value_count),
+            "rms_error_per_channel": [math.sqrt(value / pixels) for value in channel_diff_square_sum],
+            "mean_symmetric_relative_error": relative_sum / value_count,
+            "rms_symmetric_relative_error": math.sqrt(relative_square_sum / value_count),
+        }
+    )
+    return summary
+
+
+def read_image(path: Path) -> PngImage | HdrImage:
+    extension = path.suffix.lower()
+    if extension == ".png":
+        return read_png(path)
+    if extension == ".hdr":
+        return read_hdr(path)
+    raise ValueError(f"Unsupported image extension: {path}")
+
+
+def compare_render_images(reference: PngImage | HdrImage, candidate: PngImage | HdrImage, ignore_alpha: bool) -> dict[str, object]:
+    if isinstance(reference, PngImage) and isinstance(candidate, PngImage):
+        return compare_images(reference, candidate, ignore_alpha)
+    if isinstance(reference, HdrImage) and isinstance(candidate, HdrImage):
+        return compare_hdr_images(reference, candidate)
+    raise ValueError("Reference and candidate must use the same image format")
+
+
 def write_png_rgba8(path: Path, width: int, height: int, rgba: bytes) -> None:
     if len(rgba) != width * height * 4:
         raise ValueError("RGBA payload size does not match width and height")
@@ -230,6 +399,31 @@ def write_png_rgba8(path: Path, width: int, height: int, rgba: bytes) -> None:
 
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     path.write_bytes(PNG_SIGNATURE + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(bytes(scanlines))) + chunk(b"IEND", b""))
+
+
+def write_hdr_rgbe(path: Path, width: int, height: int, rgbe: bytes, rle: bool) -> None:
+    if len(rgbe) != width * height * 4:
+        raise ValueError("RGBE payload size does not match width and height")
+    output = bytearray(b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n")
+    output.extend(f"-Y {height} +X {width}\n".encode("ascii"))
+    for row in range(height):
+        scanline = rgbe[row * width * 4 : (row + 1) * width * 4]
+        if not rle:
+            output.extend(scanline)
+            continue
+        output.extend((2, 2, width >> 8, width & 0xFF))
+        for channel_index in range(4):
+            channel = bytes(scanline[channel_index::4])
+            offset = 0
+            while offset < width:
+                chunk = channel[offset : offset + 128]
+                if len(chunk) <= 127 and len(set(chunk)) == 1:
+                    output.extend((128 + len(chunk), chunk[0]))
+                else:
+                    output.append(len(chunk))
+                    output.extend(chunk)
+                offset += len(chunk)
+    path.write_bytes(output)
 
 
 def run_self_test() -> int:
@@ -266,11 +460,30 @@ def run_self_test() -> int:
         write_png_rgba8(third, 2, 2, bytes(rgba_b))
         exact = compare_images(read_png(first), read_png(second), ignore_alpha=False)
         changed = compare_images(read_png(first), read_png(third), ignore_alpha=False)
+        uncompressed_hdr = temp / "uncompressed.hdr"
+        rle_hdr = temp / "rle.hdr"
+        changed_hdr = temp / "changed.hdr"
+        uncompressed_rgbe = bytes((128, 64, 32, 129, 32, 64, 128, 130))
+        rle_rgbe = bytes((128, 64, 32, 129)) * 8
+        changed_rgbe = bytearray(rle_rgbe)
+        changed_rgbe[0] = 96
+        write_hdr_rgbe(uncompressed_hdr, 2, 1, uncompressed_rgbe, rle=False)
+        write_hdr_rgbe(rle_hdr, 8, 1, rle_rgbe, rle=True)
+        write_hdr_rgbe(changed_hdr, 8, 1, bytes(changed_rgbe), rle=True)
+        uncompressed = read_hdr(uncompressed_hdr)
+        hdr_exact = compare_hdr_images(read_hdr(rle_hdr), read_hdr(rle_hdr))
+        hdr_changed = compare_hdr_images(read_hdr(rle_hdr), read_hdr(changed_hdr))
     if exact["exact_match"] is not True:
         print("Self-test failed: identical images did not match", file=sys.stderr)
         return 1
     if changed["exact_match"] is not False or changed["max_abs_error"] != 3:
         print("Self-test failed: changed image metrics were incorrect", file=sys.stderr)
+        return 1
+    if uncompressed.width != 2 or list(uncompressed.rgb) != [1.0, 0.5, 0.25, 0.5, 1.0, 2.0]:
+        print("Self-test failed: uncompressed HDR decoding was incorrect", file=sys.stderr)
+        return 1
+    if hdr_exact["exact_match"] is not True or hdr_changed["exact_match"] is not False:
+        print("Self-test failed: HDR comparison metrics were incorrect", file=sys.stderr)
         return 1
     print("Self-test passed")
     return 0
@@ -278,12 +491,12 @@ def run_self_test() -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("reference", nargs="?", type=Path, help="Reference PNG output.")
-    parser.add_argument("candidate", nargs="?", type=Path, help="Candidate PNG output.")
+    parser.add_argument("reference", nargs="?", type=Path, help="Reference PNG or Radiance HDR output.")
+    parser.add_argument("candidate", nargs="?", type=Path, help="Candidate PNG or Radiance HDR output.")
     parser.add_argument("--out", type=Path, help="Optional JSON summary output path.")
     parser.add_argument("--ignore-alpha", action="store_true", help="Compare RGB channels only.")
     parser.add_argument("--require-exact", action="store_true", help="Return a non-zero exit code unless images match.")
-    parser.add_argument("--self-test", action="store_true", help="Run the built-in PNG reader/diff self-test.")
+    parser.add_argument("--self-test", action="store_true", help="Run the built-in PNG/HDR reader and diff self-test.")
     return parser.parse_args()
 
 
@@ -292,10 +505,10 @@ def main() -> int:
     if args.self_test:
         return run_self_test()
     if args.reference is None or args.candidate is None:
-        print("reference and candidate PNG paths are required unless --self-test is used", file=sys.stderr)
+        print("reference and candidate image paths are required unless --self-test is used", file=sys.stderr)
         return 1
 
-    summary = compare_images(read_png(args.reference.resolve()), read_png(args.candidate.resolve()), args.ignore_alpha)
+    summary = compare_render_images(read_image(args.reference.resolve()), read_image(args.candidate.resolve()), args.ignore_alpha)
     output = json.dumps(summary, indent=2, sort_keys=True)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

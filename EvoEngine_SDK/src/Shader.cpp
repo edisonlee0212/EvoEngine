@@ -1,4 +1,5 @@
 #include "Shader.hpp"
+#include <cstdlib>
 #include "AssetManager.hpp"
 #include "Console.hpp"
 #include "Platform.hpp"
@@ -12,6 +13,13 @@
 using namespace evo_engine;
 
 namespace {
+std::filesystem::path GetShaderBinaryDirectory() {
+  if (const char* path = std::getenv("EVOENGINE_SHADER_CACHE_DIR"); path && path[0] != '\0') {
+    return path;
+  }
+  return "./ShaderBinaries";
+}
+
 class ShaderStagedLoadPayload final : public StagedAssetLoadPayload {
  public:
   std::string shader_code;
@@ -225,8 +233,8 @@ void GlslShaderIncluder::releaseInclude(IncludeResult* result) {
 bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries,
                  const std::filesystem::path& path) {
   // 1. Look for compiled resource.
-  const auto binary_search_path =
-      std::filesystem::path("./ShaderBinaries") / (std::to_string(std::hash<std::string>{}(source)) + ".yml");
+  const auto shader_binary_directory = GetShaderBinaryDirectory();
+  const auto binary_search_path = shader_binary_directory / (std::to_string(std::hash<std::string>{}(source)) + ".yml");
   if (std::filesystem::exists(binary_search_path)) {
     const std::ifstream stream(binary_search_path.string());
     std::stringstream string_stream;
@@ -339,7 +347,7 @@ bool CompileGlsl(const ShaderType shader_type, const std::string& source, std::v
     out << YAML::Key << "CompiledBinaries" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(binaries.data()), binaries.size() * sizeof(uint32_t));
     out << YAML::EndMap;
-    std::filesystem::create_directories(std::filesystem::path("./ShaderBinaries"));
+    std::filesystem::create_directories(shader_binary_directory);
     std::ofstream file_output(binary_search_path);
     file_output << out.c_str();
     file_output.close();

@@ -1676,7 +1676,7 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   // Build the acceleration structure on the device via a one-time command buffer submission
   // Some implementations may support acceleration structure building on the host
   // (VkPhysicalDeviceAccelerationStructureFeaturesKHR->accelerationStructureHostCommands), but we prefer device builds
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+  Platform::ImmediateSubmitWithGpuTimestamp("BLAS Build", [&](const VkCommandBuffer vk_command_buffer) {
     vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &acceleration_build_geometry_info,
                                         acceleration_build_structure_range_infos.data());
   });
@@ -1874,7 +1874,7 @@ TopLevelAccelerationStructure::TopLevelAccelerationStructure(const std::shared_p
   // Build the acceleration structure on the device via a one-time command buffer submission
   // Some implementations may support acceleration structure building on the host
   // (VkPhysicalDeviceAccelerationStructureFeaturesKHR->accelerationStructureHostCommands), but we prefer device builds
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+  Platform::ImmediateSubmitWithGpuTimestamp("TLAS Build", [&](const VkCommandBuffer vk_command_buffer) {
     vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &acceleration_build_geometry_info,
                                         acceleration_build_structure_range_infos.data());
   });

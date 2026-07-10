@@ -154,8 +154,10 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
                                                     ? 1u
                                                     : 0u;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RTX)");
     parameters.pipeline->Trace(vk_command_buffer, render_texture->GetExtent().width, render_texture->GetExtent().height,
                                1);
+    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
     history_resources.valid = true;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     Platform::EverythingBarrier(vk_command_buffer);
@@ -220,8 +222,10 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RQ)");
     parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(render_texture->GetExtent().width, 8),
                                   Platform::DivUp(render_texture->GetExtent().height, 8), 1);
+    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
     history_resources.valid = true;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     Platform::EverythingBarrier(vk_command_buffer);

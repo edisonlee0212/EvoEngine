@@ -73,6 +73,26 @@ struct RenderCameraDrawScope {
   bool scene_camera = false;
 };
 
+struct GpuTimestampStats {
+  std::string name{};
+  double last_milliseconds = 0.0;
+  double minimum_milliseconds = 0.0;
+  double maximum_milliseconds = 0.0;
+  double total_milliseconds = 0.0;
+  uint64_t sample_count = 0;
+
+  void AddSample(double milliseconds);
+  [[nodiscard]] double AverageMilliseconds() const;
+};
+
+struct GpuTimestampScopeToken {
+  std::string name{};
+  uint32_t frame_index = 0;
+  uint32_t begin_query = 0;
+  uint32_t end_query = 0;
+  bool valid = false;
+};
+
 /**
  * @brief Class representing platform-specific Vulkan setup and utilities.
  *
@@ -346,6 +366,11 @@ class Platform final {
   void CreateSwapChain();
   void CreateSwapChainSyncObjects();
   void RecreateSwapChain();
+  void InitializeGpuTimestampResources();
+  void DestroyGpuTimestampResources();
+  void PrepareGpuTimestampFrame(uint32_t frame_index);
+  void ResolveGpuTimestampFrame(uint32_t frame_index);
+  void AccumulateGpuTimestamp(const std::string& name, double milliseconds);
 
   /**
    * @brief Resets command buffers for reuse.
@@ -716,6 +741,17 @@ class Platform final {
    */
   static void ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 
+  static void ImmediateSubmitWithGpuTimestamp(const std::string& name,
+                                              const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
+
+  static void SetGpuTimestampCaptureEnabled(bool enabled);
+  [[nodiscard]] static bool GpuTimestampCaptureAvailable();
+  static void ResetGpuTimestampStats();
+  [[nodiscard]] static std::vector<GpuTimestampStats> GetGpuTimestampStats();
+  [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
+                                                                     const std::string& name);
+  static void EndGpuTimestampScope(VkCommandBuffer vk_command_buffer, const GpuTimestampScopeToken& token);
+
   /**
    * @brief Retrieves the platform-owned GPU service.
    */
@@ -883,6 +919,29 @@ class Platform final {
   [[nodiscard]] static bool CheckLayerSupport(const std::string& layer_name);
 
  private:
+  struct PendingGpuTimestampScope {
+    std::string name{};
+    uint32_t begin_query = 0;
+    uint32_t end_query = 0;
+  };
+
+  struct GpuTimestampFrame {
+    VkQueryPool query_pool = VK_NULL_HANDLE;
+    uint32_t next_query = 0;
+    bool reset_recorded = false;
+    std::vector<PendingGpuTimestampScope> scopes{};
+  };
+
+  static constexpr uint32_t kGpuTimestampQueriesPerFrame = 128;
+  bool gpu_timestamp_capture_enabled_ = false;
+  bool gpu_timestamp_capture_available_ = false;
+  uint32_t gpu_timestamp_valid_bits_ = 0;
+  double gpu_timestamp_period_nanoseconds_ = 0.0;
+  std::vector<GpuTimestampFrame> gpu_timestamp_frames_{};
+  VkQueryPool immediate_gpu_timestamp_query_pool_ = VK_NULL_HANDLE;
+  std::recursive_mutex immediate_gpu_timestamp_mutex_{};
+  mutable std::mutex gpu_timestamp_stats_mutex_{};
+  std::unordered_map<std::string, GpuTimestampStats> gpu_timestamp_stats_{};
   std::optional<RenderCameraDrawScope> active_render_camera_draw_scope_{};
 };
 }  // namespace evo_engine

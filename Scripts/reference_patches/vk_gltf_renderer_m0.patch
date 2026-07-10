@@ -1,0 +1,172 @@
+diff --git a/src/benchmarking.cpp b/src/benchmarking.cpp
+index df02d53..f741387 100644
+--- a/src/benchmarking.cpp
++++ b/src/benchmarking.cpp
+@@ -285,22 +285,44 @@ void BenchmarkController::logHeadlessSummary(const HeadlessFrameInfo& info)
+       info.totalFrames, info.maxFrames, info.ptSamples, effectiveSpp, measuredEffectiveSpp, info.imageSize.width,
+       info.imageSize.height, measuredWallMs, measuredMsPerFrame, totalWallMs, totalMsPerFrame, warmupFrames,
+       measuredFrames, throughputMSps, sppPerSec);
+-  emitJsonLine({{"type", "headless_summary"},
+-                {"frames", info.totalFrames},
+-                {"maxFrames", info.maxFrames},
+-                {"ptSamples", info.ptSamples},
+-                {"effective_spp", effectiveSpp},
+-                {"measured_effective_spp", measuredEffectiveSpp},
+-                {"resolution_w", info.imageSize.width},
+-                {"resolution_h", info.imageSize.height},
+-                {"wall_ms", roundTo(measuredWallMs, 1000.0)},
+-                {"ms_per_frame", roundTo(measuredMsPerFrame, 1000.0)},
+-                {"total_wall_ms", roundTo(totalWallMs, 1000.0)},
+-                {"total_ms_per_frame", roundTo(totalMsPerFrame, 1000.0)},
+-                {"warmup_frames", warmupFrames},
+-                {"measured_frames", measuredFrames},
+-                {"throughput_MSps", roundTo(throughputMSps, 1000.0)},
+-                {"spp_per_sec", roundTo(sppPerSec, 100.0)}});
++  json summary = {{"type", "headless_summary"},
++                  {"frames", info.totalFrames},
++                  {"maxFrames", info.maxFrames},
++                  {"ptSamples", info.ptSamples},
++                  {"effective_spp", effectiveSpp},
++                  {"measured_effective_spp", measuredEffectiveSpp},
++                  {"resolution_w", info.imageSize.width},
++                  {"resolution_h", info.imageSize.height},
++                  {"bounce_depth", info.maxDepth},
++                  {"firefly_clamp", info.fireflyClamp},
++                  {"texture_gradient_scale", info.texGradScale},
++                  {"render_technique", info.renderTechnique},
++                  {"ser_supported", info.serSupported},
++                  {"ser_enabled", info.serEnabled},
++                  {"gpu_device_name", info.gpuDeviceName},
++                  {"gpu_vendor_id", info.gpuVendorId},
++                  {"gpu_device_id", info.gpuDeviceId},
++                  {"gpu_driver_version", info.gpuDriverVersion},
++                  {"gpu_api_version", info.gpuApiVersion},
++                  {"wall_ms", roundTo(measuredWallMs, 1000.0)},
++                  {"ms_per_frame", roundTo(measuredMsPerFrame, 1000.0)},
++                  {"total_wall_ms", roundTo(totalWallMs, 1000.0)},
++                  {"total_ms_per_frame", roundTo(totalMsPerFrame, 1000.0)},
++                  {"warmup_frames", warmupFrames},
++                  {"measured_frames", measuredFrames},
++                  {"throughput_MSps", roundTo(throughputMSps, 1000.0)},
++                  {"spp_per_sec", roundTo(sppPerSec, 100.0)}};
++  if(info.gpuSampleCount != 0)
++  {
++    summary["gpu_timer_name"]       = info.gpuTimerName;
++    summary["gpu_api_name"]         = info.gpuApiName;
++    summary["gpu_last_ms"]          = roundTo(info.gpuLastMs, 1000.0);
++    summary["gpu_average_ms"]       = roundTo(info.gpuAverageMs, 1000.0);
++    summary["gpu_minimum_ms"]       = roundTo(info.gpuMinimumMs, 1000.0);
++    summary["gpu_maximum_ms"]       = roundTo(info.gpuMaximumMs, 1000.0);
++    summary["gpu_sample_count"]     = info.gpuSampleCount;
++  }
++  emitJsonLine(std::move(summary));
+ }
+ 
+ //--------------------------------------------------------------------------------------------------
+diff --git a/src/benchmarking.hpp b/src/benchmarking.hpp
+index a7eab74..af93599 100644
+--- a/src/benchmarking.hpp
++++ b/src/benchmarking.hpp
+@@ -81,6 +81,24 @@ public:
+     int        maxFrames{0};    // Path-tracer accumulation budget
+     int        ptSamples{1};    // Samples per pixel per frame
+     VkExtent2D imageSize{};     // Render target resolution
++    int         maxDepth{0};
++    float       fireflyClamp{0.0F};
++    float       texGradScale{0.0F};
++    std::string renderTechnique{};
++    bool        serSupported{false};
++    bool        serEnabled{false};
++    std::string gpuDeviceName{};
++    uint32_t    gpuVendorId{0};
++    uint32_t    gpuDeviceId{0};
++    uint32_t    gpuDriverVersion{0};
++    uint32_t    gpuApiVersion{0};
++    std::string gpuTimerName{};
++    std::string gpuApiName{};
++    double      gpuLastMs{0.0};
++    double      gpuAverageMs{0.0};
++    double      gpuMinimumMs{0.0};
++    double      gpuMaximumMs{0.0};
++    uint32_t    gpuSampleCount{0};
+   };
+ 
+   // One row of memory usage at a benchmark sequence boundary. Bytes are
+diff --git a/src/renderer.cpp b/src/renderer.cpp
+index f261d66..c9ad4af 100644
+--- a/src/renderer.cpp
++++ b/src/renderer.cpp
+@@ -49,6 +49,8 @@
+   }
+ #define IMGUI_DEFINE_MATH_OPERATORS
+ 
++#include <algorithm>
++#include <cctype>
+ #include <cmath>
+ #include <thread>
+ #include <unordered_set>
+@@ -517,10 +519,47 @@ void GltfRenderer::alignMaxFramesForHeadless(uint32_t headlessFrames)
+ 
+ BenchmarkController::HeadlessFrameInfo GltfRenderer::benchmarkFrameInfo() const
+ {
+-  return {.totalFrames = m_app ? m_app->getHeadlessFrameCount() : 0,
+-          .maxFrames   = m_resources.settings.maxFrames,
+-          .ptSamples   = m_pathTracer.m_pushConst.numSamples,
+-          .imageSize   = m_resources.gBuffers.getSize()};
++  BenchmarkController::HeadlessFrameInfo info{.totalFrames = m_app ? m_app->getHeadlessFrameCount() : 0,
++                                               .maxFrames   = m_resources.settings.maxFrames,
++                                               .ptSamples   = m_pathTracer.m_pushConst.numSamples,
++                                               .imageSize   = m_resources.gBuffers.getSize()};
++  info.maxDepth        = m_pathTracer.m_pushConst.maxDepth;
++  info.fireflyClamp    = m_pathTracer.m_pushConst.fireflyClampThreshold;
++  info.texGradScale    = m_pathTracer.m_pushConst.texGradScale;
++  info.renderTechnique =
++      m_pathTracer.m_renderTechnique == PathTracer::RenderTechnique::RayTracing ? "raytracing" : "rayquery";
++  info.serSupported    = m_pathTracer.m_supportSER;
++  info.serEnabled      = info.renderTechnique == "raytracing" && m_pathTracer.m_supportSER && m_pathTracer.m_useSER;
++  if(m_app)
++  {
++    VkPhysicalDeviceProperties properties{};
++    vkGetPhysicalDeviceProperties(m_app->getPhysicalDevice(), &properties);
++    info.gpuDeviceName    = properties.deviceName;
++    info.gpuVendorId      = properties.vendorID;
++    info.gpuDeviceId      = properties.deviceID;
++    info.gpuDriverVersion = properties.driverVersion;
++    info.gpuApiVersion    = properties.apiVersion;
++  }
++  if(m_profilerTimeline)
++  {
++    nvutils::ProfilerTimeline::TimerInfo timerInfo;
++    for(const char* timerName : {"Path Trace (RTX)", "Path Trace (RQ)"})
++    {
++      std::string apiName;
++      if(m_profilerTimeline->getFrameTimerInfo(timerName, timerInfo, apiName) && timerInfo.numAveraged != 0)
++      {
++        info.gpuTimerName   = timerName;
++        info.gpuApiName     = apiName;
++        info.gpuLastMs      = timerInfo.gpu.last / 1000.0;
++        info.gpuAverageMs   = timerInfo.gpu.average / 1000.0;
++        info.gpuMinimumMs   = timerInfo.gpu.absMinValue / 1000.0;
++        info.gpuMaximumMs   = timerInfo.gpu.absMaxValue / 1000.0;
++        info.gpuSampleCount = timerInfo.numAveraged;
++        break;
++      }
++    }
++  }
++  return info;
+ }
+ 
+ std::vector<BenchmarkController::MemorySample> GltfRenderer::benchmarkMemorySamples() const
+@@ -565,7 +604,11 @@ void GltfRenderer::saveHeadlessOutputImage()
+     LOGE("GltfRenderer::saveHeadlessOutputImage(): application is not set; cannot save image to %s\n", outputPath.c_str());
+     return;
+   }
+-  m_app->saveImageToFile(m_resources.gBuffers.getColorImage(Resources::eImgTonemapped), m_resources.gBuffers.getSize(), outputPath);
++  auto outputExtension = std::filesystem::path(outputPath).extension().string();
++  std::transform(outputExtension.begin(), outputExtension.end(), outputExtension.begin(),
++                 [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
++  const auto imageType = outputExtension == ".hdr" ? Resources::eImgRendered : Resources::eImgTonemapped;
++  m_app->saveImageToFile(m_resources.gBuffers.getColorImage(imageType), m_resources.gBuffers.getSize(), outputPath);
+ }
+ 
+ void GltfRenderer::onUIRender()

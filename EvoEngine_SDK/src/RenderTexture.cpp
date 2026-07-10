@@ -6,6 +6,9 @@
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 
+#include <algorithm>
+#include <cctype>
+
 using namespace evo_engine;
 
 void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_create_info, uint32_t mip_levels) {
@@ -387,11 +390,15 @@ void RenderTexture::ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_p
 }
 
 bool RenderTexture::Save(const std::filesystem::path& path) const {
-  if (path.extension() == ".png") {
+  auto extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (extension == ".png") {
     StoreToPng(path.string());
-  } else if (path.extension() == ".jpg") {
+  } else if (extension == ".jpg" || extension == ".jpeg") {
     StoreToJpg(path.string());
-  } else if (path.extension() == ".hdr") {
+  } else if (extension == ".hdr") {
     StoreToHdr(path.string());
   } else {
     EVOENGINE_ERROR("Not implemented!");
@@ -561,7 +568,7 @@ void RenderTexture::StoreToHdr(const std::filesystem::path& path, int resize_x, 
     pixels.resize(resize_x * resize_y * channels);
     stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, pixels.data(), resize_x, resize_y, 0,
                               static_cast<stbir_pixel_layout>(channels));
-    stbi_write_hdr(path.string().c_str(), resolution_x, resolution_y, channels, pixels.data());
+    stbi_write_hdr(path.string().c_str(), resize_x, resize_y, channels, pixels.data());
   } else {
     stbi_write_hdr(path.string().c_str(), resolution_x, resolution_y, channels, dst.data());
   }

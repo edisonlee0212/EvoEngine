@@ -12,6 +12,8 @@ surface:
 
 ```bat
 python Scripts\format_cpp.py --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests
+python Scripts\compare_reference_render.py --self-test
+python Scripts\run_raytracer_baseline.py --profile fast --technique all --dry-run
 git diff --check
 ```
 
@@ -72,6 +74,15 @@ out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --edi
 `--preview-render-mode` accepts `rasterization`, `raytracing`, and `rayquery`. RayQuery captures require a device with
 RayQuery support. `--preview-sample-size` controls manual samples per rendered frame for ray techniques.
 
+The output extension selects the capture contract. PNG stores the display result. Radiance HDR (`.hdr`) stores linear RGB
+and is restricted to `raytracing` and `rayquery`; ambient occlusion, bloom, screen-space reflections, anti-aliasing, and
+tone mapping are disabled for that capture so renderer comparisons do not include a presentation path. Pass
+`--preview-metrics-json <path>` with `--capture-demo-preview` to write the same structured record printed after the
+`RAY_CAPTURE_JSON` prefix. It includes effective SPP, wall throughput, GPU/driver identity, and any available GPU timestamp
+sections. The expected section names are `Path Trace (RTX)`, `Path Trace (RQ)`, `TLAS Build`, and `BLAS Build` when animated
+geometry is rebuilt. Timestamp availability is reported explicitly because some Vulkan devices do not expose
+graphics-and-compute timestamps.
+
 Other useful preview flags:
 
 - `--preview-firefly-clamp enabled|disabled`
@@ -88,6 +99,11 @@ Other useful preview flags:
 - `--preview-aa-fp16 enabled|disabled`
 - `--preview-aa-motion-sequence enabled|disabled` for the `rendering-regression` profile
 - `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence|taa-no-history|smaa-edges|smaa-weights`
+
+The RT-pipeline Auto SPP convergence mode is optional; reproducible baselines disable it and use an exact frame and sample
+budget. RayQuery Auto SPP support is deferred until the shared-integrator milestone. NaN/Inf radiance rejection happens
+before accumulation in both ray techniques. The M0 comparison keeps the firefly luminance clamp enabled at luminance `10.0`
+in both renderers.
 
 TAA presets, controls, and debug modes require `--preview-aa taa`; SMAA presets and debug modes require
 `--preview-aa smaa`. Incompatible combinations are rejected. The TAA debug modes capture motion vectors,
@@ -107,6 +123,10 @@ The deterministic temporal-motion scene is captured with:
 ```bat
 out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\taa-motion-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa taa --preview-aa-preset best-quality --preview-aa-motion-sequence enabled
 ```
+
+Ray-technique captures with `--preview-aa-motion-sequence enabled` use the requested value as an exact rendered-frame
+budget because every animated transform correctly resets progressive accumulation. Their reported effective SPP therefore
+describes the final reset frame, while GPU section sample counts describe the full motion sequence.
 
 The full Rendering demo AA capture matrix is:
 
@@ -147,32 +167,95 @@ update reasons, disabled-light behavior, relocation/classification toggles, and 
 
 ## Bistro Reference Parity
 
-Bistro path-tracing parity compares EvoEngine against `vk_gltf_renderer`. The reference input must use the same
-`KHR_lights_punctual` directional light intensity as the EvoEngine scene. For Bistro light-unit comparisons, use the
-normalized glTF with directional Sun intensity `10`, not the raw downloaded `6830` asset value.
+Bistro path-tracing parity compares EvoEngine against `vk_gltf_renderer` with a pinned, locally patched validation build.
+The normalized glTF uses `KHR_lights_punctual` directional Sun intensity `10`, matching the EvoEngine scene rather than the
+raw downloaded asset's `6830` value.
 
-Example:
+| Input | Revision |
+| --- | --- |
+| EvoEngine baseline | `025511b21ec566f1420f0cf66fba82527e2a662c` |
+| `vk_gltf_renderer` | `f72d2f3711116261a76e7b8b0f4724e167703a55` |
+| `nvpro_core2` | `907fba3c5b7a9597e7e63a5388079b964bd6ddb4` |
+| `zeux/niagara_bistro` static source | `a096b939aaa5857150904a38763ebd75b19e3e45` |
+
+Create the detached reference worktree, apply the tracked headless HDR/metrics patch, and build an optimized reference with
+both optional reconstruction backends disabled:
 
 ```bat
-C:\Users\lllll\Documents\GitHub\vk_gltf_renderer\_bin\Release\vk_gltf_renderer.exe --headless --size 1920 1080 --scenefile C:\Users\lllll\Documents\GitHub\EvoEngine\Resources\.generated\niagara_bistro\bistro-directional-intensity-10.gltf --frames 512 --maxFrames 512 --ptSamples 4 --ptAdaptiveSampling 0 --renderSystem 0 --envSystem 0 --gltfCamera 0 --output out\bistro-reference-raytracing-2048spp-1920x1080-raw.png
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\evoengine-bistro-raytracing-2048spp-1920x1080.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1920 --preview-height 1080 --preview-deterministic
-python Scripts\compare_reference_render.py out\bistro-reference-raytracing-2048spp-1920x1080-raw.png out\evoengine-bistro-raytracing-2048spp-1920x1080.png --ignore-alpha --out out\bistro-raytracing-2048spp-1920x1080-rgb-diff.json
+git -C C:\Users\lllll\Documents\GitHub\vk_gltf_renderer worktree add --detach C:\Users\lllll\Documents\GitHub\EvoEngine\out\reference\vk_gltf_renderer f72d2f3711116261a76e7b8b0f4724e167703a55
+git -C out\reference\vk_gltf_renderer apply C:\Users\lllll\Documents\GitHub\EvoEngine\Scripts\reference_patches\vk_gltf_renderer_m0.patch
+cmake -S out\reference\vk_gltf_renderer -B out\reference\vk_gltf_renderer\build-m0 -A x64 -DNvproCore2_ROOT=C:\Users\lllll\Documents\GitHub -DUSE_DLSS=OFF -DUSE_OPTIX_DENOISER=OFF
+cmake --build out\reference\vk_gltf_renderer\build-m0 --config RelWithDebInfo --target vk_gltf_renderer
+git -C Resources\.generated\niagara_bistro checkout --detach a096b939aaa5857150904a38763ebd75b19e3e45
 ```
 
-Bistro raster parity captures explicitly enable the configured DDGI volume and use a newly initialized post-processing
-stack: GTAO, SMAA Ultra, and tone mapping enabled with bloom and SSR disabled. The imported Bistro sun uses light size
-`0.01`, and the default directional shadow resource is 8192. Ray-tracing and ray-query parity captures keep DDGI disabled.
-A matched 1440p comparison uses:
+The reference patch is validation instrumentation, not an engine dependency. The runner verifies the three revisions and
+the exact patch hash. It does not use a denoiser or upscaler. It also does not use the reference Physical Sky: both
+renderers use a neutral black environment. The reference command expresses that as `--envSystem 1`, a zero-intensity
+`std_env.hdr`, and solid background color `0 0 0`; the EvoEngine Bistro capture uses zero color and ambient environment.
+Both executables use the optimized `RelWithDebInfo` configuration. Before rendering, the runner verifies that the installed
+EvoEngine editor and SDK DLL exactly match the primary build-tree outputs. The manifest hashes each executable and every DLL
+below its runtime directory, plus the CMake cache, generator, compiler description, and physical-device/driver telemetry; a
+run fails if the two renderers select different GPU vendor/device IDs.
+
+The fixed profiles are:
+
+| Profile | Resolution | Frames x samples/frame | Effective SPP |
+| --- | ---: | ---: | ---: |
+| Fast | 1280x720 | 16 x 4 | 64 |
+| Canonical | 2560x1440 | 512 x 4 | 2048 |
+
+The M0 baseline on the NVIDIA GeForce RTX 5070 (driver `2496774144`) is:
+
+| Profile | Renderer/technique | Path trace GPU average | AS GPU average/count |
+| --- | --- | ---: | ---: |
+| Fast | `vk_gltf_renderer` RTX | 27.089 ms | reference-managed |
+| Fast | EvoEngine RTX | 41.238 ms | TLAS 0.175 ms x 16 |
+| Fast | `vk_gltf_renderer` RayQuery | 43.305 ms | reference-managed |
+| Fast | EvoEngine RayQuery | 55.930 ms | TLAS 0.172 ms x 16 |
+| Canonical | `vk_gltf_renderer` RTX | 105.252 ms | reference-managed |
+| Canonical | EvoEngine RTX | 158.787 ms | TLAS 0.176 ms x 512 |
+| Canonical | `vk_gltf_renderer` RayQuery | 167.926 ms | reference-managed |
+| Canonical | EvoEngine RayQuery | 279.394 ms | TLAS 0.175 ms x 512 |
+
+The canonical linear-HDR reference-versus-EvoEngine MAE/RMS is `0.004413/0.018645` for RTX and
+`0.004410/0.018658` for RayQuery. EvoEngine RTX-versus-RayQuery is `0.001003/0.002483`. These values are an M0
+tracking baseline, not a final material-parity gate.
+
+The separate 1280x720 rendering-regression motion probe renders 16 reset frames at four samples per frame. It measures two
+animated mesh parts: 32 `BLAS Build` samples at `0.311 ms` average (`9.97 ms` total), TLAS at `0.127 ms` per frame,
+path tracing at `3.784 ms`, and `0.677 s` wall time. M1a targets no static steady-state TLAS work after at most two
+frame-slot initialization builds. M1b targets no steady-state full BLAS builds, an equivalent update/refit GPU total below
+`9.97 ms`, and wall time below `0.677 s` on this probe.
+
+Run both RT-pipeline and RayQuery techniques with:
+
+```bat
+python Scripts\run_raytracer_baseline.py --profile fast --technique all
+python Scripts\run_raytracer_baseline.py --profile canonical --technique all
+```
+
+The runner writes linear HDR images, per-process logs/JSON, runtime binary/DLL closure hashes, complete selected glTF/DDS
+input closure hashes, repository states, commands, and comparison results under `out\raytracer-baseline`. It produces
+reference-versus-EvoEngine comparisons for each technique plus an EvoEngine RT-pipeline-versus-RayQuery comparison. HDR
+reports contain absolute MAE/RMS and symmetric-relative MAE/RMS; the old display-PNG thresholds are not reused for linear
+radiance.
+By default it regenerates the ignored Bistro project template and removes saved `New Scene` state before each EvoEngine run;
+`--skip-evo-prepare` exists only for deliberate debugging of a locally edited generated scene.
+The reset reuses the existing source cache without fetching or checking out a newer upstream revision. The runner requires
+the static Bistro pin above, deterministically derives `bistro-directional-intensity-10.gltf` from its `bistro.gltf`, and
+rejects source or derived glTF and selected glTF/DDS closure hashes that differ from M0. Every Evo process also receives a
+fresh output-local shader-cache directory and ImGui ini path, so root working-directory state cannot reuse stale SPIR-V or
+leak into a capture. Dry runs write `manifest.dry-run.json` and do not replace measured evidence.
+
+Bistro raster parity remains a separate display-space check. It explicitly enables the configured DDGI volume and uses a
+newly initialized post-processing stack: GTAO, SMAA Ultra, and tone mapping enabled with bloom and SSR disabled. The
+imported Bistro sun uses light size `0.01`, and the default directional shadow resource is 8192. Ray-tracing and ray-query
+parity captures keep DDGI disabled. A matched raster capture uses:
 
 ```bat
 out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rasterization-2560x1440.png --preview-render-mode rasterization --preview-warmup-frames 256 --preview-width 2560 --preview-height 1440 --preview-deterministic
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-raytracing-2048spp-2560x1440.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 2560 --preview-height 1440 --preview-deterministic
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rayquery-2048spp-2560x1440.png --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 2560 --preview-height 1440 --preview-deterministic
 ```
-
-Current accepted tracking target is normalized RGB MAE `<= 0.02` and RMS `<= 0.04` full-frame against the alpha-normalized
-reference. Focused diagnostic crops may use the same threshold family but must record measured crop and residual
-statistics.
 
 ## Visual Checks
 
@@ -182,6 +265,8 @@ Minimum visual checks:
 
 - Rendering demo editor screenshot is nonblank and has the expected editor layout.
 - RT-Bistro and 3DGS-Bicycle gallery images remain valid.
-- Rasterization and ray captures are not blank.
-- Bistro reference captures preserve RGB and normalize alpha for tooling when needed.
-- Logs do not contain crash, hang, validation, device-lost, or missing-file errors.
+- Rasterization and ray captures have the requested dimensions and are not blank.
+- Bistro HDR captures contain finite linear RGB and have complete run metadata; Radiance HDR has no alpha channel.
+- Logs do not contain crash, hang, validation, device-lost, or unresolved missing-file errors. The reference loader's
+  expected missing core-PNG messages are acceptable only when each is followed by its selected, hashed
+  `MSFT_texture_dds` fallback.

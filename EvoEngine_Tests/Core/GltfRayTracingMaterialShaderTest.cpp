@@ -1014,8 +1014,13 @@ TEST(GltfRayTracingMaterial, DemoPreviewRayCaptureKeepsRequestedRenderResolution
   EXPECT_NE(editor_source.find("const auto render_extent = render_texture->GetExtent()"), std::string::npos);
   EXPECT_NE(editor_source.find("Demo preview capture render texture resolution changed before saving"),
             std::string::npos);
-  EXPECT_NE(editor_source.find("render_texture->StoreToPng(output_path);"), std::string::npos);
+  EXPECT_NE(editor_source.find("render_texture->Save(output_path)"), std::string::npos);
   EXPECT_EQ(editor_source.find("render_texture->StoreToPng(output_path, width, height)"), std::string::npos);
+
+  const auto render_texture_source = ReadTextFile(SdkPath("src/RenderTexture.cpp"));
+  ASSERT_FALSE(render_texture_source.empty());
+  EXPECT_NE(render_texture_source.find("extension == \".hdr\""), std::string::npos);
+  EXPECT_NE(render_texture_source.find("StoreToHdr(path.string())"), std::string::npos);
 
   const auto editor_layer_header = ReadTextFile(SdkPath("include/Layers/EditorLayer.hpp"));
   ASSERT_FALSE(editor_layer_header.empty());
@@ -1026,6 +1031,83 @@ TEST(GltfRayTracingMaterial, DemoPreviewRayCaptureKeepsRequestedRenderResolution
   ASSERT_FALSE(editor_layer_source.empty());
   EXPECT_NE(editor_layer_source.find("void EditorLayer::SetSceneCameraResolutionOverride"), std::string::npos);
   EXPECT_NE(editor_layer_source.find("if (scene_camera_resolution_override_)"), std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
+  const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
+  const auto platform_header = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
+  const auto platform_source = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto shader_source = ReadTextFile(SdkPath("src/Shader.cpp"));
+  const auto ray_camera_pass = ReadTextFile(SdkPath("src/RenderPasses/RayTracingCameraPass.cpp"));
+  const auto graphics_resources = ReadTextFile(SdkPath("src/GraphicsResources.cpp"));
+  const auto runner =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Scripts/run_raytracer_baseline.py");
+  const auto reference_patch = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                            "Scripts/reference_patches/vk_gltf_renderer_m0.patch");
+
+  ASSERT_FALSE(editor_source.empty());
+  ASSERT_FALSE(platform_header.empty());
+  ASSERT_FALSE(platform_source.empty());
+  ASSERT_FALSE(shader_source.empty());
+  ASSERT_FALSE(ray_camera_pass.empty());
+  ASSERT_FALSE(graphics_resources.empty());
+  ASSERT_FALSE(runner.empty());
+  ASSERT_FALSE(reference_patch.empty());
+
+  EXPECT_NE(editor_source.find("extension != \".png\" && extension != \".hdr\""), std::string::npos);
+  EXPECT_NE(editor_source.find("Linear HDR preview capture requires raytracing or rayquery mode"), std::string::npos);
+  EXPECT_NE(editor_source.find("post_processing_stack->enable_tone_mapping = false"), std::string::npos);
+  EXPECT_NE(editor_source.find("--preview-metrics-json"), std::string::npos);
+  EXPECT_NE(editor_source.find("RAY_CAPTURE_JSON "), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"effective_spp\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"gpu_sections\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(true)"), std::string::npos);
+  EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(false)"), std::string::npos);
+  EXPECT_NE(editor_source.find("editor_layer->show_camera_window = false"), std::string::npos);
+  EXPECT_NE(editor_source.find("main_camera->SetRequireRendering(false)"), std::string::npos);
+  EXPECT_NE(editor_source.find("Camera::IsRayCameraRenderMode(resolved_render_mode) && !temporal_motion_capture"),
+            std::string::npos);
+
+  EXPECT_NE(platform_header.find("struct GpuTimestampStats"), std::string::npos);
+  EXPECT_NE(platform_header.find("immediate_gpu_timestamp_mutex_"), std::string::npos);
+  EXPECT_NE(platform_header.find("gpu_timestamp_stats_mutex_"), std::string::npos);
+  EXPECT_NE(platform_source.find("vkGetQueryPoolResults"), std::string::npos);
+  EXPECT_NE(platform_source.find("timestamp_lock(graphics.immediate_gpu_timestamp_mutex_)"), std::string::npos);
+  EXPECT_NE(platform_source.find("stats_lock(graphics.gpu_timestamp_stats_mutex_)"), std::string::npos);
+  EXPECT_NE(platform_source.find("EVOENGINE_IMGUI_INI_PATH"), std::string::npos);
+  EXPECT_NE(shader_source.find("EVOENGINE_SHADER_CACHE_DIR"), std::string::npos);
+  EXPECT_NE(shader_source.find("GetShaderBinaryDirectory()"), std::string::npos);
+  EXPECT_NE(ray_camera_pass.find("BeginGpuTimestampScope(vk_command_buffer, \"Path Trace (RTX)\")"), std::string::npos);
+  EXPECT_NE(ray_camera_pass.find("BeginGpuTimestampScope(vk_command_buffer, \"Path Trace (RQ)\")"), std::string::npos);
+  EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"TLAS Build\""), std::string::npos);
+  EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"BLAS Build\""), std::string::npos);
+
+  EXPECT_NE(runner.find("PINNED_EVOENGINE_BASE"), std::string::npos);
+  EXPECT_NE(runner.find("PINNED_REFERENCE"), std::string::npos);
+  EXPECT_NE(runner.find("PINNED_NVPRO_CORE2"), std::string::npos);
+  EXPECT_NE(runner.find("PINNED_BISTRO_SOURCE"), std::string::npos);
+  EXPECT_NE(runner.find("PINNED_BISTRO_GLTF_SHA256"), std::string::npos);
+  EXPECT_NE(runner.find("EXPECTED_EVO_BISTRO_CLOSURE"), std::string::npos);
+  EXPECT_NE(runner.find("EXPECTED_REFERENCE_BISTRO_CLOSURE"), std::string::npos);
+  EXPECT_NE(runner.find("generate_bistro_reference_asset"), std::string::npos);
+  EXPECT_NE(runner.find("json.dumps(document, indent=2"), std::string::npos);
+  EXPECT_NE(runner.find("runtime_binary_manifest"), std::string::npos);
+  EXPECT_NE(runner.find("executable.parent.rglob"), std::string::npos);
+  EXPECT_NE(runner.find("EvoEngine_SDK\" / \"RelWithDebInfo\" / \"EvoEngine_SDK.dll"), std::string::npos);
+  EXPECT_NE(runner.find("EVOENGINE_SHADER_CACHE_DIR"), std::string::npos);
+  EXPECT_NE(runner.find("EVOENGINE_IMGUI_INI_PATH"), std::string::npos);
+  EXPECT_NE(runner.find("env=process_environment"), std::string::npos);
+  EXPECT_NE(runner.find("shutil.rmtree(runtime_root)"), std::string::npos);
+  EXPECT_EQ(runner.find("ignore_errors=True"), std::string::npos);
+  EXPECT_NE(runner.find("manifest.dry-run.json"), std::string::npos);
+  EXPECT_NE(runner.find("Profile(1280, 720, 16)"), std::string::npos);
+  EXPECT_NE(runner.find("Profile(2560, 1440, 512)"), std::string::npos);
+  EXPECT_NE(runner.find("--preview-metrics-json"), std::string::npos);
+  EXPECT_NE(runner.find("project_path.unlink(missing_ok=True)"), std::string::npos);
+  EXPECT_NE(runner.find("--bistro-asset-mode"), std::string::npos);
+  EXPECT_NE(runner.find("--hdrEnvIntensity"), std::string::npos);
+  EXPECT_NE(runner.find("--solidBackgroundColor"), std::string::npos);
+  EXPECT_NE(reference_patch.find("gpu_timer_name"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, RenderInstanceMaterialAndTextureChangesResetRayCameraAccumulation) {
@@ -1077,7 +1159,8 @@ TEST(GltfRayTracingMaterial, RayTracingCameraRoutesLinearOutputThroughPostTonema
   ASSERT_FALSE(render_layer.empty());
   EXPECT_NE(render_layer.find("PostProcessingPass::CreateRayTracingDescriptor(post_ray_tracing_dependency)"),
             std::string::npos);
-  EXPECT_NE(render_layer.find("PostProcessingPass::Execute(context, {camera, false, true})"), std::string::npos);
+  EXPECT_NE(render_layer.find("PostProcessingPass::Execute(context, {camera, nullptr, false, true})"),
+            std::string::npos);
 
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
   ASSERT_FALSE(post_processing_pass.empty());
@@ -1327,7 +1410,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesAutoSppConvergenceControl) {
   const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
   const auto python_binding =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "PythonBinding" / "src" / "PyEcoSysLab.cpp");
-  const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering.md");
+  const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering-validation.md");
 
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
@@ -1406,7 +1489,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesConfigurableFireflyClamp) {
   const auto editor_layer_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
   const auto inspection_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
   const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
-  const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering.md");
+  const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering-validation.md");
 
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
@@ -1540,7 +1623,10 @@ TEST(GltfRayTracingMaterial, BistroParityCaptureDisablesUnrelatedStateAndLogsCou
   EXPECT_NE(demo_scene_source.find("scene->environment.background_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->environment.ambient_light_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroReferenceToneMapping(scene_camera)"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("enable_ambient_occlusion = false"), std::string::npos);
+  EXPECT_NE(editor_source.find("enable_ambient_occlusion = false"), std::string::npos);
+  EXPECT_NE(editor_source.find("enable_bloom = false"), std::string::npos);
+  EXPECT_NE(editor_source.find("enable_anti_aliasing = false"), std::string::npos);
+  EXPECT_NE(editor_source.find("enable_tone_mapping = false"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("enable_screen_space_reflection = false"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("Bistro parity scene:"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("mesh_primitives="), std::string::npos);
@@ -1562,7 +1648,7 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   const auto demo_profiles_header = ReadTextFile(AppPath("include/DemoProfiles.hpp"));
   const auto demo_profiles_source = ReadTextFile(AppPath("src/DemoProfiles.cpp"));
   const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
-  const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering.md");
+  const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering-validation.md");
 
   ASSERT_FALSE(demo_scene_header.empty());
   ASSERT_FALSE(demo_scene_source.empty());
@@ -1593,8 +1679,8 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(editor_source.find("ConfigureRenderingRegressionDemoScene(ApplicationContext::Get().GetActiveScene())"),
             std::string::npos);
   EXPECT_NE(docs.find("rendering-regression"), std::string::npos);
-  EXPECT_NE(docs.find("Cross-technique regression tolerance"), std::string::npos);
-  EXPECT_NE(docs.find("Bistro reference parity"), std::string::npos);
+  EXPECT_NE(docs.find("## Bistro Reference Parity"), std::string::npos);
+  EXPECT_NE(docs.find("Scripts\\run_raytracer_baseline.py"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraLegacyRecursiveFallbackRemainsAvailable) {
