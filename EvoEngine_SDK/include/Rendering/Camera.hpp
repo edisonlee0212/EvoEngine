@@ -141,6 +141,7 @@ class Camera final : public IPrivateComponent {
    */
   [[nodiscard]] glm::uvec2 GetSize() const;
   [[nodiscard]] uint32_t GetFrameCount() const;
+  [[nodiscard]] uint32_t GetTemporalHistoryVersion() const;
 
   /**
    * @brief Resizes the camera to the specified resolution size.
@@ -255,8 +256,6 @@ class Camera final : public IPrivateComponent {
 
   void SetRendered();
   void ResetRenderState();
-  void SetTemporalJitterEnabled(bool value);
-  [[nodiscard]] bool TemporalJitterEnabled() const;
   void ResetFrameCount();
 
  private:
@@ -283,13 +282,13 @@ class Camera final : public IPrivateComponent {
   std::shared_ptr<ImageView> g_buffer_utility_view_ = {};           ///< Expanded GBuffer utility view.
   ImTextureID g_buffer_utility_im_texture_id_ = {};                 ///< ImTextureID for utility.
 
-  uint32_t frame_count_ = 0;  ///< Frame count used for tracking rendering updates.
+  uint32_t frame_count_ = 0;               ///< Frame count used for tracking rendering updates.
+  uint32_t temporal_history_version_ = 0;  ///< Version incremented by explicit camera history resets.
 
   glm::mat4 prev_global_transform_{};
-  bool rendered_ = false;                ///< Indicates whether the camera has rendered.
-  bool require_rendering_ = false;       ///< Indicates whether the camera requires rendering.
-  bool temporal_jitter_enabled_ = true;  ///< Indicates whether TAA projection jitter is allowed.
-  glm::uvec2 size_ = glm::uvec2(1, 1);   ///< The size of the camera's resolution.
+  bool rendered_ = false;               ///< Indicates whether the camera has rendered.
+  bool require_rendering_ = false;      ///< Indicates whether the camera requires rendering.
+  glm::uvec2 size_ = glm::uvec2(1, 1);  ///< The size of the camera's resolution.
   std::shared_ptr<DescriptorSet> g_buffer_descriptor_set_ = VK_NULL_HANDLE;  ///< GBuffer descriptor set.
 
   /**

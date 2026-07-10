@@ -16,7 +16,7 @@ RenderPassDescriptor DepthPyramidPass::CreateDescriptor() {
       RenderPassScope::Camera,
       {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
-      {RenderPassNames::deferred_geometry}};
+      {RenderPassNames::motion_coverage}};
 }
 
 void DepthPyramidPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {

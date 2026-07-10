@@ -410,7 +410,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       std::to_string(capabilities.task_work_group_invocations) + "\n#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED " +
       std::to_string(capabilities.support_shader_execution_reordering &&
                      application_initialization_settings.graphics_settings.use_ray_tracing) +
-      "\n";
+      "\n#define EE_SHADER_FLOAT16_SUPPORTED " + std::to_string(capabilities.support_shader_float16) + "\n";
 }
 
 VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
@@ -1433,6 +1433,7 @@ void Platform::CreateLogicalDevice() {
 
   VkPhysicalDeviceVulkan12Features vk_physical_device_vulkan12_features{};
   vk_physical_device_vulkan12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  vk_physical_device_vulkan12_features.shaderFloat16 = VK_TRUE;
   vk_physical_device_vulkan12_features.shaderInt8 = VK_TRUE;
   vk_physical_device_vulkan12_features.storageBuffer8BitAccess = VK_TRUE;
   vk_physical_device_vulkan12_features.uniformAndStorageBuffer8BitAccess = VK_TRUE;
@@ -1535,6 +1536,7 @@ void Platform::CreateLogicalDevice() {
   device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
   device_features2.pNext = &extended_dynamic_state_features;
   vkGetPhysicalDeviceFeatures2(selected_physical_device->vk_physical_device, &device_features2);
+  capabilities_.support_shader_float16 = vk_physical_device_vulkan12_features.shaderFloat16 == VK_TRUE;
 
   VkDeviceCreateInfo device_create_info{};
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

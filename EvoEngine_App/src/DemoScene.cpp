@@ -1,6 +1,7 @@
 #include "DemoScene.hpp"
 
 #include "AnimationPlayer.hpp"
+#include "Animator.hpp"
 #include "Application.hpp"
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
@@ -59,6 +60,79 @@ constexpr float kBistroDirectionalLightIntensity = 10.0f;
 constexpr const char* kRenderingRegressionRootName = "M42 Rendering Regression Root";
 constexpr const char* kBistroDdgiVolumeName = "DDGI Probe Volume";
 constexpr const char* kBistroImportedSunLightName = "Sun directional light";
+
+struct RenderingRegressionTemporalMotionState {
+  std::weak_ptr<Scene> scene;
+  Entity rigid_entity;
+  Entity transparent_entity;
+  Entity skinned_entity;
+  uint64_t frame = 0;
+  bool enabled = false;
+};
+
+std::shared_ptr<RenderingRegressionTemporalMotionState> rendering_regression_temporal_motion_state;
+bool rendering_regression_temporal_motion_registered = false;
+
+void RegisterRenderingRegressionTemporalMotionUpdate() {
+  if (rendering_regression_temporal_motion_registered) {
+    return;
+  }
+  rendering_regression_temporal_motion_registered = true;
+  ApplicationContext::Get().RegisterUpdateFunction([] {
+    const auto state = rendering_regression_temporal_motion_state;
+    if (!state || !state->enabled) {
+      return;
+    }
+    const auto scene = state->scene.lock();
+    auto& application = ApplicationContext::Get();
+    if (!scene || application.GetActiveScene() != scene) {
+      return;
+    }
+
+    const float phase = static_cast<float>(state->frame % 240u) * (2.0f * glm::pi<float>() / 240.0f);
+    ++state->frame;
+    if (scene->IsEntityValid(state->rigid_entity)) {
+      Transform transform;
+      transform.SetValue(glm::vec3(glm::sin(phase) * 1.65f, -0.14f, -1.55f), glm::vec3(0.0f, phase * 1.5f, 0.0f),
+                         glm::vec3(0.24f));
+      scene->SetDataComponent(state->rigid_entity, transform);
+    }
+    if (scene->IsEntityValid(state->transparent_entity)) {
+      Transform transform;
+      transform.SetValue(glm::vec3(glm::cos(phase * 0.8f) * 1.35f, 0.42f, -1.15f), glm::vec3(phase * 0.7f, phase, 0.0f),
+                         glm::vec3(0.28f));
+      scene->SetDataComponent(state->transparent_entity, transform);
+    }
+    if (scene->IsEntityValid(state->skinned_entity) && scene->HasPrivateComponent<Animator>(state->skinned_entity)) {
+      const auto animator = scene->GetOrSetPrivateComponent<Animator>(state->skinned_entity).lock();
+      const auto animation = animator ? animator->GetAnimation() : nullptr;
+      if (animation) {
+        const auto animation_name = animator->GetCurrentAnimationName();
+        const auto animation_length = animation->GetAnimationLength(animation_name);
+        if (animation_length > 0.0f) {
+          animator->Animate(glm::mod(static_cast<float>(state->frame), animation_length));
+        }
+      }
+    }
+
+    const glm::vec3 base_position(0.0f, 1.15f, 5.6f);
+    const glm::vec3 camera_position =
+        base_position +
+        glm::vec3(glm::sin(phase * 0.5f) * 0.12f, glm::sin(phase) * 0.035f, glm::cos(phase * 0.5f) * 0.08f);
+    const glm::vec3 camera_target(glm::sin(phase * 0.4f) * 0.08f, 0.35f, -2.4f);
+    const auto camera_rotation =
+        glm::quatLookAt(glm::normalize(camera_target - camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
+    if (const auto main_camera = scene->main_camera.Get<Camera>()) {
+      Transform transform;
+      transform.SetValue(camera_position, camera_rotation, glm::vec3(1.0f));
+      scene->SetDataComponent(main_camera->GetOwner(), transform);
+    }
+    if (const auto editor_layer = application.GetLayer<EditorLayer>()) {
+      editor_layer->SetSceneCameraPosition(camera_position);
+      editor_layer->SetSceneCameraRotation(camera_rotation);
+    }
+  });
+}
 
 struct GaussianSplatDemoCameraPose {
   glm::vec3 position = glm::vec3(0.0f);
@@ -1222,6 +1296,14 @@ void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
 }
 }  // namespace
 
+void evo_engine::SetRenderingRegressionTemporalMotionEnabled(const bool enabled) {
+  if (!rendering_regression_temporal_motion_state) {
+    return;
+  }
+  rendering_regression_temporal_motion_state->enabled = enabled;
+  rendering_regression_temporal_motion_state->frame = 0;
+}
+
 void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene) {
   ConfigureGaussianSplatDemoSceneImpl(scene, kSpatialDragonGaussianSplatHandle, "Spatial Dragon", "Spatial Dragon 3DGS",
                                       0);
@@ -1282,10 +1364,34 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
   CreateRenderingRegressionProbe(scene, root, "M42 Punctual Light Shadow Blocker", primitives.cube,
                                  glm::vec3(0.95f, -0.08f, -2.15f), glm::vec3(0.18f, 0.62f, 0.18f),
                                  glm::vec3(0.18f, 0.20f, 0.24f), 0.8f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 Temporal Depth Discontinuity", primitives.cube,
+                                 glm::vec3(0.0f, 0.05f, -2.45f), glm::vec3(1.9f, 0.72f, 0.08f), glm::vec3(0.02f), 1.0f,
+                                 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 Saturated Red Probe", primitives.cube,
+                                 glm::vec3(-2.75f, 0.35f, -2.0f), glm::vec3(0.22f, 0.85f, 0.08f),
+                                 glm::vec3(1.0f, 0.0f, 0.0f), 0.8f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 High Contrast White Probe", primitives.cube,
+                                 glm::vec3(2.55f, 0.35f, -2.0f), glm::vec3(0.20f, 0.85f, 0.08f), glm::vec3(1.0f), 0.8f,
+                                 0.0f);
+  const auto moving_rigid = CreateRenderingRegressionProbe(
+      scene, root, "M42 Temporal Moving Rigid Probe", primitives.cube, glm::vec3(0.0f, -0.14f, -1.55f),
+      glm::vec3(0.24f), glm::vec3(1.0f, 0.85f, 0.05f), 0.28f, 0.1f);
+  const auto moving_transparent = CreateRenderingRegressionProbe(
+      scene, root, "M42 Temporal Moving Transparent Probe", primitives.sphere, glm::vec3(1.35f, 0.42f, -1.15f),
+      glm::vec3(0.28f), glm::vec3(0.25f, 0.65f, 1.0f), 0.12f, 0.0f, 0.0f, false, 0.72f);
 
   ConfigureRenderingRegressionImportedProbes(scene, root);
   ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);
+
+  rendering_regression_temporal_motion_state = std::make_shared<RenderingRegressionTemporalMotionState>();
+  rendering_regression_temporal_motion_state->scene = scene;
+  rendering_regression_temporal_motion_state->rigid_entity = moving_rigid;
+  rendering_regression_temporal_motion_state->transparent_entity = moving_transparent;
+  if (const auto skinned_entity = FindEntityNamed(scene, "M42 Skinned Capoeira Probe")) {
+    rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
+  }
+  RegisterRenderingRegressionTemporalMotionUpdate();
 }
 
 void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<Camera>& camera) {

@@ -28,6 +28,7 @@ enum class DemoSetup {
 void ClearGeneratedDemoProjectFiles(const std::filesystem::path& resource_folder_path);
 void ClearGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& resource_folder_path);
 void ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Scene>& scene);
+void SetRenderingRegressionTemporalMotionEnabled(bool enabled);
 void ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene);

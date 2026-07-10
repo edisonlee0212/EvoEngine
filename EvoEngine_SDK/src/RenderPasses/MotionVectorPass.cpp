@@ -55,7 +55,7 @@ void MotionVectorPass::Execute(const RenderGraphExecutionContext& context, const
     if (!parameters.camera || !parameters.render_instances || !parameters.per_frame_descriptor_set ||
         !parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.descriptor_set_layout ||
         !parameters.transient_resources || !parameters.render_instances->previous_instance_info_descriptor_buffer ||
-        parameters.render_instances->GetPreviousInstanceInfoBlocks().empty()) {
+        !parameters.camera->GetGBufferDescriptorSet()) {
       ClearMotionVectors(vk_command_buffer, motion_vectors);
       release_barriers();
       return;

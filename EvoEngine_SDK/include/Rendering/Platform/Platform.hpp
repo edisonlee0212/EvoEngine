@@ -414,6 +414,7 @@ class Platform final {
     bool support_ray_tracing = true;
     bool support_ray_query = true;
     bool support_shader_execution_reordering = false;
+    bool support_shader_float16 = false;
     bool support_ray_tracing_validation = false;
     bool support_async_compute = false;
     uint32_t subgroup_size = 1;

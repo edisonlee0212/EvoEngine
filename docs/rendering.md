@@ -192,6 +192,36 @@ The raster post-processing stack runs in HDR order: ambient occlusion, SSR/refle
 mapping. `AmbientOcclusion` owns the SSAO/GTAO algorithm selection. New post-processing stacks default to GTAO, TAA,
 bloom, and tone mapping enabled. Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
 
+TAA follows the Best Quality configuration from [GameTechDev/TAA](https://github.com/GameTechDev/TAA) by default. The
+resolve operates on Reinhard tone-mapped history, uses YCoCg variance AABB intersection with a 9-pixel neighborhood,
+selects the longest velocity from a 9-pixel neighborhood, samples history with the reference 5-tap bicubic filter, and
+writes a separate inverse-Reinhard linear HDR output for bloom and tone mapping. High Quality and Performance presets
+retain the reference's lower-cost combinations, while Custom exposes the individual settings.
+
+Motion vectors store `previous_pixel - current_pixel` in pixel units and
+`previous_normalized_linear_depth - current_normalized_linear_depth` in `z`. Camera and rigid motion use the deferred
+compute pass. Deferred skinned meshes use a depth-tested geometry pass with an explicit previous rendered bone pose and
+previous object transform. Newly spawned or incompatible poses write a velocity that deterministically rejects history.
+Native rigid transparent meshes use a depth-tested geometry pass with previous object transforms and the same far-to-near
+order as transparent color rendering. That pass replaces motion `xy` while preserving the opaque/background normalized
+depth payload in `z`; newly spawned or incompatible transforms still reject history. Layered transparency therefore uses
+the visible transparent surface's motion with the opaque background's depth confidence rather than maintaining a separate
+transparent history. Unsupported forward, external, instanced, strands, transparent-skinned, and Gaussian-splat motion
+conservatively rejects history for the camera until those paths gain surface motion coverage. The normalized depth payload
+is derived from view-linear clip depth using EvoEngine's zero-to-one Vulkan projection; camera-transform changes retain
+history and rely on this motion/depth reprojection instead of the ray-accumulation frame counter. Explicit camera resets
+increment a separate history version so resize and camera settings changes still invalidate temporal history.
+
+The current-color neighborhood has both direct-fetch and thread-group shared-memory implementations. Best Quality and
+High Quality use FP32, matching the reference's default precision; Performance enables FP16 color intermediates only when
+Vulkan 1.2 `shaderFloat16` is supported. Shared memory, variance moments, AABB intersection, bicubic coordinates, motion,
+and depth calculations remain FP32. Reinhard samples stay FP32 when FP16 rounding would make inverse reconstruction
+numerically sensitive, and invalid bicubic or clipping results fall back to the current sample. Invalid motion sentinels
+reject their own pixel without participating in neighboring longest-velocity selection. History-resolved HDR luminance
+is constrained to an expanded current 3x3 neighborhood envelope and re-encoded into history when constrained; current
+frame highlights are not clamped. TAA history remains owned per camera by `TemporalAntiAliasing` and is invalidated on
+resize, skipped frames, toggles, preset or persistent-setting changes, unsupported camera-wide motion, and explicit reset.
+
 The renderer has moved many built-in resources into explicit graph resources, but some legacy areas remain:
 
 - TAA currently owns its own per-camera history textures until graph history resources expose explicit ping-pong bindings.

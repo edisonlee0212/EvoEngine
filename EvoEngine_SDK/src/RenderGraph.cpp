@@ -1034,7 +1034,7 @@ void evo_engine::AddAdvancedCameraResources(RenderGraph& graph) {
                      RenderResourceType::Image,
                      RenderResourceLifetime::Camera,
                      {RenderResourceSizeMode::CameraRelative},
-                     "RG16F",
+                     "RGBA16F",
                      1,
                      1,
                      true});

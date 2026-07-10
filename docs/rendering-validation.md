@@ -83,10 +83,28 @@ Other useful preview flags:
 - `--preview-ser disabled|automatic|enabled`
 - `--preview-ao ssao|gtao|disabled`
 - `--preview-taa enabled|disabled`
-- `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence`
+- `--preview-taa-preset best-quality|high-quality|performance`
+- `--preview-taa-tgsm enabled|disabled`
+- `--preview-taa-fp16 enabled|disabled`
+- `--preview-taa-motion-sequence enabled|disabled` for the `rendering-regression` profile
+- `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence|taa-no-history`
 
 The TAA debug modes enable TAA automatically and capture the motion-vector, depth-confidence, or accumulated
-history-confidence output. Preview post-processing overrides require `--capture-demo-preview`.
+history-confidence output, or pixels where history was rejected. Best Quality and High Quality use FP32 by default.
+Performance or an explicit FP16 override uses FP16 only when the selected Vulkan device advertises `shaderFloat16`;
+otherwise the FP32 fallback is selected. Preview post-processing overrides require `--capture-demo-preview`.
+
+Best Quality comparison example:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\taa-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 64 --preview-taa enabled --preview-taa-preset best-quality
+```
+
+The deterministic temporal-motion scene is captured with:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\taa-motion-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-taa enabled --preview-taa-preset best-quality --preview-taa-motion-sequence enabled
+```
 
 ## DemoApp Smoke Run
 

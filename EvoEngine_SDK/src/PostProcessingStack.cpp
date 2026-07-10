@@ -12,23 +12,178 @@
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 
+namespace {
+template <typename T>
+void HashCombine(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + 0x9e3779b9u + (seed << 6u) + (seed >> 2u);
+}
+}  // namespace
+
 void TemporalAntiAliasing::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "feedback" << YAML::Value << feedback;
-  out << YAML::Key << "clamp_strength" << YAML::Value << clamp_strength;
+  out << YAML::Key << "preset" << YAML::Value << static_cast<int32_t>(preset);
+  out << YAML::Key << "variance_clipping_mode" << YAML::Value << static_cast<int32_t>(variance_clipping_mode);
+  out << YAML::Key << "history_color_mode" << YAML::Value << static_cast<int32_t>(history_color_mode);
+  out << YAML::Key << "variance_sample_count" << YAML::Value << variance_sample_count;
+  out << YAML::Key << "longest_velocity_sample_count" << YAML::Value << longest_velocity_sample_count;
+  out << YAML::Key << "use_ycocg" << YAML::Value << use_ycocg;
+  out << YAML::Key << "use_neighborhood_sampling" << YAML::Value << use_neighborhood_sampling;
+  out << YAML::Key << "use_bicubic_filter" << YAML::Value << use_bicubic_filter;
+  out << YAML::Key << "use_longest_velocity" << YAML::Value << use_longest_velocity;
+  out << YAML::Key << "use_depth_threshold" << YAML::Value << use_depth_threshold;
+  out << YAML::Key << "use_tgsm" << YAML::Value << use_tgsm;
+  out << YAML::Key << "use_fp16" << YAML::Value << use_fp16;
+  out << YAML::Key << "min_variance_gamma" << YAML::Value << min_variance_gamma;
+  out << YAML::Key << "max_variance_gamma" << YAML::Value << max_variance_gamma;
+  out << YAML::Key << "velocity_rejection_threshold" << YAML::Value << velocity_rejection_threshold;
+  out << YAML::Key << "depth_threshold" << YAML::Value << depth_threshold;
   out << YAML::Key << "sharpen" << YAML::Value << sharpen;
 }
 
 void TemporalAntiAliasing::Deserialize(const YAML::Node& in) {
-  if (in["feedback"])
-    feedback = in["feedback"].as<float>();
-  if (in["clamp_strength"])
-    clamp_strength = in["clamp_strength"].as<float>();
+  ApplyPreset(Preset::BestQuality);
+  Preset loaded_preset = Preset::BestQuality;
+  if (in["preset"]) {
+    const auto value = in["preset"].as<int32_t>();
+    if (value >= static_cast<int32_t>(Preset::BestQuality) && value <= static_cast<int32_t>(Preset::Custom)) {
+      loaded_preset = static_cast<Preset>(value);
+    }
+  }
+  ApplyPreset(loaded_preset);
+  if (in["variance_clipping_mode"])
+    variance_clipping_mode = static_cast<VarianceClippingMode>(in["variance_clipping_mode"].as<int32_t>());
+  if (in["history_color_mode"])
+    history_color_mode = static_cast<HistoryColorMode>(in["history_color_mode"].as<int32_t>());
+  if (in["variance_sample_count"])
+    variance_sample_count = in["variance_sample_count"].as<int>();
+  if (in["longest_velocity_sample_count"])
+    longest_velocity_sample_count = in["longest_velocity_sample_count"].as<int>();
+  if (in["use_ycocg"])
+    use_ycocg = in["use_ycocg"].as<bool>();
+  if (in["use_neighborhood_sampling"])
+    use_neighborhood_sampling = in["use_neighborhood_sampling"].as<bool>();
+  if (in["use_bicubic_filter"])
+    use_bicubic_filter = in["use_bicubic_filter"].as<bool>();
+  if (in["use_longest_velocity"])
+    use_longest_velocity = in["use_longest_velocity"].as<bool>();
+  if (in["use_depth_threshold"])
+    use_depth_threshold = in["use_depth_threshold"].as<bool>();
+  if (in["use_tgsm"])
+    use_tgsm = in["use_tgsm"].as<bool>();
+  if (in["use_fp16"])
+    use_fp16 = in["use_fp16"].as<bool>();
+  if (in["min_variance_gamma"])
+    min_variance_gamma = in["min_variance_gamma"].as<float>();
+  if (in["max_variance_gamma"])
+    max_variance_gamma = in["max_variance_gamma"].as<float>();
+  if (in["velocity_rejection_threshold"])
+    velocity_rejection_threshold = in["velocity_rejection_threshold"].as<float>();
+  if (in["depth_threshold"])
+    depth_threshold = in["depth_threshold"].as<float>();
   if (in["sharpen"])
     sharpen = in["sharpen"].as<float>();
+  preset = loaded_preset;
+  NormalizeSettings();
+  reset_history = true;
+}
+
+void TemporalAntiAliasing::ApplyPreset(const Preset value) {
+  preset = value;
+  if (value == Preset::Custom) {
+    reset_history = true;
+    return;
+  }
+
+  history_color_mode = HistoryColorMode::ToneMapped;
+  use_tgsm = true;
+  use_fp16 = false;
+  min_variance_gamma = 0.75f;
+  max_variance_gamma = 2.0f;
+  velocity_rejection_threshold = 128.0f;
+  depth_threshold = 0.002f;
+  sharpen = 0.0f;
+  use_depth_threshold = true;
+  use_neighborhood_sampling = true;
+  use_ycocg = true;
+  use_bicubic_filter = true;
+  use_longest_velocity = true;
+  longest_velocity_sample_count = 9;
+
+  switch (value) {
+    case Preset::BestQuality:
+      variance_clipping_mode = VarianceClippingMode::Intersection;
+      variance_sample_count = 9;
+      break;
+    case Preset::HighQuality:
+      variance_clipping_mode = VarianceClippingMode::Clamp;
+      variance_sample_count = 5;
+      break;
+    case Preset::Performance:
+      variance_clipping_mode = VarianceClippingMode::Clamp;
+      variance_sample_count = 5;
+      longest_velocity_sample_count = 5;
+      use_fp16 = true;
+      use_depth_threshold = false;
+      use_neighborhood_sampling = false;
+      use_ycocg = false;
+      use_bicubic_filter = false;
+      use_longest_velocity = false;
+      break;
+    case Preset::Custom:
+      break;
+  }
+  NormalizeSettings();
+  reset_history = true;
+}
+
+void TemporalAntiAliasing::NormalizeSettings() {
+  const auto variance_mode = static_cast<int32_t>(variance_clipping_mode);
+  if (variance_mode < static_cast<int32_t>(VarianceClippingMode::Disabled) ||
+      variance_mode > static_cast<int32_t>(VarianceClippingMode::Intersection)) {
+    variance_clipping_mode = VarianceClippingMode::Intersection;
+  }
+  const auto color_mode = static_cast<int32_t>(history_color_mode);
+  if (color_mode < static_cast<int32_t>(HistoryColorMode::ToneMapped) ||
+      color_mode > static_cast<int32_t>(HistoryColorMode::Linear)) {
+    history_color_mode = HistoryColorMode::ToneMapped;
+  }
+  variance_sample_count = variance_sample_count <= 5 ? 5 : 9;
+  longest_velocity_sample_count = longest_velocity_sample_count <= 5 ? 5 : 9;
+  min_variance_gamma = glm::max(min_variance_gamma, 0.0f);
+  max_variance_gamma = glm::max(max_variance_gamma, min_variance_gamma);
+  velocity_rejection_threshold = glm::max(velocity_rejection_threshold, 1.0f);
+  depth_threshold = glm::max(depth_threshold, 0.0f);
+  sharpen = glm::clamp(sharpen, 0.0f, 1.0f);
+}
+
+size_t TemporalAntiAliasing::ComputeSettingsHash() const {
+  size_t hash = 0;
+  HashCombine(hash, static_cast<int32_t>(preset));
+  HashCombine(hash, static_cast<int32_t>(variance_clipping_mode));
+  HashCombine(hash, static_cast<int32_t>(history_color_mode));
+  HashCombine(hash, variance_sample_count);
+  HashCombine(hash, longest_velocity_sample_count);
+  HashCombine(hash, use_ycocg);
+  HashCombine(hash, use_neighborhood_sampling);
+  HashCombine(hash, use_bicubic_filter);
+  HashCombine(hash, use_longest_velocity);
+  HashCombine(hash, use_depth_threshold);
+  HashCombine(hash, use_tgsm);
+  HashCombine(hash, use_fp16);
+  HashCombine(hash, min_variance_gamma);
+  HashCombine(hash, max_variance_gamma);
+  HashCombine(hash, velocity_rejection_threshold);
+  HashCombine(hash, depth_threshold);
+  HashCombine(hash, sharpen);
+  return hash;
 }
 
 void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_stack,
                                    const std::shared_ptr<Camera>& target_camera) {
+  NormalizeSettings();
+  const bool effective_use_fp16 = use_fp16 && Platform::GetInstance().GetCapabilities().support_shader_float16;
+  if (!resolve_pipeline_configuration_valid_ || built_use_tgsm_ != use_tgsm || built_use_fp16_ != effective_use_fp16) {
+    BuildPipelines(true);
+  }
   if (!copy_pipeline || !copy_pipeline->Initialized() || !resolve_pipeline || !resolve_pipeline->Initialized()) {
     return;
   }
@@ -58,11 +213,13 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
   const uint32_t previous_history_index = history.frame_index % 2u;
   const uint32_t output_history_index = 1u - previous_history_index;
   const bool skipped_frame = history.valid && current_frame_index > history.last_processed_frame + 1u;
-  const bool settings_changed =
-      history.valid &&
-      (history.feedback != feedback || history.clamp_strength != clamp_strength || history.sharpen != sharpen);
-  const bool history_valid =
-      history.valid && !reset_history && !skipped_frame && !settings_changed && target_camera->GetFrameCount() != 0u;
+  const auto settings_hash = ComputeSettingsHash();
+  const bool settings_changed = history.valid && history.settings_hash != settings_hash;
+  const uint32_t camera_history_version = target_camera->GetTemporalHistoryVersion();
+  const bool camera_history_reset = history.valid && history.camera_history_version != camera_history_version;
+  const bool reject_camera_history = render_layer->RequiresCameraWideTemporalHistoryRejection();
+  const bool history_valid = history.valid && !reset_history && !skipped_frame && !settings_changed &&
+                             !camera_history_reset && !reject_camera_history;
   reset_history = false;
 
   {
@@ -107,10 +264,22 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
   push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   push_constant.history_valid = history_valid ? 1 : 0;
-  push_constant.feedback = glm::clamp(feedback, 0.0f, 0.98f);
-  push_constant.clamp_strength = glm::max(clamp_strength, 0.0f);
+  push_constant.frame_index = static_cast<int32_t>(history.frame_index & 1u);
+  push_constant.variance_clipping_mode = static_cast<int32_t>(variance_clipping_mode);
+  push_constant.variance_sample_count = variance_sample_count;
+  push_constant.use_ycocg = use_ycocg ? 1 : 0;
+  push_constant.use_neighborhood_sampling = use_neighborhood_sampling ? 1 : 0;
+  push_constant.use_bicubic_filter = use_bicubic_filter ? 1 : 0;
+  push_constant.use_longest_velocity = use_longest_velocity ? 1 : 0;
+  push_constant.longest_velocity_sample_count = longest_velocity_sample_count;
+  push_constant.use_depth_threshold = use_depth_threshold ? 1 : 0;
+  push_constant.history_color_mode = static_cast<int32_t>(history_color_mode);
   push_constant.sharpen = glm::max(sharpen, 0.0f);
   push_constant.debug_mode = static_cast<int32_t>(debug_mode);
+  push_constant.min_variance_gamma = min_variance_gamma;
+  push_constant.max_variance_gamma = max_variance_gamma;
+  push_constant.velocity_rejection_threshold = velocity_rejection_threshold;
+  push_constant.depth_threshold = depth_threshold;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
@@ -137,16 +306,15 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
                                         target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
     resolve_pipeline->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set->GetVkDescriptorSet());
     resolve_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    resolve_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
+    resolve_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
   history.valid = true;
   history.frame_index++;
   history.last_processed_frame = current_frame_index;
-  history.feedback = feedback;
-  history.clamp_strength = clamp_strength;
-  history.sharpen = sharpen;
+  history.camera_history_version = camera_history_version;
+  history.settings_hash = settings_hash;
 }
 
 void TemporalAntiAliasing::ResetHistory(const std::shared_ptr<Camera>& target_camera) {
@@ -209,8 +377,12 @@ void TemporalAntiAliasing::BuildPipelines(const bool force_rebuild) {
   }
   if (force_rebuild || !resolve_pipeline) {
     resolve_pipeline = std::make_shared<ComputePipeline>();
+    const bool effective_use_fp16 = use_fp16 && Platform::GetInstance().GetCapabilities().support_shader_float16;
+    const auto shader_defines = Platform::GetShaderGlobalDefines() + "\n#define EE_TAA_USE_TGSM " +
+                                std::string(use_tgsm ? "1\n" : "0\n") + "#define EE_TAA_USE_FP16 " +
+                                std::string(effective_use_fp16 ? "1\n" : "0\n");
     resolve_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        ShaderType::Compute, shader_defines,
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAAResolve.comp");
     resolve_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -222,6 +394,9 @@ void TemporalAntiAliasing::BuildPipelines(const bool force_rebuild) {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     resolve_pipeline->Initialize();
+    built_use_tgsm_ = use_tgsm;
+    built_use_fp16_ = effective_use_fp16;
+    resolve_pipeline_configuration_valid_ = true;
   }
 }
 

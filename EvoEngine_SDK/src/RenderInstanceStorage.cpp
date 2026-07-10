@@ -1577,7 +1577,7 @@ void RenderInstanceStorage::BuildPreviousInstanceInfoBlocks(
     auto& previous = previous_instance_info_blocks_[index];
     previous.previous_model = current.model.value;
     previous.flags = {};
-    if (!previous_render_instances || index >= rigid_motion_supported_.size() || rigid_motion_supported_[index] == 0u) {
+    if (!previous_render_instances) {
       continue;
     }
     int previous_index = -1;
@@ -1598,8 +1598,82 @@ void RenderInstanceStorage::BuildPreviousInstanceInfoBlocks(
       continue;
     }
     previous.previous_model = previous_render_instances->instance_info_blocks_[previous_index].model.value;
-    previous.flags.x = 1u;
+    if (index < rigid_motion_supported_.size() && rigid_motion_supported_[index] != 0u) {
+      previous.flags.x = 1u;
+    }
   }
+
+  std::unordered_map<Handle, std::shared_ptr<SkinnedMeshRenderInstance>> previous_by_renderer;
+  std::unordered_map<Handle, std::shared_ptr<SkinnedMeshRenderInstance>> previous_by_entity;
+  const auto collect_previous = [&](const std::shared_ptr<SkinnedMeshRenderInstanceCollection>& collection) {
+    if (!collection) {
+      return;
+    }
+    collection->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+      if (render_instance->renderer_handle != 0) {
+        previous_by_renderer.try_emplace(render_instance->renderer_handle, render_instance);
+      }
+      if (render_instance->entity_handle != 0) {
+        previous_by_entity.try_emplace(render_instance->entity_handle, render_instance);
+      }
+    });
+  };
+  if (previous_render_instances) {
+    collect_previous(previous_render_instances->deferred_skinned_render_instances);
+    collect_previous(previous_render_instances->forward_skinned_render_instances);
+    collect_previous(previous_render_instances->transparent_skinned_render_instances);
+  }
+
+  const auto build_previous_pose = [&](const std::shared_ptr<SkinnedMeshRenderInstanceCollection>& collection) {
+    if (!collection) {
+      return;
+    }
+    collection->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+      std::shared_ptr<SkinnedMeshRenderInstance> previous_render_instance;
+      if (render_instance->renderer_handle != 0) {
+        const auto search = previous_by_renderer.find(render_instance->renderer_handle);
+        if (search != previous_by_renderer.end()) {
+          previous_render_instance = search->second;
+        }
+      }
+      if (!previous_render_instance && render_instance->entity_handle != 0) {
+        const auto search = previous_by_entity.find(render_instance->entity_handle);
+        if (search != previous_by_entity.end()) {
+          previous_render_instance = search->second;
+        }
+      }
+      const bool previous_pose_valid =
+          previous_render_instance && render_instance->instance_index >= 0 &&
+          static_cast<size_t>(render_instance->instance_index) < previous_instance_info_blocks_.size() &&
+          previous_render_instance->geometry_version == render_instance->geometry_version &&
+          !previous_render_instance->bone_matrices_snapshot.empty() &&
+          previous_render_instance->bone_matrices_snapshot.size() == render_instance->bone_matrices_snapshot.size();
+      if (!render_instance->bone_matrices || render_instance->bone_matrices_snapshot.empty()) {
+        return;
+      }
+      render_instance->bone_matrices->UploadPreviousData(previous_pose_valid
+                                                             ? previous_render_instance->bone_matrices_snapshot
+                                                             : render_instance->bone_matrices_snapshot);
+      if (previous_pose_valid) {
+        previous_instance_info_blocks_[render_instance->instance_index].flags.y = 1u;
+      }
+    });
+  };
+  build_previous_pose(deferred_skinned_render_instances);
+  build_previous_pose(forward_skinned_render_instances);
+  build_previous_pose(transparent_skinned_render_instances);
+}
+
+bool RenderInstanceStorage::RequiresCameraWideTemporalHistoryRejection() const {
+  return (forward_render_instances && !forward_render_instances->Empty()) ||
+         (forward_skinned_render_instances && !forward_skinned_render_instances->Empty()) ||
+         (forward_instanced_render_instances && !forward_instanced_render_instances->Empty()) ||
+         (forward_strands_render_instances && !forward_strands_render_instances->Empty()) ||
+         (transparent_skinned_render_instances && !transparent_skinned_render_instances->Empty()) ||
+         (transparent_instanced_render_instances && !transparent_instanced_render_instances->Empty()) ||
+         (transparent_strands_render_instances && !transparent_strands_render_instances->Empty()) ||
+         (gaussian_splat_render_instances && !gaussian_splat_render_instances->Empty()) ||
+         (external_render_instances && !external_render_instances->Empty());
 }
 
 void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
@@ -2091,6 +2165,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cast_shadow = skinned_mesh_renderer->cast_shadow;
   render_instance->world_bound = mesh_bound;
   render_instance->bone_matrices = skinned_mesh_renderer->bone_matrices;
+  render_instance->bone_matrices_snapshot = skinned_mesh_renderer->bone_matrices->value;
   render_instance->geometry_version = skinned_mesh->GetVersion();
   render_instance->ray_tracing_geometry_version = skinned_mesh_renderer->ray_tracing_geometry_version_;
   render_instance->ray_tracing_triangle_range = skinned_mesh_renderer->ray_tracing_triangle_range_;

@@ -21,6 +21,7 @@ class DirectionalLightShadowPass;
 class GaussianSplatCullPass;
 class GaussianSplatSortPass;
 class GaussianSplatPass;
+class MotionCoveragePass;
 class TransparentGeometryPass;
 
 /**
@@ -353,8 +354,9 @@ class RenderInstanceStorage {
   struct SkinnedMeshRenderInstance : IRenderInstance {
     uint32_t bone_matrices_version;  ///< Version of the bone matrices for the skinned mesh.
     uint32_t ray_tracing_geometry_version = 0;
-    std::shared_ptr<SkinnedMesh> skinned_mesh;                           ///< Shared pointer to the skinned mesh.
-    std::shared_ptr<BoneMatrices> bone_matrices;                         ///< Shared pointer to bone matrices needed.
+    std::shared_ptr<SkinnedMesh> skinned_mesh;    ///< Shared pointer to the skinned mesh.
+    std::shared_ptr<BoneMatrices> bone_matrices;  ///< Shared pointer to bone matrices needed.
+    std::vector<glm::mat4> bone_matrices_snapshot;
     std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range;         ///< Animated ray tracing payload range.
     std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas;  ///< Animated-pose BLAS for ray tracing.
 
@@ -881,6 +883,7 @@ class RenderInstanceStorage {
   [[nodiscard]] const std::vector<InstanceInfoBlock>& GetInstanceInfoBlocks() const;
   [[nodiscard]] const std::vector<PreviousInstanceInfoBlock>& GetPreviousInstanceInfoBlocks() const;
   void BuildPreviousInstanceInfoBlocks(const std::shared_ptr<RenderInstanceStorage>& previous_render_instances);
+  [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
 
  private:
   /**
@@ -959,6 +962,7 @@ class RenderInstanceStorage {
   friend class GaussianSplatCullPass;
   friend class GaussianSplatSortPass;
   friend class GaussianSplatPass;
+  friend class MotionCoveragePass;
   friend class TransparentGeometryPass;
   friend class CpuRayTracer;
   /**

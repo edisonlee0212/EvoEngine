@@ -126,28 +126,76 @@ class AmbientOcclusion : public IPostProcessing {
 
 class TemporalAntiAliasing : public IPostProcessing {
  public:
+  enum class Preset : int32_t {
+    BestQuality = 0,
+    HighQuality = 1,
+    Performance = 2,
+    Custom = 3,
+  };
+
+  enum class VarianceClippingMode : int32_t {
+    Disabled = 0,
+    Clamp = 1,
+    Intersection = 2,
+  };
+
+  enum class HistoryColorMode : int32_t {
+    ToneMapped = 0,
+    Linear = 1,
+  };
+
   enum class DebugMode : int32_t {
     None = 0,
     Motion = 1,
     DepthConfidence = 2,
     HistoryConfidence = 3,
+    NoHistory = 4,
   };
 
   struct PushConstant {
     int32_t camera_index = 0;
     int32_t history_valid = 0;
-    float feedback = 0.75f;
-    float clamp_strength = 1.0f;
-    float sharpen = 0.2f;
+    int32_t frame_index = 0;
+    int32_t variance_clipping_mode = static_cast<int32_t>(VarianceClippingMode::Intersection);
+    int32_t variance_sample_count = 9;
+    int32_t use_ycocg = 1;
+    int32_t use_neighborhood_sampling = 1;
+    int32_t use_bicubic_filter = 1;
+    int32_t use_longest_velocity = 1;
+    int32_t longest_velocity_sample_count = 9;
+    int32_t use_depth_threshold = 1;
+    int32_t history_color_mode = static_cast<int32_t>(HistoryColorMode::ToneMapped);
     int32_t debug_mode = 0;
     int32_t padding0 = 0;
     int32_t padding1 = 0;
     int32_t padding2 = 0;
+    float min_variance_gamma = 0.75f;
+    float max_variance_gamma = 2.0f;
+    float velocity_rejection_threshold = 128.0f;
+    float depth_threshold = 0.002f;
+    float sharpen = 0.0f;
+    float padding3 = 0.0f;
+    float padding4 = 0.0f;
+    float padding5 = 0.0f;
   };
 
-  float feedback = 0.75f;
-  float clamp_strength = 1.0f;
-  float sharpen = 0.2f;
+  Preset preset = Preset::BestQuality;
+  VarianceClippingMode variance_clipping_mode = VarianceClippingMode::Intersection;
+  HistoryColorMode history_color_mode = HistoryColorMode::ToneMapped;
+  int variance_sample_count = 9;
+  int longest_velocity_sample_count = 9;
+  bool use_ycocg = true;
+  bool use_neighborhood_sampling = true;
+  bool use_bicubic_filter = true;
+  bool use_longest_velocity = true;
+  bool use_depth_threshold = true;
+  bool use_tgsm = true;
+  bool use_fp16 = false;
+  float min_variance_gamma = 0.75f;
+  float max_variance_gamma = 2.0f;
+  float velocity_rejection_threshold = 128.0f;
+  float depth_threshold = 0.002f;
+  float sharpen = 0.0f;
   DebugMode debug_mode = DebugMode::None;
   bool reset_history = false;
 
@@ -159,6 +207,8 @@ class TemporalAntiAliasing : public IPostProcessing {
   std::shared_ptr<ComputePipeline> resolve_pipeline;
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
+  void ApplyPreset(Preset value);
+  void NormalizeSettings();
   void ResetHistory(const std::shared_ptr<Camera>& target_camera = nullptr);
   void BuildPipelines(bool force_rebuild = false) override;
   void Serialize(YAML::Emitter& out) const;
@@ -171,15 +221,18 @@ class TemporalAntiAliasing : public IPostProcessing {
     glm::uvec2 size = glm::uvec2(0);
     uint32_t frame_index = 0;
     uint32_t last_processed_frame = 0;
-    float feedback = 0.0f;
-    float clamp_strength = 0.0f;
-    float sharpen = 0.0f;
+    uint32_t camera_history_version = 0;
+    size_t settings_hash = 0;
     bool valid = false;
   };
 
+  [[nodiscard]] size_t ComputeSettingsHash() const;
   void PruneHistory(uint32_t current_frame_index, uint64_t active_camera_handle);
 
   std::unordered_map<uint64_t, HistoryResources> history_resources_;
+  bool built_use_tgsm_ = false;
+  bool built_use_fp16_ = false;
+  bool resolve_pipeline_configuration_valid_ = false;
 };
 
 class ScreenSpaceReflection : public IPostProcessing {

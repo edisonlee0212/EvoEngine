@@ -33,6 +33,7 @@
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
+#include "RenderPasses/MotionCoveragePass.hpp"
 #include "RenderPasses/MotionVectorPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
@@ -1515,6 +1516,12 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     motion_vectors_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     motion_vectors_layout_->Initialize();
   }
+  if (!motion_coverage_layout_) {
+    motion_coverage_layout_ = std::make_shared<DescriptorSetLayout>();
+    motion_coverage_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    motion_coverage_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+    motion_coverage_layout_->Initialize();
+  }
   if (!volumetric_clouds_layout_) {
     volumetric_clouds_layout_ = std::make_shared<DescriptorSetLayout>();
     volumetric_clouds_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -2154,6 +2161,50 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     skinned_deferred_prepass_pipeline->Initialize();
+  }
+  if (!skinned_motion_vectors_pipeline_) {
+    skinned_motion_vectors_pipeline_ = std::make_shared<GraphicsPipeline>();
+    skinned_motion_vectors_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/SkinnedMotionVectors.vert");
+    skinned_motion_vectors_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/SkinnedMotionVectors.frag");
+    skinned_motion_vectors_pipeline_->geometry_type = GeometryType::SkinnedMesh;
+    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
+    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(motion_coverage_layout_);
+    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    skinned_motion_vectors_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    skinned_motion_vectors_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    skinned_motion_vectors_pipeline_->color_attachment_formats = {VK_FORMAT_R16G16B16A16_SFLOAT};
+    auto& push_constant_range = skinned_motion_vectors_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RenderInstancePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    skinned_motion_vectors_pipeline_->Initialize();
+  }
+  if (!transparent_motion_vectors_pipeline_) {
+    transparent_motion_vectors_pipeline_ = std::make_shared<GraphicsPipeline>();
+    transparent_motion_vectors_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/TransparentMotionVectors.vert");
+    transparent_motion_vectors_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/TransparentMotionVectors.frag");
+    transparent_motion_vectors_pipeline_->geometry_type = GeometryType::Mesh;
+    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(motion_coverage_layout_);
+    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    transparent_motion_vectors_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    transparent_motion_vectors_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    transparent_motion_vectors_pipeline_->color_attachment_formats = {VK_FORMAT_R16G16B16A16_SFLOAT};
+    auto& push_constant_range = transparent_motion_vectors_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RenderInstancePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    transparent_motion_vectors_pipeline_->Initialize();
   }
 #ifdef EVOENGINE_WINDOWS
   if (!strands_deferred_prepass_pipeline) {
@@ -3713,6 +3764,12 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceSto
   return render_instances_list_[index];
 }
 
+bool RenderLayer::RequiresCameraWideTemporalHistoryRejection() const {
+  const auto render_instances = GetCurrentRenderInstanceStorage();
+  return (render_instances && render_instances->RequiresCameraWideTemporalHistoryRejection()) ||
+         !deferred_rendering_external_functions.empty() || !forward_rendering_external_functions.empty();
+}
+
 void RenderLayer::ApplyAnimators() const {
   const auto scene = GetScene();
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Animator>()) {
@@ -4437,6 +4494,14 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           {camera, current_render_instances, per_frame_descriptor_sets_[current_frame_index], motion_vectors_pipeline_,
            motion_vectors_layout_, active_camera_transient_resources, camera_index, record_commands});
     });
+    camera_render_graph.AddPass(
+        MotionCoveragePass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+          MotionCoveragePass::Execute(
+              context,
+              {camera, current_render_instances, raster_material_per_frame_descriptor_sets_[current_frame_index],
+               skinned_motion_vectors_pipeline_, transparent_motion_vectors_pipeline_, motion_coverage_layout_,
+               active_camera_transient_resources, camera_index, wire_frame, record_commands});
+        });
     camera_render_graph.AddPass(DepthPyramidPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
       DepthPyramidPass::Execute(context, {camera, depth_pyramid_pipeline_, depth_pyramid_layout_,
                                           active_camera_transient_resources, record_commands});

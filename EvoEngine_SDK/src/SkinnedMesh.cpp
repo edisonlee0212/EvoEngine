@@ -54,6 +54,14 @@ const std::shared_ptr<DescriptorSet>& BoneMatrices::GetDescriptorSet() const {
   return descriptor_set_[current_frame_index];
 }
 
+VkDescriptorBufferInfo BoneMatrices::GetPreviousBufferInfo() const {
+  VkDescriptorBufferInfo buffer_info{};
+  buffer_info.buffer = previous_bone_matrices_buffer_[Platform::GetCurrentFrameIndex()]->GetVkBuffer();
+  buffer_info.offset = 0;
+  buffer_info.range = VK_WHOLE_SIZE;
+  return buffer_info;
+}
+
 BoneMatrices::BoneMatrices() {
   VkBufferCreateInfo bone_matrices_crate_info{};
   bone_matrices_crate_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -65,6 +73,8 @@ BoneMatrices::BoneMatrices() {
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
   for (int i = 0; i < max_frames_in_flight; i++) {
     bone_matrices_buffer_.emplace_back(std::make_unique<Buffer>(bone_matrices_crate_info, allocation_create_info));
+    previous_bone_matrices_buffer_.emplace_back(
+        std::make_unique<Buffer>(bone_matrices_crate_info, allocation_create_info));
     descriptor_set_.emplace_back(std::make_shared<DescriptorSet>(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetBoneMatricesDescriptorSetLayout()));
   }
@@ -84,6 +94,12 @@ void BoneMatrices::UploadData() {
   buffer_info.buffer = bone_matrices_buffer_[current_frame_index]->GetVkBuffer();
   buffer_info.range = VK_WHOLE_SIZE;
   descriptor_set_[current_frame_index]->UpdateBufferDescriptorBinding(0, buffer_info);
+}
+
+void BoneMatrices::UploadPreviousData(const std::vector<glm::mat4>& matrices) {
+  if (!matrices.empty()) {
+    previous_bone_matrices_buffer_[Platform::GetCurrentFrameIndex()]->UploadVector(matrices);
+  }
 }
 
 Vertex evo_engine::BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_vertex,

@@ -368,7 +368,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
                            post_processing_stack->enable_temporal_anti_aliasing &&
                            post_processing_stack->temporal_anti_aliasing;
-  if (temporal_jitter_enabled_ && taa_enabled && size_.x != 0 && size_.y != 0) {
+  if (taa_enabled && size_.x != 0 && size_.y != 0) {
     const uint32_t sequence_index = jitter_state.frame_index % 16u + 1u;
     jitter_state.current = glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
     jitter_state.current *= 2.0f / glm::vec2(size_);
@@ -482,6 +482,10 @@ glm::uvec2 Camera::GetSize() const {
 
 uint32_t Camera::GetFrameCount() const {
   return frame_count_;
+}
+
+uint32_t Camera::GetTemporalHistoryVersion() const {
+  return temporal_history_version_;
 }
 
 void Camera::Resize(const glm::uvec2& size) {
@@ -709,20 +713,9 @@ void Camera::ResetRenderState() {
   rendered_ = false;
   require_rendering_ = false;
 }
-void Camera::SetTemporalJitterEnabled(const bool value) {
-  if (temporal_jitter_enabled_ == value) {
-    return;
-  }
-  temporal_jitter_enabled_ = value;
-  ResetFrameCount();
-}
-
-bool Camera::TemporalJitterEnabled() const {
-  return temporal_jitter_enabled_;
-}
-
 void Camera::ResetFrameCount() {
   frame_count_ = 0;
+  ++temporal_history_version_;
   const auto camera_handle = GetHandle().GetValue();
   previous_camera_projection_views.erase(camera_handle);
   previous_camera_unjittered_projection_views.erase(camera_handle);
