@@ -16,6 +16,7 @@ using namespace evo_engine;
 
 namespace {
 std::unordered_map<uint64_t, glm::mat4> previous_camera_projection_views;
+std::unordered_map<uint64_t, glm::mat4> previous_camera_unjittered_projection_views;
 struct CameraJitterState {
   glm::vec2 current = {};
   glm::vec2 previous = {};
@@ -357,8 +358,9 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const glm::vec3 up = rotation * glm::vec3(0, 1, 0);
   const auto ratio = GetSizeRatio();
 
-  camera_info_block.projection = glm::perspective(glm::radians(camera_settings.fov * 0.5f), ratio,
-                                                  camera_settings.near_distance, camera_settings.far_distance);
+  const auto unjittered_projection = glm::perspective(glm::radians(camera_settings.fov * 0.5f), ratio,
+                                                      camera_settings.near_distance, camera_settings.far_distance);
+  camera_info_block.projection = unjittered_projection;
   auto& jitter_state = camera_jitter_states[GetHandle().GetValue()];
   jitter_state.previous = jitter_state.current;
   jitter_state.current = {};
@@ -366,7 +368,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
                            post_processing_stack->enable_temporal_anti_aliasing &&
                            post_processing_stack->temporal_anti_aliasing;
-  if (taa_enabled && size_.x != 0 && size_.y != 0) {
+  if (temporal_jitter_enabled_ && taa_enabled && size_.x != 0 && size_.y != 0) {
     const uint32_t sequence_index = jitter_state.frame_index % 16u + 1u;
     jitter_state.current = glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
     jitter_state.current *= 2.0f / glm::vec2(size_);
@@ -378,14 +380,22 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   }
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
+  camera_info_block.unjittered_projection_view = unjittered_projection * camera_info_block.view;
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
-  const auto previous_projection_view = previous_camera_projection_views.find(GetHandle().GetValue());
+  const auto camera_handle = GetHandle().GetValue();
+  const auto previous_projection_view = previous_camera_projection_views.find(camera_handle);
   camera_info_block.previous_projection_view = previous_projection_view == previous_camera_projection_views.end()
                                                    ? camera_info_block.projection_view
                                                    : previous_projection_view->second;
-  previous_camera_projection_views[GetHandle().GetValue()] = camera_info_block.projection_view;
+  previous_camera_projection_views[camera_handle] = camera_info_block.projection_view;
+  const auto previous_unjittered_projection_view = previous_camera_unjittered_projection_views.find(camera_handle);
+  camera_info_block.previous_unjittered_projection_view =
+      previous_unjittered_projection_view == previous_camera_unjittered_projection_views.end()
+          ? camera_info_block.unjittered_projection_view
+          : previous_unjittered_projection_view->second;
+  previous_camera_unjittered_projection_views[camera_handle] = camera_info_block.unjittered_projection_view;
   camera_info_block.clear_color =
       glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
   camera_info_block.jitter = glm::vec4(jitter_state.current, jitter_state.previous);
@@ -699,6 +709,22 @@ void Camera::ResetRenderState() {
   rendered_ = false;
   require_rendering_ = false;
 }
+void Camera::SetTemporalJitterEnabled(const bool value) {
+  if (temporal_jitter_enabled_ == value) {
+    return;
+  }
+  temporal_jitter_enabled_ = value;
+  ResetFrameCount();
+}
+
+bool Camera::TemporalJitterEnabled() const {
+  return temporal_jitter_enabled_;
+}
+
 void Camera::ResetFrameCount() {
   frame_count_ = 0;
+  const auto camera_handle = GetHandle().GetValue();
+  previous_camera_projection_views.erase(camera_handle);
+  previous_camera_unjittered_projection_views.erase(camera_handle);
+  camera_jitter_states.erase(camera_handle);
 }

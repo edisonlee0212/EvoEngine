@@ -33,6 +33,7 @@
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
+#include "RenderPasses/MotionVectorPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
@@ -1508,6 +1509,12 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     depth_pyramid_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     depth_pyramid_layout_->Initialize();
   }
+  if (!motion_vectors_layout_) {
+    motion_vectors_layout_ = std::make_shared<DescriptorSetLayout>();
+    motion_vectors_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    motion_vectors_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    motion_vectors_layout_->Initialize();
+  }
   if (!volumetric_clouds_layout_) {
     volumetric_clouds_layout_ = std::make_shared<DescriptorSetLayout>();
     volumetric_clouds_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1711,6 +1718,20 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     depth_pyramid_pipeline_->Initialize();
+  }
+  if (!motion_vectors_pipeline_) {
+    motion_vectors_pipeline_ = std::make_shared<ComputePipeline>();
+    motion_vectors_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/MotionVectors.comp");
+    motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(motion_vectors_layout_);
+    auto& push_constant_range = motion_vectors_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(glm::ivec2);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    motion_vectors_pipeline_->Initialize();
   }
   if (!volumetric_clouds_pipeline_) {
     volumetric_clouds_pipeline_ = std::make_shared<ComputePipeline>();
@@ -2799,6 +2820,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   if (track_ddgi_scene_inputs) {
     PrepareDdgiFrameState(scene, current_render_instances, ddgi_scene_change_triggers_);
   }
+  current_render_instances->BuildPreviousInstanceInfoBlocks(GetPreviousRenderInstanceStorage());
   current_render_instances->Upload();
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
 }
@@ -4409,6 +4431,12 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                },
                record_commands});
         });
+    camera_render_graph.AddPass(MotionVectorPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+      MotionVectorPass::Execute(
+          context,
+          {camera, current_render_instances, per_frame_descriptor_sets_[current_frame_index], motion_vectors_pipeline_,
+           motion_vectors_layout_, active_camera_transient_resources, camera_index, record_commands});
+    });
     camera_render_graph.AddPass(DepthPyramidPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
       DepthPyramidPass::Execute(context, {camera, depth_pyramid_pipeline_, depth_pyramid_layout_,
                                           active_camera_transient_resources, record_commands});
@@ -4564,7 +4592,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency);
     camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
                                 [&](const RenderGraphExecutionContext& context) {
-                                  PostProcessingPass::Execute(context, {camera, immediate});
+                                  PostProcessingPass::Execute(context,
+                                                              {camera, active_camera_transient_resources, immediate});
                                 });
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid camera render graph.")
@@ -4708,7 +4737,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     }
     camera_render_graph.AddPass(PostProcessingPass::CreateRayTracingDescriptor(post_ray_tracing_dependency),
                                 [&](const RenderGraphExecutionContext& context) {
-                                  PostProcessingPass::Execute(context, {camera, false, true});
+                                  PostProcessingPass::Execute(context, {camera, nullptr, false, true});
                                 });
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid ray tracing camera render graph.")

@@ -57,6 +57,7 @@ struct EditorCommandLine {
   std::optional<bool> preview_ambient_occlusion_enabled;
   std::optional<AmbientOcclusion::Algorithm> preview_ambient_occlusion_algorithm;
   std::optional<bool> preview_temporal_anti_aliasing_enabled;
+  std::optional<TemporalAntiAliasing::DebugMode> preview_temporal_anti_aliasing_debug_mode;
   std::optional<float> preview_shadow_split_lambda;
   std::optional<float> preview_shadow_cascade_transition_width;
   std::optional<float> preview_shadow_distance_fade;
@@ -152,6 +153,26 @@ int ParsePreviewShadowDebugMode(const std::string& value) {
     return 5;
   }
   throw std::invalid_argument("Unknown preview shadow debug mode: " + value);
+}
+
+TemporalAntiAliasing::DebugMode ParsePreviewDebugMode(const std::string& value) {
+  auto normalized = value;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (normalized == "off" || normalized == "disabled" || normalized == "none") {
+    return TemporalAntiAliasing::DebugMode::None;
+  }
+  if (normalized == "taa-motion" || normalized == "motion") {
+    return TemporalAntiAliasing::DebugMode::Motion;
+  }
+  if (normalized == "taa-depth-confidence" || normalized == "depth-confidence") {
+    return TemporalAntiAliasing::DebugMode::DepthConfidence;
+  }
+  if (normalized == "taa-history-confidence" || normalized == "history-confidence") {
+    return TemporalAntiAliasing::DebugMode::HistoryConfidence;
+  }
+  throw std::invalid_argument("Unknown preview debug mode: " + value);
 }
 
 glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const std::string& argument) {
@@ -277,6 +298,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_temporal_anti_aliasing_enabled =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-debug") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-debug requires a mode.");
+      }
+      command_line.preview_temporal_anti_aliasing_debug_mode =
+          ParsePreviewDebugMode(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-shadow-split-lambda") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-shadow-split-lambda requires a value between 0 and 1.");
@@ -347,7 +374,7 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     throw std::invalid_argument("--preview-camera-position requires --capture-demo-preview.");
   }
   if ((command_line.preview_ambient_occlusion_enabled || command_line.preview_ambient_occlusion_algorithm ||
-       command_line.preview_temporal_anti_aliasing_enabled) &&
+       command_line.preview_temporal_anti_aliasing_enabled || command_line.preview_temporal_anti_aliasing_debug_mode) &&
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("Preview post-processing overrides require --capture-demo-preview.");
   }
@@ -709,6 +736,7 @@ void CaptureDemoPreview(
     const std::optional<bool>& preview_ambient_occlusion_enabled,
     const std::optional<AmbientOcclusion::Algorithm>& preview_ambient_occlusion_algorithm,
     const std::optional<bool>& preview_temporal_anti_aliasing_enabled,
+    const std::optional<TemporalAntiAliasing::DebugMode>& preview_temporal_anti_aliasing_debug_mode,
     const std::optional<float>& preview_shadow_split_lambda,
     const std::optional<float>& preview_shadow_cascade_transition_width,
     const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
@@ -784,7 +812,7 @@ void CaptureDemoPreview(
     }
   }
   if (preview_ambient_occlusion_enabled || preview_ambient_occlusion_algorithm ||
-      preview_temporal_anti_aliasing_enabled) {
+      preview_temporal_anti_aliasing_enabled || preview_temporal_anti_aliasing_debug_mode) {
     if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
       if (preview_ambient_occlusion_enabled) {
         post_processing_stack->enable_ambient_occlusion = *preview_ambient_occlusion_enabled;
@@ -800,6 +828,11 @@ void CaptureDemoPreview(
         if (post_processing_stack->temporal_anti_aliasing) {
           post_processing_stack->temporal_anti_aliasing->ResetHistory(scene_camera);
         }
+      }
+      if (preview_temporal_anti_aliasing_debug_mode && post_processing_stack->temporal_anti_aliasing) {
+        post_processing_stack->enable_temporal_anti_aliasing = true;
+        post_processing_stack->temporal_anti_aliasing->debug_mode = *preview_temporal_anti_aliasing_debug_mode;
+        post_processing_stack->temporal_anti_aliasing->ResetHistory(scene_camera);
       }
       scene_camera->ResetFrameCount();
     }
@@ -939,7 +972,8 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
               command_line.preview_ambient_occlusion_enabled, command_line.preview_ambient_occlusion_algorithm,
-              command_line.preview_temporal_anti_aliasing_enabled, command_line.preview_shadow_split_lambda,
+              command_line.preview_temporal_anti_aliasing_enabled,
+              command_line.preview_temporal_anti_aliasing_debug_mode, command_line.preview_shadow_split_lambda,
               command_line.preview_shadow_cascade_transition_width, command_line.preview_shadow_distance_fade,
               command_line.preview_shadow_debug_mode, command_line.preview_shadow_debug_cascade,
               command_line.preview_shadow_debug_light, command_line.preview_capture_deterministic,

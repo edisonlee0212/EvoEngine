@@ -8,8 +8,11 @@ layout(set = 1, binding = 17) uniform sampler2D inDepth;
 layout(set = 1, binding = 21) uniform sampler2D inNormalRoughness;
 layout(set = 2, binding = 0) uniform sampler2D currentColor;
 layout(set = 2, binding = 1) uniform sampler2D historyColor;
-layout(set = 2, binding = 2, rgba32f) uniform writeonly image2D outColor;
-layout(set = 2, binding = 3, rgba32f) uniform writeonly image2D outHistory;
+layout(set = 2, binding = 2) uniform sampler2D motionVectors;
+layout(set = 2, binding = 3) uniform sampler2D previousDepthHistory;
+layout(set = 2, binding = 4, rgba32f) uniform writeonly image2D outColor;
+layout(set = 2, binding = 5, rgba32f) uniform writeonly image2D outHistory;
+layout(set = 2, binding = 6, rgba32f) uniform writeonly image2D outDepthHistory;
 
 layout(push_constant) uniform EE_TAA_CONSTANTS {
   int EE_CAMERA_INDEX;
@@ -17,40 +20,58 @@ layout(push_constant) uniform EE_TAA_CONSTANTS {
   float feedback;
   float clampStrength;
   float sharpen;
+  int debugMode;
+  int padding0;
+  int padding1;
+  int padding2;
 };
 
 vec3 FetchCurrent(ivec2 texel, ivec2 maxTexel) {
   return texelFetch(currentColor, clamp(texel, ivec2(0), maxTexel), 0).rgb;
 }
 
-void NeighborhoodStats(ivec2 texel, ivec2 maxTexel, out vec3 minColor, out vec3 maxColor, out vec3 averageColor) {
-  minColor = vec3(1e20f);
-  maxColor = vec3(-1e20f);
-  averageColor = vec3(0.0f);
+void NeighborhoodStats(ivec2 texel, ivec2 maxTexel, out vec3 minRgb, out vec3 maxRgb, out vec3 averageRgb) {
+  minRgb = vec3(1e20f);
+  maxRgb = vec3(-1e20f);
+  averageRgb = vec3(0.0f);
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
-      vec3 color = FetchCurrent(texel + ivec2(x, y), maxTexel);
-      minColor = min(minColor, color);
-      maxColor = max(maxColor, color);
-      averageColor += color;
+      vec3 rgb = FetchCurrent(texel + ivec2(x, y), maxTexel);
+      minRgb = min(minRgb, rgb);
+      maxRgb = max(maxRgb, rgb);
+      averageRgb += rgb;
     }
   }
-  averageColor /= 9.0f;
+  averageRgb /= 9.0f;
 }
 
-bool ReprojectHistory(vec2 texCoord, float ndcDepth, out vec2 previousTexCoord) {
-  if (ndcDepth == 1.0f) {
+bool ReprojectCurrentDepth(vec2 texCoord, float ndcDepth, out float previousNdcDepth) {
+  if (ndcDepth >= 1.0f) {
     return false;
   }
   vec3 worldPos = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
-  vec4 previousClip = EE_CAMERAS[EE_CAMERA_INDEX].previous_projection_view * vec4(worldPos, 1.0f);
+  vec4 previousClip = EE_CAMERAS[EE_CAMERA_INDEX].previous_unjittered_projection_view * vec4(worldPos, 1.0f);
   if (previousClip.w <= 0.0001f) {
     return false;
   }
-  vec3 previousNdc = previousClip.xyz / previousClip.w;
-  previousTexCoord = previousNdc.xy * 0.5f + vec2(0.5f);
-  return previousTexCoord.x >= 0.0f && previousTexCoord.x <= 1.0f && previousTexCoord.y >= 0.0f &&
-         previousTexCoord.y <= 1.0f && previousNdc.z >= -0.001f && previousNdc.z <= 1.001f;
+  previousNdcDepth = (previousClip.z / previousClip.w);
+  return previousNdcDepth >= -0.001f && previousNdcDepth <= 1.001f;
+}
+
+float CalculateDepthConfidence(vec2 previousTexCoord, vec2 texCoord, float ndcDepth) {
+  float previousNdcDepth = 1.0f;
+  if (!ReprojectCurrentDepth(texCoord, ndcDepth, previousNdcDepth)) {
+    return 0.0f;
+  }
+  vec4 previousDepth = texture(previousDepthHistory, previousTexCoord);
+  float previousLinearDepth = previousDepth.y;
+  float projectedLinearDepth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, clamp(previousNdcDepth, 0.0f, 1.0f));
+  float depthDifference = abs(previousLinearDepth - projectedLinearDepth) / max(projectedLinearDepth, 0.001f);
+  return 1.0f - smoothstep(0.01f, 0.08f, depthDifference);
+}
+
+float BoundsConfidence(vec2 texCoord) {
+  return texCoord.x >= 0.0f && texCoord.x <= 1.0f && texCoord.y >= 0.0f && texCoord.y <= 1.0f ? 1.0f : 0.0f;
 }
 
 void main() {
@@ -64,24 +85,58 @@ void main() {
   ivec2 maxTexel = ivec2(resolution) - ivec2(1);
   vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
   vec3 current = texelFetch(currentColor, texel, 0).rgb;
-  vec3 minColor;
-  vec3 maxColor;
-  vec3 averageColor;
-  NeighborhoodStats(texel, maxTexel, minColor, maxColor, averageColor);
+  float ndcDepth = texelFetch(inDepth, texel, 0).x;
+  float currentLinearDepth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
+
+  vec3 minRgb;
+  vec3 maxRgb;
+  vec3 averageRgb;
+  NeighborhoodStats(texel, maxTexel, minRgb, maxRgb, averageRgb);
+
+  vec2 velocityPixels = texelFetch(motionVectors, texel, 0).xy;
+  vec2 jitterPixels = (EE_CAMERAS[EE_CAMERA_INDEX].jitter.zw - EE_CAMERAS[EE_CAMERA_INDEX].jitter.xy) * 0.5f *
+                      vec2(resolution);
+  vec2 previousPixel = vec2(pixel) + vec2(0.5f) + velocityPixels;
+  vec2 previousTexCoord = previousPixel / vec2(resolution);
+  vec2 previousDepthTexCoord = (previousPixel + jitterPixels) / vec2(resolution);
 
   vec3 result = current;
-  vec2 previousTexCoord;
-  float ndcDepth = texture(inDepth, texCoord).x;
-  if (historyValid != 0 && ReprojectHistory(texCoord, ndcDepth, previousTexCoord)) {
-    vec3 history = texture(historyColor, previousTexCoord).rgb;
-    vec3 center = (minColor + maxColor) * 0.5f;
-    vec3 extent = (maxColor - minColor) * 0.5f * max(clampStrength, 0.0f);
-    history = clamp(history, center - extent, center + extent);
-    result = mix(current, history, clamp(feedback, 0.0f, 0.98f));
+  float geometricConfidence = 0.0f;
+  float historyConfidence = 0.0f;
+  if (historyValid != 0) {
+    float boundsConfidence = BoundsConfidence(previousTexCoord);
+    float depthBoundsConfidence = BoundsConfidence(previousDepthTexCoord);
+    float velocityConfidence = 1.0f - smoothstep(24.0f, 160.0f, length(velocityPixels));
+    float depthConfidence =
+        depthBoundsConfidence > 0.0f ? CalculateDepthConfidence(previousDepthTexCoord, texCoord, ndcDepth) : 0.0f;
+    vec4 historySample = texture(historyColor, previousTexCoord);
+    geometricConfidence = boundsConfidence * depthBoundsConfidence * velocityConfidence * depthConfidence;
+    historyConfidence = geometricConfidence * clamp(historySample.a, 0.0f, 1.0f);
+
+    vec3 center = (minRgb + maxRgb) * 0.5f;
+    vec3 extent = (maxRgb - minRgb) * 0.5f * max(clampStrength, 0.0f);
+    vec3 clippedHistory = clamp(historySample.rgb, center - extent, center + extent);
+    result = mix(current, clippedHistory, clamp(feedback, 0.0f, 0.98f) * historyConfidence);
+  } else {
+    geometricConfidence = ndcDepth < 1.0f ? 1.0f : 0.0f;
   }
 
-  result += (current - averageColor) * max(sharpen, 0.0f);
-  vec4 outputColor = vec4(max(result, vec3(0.0f)), 1.0f);
-  imageStore(outColor, texel, outputColor);
-  imageStore(outHistory, texel, outputColor);
+  vec3 sharpenedResult = result + (current - averageRgb) * max(sharpen, 0.0f);
+  sharpenedResult = max(sharpenedResult, vec3(0.0f));
+
+  vec3 debugColor = sharpenedResult;
+  if (debugMode == 1) {
+    debugColor = vec3(velocityPixels * 0.02f + vec2(0.5f), 0.0f);
+  } else if (debugMode == 2) {
+    float depthConfidence = historyValid != 0 && BoundsConfidence(previousDepthTexCoord) > 0.0f
+                                ? CalculateDepthConfidence(previousDepthTexCoord, texCoord, ndcDepth)
+                                : 0.0f;
+    debugColor = vec3(depthConfidence);
+  } else if (debugMode == 3) {
+    debugColor = vec3(historyConfidence);
+  }
+
+  imageStore(outColor, texel, vec4(max(debugColor, vec3(0.0f)), 1.0f));
+  imageStore(outHistory, texel, vec4(result, historyValid != 0 ? geometricConfidence : 1.0f));
+  imageStore(outDepthHistory, texel, vec4(ndcDepth, currentLinearDepth, 0.0f, geometricConfidence));
 }

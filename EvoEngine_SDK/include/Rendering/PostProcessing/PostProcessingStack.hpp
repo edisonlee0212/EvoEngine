@@ -14,6 +14,7 @@ class Bloom;
 class AmbientOcclusion;
 class TemporalAntiAliasing;
 class Camera;
+class ImageView;
 
 class PostProcessingStack : public IAsset {
   glm::uvec2 current_size = glm::uvec2(1);
@@ -35,6 +36,7 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<RenderTexture> source_color_texture;
   std::shared_ptr<RenderTexture> result_texture;
   std::shared_ptr<RenderTexture> swap_texture;
+  std::shared_ptr<ImageView> motion_vectors_image_view;
 
   void OnCreate() override;
   void Process(const std::shared_ptr<Camera>& target_camera,
@@ -124,17 +126,29 @@ class AmbientOcclusion : public IPostProcessing {
 
 class TemporalAntiAliasing : public IPostProcessing {
  public:
+  enum class DebugMode : int32_t {
+    None = 0,
+    Motion = 1,
+    DepthConfidence = 2,
+    HistoryConfidence = 3,
+  };
+
   struct PushConstant {
     int32_t camera_index = 0;
     int32_t history_valid = 0;
     float feedback = 0.75f;
     float clamp_strength = 1.0f;
     float sharpen = 0.2f;
+    int32_t debug_mode = 0;
+    int32_t padding0 = 0;
+    int32_t padding1 = 0;
+    int32_t padding2 = 0;
   };
 
   float feedback = 0.75f;
   float clamp_strength = 1.0f;
   float sharpen = 0.2f;
+  DebugMode debug_mode = DebugMode::None;
   bool reset_history = false;
 
   std::shared_ptr<DescriptorSetLayout> copy_layout;
@@ -153,6 +167,7 @@ class TemporalAntiAliasing : public IPostProcessing {
  private:
   struct HistoryResources {
     std::shared_ptr<RenderTexture> textures[2];
+    std::shared_ptr<RenderTexture> depth_textures[2];
     glm::uvec2 size = glm::uvec2(0);
     uint32_t frame_index = 0;
     uint32_t last_processed_frame = 0;

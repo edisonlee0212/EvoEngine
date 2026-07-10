@@ -7,6 +7,8 @@ struct Camera {
   mat4 inverse_view;
   mat4 inverse_projection_view;
   mat4 previous_projection_view;
+  mat4 unjittered_projection_view;
+  mat4 previous_unjittered_projection_view;
   vec4 clear_color;
   vec4 jitter;
   float resolution_x;

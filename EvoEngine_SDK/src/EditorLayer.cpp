@@ -3718,9 +3718,12 @@ void EditorLayer::SceneCameraWindow() {
           }
           ImGui::EndChild();
         }
-        ApplyEditorCameraFreeFlyControl(scene_camera_handle_, scene_camera_free_fly_state_,
-                                        mouse_scene_window_position_, {view_port_size.x, view_port_size.y},
-                                        scene_camera_window_focused_);
+        const bool scene_camera_moved = ApplyEditorCameraFreeFlyControl(
+            scene_camera_handle_, scene_camera_free_fly_state_, mouse_scene_window_position_,
+            {view_port_size.x, view_port_size.y}, scene_camera_window_focused_);
+        if (scene_camera) {
+          scene_camera->SetTemporalJitterEnabled(!scene_camera_moved);
+        }
       }
 #pragma region Gizmos and Entity Selection
       gizmo_using_ = false;

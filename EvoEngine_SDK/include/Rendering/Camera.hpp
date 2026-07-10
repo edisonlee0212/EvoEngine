@@ -14,22 +14,24 @@ namespace evo_engine {
  * @brief Represents the camera information block with matrices and settings used for rendering.
  */
 struct CameraInfoBlock {
-  glm::mat4 projection = {};                       ///< The projection matrix of the camera.
-  glm::mat4 view = {};                             ///< The view matrix of the camera.
-  glm::mat4 projection_view = {};                  ///< The combined projection and view matrix.
-  glm::mat4 inverse_projection = {};               ///< The inverse of the projection matrix.
-  glm::mat4 inverse_view = {};                     ///< The inverse of the view matrix.
-  glm::mat4 inverse_projection_view = {};          ///< The inverse of the combined projection and view matrix.
-  glm::mat4 previous_projection_view = {};         ///< The previous frame's combined projection and view matrix.
-  glm::vec4 clear_color = {};                      ///< The clear color for rendering.
-  glm::vec4 jitter = {};                           ///< xy current jitter, zw previous jitter in clip-space units.
-  glm::vec2 resolution;                            ///< The resolution of the camera.
-  float fade_ratio;                                ///< The fade ratio for transitions.
-  float fade_factor;                               ///< The fade factor for effects.
-  int skybox_texture_index = 0;                    ///< Index of the skybox texture.
-  int environmental_irradiance_texture_index = 0;  ///< Index of the environmental irradiance texture.
-  int environmental_prefiltered_index = 0;         ///< Index of the environmental prefiltered texture.
-  int camera_use_clear_color = 0;                  ///< Flag to indicate if the camera uses the clear color.
+  glm::mat4 projection = {};                           ///< The projection matrix of the camera.
+  glm::mat4 view = {};                                 ///< The view matrix of the camera.
+  glm::mat4 projection_view = {};                      ///< The combined projection and view matrix.
+  glm::mat4 inverse_projection = {};                   ///< The inverse of the projection matrix.
+  glm::mat4 inverse_view = {};                         ///< The inverse of the view matrix.
+  glm::mat4 inverse_projection_view = {};              ///< The inverse of the combined projection and view matrix.
+  glm::mat4 previous_projection_view = {};             ///< The previous frame's combined projection and view matrix.
+  glm::mat4 unjittered_projection_view = {};           ///< The current frame's unjittered projection-view matrix.
+  glm::mat4 previous_unjittered_projection_view = {};  ///< The previous frame's unjittered projection-view matrix.
+  glm::vec4 clear_color = {};                          ///< The clear color for rendering.
+  glm::vec4 jitter = {};                               ///< xy current jitter, zw previous jitter in clip-space units.
+  glm::vec2 resolution;                                ///< The resolution of the camera.
+  float fade_ratio;                                    ///< The fade ratio for transitions.
+  float fade_factor;                                   ///< The fade factor for effects.
+  int skybox_texture_index = 0;                        ///< Index of the skybox texture.
+  int environmental_irradiance_texture_index = 0;      ///< Index of the environmental irradiance texture.
+  int environmental_prefiltered_index = 0;             ///< Index of the environmental prefiltered texture.
+  int camera_use_clear_color = 0;                      ///< Flag to indicate if the camera uses the clear color.
 
   // Ray tracing
   uint32_t firefly_clamp_enabled = 1;
@@ -253,6 +255,8 @@ class Camera final : public IPrivateComponent {
 
   void SetRendered();
   void ResetRenderState();
+  void SetTemporalJitterEnabled(bool value);
+  [[nodiscard]] bool TemporalJitterEnabled() const;
   void ResetFrameCount();
 
  private:
@@ -282,9 +286,10 @@ class Camera final : public IPrivateComponent {
   uint32_t frame_count_ = 0;  ///< Frame count used for tracking rendering updates.
 
   glm::mat4 prev_global_transform_{};
-  bool rendered_ = false;               ///< Indicates whether the camera has rendered.
-  bool require_rendering_ = false;      ///< Indicates whether the camera requires rendering.
-  glm::uvec2 size_ = glm::uvec2(1, 1);  ///< The size of the camera's resolution.
+  bool rendered_ = false;                ///< Indicates whether the camera has rendered.
+  bool require_rendering_ = false;       ///< Indicates whether the camera requires rendering.
+  bool temporal_jitter_enabled_ = true;  ///< Indicates whether TAA projection jitter is allowed.
+  glm::uvec2 size_ = glm::uvec2(1, 1);   ///< The size of the camera's resolution.
   std::shared_ptr<DescriptorSet> g_buffer_descriptor_set_ = VK_NULL_HANDLE;  ///< GBuffer descriptor set.
 
   /**

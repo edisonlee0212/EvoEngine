@@ -83,6 +83,10 @@ Other useful preview flags:
 - `--preview-ser disabled|automatic|enabled`
 - `--preview-ao ssao|gtao|disabled`
 - `--preview-taa enabled|disabled`
+- `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence`
+
+The TAA debug modes enable TAA automatically and capture the motion-vector, depth-confidence, or accumulated
+history-confidence output. Preview post-processing overrides require `--capture-demo-preview`.
 
 ## DemoApp Smoke Run
 

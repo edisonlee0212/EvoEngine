@@ -466,6 +466,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_lighting_texture_layout_;
+  std::shared_ptr<DescriptorSetLayout> motion_vectors_layout_;
   std::shared_ptr<DescriptorSetLayout> depth_pyramid_layout_;
   std::shared_ptr<DescriptorSetLayout> volumetric_clouds_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
@@ -764,6 +765,7 @@ class RenderLayer final : public ILayer {
 #pragma endregion
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
+  std::shared_ptr<ComputePipeline> motion_vectors_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_composite_pipeline_;
   std::shared_ptr<ComputePipeline> gaussian_splat_cull_pipeline_;

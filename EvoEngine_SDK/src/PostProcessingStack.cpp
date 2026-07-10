@@ -32,18 +32,25 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
   if (!copy_pipeline || !copy_pipeline->Initialized() || !resolve_pipeline || !resolve_pipeline->Initialized()) {
     return;
   }
+  if (!post_processing_stack.motion_vectors_image_view) {
+    ResetHistory(target_camera);
+    return;
+  }
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto size = target_camera->GetSize();
   const uint64_t camera_handle = target_camera->GetHandle().GetValue();
   const uint32_t current_frame_index = Platform::GetFrameCount();
   PruneHistory(current_frame_index, camera_handle);
   auto& history = history_resources_[camera_handle];
-  if (history.size != size || !history.textures[0] || !history.textures[1]) {
+  if (history.size != size || !history.textures[0] || !history.textures[1] || !history.depth_textures[0] ||
+      !history.depth_textures[1]) {
     RenderTextureCreateInfo create_info{};
     create_info.depth = false;
     create_info.extent = {size.x, size.y, 1};
     history.textures[0] = std::make_shared<RenderTexture>(create_info);
     history.textures[1] = std::make_shared<RenderTexture>(create_info);
+    history.depth_textures[0] = std::make_shared<RenderTexture>(create_info);
+    history.depth_textures[1] = std::make_shared<RenderTexture>(create_info);
     history.size = size;
     history.frame_index = 0;
     history.valid = false;
@@ -77,12 +84,23 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
     image_info.imageView = history.textures[previous_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.textures[previous_history_index]->GetColorSampler()->GetVkSampler();
     resolve_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageView = post_processing_stack.motion_vectors_image_view->GetVkImageView();
+    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = history.depth_textures[previous_history_index]->GetColorImageView()->GetVkImageView();
+    image_info.sampler = history.depth_textures[previous_history_index]->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(4, image_info);
     image_info.imageView = history.textures[output_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(5, image_info);
+    image_info.imageView = history.depth_textures[output_history_index]->GetColorImageView()->GetVkImageView();
+    image_info.sampler = history.depth_textures[output_history_index]->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(6, image_info);
   }
 
   PushConstant push_constant{};
@@ -92,6 +110,7 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
   push_constant.feedback = glm::clamp(feedback, 0.0f, 0.98f);
   push_constant.clamp_strength = glm::max(clamp_strength, 0.0f);
   push_constant.sharpen = glm::max(sharpen, 0.0f);
+  push_constant.debug_mode = static_cast<int32_t>(debug_mode);
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
@@ -107,6 +126,10 @@ void TemporalAntiAliasing::Process(const PostProcessingStack& post_processing_st
                                                                                   VK_IMAGE_LAYOUT_GENERAL);
     history.textures[output_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+    history.depth_textures[previous_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                        VK_IMAGE_LAYOUT_GENERAL);
+    history.depth_textures[output_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                      VK_IMAGE_LAYOUT_GENERAL);
     resolve_pipeline->Bind(vk_command_buffer);
     resolve_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                         render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
@@ -163,8 +186,11 @@ void TemporalAntiAliasing::BuildPipelines(const bool force_rebuild) {
     resolve_layout = std::make_shared<DescriptorSetLayout>();
     resolve_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     resolve_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    resolve_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    resolve_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    resolve_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     resolve_layout->Initialize();
   }
   if (force_rebuild || !copy_descriptor_set) {
