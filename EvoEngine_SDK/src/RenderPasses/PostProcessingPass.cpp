@@ -13,6 +13,7 @@ RenderPassDescriptor PostProcessingPass::CreateDescriptor(const char* dependency
           RenderPassScope::Camera,
           {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
            {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+           {RenderResourceNames::camera_motion_vectors, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
            {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
           {dependency ? dependency : RenderPassNames::deferred_camera}};
 }
@@ -30,19 +31,23 @@ void PostProcessingPass::Execute(const RenderGraphExecutionContext& context, con
     return;
   }
   if (const auto post_processing_stack = parameters.camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
-    if (parameters.tone_mapping_only) {
-      if (!post_processing_stack->enable_tone_mapping || !post_processing_stack->tone_mapping) {
-        return;
-      }
-      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    post_processing_stack->motion_vectors_image_view = {};
+    if (parameters.ray_camera) {
+      post_processing_stack->ProcessRayCamera(parameters.camera, [&](const VkCommandBuffer vk_command_buffer) {
         ApplyGraphResourceBarriers(vk_command_buffer, context);
       });
-      post_processing_stack->tone_mapping->BuildPipelines();
-      post_processing_stack->tone_mapping->Process(*post_processing_stack, parameters.camera);
       Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
         ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
       });
       return;
+    }
+    if (parameters.transient_resources) {
+      if (const auto* motion_binding = context.GetResourceBinding(RenderResourceNames::camera_motion_vectors);
+          motion_binding && motion_binding->image) {
+        auto motion_vectors_view = CreateGraphImageMipView(motion_binding->image, 0);
+        parameters.transient_resources->RetainImageView(motion_vectors_view);
+        post_processing_stack->motion_vectors_image_view = std::move(motion_vectors_view);
+      }
     }
     post_processing_stack->Process(parameters.camera, [&](const VkCommandBuffer vk_command_buffer) {
       ApplyGraphResourceBarriers(vk_command_buffer, context);

@@ -1082,9 +1082,8 @@ TEST(GltfRayTracingMaterial, RayTracingCameraRoutesLinearOutputThroughPostTonema
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
   ASSERT_FALSE(post_processing_pass.empty());
   EXPECT_NE(post_processing_pass.find("CreateRayTracingDescriptor"), std::string::npos);
-  EXPECT_NE(post_processing_pass.find("tone_mapping_only"), std::string::npos);
-  EXPECT_NE(post_processing_pass.find("tone_mapping->Process(*post_processing_stack, parameters.camera)"),
-            std::string::npos);
+  EXPECT_NE(post_processing_pass.find("ray_camera"), std::string::npos);
+  EXPECT_NE(post_processing_pass.find("post_processing_stack->ProcessRayCamera"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, ToneMappingShaderUsesReferenceNvshadersPresentationPath) {
@@ -1541,7 +1540,7 @@ TEST(GltfRayTracingMaterial, BistroParityCaptureDisablesUnrelatedStateAndLogsCou
   EXPECT_NE(demo_scene_source.find("scene->environment.background_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->environment.ambient_light_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroReferenceToneMapping(scene_camera)"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("enable_screen_space_ambient_occlusion = false"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("enable_ambient_occlusion = false"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("enable_screen_space_reflection = false"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("Bistro parity scene:"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("mesh_primitives="), std::string::npos);

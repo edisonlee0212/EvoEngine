@@ -8,16 +8,28 @@
 #include "Shader.hpp"
 using namespace evo_engine;
 
-void ScreenSpaceAmbientOcclusion::Serialize(YAML::Emitter& out) const {
+void AmbientOcclusion::Serialize(YAML::Emitter& out) const {
+  out << YAML::Key << "algorithm" << YAML::Value << static_cast<int>(algorithm);
   out << YAML::Key << "avoid_distance" << YAML::Value << avoid_distance;
   out << YAML::Key << "kernel_size" << YAML::Value << kernel_size;
   out << YAML::Key << "radius" << YAML::Value << radius;
   out << YAML::Key << "bias" << YAML::Value << bias;
   out << YAML::Key << "factor" << YAML::Value << factor;
   out << YAML::Key << "intensity" << YAML::Value << intensity;
+  out << YAML::Key << "gtao_radius" << YAML::Value << gtao_radius;
+  out << YAML::Key << "gtao_bias" << YAML::Value << gtao_bias;
+  out << YAML::Key << "gtao_intensity" << YAML::Value << gtao_intensity;
+  out << YAML::Key << "thickness" << YAML::Value << thickness;
+  out << YAML::Key << "slice_count" << YAML::Value << slice_count;
+  out << YAML::Key << "steps_per_slice" << YAML::Value << steps_per_slice;
+  out << YAML::Key << "denoise_radius" << YAML::Value << denoise_radius;
 }
 
-void ScreenSpaceAmbientOcclusion::Deserialize(const YAML::Node& in) {
+void AmbientOcclusion::Deserialize(const YAML::Node& in) {
+  if (in["algorithm"]) {
+    const auto value = in["algorithm"].as<int>();
+    algorithm = value == static_cast<int>(Algorithm::Ssao) ? Algorithm::Ssao : Algorithm::Gtao;
+  }
   if (in["avoid_distance"])
     avoid_distance = in["avoid_distance"].as<float>();
   if (in["kernel_size"])
@@ -30,10 +42,24 @@ void ScreenSpaceAmbientOcclusion::Deserialize(const YAML::Node& in) {
     factor = in["factor"].as<float>();
   if (in["intensity"])
     intensity = in["intensity"].as<float>();
+  if (in["gtao_radius"])
+    gtao_radius = in["gtao_radius"].as<float>();
+  if (in["gtao_bias"])
+    gtao_bias = in["gtao_bias"].as<float>();
+  if (in["gtao_intensity"])
+    gtao_intensity = in["gtao_intensity"].as<float>();
+  if (in["thickness"])
+    thickness = in["thickness"].as<float>();
+  if (in["slice_count"])
+    slice_count = in["slice_count"].as<int>();
+  if (in["steps_per_slice"])
+    steps_per_slice = in["steps_per_slice"].as<int>();
+  if (in["denoise_radius"])
+    denoise_radius = in["denoise_radius"].as<float>();
 }
 
-void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
-                                          const std::shared_ptr<Camera>& target_camera) {
+void AmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
+                               const std::shared_ptr<Camera>& target_camera) {
   if (!geometry_pipeline || !geometry_pipeline->Initialized() || !blur_pipeline || !blur_pipeline->Initialized() ||
       !combine_pipeline || !combine_pipeline->Initialized())
     return;
@@ -81,10 +107,14 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
   const auto size = target_camera->GetSize();
   PushConstant push_constant;
   push_constant.kernel_size = kernel_size;
-  push_constant.radius = radius;
-  push_constant.bias = bias;
+  push_constant.radius = algorithm == Algorithm::Gtao ? gtao_radius : radius;
+  push_constant.bias = algorithm == Algorithm::Gtao ? gtao_bias : bias;
   push_constant.factor = factor;
-  push_constant.intensity = intensity;
+  push_constant.intensity = algorithm == Algorithm::Gtao ? gtao_intensity : intensity;
+  push_constant.algorithm = static_cast<int>(algorithm);
+  push_constant.slice_count = slice_count;
+  push_constant.steps_per_slice = steps_per_slice;
+  push_constant.thickness = thickness;
   push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -107,7 +137,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
     Platform::EverythingBarrier(vk_command_buffer);
   });
   BlurPushConstant blur_push_constant{};
-  blur_push_constant.avoid_distance = avoid_distance;
+  blur_push_constant.avoid_distance = algorithm == Algorithm::Gtao ? denoise_radius : avoid_distance;
   blur_push_constant.camera_near = target_camera->camera_settings.near_distance;
   blur_push_constant.camera_far = target_camera->camera_settings.far_distance;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -148,7 +178,7 @@ void ScreenSpaceAmbientOcclusion::Process(const PostProcessingStack& post_proces
   });
 }
 
-void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
+void AmbientOcclusion::BuildPipelines(const bool force_rebuild) {
   if (force_rebuild || !combine_layout) {
     combine_layout = std::make_shared<DescriptorSetLayout>();
     combine_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -165,7 +195,7 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
     geometry_pipeline = std::make_shared<ComputePipeline>();
     geometry_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSAOGeometry.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/AmbientOcclusionGeometry.comp");
     geometry_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     geometry_pipeline->descriptor_set_layouts.emplace_back(
@@ -183,7 +213,7 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
     combine_pipeline = std::make_shared<ComputePipeline>();
     combine_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSAOCombine.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/AmbientOcclusionCombine.comp");
     combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
     combine_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTextureStorageDescriptorSetLayout());
@@ -212,8 +242,9 @@ void ScreenSpaceAmbientOcclusion::BuildPipelines(const bool force_rebuild) {
 
   if (force_rebuild || !blur_pipeline) {
     blur_pipeline = std::make_shared<ComputePipeline>();
-    blur_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSAOBlur.comp");
+    blur_pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Resources::GetDefaultResourcesPath() /
+                                                         "Shaders/Compute/PostProcessing/AmbientOcclusionBlur.comp");
     blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);
     blur_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());

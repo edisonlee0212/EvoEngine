@@ -634,22 +634,158 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
   return changed;
 }
 
-bool InspectScreenSpaceAmbientOcclusion(ScreenSpaceAmbientOcclusion& ssao) {
+bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
   bool changed = false;
-  if (ImGui::DragInt("Kernel size", &ssao.kernel_size, 1, 1, 64))
+  int algorithm = static_cast<int>(ambient_occlusion.algorithm);
+  const char* algorithms[] = {"SSAO", "GTAO"};
+  if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
+    ambient_occlusion.algorithm =
+        algorithm == 0 ? AmbientOcclusion::Algorithm::Ssao : AmbientOcclusion::Algorithm::Gtao;
     changed = true;
-  if (ImGui::DragFloat("Disk radius", &ssao.radius, 0.001f, 0.0f, 10.f))
-    changed = true;
-  if (ImGui::DragFloat("Bias", &ssao.bias, 0.001f, 0.0f, 1.f))
-    changed = true;
-  if (ImGui::DragFloat("Factor", &ssao.factor, 0.01f, 0.0f, 5.f))
-    changed = true;
-  if (ImGui::DragFloat("Intensity", &ssao.intensity, 0.01f, 0.0f, 5.f))
-    changed = true;
-  if (ImGui::DragFloat("Avoid distance", &ssao.avoid_distance, 0.1f, 0.0f, 100.f))
-    changed = true;
+  }
+  if (ambient_occlusion.algorithm == AmbientOcclusion::Algorithm::Ssao) {
+    if (ImGui::DragInt("Kernel size", &ambient_occlusion.kernel_size, 1, 1, 64))
+      changed = true;
+    if (ImGui::DragFloat("Disk radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
+      changed = true;
+    if (ImGui::DragFloat("Bias", &ambient_occlusion.bias, 0.001f, 0.0f, 1.f))
+      changed = true;
+    if (ImGui::DragFloat("Factor", &ambient_occlusion.factor, 0.01f, 0.0f, 5.f))
+      changed = true;
+    if (ImGui::DragFloat("Intensity", &ambient_occlusion.intensity, 0.01f, 0.0f, 5.f))
+      changed = true;
+    if (ImGui::DragFloat("Avoid distance", &ambient_occlusion.avoid_distance, 0.1f, 0.0f, 100.f))
+      changed = true;
+  } else {
+    if (ImGui::DragFloat("Radius", &ambient_occlusion.gtao_radius, 0.001f, 0.0f, 10.f))
+      changed = true;
+    if (ImGui::DragFloat("Thickness", &ambient_occlusion.thickness, 0.01f, 0.001f, 10.f))
+      changed = true;
+    if (ImGui::DragInt("Slice count", &ambient_occlusion.slice_count, 1, 1, 16))
+      changed = true;
+    if (ImGui::DragInt("Steps per slice", &ambient_occlusion.steps_per_slice, 1, 1, 16))
+      changed = true;
+    if (ImGui::DragFloat("Intensity", &ambient_occlusion.gtao_intensity, 0.01f, 0.0f, 5.f))
+      changed = true;
+    if (ImGui::DragFloat("Denoise radius", &ambient_occlusion.denoise_radius, 0.01f, 0.0f, 100.f))
+      changed = true;
+    if (ImGui::DragFloat("Bias", &ambient_occlusion.gtao_bias, 0.001f, 0.0f, 1.f))
+      changed = true;
+  }
   if (ImGui::Button("Rebuild pipelines")) {
-    ssao.BuildPipelines();
+    ambient_occlusion.BuildPipelines();
+  }
+  return changed;
+}
+
+bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
+  bool changed = false;
+  int algorithm = static_cast<int>(anti_aliasing.algorithm);
+  const char* algorithms[] = {"TAA", "SMAA"};
+  if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
+    anti_aliasing.algorithm = static_cast<AntiAliasing::Algorithm>(algorithm);
+    anti_aliasing.ResetHistory();
+    changed = true;
+  }
+
+  if (anti_aliasing.algorithm == AntiAliasing::Algorithm::Smaa) {
+    int preset = static_cast<int>(anti_aliasing.smaa.preset);
+    const char* presets[] = {"Low", "Medium", "High", "Ultra"};
+    if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
+      anti_aliasing.smaa.preset = static_cast<AntiAliasing::SmaaPreset>(preset);
+      changed = true;
+    }
+    int debug_mode = static_cast<int>(anti_aliasing.smaa.debug_mode);
+    const char* debug_modes[] = {"None", "Edges", "Blend weights"};
+    if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
+      anti_aliasing.smaa.debug_mode = static_cast<AntiAliasing::SmaaDebugMode>(debug_mode);
+      changed = true;
+    }
+    if (ImGui::Button("Rebuild pipelines")) {
+      anti_aliasing.BuildPipelines(true);
+    }
+    return changed;
+  }
+
+  auto& taa = anti_aliasing.taa;
+  int preset = static_cast<int>(taa.preset);
+  const char* presets[] = {"Best Quality", "High Quality", "Performance", "Custom"};
+  if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
+    anti_aliasing.ApplyTaaPreset(static_cast<AntiAliasing::TaaPreset>(preset));
+    changed = true;
+  }
+
+  const auto mark_custom = [&] {
+    taa.preset = AntiAliasing::TaaPreset::Custom;
+    anti_aliasing.ResetHistory();
+    changed = true;
+  };
+
+  int variance_mode = static_cast<int>(taa.variance_clipping_mode);
+  const char* variance_modes[] = {"Disabled", "Clamp", "Intersection"};
+  if (ImGui::Combo("Variance clipping", &variance_mode, variance_modes, IM_ARRAYSIZE(variance_modes))) {
+    taa.variance_clipping_mode = static_cast<AntiAliasing::VarianceClippingMode>(variance_mode);
+    mark_custom();
+  }
+  int variance_samples = taa.variance_sample_count == 5 ? 0 : 1;
+  const char* sample_counts[] = {"5 samples", "9 samples"};
+  if (ImGui::Combo("Variance samples", &variance_samples, sample_counts, IM_ARRAYSIZE(sample_counts))) {
+    taa.variance_sample_count = variance_samples == 0 ? 5 : 9;
+    mark_custom();
+  }
+  int history_color_mode = static_cast<int>(taa.history_color_mode);
+  const char* history_color_modes[] = {"Tone mapped", "Linear HDR"};
+  if (ImGui::Combo("History color", &history_color_mode, history_color_modes, IM_ARRAYSIZE(history_color_modes))) {
+    taa.history_color_mode = static_cast<AntiAliasing::HistoryColorMode>(history_color_mode);
+    mark_custom();
+  }
+  if (ImGui::Checkbox("YCoCg", &taa.use_ycocg))
+    mark_custom();
+  if (ImGui::Checkbox("No-history neighborhood", &taa.use_neighborhood_sampling))
+    mark_custom();
+  if (ImGui::Checkbox("Bicubic history", &taa.use_bicubic_filter))
+    mark_custom();
+  if (ImGui::Checkbox("Longest velocity", &taa.use_longest_velocity))
+    mark_custom();
+  if (taa.use_longest_velocity) {
+    int velocity_samples = taa.longest_velocity_sample_count == 5 ? 0 : 1;
+    if (ImGui::Combo("Velocity samples", &velocity_samples, sample_counts, IM_ARRAYSIZE(sample_counts))) {
+      taa.longest_velocity_sample_count = velocity_samples == 0 ? 5 : 9;
+      mark_custom();
+    }
+  }
+  if (ImGui::Checkbox("Depth threshold", &taa.use_depth_threshold))
+    mark_custom();
+  if (ImGui::DragFloat("Min variance gamma", &taa.min_variance_gamma, 0.01f, 0.0f, 10.0f))
+    mark_custom();
+  if (ImGui::DragFloat("Max variance gamma", &taa.max_variance_gamma, 0.01f, 0.0f, 10.0f))
+    mark_custom();
+  if (ImGui::DragFloat("Velocity rejection (px at 1080p)", &taa.velocity_rejection_threshold, 1.0f, 1.0f, 1024.0f))
+    mark_custom();
+  if (taa.use_depth_threshold &&
+      ImGui::DragFloat("Depth difference", &taa.depth_threshold, 0.0001f, 0.0f, 1.0f, "%.4f"))
+    mark_custom();
+  if (ImGui::DragFloat("Sharpen", &taa.sharpen, 0.01f, 0.0f, 1.0f))
+    mark_custom();
+  if (ImGui::Checkbox("Thread-group cache", &taa.use_tgsm))
+    mark_custom();
+  const bool fp16_supported = Platform::GetInstance().GetCapabilities().support_shader_float16;
+  ImGui::BeginDisabled(!fp16_supported);
+  if (ImGui::Checkbox("FP16", &taa.use_fp16))
+    mark_custom();
+  ImGui::EndDisabled();
+
+  int debug_mode = static_cast<int>(taa.debug_mode);
+  const char* debug_modes[] = {"None", "Motion", "Depth confidence", "History confidence", "No history"};
+  if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
+    taa.debug_mode = static_cast<AntiAliasing::TaaDebugMode>(debug_mode);
+    changed = true;
+  }
+  if (ImGui::Button("Reset history")) {
+    anti_aliasing.ResetHistory();
+  }
+  if (ImGui::Button("Rebuild pipelines")) {
+    anti_aliasing.BuildPipelines(true);
   }
   return changed;
 }
@@ -728,17 +864,10 @@ bool InspectToneMapping(ToneMapping& tone_mapping) {
 bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
   bool changed = false;
 
-  if (ImGui::Checkbox("SSAO##0", &stack.enable_screen_space_ambient_occlusion))
+  if (ImGui::Checkbox("AO##0", &stack.enable_ambient_occlusion))
     changed = true;
-  if (stack.enable_screen_space_ambient_occlusion && ImGui::TreeNodeEx("SSAO##1", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (InspectScreenSpaceAmbientOcclusion(*stack.screen_space_ambient_occlusion))
-      changed = true;
-    ImGui::TreePop();
-  }
-  if (ImGui::Checkbox("Bloom##0", &stack.enable_bloom))
-    changed = true;
-  if (stack.enable_bloom && ImGui::TreeNodeEx("Bloom##1", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (InspectBloom(*stack.bloom))
+  if (stack.enable_ambient_occlusion && ImGui::TreeNodeEx("AO##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectAmbientOcclusion(*stack.ambient_occlusion))
       changed = true;
     ImGui::TreePop();
   }
@@ -746,6 +875,20 @@ bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
     changed = true;
   if (stack.enable_screen_space_reflection && ImGui::TreeNodeEx("SSR##1", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (InspectScreenSpaceReflection(*stack.screen_space_reflection))
+      changed = true;
+    ImGui::TreePop();
+  }
+  if (ImGui::Checkbox("AA##0", &stack.enable_anti_aliasing))
+    changed = true;
+  if (stack.enable_anti_aliasing && ImGui::TreeNodeEx("AA##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectAntiAliasing(*stack.anti_aliasing))
+      changed = true;
+    ImGui::TreePop();
+  }
+  if (ImGui::Checkbox("Bloom##0", &stack.enable_bloom))
+    changed = true;
+  if (stack.enable_bloom && ImGui::TreeNodeEx("Bloom##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectBloom(*stack.bloom))
       changed = true;
     ImGui::TreePop();
   }

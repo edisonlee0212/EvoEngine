@@ -1,6 +1,7 @@
 #include "DemoScene.hpp"
 
 #include "AnimationPlayer.hpp"
+#include "Animator.hpp"
 #include "Application.hpp"
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
@@ -56,9 +57,83 @@ constexpr int kBistroDdgiTargetLongestAxisProbeCount = 24;
 constexpr float kBistroDdgiMinProbeSpacing = 0.05f;
 constexpr float kBistroDdgiBoundsPadding = 1.05f;
 constexpr float kBistroDirectionalLightIntensity = 10.0f;
+constexpr float kBistroDirectionalLightSize = 0.01f;
 constexpr const char* kRenderingRegressionRootName = "M42 Rendering Regression Root";
 constexpr const char* kBistroDdgiVolumeName = "DDGI Probe Volume";
 constexpr const char* kBistroImportedSunLightName = "Sun directional light";
+
+struct RenderingRegressionTemporalMotionState {
+  std::weak_ptr<Scene> scene;
+  Entity rigid_entity;
+  Entity transparent_entity;
+  Entity skinned_entity;
+  uint64_t frame = 0;
+  bool enabled = false;
+};
+
+std::shared_ptr<RenderingRegressionTemporalMotionState> rendering_regression_temporal_motion_state;
+bool rendering_regression_temporal_motion_registered = false;
+
+void RegisterRenderingRegressionTemporalMotionUpdate() {
+  if (rendering_regression_temporal_motion_registered) {
+    return;
+  }
+  rendering_regression_temporal_motion_registered = true;
+  ApplicationContext::Get().RegisterUpdateFunction([] {
+    const auto state = rendering_regression_temporal_motion_state;
+    if (!state || !state->enabled) {
+      return;
+    }
+    const auto scene = state->scene.lock();
+    auto& application = ApplicationContext::Get();
+    if (!scene || application.GetActiveScene() != scene) {
+      return;
+    }
+
+    const float phase = static_cast<float>(state->frame % 240u) * (2.0f * glm::pi<float>() / 240.0f);
+    ++state->frame;
+    if (scene->IsEntityValid(state->rigid_entity)) {
+      Transform transform;
+      transform.SetValue(glm::vec3(glm::sin(phase) * 1.65f, -0.14f, -1.55f), glm::vec3(0.0f, phase * 1.5f, 0.0f),
+                         glm::vec3(0.24f));
+      scene->SetDataComponent(state->rigid_entity, transform);
+    }
+    if (scene->IsEntityValid(state->transparent_entity)) {
+      Transform transform;
+      transform.SetValue(glm::vec3(glm::cos(phase * 0.8f) * 1.35f, 0.42f, -1.15f), glm::vec3(phase * 0.7f, phase, 0.0f),
+                         glm::vec3(0.28f));
+      scene->SetDataComponent(state->transparent_entity, transform);
+    }
+    if (scene->IsEntityValid(state->skinned_entity) && scene->HasPrivateComponent<Animator>(state->skinned_entity)) {
+      const auto animator = scene->GetOrSetPrivateComponent<Animator>(state->skinned_entity).lock();
+      const auto animation = animator ? animator->GetAnimation() : nullptr;
+      if (animation) {
+        const auto animation_name = animator->GetCurrentAnimationName();
+        const auto animation_length = animation->GetAnimationLength(animation_name);
+        if (animation_length > 0.0f) {
+          animator->Animate(glm::mod(static_cast<float>(state->frame), animation_length));
+        }
+      }
+    }
+
+    const glm::vec3 base_position(0.0f, 1.15f, 5.6f);
+    const glm::vec3 camera_position =
+        base_position +
+        glm::vec3(glm::sin(phase * 0.5f) * 0.12f, glm::sin(phase) * 0.035f, glm::cos(phase * 0.5f) * 0.08f);
+    const glm::vec3 camera_target(glm::sin(phase * 0.4f) * 0.08f, 0.35f, -2.4f);
+    const auto camera_rotation =
+        glm::quatLookAt(glm::normalize(camera_target - camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
+    if (const auto main_camera = scene->main_camera.Get<Camera>()) {
+      Transform transform;
+      transform.SetValue(camera_position, camera_rotation, glm::vec3(1.0f));
+      scene->SetDataComponent(main_camera->GetOwner(), transform);
+    }
+    if (const auto editor_layer = application.GetLayer<EditorLayer>()) {
+      editor_layer->SetSceneCameraPosition(camera_position);
+      editor_layer->SetSceneCameraRotation(camera_rotation);
+    }
+  });
+}
 
 struct GaussianSplatDemoCameraPose {
   glm::vec3 position = glm::vec3(0.0f);
@@ -413,6 +488,13 @@ void ConfigureBistroCameraPostProcessing(const std::shared_ptr<Camera>& camera) 
   }
   post_processing_stack->enable_bloom = false;
   post_processing_stack->enable_screen_space_reflection = false;
+}
+
+void ConfigureBistroRasterizationPostProcessing(const std::shared_ptr<Camera>& camera) {
+  if (!camera) {
+    return;
+  }
+  camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
 }
 
 void ConfigureBistroReferenceToneMapping(const std::shared_ptr<Camera>& camera) {
@@ -1203,7 +1285,9 @@ void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
     }
     const auto previous_color = light->diffuse * light->diffuse_brightness;
     const auto previous_brightness = light->diffuse_brightness;
+    const auto previous_light_size = light->light_size;
     light->diffuse_brightness = kBistroDirectionalLightIntensity;
+    light->light_size = kBistroDirectionalLightSize;
     const auto effective_color = light->diffuse * light->diffuse_brightness;
 
     std::ostringstream stream;
@@ -1212,15 +1296,24 @@ void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
            << ", target_brightness=" << kBistroDirectionalLightIntensity
            << ", effective_brightness=" << light->diffuse_brightness << ", previous_to_effective_ratio="
            << (kBistroDirectionalLightIntensity > 0.0f ? previous_brightness / kBistroDirectionalLightIntensity : 0.0f)
-           << ", previous_color=(" << previous_color.x << "," << previous_color.y << "," << previous_color.z
-           << "), effective_color=(" << effective_color.x << "," << effective_color.y << "," << effective_color.z
-           << ")";
+           << ", previous_light_size=" << previous_light_size << ", target_light_size=" << kBistroDirectionalLightSize
+           << ", effective_light_size=" << light->light_size << ", previous_color=(" << previous_color.x << ","
+           << previous_color.y << "," << previous_color.z << "), effective_color=(" << effective_color.x << ","
+           << effective_color.y << "," << effective_color.z << ")";
     EVOENGINE_LOG(stream.str())
     return;
   }
   EVOENGINE_WARNING("Bistro directional light policy: imported Sun directional light was not found.")
 }
 }  // namespace
+
+void evo_engine::SetRenderingRegressionTemporalMotionEnabled(const bool enabled) {
+  if (!rendering_regression_temporal_motion_state) {
+    return;
+  }
+  rendering_regression_temporal_motion_state->enabled = enabled;
+  rendering_regression_temporal_motion_state->frame = 0;
+}
 
 void evo_engine::ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene) {
   ConfigureGaussianSplatDemoSceneImpl(scene, kSpatialDragonGaussianSplatHandle, "Spatial Dragon", "Spatial Dragon 3DGS",
@@ -1282,10 +1375,34 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
   CreateRenderingRegressionProbe(scene, root, "M42 Punctual Light Shadow Blocker", primitives.cube,
                                  glm::vec3(0.95f, -0.08f, -2.15f), glm::vec3(0.18f, 0.62f, 0.18f),
                                  glm::vec3(0.18f, 0.20f, 0.24f), 0.8f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 Temporal Depth Discontinuity", primitives.cube,
+                                 glm::vec3(0.0f, 0.05f, -2.45f), glm::vec3(1.9f, 0.72f, 0.08f), glm::vec3(0.02f), 1.0f,
+                                 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 Saturated Red Probe", primitives.cube,
+                                 glm::vec3(-2.75f, 0.35f, -2.0f), glm::vec3(0.22f, 0.85f, 0.08f),
+                                 glm::vec3(1.0f, 0.0f, 0.0f), 0.8f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M42 High Contrast White Probe", primitives.cube,
+                                 glm::vec3(2.55f, 0.35f, -2.0f), glm::vec3(0.20f, 0.85f, 0.08f), glm::vec3(1.0f), 0.8f,
+                                 0.0f);
+  const auto moving_rigid = CreateRenderingRegressionProbe(
+      scene, root, "M42 Temporal Moving Rigid Probe", primitives.cube, glm::vec3(0.0f, -0.14f, -1.55f),
+      glm::vec3(0.24f), glm::vec3(1.0f, 0.85f, 0.05f), 0.28f, 0.1f);
+  const auto moving_transparent = CreateRenderingRegressionProbe(
+      scene, root, "M42 Temporal Moving Transparent Probe", primitives.sphere, glm::vec3(1.35f, 0.42f, -1.15f),
+      glm::vec3(0.28f), glm::vec3(0.25f, 0.65f, 1.0f), 0.12f, 0.0f, 0.0f, false, 0.72f);
 
   ConfigureRenderingRegressionImportedProbes(scene, root);
   ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);
+
+  rendering_regression_temporal_motion_state = std::make_shared<RenderingRegressionTemporalMotionState>();
+  rendering_regression_temporal_motion_state->scene = scene;
+  rendering_regression_temporal_motion_state->rigid_entity = moving_rigid;
+  rendering_regression_temporal_motion_state->transparent_entity = moving_transparent;
+  if (const auto skinned_entity = FindEntityNamed(scene, "M42 Skinned Capoeira Probe")) {
+    rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
+  }
+  RegisterRenderingRegressionTemporalMotionUpdate();
 }
 
 void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<Camera>& camera) {
@@ -1294,11 +1411,19 @@ void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<C
 
 void evo_engine::ConfigureBistroParityCapture(const std::shared_ptr<Scene>& scene,
                                               const std::shared_ptr<Camera>& camera) {
+  if (!scene || !camera) {
+    return;
+  }
+  if (!Camera::IsRayCameraRenderMode(Camera::ResolveCameraRenderMode(camera->camera_render_mode))) {
+    scene->environment.ddgi_settings.runtime.enabled = true;
+    scene->environment.ddgi_settings.debug.enabled = false;
+    ConfigureBistroRasterizationPostProcessing(camera);
+    camera->ResetFrameCount();
+    return;
+  }
   ApplyBistroParityRendererState(scene);
   ConfigureBistroReferenceToneMapping(camera);
-  if (camera) {
-    camera->camera_settings.bounce = kBistroReferencePathTraceMaxDepth;
-  }
+  camera->camera_settings.bounce = kBistroReferencePathTraceMaxDepth;
 }
 
 void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera,
@@ -1310,6 +1435,7 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
   const auto bistro = std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/Bistro/bistro.gltf"));
   const auto stats = GatherBistroParityStats(scene, bistro);
   const auto light_count = stats.directional_light_count + stats.point_light_count + stats.spot_light_count;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   std::ostringstream stream;
   stream << "Bistro parity scene: output=" << output_path.string() << ", render_mode=" << render_mode_name
          << ", resolution=" << width << "x" << height << ", mesh_primitives=" << stats.mesh_primitive_count
@@ -1328,6 +1454,7 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
          << ", camera_far=" << camera->camera_settings.far_distance
          << ", camera_samples=" << camera->camera_settings.sample_size
          << ", camera_bounces=" << camera->camera_settings.bounce << ", camera_gamma=" << camera->camera_settings.gamma
+         << ", directional_shadow_map_resolution=" << graphics_settings.directional_light_shadow_map_resolution
          << ", environment_type=" << BistroEnvironmentTypeName(scene->environment.environment_type)
          << ", background_intensity=" << scene->environment.background_intensity
          << ", ambient_light_intensity=" << scene->environment.ambient_light_intensity
@@ -1339,17 +1466,29 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
     stream << ", camera_position=(" << position.x << "," << position.y << "," << position.z << "), camera_rotation=("
            << rotation.w << "," << rotation.x << "," << rotation.y << "," << rotation.z << ")";
   }
-  if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>();
-      post_processing_stack && post_processing_stack->tone_mapping) {
-    const auto& tone_mapping = *post_processing_stack->tone_mapping;
-    stream << ", tone_mapping_enabled=" << post_processing_stack->enable_tone_mapping
-           << ", tone_mapping_method=" << static_cast<int>(tone_mapping.method)
-           << ", tone_mapping_exposure=" << tone_mapping.exposure
-           << ", tone_mapping_brightness=" << tone_mapping.brightness
-           << ", tone_mapping_contrast=" << tone_mapping.contrast
-           << ", tone_mapping_saturation=" << tone_mapping.saturation
-           << ", tone_mapping_auto_exposure=" << tone_mapping.auto_exposure
-           << ", tone_mapping_average_mode=" << tone_mapping.average_mode;
+  if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+    stream << ", ambient_occlusion_enabled=" << post_processing_stack->enable_ambient_occlusion
+           << ", bloom_enabled=" << post_processing_stack->enable_bloom
+           << ", screen_space_reflection_enabled=" << post_processing_stack->enable_screen_space_reflection
+           << ", anti_aliasing_enabled=" << post_processing_stack->enable_anti_aliasing
+           << ", tone_mapping_enabled=" << post_processing_stack->enable_tone_mapping;
+    if (post_processing_stack->ambient_occlusion) {
+      stream << ", ambient_occlusion_algorithm="
+             << static_cast<int>(post_processing_stack->ambient_occlusion->algorithm);
+    }
+    if (post_processing_stack->anti_aliasing) {
+      stream << ", anti_aliasing_algorithm=" << static_cast<int>(post_processing_stack->anti_aliasing->algorithm);
+    }
+    if (post_processing_stack->tone_mapping) {
+      const auto& tone_mapping = *post_processing_stack->tone_mapping;
+      stream << ", tone_mapping_method=" << static_cast<int>(tone_mapping.method)
+             << ", tone_mapping_exposure=" << tone_mapping.exposure
+             << ", tone_mapping_brightness=" << tone_mapping.brightness
+             << ", tone_mapping_contrast=" << tone_mapping.contrast
+             << ", tone_mapping_saturation=" << tone_mapping.saturation
+             << ", tone_mapping_auto_exposure=" << tone_mapping.auto_exposure
+             << ", tone_mapping_average_mode=" << tone_mapping.average_mode;
+    }
   }
   EVOENGINE_LOG(stream.str())
 }

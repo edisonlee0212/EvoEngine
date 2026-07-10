@@ -41,15 +41,18 @@ struct SkinnedVertexAttributes {
  * @brief Manages bone matrices used for skeletal animations.
  */
 class BoneMatrices {
-  uint32_t version_ = 0;                                       /**< Version of the bone matrices. */
-  std::vector<std::unique_ptr<Buffer>> bone_matrices_buffer_;  /**< Buffer for storing bone matrices. */
+  uint32_t version_ = 0;                                      /**< Version of the bone matrices. */
+  std::vector<std::unique_ptr<Buffer>> bone_matrices_buffer_; /**< Buffer for storing bone matrices. */
+  std::vector<std::unique_ptr<Buffer>> previous_bone_matrices_buffer_;
   std::vector<std::shared_ptr<DescriptorSet>> descriptor_set_; /**< Descriptor sets for the bone matrices. */
   friend class RenderLayer;
+  friend class RenderInstanceStorage;
 
   /**
    * @brief Uploads bone matrix data to the GPU or relevant buffers.
    */
   void UploadData();
+  void UploadPreviousData(const std::vector<glm::mat4>& matrices);
 
  public:
   std::vector<glm::mat4> value; /**< Bone matrix values. */
@@ -59,6 +62,8 @@ class BoneMatrices {
    * @return A shared pointer to the descriptor set.
    */
   [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetDescriptorSet() const;
+
+  [[nodiscard]] VkDescriptorBufferInfo GetPreviousBufferInfo() const;
 
   /**
    * @brief Constructor for BoneMatrices.

@@ -200,6 +200,7 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(demo_scene_source.find("kBistroReferenceCameraEvoEngineFov = kBistroReferenceCameraYFov * 2.0f"),
             std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroCameraPostProcessing"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("ConfigureBistroRasterizationPostProcessing"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroReferenceToneMapping"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroRayTracingPostProcessing"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("tone_mapping.method = ToneMapping::ToneMapMethod::Filmic"), std::string::npos);
@@ -207,6 +208,8 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(demo_scene_source.find("tone_mapping.brightness = 1.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("tone_mapping.auto_exposure = true"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("tone_mapping.average_mode = 1"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("kBistroDirectionalLightSize = 0.01f"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("light->light_size = kBistroDirectionalLightSize"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("glm::quatLookAt(kBistroReferenceCameraFront"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("CalculateBistroRootTransformForCameraFrame"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("frame.position - root_rotation * kBistroReferenceCameraPosition"),
@@ -235,4 +238,14 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(editor_source.find("demo_profile_id == DemoProfileId::Bistro"), std::string::npos);
   EXPECT_NE(editor_source.find("Camera::IsRayCameraRenderMode(resolved_render_mode)"), std::string::npos);
   EXPECT_NE(editor_source.find("ConfigureBistroRayTracingPostProcessing(scene_camera)"), std::string::npos);
+
+  const auto post_processing_source =
+      ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "PostProcessingStack.cpp");
+  EXPECT_NE(post_processing_source.find("enable_ambient_occlusion = true;\n  enable_bloom = false;\n  "
+                                        "enable_screen_space_reflection = false;"),
+            std::string::npos);
+  EXPECT_NE(demo_scene_source.find("scene->environment.ddgi_settings.runtime.enabled = true;"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("camera->post_processing_stack_ref = "
+                                   "AssetManager::CreateTemporaryAsset<PostProcessingStack>();"),
+            std::string::npos);
 }

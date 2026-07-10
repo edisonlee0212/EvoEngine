@@ -9,6 +9,7 @@
 #include "Texture2D.hpp"
 
 #include <cmath>
+#include <unordered_map>
 
 using namespace evo_engine;
 
@@ -906,7 +907,8 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
 
-  const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+  const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance,
+                                            const bool rigid_motion_supported) {
     render_instance->instance_index = instance_info_blocks_.size();
     if (render_instance->entity_handle != 0)
       instance_entity_handles_[render_instance->instance_index] = render_instance->entity_handle;
@@ -916,6 +918,7 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     }
     auto& render_instance_block = instance_info_blocks_.emplace_back();
     render_instance->Apply(render_instance_block);
+    rigid_motion_supported_.emplace_back(rigid_motion_supported ? 1u : 0u);
   };
   const auto prepare_gaussian_splat_render_instance =
       [&](const std::shared_ptr<GaussianSplatRenderInstance>& render_instance) {
@@ -985,55 +988,55 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     deferred_mesh_command_index++;
   };
   deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, true);
     register_deferred_mesh_indirect_batch(render_instance);
     register_shadow_mesh_indirect_command(render_instance);
   });
   ValidateDeferredMeshIndirectCommandCount(deferred_render_instances, mesh_draw_indexed_indirect_commands,
                                            mesh_draw_mesh_tasks_indirect_commands);
   deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
   deferred_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
   deferred_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
 
   forward_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, true);
   });
   forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
   forward_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
   forward_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
 
   transparent_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, true);
   });
   transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
   transparent_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
   transparent_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
 
   gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance([&](const auto& render_instance) {
     prepare_gaussian_splat_render_instance(render_instance);
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
 
   external_render_instances->ForEachExternalRenderInstance([&](const auto& render_instance) {
-    register_render_instance(render_instance);
+    register_render_instance(render_instance, false);
   });
 }
 
@@ -1414,6 +1417,10 @@ RenderInstanceStorage::RenderInstanceStorage() {
   buffer_create_info.size =
       glm::max(static_cast<size_t>(1), sizeof(InstanceInfoBlock) * Platform::Constants::initial_instance_size);
   instance_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.size =
+      glm::max(static_cast<size_t>(1), sizeof(PreviousInstanceInfoBlock) * Platform::Constants::initial_instance_size);
+  previous_instance_info_descriptor_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
   buffer_create_info.size = glm::max(static_cast<size_t>(1),
                                      sizeof(VkDrawIndexedIndirectCommand) * mesh_draw_indexed_indirect_commands.size());
@@ -1495,6 +1502,8 @@ void RenderInstanceStorage::Clear() {
   raster_material_descriptor_sets.clear();
   raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   instance_info_blocks_.clear();
+  previous_instance_info_blocks_.clear();
+  rigid_motion_supported_.clear();
   directional_light_info_blocks_.clear();
   point_light_info_blocks_.clear();
   spot_light_info_blocks_.clear();
@@ -1516,6 +1525,7 @@ void RenderInstanceStorage::Upload() const {
   gltf_material_descriptor_buffer->UploadVector(gltf_material_cache_.GetShadeMaterials());
   gltf_texture_info_descriptor_buffer->UploadVector(gltf_material_cache_.GetTextureInfos());
   instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
+  previous_instance_info_descriptor_buffer->UploadVector(previous_instance_info_blocks_);
   render_info_descriptor_buffer->Upload(render_info_block);
   directional_light_info_descriptor_buffer->UploadVector(directional_light_info_blocks_);
   point_light_info_descriptor_buffer->UploadVector(point_light_info_blocks_);
@@ -1541,6 +1551,129 @@ const std::vector<GltfTextureInfo>& RenderInstanceStorage::GetGltfTextureInfos()
 
 const std::vector<RenderInstanceStorage::InstanceInfoBlock>& RenderInstanceStorage::GetInstanceInfoBlocks() const {
   return instance_info_blocks_;
+}
+
+const std::vector<RenderInstanceStorage::PreviousInstanceInfoBlock>&
+RenderInstanceStorage::GetPreviousInstanceInfoBlocks() const {
+  return previous_instance_info_blocks_;
+}
+
+void RenderInstanceStorage::BuildPreviousInstanceInfoBlocks(
+    const std::shared_ptr<RenderInstanceStorage>& previous_render_instances) {
+  previous_instance_info_blocks_.resize(instance_info_blocks_.size());
+  std::unordered_map<uint32_t, size_t> previous_entity_indices;
+  if (previous_render_instances) {
+    const auto& previous_blocks = previous_render_instances->instance_info_blocks_;
+    previous_entity_indices.reserve(previous_blocks.size());
+    for (size_t index = 0; index < previous_blocks.size(); ++index) {
+      const auto entity_index = previous_blocks[index].entity_index;
+      if (entity_index != 0u) {
+        previous_entity_indices.try_emplace(entity_index, index);
+      }
+    }
+  }
+  for (size_t index = 0; index < instance_info_blocks_.size(); ++index) {
+    const auto& current = instance_info_blocks_[index];
+    auto& previous = previous_instance_info_blocks_[index];
+    previous.previous_model = current.model.value;
+    previous.flags = {};
+    if (!previous_render_instances) {
+      continue;
+    }
+    int previous_index = -1;
+    if (current.renderer_handle != 0) {
+      const auto renderer_search = previous_render_instances->renderer_indices_.find(current.renderer_handle);
+      if (renderer_search != previous_render_instances->renderer_indices_.end()) {
+        previous_index = renderer_search->second;
+      }
+    }
+    if (previous_index < 0 && current.entity_index != 0u) {
+      const auto entity_search = previous_entity_indices.find(current.entity_index);
+      if (entity_search != previous_entity_indices.end()) {
+        previous_index = static_cast<int>(entity_search->second);
+      }
+    }
+    if (previous_index < 0 ||
+        static_cast<size_t>(previous_index) >= previous_render_instances->instance_info_blocks_.size()) {
+      continue;
+    }
+    previous.previous_model = previous_render_instances->instance_info_blocks_[previous_index].model.value;
+    if (index < rigid_motion_supported_.size() && rigid_motion_supported_[index] != 0u) {
+      previous.flags.x = 1u;
+    }
+  }
+
+  std::unordered_map<Handle, std::shared_ptr<SkinnedMeshRenderInstance>> previous_by_renderer;
+  std::unordered_map<Handle, std::shared_ptr<SkinnedMeshRenderInstance>> previous_by_entity;
+  const auto collect_previous = [&](const std::shared_ptr<SkinnedMeshRenderInstanceCollection>& collection) {
+    if (!collection) {
+      return;
+    }
+    collection->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+      if (render_instance->renderer_handle != 0) {
+        previous_by_renderer.try_emplace(render_instance->renderer_handle, render_instance);
+      }
+      if (render_instance->entity_handle != 0) {
+        previous_by_entity.try_emplace(render_instance->entity_handle, render_instance);
+      }
+    });
+  };
+  if (previous_render_instances) {
+    collect_previous(previous_render_instances->deferred_skinned_render_instances);
+    collect_previous(previous_render_instances->forward_skinned_render_instances);
+    collect_previous(previous_render_instances->transparent_skinned_render_instances);
+  }
+
+  const auto build_previous_pose = [&](const std::shared_ptr<SkinnedMeshRenderInstanceCollection>& collection) {
+    if (!collection) {
+      return;
+    }
+    collection->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+      std::shared_ptr<SkinnedMeshRenderInstance> previous_render_instance;
+      if (render_instance->renderer_handle != 0) {
+        const auto search = previous_by_renderer.find(render_instance->renderer_handle);
+        if (search != previous_by_renderer.end()) {
+          previous_render_instance = search->second;
+        }
+      }
+      if (!previous_render_instance && render_instance->entity_handle != 0) {
+        const auto search = previous_by_entity.find(render_instance->entity_handle);
+        if (search != previous_by_entity.end()) {
+          previous_render_instance = search->second;
+        }
+      }
+      const bool previous_pose_valid =
+          previous_render_instance && render_instance->instance_index >= 0 &&
+          static_cast<size_t>(render_instance->instance_index) < previous_instance_info_blocks_.size() &&
+          previous_render_instance->geometry_version == render_instance->geometry_version &&
+          !previous_render_instance->bone_matrices_snapshot.empty() &&
+          previous_render_instance->bone_matrices_snapshot.size() == render_instance->bone_matrices_snapshot.size();
+      if (!render_instance->bone_matrices || render_instance->bone_matrices_snapshot.empty()) {
+        return;
+      }
+      render_instance->bone_matrices->UploadPreviousData(previous_pose_valid
+                                                             ? previous_render_instance->bone_matrices_snapshot
+                                                             : render_instance->bone_matrices_snapshot);
+      if (previous_pose_valid) {
+        previous_instance_info_blocks_[render_instance->instance_index].flags.y = 1u;
+      }
+    });
+  };
+  build_previous_pose(deferred_skinned_render_instances);
+  build_previous_pose(forward_skinned_render_instances);
+  build_previous_pose(transparent_skinned_render_instances);
+}
+
+bool RenderInstanceStorage::RequiresCameraWideTemporalHistoryRejection() const {
+  return (forward_render_instances && !forward_render_instances->Empty()) ||
+         (forward_skinned_render_instances && !forward_skinned_render_instances->Empty()) ||
+         (forward_instanced_render_instances && !forward_instanced_render_instances->Empty()) ||
+         (forward_strands_render_instances && !forward_strands_render_instances->Empty()) ||
+         (transparent_skinned_render_instances && !transparent_skinned_render_instances->Empty()) ||
+         (transparent_instanced_render_instances && !transparent_instanced_render_instances->Empty()) ||
+         (transparent_strands_render_instances && !transparent_strands_render_instances->Empty()) ||
+         (gaussian_splat_render_instances && !gaussian_splat_render_instances->Empty()) ||
+         (external_render_instances && !external_render_instances->Empty());
 }
 
 void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
@@ -2032,6 +2165,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cast_shadow = skinned_mesh_renderer->cast_shadow;
   render_instance->world_bound = mesh_bound;
   render_instance->bone_matrices = skinned_mesh_renderer->bone_matrices;
+  render_instance->bone_matrices_snapshot = skinned_mesh_renderer->bone_matrices->value;
   render_instance->geometry_version = skinned_mesh->GetVersion();
   render_instance->ray_tracing_geometry_version = skinned_mesh_renderer->ray_tracing_geometry_version_;
   render_instance->ray_tracing_triangle_range = skinned_mesh_renderer->ray_tracing_triangle_range_;

@@ -21,6 +21,7 @@ class DirectionalLightShadowPass;
 class GaussianSplatCullPass;
 class GaussianSplatSortPass;
 class GaussianSplatPass;
+class MotionCoveragePass;
 class TransparentGeometryPass;
 
 /**
@@ -241,6 +242,11 @@ class RenderInstanceStorage {
     bool operator!=(const InstanceInfoBlock& other) const;
   };
 
+  struct PreviousInstanceInfoBlock {
+    glm::mat4 previous_model = glm::mat4(1.0f);
+    glm::uvec4 flags = {};
+  };
+
   /**
    * @brief Abstract struct defining an interface for render instances.
    */
@@ -348,8 +354,9 @@ class RenderInstanceStorage {
   struct SkinnedMeshRenderInstance : IRenderInstance {
     uint32_t bone_matrices_version;  ///< Version of the bone matrices for the skinned mesh.
     uint32_t ray_tracing_geometry_version = 0;
-    std::shared_ptr<SkinnedMesh> skinned_mesh;                           ///< Shared pointer to the skinned mesh.
-    std::shared_ptr<BoneMatrices> bone_matrices;                         ///< Shared pointer to bone matrices needed.
+    std::shared_ptr<SkinnedMesh> skinned_mesh;    ///< Shared pointer to the skinned mesh.
+    std::shared_ptr<BoneMatrices> bone_matrices;  ///< Shared pointer to bone matrices needed.
+    std::vector<glm::mat4> bone_matrices_snapshot;
     std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range;         ///< Animated ray tracing payload range.
     std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas;  ///< Animated-pose BLAS for ray tracing.
 
@@ -738,6 +745,7 @@ class RenderInstanceStorage {
   std::shared_ptr<Buffer> gltf_material_descriptor_buffer = {};
   std::shared_ptr<Buffer> gltf_texture_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> instance_info_descriptor_buffer = {};
+  std::shared_ptr<Buffer> previous_instance_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> environment_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> directional_light_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> point_light_info_descriptor_buffer = {};
@@ -873,6 +881,9 @@ class RenderInstanceStorage {
    * @return Reference to the vector of InstanceInfoBlock objects.
    */
   [[nodiscard]] const std::vector<InstanceInfoBlock>& GetInstanceInfoBlocks() const;
+  [[nodiscard]] const std::vector<PreviousInstanceInfoBlock>& GetPreviousInstanceInfoBlocks() const;
+  void BuildPreviousInstanceInfoBlocks(const std::shared_ptr<RenderInstanceStorage>& previous_render_instances);
+  [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
 
  private:
   /**
@@ -906,6 +917,8 @@ class RenderInstanceStorage {
    * @brief Holds the instance information blocks.
    */
   std::vector<InstanceInfoBlock> instance_info_blocks_{};
+  std::vector<PreviousInstanceInfoBlock> previous_instance_info_blocks_{};
+  std::vector<uint32_t> rigid_motion_supported_{};
 
   /**
    * @brief Stores rendering-related information like shadow splits and lighting.
@@ -949,6 +962,7 @@ class RenderInstanceStorage {
   friend class GaussianSplatCullPass;
   friend class GaussianSplatSortPass;
   friend class GaussianSplatPass;
+  friend class MotionCoveragePass;
   friend class TransparentGeometryPass;
   friend class CpuRayTracer;
   /**

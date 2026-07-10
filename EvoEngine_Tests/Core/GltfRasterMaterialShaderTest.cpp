@@ -545,7 +545,7 @@ TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
 TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
   const std::filesystem::path normal_paths[] = {
       ShaderPath("Compute/PostProcessing/SSRReflect.comp"),
-      ShaderPath("Compute/PostProcessing/SSAOGeometry.comp"),
+      ShaderPath("Compute/PostProcessing/AmbientOcclusionGeometry.comp"),
       ShaderPath("Graphics/Fragment/PostProcessing/SSRReflect.frag"),
   };
   for (const auto& path : normal_paths) {

@@ -78,7 +78,7 @@ intentionally absent; the old normal and UV/material-index compatibility attachm
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
 `StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
-`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, SSAO, scene-camera debug
+`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, AO, TAA, scene-camera debug
 visualization, editor GBuffer preview images, and editor mouse picking decode material, normal, or selection state from
 bindings 20-24. Editor picking reads the instance index from Utility.x.
 
@@ -165,7 +165,8 @@ Current shadow policy:
 - split placement uses Practical Log/Uniform;
 - directional, point, and spot lights use PCF sampling;
 - PCF radius is derived from light size as `100 x light_size`;
-- shadow-map quality sets directional, point, and spot shadow-map resolution together.
+- directional shadows default to 8192, while point and spot shadows default to 4096;
+- an explicit shadow-map quality override sets directional, point, and spot resolution together.
 
 ## Ray Camera Paths
 
@@ -188,12 +189,57 @@ and triangle offset data.
 
 ## Current Migration Notes
 
+The raster post-processing stack uses technique-specific ordering: ambient occlusion, SSR/reflections, TAA when selected,
+bloom, tone mapping, then SMAA when selected. `AmbientOcclusion` owns the SSAO/GTAO selection and `AntiAliasing` owns the
+TAA/SMAA selection. Initialized stacks enable GTAO, SMAA Ultra, and tone mapping; bloom and SSR are disabled by default.
+Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
+
+TAA follows the Best Quality configuration from [GameTechDev/TAA](https://github.com/GameTechDev/TAA) by default. The
+resolve operates on Reinhard tone-mapped history, uses YCoCg variance AABB intersection with a 9-pixel neighborhood,
+selects the longest velocity from a 9-pixel neighborhood, samples history with the reference 5-tap bicubic filter, and
+writes a separate inverse-Reinhard linear HDR output for bloom and tone mapping. High Quality and Performance presets
+retain the reference's lower-cost combinations, while Custom exposes the individual settings.
+
+SMAA 1x follows [iryoku/smaa commit 71c806a](https://github.com/iryoku/smaa/tree/71c806a838bdd7d517df19192a20f0c61b3ca29d)
+with the reference luma-edge, blend-weight, and neighborhood-blending passes and exact `160x560` RG8 area and `64x16` R8
+search textures. Low, Medium, High, and Ultra select the matching reference presets. Edges are detected in perceptual color
+while neighborhood blending operates in linear light. When tone mapping is disabled, edge detection uses a bounded
+Reinhard perceptual proxy and neighborhood blending preserves the original HDR color.
+
+AA persistence uses `enable_anti_aliasing` and an `anti_aliasing` map containing `algorithm`, `taa`, and `smaa`. Missing,
+invalid-enum, and legacy-only AA data falls back to enabled SMAA Ultra. The removed TAA-only keys are intentionally not
+migrated.
+
+Motion vectors store `previous_pixel - current_pixel` in pixel units and
+`previous_normalized_linear_depth - current_normalized_linear_depth` in `z`. Camera and rigid motion use the deferred
+compute pass. Deferred skinned meshes use a depth-tested geometry pass with an explicit previous rendered bone pose and
+previous object transform. Newly spawned or incompatible poses write a velocity that deterministically rejects history.
+Native rigid transparent meshes use a depth-tested geometry pass with previous object transforms and the same far-to-near
+order as transparent color rendering. That pass replaces motion `xy` while preserving the opaque/background normalized
+depth payload in `z`; newly spawned or incompatible transforms still reject history. Layered transparency therefore uses
+the visible transparent surface's motion with the opaque background's depth confidence rather than maintaining a separate
+transparent history. Unsupported forward, external, instanced, strands, transparent-skinned, and Gaussian-splat motion
+conservatively rejects history for the camera until those paths gain surface motion coverage. The normalized depth payload
+is derived from view-linear clip depth using EvoEngine's zero-to-one Vulkan projection; camera-transform changes retain
+history and rely on this motion/depth reprojection instead of the ray-accumulation frame counter. Explicit camera resets
+increment a separate history version so resize and camera settings changes still invalidate temporal history.
+
+The current-color neighborhood has both direct-fetch and thread-group shared-memory implementations. Best Quality and
+High Quality use FP32, matching the reference's default precision; Performance enables FP16 color intermediates only when
+Vulkan 1.2 `shaderFloat16` is supported. Shared memory, variance moments, AABB intersection, bicubic coordinates, motion,
+and depth calculations remain FP32. Reinhard samples stay FP32 when FP16 rounding would make inverse reconstruction
+numerically sensitive, and invalid bicubic or clipping results fall back to the current sample. Invalid motion sentinels
+reject their own pixel without participating in neighboring longest-velocity selection. History-resolved HDR luminance
+is constrained to an expanded current 3x3 neighborhood envelope and re-encoded into history when constrained; current
+frame highlights are not clamped. TAA history remains owned per camera by `AntiAliasing` and is invalidated on
+resize, skipped frames, toggles, preset or persistent-setting changes, unsupported camera-wide motion, and explicit reset.
+
 The renderer has moved many built-in resources into explicit graph resources, but some legacy areas remain:
 
-- SSAO is still a graphics-bound fullscreen render-pass path.
-- The depth pyramid pass currently exists as a graph resource but is still a clear-only producer rather than a
-  hierarchical reduction.
-- Post-processing still contains graphics-bound passes that should move carefully after camera graph ownership is stable.
+- TAA currently owns its own per-camera history textures until graph history resources expose explicit ping-pong bindings.
+- The depth pyramid pass is a graph resource with hierarchical reduction and can be used by future post-processing
+  optimizations when resource ownership is explicit.
+- Post-processing still contains owned resources that should move carefully after camera graph ownership is stable.
 - Async compute/graphics overlap should wait until the remaining resource ownership boundaries are explicit.
 
 ## File Map

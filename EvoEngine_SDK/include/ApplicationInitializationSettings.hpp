@@ -66,7 +66,8 @@ class GraphicsInitializationSettings {
   ShadowMapResolutionQuality shadow_map_resolution_quality = ShadowMapResolutionQuality::High;
 
   /// Resolution for directional light shadow maps.
-  uint32_t directional_light_shadow_map_resolution = ShadowMapResolutionFromQuality(ShadowMapResolutionQuality::High);
+  uint32_t directional_light_shadow_map_resolution =
+      ShadowMapResolutionFromQuality(ShadowMapResolutionQuality::VeryHigh);
 
   /// Resolution for point light shadow maps.
   uint32_t point_light_shadow_map_resolution = ShadowMapResolutionFromQuality(ShadowMapResolutionQuality::High);
