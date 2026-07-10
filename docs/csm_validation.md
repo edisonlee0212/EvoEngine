@@ -32,8 +32,8 @@ Diagnostic captures use the editor preview flags:
 - `--preview-shadow-debug-cascade <0-3>`
 - `--preview-shadow-debug-light <directional-light-index>`
 
-Shadow-map resolution is selected at renderer startup. The default quality is `High` (`4096 x 4096` for directional,
-point, and spot shadow maps). To validate another quality, pass:
+Shadow-map resolution is selected at renderer startup. Directional shadow maps default to `Very High` (`8192 x 8192`),
+while point and spot shadow maps default to `High` (`4096 x 4096`). To validate a unified quality override, pass:
 
 ```bat
 python Scripts\validate_csm_milestone.py --milestone M<N> --shadow-map-resolution medium

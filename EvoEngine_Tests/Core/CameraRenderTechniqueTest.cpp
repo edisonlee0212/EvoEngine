@@ -39,6 +39,14 @@ std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
 }
 }  // namespace
 
+TEST(GraphicsInitializationSettings, DefaultsDirectionalShadowsToVeryHighResolution) {
+  const GraphicsInitializationSettings settings;
+  EXPECT_EQ(settings.shadow_map_resolution_quality, GraphicsInitializationSettings::ShadowMapResolutionQuality::High);
+  EXPECT_EQ(settings.directional_light_shadow_map_resolution, 8192u);
+  EXPECT_EQ(settings.point_light_shadow_map_resolution, 4096u);
+  EXPECT_EQ(settings.spot_light_shadow_map_resolution, 4096u);
+}
+
 TEST(CameraRenderTechnique, NamesAndAliasesExposeRasterRayTracingAndRayQuery) {
   const auto& names = Camera::GetCameraRenderModeNames();
   ASSERT_EQ(names.size(), Camera::kCameraRenderModeCount);

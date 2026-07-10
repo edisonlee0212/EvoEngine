@@ -165,7 +165,8 @@ Current shadow policy:
 - split placement uses Practical Log/Uniform;
 - directional, point, and spot lights use PCF sampling;
 - PCF radius is derived from light size as `100 x light_size`;
-- shadow-map quality sets directional, point, and spot shadow-map resolution together.
+- directional shadows default to 8192, while point and spot shadows default to 4096;
+- an explicit shadow-map quality override sets directional, point, and spot resolution together.
 
 ## Ray Camera Paths
 
@@ -190,7 +191,7 @@ and triangle offset data.
 
 The raster post-processing stack uses technique-specific ordering: ambient occlusion, SSR/reflections, TAA when selected,
 bloom, tone mapping, then SMAA when selected. `AmbientOcclusion` owns the SSAO/GTAO selection and `AntiAliasing` owns the
-TAA/SMAA selection. Initialized stacks enable GTAO, SSR, SMAA Ultra, and tone mapping; bloom is disabled by default.
+TAA/SMAA selection. Initialized stacks enable GTAO, SMAA Ultra, and tone mapping; bloom and SSR are disabled by default.
 Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
 
 TAA follows the Best Quality configuration from [GameTechDev/TAA](https://github.com/GameTechDev/TAA) by default. The

@@ -1039,7 +1039,7 @@ void PostProcessingStack::OnCreate() {
 
   enable_ambient_occlusion = true;
   enable_bloom = false;
-  enable_screen_space_reflection = true;
+  enable_screen_space_reflection = false;
   enable_anti_aliasing = true;
   enable_tone_mapping = true;
 }

@@ -160,8 +160,9 @@ python Scripts\compare_reference_render.py out\bistro-reference-raytracing-2048s
 ```
 
 Bistro raster parity captures explicitly enable the configured DDGI volume and use a newly initialized post-processing
-stack: GTAO, SSR, SMAA Ultra, and tone mapping enabled with bloom disabled. Ray-tracing and ray-query parity captures keep
-DDGI disabled. A matched 1440p comparison uses:
+stack: GTAO, SMAA Ultra, and tone mapping enabled with bloom and SSR disabled. The imported Bistro sun uses light size
+`0.01`, and the default directional shadow resource is 8192. Ray-tracing and ray-query parity captures keep DDGI disabled.
+A matched 1440p comparison uses:
 
 ```bat
 out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rasterization-2560x1440.png --preview-render-mode rasterization --preview-warmup-frames 256 --preview-width 2560 --preview-height 1440 --preview-deterministic

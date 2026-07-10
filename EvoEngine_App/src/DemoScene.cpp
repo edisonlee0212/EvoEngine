@@ -57,6 +57,7 @@ constexpr int kBistroDdgiTargetLongestAxisProbeCount = 24;
 constexpr float kBistroDdgiMinProbeSpacing = 0.05f;
 constexpr float kBistroDdgiBoundsPadding = 1.05f;
 constexpr float kBistroDirectionalLightIntensity = 10.0f;
+constexpr float kBistroDirectionalLightSize = 0.01f;
 constexpr const char* kRenderingRegressionRootName = "M42 Rendering Regression Root";
 constexpr const char* kBistroDdgiVolumeName = "DDGI Probe Volume";
 constexpr const char* kBistroImportedSunLightName = "Sun directional light";
@@ -1284,7 +1285,9 @@ void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
     }
     const auto previous_color = light->diffuse * light->diffuse_brightness;
     const auto previous_brightness = light->diffuse_brightness;
+    const auto previous_light_size = light->light_size;
     light->diffuse_brightness = kBistroDirectionalLightIntensity;
+    light->light_size = kBistroDirectionalLightSize;
     const auto effective_color = light->diffuse * light->diffuse_brightness;
 
     std::ostringstream stream;
@@ -1293,9 +1296,10 @@ void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
            << ", target_brightness=" << kBistroDirectionalLightIntensity
            << ", effective_brightness=" << light->diffuse_brightness << ", previous_to_effective_ratio="
            << (kBistroDirectionalLightIntensity > 0.0f ? previous_brightness / kBistroDirectionalLightIntensity : 0.0f)
-           << ", previous_color=(" << previous_color.x << "," << previous_color.y << "," << previous_color.z
-           << "), effective_color=(" << effective_color.x << "," << effective_color.y << "," << effective_color.z
-           << ")";
+           << ", previous_light_size=" << previous_light_size << ", target_light_size=" << kBistroDirectionalLightSize
+           << ", effective_light_size=" << light->light_size << ", previous_color=(" << previous_color.x << ","
+           << previous_color.y << "," << previous_color.z << "), effective_color=(" << effective_color.x << ","
+           << effective_color.y << "," << effective_color.z << ")";
     EVOENGINE_LOG(stream.str())
     return;
   }
@@ -1431,6 +1435,7 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
   const auto bistro = std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/Bistro/bistro.gltf"));
   const auto stats = GatherBistroParityStats(scene, bistro);
   const auto light_count = stats.directional_light_count + stats.point_light_count + stats.spot_light_count;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   std::ostringstream stream;
   stream << "Bistro parity scene: output=" << output_path.string() << ", render_mode=" << render_mode_name
          << ", resolution=" << width << "x" << height << ", mesh_primitives=" << stats.mesh_primitive_count
@@ -1449,6 +1454,7 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
          << ", camera_far=" << camera->camera_settings.far_distance
          << ", camera_samples=" << camera->camera_settings.sample_size
          << ", camera_bounces=" << camera->camera_settings.bounce << ", camera_gamma=" << camera->camera_settings.gamma
+         << ", directional_shadow_map_resolution=" << graphics_settings.directional_light_shadow_map_resolution
          << ", environment_type=" << BistroEnvironmentTypeName(scene->environment.environment_type)
          << ", background_intensity=" << scene->environment.background_intensity
          << ", ambient_light_intensity=" << scene->environment.ambient_light_intensity
