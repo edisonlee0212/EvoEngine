@@ -1071,7 +1071,8 @@ void CaptureDemoPreview(
     LogBistroParityCaptureState(active_scene, scene_camera, width, height,
                                 Camera::GetCameraRenderModeName(resolved_render_mode), output_path);
   }
-  if (demo_profile_id == DemoProfileId::Bistro && deterministic_capture) {
+  if (demo_profile_id == DemoProfileId::Bistro && deterministic_capture &&
+      Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>();
         post_processing_stack && post_processing_stack->tone_mapping) {
       post_processing_stack->tone_mapping->auto_exposure = true;

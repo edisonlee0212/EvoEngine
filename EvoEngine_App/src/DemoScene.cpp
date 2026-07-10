@@ -489,6 +489,13 @@ void ConfigureBistroCameraPostProcessing(const std::shared_ptr<Camera>& camera) 
   post_processing_stack->enable_screen_space_reflection = false;
 }
 
+void ConfigureBistroRasterizationPostProcessing(const std::shared_ptr<Camera>& camera) {
+  if (!camera) {
+    return;
+  }
+  camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+}
+
 void ConfigureBistroReferenceToneMapping(const std::shared_ptr<Camera>& camera) {
   ConfigureBistroCameraPostProcessing(camera);
   const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>();
@@ -1400,11 +1407,19 @@ void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<C
 
 void evo_engine::ConfigureBistroParityCapture(const std::shared_ptr<Scene>& scene,
                                               const std::shared_ptr<Camera>& camera) {
+  if (!scene || !camera) {
+    return;
+  }
+  if (!Camera::IsRayCameraRenderMode(Camera::ResolveCameraRenderMode(camera->camera_render_mode))) {
+    scene->environment.ddgi_settings.runtime.enabled = true;
+    scene->environment.ddgi_settings.debug.enabled = false;
+    ConfigureBistroRasterizationPostProcessing(camera);
+    camera->ResetFrameCount();
+    return;
+  }
   ApplyBistroParityRendererState(scene);
   ConfigureBistroReferenceToneMapping(camera);
-  if (camera) {
-    camera->camera_settings.bounce = kBistroReferencePathTraceMaxDepth;
-  }
+  camera->camera_settings.bounce = kBistroReferencePathTraceMaxDepth;
 }
 
 void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera,
@@ -1445,17 +1460,29 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
     stream << ", camera_position=(" << position.x << "," << position.y << "," << position.z << "), camera_rotation=("
            << rotation.w << "," << rotation.x << "," << rotation.y << "," << rotation.z << ")";
   }
-  if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>();
-      post_processing_stack && post_processing_stack->tone_mapping) {
-    const auto& tone_mapping = *post_processing_stack->tone_mapping;
-    stream << ", tone_mapping_enabled=" << post_processing_stack->enable_tone_mapping
-           << ", tone_mapping_method=" << static_cast<int>(tone_mapping.method)
-           << ", tone_mapping_exposure=" << tone_mapping.exposure
-           << ", tone_mapping_brightness=" << tone_mapping.brightness
-           << ", tone_mapping_contrast=" << tone_mapping.contrast
-           << ", tone_mapping_saturation=" << tone_mapping.saturation
-           << ", tone_mapping_auto_exposure=" << tone_mapping.auto_exposure
-           << ", tone_mapping_average_mode=" << tone_mapping.average_mode;
+  if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+    stream << ", ambient_occlusion_enabled=" << post_processing_stack->enable_ambient_occlusion
+           << ", bloom_enabled=" << post_processing_stack->enable_bloom
+           << ", screen_space_reflection_enabled=" << post_processing_stack->enable_screen_space_reflection
+           << ", anti_aliasing_enabled=" << post_processing_stack->enable_anti_aliasing
+           << ", tone_mapping_enabled=" << post_processing_stack->enable_tone_mapping;
+    if (post_processing_stack->ambient_occlusion) {
+      stream << ", ambient_occlusion_algorithm="
+             << static_cast<int>(post_processing_stack->ambient_occlusion->algorithm);
+    }
+    if (post_processing_stack->anti_aliasing) {
+      stream << ", anti_aliasing_algorithm=" << static_cast<int>(post_processing_stack->anti_aliasing->algorithm);
+    }
+    if (post_processing_stack->tone_mapping) {
+      const auto& tone_mapping = *post_processing_stack->tone_mapping;
+      stream << ", tone_mapping_method=" << static_cast<int>(tone_mapping.method)
+             << ", tone_mapping_exposure=" << tone_mapping.exposure
+             << ", tone_mapping_brightness=" << tone_mapping.brightness
+             << ", tone_mapping_contrast=" << tone_mapping.contrast
+             << ", tone_mapping_saturation=" << tone_mapping.saturation
+             << ", tone_mapping_auto_exposure=" << tone_mapping.auto_exposure
+             << ", tone_mapping_average_mode=" << tone_mapping.average_mode;
+    }
   }
   EVOENGINE_LOG(stream.str())
 }

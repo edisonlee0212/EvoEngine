@@ -159,6 +159,16 @@ out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-
 python Scripts\compare_reference_render.py out\bistro-reference-raytracing-2048spp-1920x1080-raw.png out\evoengine-bistro-raytracing-2048spp-1920x1080.png --ignore-alpha --out out\bistro-raytracing-2048spp-1920x1080-rgb-diff.json
 ```
 
+Bistro raster parity captures explicitly enable the configured DDGI volume and use a newly initialized post-processing
+stack: GTAO, SSR, SMAA Ultra, and tone mapping enabled with bloom disabled. Ray-tracing and ray-query parity captures keep
+DDGI disabled. A matched 1440p comparison uses:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rasterization-2560x1440.png --preview-render-mode rasterization --preview-warmup-frames 256 --preview-width 2560 --preview-height 1440 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-raytracing-2048spp-2560x1440.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 2560 --preview-height 1440 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rayquery-2048spp-2560x1440.png --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 2560 --preview-height 1440 --preview-deterministic
+```
+
 Current accepted tracking target is normalized RGB MAE `<= 0.02` and RMS `<= 0.04` full-frame against the alpha-normalized
 reference. Focused diagnostic crops may use the same threshold family but must record measured crop and residual
 statistics.

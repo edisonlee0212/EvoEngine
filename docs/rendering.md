@@ -190,8 +190,8 @@ and triangle offset data.
 
 The raster post-processing stack uses technique-specific ordering: ambient occlusion, SSR/reflections, TAA when selected,
 bloom, tone mapping, then SMAA when selected. `AmbientOcclusion` owns the SSAO/GTAO selection and `AntiAliasing` owns the
-TAA/SMAA selection. New post-processing stacks default to enabled SMAA Ultra; initialized stacks also enable GTAO, bloom,
-SSR, and tone mapping. Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
+TAA/SMAA selection. Initialized stacks enable GTAO, SSR, SMAA Ultra, and tone mapping; bloom is disabled by default.
+Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
 
 TAA follows the Best Quality configuration from [GameTechDev/TAA](https://github.com/GameTechDev/TAA) by default. The
 resolve operates on Reinhard tone-mapped history, uses YCoCg variance AABB intersection with a 9-pixel neighborhood,
