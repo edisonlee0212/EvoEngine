@@ -678,87 +678,114 @@ bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
   return changed;
 }
 
-bool InspectTemporalAntiAliasing(TemporalAntiAliasing& temporal_anti_aliasing) {
+bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
   bool changed = false;
-  int preset = static_cast<int>(temporal_anti_aliasing.preset);
+  int algorithm = static_cast<int>(anti_aliasing.algorithm);
+  const char* algorithms[] = {"TAA", "SMAA"};
+  if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
+    anti_aliasing.algorithm = static_cast<AntiAliasing::Algorithm>(algorithm);
+    anti_aliasing.ResetHistory();
+    changed = true;
+  }
+
+  if (anti_aliasing.algorithm == AntiAliasing::Algorithm::Smaa) {
+    int preset = static_cast<int>(anti_aliasing.smaa.preset);
+    const char* presets[] = {"Low", "Medium", "High", "Ultra"};
+    if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
+      anti_aliasing.smaa.preset = static_cast<AntiAliasing::SmaaPreset>(preset);
+      changed = true;
+    }
+    int debug_mode = static_cast<int>(anti_aliasing.smaa.debug_mode);
+    const char* debug_modes[] = {"None", "Edges", "Blend weights"};
+    if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
+      anti_aliasing.smaa.debug_mode = static_cast<AntiAliasing::SmaaDebugMode>(debug_mode);
+      changed = true;
+    }
+    if (ImGui::Button("Rebuild pipelines")) {
+      anti_aliasing.BuildPipelines(true);
+    }
+    return changed;
+  }
+
+  auto& taa = anti_aliasing.taa;
+  int preset = static_cast<int>(taa.preset);
   const char* presets[] = {"Best Quality", "High Quality", "Performance", "Custom"};
   if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
-    temporal_anti_aliasing.ApplyPreset(static_cast<TemporalAntiAliasing::Preset>(preset));
+    anti_aliasing.ApplyTaaPreset(static_cast<AntiAliasing::TaaPreset>(preset));
     changed = true;
   }
 
   const auto mark_custom = [&] {
-    temporal_anti_aliasing.preset = TemporalAntiAliasing::Preset::Custom;
-    temporal_anti_aliasing.reset_history = true;
+    taa.preset = AntiAliasing::TaaPreset::Custom;
+    anti_aliasing.ResetHistory();
     changed = true;
   };
 
-  int variance_mode = static_cast<int>(temporal_anti_aliasing.variance_clipping_mode);
+  int variance_mode = static_cast<int>(taa.variance_clipping_mode);
   const char* variance_modes[] = {"Disabled", "Clamp", "Intersection"};
   if (ImGui::Combo("Variance clipping", &variance_mode, variance_modes, IM_ARRAYSIZE(variance_modes))) {
-    temporal_anti_aliasing.variance_clipping_mode =
-        static_cast<TemporalAntiAliasing::VarianceClippingMode>(variance_mode);
+    taa.variance_clipping_mode = static_cast<AntiAliasing::VarianceClippingMode>(variance_mode);
     mark_custom();
   }
-  int variance_samples = temporal_anti_aliasing.variance_sample_count == 5 ? 0 : 1;
+  int variance_samples = taa.variance_sample_count == 5 ? 0 : 1;
   const char* sample_counts[] = {"5 samples", "9 samples"};
   if (ImGui::Combo("Variance samples", &variance_samples, sample_counts, IM_ARRAYSIZE(sample_counts))) {
-    temporal_anti_aliasing.variance_sample_count = variance_samples == 0 ? 5 : 9;
+    taa.variance_sample_count = variance_samples == 0 ? 5 : 9;
     mark_custom();
   }
-  int history_color_mode = static_cast<int>(temporal_anti_aliasing.history_color_mode);
+  int history_color_mode = static_cast<int>(taa.history_color_mode);
   const char* history_color_modes[] = {"Tone mapped", "Linear HDR"};
   if (ImGui::Combo("History color", &history_color_mode, history_color_modes, IM_ARRAYSIZE(history_color_modes))) {
-    temporal_anti_aliasing.history_color_mode = static_cast<TemporalAntiAliasing::HistoryColorMode>(history_color_mode);
+    taa.history_color_mode = static_cast<AntiAliasing::HistoryColorMode>(history_color_mode);
     mark_custom();
   }
-  if (ImGui::Checkbox("YCoCg", &temporal_anti_aliasing.use_ycocg))
+  if (ImGui::Checkbox("YCoCg", &taa.use_ycocg))
     mark_custom();
-  if (ImGui::Checkbox("No-history neighborhood", &temporal_anti_aliasing.use_neighborhood_sampling))
+  if (ImGui::Checkbox("No-history neighborhood", &taa.use_neighborhood_sampling))
     mark_custom();
-  if (ImGui::Checkbox("Bicubic history", &temporal_anti_aliasing.use_bicubic_filter))
+  if (ImGui::Checkbox("Bicubic history", &taa.use_bicubic_filter))
     mark_custom();
-  if (ImGui::Checkbox("Longest velocity", &temporal_anti_aliasing.use_longest_velocity))
+  if (ImGui::Checkbox("Longest velocity", &taa.use_longest_velocity))
     mark_custom();
-  if (temporal_anti_aliasing.use_longest_velocity) {
-    int velocity_samples = temporal_anti_aliasing.longest_velocity_sample_count == 5 ? 0 : 1;
+  if (taa.use_longest_velocity) {
+    int velocity_samples = taa.longest_velocity_sample_count == 5 ? 0 : 1;
     if (ImGui::Combo("Velocity samples", &velocity_samples, sample_counts, IM_ARRAYSIZE(sample_counts))) {
-      temporal_anti_aliasing.longest_velocity_sample_count = velocity_samples == 0 ? 5 : 9;
+      taa.longest_velocity_sample_count = velocity_samples == 0 ? 5 : 9;
       mark_custom();
     }
   }
-  if (ImGui::Checkbox("Depth threshold", &temporal_anti_aliasing.use_depth_threshold))
+  if (ImGui::Checkbox("Depth threshold", &taa.use_depth_threshold))
     mark_custom();
-  if (ImGui::DragFloat("Min variance gamma", &temporal_anti_aliasing.min_variance_gamma, 0.01f, 0.0f, 10.0f))
+  if (ImGui::DragFloat("Min variance gamma", &taa.min_variance_gamma, 0.01f, 0.0f, 10.0f))
     mark_custom();
-  if (ImGui::DragFloat("Max variance gamma", &temporal_anti_aliasing.max_variance_gamma, 0.01f, 0.0f, 10.0f))
+  if (ImGui::DragFloat("Max variance gamma", &taa.max_variance_gamma, 0.01f, 0.0f, 10.0f))
     mark_custom();
-  if (ImGui::DragFloat("Velocity rejection (px at 1080p)", &temporal_anti_aliasing.velocity_rejection_threshold, 1.0f,
-                       1.0f, 1024.0f))
+  if (ImGui::DragFloat("Velocity rejection (px at 1080p)", &taa.velocity_rejection_threshold, 1.0f, 1.0f, 1024.0f))
     mark_custom();
-  if (temporal_anti_aliasing.use_depth_threshold &&
-      ImGui::DragFloat("Depth difference", &temporal_anti_aliasing.depth_threshold, 0.0001f, 0.0f, 1.0f, "%.4f"))
+  if (taa.use_depth_threshold &&
+      ImGui::DragFloat("Depth difference", &taa.depth_threshold, 0.0001f, 0.0f, 1.0f, "%.4f"))
     mark_custom();
-  if (ImGui::DragFloat("Sharpen", &temporal_anti_aliasing.sharpen, 0.01f, 0.0f, 1.0f))
+  if (ImGui::DragFloat("Sharpen", &taa.sharpen, 0.01f, 0.0f, 1.0f))
     mark_custom();
-  if (ImGui::Checkbox("Thread-group cache", &temporal_anti_aliasing.use_tgsm))
+  if (ImGui::Checkbox("Thread-group cache", &taa.use_tgsm))
     mark_custom();
   const bool fp16_supported = Platform::GetInstance().GetCapabilities().support_shader_float16;
   ImGui::BeginDisabled(!fp16_supported);
-  if (ImGui::Checkbox("FP16", &temporal_anti_aliasing.use_fp16))
+  if (ImGui::Checkbox("FP16", &taa.use_fp16))
     mark_custom();
   ImGui::EndDisabled();
 
-  int debug_mode = static_cast<int>(temporal_anti_aliasing.debug_mode);
+  int debug_mode = static_cast<int>(taa.debug_mode);
   const char* debug_modes[] = {"None", "Motion", "Depth confidence", "History confidence", "No history"};
   if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
-    temporal_anti_aliasing.debug_mode = static_cast<TemporalAntiAliasing::DebugMode>(debug_mode);
+    taa.debug_mode = static_cast<AntiAliasing::TaaDebugMode>(debug_mode);
+    changed = true;
   }
   if (ImGui::Button("Reset history")) {
-    temporal_anti_aliasing.reset_history = true;
+    anti_aliasing.ResetHistory();
   }
   if (ImGui::Button("Rebuild pipelines")) {
-    temporal_anti_aliasing.BuildPipelines();
+    anti_aliasing.BuildPipelines(true);
   }
   return changed;
 }
@@ -851,10 +878,10 @@ bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
       changed = true;
     ImGui::TreePop();
   }
-  if (ImGui::Checkbox("TAA##0", &stack.enable_temporal_anti_aliasing))
+  if (ImGui::Checkbox("AA##0", &stack.enable_anti_aliasing))
     changed = true;
-  if (stack.enable_temporal_anti_aliasing && ImGui::TreeNodeEx("TAA##1", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (InspectTemporalAntiAliasing(*stack.temporal_anti_aliasing))
+  if (stack.enable_anti_aliasing && ImGui::TreeNodeEx("AA##1", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (InspectAntiAliasing(*stack.anti_aliasing))
       changed = true;
     ImGui::TreePop();
   }

@@ -56,12 +56,16 @@ struct EditorCommandLine {
   std::optional<glm::vec3> preview_capture_camera_look_at;
   std::optional<bool> preview_ambient_occlusion_enabled;
   std::optional<AmbientOcclusion::Algorithm> preview_ambient_occlusion_algorithm;
-  std::optional<bool> preview_temporal_anti_aliasing_enabled;
-  std::optional<TemporalAntiAliasing::Preset> preview_temporal_anti_aliasing_preset;
-  std::optional<bool> preview_temporal_anti_aliasing_tgsm;
-  std::optional<bool> preview_temporal_anti_aliasing_fp16;
-  std::optional<bool> preview_temporal_anti_aliasing_motion_sequence;
-  std::optional<TemporalAntiAliasing::DebugMode> preview_temporal_anti_aliasing_debug_mode;
+  std::optional<bool> preview_anti_aliasing_enabled;
+  std::optional<AntiAliasing::Algorithm> preview_anti_aliasing_algorithm;
+  std::optional<AntiAliasing::TaaPreset> preview_taa_preset;
+  std::optional<AntiAliasing::SmaaPreset> preview_smaa_preset;
+  std::optional<bool> preview_anti_aliasing_tgsm;
+  std::optional<bool> preview_anti_aliasing_fp16;
+  std::optional<bool> preview_anti_aliasing_motion_sequence;
+  std::optional<AntiAliasing::TaaDebugMode> preview_taa_debug_mode;
+  std::optional<AntiAliasing::SmaaDebugMode> preview_smaa_debug_mode;
+  bool preview_anti_aliasing_debug_disabled = false;
   std::optional<float> preview_shadow_split_lambda;
   std::optional<float> preview_shadow_cascade_transition_width;
   std::optional<float> preview_shadow_distance_fade;
@@ -132,6 +136,26 @@ std::optional<AmbientOcclusion::Algorithm> ParsePreviewAmbientOcclusionAlgorithm
   throw std::invalid_argument("--preview-ao requires ssao, gtao, or disabled.");
 }
 
+std::optional<AntiAliasing::Algorithm> ParsePreviewAntiAliasingAlgorithm(const std::string& value, bool& enabled) {
+  auto normalized = value;
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (normalized == "taa") {
+    enabled = true;
+    return AntiAliasing::Algorithm::Taa;
+  }
+  if (normalized == "smaa") {
+    enabled = true;
+    return AntiAliasing::Algorithm::Smaa;
+  }
+  if (normalized == "disabled") {
+    enabled = false;
+    return {};
+  }
+  throw std::invalid_argument("--preview-aa requires disabled, taa, or smaa.");
+}
+
 int ParsePreviewShadowDebugMode(const std::string& value) {
   auto normalized = value;
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
@@ -159,44 +183,93 @@ int ParsePreviewShadowDebugMode(const std::string& value) {
   throw std::invalid_argument("Unknown preview shadow debug mode: " + value);
 }
 
-TemporalAntiAliasing::DebugMode ParsePreviewDebugMode(const std::string& value) {
+void ParsePreviewDebugMode(const std::string& value, EditorCommandLine& command_line) {
   auto normalized = value;
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   if (normalized == "off" || normalized == "disabled" || normalized == "none") {
-    return TemporalAntiAliasing::DebugMode::None;
+    command_line.preview_taa_debug_mode.reset();
+    command_line.preview_smaa_debug_mode.reset();
+    command_line.preview_anti_aliasing_debug_disabled = true;
+    return;
   }
+  command_line.preview_anti_aliasing_debug_disabled = false;
   if (normalized == "taa-motion" || normalized == "motion") {
-    return TemporalAntiAliasing::DebugMode::Motion;
+    command_line.preview_smaa_debug_mode.reset();
+    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::Motion;
+    return;
   }
   if (normalized == "taa-depth-confidence" || normalized == "depth-confidence") {
-    return TemporalAntiAliasing::DebugMode::DepthConfidence;
+    command_line.preview_smaa_debug_mode.reset();
+    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::DepthConfidence;
+    return;
   }
   if (normalized == "taa-history-confidence" || normalized == "history-confidence") {
-    return TemporalAntiAliasing::DebugMode::HistoryConfidence;
+    command_line.preview_smaa_debug_mode.reset();
+    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::HistoryConfidence;
+    return;
   }
   if (normalized == "taa-no-history" || normalized == "no-history") {
-    return TemporalAntiAliasing::DebugMode::NoHistory;
+    command_line.preview_smaa_debug_mode.reset();
+    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::NoHistory;
+    return;
+  }
+  if (normalized == "smaa-edges") {
+    command_line.preview_taa_debug_mode.reset();
+    command_line.preview_smaa_debug_mode = AntiAliasing::SmaaDebugMode::Edges;
+    return;
+  }
+  if (normalized == "smaa-weights") {
+    command_line.preview_taa_debug_mode.reset();
+    command_line.preview_smaa_debug_mode = AntiAliasing::SmaaDebugMode::BlendWeights;
+    return;
   }
   throw std::invalid_argument("Unknown preview debug mode: " + value);
 }
 
-TemporalAntiAliasing::Preset ParsePreviewTemporalAntiAliasingPreset(const std::string& value) {
+void ParsePreviewAntiAliasingPreset(const std::string& value, EditorCommandLine& command_line) {
   auto normalized = value;
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   if (normalized == "best" || normalized == "best-quality") {
-    return TemporalAntiAliasing::Preset::BestQuality;
+    command_line.preview_smaa_preset.reset();
+    command_line.preview_taa_preset = AntiAliasing::TaaPreset::BestQuality;
+    return;
   }
-  if (normalized == "high" || normalized == "high-quality") {
-    return TemporalAntiAliasing::Preset::HighQuality;
+  if (normalized == "high-quality") {
+    command_line.preview_smaa_preset.reset();
+    command_line.preview_taa_preset = AntiAliasing::TaaPreset::HighQuality;
+    return;
   }
   if (normalized == "performance") {
-    return TemporalAntiAliasing::Preset::Performance;
+    command_line.preview_smaa_preset.reset();
+    command_line.preview_taa_preset = AntiAliasing::TaaPreset::Performance;
+    return;
   }
-  throw std::invalid_argument("--preview-taa-preset requires best-quality, high-quality, or performance.");
+  if (normalized == "low") {
+    command_line.preview_taa_preset.reset();
+    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::Low;
+    return;
+  }
+  if (normalized == "medium") {
+    command_line.preview_taa_preset.reset();
+    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::Medium;
+    return;
+  }
+  if (normalized == "high") {
+    command_line.preview_taa_preset.reset();
+    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::High;
+    return;
+  }
+  if (normalized == "ultra") {
+    command_line.preview_taa_preset.reset();
+    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::Ultra;
+    return;
+  }
+  throw std::invalid_argument(
+      "--preview-aa-preset requires best-quality, high-quality, performance, low, medium, high, or ultra.");
 }
 
 glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const std::string& argument) {
@@ -316,42 +389,40 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_ambient_occlusion_algorithm = ParsePreviewAmbientOcclusionAlgorithm(
           argv[++arg_index] ? argv[arg_index] : "", preview_ambient_occlusion_enabled);
       command_line.preview_ambient_occlusion_enabled = preview_ambient_occlusion_enabled;
-    } else if (argument == "--preview-taa") {
+    } else if (argument == "--preview-aa") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-taa requires enabled or disabled.");
+        throw std::invalid_argument("--preview-aa requires disabled, taa, or smaa.");
       }
-      command_line.preview_temporal_anti_aliasing_enabled =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-taa-preset") {
+      bool preview_anti_aliasing_enabled = false;
+      command_line.preview_anti_aliasing_algorithm =
+          ParsePreviewAntiAliasingAlgorithm(argv[++arg_index] ? argv[arg_index] : "", preview_anti_aliasing_enabled);
+      command_line.preview_anti_aliasing_enabled = preview_anti_aliasing_enabled;
+    } else if (argument == "--preview-aa-preset") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-taa-preset requires a preset.");
+        throw std::invalid_argument("--preview-aa-preset requires a preset.");
       }
-      command_line.preview_temporal_anti_aliasing_preset =
-          ParsePreviewTemporalAntiAliasingPreset(argv[++arg_index] ? argv[arg_index] : "");
-    } else if (argument == "--preview-taa-tgsm") {
+      ParsePreviewAntiAliasingPreset(argv[++arg_index] ? argv[arg_index] : "", command_line);
+    } else if (argument == "--preview-aa-tgsm") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-taa-tgsm requires enabled or disabled.");
+        throw std::invalid_argument("--preview-aa-tgsm requires enabled or disabled.");
       }
-      command_line.preview_temporal_anti_aliasing_tgsm =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-taa-fp16") {
+      command_line.preview_anti_aliasing_tgsm = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-aa-fp16") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-taa-fp16 requires enabled or disabled.");
+        throw std::invalid_argument("--preview-aa-fp16 requires enabled or disabled.");
       }
-      command_line.preview_temporal_anti_aliasing_fp16 =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-taa-motion-sequence") {
+      command_line.preview_anti_aliasing_fp16 = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-aa-motion-sequence") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-taa-motion-sequence requires enabled or disabled.");
+        throw std::invalid_argument("--preview-aa-motion-sequence requires enabled or disabled.");
       }
-      command_line.preview_temporal_anti_aliasing_motion_sequence =
+      command_line.preview_anti_aliasing_motion_sequence =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-debug") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-debug requires a mode.");
       }
-      command_line.preview_temporal_anti_aliasing_debug_mode =
-          ParsePreviewDebugMode(argv[++arg_index] ? argv[arg_index] : "");
+      ParsePreviewDebugMode(argv[++arg_index] ? argv[arg_index] : "", command_line);
     } else if (argument == "--preview-shadow-split-lambda") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-shadow-split-lambda requires a value between 0 and 1.");
@@ -422,10 +493,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     throw std::invalid_argument("--preview-camera-position requires --capture-demo-preview.");
   }
   if ((command_line.preview_ambient_occlusion_enabled || command_line.preview_ambient_occlusion_algorithm ||
-       command_line.preview_temporal_anti_aliasing_enabled || command_line.preview_temporal_anti_aliasing_preset ||
-       command_line.preview_temporal_anti_aliasing_tgsm || command_line.preview_temporal_anti_aliasing_fp16 ||
-       command_line.preview_temporal_anti_aliasing_motion_sequence ||
-       command_line.preview_temporal_anti_aliasing_debug_mode) &&
+       command_line.preview_anti_aliasing_enabled || command_line.preview_anti_aliasing_algorithm ||
+       command_line.preview_taa_preset || command_line.preview_smaa_preset || command_line.preview_anti_aliasing_tgsm ||
+       command_line.preview_anti_aliasing_fp16 || command_line.preview_anti_aliasing_motion_sequence ||
+       command_line.preview_taa_debug_mode || command_line.preview_smaa_debug_mode ||
+       command_line.preview_anti_aliasing_debug_disabled) &&
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("Preview post-processing overrides require --capture-demo-preview.");
   }
@@ -445,9 +517,33 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_bistro_ddgi && command_line.demo_profile_id != DemoProfileId::Bistro) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --demo bistro.");
   }
-  if (command_line.preview_temporal_anti_aliasing_motion_sequence &&
+  if (command_line.preview_anti_aliasing_motion_sequence &&
       command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
-    throw std::invalid_argument("--preview-taa-motion-sequence requires --demo rendering-regression.");
+    throw std::invalid_argument("--preview-aa-motion-sequence requires --demo rendering-regression.");
+  }
+  const auto preview_anti_aliasing_algorithm =
+      command_line.preview_anti_aliasing_algorithm.value_or(AntiAliasing::Algorithm::Smaa);
+  const bool preview_anti_aliasing_disabled =
+      command_line.preview_anti_aliasing_enabled && !*command_line.preview_anti_aliasing_enabled;
+  const bool has_technique_specific_anti_aliasing_options =
+      command_line.preview_taa_preset || command_line.preview_smaa_preset || command_line.preview_anti_aliasing_tgsm ||
+      command_line.preview_anti_aliasing_fp16 || command_line.preview_anti_aliasing_motion_sequence ||
+      command_line.preview_taa_debug_mode || command_line.preview_smaa_debug_mode;
+  if (preview_anti_aliasing_disabled && has_technique_specific_anti_aliasing_options) {
+    throw std::invalid_argument("--preview-aa disabled cannot be combined with AA presets, controls, or debug modes.");
+  }
+  if (!command_line.preview_anti_aliasing_algorithm && has_technique_specific_anti_aliasing_options) {
+    throw std::invalid_argument("AA presets, controls, and debug modes require --preview-aa taa or --preview-aa smaa.");
+  }
+  if (preview_anti_aliasing_algorithm != AntiAliasing::Algorithm::Taa &&
+      (command_line.preview_taa_preset || command_line.preview_anti_aliasing_tgsm ||
+       command_line.preview_anti_aliasing_fp16 || command_line.preview_anti_aliasing_motion_sequence ||
+       command_line.preview_taa_debug_mode)) {
+    throw std::invalid_argument("TAA presets, controls, and debug modes require --preview-aa taa.");
+  }
+  if (preview_anti_aliasing_algorithm != AntiAliasing::Algorithm::Smaa &&
+      (command_line.preview_smaa_preset || command_line.preview_smaa_debug_mode)) {
+    throw std::invalid_argument("SMAA presets and debug modes require --preview-aa smaa.");
   }
   if (command_line.demo_profile_id) {
     const auto& profile = GetDemoProfile(*command_line.demo_profile_id);
@@ -790,13 +886,15 @@ void CaptureDemoPreview(
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
     const std::optional<AmbientOcclusion::Algorithm>& preview_ambient_occlusion_algorithm,
-    const std::optional<bool>& preview_temporal_anti_aliasing_enabled,
-    const std::optional<TemporalAntiAliasing::Preset>& preview_temporal_anti_aliasing_preset,
-    const std::optional<bool>& preview_temporal_anti_aliasing_tgsm,
-    const std::optional<bool>& preview_temporal_anti_aliasing_fp16,
-    const std::optional<bool>& preview_temporal_anti_aliasing_motion_sequence,
-    const std::optional<TemporalAntiAliasing::DebugMode>& preview_temporal_anti_aliasing_debug_mode,
-    const std::optional<float>& preview_shadow_split_lambda,
+    const std::optional<bool>& preview_anti_aliasing_enabled,
+    const std::optional<AntiAliasing::Algorithm>& preview_anti_aliasing_algorithm,
+    const std::optional<AntiAliasing::TaaPreset>& preview_taa_preset,
+    const std::optional<AntiAliasing::SmaaPreset>& preview_smaa_preset,
+    const std::optional<bool>& preview_anti_aliasing_tgsm, const std::optional<bool>& preview_anti_aliasing_fp16,
+    const std::optional<bool>& preview_anti_aliasing_motion_sequence,
+    const std::optional<AntiAliasing::TaaDebugMode>& preview_taa_debug_mode,
+    const std::optional<AntiAliasing::SmaaDebugMode>& preview_smaa_debug_mode,
+    const bool preview_anti_aliasing_debug_disabled, const std::optional<float>& preview_shadow_split_lambda,
     const std::optional<float>& preview_shadow_cascade_transition_width,
     const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
@@ -863,17 +961,17 @@ void CaptureDemoPreview(
       post_processing_stack->enable_bloom = false;
       post_processing_stack->enable_ambient_occlusion = false;
       post_processing_stack->enable_screen_space_reflection = false;
-      post_processing_stack->enable_temporal_anti_aliasing = false;
+      post_processing_stack->enable_anti_aliasing = false;
       if (post_processing_stack->tone_mapping) {
         post_processing_stack->tone_mapping->auto_exposure = false;
         post_processing_stack->tone_mapping->dither = false;
       }
     }
   }
-  if (preview_ambient_occlusion_enabled || preview_ambient_occlusion_algorithm ||
-      preview_temporal_anti_aliasing_enabled || preview_temporal_anti_aliasing_preset ||
-      preview_temporal_anti_aliasing_tgsm || preview_temporal_anti_aliasing_fp16 ||
-      preview_temporal_anti_aliasing_debug_mode) {
+  if (preview_ambient_occlusion_enabled || preview_ambient_occlusion_algorithm || preview_anti_aliasing_enabled ||
+      preview_anti_aliasing_algorithm || preview_taa_preset || preview_smaa_preset || preview_anti_aliasing_tgsm ||
+      preview_anti_aliasing_fp16 || preview_taa_debug_mode || preview_smaa_debug_mode ||
+      preview_anti_aliasing_debug_disabled) {
     if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
       if (preview_ambient_occlusion_enabled) {
         post_processing_stack->enable_ambient_occlusion = *preview_ambient_occlusion_enabled;
@@ -884,35 +982,47 @@ void CaptureDemoPreview(
           post_processing_stack->ambient_occlusion->algorithm = *preview_ambient_occlusion_algorithm;
         }
       }
-      if (preview_temporal_anti_aliasing_enabled) {
-        post_processing_stack->enable_temporal_anti_aliasing = *preview_temporal_anti_aliasing_enabled;
-        if (post_processing_stack->temporal_anti_aliasing) {
-          post_processing_stack->temporal_anti_aliasing->ResetHistory(scene_camera);
-        }
+      if (preview_anti_aliasing_enabled) {
+        post_processing_stack->enable_anti_aliasing = *preview_anti_aliasing_enabled;
       }
-      if (post_processing_stack->temporal_anti_aliasing) {
-        const auto& taa = post_processing_stack->temporal_anti_aliasing;
-        if (preview_temporal_anti_aliasing_preset) {
-          post_processing_stack->enable_temporal_anti_aliasing = true;
-          taa->ApplyPreset(*preview_temporal_anti_aliasing_preset);
+      if (post_processing_stack->anti_aliasing) {
+        const auto& anti_aliasing = post_processing_stack->anti_aliasing;
+        if (preview_anti_aliasing_algorithm) {
+          anti_aliasing->algorithm = *preview_anti_aliasing_algorithm;
+          post_processing_stack->enable_anti_aliasing = true;
         }
-        if (preview_temporal_anti_aliasing_tgsm) {
-          post_processing_stack->enable_temporal_anti_aliasing = true;
-          taa->use_tgsm = *preview_temporal_anti_aliasing_tgsm;
-          taa->preset = TemporalAntiAliasing::Preset::Custom;
-          taa->reset_history = true;
+        if (preview_taa_preset) {
+          post_processing_stack->enable_anti_aliasing = true;
+          anti_aliasing->ApplyTaaPreset(*preview_taa_preset);
         }
-        if (preview_temporal_anti_aliasing_fp16) {
-          post_processing_stack->enable_temporal_anti_aliasing = true;
-          taa->use_fp16 = *preview_temporal_anti_aliasing_fp16;
-          taa->preset = TemporalAntiAliasing::Preset::Custom;
-          taa->reset_history = true;
+        if (preview_smaa_preset) {
+          post_processing_stack->enable_anti_aliasing = true;
+          anti_aliasing->smaa.preset = *preview_smaa_preset;
         }
-      }
-      if (preview_temporal_anti_aliasing_debug_mode && post_processing_stack->temporal_anti_aliasing) {
-        post_processing_stack->enable_temporal_anti_aliasing = true;
-        post_processing_stack->temporal_anti_aliasing->debug_mode = *preview_temporal_anti_aliasing_debug_mode;
-        post_processing_stack->temporal_anti_aliasing->ResetHistory(scene_camera);
+        if (preview_anti_aliasing_tgsm) {
+          post_processing_stack->enable_anti_aliasing = true;
+          anti_aliasing->taa.use_tgsm = *preview_anti_aliasing_tgsm;
+          anti_aliasing->taa.preset = AntiAliasing::TaaPreset::Custom;
+        }
+        if (preview_anti_aliasing_fp16) {
+          post_processing_stack->enable_anti_aliasing = true;
+          anti_aliasing->taa.use_fp16 = *preview_anti_aliasing_fp16;
+          anti_aliasing->taa.preset = AntiAliasing::TaaPreset::Custom;
+        }
+        if (preview_anti_aliasing_debug_disabled) {
+          anti_aliasing->taa.debug_mode = AntiAliasing::TaaDebugMode::None;
+          anti_aliasing->smaa.debug_mode = AntiAliasing::SmaaDebugMode::None;
+        }
+        if (preview_taa_debug_mode) {
+          post_processing_stack->enable_anti_aliasing = true;
+          anti_aliasing->taa.debug_mode = *preview_taa_debug_mode;
+        }
+        if (preview_smaa_debug_mode) {
+          post_processing_stack->enable_anti_aliasing = true;
+          anti_aliasing->smaa.debug_mode = *preview_smaa_debug_mode;
+        }
+        anti_aliasing->NormalizeSettings();
+        anti_aliasing->ResetHistory(scene_camera);
       }
       scene_camera->ResetFrameCount();
     }
@@ -971,8 +1081,8 @@ void CaptureDemoPreview(
   }
   scene_camera->Resize(preview_resolution);
   WaitForDemoPreviewSceneInputsReady();
-  if (demo_profile_id == DemoProfileId::RenderingRegression && preview_temporal_anti_aliasing_motion_sequence) {
-    SetRenderingRegressionTemporalMotionEnabled(*preview_temporal_anti_aliasing_motion_sequence);
+  if (demo_profile_id == DemoProfileId::RenderingRegression && preview_anti_aliasing_motion_sequence) {
+    SetRenderingRegressionTemporalMotionEnabled(*preview_anti_aliasing_motion_sequence);
   }
   scene_camera->ResetFrameCount();
   const auto capture_start_time = std::chrono::steady_clock::now();
@@ -1055,14 +1165,15 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
               command_line.preview_ambient_occlusion_enabled, command_line.preview_ambient_occlusion_algorithm,
-              command_line.preview_temporal_anti_aliasing_enabled, command_line.preview_temporal_anti_aliasing_preset,
-              command_line.preview_temporal_anti_aliasing_tgsm, command_line.preview_temporal_anti_aliasing_fp16,
-              command_line.preview_temporal_anti_aliasing_motion_sequence,
-              command_line.preview_temporal_anti_aliasing_debug_mode, command_line.preview_shadow_split_lambda,
-              command_line.preview_shadow_cascade_transition_width, command_line.preview_shadow_distance_fade,
-              command_line.preview_shadow_debug_mode, command_line.preview_shadow_debug_cascade,
-              command_line.preview_shadow_debug_light, command_line.preview_capture_deterministic,
-              command_line.preview_capture_bistro_ddgi);
+              command_line.preview_anti_aliasing_enabled, command_line.preview_anti_aliasing_algorithm,
+              command_line.preview_taa_preset, command_line.preview_smaa_preset,
+              command_line.preview_anti_aliasing_tgsm, command_line.preview_anti_aliasing_fp16,
+              command_line.preview_anti_aliasing_motion_sequence, command_line.preview_taa_debug_mode,
+              command_line.preview_smaa_debug_mode, command_line.preview_anti_aliasing_debug_disabled,
+              command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
+              command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
+              command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
+              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

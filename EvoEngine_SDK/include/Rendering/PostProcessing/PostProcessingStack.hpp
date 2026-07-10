@@ -4,6 +4,7 @@
 #include "IAsset.hpp"
 #include "RenderTexture.hpp"
 
+#include <array>
 #include <functional>
 #include <unordered_map>
 
@@ -12,9 +13,11 @@ class ToneMapping;
 class ScreenSpaceReflection;
 class Bloom;
 class AmbientOcclusion;
-class TemporalAntiAliasing;
+class AntiAliasing;
 class Camera;
+class Image;
 class ImageView;
+class Sampler;
 
 class PostProcessingStack : public IAsset {
   glm::uvec2 current_size = glm::uvec2(1);
@@ -44,7 +47,7 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<AmbientOcclusion> ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
   std::shared_ptr<ScreenSpaceReflection> screen_space_reflection{};
-  std::shared_ptr<TemporalAntiAliasing> temporal_anti_aliasing{};
+  std::shared_ptr<AntiAliasing> anti_aliasing{};
   std::shared_ptr<ToneMapping> tone_mapping{};
 
   void GaussianBlur(const glm::uvec2& size) const;
@@ -54,7 +57,7 @@ class PostProcessingStack : public IAsset {
   bool enable_ambient_occlusion = true;
   bool enable_bloom = false;
   bool enable_screen_space_reflection = false;
-  bool enable_temporal_anti_aliasing = true;
+  bool enable_anti_aliasing = true;
   bool enable_tone_mapping = true;
 };
 
@@ -124,9 +127,11 @@ class AmbientOcclusion : public IPostProcessing {
   void Deserialize(const YAML::Node& in);
 };
 
-class TemporalAntiAliasing : public IPostProcessing {
+class AntiAliasing final : public IPostProcessing {
  public:
-  enum class Preset : int32_t {
+  enum class Algorithm : int32_t { Taa = 0, Smaa = 1 };
+
+  enum class TaaPreset : int32_t {
     BestQuality = 0,
     HighQuality = 1,
     Performance = 2,
@@ -144,7 +149,7 @@ class TemporalAntiAliasing : public IPostProcessing {
     Linear = 1,
   };
 
-  enum class DebugMode : int32_t {
+  enum class TaaDebugMode : int32_t {
     None = 0,
     Motion = 1,
     DepthConfidence = 2,
@@ -152,7 +157,36 @@ class TemporalAntiAliasing : public IPostProcessing {
     NoHistory = 4,
   };
 
-  struct PushConstant {
+  enum class SmaaPreset : int32_t { Low = 0, Medium = 1, High = 2, Ultra = 3 };
+  enum class SmaaDebugMode : int32_t { None = 0, Edges = 1, BlendWeights = 2 };
+
+  struct TaaSettings {
+    TaaPreset preset = TaaPreset::BestQuality;
+    VarianceClippingMode variance_clipping_mode = VarianceClippingMode::Intersection;
+    HistoryColorMode history_color_mode = HistoryColorMode::ToneMapped;
+    int variance_sample_count = 9;
+    int longest_velocity_sample_count = 9;
+    bool use_ycocg = true;
+    bool use_neighborhood_sampling = true;
+    bool use_bicubic_filter = true;
+    bool use_longest_velocity = true;
+    bool use_depth_threshold = true;
+    bool use_tgsm = true;
+    bool use_fp16 = false;
+    float min_variance_gamma = 0.75f;
+    float max_variance_gamma = 2.0f;
+    float velocity_rejection_threshold = 128.0f;
+    float depth_threshold = 0.002f;
+    float sharpen = 0.0f;
+    TaaDebugMode debug_mode = TaaDebugMode::None;
+  };
+
+  struct SmaaSettings {
+    SmaaPreset preset = SmaaPreset::Ultra;
+    SmaaDebugMode debug_mode = SmaaDebugMode::None;
+  };
+
+  struct TaaPushConstant {
     int32_t camera_index = 0;
     int32_t history_valid = 0;
     int32_t frame_index = 0;
@@ -179,35 +213,21 @@ class TemporalAntiAliasing : public IPostProcessing {
     float padding5 = 0.0f;
   };
 
-  Preset preset = Preset::BestQuality;
-  VarianceClippingMode variance_clipping_mode = VarianceClippingMode::Intersection;
-  HistoryColorMode history_color_mode = HistoryColorMode::ToneMapped;
-  int variance_sample_count = 9;
-  int longest_velocity_sample_count = 9;
-  bool use_ycocg = true;
-  bool use_neighborhood_sampling = true;
-  bool use_bicubic_filter = true;
-  bool use_longest_velocity = true;
-  bool use_depth_threshold = true;
-  bool use_tgsm = true;
-  bool use_fp16 = false;
-  float min_variance_gamma = 0.75f;
-  float max_variance_gamma = 2.0f;
-  float velocity_rejection_threshold = 128.0f;
-  float depth_threshold = 0.002f;
-  float sharpen = 0.0f;
-  DebugMode debug_mode = DebugMode::None;
-  bool reset_history = false;
+  struct SmaaPushConstant {
+    glm::vec4 metrics = glm::vec4(1.0f);
+    glm::vec4 subsample_indices = glm::vec4(0.0f);
+    int32_t tone_mapped = 1;
+    int32_t debug_mode = 0;
+    int32_t padding0 = 0;
+    int32_t padding1 = 0;
+  };
 
-  std::shared_ptr<DescriptorSetLayout> copy_layout;
-  std::shared_ptr<DescriptorSetLayout> resolve_layout;
-  std::shared_ptr<DescriptorSet> copy_descriptor_set;
-  std::shared_ptr<DescriptorSet> resolve_descriptor_set;
-  std::shared_ptr<ComputePipeline> copy_pipeline;
-  std::shared_ptr<ComputePipeline> resolve_pipeline;
+  Algorithm algorithm = Algorithm::Smaa;
+  TaaSettings taa{};
+  SmaaSettings smaa{};
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void ApplyPreset(Preset value);
+  void ApplyTaaPreset(TaaPreset value);
   void NormalizeSettings();
   void ResetHistory(const std::shared_ptr<Camera>& target_camera = nullptr);
   void BuildPipelines(bool force_rebuild = false) override;
@@ -228,11 +248,46 @@ class TemporalAntiAliasing : public IPostProcessing {
 
   [[nodiscard]] size_t ComputeSettingsHash() const;
   void PruneHistory(uint32_t current_frame_index, uint64_t active_camera_handle);
+  void ProcessTaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera);
+  void ProcessSmaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera);
+  void BuildTaaPipelines(bool force_rebuild);
+  void BuildSmaaPipelines(bool force_rebuild);
+  void EnsureSmaaTargets(const glm::uvec2& size);
+  void EnsureSmaaLookupTextures();
 
   std::unordered_map<uint64_t, HistoryResources> history_resources_;
+  bool reset_history_ = false;
   bool built_use_tgsm_ = false;
   bool built_use_fp16_ = false;
   bool resolve_pipeline_configuration_valid_ = false;
+
+  std::shared_ptr<DescriptorSetLayout> copy_layout_;
+  std::shared_ptr<DescriptorSetLayout> resolve_layout_;
+  std::shared_ptr<DescriptorSet> copy_descriptor_set_;
+  std::shared_ptr<DescriptorSet> resolve_descriptor_set_;
+  std::shared_ptr<ComputePipeline> copy_pipeline_;
+  std::shared_ptr<ComputePipeline> resolve_pipeline_;
+
+  glm::uvec2 smaa_size_ = glm::uvec2(0);
+  std::shared_ptr<RenderTexture> smaa_edges_texture_;
+  std::shared_ptr<RenderTexture> smaa_blend_texture_;
+  std::shared_ptr<Image> smaa_area_image_;
+  std::shared_ptr<Image> smaa_search_image_;
+  std::shared_ptr<ImageView> smaa_area_view_;
+  std::shared_ptr<ImageView> smaa_search_view_;
+  std::shared_ptr<Sampler> smaa_lookup_sampler_;
+  std::shared_ptr<DescriptorSetLayout> smaa_prepare_layout_;
+  std::shared_ptr<DescriptorSetLayout> smaa_edge_layout_;
+  std::shared_ptr<DescriptorSetLayout> smaa_weight_layout_;
+  std::shared_ptr<DescriptorSetLayout> smaa_neighborhood_layout_;
+  std::shared_ptr<DescriptorSet> smaa_prepare_descriptor_set_;
+  std::shared_ptr<DescriptorSet> smaa_edge_descriptor_set_;
+  std::shared_ptr<DescriptorSet> smaa_weight_descriptor_set_;
+  std::shared_ptr<DescriptorSet> smaa_neighborhood_descriptor_set_;
+  std::shared_ptr<ComputePipeline> smaa_prepare_pipeline_;
+  std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_edge_pipelines_{};
+  std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_weight_pipelines_{};
+  std::shared_ptr<GraphicsPipeline> smaa_neighborhood_pipeline_;
 };
 
 class ScreenSpaceReflection : public IPostProcessing {

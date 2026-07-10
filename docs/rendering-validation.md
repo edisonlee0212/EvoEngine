@@ -82,28 +82,43 @@ Other useful preview flags:
 - `--preview-auto-spp-threshold <value>`
 - `--preview-ser disabled|automatic|enabled`
 - `--preview-ao ssao|gtao|disabled`
-- `--preview-taa enabled|disabled`
-- `--preview-taa-preset best-quality|high-quality|performance`
-- `--preview-taa-tgsm enabled|disabled`
-- `--preview-taa-fp16 enabled|disabled`
-- `--preview-taa-motion-sequence enabled|disabled` for the `rendering-regression` profile
-- `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence|taa-no-history`
+- `--preview-aa disabled|taa|smaa`
+- `--preview-aa-preset best-quality|high-quality|performance|low|medium|high|ultra`
+- `--preview-aa-tgsm enabled|disabled`
+- `--preview-aa-fp16 enabled|disabled`
+- `--preview-aa-motion-sequence enabled|disabled` for the `rendering-regression` profile
+- `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence|taa-no-history|smaa-edges|smaa-weights`
 
-The TAA debug modes enable TAA automatically and capture the motion-vector, depth-confidence, or accumulated
-history-confidence output, or pixels where history was rejected. Best Quality and High Quality use FP32 by default.
-Performance or an explicit FP16 override uses FP16 only when the selected Vulkan device advertises `shaderFloat16`;
-otherwise the FP32 fallback is selected. Preview post-processing overrides require `--capture-demo-preview`.
+TAA presets, controls, and debug modes require `--preview-aa taa`; SMAA presets and debug modes require
+`--preview-aa smaa`. Incompatible combinations are rejected. The TAA debug modes capture motion vectors,
+depth confidence, accumulated history confidence, or pixels where history was rejected. Best Quality and High Quality use
+FP32 by default. Performance or an explicit FP16 override uses FP16 only when the selected Vulkan device advertises
+`shaderFloat16`; otherwise the FP32 fallback is selected. Preview post-processing overrides require
+`--capture-demo-preview`.
 
 Best Quality comparison example:
 
 ```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\taa-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 64 --preview-taa enabled --preview-taa-preset best-quality
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\taa-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 64 --preview-aa taa --preview-aa-preset best-quality
 ```
 
 The deterministic temporal-motion scene is captured with:
 
 ```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\taa-motion-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-taa enabled --preview-taa-preset best-quality --preview-taa-motion-sequence enabled
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\taa-motion-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa taa --preview-aa-preset best-quality --preview-aa-motion-sequence enabled
+```
+
+The full Rendering demo AA capture matrix is:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-none.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa disabled
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-taa-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa taa --preview-aa-preset best-quality
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-low.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset low
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-medium.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset medium
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-high.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset high
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-ultra.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset ultra
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-edges.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset ultra --preview-debug smaa-edges
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-weights.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset ultra --preview-debug smaa-weights
 ```
 
 ## DemoApp Smoke Run

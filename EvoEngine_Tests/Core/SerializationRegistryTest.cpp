@@ -767,7 +767,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.enable_ambient_occlusion = false;
   stack.enable_bloom = false;
   stack.enable_screen_space_reflection = true;
-  stack.enable_temporal_anti_aliasing = false;
+  stack.enable_anti_aliasing = false;
   stack.enable_tone_mapping = false;
   stack.ambient_occlusion = std::make_shared<AmbientOcclusion>();
   stack.ambient_occlusion->algorithm = AmbientOcclusion::Algorithm::Ssao;
@@ -781,24 +781,26 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   stack.screen_space_reflection->max_iteration_count = 96;
   stack.screen_space_reflection->blur = false;
-  stack.temporal_anti_aliasing = std::make_shared<TemporalAntiAliasing>();
-  stack.temporal_anti_aliasing->preset = TemporalAntiAliasing::Preset::Custom;
-  stack.temporal_anti_aliasing->variance_clipping_mode = TemporalAntiAliasing::VarianceClippingMode::Clamp;
-  stack.temporal_anti_aliasing->history_color_mode = TemporalAntiAliasing::HistoryColorMode::Linear;
-  stack.temporal_anti_aliasing->variance_sample_count = 5;
-  stack.temporal_anti_aliasing->longest_velocity_sample_count = 5;
-  stack.temporal_anti_aliasing->use_ycocg = false;
-  stack.temporal_anti_aliasing->use_neighborhood_sampling = false;
-  stack.temporal_anti_aliasing->use_bicubic_filter = false;
-  stack.temporal_anti_aliasing->use_longest_velocity = false;
-  stack.temporal_anti_aliasing->use_depth_threshold = false;
-  stack.temporal_anti_aliasing->use_tgsm = false;
-  stack.temporal_anti_aliasing->use_fp16 = false;
-  stack.temporal_anti_aliasing->min_variance_gamma = 0.5f;
-  stack.temporal_anti_aliasing->max_variance_gamma = 1.5f;
-  stack.temporal_anti_aliasing->velocity_rejection_threshold = 96.0f;
-  stack.temporal_anti_aliasing->depth_threshold = 0.004f;
-  stack.temporal_anti_aliasing->sharpen = 0.15f;
+  stack.anti_aliasing = std::make_shared<AntiAliasing>();
+  stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Taa;
+  stack.anti_aliasing->taa.preset = AntiAliasing::TaaPreset::Custom;
+  stack.anti_aliasing->taa.variance_clipping_mode = AntiAliasing::VarianceClippingMode::Clamp;
+  stack.anti_aliasing->taa.history_color_mode = AntiAliasing::HistoryColorMode::Linear;
+  stack.anti_aliasing->taa.variance_sample_count = 5;
+  stack.anti_aliasing->taa.longest_velocity_sample_count = 5;
+  stack.anti_aliasing->taa.use_ycocg = false;
+  stack.anti_aliasing->taa.use_neighborhood_sampling = false;
+  stack.anti_aliasing->taa.use_bicubic_filter = false;
+  stack.anti_aliasing->taa.use_longest_velocity = false;
+  stack.anti_aliasing->taa.use_depth_threshold = false;
+  stack.anti_aliasing->taa.use_tgsm = false;
+  stack.anti_aliasing->taa.use_fp16 = false;
+  stack.anti_aliasing->taa.min_variance_gamma = 0.5f;
+  stack.anti_aliasing->taa.max_variance_gamma = 1.5f;
+  stack.anti_aliasing->taa.velocity_rejection_threshold = 96.0f;
+  stack.anti_aliasing->taa.depth_threshold = 0.004f;
+  stack.anti_aliasing->taa.sharpen = 0.15f;
+  stack.anti_aliasing->smaa.preset = AntiAliasing::SmaaPreset::High;
   stack.tone_mapping = std::make_shared<ToneMapping>();
   stack.tone_mapping->method = ToneMapping::ToneMapMethod::Filmic;
   stack.tone_mapping->exposure = 1.5f;
@@ -816,7 +818,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_FALSE(stack_node["enable_ambient_occlusion"].as<bool>());
   EXPECT_FALSE(stack_node["enable_bloom"].as<bool>());
   EXPECT_TRUE(stack_node["enable_screen_space_reflection"].as<bool>());
-  EXPECT_FALSE(stack_node["enable_temporal_anti_aliasing"].as<bool>());
+  EXPECT_FALSE(stack_node["enable_anti_aliasing"].as<bool>());
   EXPECT_FALSE(stack_node["enable_tone_mapping"].as<bool>());
   EXPECT_EQ(stack_node["ambient_occlusion"]["algorithm"].as<int>(),
             static_cast<int>(AmbientOcclusion::Algorithm::Ssao));
@@ -825,11 +827,12 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["gtao_intensity"].as<float>(), 1.75f);
   EXPECT_FLOAT_EQ(stack_node["bloom"]["filter_radius"].as<float>(), 0.02f);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
-  const auto taa_node = stack_node["temporal_anti_aliasing"];
-  EXPECT_EQ(taa_node["preset"].as<int>(), static_cast<int>(TemporalAntiAliasing::Preset::Custom));
-  EXPECT_EQ(taa_node["variance_clipping_mode"].as<int>(),
-            static_cast<int>(TemporalAntiAliasing::VarianceClippingMode::Clamp));
-  EXPECT_EQ(taa_node["history_color_mode"].as<int>(), static_cast<int>(TemporalAntiAliasing::HistoryColorMode::Linear));
+  const auto anti_aliasing_node = stack_node["anti_aliasing"];
+  EXPECT_EQ(anti_aliasing_node["algorithm"].as<int>(), static_cast<int>(AntiAliasing::Algorithm::Taa));
+  const auto taa_node = anti_aliasing_node["taa"];
+  EXPECT_EQ(taa_node["preset"].as<int>(), static_cast<int>(AntiAliasing::TaaPreset::Custom));
+  EXPECT_EQ(taa_node["variance_clipping_mode"].as<int>(), static_cast<int>(AntiAliasing::VarianceClippingMode::Clamp));
+  EXPECT_EQ(taa_node["history_color_mode"].as<int>(), static_cast<int>(AntiAliasing::HistoryColorMode::Linear));
   EXPECT_EQ(taa_node["variance_sample_count"].as<int>(), 5);
   EXPECT_EQ(taa_node["longest_velocity_sample_count"].as<int>(), 5);
   EXPECT_FALSE(taa_node["use_ycocg"].as<bool>());
@@ -844,6 +847,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_FLOAT_EQ(taa_node["velocity_rejection_threshold"].as<float>(), 96.0f);
   EXPECT_FLOAT_EQ(taa_node["depth_threshold"].as<float>(), 0.004f);
   EXPECT_FLOAT_EQ(taa_node["sharpen"].as<float>(), 0.15f);
+  EXPECT_EQ(anti_aliasing_node["smaa"]["preset"].as<int>(), static_cast<int>(AntiAliasing::SmaaPreset::High));
   EXPECT_EQ(stack_node["tone_mapping"]["method"].as<int>(), static_cast<int>(ToneMapping::ToneMapMethod::Filmic));
   EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["brightness"].as<float>(), 2.2f);
   EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["contrast"].as<float>(), 1.1f);
@@ -855,7 +859,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
 enable_ambient_occlusion: true
 enable_bloom: true
 enable_screen_space_reflection: false
-enable_temporal_anti_aliasing: true
+enable_anti_aliasing: true
 enable_tone_mapping: true
 ambient_occlusion:
   algorithm: 1
@@ -882,24 +886,28 @@ screen_space_reflection:
   initial_steps: 12
   thickness: 0.75
   blur: false
-temporal_anti_aliasing:
-  preset: 3
-  variance_clipping_mode: 1
-  history_color_mode: 1
-  variance_sample_count: 5
-  longest_velocity_sample_count: 5
-  use_ycocg: false
-  use_neighborhood_sampling: false
-  use_bicubic_filter: false
-  use_longest_velocity: false
-  use_depth_threshold: false
-  use_tgsm: false
-  use_fp16: false
-  min_variance_gamma: 0.5
-  max_variance_gamma: 1.5
-  velocity_rejection_threshold: 96.0
-  depth_threshold: 0.004
-  sharpen: 0.15
+anti_aliasing:
+  algorithm: 0
+  taa:
+    preset: 3
+    variance_clipping_mode: 1
+    history_color_mode: 1
+    variance_sample_count: 5
+    longest_velocity_sample_count: 5
+    use_ycocg: false
+    use_neighborhood_sampling: false
+    use_bicubic_filter: false
+    use_longest_velocity: false
+    use_depth_threshold: false
+    use_tgsm: false
+    use_fp16: false
+    min_variance_gamma: 0.5
+    max_variance_gamma: 1.5
+    velocity_rejection_threshold: 96.0
+    depth_threshold: 0.004
+    sharpen: 0.15
+  smaa:
+    preset: 2
 tone_mapping:
   method: 0
   exposure: 1.75
@@ -920,7 +928,7 @@ tone_mapping:
   EXPECT_TRUE(restored_stack.enable_ambient_occlusion);
   EXPECT_TRUE(restored_stack.enable_bloom);
   EXPECT_FALSE(restored_stack.enable_screen_space_reflection);
-  EXPECT_TRUE(restored_stack.enable_temporal_anti_aliasing);
+  EXPECT_TRUE(restored_stack.enable_anti_aliasing);
   EXPECT_TRUE(restored_stack.enable_tone_mapping);
   ASSERT_TRUE(restored_stack.ambient_occlusion);
   EXPECT_EQ(restored_stack.ambient_occlusion->algorithm, AmbientOcclusion::Algorithm::Gtao);
@@ -933,11 +941,14 @@ tone_mapping:
   ASSERT_TRUE(restored_stack.screen_space_reflection);
   EXPECT_FALSE(restored_stack.screen_space_reflection->blur);
   EXPECT_EQ(restored_stack.screen_space_reflection->initial_steps, 12);
-  ASSERT_TRUE(restored_stack.temporal_anti_aliasing);
-  const auto& restored_taa = *restored_stack.temporal_anti_aliasing;
-  EXPECT_EQ(restored_taa.preset, TemporalAntiAliasing::Preset::Custom);
-  EXPECT_EQ(restored_taa.variance_clipping_mode, TemporalAntiAliasing::VarianceClippingMode::Clamp);
-  EXPECT_EQ(restored_taa.history_color_mode, TemporalAntiAliasing::HistoryColorMode::Linear);
+  ASSERT_TRUE(restored_stack.anti_aliasing);
+  const auto& restored_anti_aliasing = *restored_stack.anti_aliasing;
+  EXPECT_EQ(restored_anti_aliasing.algorithm, AntiAliasing::Algorithm::Taa);
+  EXPECT_EQ(restored_anti_aliasing.smaa.preset, AntiAliasing::SmaaPreset::High);
+  const auto& restored_taa = restored_anti_aliasing.taa;
+  EXPECT_EQ(restored_taa.preset, AntiAliasing::TaaPreset::Custom);
+  EXPECT_EQ(restored_taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Clamp);
+  EXPECT_EQ(restored_taa.history_color_mode, AntiAliasing::HistoryColorMode::Linear);
   EXPECT_EQ(restored_taa.variance_sample_count, 5);
   EXPECT_EQ(restored_taa.longest_velocity_sample_count, 5);
   EXPECT_FALSE(restored_taa.use_ycocg);
@@ -968,18 +979,37 @@ tone_mapping:
   EXPECT_EQ(restored_stack.tone_mapping->average_mode, 0);
   EXPECT_FALSE(restored_stack.tone_mapping->dither);
 
+  PostProcessingStack missing_anti_aliasing_stack;
+  Serialization::DeserializeObject(YAML::Load("{enable_bloom: true}"),
+                                   static_cast<IAsset&>(missing_anti_aliasing_stack));
+  EXPECT_TRUE(missing_anti_aliasing_stack.enable_anti_aliasing);
+  ASSERT_TRUE(missing_anti_aliasing_stack.anti_aliasing);
+  EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->algorithm, AntiAliasing::Algorithm::Smaa);
+  EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->smaa.preset, AntiAliasing::SmaaPreset::Ultra);
+
   PostProcessingStack legacy_taa_stack;
+  legacy_taa_stack.enable_anti_aliasing = false;
+  legacy_taa_stack.anti_aliasing = std::make_shared<AntiAliasing>();
+  legacy_taa_stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Taa;
+  legacy_taa_stack.anti_aliasing->smaa.preset = AntiAliasing::SmaaPreset::Low;
+  const auto existing_anti_aliasing = legacy_taa_stack.anti_aliasing;
   Serialization::DeserializeObject(YAML::Load(R"(
+enable_temporal_anti_aliasing: false
 temporal_anti_aliasing:
   feedback: 0.9
   clamp_strength: 4.0
 )"),
                                    static_cast<IAsset&>(legacy_taa_stack));
-  ASSERT_TRUE(legacy_taa_stack.temporal_anti_aliasing);
-  const auto& legacy_taa = *legacy_taa_stack.temporal_anti_aliasing;
-  EXPECT_EQ(legacy_taa.preset, TemporalAntiAliasing::Preset::BestQuality);
-  EXPECT_EQ(legacy_taa.variance_clipping_mode, TemporalAntiAliasing::VarianceClippingMode::Intersection);
-  EXPECT_EQ(legacy_taa.history_color_mode, TemporalAntiAliasing::HistoryColorMode::ToneMapped);
+  EXPECT_TRUE(legacy_taa_stack.enable_anti_aliasing);
+  ASSERT_TRUE(legacy_taa_stack.anti_aliasing);
+  EXPECT_EQ(legacy_taa_stack.anti_aliasing, existing_anti_aliasing);
+  const auto& legacy_anti_aliasing = *legacy_taa_stack.anti_aliasing;
+  EXPECT_EQ(legacy_anti_aliasing.algorithm, AntiAliasing::Algorithm::Smaa);
+  EXPECT_EQ(legacy_anti_aliasing.smaa.preset, AntiAliasing::SmaaPreset::Ultra);
+  const auto& legacy_taa = legacy_anti_aliasing.taa;
+  EXPECT_EQ(legacy_taa.preset, AntiAliasing::TaaPreset::BestQuality);
+  EXPECT_EQ(legacy_taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Intersection);
+  EXPECT_EQ(legacy_taa.history_color_mode, AntiAliasing::HistoryColorMode::ToneMapped);
   EXPECT_EQ(legacy_taa.variance_sample_count, 9);
   EXPECT_EQ(legacy_taa.longest_velocity_sample_count, 9);
   EXPECT_TRUE(legacy_taa.use_ycocg);
@@ -995,21 +1025,44 @@ temporal_anti_aliasing:
   EXPECT_FLOAT_EQ(legacy_taa.depth_threshold, 0.002f);
   EXPECT_FLOAT_EQ(legacy_taa.sharpen, 0.0f);
 
-  TemporalAntiAliasing preset_taa;
-  preset_taa.ApplyPreset(TemporalAntiAliasing::Preset::HighQuality);
-  EXPECT_EQ(preset_taa.variance_clipping_mode, TemporalAntiAliasing::VarianceClippingMode::Clamp);
-  EXPECT_EQ(preset_taa.variance_sample_count, 5);
-  EXPECT_TRUE(preset_taa.use_bicubic_filter);
-  EXPECT_FALSE(preset_taa.use_fp16);
-  preset_taa.ApplyPreset(TemporalAntiAliasing::Preset::Performance);
-  EXPECT_EQ(preset_taa.variance_clipping_mode, TemporalAntiAliasing::VarianceClippingMode::Clamp);
-  EXPECT_EQ(preset_taa.variance_sample_count, 5);
-  EXPECT_FALSE(preset_taa.use_ycocg);
-  EXPECT_FALSE(preset_taa.use_neighborhood_sampling);
-  EXPECT_FALSE(preset_taa.use_bicubic_filter);
-  EXPECT_FALSE(preset_taa.use_longest_velocity);
-  EXPECT_FALSE(preset_taa.use_depth_threshold);
-  EXPECT_TRUE(preset_taa.use_fp16);
+  PostProcessingStack invalid_anti_aliasing_stack;
+  Serialization::DeserializeObject(YAML::Load(R"(
+enable_anti_aliasing: true
+anti_aliasing:
+  algorithm: 99
+  taa:
+    preset: 99
+    variance_clipping_mode: 99
+    history_color_mode: 99
+  smaa:
+    preset: 99
+)"),
+                                   static_cast<IAsset&>(invalid_anti_aliasing_stack));
+  EXPECT_TRUE(invalid_anti_aliasing_stack.enable_anti_aliasing);
+  ASSERT_TRUE(invalid_anti_aliasing_stack.anti_aliasing);
+  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->algorithm, AntiAliasing::Algorithm::Smaa);
+  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->smaa.preset, AntiAliasing::SmaaPreset::Ultra);
+  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->taa.preset, AntiAliasing::TaaPreset::BestQuality);
+  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->taa.variance_clipping_mode,
+            AntiAliasing::VarianceClippingMode::Intersection);
+  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->taa.history_color_mode,
+            AntiAliasing::HistoryColorMode::ToneMapped);
+
+  AntiAliasing preset_taa;
+  preset_taa.ApplyTaaPreset(AntiAliasing::TaaPreset::HighQuality);
+  EXPECT_EQ(preset_taa.taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Clamp);
+  EXPECT_EQ(preset_taa.taa.variance_sample_count, 5);
+  EXPECT_TRUE(preset_taa.taa.use_bicubic_filter);
+  EXPECT_FALSE(preset_taa.taa.use_fp16);
+  preset_taa.ApplyTaaPreset(AntiAliasing::TaaPreset::Performance);
+  EXPECT_EQ(preset_taa.taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Clamp);
+  EXPECT_EQ(preset_taa.taa.variance_sample_count, 5);
+  EXPECT_FALSE(preset_taa.taa.use_ycocg);
+  EXPECT_FALSE(preset_taa.taa.use_neighborhood_sampling);
+  EXPECT_FALSE(preset_taa.taa.use_bicubic_filter);
+  EXPECT_FALSE(preset_taa.taa.use_longest_velocity);
+  EXPECT_FALSE(preset_taa.taa.use_depth_threshold);
+  EXPECT_TRUE(preset_taa.taa.use_fp16);
 
   Shader shader;
   shader.RefShaderCode() = "void main() {}";

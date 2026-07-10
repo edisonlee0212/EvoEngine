@@ -188,15 +188,26 @@ and triangle offset data.
 
 ## Current Migration Notes
 
-The raster post-processing stack runs in HDR order: ambient occlusion, SSR/reflections, TAA resolve, bloom, then tone
-mapping. `AmbientOcclusion` owns the SSAO/GTAO algorithm selection. New post-processing stacks default to GTAO, TAA,
-bloom, and tone mapping enabled. Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
+The raster post-processing stack uses technique-specific ordering: ambient occlusion, SSR/reflections, TAA when selected,
+bloom, tone mapping, then SMAA when selected. `AmbientOcclusion` owns the SSAO/GTAO selection and `AntiAliasing` owns the
+TAA/SMAA selection. New post-processing stacks default to enabled SMAA Ultra; initialized stacks also enable GTAO, bloom,
+SSR, and tone mapping. Ray-tracing and ray-query cameras use only bloom and tone mapping for this branch.
 
 TAA follows the Best Quality configuration from [GameTechDev/TAA](https://github.com/GameTechDev/TAA) by default. The
 resolve operates on Reinhard tone-mapped history, uses YCoCg variance AABB intersection with a 9-pixel neighborhood,
 selects the longest velocity from a 9-pixel neighborhood, samples history with the reference 5-tap bicubic filter, and
 writes a separate inverse-Reinhard linear HDR output for bloom and tone mapping. High Quality and Performance presets
 retain the reference's lower-cost combinations, while Custom exposes the individual settings.
+
+SMAA 1x follows [iryoku/smaa commit 71c806a](https://github.com/iryoku/smaa/tree/71c806a838bdd7d517df19192a20f0c61b3ca29d)
+with the reference luma-edge, blend-weight, and neighborhood-blending passes and exact `160x560` RG8 area and `64x16` R8
+search textures. Low, Medium, High, and Ultra select the matching reference presets. Edges are detected in perceptual color
+while neighborhood blending operates in linear light. When tone mapping is disabled, edge detection uses a bounded
+Reinhard perceptual proxy and neighborhood blending preserves the original HDR color.
+
+AA persistence uses `enable_anti_aliasing` and an `anti_aliasing` map containing `algorithm`, `taa`, and `smaa`. Missing,
+invalid-enum, and legacy-only AA data falls back to enabled SMAA Ultra. The removed TAA-only keys are intentionally not
+migrated.
 
 Motion vectors store `previous_pixel - current_pixel` in pixel units and
 `previous_normalized_linear_depth - current_normalized_linear_depth` in `z`. Camera and rigid motion use the deferred
@@ -219,7 +230,7 @@ and depth calculations remain FP32. Reinhard samples stay FP32 when FP16 roundin
 numerically sensitive, and invalid bicubic or clipping results fall back to the current sample. Invalid motion sentinels
 reject their own pixel without participating in neighboring longest-velocity selection. History-resolved HDR luminance
 is constrained to an expanded current 3x3 neighborhood envelope and re-encoded into history when constrained; current
-frame highlights are not clamped. TAA history remains owned per camera by `TemporalAntiAliasing` and is invalidated on
+frame highlights are not clamped. TAA history remains owned per camera by `AntiAliasing` and is invalidated on
 resize, skipped frames, toggles, preset or persistent-setting changes, unsupported camera-wide motion, and explicit reset.
 
 The renderer has moved many built-in resources into explicit graph resources, but some legacy areas remain:

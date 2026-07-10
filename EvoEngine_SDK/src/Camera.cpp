@@ -21,6 +21,7 @@ struct CameraJitterState {
   glm::vec2 current = {};
   glm::vec2 previous = {};
   uint32_t frame_index = 0;
+  bool taa_enabled = false;
 };
 std::unordered_map<uint64_t, CameraJitterState> camera_jitter_states;
 
@@ -362,12 +363,16 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
                                                       camera_settings.near_distance, camera_settings.far_distance);
   camera_info_block.projection = unjittered_projection;
   auto& jitter_state = camera_jitter_states[GetHandle().GetValue()];
-  jitter_state.previous = jitter_state.current;
-  jitter_state.current = {};
   const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
   const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
-                           post_processing_stack->enable_temporal_anti_aliasing &&
-                           post_processing_stack->temporal_anti_aliasing;
+                           post_processing_stack->enable_anti_aliasing && post_processing_stack->anti_aliasing &&
+                           post_processing_stack->anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa;
+  if (jitter_state.taa_enabled != taa_enabled) {
+    jitter_state = {};
+    jitter_state.taa_enabled = taa_enabled;
+  }
+  jitter_state.previous = jitter_state.current;
+  jitter_state.current = {};
   if (taa_enabled && size_.x != 0 && size_.y != 0) {
     const uint32_t sequence_index = jitter_state.frame_index % 16u + 1u;
     jitter_state.current = glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);

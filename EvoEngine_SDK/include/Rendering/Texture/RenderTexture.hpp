@@ -12,6 +12,7 @@ namespace evo_engine {
 struct RenderTextureCreateInfo {
   VkExtent3D extent = {1, 1, 1};                           /**< Extent of the texture (width, height, depth). */
   VkImageViewType image_view_type = VK_IMAGE_VIEW_TYPE_2D; /**< Type of the image view. */
+  VkFormat color_format = VK_FORMAT_UNDEFINED;             /**< Color format, or the platform default when undefined. */
   bool color = true; /**< Flag to indicate if the texture has a color attachment. */
   bool depth = true; /**< Flag to indicate if the texture has a depth attachment. */
 };
@@ -37,8 +38,9 @@ class RenderTexture {
   std::vector<ImTextureID> color_im_texture_ids_{}; /**< Color texture IDs for ImGui. */
   std::vector<ImTextureID> depth_im_texture_ids_{}; /**< Depth texture IDs for ImGui. */
 
-  bool color_ = true; /**< Indicates if the texture has a color attachment. */
-  bool depth_ = true; /**< Indicates if the texture has a depth attachment. */
+  bool color_ = true;                           /**< Indicates if the texture has a color attachment. */
+  bool depth_ = true;                           /**< Indicates if the texture has a depth attachment. */
+  VkFormat color_format_ = VK_FORMAT_UNDEFINED; /**< Color attachment format. */
 
   /**
    * @brief Initializes the render texture.

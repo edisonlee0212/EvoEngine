@@ -22,6 +22,9 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   int layer_count = render_texture_create_info.image_view_type == VK_IMAGE_VIEW_TYPE_CUBE ? 6 : 1;
   depth_ = render_texture_create_info.depth;
   color_ = render_texture_create_info.color;
+  color_format_ = render_texture_create_info.color_format == VK_FORMAT_UNDEFINED
+                      ? Platform::Constants::render_texture_color
+                      : render_texture_create_info.color_format;
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   switch (render_texture_create_info.image_view_type) {
@@ -54,7 +57,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     image_info.extent = render_texture_create_info.extent;
     image_info.mipLevels = mip_levels;
     image_info.arrayLayers = layer_count;
-    image_info.format = Platform::Constants::render_texture_color;
+    image_info.format = color_format_;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -76,7 +79,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
       view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
       view_info.image = color_image_->GetVkImage();
       view_info.viewType = render_texture_create_info.image_view_type;
-      view_info.format = Platform::Constants::render_texture_color;
+      view_info.format = color_format_;
       view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
       view_info.subresourceRange.baseMipLevel = mip;
       view_info.subresourceRange.levelCount = 1;
@@ -239,6 +242,7 @@ void RenderTexture::Resize(const VkExtent3D extent, const uint32_t mip_level) {
   render_texture_create_info.extent = extent;
   render_texture_create_info.color = color_;
   render_texture_create_info.depth = depth_;
+  render_texture_create_info.color_format = color_format_;
   render_texture_create_info.image_view_type = image_view_type_;
   Initialize(render_texture_create_info, mip_level);
 }
