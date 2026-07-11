@@ -47,6 +47,9 @@
 #ifndef MAT_EXT_DIFFUSE_TRANSMISSION
 #  define MAT_EXT_DIFFUSE_TRANSMISSION MAT_EXT_VAL
 #endif
+#ifndef MAT_EXT_RETROREFLECTION
+#  define MAT_EXT_RETROREFLECTION MAT_EXT_VAL
+#endif
 #ifndef MAT_EXT_UNLIT
 #  define MAT_EXT_UNLIT MAT_EXT_VAL
 #endif
@@ -146,7 +149,7 @@ struct GltfShadeMaterial {
 #endif
 
 #if MAT_EXT_SPECULAR
-  float specular_factor = 0.0f;
+  float specular_factor = 1.0f;
 #endif
 
 #if MAT_EXT_UNLIT
@@ -161,7 +164,7 @@ struct GltfShadeMaterial {
 #endif
 
 #if MAT_EXT_ANISOTROPY
-  glm::vec2 anisotropy_rotation = glm::vec2(0.0f);
+  glm::vec2 anisotropy_rotation = glm::vec2(1.0f, 0.0f);
 #endif
 
 #if MAT_EXT_SHEEN
@@ -191,6 +194,10 @@ struct GltfShadeMaterial {
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   glm::vec3 diffuse_transmission_color = glm::vec3(1.0f);
   float diffuse_transmission_factor = 0.0f;
+#endif
+
+#if MAT_EXT_RETROREFLECTION
+  float retroreflection_factor = 0.0f;
 #endif
 
 #if MAT_EXT_VOLUME_SCATTER
@@ -245,6 +252,10 @@ struct GltfShadeMaterial {
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   uint16_t diffuse_transmission_texture = 0;
   uint16_t diffuse_transmission_color_texture = 0;
+#endif
+
+#if MAT_EXT_RETROREFLECTION
+  uint16_t retroreflection_texture = 0;
 #endif
 
   uint64_t pad = 0;
@@ -370,6 +381,10 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.diffuse_transmission_factor != rhs.diffuse_transmission_factor)
     return true;
 #endif
+#if MAT_EXT_RETROREFLECTION
+  if (lhs.retroreflection_factor != rhs.retroreflection_factor)
+    return true;
+#endif
 #if MAT_EXT_VOLUME_SCATTER
   if (lhs.multiscatter_color_factor != rhs.multiscatter_color_factor)
     return true;
@@ -434,6 +449,10 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.diffuse_transmission_texture != rhs.diffuse_transmission_texture)
     return true;
   if (lhs.diffuse_transmission_color_texture != rhs.diffuse_transmission_color_texture)
+    return true;
+#endif
+#if MAT_EXT_RETROREFLECTION
+  if (lhs.retroreflection_texture != rhs.retroreflection_texture)
     return true;
 #endif
   if (lhs.pad != rhs.pad)

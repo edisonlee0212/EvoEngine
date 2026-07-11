@@ -315,7 +315,24 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
     surface.metallic *= metallic_roughness.b;
     surface.roughness = max(surface.roughness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
     surface.metallic = clamp(surface.metallic, 0.0, 1.0);
-    surface.specular_f0 = mix(vec3(0.04), max(surface.base_color.rgb, vec3(0.0)), surface.metallic);
+    float dielectric_f0 = 0.04;
+#if MAT_EXT_IOR
+    const float material_ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
+    dielectric_f0 = pow((material_ior - 1.0) / max(material_ior + 1.0, 0.000001), 2.0);
+#endif
+    vec3 dielectric_specular_f0 = vec3(dielectric_f0);
+#if MAT_EXT_SPECULAR
+    float specular_weight = material.specular_factor;
+    specular_weight *= EE_GLTF_SAMPLE_TEXTURE(material.specular_texture, tex_coord_0, tex_coord_1,
+                                               vec4(1.0), tex_gradients).a;
+    vec3 specular_color = material.specular_color_factor;
+    specular_color *= EE_GLTF_SAMPLE_TEXTURE(material.specular_color_texture, tex_coord_0, tex_coord_1,
+                                              vec4(1.0), tex_gradients).rgb;
+    dielectric_specular_f0 =
+        clamp(dielectric_specular_f0 * max(specular_color, vec3(0.0)), vec3(0.0), vec3(1.0)) *
+        clamp(specular_weight, 0.0, 1.0);
+#endif
+    surface.specular_f0 = mix(dielectric_specular_f0, max(surface.base_color.rgb, vec3(0.0)), surface.metallic);
   }
 
   if (EE_GLTF_HAS_TEXTURE(material.occlusion_texture)) {
@@ -406,7 +423,9 @@ vec3 EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint material_index, GltfRasterMaterial s
     return surface.specular_f0;
   }
 #endif
-  return mix(vec3(0.04), max(base_color, vec3(0.0)), clamp(surface.metallic, 0.0, 1.0));
+  const float metallic = clamp(surface.metallic, 0.0, 1.0);
+  return surface.specular_f0 +
+         metallic * (max(base_color, vec3(0.0)) - max(surface.base_color.rgb, vec3(0.0)));
 }
 
 vec3 EE_GLTF_SAFE_NORMALIZE(vec3 value, vec3 fallback) {
@@ -475,11 +494,8 @@ bool EE_GLTF_RASTER_SHOULD_DISCARD(GltfRasterMaterial surface) {
   return EE_GLTF_RASTER_OPACITY(surface) <= 0.0;
 }
 
-float EE_GLTF_RASTER_IOR_FRESNEL(const float ior, const float cos_theta) {
-  const float safe_ior = max(ior, 1.0);
-  float f0 = (1.0 - safe_ior) / (1.0 + safe_ior);
-  f0 *= f0;
-  return f0 + (1.0 - f0) * pow(max(1.0 - clamp(cos_theta, 0.0, 1.0), 0.0), 5.0);
+vec3 EE_GLTF_RASTER_FRESNEL(const vec3 f0, const vec3 f90, const float cos_theta) {
+  return f0 + (f90 - f0) * pow(max(1.0 - clamp(cos_theta, 0.0, 1.0), 0.0), 5.0);
 }
 
 float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, float vertex_alpha) {
@@ -512,22 +528,75 @@ float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, vec2 tex_coord_0, vec2 te
 }
 
 vec3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1,
-                                             float cos_theta, float segment_length, inout bool is_inside,
-                                             float min_transmission) {
-#if !MAT_EXT_TRANSMISSION
+                                              vec3 vertex_color, float cos_theta, float segment_length,
+                                              inout bool is_inside, float min_transmission) {
+#if !MAT_EXT_TRANSMISSION && !MAT_EXT_DIFFUSE_TRANSMISSION
   return vec3(0.0);
 #else
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-  if (material.transmission_factor <= min_transmission) {
+  vec3 base_color = material.pbr_base_color_factor.rgb * vertex_color;
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
+    base_color = material.pbr_diffuse_factor.rgb * vertex_color;
+    base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
+        material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coord_0, tex_coord_1,
+        vec4(1.0)).rgb;
+  } else
+#endif
+  {
+    base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
+        material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coord_0, tex_coord_1,
+        vec4(1.0)).rgb;
+  }
+
+  float specular_transmission = 0.0;
+#if MAT_EXT_TRANSMISSION
+  specular_transmission = material.transmission_factor;
+  specular_transmission *=
+      EE_GLTF_SAMPLE_TEXTURE_LOD0(material.transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0)).r;
+#endif
+  float diffuse_transmission = 0.0;
+  vec3 diffuse_transmission_color = vec3(1.0);
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+  diffuse_transmission = material.diffuse_transmission_factor;
+  diffuse_transmission *= EE_GLTF_SAMPLE_TEXTURE_LOD0(
+      material.diffuse_transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0)).a;
+  diffuse_transmission_color = material.diffuse_transmission_color;
+  diffuse_transmission_color *= EE_GLTF_SAMPLE_TEXTURE_LOD0(
+      material.diffuse_transmission_color_texture, tex_coord_0, tex_coord_1, vec4(1.0)).rgb;
+#endif
+  specular_transmission = clamp(specular_transmission, 0.0, 1.0);
+  diffuse_transmission = clamp(diffuse_transmission, 0.0, 1.0);
+  const float effective_diffuse_transmission = (1.0 - specular_transmission) * diffuse_transmission;
+  if (max(specular_transmission, effective_diffuse_transmission) <= min_transmission) {
     return vec3(0.0);
   }
 
   float ior = 1.5;
 #if MAT_EXT_IOR
-  ior = material.ior;
+  ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
 #endif
-  const float fresnel = EE_GLTF_RASTER_IOR_FRESNEL(ior, cos_theta);
-  vec3 transmission = material.transmission_factor * material.pbr_base_color_factor.rgb * (1.0 - fresnel);
+  float ior_f0 = (ior - 1.0) / max(ior + 1.0, 0.000001);
+  ior_f0 *= ior_f0;
+  float specular_weight = 1.0;
+  vec3 specular_color = vec3(1.0);
+#if MAT_EXT_SPECULAR
+  specular_weight = material.specular_factor;
+  specular_weight *=
+      EE_GLTF_SAMPLE_TEXTURE_LOD0(material.specular_texture, tex_coord_0, tex_coord_1, vec4(1.0)).a;
+  specular_color = material.specular_color_factor;
+  specular_color *=
+      EE_GLTF_SAMPLE_TEXTURE_LOD0(material.specular_color_texture, tex_coord_0, tex_coord_1, vec4(1.0)).rgb;
+#endif
+  specular_weight = clamp(specular_weight, 0.0, 1.0);
+  const vec3 specular_f0 =
+      clamp(vec3(ior_f0) * max(specular_color, vec3(0.0)), vec3(0.0), vec3(1.0)) * specular_weight;
+  const vec3 fresnel = EE_GLTF_RASTER_FRESNEL(specular_f0, vec3(specular_weight), cos_theta);
+  const float remaining_energy = 1.0 - max(fresnel.r, max(fresnel.g, fresnel.b));
+  vec3 transmission = remaining_energy *
+                      (specular_transmission * base_color +
+                       effective_diffuse_transmission * diffuse_transmission_color);
+  transmission = clamp(transmission, vec3(0.0), vec3(1.0));
 
 #if MAT_EXT_VOLUME
   if (material.thickness_factor > 0.0) {

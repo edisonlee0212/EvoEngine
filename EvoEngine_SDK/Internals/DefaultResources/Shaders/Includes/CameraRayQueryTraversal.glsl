@@ -142,9 +142,9 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
 }
 
 vec3 EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(const rayQueryEXT ray_query, const uint material_index,
-                                             const vec2 tex_coord_0, const vec2 tex_coord_1,
-                                             const vec3 ray_direction,
-                                             inout float previous_hit_t, inout uint shadow_is_inside) {
+                                              const vec2 tex_coord_0, const vec2 tex_coord_1,
+                                              const vec3 vertex_color, const vec3 ray_direction,
+                                              inout float previous_hit_t, inout uint shadow_is_inside) {
   const int instance_index = rayQueryGetIntersectionInstanceCustomIndexEXT(ray_query, false);
   const Instance instance = EE_INSTANCES[instance_index];
   const int primitive_id = rayQueryGetIntersectionPrimitiveIndexEXT(ray_query, false);
@@ -164,7 +164,7 @@ vec3 EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(const rayQueryEXT ray_query, const 
   const float hit_t = rayQueryGetIntersectionTEXT(ray_query, false);
   const float segment_length = max(0.0f, hit_t - previous_hit_t);
   const vec3 transmission = EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(
-      material_index, tex_coord_0, tex_coord_1, cos_theta, segment_length, is_inside,
+      material_index, tex_coord_0, tex_coord_1, vertex_color, cos_theta, segment_length, is_inside,
       EE_CAMERA_MIN_SHADOW_TRANSMISSION);
   shadow_is_inside = is_inside ? 1u : 0u;
   previous_hit_t = hit_t;
@@ -197,7 +197,8 @@ vec3 EE_CAMERA_SHADOW_TRANSMISSION(const vec3 origin, const vec3 direction, cons
       continue;
     }
     shadow_transmission *= EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(
-        ray_query, material_index, tex_coord_0, tex_coord_1, direction, previous_hit_t, shadow_is_inside);
+        ray_query, material_index, tex_coord_0, tex_coord_1, vertex_color.rgb, direction, previous_hit_t,
+        shadow_is_inside);
     if (max(max(shadow_transmission.x, shadow_transmission.y), shadow_transmission.z) <=
         EE_CAMERA_MIN_SHADOW_TRANSMISSION) {
       return vec3(0.0f);

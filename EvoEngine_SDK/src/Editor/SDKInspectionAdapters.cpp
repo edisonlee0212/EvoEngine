@@ -2710,7 +2710,8 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     if (ImGui::DragFloat("Specular##Material", &shade_material.specular_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
-    if (ImGui::ColorEdit3("Specular Color##Material", &shade_material.specular_color_factor.x)) {
+    if (ImGui::ColorEdit3("Specular Color##Material", &shade_material.specular_color_factor.x,
+                          ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float)) {
       changed = true;
     }
     if (ImGui::ColorEdit3("Emissive##Material", &shade_material.emissive_factor.x)) {
@@ -2771,6 +2772,35 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     if (ImGui::DragFloat("Sheen Roughness##Material", &shade_material.sheen_roughness_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
+    if (ImGui::DragFloat("Iridescence##Material", &shade_material.iridescence_factor, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Iridescence IOR##Material", &shade_material.iridescence_ior, 0.01f, 1.0f, 5.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Iridescence Min Thickness (nm)##Material", &shade_material.iridescence_thickness_minimum,
+                         1.0f, 0.0f, 10000.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Iridescence Max Thickness (nm)##Material", &shade_material.iridescence_thickness_maximum,
+                         1.0f, 0.0f, 10000.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Anisotropy##Material", &shade_material.anisotropy_strength, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    float anisotropy_rotation = std::atan2(shade_material.anisotropy_rotation.y, shade_material.anisotropy_rotation.x);
+    if (ImGui::DragFloat("Anisotropy Rotation (rad)##Material", &anisotropy_rotation, 0.01f)) {
+      shade_material.anisotropy_rotation = glm::vec2(std::cos(anisotropy_rotation), std::sin(anisotropy_rotation));
+      changed = true;
+    }
+    if (ImGui::DragFloat("Dispersion##Material", &shade_material.dispersion, 0.01f, 0.0f, 10.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Reference Retroreflection##Material", &shade_material.retroreflection_factor, 0.01f, 0.0f,
+                         1.0f)) {
+      changed = true;
+    }
 
     ImGui::TreePop();
   }
@@ -2812,6 +2842,18 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
         changed;
     changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::specular_color_texture,
                                          "Specular Color Tex") ||
+              changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::iridescence_texture,
+                                         "Iridescence Tex") ||
+              changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::iridescence_thickness_texture,
+                                         "Iridescence Thickness Tex") ||
+              changed;
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::anisotropy_texture, "Anisotropy Tex") ||
+        changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::retroreflection_texture,
+                                         "Reference Retroreflection Tex") ||
               changed;
 
     AssetRef rma_texture_ref;

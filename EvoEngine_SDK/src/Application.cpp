@@ -468,6 +468,9 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
   out << YAML::Key << "diffuse_transmission_color" << YAML::Value << material.diffuse_transmission_color;
   out << YAML::Key << "diffuse_transmission_factor" << YAML::Value << material.diffuse_transmission_factor;
 #endif
+#if MAT_EXT_RETROREFLECTION
+  out << YAML::Key << "retroreflection_factor" << YAML::Value << material.retroreflection_factor;
+#endif
 #if MAT_EXT_VOLUME_SCATTER
   out << YAML::Key << "multiscatter_color_factor" << YAML::Value << material.multiscatter_color_factor;
   out << YAML::Key << "scatter_anisotropy" << YAML::Value << material.scatter_anisotropy;
@@ -511,6 +514,9 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
   out << YAML::Key << "diffuse_transmission_texture" << YAML::Value << material.diffuse_transmission_texture;
   out << YAML::Key << "diffuse_transmission_color_texture" << YAML::Value
       << material.diffuse_transmission_color_texture;
+#endif
+#if MAT_EXT_RETROREFLECTION
+  out << YAML::Key << "retroreflection_texture" << YAML::Value << material.retroreflection_texture;
 #endif
   out << YAML::EndMap;
 }
@@ -611,6 +617,10 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
   if (in["diffuse_transmission_factor"])
     material.diffuse_transmission_factor = in["diffuse_transmission_factor"].as<float>();
 #endif
+#if MAT_EXT_RETROREFLECTION
+  if (in["retroreflection_factor"])
+    material.retroreflection_factor = in["retroreflection_factor"].as<float>();
+#endif
 #if MAT_EXT_VOLUME_SCATTER
   if (in["multiscatter_color_factor"])
     material.multiscatter_color_factor = in["multiscatter_color_factor"].as<glm::vec3>();
@@ -676,6 +686,10 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
     material.diffuse_transmission_texture = in["diffuse_transmission_texture"].as<uint16_t>();
   if (in["diffuse_transmission_color_texture"])
     material.diffuse_transmission_color_texture = in["diffuse_transmission_color_texture"].as<uint16_t>();
+#endif
+#if MAT_EXT_RETROREFLECTION
+  if (in["retroreflection_texture"])
+    material.retroreflection_texture = in["retroreflection_texture"].as<uint16_t>();
 #endif
 }
 
@@ -770,6 +784,9 @@ void MigrateLegacyEveMaterial(const YAML::Node& in, Material& material) {
 #endif
 #if MAT_EXT_SPECULAR
   shade.specular_factor = LegacyFloat(old_fields, "specular", shade.specular_factor);
+  if (shade.specular_factor == 0.0f) {
+    shade.specular_factor = 1.0f;
+  }
 #endif
 #if MAT_EXT_SHEEN
   shade.sheen_color_factor = glm::vec3(LegacyFloat(old_fields, "sheen", 0.0f));
@@ -796,6 +813,7 @@ void MigrateLegacyEveMaterial(const YAML::Node& in, Material& material) {
 
 void SerializeMaterial(YAML::Emitter& out, const Material& material) {
   out << YAML::Key << "gltf_material" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "schema_version" << YAML::Value << 2;
   SaveGltfShadeMaterial(material.material_data.shade_material, out);
   SaveGltfTextureInfos(material, out);
   out << YAML::EndMap;
@@ -809,6 +827,22 @@ void DeserializeMaterial(const YAML::Node& in, Material& material) {
     std::vector<AssetRef> texture_refs;
     const auto gltf_material = in["gltf_material"];
     LoadGltfShadeMaterial(gltf_material["shade_material"], data.shade_material);
+    const int schema_version = gltf_material["schema_version"] ? gltf_material["schema_version"].as<int>() : 1;
+    if (schema_version < 2) {
+#if MAT_EXT_SPECULAR
+      if (data.shade_material.specular_factor == 0.0f) {
+        data.shade_material.specular_factor = 1.0f;
+      }
+#endif
+#if MAT_EXT_ANISOTROPY
+      const auto legacy_rotation = data.shade_material.anisotropy_rotation;
+      if (glm::dot(legacy_rotation, legacy_rotation) == 0.0f) {
+        data.shade_material.anisotropy_rotation = glm::vec2(1.0f, 0.0f);
+      } else {
+        data.shade_material.anisotropy_rotation = glm::vec2(legacy_rotation.y, -legacy_rotation.x);
+      }
+#endif
+    }
     LoadGltfTextureInfos(gltf_material["texture_infos"], data, texture_refs);
     material.SetGltfMaterialData(data);
     material.RefTextureRefs() = std::move(texture_refs);

@@ -182,9 +182,10 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesRgbTransparentShadowTransmission) {
 
   EXPECT_NE(any_hit.find("EE_CAMERA_SHADOW_TRANSMISSION"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0("), std::string::npos);
-  EXPECT_NE(evaluator.find("material.transmission_factor <= min_transmission"), std::string::npos);
-  EXPECT_NE(evaluator.find("EE_GLTF_RASTER_IOR_FRESNEL"), std::string::npos);
-  EXPECT_NE(evaluator.find("material.transmission_factor * material.pbr_base_color_factor.rgb"), std::string::npos);
+  EXPECT_NE(evaluator.find("effective_diffuse_transmission"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_RASTER_FRESNEL(specular_f0, vec3(specular_weight)"), std::string::npos);
+  EXPECT_NE(evaluator.find("specular_transmission * base_color"), std::string::npos);
+  EXPECT_NE(evaluator.find("const float remaining_energy"), std::string::npos);
   EXPECT_NE(evaluator.find("material.attenuation_color"), std::string::npos);
   EXPECT_NE(evaluator.find("scatter_coefficient"), std::string::npos);
   EXPECT_NE(any_hit.find("abs(gl_HitTEXT - hit_value.shadow_previous_hit_t)"), std::string::npos);
@@ -307,7 +308,7 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   EXPECT_NE(evaluator.find("vec4 EE_GLTF_SAMPLE_TEXTURE_LOD0"), std::string::npos);
   EXPECT_NE(evaluator.find("float EE_GLTF_RASTER_OPACITY_LOD0"), std::string::npos);
   EXPECT_NE(evaluator.find("vec3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0"), std::string::npos);
-  EXPECT_NE(evaluator.find("material.transmission_factor * material.pbr_base_color_factor.rgb"), std::string::npos);
+  EXPECT_NE(evaluator.find("specular_transmission * base_color"), std::string::npos);
   EXPECT_EQ(evaluator.find("surface.transmission * max(surface.base_color.rgb * vertex_color"), std::string::npos);
   EXPECT_NE(bsdf.find("vec3 specular_f0"), std::string::npos);
   EXPECT_NE(bsdf.find("? dielectric_fresnel / dielectric_fresnel_weight"), std::string::npos);
@@ -541,8 +542,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(bsdf.find("EE_GLTF_HAS_TEXTURE(material.normal_texture)"), std::string::npos);
   EXPECT_NE(bsdf.find("normal_vector.xy *= material.normal_texture_scale"), std::string::npos);
   EXPECT_NE(bsdf.find("mat3(pbr.tangent, pbr.bitangent, pbr.normal) * normal_vector"), std::string::npos);
-  EXPECT_NE(bsdf.find("const vec3 basis_bitangent = pbr.bitangent"), std::string::npos);
-  EXPECT_NE(bsdf.find("const float bitangent_sign = sign(dot(basis_bitangent, pbr.bitangent))"), std::string::npos);
+  EXPECT_NE(bsdf.find("const float basis_handedness"), std::string::npos);
+  EXPECT_NE(bsdf.find("cross(pbr.bitangent, pbr.normal) * basis_handedness"), std::string::npos);
   EXPECT_NE(bsdf.find("EE_GLTF_RT_BSDF_EVALUATE"), std::string::npos);
   EXPECT_NE(bsdf.find("EE_GLTF_RT_BSDF_SAMPLE"), std::string::npos);
   EXPECT_NE(bsdf.find("material.transmission_factor"), std::string::npos);
@@ -641,10 +642,9 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfLetsLobesHandleBackfacingMappedNormal
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
   ASSERT_FALSE(bsdf.empty());
 
-  EXPECT_NE(bsdf.find("const vec3 view_direction = EE_GLTF_RT_SAFE_NORMALIZE(data.k1, material.normal)"),
+  EXPECT_NE(bsdf.find("const vec3 forward_k1 = EE_GLTF_RT_SAFE_NORMALIZE(data.k1, material.normal)"),
             std::string::npos);
-  EXPECT_NE(bsdf.find("EE_GLTF_RT_COMPUTE_LOBE_WEIGHTS(material, dot(material.normal, view_direction))"),
-            std::string::npos);
+  EXPECT_NE(bsdf.find("EE_GLTF_RT_COMPUTE_LOBE_WEIGHTS(material, dot(material.normal, data.k1))"), std::string::npos);
   EXPECT_EQ(bsdf.find("clamped_v_dot_n"), std::string::npos);
   EXPECT_NE(bsdf.find("return mix(v_dot_n, sqrt(0.5f + 0.5f * v_dot_n)"), std::string::npos);
   EXPECT_NE(bsdf.find("EE_GLTF_RT_FRESNEL_COSINE_APPROXIMATION(v_dot_n"), std::string::npos);
@@ -652,7 +652,7 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfLetsLobesHandleBackfacingMappedNormal
   EXPECT_EQ(bsdf.find("if (data.pdf <= EE_GLTF_RT_BSDF_EPSILON)"), std::string::npos);
   EXPECT_NE(bsdf.find("if (n_dot_l <= 0.0f)"), std::string::npos);
   EXPECT_NE(bsdf.find("if (n_dot_v <= 0.0f)"), std::string::npos);
-  EXPECT_EQ(bsdf.find("if (dot(material.normal, view_direction) <= 0.0f)"), std::string::npos);
+  EXPECT_EQ(bsdf.find("if (dot(material.normal, forward_k1) <= 0.0f)"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, RayTracingDiffuseBsdfSamplesUseMaterialTangentFrame) {
@@ -671,7 +671,7 @@ TEST(GltfRayTracingMaterial, RayTracingDiffuseBsdfSamplesUseMaterialTangentFrame
             std::string::npos);
 }
 
-TEST(GltfRayTracingMaterial, RayTracingBsdfSampleKeepsLobeSamplerResult) {
+TEST(GltfRayTracingMaterial, RetroreflectionSampleUsesMarginalBsdfAndPdf) {
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
   const auto raygen = ReadRayTracingCameraSource();
   const auto ray_query = ReadRayQueryCameraSource();
@@ -680,12 +680,18 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfSampleKeepsLobeSamplerResult) {
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
 
-  const auto sample_function = bsdf.find("void EE_GLTF_RT_BSDF_SAMPLE");
+  const auto sample_function = bsdf.find("void EE_GLTF_RT_BSDF_SAMPLE(inout");
   ASSERT_NE(sample_function, std::string::npos);
   const auto sample_body = bsdf.substr(sample_function);
 
-  EXPECT_EQ(sample_body.find("GltfRayTracingBsdfEvaluateData"), std::string::npos);
-  EXPECT_EQ(sample_body.find("EE_GLTF_RT_BSDF_EVALUATE"), std::string::npos);
+  EXPECT_NE(sample_body.find("GltfRayTracingBsdfEvaluateData forward_data"), std::string::npos);
+  EXPECT_NE(sample_body.find("EE_GLTF_RT_BSDF_EVALUATE_LOBE(forward_data"), std::string::npos);
+  EXPECT_NE(sample_body.find("data.pdf = mix(forward_data.pdf, retro_data.pdf, retroreflection)"), std::string::npos);
+  EXPECT_NE(sample_body.find("const vec3 mixture_bsdf = mix(forward_data.bsdf_diffuse + forward_data.bsdf_glossy"),
+            std::string::npos);
+  EXPECT_NE(sample_body.find("data.bsdf_over_pdf = data.pdf > EE_GLTF_RT_BSDF_EPSILON"), std::string::npos);
+  const auto lobe_sample = sample_body.find("EE_GLTF_RT_BSDF_SAMPLE_LOBE(data, material, lobe, sample_weights)");
+  ASSERT_NE(lobe_sample, std::string::npos);
   EXPECT_EQ(sample_body.find("material.occlusion"), std::string::npos);
   EXPECT_NE(sample_body.find("data.pdf <= EE_GLTF_RT_BSDF_MIN_PDF || any(isnan(data.bsdf_over_pdf))"),
             std::string::npos);
@@ -768,8 +774,8 @@ TEST(GltfRayTracingMaterial, TransmissionBsdfSplitsSpecularAndDiffuseLobes) {
   EXPECT_EQ(bsdf.find("const vec3 tint = mix(material.base_color, material.diffuse_transmission_color"),
             std::string::npos);
   EXPECT_EQ(bsdf.find("clamp(material.transmission + material.diffuse_transmission_factor"), std::string::npos);
-  EXPECT_NE(raygen.find("sample_data.event_type == EE_GLTF_RT_BSDF_EVENT_GLOSSY_TRANSMISSION"), std::string::npos);
-  EXPECT_EQ(raygen.find("(sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_TRANSMISSION) != 0"), std::string::npos);
+  EXPECT_EQ(raygen.find("sample_data.event_type == EE_GLTF_RT_BSDF_EVENT_GLOSSY_TRANSMISSION"), std::string::npos);
+  EXPECT_NE(raygen.find("(sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_TRANSMISSION) != 0"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, RayTracingBtdfUsesReferenceGgxTransmissionModel) {
@@ -829,6 +835,70 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfUsesReferenceLayeredLobeModel) {
   EXPECT_NE(raygen.find("eval_data.xi = vec3(EE_RANDOM(seed), EE_RANDOM(seed), EE_RANDOM(seed))"), std::string::npos);
   EXPECT_EQ(raygen.find("eval_data.xi = vec3(0.0f);\n  EE_GLTF_RT_BSDF_EVALUATE(eval_data, hit.pbr);\n  bsdf_pdf"),
             std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, AdvancedRayExtensionsFollowKhronosAndShareOneBsdf) {
+  const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
+  const auto material = ReadTextFile(ShaderPath("Includes/GltfMaterial.glsl"));
+  const auto integrator = ReadRayTracingCameraSource();
+  const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.rahit"));
+  const auto ray_query = ReadTextFile(ShaderPath("Includes/CameraRayQueryTraversal.glsl"));
+
+  ASSERT_FALSE(bsdf.empty());
+  ASSERT_FALSE(material.empty());
+  ASSERT_FALSE(integrator.empty());
+  ASSERT_FALSE(any_hit.empty());
+  ASSERT_FALSE(ray_query.empty());
+
+  EXPECT_NE(bsdf.find("EE_GLTF_RT_IRIDESCENCE_SENSITIVITY"), std::string::npos);
+  EXPECT_NE(bsdf.find("const vec3 base_ior = EE_GLTF_RT_F0_TO_IOR(base_f0)"), std::string::npos);
+  EXPECT_NE(bsdf.find("material.specular * material.specular_f0"), std::string::npos);
+  EXPECT_NE(bsdf.find("material.iridescence_ior, material.base_color"), std::string::npos);
+  EXPECT_NE(bsdf.find("weights.dielectric_fresnel_weight = dielectric_fresnel_weight"), std::string::npos);
+
+  EXPECT_NE(bsdf.find("const float c = material.anisotropy_rotation.x"), std::string::npos);
+  EXPECT_NE(bsdf.find("const float s = material.anisotropy_rotation.y"), std::string::npos);
+  EXPECT_NE(bsdf.find("c * anisotropy_direction.x - s * anisotropy_direction.y"), std::string::npos);
+  EXPECT_NE(bsdf.find("s * anisotropy_direction.x + c * anisotropy_direction.y"), std::string::npos);
+  EXPECT_EQ(bsdf.find("c * anisotropy_direction.x + s * anisotropy_direction.y"), std::string::npos);
+  EXPECT_NE(bsdf.find("const float basis_handedness"), std::string::npos);
+  EXPECT_EQ(bsdf.find("sign(dot(basis_bitangent"), std::string::npos);
+
+  EXPECT_NE(bsdf.find("if (ior.x > ior.y)"), std::string::npos);
+  EXPECT_NE(bsdf.find("ior.y = EE_GLTF_RT_COMPUTE_DISPERSED_IOR"), std::string::npos);
+  EXPECT_EQ(bsdf.find("ior.x = EE_GLTF_RT_COMPUTE_DISPERSED_IOR(ior.x, material.dispersion, wavelength);\n    tint"),
+            std::string::npos);
+
+  EXPECT_NE(material.find("MAT_EXT_RETROREFLECTION"), std::string::npos);
+  EXPECT_NE(bsdf.find("EE_GLTF_RT_IS_REFLECTION_LOBE"), std::string::npos);
+  EXPECT_NE(bsdf.find("EE_GLTF_RT_BSDF_EVALUATE_LOBE"), std::string::npos);
+  EXPECT_NE(bsdf.find("reflect(-data.k1, material.normal)"), std::string::npos);
+  EXPECT_NE(bsdf.find("data.pdf = mix(forward_data.pdf, retro_data.pdf, retroreflection)"), std::string::npos);
+  EXPECT_EQ(bsdf.find("path_probability"), std::string::npos);
+  EXPECT_EQ(bsdf.find("data.bsdf_over_pdf /= path_probability"), std::string::npos);
+
+  EXPECT_NE(bsdf.find("pbr.specular = clamp(material.specular_factor, 0.0f, 1.0f)"), std::string::npos);
+  EXPECT_NE(bsdf.find("EE_GLTF_RT_WEIGHTED_SPECULAR_FRESNEL"), std::string::npos);
+  EXPECT_NE(bsdf.find("pbr.specular_f0 * max(pbr.specular_color"), std::string::npos);
+  EXPECT_NE(bsdf.find("dielectric_ior = material.ior == 0.0f ? 0.0f"), std::string::npos);
+  EXPECT_NE(bsdf.find("material.ior == 0.0f ? EE_GLTF_RT_IOR_COMPATIBILITY_INFINITY"), std::string::npos);
+  EXPECT_NE(bsdf.find("if (material.ior != 0.0f)"), std::string::npos);
+  EXPECT_EQ(bsdf.find("if (material.specular_factor > 0.0f)"), std::string::npos);
+  EXPECT_NE(bsdf.find("pbr.thickness = material.thickness_factor"), std::string::npos);
+  EXPECT_EQ(bsdf.find("pbr.thickness *=\n        EE_GLTF_SAMPLE_TEXTURE(material.thickness_texture"),
+            std::string::npos);
+
+  const auto unlit_test = integrator.find("EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0");
+  const auto emissive_add = integrator.find("radiance += throughput * surface_hit.pbr.emissive");
+  ASSERT_NE(unlit_test, std::string::npos);
+  ASSERT_NE(emissive_add, std::string::npos);
+  EXPECT_LT(unlit_test, emissive_add);
+  EXPECT_NE(integrator.find("(sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_TRANSMISSION) != 0"), std::string::npos);
+
+  for (const auto* source : {&any_hit, &ray_query}) {
+    EXPECT_NE(source->find("vertex_color.rgb"), std::string::npos);
+  }
+  EXPECT_NE(ray_query.find("EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenProcessesVolumeSegmentBeforeSurfaceBounce) {
@@ -1814,6 +1884,20 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(demo_scene_source.find("M3a Mixed Mirrored Instanced Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3a Vertex Alpha Mask Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3a Vertex Alpha Blend Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Iridescence Colored F0 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Anisotropy Rotation 0 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Anisotropy Rotation 90 CCW Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Dispersion 0 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Dispersion 1 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Retroreflection 0.5 Energy Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Explicit Specular Factor 0 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Specular Factor 0.5 F90 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Unlit Ignores Emissive Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M3b Retroreflection Camera Light"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::iridescence_texture"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::iridescence_thickness_texture"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::anisotropy_texture"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::retroreflection_texture"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("GltfTextureColorSpace::Srgb"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), "
                                    "glm::uvec3(0, 2, 3)}, true)"),
@@ -1833,6 +1917,7 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
             std::string::npos);
   EXPECT_NE(docs.find("rendering-regression"), std::string::npos);
   EXPECT_NE(docs.find("## Bistro Reference Parity"), std::string::npos);
+  EXPECT_NE(docs.find("### M3b Advanced-Material Parity"), std::string::npos);
   EXPECT_NE(docs.find("Scripts\\run_raytracer_baseline.py"), std::string::npos);
 }
 
@@ -1861,6 +1946,11 @@ TEST(GltfRayTracingMaterial, MaterialAbiKeepsAdvancedExtensionTextureSlots) {
   EXPECT_NE(source.find("uint16_t sheen_roughness_texture"), std::string::npos);
   EXPECT_NE(source.find("uint16_t diffuse_transmission_texture"), std::string::npos);
   EXPECT_NE(source.find("uint16_t diffuse_transmission_color_texture"), std::string::npos);
+  EXPECT_NE(source.find("uint16_t iridescence_texture"), std::string::npos);
+  EXPECT_NE(source.find("uint16_t iridescence_thickness_texture"), std::string::npos);
+  EXPECT_NE(source.find("uint16_t anisotropy_texture"), std::string::npos);
+  EXPECT_NE(source.find("uint16_t retroreflection_texture"), std::string::npos);
+  EXPECT_NE(source.find("float retroreflection_factor"), std::string::npos);
   EXPECT_NE(source.find("vec3 multiscatter_color_factor"), std::string::npos);
   EXPECT_NE(source.find("float scatter_anisotropy"), std::string::npos);
 }

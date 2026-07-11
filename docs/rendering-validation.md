@@ -304,6 +304,53 @@ Bistro remains the canonical performance and broad imported-material regression 
 no `TEXCOORD_1`, `COLOR_0`, or `KHR_texture_transform` primitives, so a valid Bistro image alone is not an M3a material
 parity gate.
 
+### M3b Advanced-Material Parity
+
+The `rendering-regression` scene adds named M3b controls for colored-F0 iridescence, anisotropy at 0 and 90 degrees
+counter-clockwise, dispersion off/on over colored emissive strips, experimental retroreflection at factors 0, 0.5, and 1,
+explicit specular factor 0, a factor-0.5 HDR specular-color/F90 control, and unlit base color with a deliberately
+conflicting emissive factor. Temporary advanced data textures exercise iridescence R/thickness G, anisotropy RG/strength
+B, and retroreflection R through UV1 plus `KHR_texture_transform`. The paired controls make extension behavior visible
+without downloading external models. Bistro remains the broad imported-material and post-commit 2048-SPP screenshot gate,
+not proof that these extensions work.
+
+Use fresh isolated shader caches and capture the focused scene in RTX, RayQuery, and forced query-only modes. The fast
+profile is 1280x720 at 64 SPP; the final focused profile is 1280x720 at 2048 SPP. Compare RTX and RayQuery in linear HDR,
+inspect a display PNG, and keep the JSON timing and logs with the images:
+
+```bat
+set EVOENGINE_SHADER_CACHE_DIR=out\m3b-rtx-runtime\ShaderBinaries
+set EVOENGINE_IMGUI_INI_PATH=out\m3b-rtx-runtime\imgui.ini
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3b-rtx.hdr --preview-metrics-json out\m3b-rtx.json --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3b-display.png --preview-metrics-json out\m3b-display.json --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 1280 --preview-height 720 --preview-deterministic
+set EVOENGINE_SHADER_CACHE_DIR=out\m3b-rayquery-runtime\ShaderBinaries
+set EVOENGINE_IMGUI_INI_PATH=out\m3b-rayquery-runtime\imgui.ini
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3b-rayquery.hdr --preview-metrics-json out\m3b-rayquery.json --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 1280 --preview-height 720 --preview-deterministic
+set EVOENGINE_SHADER_CACHE_DIR=out\m3b-rayquery-only-runtime\ShaderBinaries
+set EVOENGINE_IMGUI_INI_PATH=out\m3b-rayquery-only-runtime\imgui.ini
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3b-rayquery-only.hdr --preview-metrics-json out\m3b-rayquery-only.json --preview-render-mode rayquery --preview-warmup-frames 16 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 1280 --preview-height 720 --preview-deterministic --disable-ray-tracing-pipeline
+python Scripts\compare_reference_render.py out\m3b-rtx.hdr out\m3b-rayquery.hdr --out out\m3b-rtx-vs-rayquery.json
+```
+
+Acceptance checks are effect-specific as well as whole-frame: the two anisotropy highlights rotate 90 degrees in the
+specified direction; dispersion changes only the enabled transmissive volume; retro factor 0.5 remains between the 0 and
+1 controls without inverse-probability brightening; specular factor 0 removes the dielectric highlight; and the unlit probe
+shows its green base rather than the conflicting red emission. Both ray techniques must remain finite/nonblank, forced
+RayQuery must report the RT pipeline disabled, and logs must contain no shader, validation, device-loss, unexpected
+render-technique fallback, or fatal errors. The forced query-only run may report the expected SER capability fallback
+because disabling the RT pipeline also disables SER.
+
+Final evidence is under `out/m3b-validation/final-approved`. The 1280x720, 2048-SPP focused captures produced
+RT-pipeline-versus-RayQuery linear HDR MAE/RMS `0.0002642074/0.0018277064`; both outputs were finite and nonblank. The
+64-SPP normal and forced query-only RayQuery HDRs were bit-exact, and the forced run reported acceleration structures and
+RayQuery enabled with the RT pipeline disabled. Retro ROI mean luminance for factors 0/0.5/1 was
+`1.402282/1.274665/0.313722`, so the midpoint remained between both endpoints without inverse-probability brightening. All
+ROI coordinates and means are stored in `out/m3b-validation/final-approved/retro-roi.json`. All focused logs were clean
+apart from the expected forced-run SER capability fallback. The broad Bistro matrices are under
+`out/m3b-validation/bistro-fast-final` and `out/m3b-validation/bistro-canonical-final`; canonical EvoEngine
+RT-pipeline-versus-RayQuery MAE/RMS was `0.0008044209/0.0022774957`, within the M0 gate. The focused material filter passed
+all 93 tests across layout, conversion, raster, ray-material, and serialization-migration suites.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

@@ -151,6 +151,51 @@ extension parsing, and `TEXCOORD_2+` vertex storage remain follow-up work. Autho
 tangents are generated from the normal texture's selected UV0/UV1 set before geometry upload, but the generator is not
 yet MikkTSpace and does not split vertices at tangent discontinuities.
 
+### Advanced glTF Ray Materials
+
+The shared RT-pipeline/RayQuery material path imports and evaluates the ratified `KHR_materials_iridescence`,
+`KHR_materials_anisotropy`, and `KHR_materials_dispersion` extensions. Iridescence intensity uses texture R, thin-film
+thickness uses texture G, and anisotropy uses normalized texture RG with strength in B. These are linear data textures and
+reuse the same UV0/UV1, `KHR_texture_transform`, storage-flip, and ray-footprint behavior as the base material inputs.
+Dispersion has no texture and is evaluated only by the specular-transmission lobe.
+
+The implementation follows Khronos when the pinned reference differs:
+
+- iridescence uses the Khronos analytical spectral integration with the colored substrate F0. Dielectrics use the
+  IOR/specular-weighted F0, metals use base-color F0, and the maximum Fresnel component controls base-layer attenuation;
+- positive anisotropy rotation is counter-clockwise from tangent toward bitangent. Host state stores `(cos(theta),
+  sin(theta))`; the pinned reference's inverse rotation is not reproduced;
+- dispersion perturbs the material IOR on both entry and exit. The reference's `ior.x`-only implementation does not
+  disperse an air-to-material entry interface;
+- a volume boundary is selected by `thicknessFactor > 0`. Ray traversal supplies the real segment length, so the
+  thickness texture remains a raster thickness estimate and does not turn a traced volume boundary on or off;
+- `KHR_materials_specular` keeps authored color components above 1 and applies the scalar factor after the colored,
+  unweighted dielectric F0. Its grazing F90 is the scalar specular factor, so factor 0 disables dielectric reflection and
+  fractional factors do not incorrectly approach white. New material assets use the Khronos default of 1; schema-1
+  `.evematerial` values of 0 migrate to 1 because the old shader treated them as implicit full specular;
+- `KHR_materials_ior.ior: 0` retains the specification's positive-infinity compatibility mode: surface F0 is 1,
+  transmission uses a finite infinity surrogate for stable arithmetic, and dispersion is disabled. Invalid authored IORs
+  between 0 and 1 normalize to 1 rather than being interpreted as this compatibility mode;
+- unlit ray materials return base color only, without adding emissive first. Diffuse or glossy transmission events both
+  update the current volume medium.
+
+`KHR_materials_retroreflection` is not in the Khronos extension registry. EvoEngine accepts that spelling, plus the older
+`EXT_materials_retroreflection` spelling, only as experimental compatibility with `vk_gltf_renderer` at
+`f72d2f3711116261a76e7b8b0f4724e167703a55`. The inspected BSDF dependency was `nvpro_core2` revision
+`907fba3c5b7a9597e7e63a5388079b964bd6ddb4`. The shared ray BSDF applies the Minimal Retroreflective Microfacet Model view
+substitution to reflection lobes and leaves transmission conventional. Evaluation and sampling both report the same
+marginal forward/retro mixture BSDF and PDF. Sample throughput is the full mixture BSDF divided by that marginal PDF; it
+does not divide again by the selected branch probability, which would over-brighten fractional blends.
+
+Opaque raster stores IOR/specular-aware colored F0. Ray shadow transmission samples the specular-transmission,
+base-color, diffuse-transmission factor/color, specular factor/color, and vertex-color inputs. It applies Fresnel remaining
+energy first, then layers diffuse transmission only over the `(1 - specularTransmission)` share. The current fixed raster
+material descriptors and deferred GBuffer do not encode iridescence, anisotropy, dispersion, or retroreflection lobes, so
+those effects are ray-path features rather than claimed raster parity. Deferred raster also stores F0 but has no separate
+fractional specular F90 channel. The legacy CPU/compute ray display is likewise not an advanced-material integrator.
+Clearcoat-normal scale, coated-emission attenuation, and validation/rejection of spec-forbidden unlit or
+specular-glossiness extension combinations remain documented follow-up work rather than silent conformance claims.
+
 Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
 sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
 contiguous range has one material descriptor, one compatible pipeline-state key, one push-constant base instance, and an

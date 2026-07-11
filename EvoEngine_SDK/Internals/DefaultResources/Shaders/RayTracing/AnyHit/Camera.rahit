@@ -30,13 +30,13 @@ vec3 EE_CAMERA_WORLD_NORMAL(const vec3 object_normal, const vec3 fallback) {
 }
 
 vec3 EE_CAMERA_SHADOW_TRANSMISSION(const uint material_index, const vec2 tex_coord_0, const vec2 tex_coord_1,
-                                   const vec3 world_geometric_normal) {
+                                   const vec3 vertex_color, const vec3 world_geometric_normal) {
   bool is_inside = hit_value.shadow_is_inside != 0u;
   const float cos_theta = abs(dot(normalize(gl_WorldRayDirectionEXT),
                                   EE_CAMERA_SAFE_NORMALIZE(world_geometric_normal, -gl_WorldRayDirectionEXT)));
   const float segment_length = abs(gl_HitTEXT - hit_value.shadow_previous_hit_t);
   const vec3 transmission = EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(
-      material_index, tex_coord_0, tex_coord_1, cos_theta, segment_length, is_inside,
+      material_index, tex_coord_0, tex_coord_1, vertex_color, cos_theta, segment_length, is_inside,
       EE_CAMERA_MIN_SHADOW_TRANSMISSION);
   hit_value.shadow_is_inside = is_inside ? 1u : 0u;
   return max(transmission, vec3(0.0f));
@@ -72,7 +72,8 @@ void main() {
   }
 
   const vec3 transmission =
-      EE_CAMERA_SHADOW_TRANSMISSION(material_index, tex_coord_0, tex_coord_1, world_geometric_normal);
+      EE_CAMERA_SHADOW_TRANSMISSION(material_index, tex_coord_0, tex_coord_1, vertex_color.rgb,
+                                    world_geometric_normal);
   hit_value.shadow_previous_hit_t = gl_HitTEXT;
   hit_value.shadow_transmission *= transmission;
   hit_value.hit_count = 1u;

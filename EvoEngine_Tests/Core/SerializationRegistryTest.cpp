@@ -2315,15 +2315,28 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   shade_material.thickness_factor = 0.75f;
   shade_material.diffuse_transmission_color = glm::vec3(0.7f, 0.8f, 0.9f);
   shade_material.diffuse_transmission_factor = 0.65f;
+  shade_material.specular_factor = 0.0f;
+  shade_material.iridescence_factor = 0.8f;
+  shade_material.iridescence_ior = 1.4f;
+  shade_material.iridescence_thickness_minimum = 125.0f;
+  shade_material.iridescence_thickness_maximum = 625.0f;
+  shade_material.anisotropy_rotation = glm::vec2(0.0f, 1.0f);
+  shade_material.anisotropy_strength = 0.7f;
+  shade_material.dispersion = 1.2f;
+  shade_material.retroreflection_factor = 0.45f;
   shade_material.multiscatter_color_factor = glm::vec3(0.3f, 0.4f, 0.5f);
   shade_material.scatter_anisotropy = -0.25f;
   shade_material.transmission_texture = 3;
   shade_material.thickness_texture = 4;
   shade_material.diffuse_transmission_texture = 5;
   shade_material.diffuse_transmission_color_texture = 6;
-  material->material_data.texture_infos.resize(7);
-  material->material_data.texture_infos[6].tex_coord = 1;
-  material->material_data.texture_infos[6].color_space = static_cast<int32_t>(GltfTextureColorSpace::Srgb);
+  shade_material.iridescence_texture = 7;
+  shade_material.iridescence_thickness_texture = 8;
+  shade_material.anisotropy_texture = 9;
+  shade_material.retroreflection_texture = 10;
+  material->material_data.texture_infos.resize(11);
+  material->material_data.texture_infos[10].tex_coord = 1;
+  material->material_data.texture_infos[10].color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
 
   YAML::Emitter out;
   BeginMap(out);
@@ -2342,15 +2355,63 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   EXPECT_FLOAT_EQ(restored_material.thickness_factor, 0.75f);
   EXPECT_EQ(restored_material.diffuse_transmission_color, glm::vec3(0.7f, 0.8f, 0.9f));
   EXPECT_FLOAT_EQ(restored_material.diffuse_transmission_factor, 0.65f);
+  EXPECT_FLOAT_EQ(restored_material.specular_factor, 0.0f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_factor, 0.8f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_ior, 1.4f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_thickness_minimum, 125.0f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_thickness_maximum, 625.0f);
+  EXPECT_EQ(restored_material.anisotropy_rotation, glm::vec2(0.0f, 1.0f));
+  EXPECT_FLOAT_EQ(restored_material.anisotropy_strength, 0.7f);
+  EXPECT_FLOAT_EQ(restored_material.dispersion, 1.2f);
+  EXPECT_FLOAT_EQ(restored_material.retroreflection_factor, 0.45f);
   EXPECT_EQ(restored_material.multiscatter_color_factor, glm::vec3(0.3f, 0.4f, 0.5f));
   EXPECT_FLOAT_EQ(restored_material.scatter_anisotropy, -0.25f);
   EXPECT_EQ(restored_material.transmission_texture, 3);
   EXPECT_EQ(restored_material.thickness_texture, 4);
   EXPECT_EQ(restored_material.diffuse_transmission_texture, 5);
   EXPECT_EQ(restored_material.diffuse_transmission_color_texture, 6);
-  ASSERT_EQ(restored->material_data.texture_infos.size(), 7);
-  EXPECT_EQ(restored->material_data.texture_infos[6].tex_coord, 1);
-  EXPECT_EQ(restored->material_data.texture_infos[6].color_space, static_cast<int32_t>(GltfTextureColorSpace::Srgb));
+  EXPECT_EQ(restored_material.iridescence_texture, 7);
+  EXPECT_EQ(restored_material.iridescence_thickness_texture, 8);
+  EXPECT_EQ(restored_material.anisotropy_texture, 9);
+  EXPECT_EQ(restored_material.retroreflection_texture, 10);
+  ASSERT_EQ(restored->material_data.texture_infos.size(), 11);
+  EXPECT_EQ(restored->material_data.texture_infos[10].tex_coord, 1);
+  EXPECT_EQ(restored->material_data.texture_infos[10].color_space, static_cast<int32_t>(GltfTextureColorSpace::Linear));
+  EXPECT_NE(std::string(out.c_str()).find("schema_version: 2"), std::string::npos);
+}
+
+TEST(SerializationRegistry, LegacyMaterialSchemasPreservePreviousSpecularAndAnisotropyBehavior) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto rotated = AssetManager::CreateTemporaryAsset<Material>();
+  Serialization::DeserializeObject(YAML::Load(R"(
+gltf_material:
+  shade_material:
+    specular_factor: 0.0
+    anisotropy_rotation: [0.5, 0.8660254]
+  texture_infos: []
+)"),
+                                   static_cast<IAsset&>(*rotated));
+  EXPECT_FLOAT_EQ(rotated->material_data.shade_material.specular_factor, 1.0f);
+  EXPECT_NEAR(rotated->material_data.shade_material.anisotropy_rotation.x, 0.8660254f, 0.000001f);
+  EXPECT_NEAR(rotated->material_data.shade_material.anisotropy_rotation.y, -0.5f, 0.000001f);
+
+  const auto default_rotation = AssetManager::CreateTemporaryAsset<Material>();
+  Serialization::DeserializeObject(YAML::Load(R"(
+gltf_material:
+  shade_material:
+    anisotropy_rotation: [0.0, 0.0]
+  texture_infos: []
+)"),
+                                   static_cast<IAsset&>(*default_rotation));
+  EXPECT_EQ(default_rotation->material_data.shade_material.anisotropy_rotation, glm::vec2(1.0f, 0.0f));
+
+  const auto legacy_eve = AssetManager::CreateTemporaryAsset<Material>();
+  Serialization::DeserializeObject(YAML::Load("{material_properties: {specular: 0.0}}"),
+                                   static_cast<IAsset&>(*legacy_eve));
+  EXPECT_FLOAT_EQ(legacy_eve->material_data.shade_material.specular_factor, 1.0f);
 }
 
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {

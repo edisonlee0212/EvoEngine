@@ -47,6 +47,9 @@
 #ifndef MAT_EXT_DIFFUSE_TRANSMISSION
 #define MAT_EXT_DIFFUSE_TRANSMISSION MAT_EXT_VAL
 #endif
+#ifndef MAT_EXT_RETROREFLECTION
+#define MAT_EXT_RETROREFLECTION MAT_EXT_VAL
+#endif
 #ifndef MAT_EXT_UNLIT
 #define MAT_EXT_UNLIT MAT_EXT_VAL
 #endif
@@ -167,6 +170,10 @@ struct GltfShadeMaterial {
   float diffuse_transmission_factor;
 #endif
 
+#if MAT_EXT_RETROREFLECTION
+  float retroreflection_factor;
+#endif
+
 #if MAT_EXT_VOLUME_SCATTER
   vec3 multiscatter_color_factor;
   float scatter_anisotropy;
@@ -219,6 +226,10 @@ struct GltfShadeMaterial {
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   uint16_t diffuse_transmission_texture;
   uint16_t diffuse_transmission_color_texture;
+#endif
+
+#if MAT_EXT_RETROREFLECTION
+  uint16_t retroreflection_texture;
 #endif
 
   uint64_t pad;

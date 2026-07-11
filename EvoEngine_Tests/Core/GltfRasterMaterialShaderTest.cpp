@@ -77,6 +77,14 @@ TEST(GltfRasterMaterial, EvaluatorCoversSpecGlossAndPbrTerms) {
   EXPECT_NE(source.find("surface.base_color.rgb = diffuse.rgb * (1.0 - max(surface.specular_f0.r"), std::string::npos);
   EXPECT_NE(source.find("surface.roughness = max(1.0 - glossiness"), std::string::npos);
   EXPECT_NE(source.find("pbr_metallic_roughness_texture"), std::string::npos);
+  EXPECT_NE(source.find("dielectric_f0 = pow((material_ior - 1.0)"), std::string::npos);
+  EXPECT_NE(source.find("specular_weight = material.specular_factor"), std::string::npos);
+  EXPECT_NE(source.find("material.ior == 0.0 ? 0.0"), std::string::npos);
+  EXPECT_NE(source.find("dielectric_specular_f0 * max(specular_color"), std::string::npos);
+  EXPECT_NE(source.find("surface.specular_f0 = mix(dielectric_specular_f0"), std::string::npos);
+  EXPECT_NE(source.find("return surface.specular_f0 +"), std::string::npos);
+  EXPECT_NE(source.find("metallic * (max(base_color"), std::string::npos);
+  EXPECT_EQ(source.find("return mix(vec3(0.04)"), std::string::npos);
   EXPECT_NE(source.find("surface.occlusion = 1.0 + surface.occlusion * (occlusion - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("material.normal_texture_scale"), std::string::npos);
   EXPECT_NE(source.find("surface.emissive *="), std::string::npos);
@@ -95,6 +103,10 @@ TEST(GltfRasterMaterial, EvaluatorCoversSpecGlossAndPbrTerms) {
   EXPECT_NE(source.find("lessThanEqual(encoded, vec3(0.04045))"), std::string::npos);
   EXPECT_NE(source.find("sample_value.rgb = EE_GLTF_SRGB_TO_LINEAR(sample_value.rgb)"), std::string::npos);
   EXPECT_NE(source.find("surface.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_SAMPLE_TEXTURE_LOD0(material.transmission_texture"), std::string::npos);
+  EXPECT_NE(source.find("effective_diffuse_transmission * diffuse_transmission_color"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_RASTER_FRESNEL(specular_f0, vec3(specular_weight)"), std::string::npos);
+  EXPECT_NE(source.find("const float remaining_energy = 1.0 - max(fresnel.r"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {

@@ -370,6 +370,115 @@ void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>
                                               glm::vec3(0.55f, 0.48f, 1.0f));
 }
 
+void ConfigureRenderingRegressionAdvancedRayMaterialProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  const auto& primitives = Resources::GetInstance().GetPrimitives();
+  const auto create_probe = [&](const std::string& name, const glm::vec3& position, const glm::vec3& color,
+                                const float roughness, const float metallic) {
+    const auto entity = CreateRenderingRegressionProbe(scene, root, name, primitives.sphere, position, glm::vec3(0.16f),
+                                                       color, roughness, metallic);
+    return scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material.Get<Material>();
+  };
+
+  const glm::mat3x2 data_texture_transform(0.75f, 0.0f, 0.0f, 1.25f, 0.125f, 0.25f);
+  const auto iridescence_data_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  iridescence_data_texture->SetRgbaChannelData({glm::vec4(1.0f, 1.0f, 0.17f, 0.0f)}, glm::uvec2(1));
+  const auto anisotropy_data_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  anisotropy_data_texture->SetRgbaChannelData({glm::vec4(1.0f, 0.5f, 1.0f, 0.0f)}, glm::uvec2(1));
+  const auto retroreflection_data_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  retroreflection_data_texture->SetRgbaChannelData({glm::vec4(1.0f, 0.07f, 0.83f, 0.0f)}, glm::uvec2(1));
+
+  auto iridescence =
+      create_probe("M3b Iridescence Colored F0 Probe", glm::vec3(2.0f, 1.75f, -1.4f), glm::vec3(0.62f), 0.16f, 0.0f);
+  iridescence->material_data.shade_material.iridescence_factor = 1.0f;
+  iridescence->material_data.shade_material.iridescence_ior = 1.3f;
+  iridescence->material_data.shade_material.iridescence_thickness_minimum = 100.0f;
+  iridescence->material_data.shade_material.iridescence_thickness_maximum = 400.0f;
+  iridescence->material_data.shade_material.specular_color_factor = glm::vec3(0.55f, 0.85f, 1.0f);
+  iridescence->SetTexture(&GltfShadeMaterial::iridescence_texture, iridescence_data_texture, 1, data_texture_transform);
+  iridescence->SetTexture(&GltfShadeMaterial::iridescence_thickness_texture, iridescence_data_texture, 1,
+                          data_texture_transform);
+  iridescence->MarkDirty();
+
+  auto anisotropy_zero = create_probe("M3b Anisotropy Rotation 0 Probe", glm::vec3(-2.0f, 1.75f, -1.4f),
+                                      glm::vec3(0.95f, 0.72f, 0.25f), 0.35f, 1.0f);
+  anisotropy_zero->material_data.shade_material.anisotropy_strength = 1.0f;
+  anisotropy_zero->material_data.shade_material.anisotropy_rotation = glm::vec2(1.0f, 0.0f);
+  anisotropy_zero->SetTexture(&GltfShadeMaterial::anisotropy_texture, anisotropy_data_texture, 1,
+                              data_texture_transform);
+  anisotropy_zero->MarkDirty();
+
+  auto anisotropy_ninety = create_probe("M3b Anisotropy Rotation 90 CCW Probe", glm::vec3(-1.6f, 1.75f, -1.4f),
+                                        glm::vec3(0.95f, 0.72f, 0.25f), 0.35f, 1.0f);
+  anisotropy_ninety->material_data.shade_material.anisotropy_strength = 1.0f;
+  anisotropy_ninety->material_data.shade_material.anisotropy_rotation = glm::vec2(0.0f, 1.0f);
+  anisotropy_ninety->SetTexture(&GltfShadeMaterial::anisotropy_texture, anisotropy_data_texture, 1,
+                                data_texture_transform);
+  anisotropy_ninety->MarkDirty();
+
+  const auto configure_dispersion = [](const std::shared_ptr<Material>& material, const float dispersion) {
+    auto& shade = material->material_data.shade_material;
+    shade.pbr_base_color_factor = glm::vec4(1.0f);
+    shade.pbr_roughness_factor = 0.025f;
+    shade.pbr_metallic_factor = 0.0f;
+    shade.transmission_factor = 1.0f;
+    shade.thickness_factor = 1.0f;
+    shade.ior = 1.5f;
+    shade.dispersion = dispersion;
+    material->MarkDirty();
+  };
+  auto dispersion_off =
+      create_probe("M3b Dispersion 0 Probe", glm::vec3(-1.2f, 1.75f, -1.4f), glm::vec3(1.0f), 0.025f, 0.0f);
+  auto dispersion_on =
+      create_probe("M3b Dispersion 1 Probe", glm::vec3(-0.8f, 1.75f, -1.4f), glm::vec3(1.0f), 0.025f, 0.0f);
+  configure_dispersion(dispersion_off, 0.0f);
+  configure_dispersion(dispersion_on, 1.0f);
+
+  const auto configure_retroreflection = [](const std::shared_ptr<Material>& material, const float factor) {
+    auto& shade = material->material_data.shade_material;
+    shade.retroreflection_factor = factor;
+    material->MarkDirty();
+  };
+  auto retroreflection_off = create_probe("M3b Retroreflection 0 Probe", glm::vec3(-0.4f, 1.75f, -1.4f),
+                                          glm::vec3(0.78f, 0.82f, 0.9f), 0.48f, 1.0f);
+  auto retroreflection_half = create_probe("M3b Retroreflection 0.5 Energy Probe", glm::vec3(0.0f, 1.75f, -1.4f),
+                                           glm::vec3(0.78f, 0.82f, 0.9f), 0.48f, 1.0f);
+  auto retroreflection_full = create_probe("M3b Retroreflection 1 Probe", glm::vec3(0.4f, 1.75f, -1.4f),
+                                           glm::vec3(0.78f, 0.82f, 0.9f), 0.48f, 1.0f);
+  for (const auto& material : {retroreflection_off, retroreflection_half, retroreflection_full}) {
+    material->SetTexture(&GltfShadeMaterial::retroreflection_texture, retroreflection_data_texture, 1,
+                         data_texture_transform);
+  }
+  configure_retroreflection(retroreflection_off, 0.0f);
+  configure_retroreflection(retroreflection_half, 0.5f);
+  configure_retroreflection(retroreflection_full, 1.0f);
+
+  auto zero_specular = create_probe("M3b Explicit Specular Factor 0 Probe", glm::vec3(0.8f, 1.75f, -1.4f),
+                                    glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  zero_specular->material_data.shade_material.specular_factor = 0.0f;
+  zero_specular->MarkDirty();
+
+  auto half_specular = create_probe("M3b Specular Factor 0.5 F90 Probe", glm::vec3(1.2f, 1.75f, -1.4f),
+                                    glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  half_specular->material_data.shade_material.specular_factor = 0.5f;
+  half_specular->material_data.shade_material.specular_color_factor = glm::vec3(2.0f, 1.0f, 0.5f);
+  half_specular->MarkDirty();
+
+  const auto unlit_entity = CreateRenderingRegressionProbe(
+      scene, root, "M3b Unlit Ignores Emissive Probe", primitives.cube, glm::vec3(1.6f, 1.75f, -1.4f), glm::vec3(0.15f),
+      glm::vec3(0.12f, 0.82f, 0.34f), 0.7f, 0.0f);
+  const auto unlit = scene->GetOrSetPrivateComponent<MeshRenderer>(unlit_entity).lock()->material.Get<Material>();
+  unlit->material_data.shade_material.unlit = 1;
+  unlit->material_data.shade_material.emissive_factor = glm::vec3(8.0f, 0.0f, 0.0f);
+  unlit->MarkDirty();
+
+  CreateRenderingRegressionProbe(scene, root, "M3b Dispersion Backdrop Red", primitives.cube,
+                                 glm::vec3(-1.3f, 1.75f, -2.2f), glm::vec3(0.06f, 0.3f, 0.04f),
+                                 glm::vec3(1.0f, 0.03f, 0.03f), 0.8f, 0.0f, 4.0f, false);
+  CreateRenderingRegressionProbe(scene, root, "M3b Dispersion Backdrop Blue", primitives.cube,
+                                 glm::vec3(-0.7f, 1.75f, -2.2f), glm::vec3(0.06f, 0.3f, 0.04f),
+                                 glm::vec3(0.03f, 0.12f, 1.0f), 0.8f, 0.0f, 4.0f, false);
+}
+
 void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
   const glm::vec3 camera_position(0.0f, 1.15f, 5.6f);
   const glm::vec3 camera_target(0.0f, 0.35f, -2.4f);
@@ -449,7 +558,7 @@ void ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, con
   point_light->quadratic = 0.045f;
 
   const auto spot_entity = CreateRenderingRegressionProbe(scene, root, "M42 Punctual Light Probe Spot", primitives.cone,
-                                                          glm::vec3(2.3f, 1.7f, -0.45f), glm::vec3(0.18f),
+                                                          glm::vec3(2.9f, 1.2f, -0.45f), glm::vec3(0.18f),
                                                           glm::vec3(0.35f, 0.62f, 1.0f), 0.8f, 0.0f, 3.0f, false);
   const auto spot_light = scene->GetOrSetPrivateComponent<SpotLight>(spot_entity).lock();
   spot_light->diffuse = glm::vec3(0.45f, 0.65f, 1.0f);
@@ -463,6 +572,20 @@ void ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, con
   spot_transform.SetRotation(
       glm::quatLookAt(glm::normalize(spot_target - spot_transform.GetPosition()), glm::vec3(0, 1, 0)));
   scene->SetDataComponent(spot_entity, spot_transform);
+
+  const auto retroreflection_light_entity = scene->CreateEntity("M3b Retroreflection Camera Light");
+  const auto retroreflection_light = scene->GetOrSetPrivateComponent<PointLight>(retroreflection_light_entity).lock();
+  retroreflection_light->diffuse = glm::vec3(1.0f);
+  retroreflection_light->diffuse_brightness = 5.0f;
+  retroreflection_light->range = 16.0f;
+  retroreflection_light->light_size = 0.02f;
+  retroreflection_light->constant = 1.0f;
+  retroreflection_light->linear = 0.08f;
+  retroreflection_light->quadratic = 0.02f;
+  Transform retroreflection_light_transform;
+  retroreflection_light_transform.SetPosition(glm::vec3(0.0f, 1.15f, 5.2f));
+  scene->SetDataComponent(retroreflection_light_entity, retroreflection_light_transform);
+  scene->SetParent(retroreflection_light_entity, root);
 }
 
 void ConfigureRenderingRegressionImportedProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
@@ -1533,6 +1656,7 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
       glm::vec3(0.28f), glm::vec3(0.25f, 0.65f, 1.0f), 0.12f, 0.0f, 0.0f, false, 0.72f);
 
   ConfigureRenderingRegressionGltfMaterialProbes(scene, root);
+  ConfigureRenderingRegressionAdvancedRayMaterialProbes(scene, root);
   ConfigureRenderingRegressionImportedProbes(scene, root);
   ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);

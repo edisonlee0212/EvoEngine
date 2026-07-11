@@ -1184,7 +1184,6 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
     max_roughness = max(max_roughness, surface_hit.pbr.roughness);
     surface_hit.pbr.roughness = max_roughness;
     const vec3 view_direction = EE_CAMERA_SAFE_NORMALIZE(-ray_direction, surface_hit.normal);
-    radiance += throughput * surface_hit.pbr.emissive;
 
 #if MAT_EXT_UNLIT
     if (EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0) {
@@ -1192,6 +1191,7 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
       break;
     }
 #endif
+    radiance += throughput * surface_hit.pbr.emissive;
 
     if (is_inside && EE_CAMERA_PROCESS_VOLUME_SEGMENT(hit_value.hit_t, ray_origin, ray_direction, throughput,
                                                        radiance, last_sample_pdf, volume_medium, seed,
@@ -1236,7 +1236,7 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
         ray_origin = EE_CAMERA_OFFSET_RAY_ORIGIN(surface_hit, sample_data.k2);
         ray_direction = sample_data.k2;
         last_sample_pdf = sample_data.pdf;
-        if (sample_data.event_type == EE_GLTF_RT_BSDF_EVENT_GLOSSY_TRANSMISSION &&
+        if ((sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_TRANSMISSION) != 0 &&
             surface_hit.pbr.thickness > 0.0f) {
           const bool entered_volume = !is_inside;
           is_inside = !is_inside;

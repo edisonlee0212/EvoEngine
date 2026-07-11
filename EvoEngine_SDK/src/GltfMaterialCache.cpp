@@ -201,6 +201,9 @@ void RemapTextureSlots(GltfShadeMaterial& material, const std::vector<uint16_t>&
   RemapSlot(material.diffuse_transmission_texture, remap);
   RemapSlot(material.diffuse_transmission_color_texture, remap);
 #endif
+#if MAT_EXT_RETROREFLECTION
+  RemapSlot(material.retroreflection_texture, remap);
+#endif
 }
 
 }  // namespace
@@ -304,7 +307,8 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         ReadFloat(ChildNode(transmission, "transmissionFactor"), shade_material.transmission_factor);
 #endif
 #if MAT_EXT_IOR
-    shade_material.ior = ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_ior"), "ior"), shade_material.ior);
+    const float ior = ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_ior"), "ior"), shade_material.ior);
+    shade_material.ior = ior == 0.0f ? 0.0f : std::max(ior, 1.0f);
 #endif
 #if MAT_EXT_VOLUME
     const auto volume = ChildNode(extensions, "KHR_materials_volume");
@@ -323,9 +327,10 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
 #endif
 #if MAT_EXT_SPECULAR
     const auto specular = ChildNode(extensions, "KHR_materials_specular");
-    shade_material.specular_factor = ReadFloat(ChildNode(specular, "specularFactor"), shade_material.specular_factor);
-    shade_material.specular_color_factor =
-        ReadVec3(ChildNode(specular, "specularColorFactor"), shade_material.specular_color_factor);
+    shade_material.specular_factor =
+        ClampFloat(ReadFloat(ChildNode(specular, "specularFactor"), shade_material.specular_factor), 0.0f, 1.0f);
+    shade_material.specular_color_factor = glm::max(
+        ReadVec3(ChildNode(specular, "specularColorFactor"), shade_material.specular_color_factor), glm::vec3(0.0f));
 #endif
     const float emissive_strength =
         ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_emissive_strength"), "emissiveStrength"), 1.0f);
@@ -340,6 +345,41 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         ReadVec3(ChildNode(sheen, "sheenColorFactor"), shade_material.sheen_color_factor);
     shade_material.sheen_roughness_factor =
         ReadFloat(ChildNode(sheen, "sheenRoughnessFactor"), shade_material.sheen_roughness_factor);
+#endif
+#if MAT_EXT_IRIDESCENCE
+    const auto iridescence = ChildNode(extensions, "KHR_materials_iridescence");
+    shade_material.iridescence_factor = ClampFloat(
+        ReadFloat(ChildNode(iridescence, "iridescenceFactor"), shade_material.iridescence_factor), 0.0f, 1.0f);
+    shade_material.iridescence_ior =
+        std::max(ReadFloat(ChildNode(iridescence, "iridescenceIor"), shade_material.iridescence_ior), 1.0f);
+    shade_material.iridescence_thickness_minimum = std::max(
+        ReadFloat(ChildNode(iridescence, "iridescenceThicknessMinimum"), shade_material.iridescence_thickness_minimum),
+        0.0f);
+    shade_material.iridescence_thickness_maximum = std::max(
+        ReadFloat(ChildNode(iridescence, "iridescenceThicknessMaximum"), shade_material.iridescence_thickness_maximum),
+        0.0f);
+#endif
+#if MAT_EXT_ANISOTROPY
+    const auto anisotropy = ChildNode(extensions, "KHR_materials_anisotropy");
+    shade_material.anisotropy_strength = ClampFloat(
+        ReadFloat(ChildNode(anisotropy, "anisotropyStrength"), shade_material.anisotropy_strength), 0.0f, 1.0f);
+    const float anisotropy_rotation = ReadFloat(ChildNode(anisotropy, "anisotropyRotation"), 0.0f);
+    shade_material.anisotropy_rotation = glm::vec2(std::cos(anisotropy_rotation), std::sin(anisotropy_rotation));
+#endif
+#if MAT_EXT_DISPERSION
+    shade_material.dispersion =
+        std::max(ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_dispersion"), "dispersion"),
+                           shade_material.dispersion),
+                 0.0f);
+#endif
+#if MAT_EXT_RETROREFLECTION
+    const auto khr_retroreflection = ChildNode(extensions, "KHR_materials_retroreflection");
+    const auto ext_retroreflection = ChildNode(extensions, "EXT_materials_retroreflection");
+    const auto retroreflection =
+        khr_retroreflection && khr_retroreflection.IsMap() ? khr_retroreflection : ext_retroreflection;
+    shade_material.retroreflection_factor = ClampFloat(
+        ReadFloat(ChildNode(retroreflection, "retroreflectionFactor"), shade_material.retroreflection_factor), 0.0f,
+        1.0f);
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
     const auto diffuse_transmission = ChildNode(extensions, "KHR_materials_diffuse_transmission");
@@ -416,6 +456,19 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
                       ReadTextureNodeInfo(ChildNode(specular, "specularColorTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, true);
 #endif
+#if MAT_EXT_IRIDESCENCE
+    AssignTextureNode(material_data, &GltfShadeMaterial::iridescence_texture,
+                      ReadTextureNodeInfo(ChildNode(iridescence, "iridescenceTexture")), resolve_texture_index,
+                      texture_source_needs_y_flip, texture_source_decodes_srgb, false);
+    AssignTextureNode(material_data, &GltfShadeMaterial::iridescence_thickness_texture,
+                      ReadTextureNodeInfo(ChildNode(iridescence, "iridescenceThicknessTexture")), resolve_texture_index,
+                      texture_source_needs_y_flip, texture_source_decodes_srgb, false);
+#endif
+#if MAT_EXT_ANISOTROPY
+    AssignTextureNode(material_data, &GltfShadeMaterial::anisotropy_texture,
+                      ReadTextureNodeInfo(ChildNode(anisotropy, "anisotropyTexture")), resolve_texture_index,
+                      texture_source_needs_y_flip, texture_source_decodes_srgb, false);
+#endif
 #if MAT_EXT_SHEEN
     AssignTextureNode(material_data, &GltfShadeMaterial::sheen_color_texture,
                       ReadTextureNodeInfo(ChildNode(sheen, "sheenColorTexture")), resolve_texture_index,
@@ -439,6 +492,11 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
     AssignTextureNode(material_data, &GltfShadeMaterial::diffuse_transmission_color_texture,
                       ReadTextureNodeInfo(ChildNode(diffuse_transmission, "diffuseTransmissionColorTexture")),
                       resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, true);
+#endif
+#if MAT_EXT_RETROREFLECTION
+    AssignTextureNode(material_data, &GltfShadeMaterial::retroreflection_texture,
+                      ReadTextureNodeInfo(ChildNode(retroreflection, "retroreflectionTexture")), resolve_texture_index,
+                      texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 
     result.emplace_back(std::move(material_data));
