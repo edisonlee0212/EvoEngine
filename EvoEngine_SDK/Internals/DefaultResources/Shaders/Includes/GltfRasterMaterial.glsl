@@ -64,7 +64,7 @@ vec2 EE_GLTF_SELECT_TEX_COORD(int tex_coord, vec2 tex_coord_0, vec2 tex_coord_1)
 
 vec2 EE_GLTF_TEXTURE_UV(GltfTextureInfo texture_info, vec2 tex_coord_0, vec2 tex_coord_1) {
   vec2 uv = EE_GLTF_SELECT_TEX_COORD(texture_info.tex_coord, tex_coord_0, tex_coord_1);
-#if MAT_EXT_TEXTURE_TRANSFORM
+#if EE_GLTF_USE_TEXTURE_TRANSFORM
   uv = texture_info.uv_transform * vec3(uv, 1.0);
 #endif
   return uv;
@@ -181,7 +181,7 @@ vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT(
   const float tex_grad = texture_info.tex_coord == 1 ? tex_gradients.y : tex_gradients.x;
   vec4 sample_value;
   if (tex_grad > 0.0) {
-#if MAT_EXT_TEXTURE_TRANSFORM
+#if EE_GLTF_USE_TEXTURE_TRANSFORM
     vec2 ddx_uv = texture_info.uv_transform * vec3(tex_grad, 0.0, 0.0);
     vec2 ddy_uv = texture_info.uv_transform * vec3(0.0, tex_grad, 0.0);
 #else
@@ -251,7 +251,7 @@ vec4 EE_GLTF_SAMPLE_TEXTURE_LOD0(uint16_t texture_info_slot, vec2 tex_coord_0, v
                                           tex_coord_1, fallback);
 }
 
-#if MAT_EXT_VOLUME_SCATTER
+#if EE_GLTF_USE_VOLUME_SCATTER
 vec3 EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO(vec3 rho_ms) {
   vec3 t = 4.09712 + 4.20863 * rho_ms -
            sqrt(9.59217 + 41.6808 * rho_ms + 17.7126 * rho_ms * rho_ms);
@@ -282,7 +282,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   surface.scatter_coefficient = vec3(0.0);
   surface.scatter_anisotropy = 0.0;
 
-#if MAT_EXT_SPECULAR_GLOSSINESS
+#if EE_GLTF_USE_SPECULAR_GLOSSINESS
   if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
     vec4 diffuse = material.pbr_diffuse_factor * vertex_color;
     vec3 specular = material.pbr_specular_factor;
@@ -316,12 +316,12 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
     surface.roughness = max(surface.roughness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
     surface.metallic = clamp(surface.metallic, 0.0, 1.0);
     float dielectric_f0 = 0.04;
-#if MAT_EXT_IOR
+#if EE_GLTF_USE_IOR
     const float material_ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
     dielectric_f0 = pow((material_ior - 1.0) / max(material_ior + 1.0, 0.000001), 2.0);
 #endif
     vec3 dielectric_specular_f0 = vec3(dielectric_f0);
-#if MAT_EXT_SPECULAR
+#if EE_GLTF_USE_SPECULAR
     float specular_weight = material.specular_factor;
     specular_weight *= EE_GLTF_SAMPLE_TEXTURE(material.specular_texture, tex_coord_0, tex_coord_1,
                                                vec4(1.0), tex_gradients).a;
@@ -342,7 +342,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
     surface.occlusion = 1.0 + surface.occlusion * (occlusion - 1.0);
   }
 
-#if MAT_EXT_TRANSMISSION
+#if EE_GLTF_USE_TRANSMISSION
   surface.transmission = material.transmission_factor;
   if (EE_GLTF_HAS_TEXTURE(material.transmission_texture)) {
     surface.transmission *=
@@ -350,7 +350,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   }
 #endif
 
-#if MAT_EXT_VOLUME
+#if EE_GLTF_USE_VOLUME
   surface.attenuation_color = material.attenuation_color;
   surface.attenuation_distance = material.attenuation_distance;
   surface.thickness = material.thickness_factor;
@@ -360,7 +360,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   }
 #endif
 
-#if MAT_EXT_DIFFUSE_TRANSMISSION
+#if EE_GLTF_USE_DIFFUSE_TRANSMISSION
   surface.diffuse_transmission_factor = material.diffuse_transmission_factor;
   if (EE_GLTF_HAS_TEXTURE(material.diffuse_transmission_texture)) {
     surface.diffuse_transmission_factor *=
@@ -375,7 +375,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   }
 #endif
 
-#if MAT_EXT_VOLUME_SCATTER
+#if EE_GLTF_USE_VOLUME_SCATTER
   surface.multiscatter_color_factor = max(material.multiscatter_color_factor, vec3(0.0));
   surface.scatter_anisotropy = clamp(material.scatter_anisotropy, -0.999, 0.999);
   if (any(greaterThan(surface.multiscatter_color_factor, vec3(0.0)))) {
@@ -418,7 +418,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, vec2 tex
 }
 
 vec3 EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint material_index, GltfRasterMaterial surface, vec3 base_color) {
-#if MAT_EXT_SPECULAR_GLOSSINESS
+#if EE_GLTF_USE_SPECULAR_GLOSSINESS
   if (EE_GLTF_MATERIALS[material_index].pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
     return surface.specular_f0;
   }
@@ -505,7 +505,7 @@ float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, vec2 tex_coord_0, vec2 te
   }
 
   float base_color_alpha = 1.0;
-#if MAT_EXT_SPECULAR_GLOSSINESS
+#if EE_GLTF_USE_SPECULAR_GLOSSINESS
   if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
     base_color_alpha = material.pbr_diffuse_factor.a;
     base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
@@ -530,12 +530,12 @@ float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, vec2 tex_coord_0, vec2 te
 vec3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1,
                                               vec3 vertex_color, float cos_theta, float segment_length,
                                               inout bool is_inside, float min_transmission) {
-#if !MAT_EXT_TRANSMISSION && !MAT_EXT_DIFFUSE_TRANSMISSION
+#if !EE_GLTF_USE_TRANSMISSION && !EE_GLTF_USE_DIFFUSE_TRANSMISSION
   return vec3(0.0);
 #else
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
   vec3 base_color = material.pbr_base_color_factor.rgb * vertex_color;
-#if MAT_EXT_SPECULAR_GLOSSINESS
+#if EE_GLTF_USE_SPECULAR_GLOSSINESS
   if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
     base_color = material.pbr_diffuse_factor.rgb * vertex_color;
     base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
@@ -550,14 +550,14 @@ vec3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, vec2 tex_coord
   }
 
   float specular_transmission = 0.0;
-#if MAT_EXT_TRANSMISSION
+#if EE_GLTF_USE_TRANSMISSION
   specular_transmission = material.transmission_factor;
   specular_transmission *=
       EE_GLTF_SAMPLE_TEXTURE_LOD0(material.transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0)).r;
 #endif
   float diffuse_transmission = 0.0;
   vec3 diffuse_transmission_color = vec3(1.0);
-#if MAT_EXT_DIFFUSE_TRANSMISSION
+#if EE_GLTF_USE_DIFFUSE_TRANSMISSION
   diffuse_transmission = material.diffuse_transmission_factor;
   diffuse_transmission *= EE_GLTF_SAMPLE_TEXTURE_LOD0(
       material.diffuse_transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0)).a;
@@ -573,14 +573,14 @@ vec3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, vec2 tex_coord
   }
 
   float ior = 1.5;
-#if MAT_EXT_IOR
+#if EE_GLTF_USE_IOR
   ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
 #endif
   float ior_f0 = (ior - 1.0) / max(ior + 1.0, 0.000001);
   ior_f0 *= ior_f0;
   float specular_weight = 1.0;
   vec3 specular_color = vec3(1.0);
-#if MAT_EXT_SPECULAR
+#if EE_GLTF_USE_SPECULAR
   specular_weight = material.specular_factor;
   specular_weight *=
       EE_GLTF_SAMPLE_TEXTURE_LOD0(material.specular_texture, tex_coord_0, tex_coord_1, vec4(1.0)).a;
@@ -598,13 +598,13 @@ vec3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, vec2 tex_coord
                        effective_diffuse_transmission * diffuse_transmission_color);
   transmission = clamp(transmission, vec3(0.0), vec3(1.0));
 
-#if MAT_EXT_VOLUME
+#if EE_GLTF_USE_VOLUME
   if (material.thickness_factor > 0.0) {
     if (is_inside) {
       const vec3 absorption_coefficient =
           -log(max(material.attenuation_color, vec3(0.001))) / max(material.attenuation_distance, 0.001);
       vec3 scatter_coefficient = vec3(0.0);
-#if MAT_EXT_VOLUME_SCATTER
+#if EE_GLTF_USE_VOLUME_SCATTER
       scatter_coefficient = absorption_coefficient * EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO(
                                                          max(material.multiscatter_color_factor, vec3(0.0)));
 #endif

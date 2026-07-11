@@ -4,12 +4,14 @@
 
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "ComputePipeline.hpp"
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "Jobs.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Shader.hpp"
 #include "Texture2D.hpp"
 
 #include <array>
@@ -261,6 +263,58 @@ TEST(GpuService, BufferUploadReadbackRoundTrip) {
     memcpy(output.data(), downloaded_bytes.data(), downloaded_bytes.size());
     EXPECT_EQ(output, input);
   }
+}
+
+TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
+  ScopedGpuPlatform platform;
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+
+  auto descriptor_layout = std::make_shared<DescriptorSetLayout>();
+  descriptor_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  descriptor_layout->Initialize();
+
+  constexpr size_t value_count = 9;
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = value_count * sizeof(float);
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+  const std::array<float, value_count> zero{};
+  output->Upload(zero);
+
+  auto descriptor_set = std::make_shared<DescriptorSet>(descriptor_layout);
+  descriptor_set->UpdateBufferDescriptorBinding(0, output);
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                 shader_root / "Compute" / "GltfRayTracingNumericalProbe.comp"));
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = shader;
+  pipeline->descriptor_set_layouts.emplace_back(descriptor_layout);
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    pipeline->Bind(command_buffer);
+    pipeline->BindDescriptorSet(command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+    pipeline->Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+  std::array<float, value_count> values{};
+  output->Download(values);
+  EXPECT_NEAR(values[0], 0.04f, 1.0e-6f);
+  EXPECT_NEAR(values[1], 0.04f, 1.0e-6f);
+  EXPECT_NEAR(values[2], 1.0f, 1.0e-6f);
+  EXPECT_NEAR(values[3], 1.0f, 1.0e-6f);
+  EXPECT_GE(values[4], 0.0f);
+  EXPECT_NEAR(values[5], values[6], 1.0e-6f);
+  EXPECT_NEAR(values[7], 1.5f, 1.0e-5f);
+  EXPECT_FLOAT_EQ(values[8], 1.0f);
 }
 
 TEST(GpuService, BufferUploadSubrangeRoundTrip) {

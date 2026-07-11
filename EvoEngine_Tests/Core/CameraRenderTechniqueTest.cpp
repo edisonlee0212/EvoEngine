@@ -284,8 +284,8 @@ TEST(CameraRenderTechnique, RayQuerySharedResourcesDoNotRequireRayTracingPipelin
   EXPECT_NE(render_layer_source.find("update_ray_tracing && Platform::RayAccelerationStructureEnabled()"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("if (Platform::RayAccelerationStructureEnabled() &&"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("if (Platform::RayQueryEnabled() && !ray_query_camera_pipeline_)"),
+  EXPECT_NE(render_layer_source.find("if (Platform::RayQueryEnabled() && !ray_query_camera_fallback_pipeline_)"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("if (Platform::RayTracingEnabled() && !ray_tracing_camera_pipeline)"),
+  EXPECT_NE(render_layer_source.find("if (Platform::RayTracingEnabled() && !ray_tracing_camera_fallback_pipeline_)"),
             std::string::npos);
 }

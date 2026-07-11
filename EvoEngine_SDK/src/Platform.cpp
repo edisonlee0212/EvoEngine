@@ -207,10 +207,12 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
+  const std::lock_guard lock(shader_include_paths_mutex_);
   shader_include_paths_.emplace(path);
 }
 
-const std::set<std::filesystem::path>& Platform::GetRegisteredShaderIncludePaths() const {
+std::set<std::filesystem::path> Platform::GetRegisteredShaderIncludePaths() const {
+  const std::lock_guard lock(shader_include_paths_mutex_);
   return shader_include_paths_;
 }
 

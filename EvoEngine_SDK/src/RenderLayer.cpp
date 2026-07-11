@@ -1170,6 +1170,59 @@ void AddDdgiRayTracingFrameResources(RenderGraph& graph) {
       {RenderResourceNames::scene_mesh_tlas, RenderResourceType::AccelerationStructure, RenderResourceLifetime::Frame});
 }
 
+std::string CameraVariantShaderHeader(const uint32_t feature_mask) {
+  return Platform::GetShaderGlobalDefines() + "\n" + BuildGltfSceneFeatureDefines(feature_mask);
+}
+
+std::shared_ptr<RayTracingPipeline> CreateRayTracingCameraPipeline(
+    const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
+    const std::shared_ptr<DescriptorSetLayout>& ray_tracing_layout,
+    const std::shared_ptr<DescriptorSetLayout>& camera_output_layout, const std::string& shader_header,
+    const std::shared_ptr<Shader>& shared_miss_shader = {},
+    const std::shared_ptr<Shader>& shared_closest_hit_shader = {}) {
+  auto pipeline = std::make_shared<RayTracingPipeline>();
+  pipeline->raygen_shader =
+      Shader::CreateTemporary(ShaderType::RayGen, shader_header,
+                              Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/Camera.rgen");
+  pipeline->miss_shader =
+      shared_miss_shader
+          ? shared_miss_shader
+          : Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+                                    Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/Camera.rmiss");
+  pipeline->closest_hit_shader =
+      shared_closest_hit_shader ? shared_closest_hit_shader
+                                : Shader::CreateTemporary(ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
+                                                          Resources::GetDefaultResourcesPath() /
+                                                              "Shaders/RayTracing/ClosestHit/Camera.rchit");
+  pipeline->any_hit_shader =
+      Shader::CreateTemporary(ShaderType::AnyHit, shader_header,
+                              Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/Camera.rahit");
+  pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RayTracingCameraPushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
+                                   VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+  pipeline->Initialize();
+  return pipeline;
+}
+
+std::shared_ptr<ComputePipeline> CreateRayQueryCameraPipeline(
+    const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
+    const std::shared_ptr<DescriptorSetLayout>& ray_tracing_layout,
+    const std::shared_ptr<DescriptorSetLayout>& camera_output_layout, const std::string& shader_header) {
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, shader_header, Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.comp");
+  pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RayTracingCameraPushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  pipeline->Initialize();
+  return pipeline;
+}
+
 }  // namespace
 
 uint32_t RenderLayer::GetDdgiProbeCount(const glm::ivec3& probe_counts) {
@@ -2584,42 +2637,43 @@ void RenderLayer::OnCreate() {
   constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
                                                     VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
                                                     VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
-  if (Platform::RayTracingEnabled() && !ray_tracing_camera_pipeline) {
-    ray_tracing_camera_pipeline = std::make_shared<RayTracingPipeline>();
-    ray_tracing_camera_pipeline->raygen_shader =
-        Shader::CreateTemporary(ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/Camera.rgen");
-    ray_tracing_camera_pipeline->miss_shader =
-        Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/Camera.rmiss");
-    ray_tracing_camera_pipeline->closest_hit_shader =
-        Shader::CreateTemporary(ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/Camera.rchit");
-    ray_tracing_camera_pipeline->any_hit_shader =
-        Shader::CreateTemporary(ShaderType::AnyHit, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/Camera.rahit");
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
-    ray_tracing_camera_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_camera_output_layout_);
-    auto& push_constant_range = ray_tracing_camera_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RayTracingCameraPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = ray_tracing_push_constant_stages;
-    ray_tracing_camera_pipeline->Initialize();
+  if (Platform::RayTracingEnabled() && !ray_tracing_camera_fallback_pipeline_) {
+    ray_tracing_camera_fallback_pipeline_ = CreateRayTracingCameraPipeline(
+        per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, Platform::GetShaderGlobalDefines());
+    ray_tracing_camera_pipeline = ray_tracing_camera_fallback_pipeline_;
   }
-  if (Platform::RayQueryEnabled() && !ray_query_camera_pipeline_) {
-    ray_query_camera_pipeline_ = std::make_shared<ComputePipeline>();
-    ray_query_camera_pipeline_->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.comp");
-    ray_query_camera_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ray_query_camera_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
-    ray_query_camera_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_camera_output_layout_);
-    auto& push_constant_range = ray_query_camera_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RayTracingCameraPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ray_query_camera_pipeline_->Initialize();
+  if (Platform::RayQueryEnabled() && !ray_query_camera_fallback_pipeline_) {
+    ray_query_camera_fallback_pipeline_ = CreateRayQueryCameraPipeline(
+        per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, Platform::GetShaderGlobalDefines());
+    ray_query_camera_pipeline_ = ray_query_camera_fallback_pipeline_;
+  }
+  if (!ray_camera_shader_variant_cache_ &&
+      (ray_tracing_camera_fallback_pipeline_ || ray_query_camera_fallback_pipeline_)) {
+    const auto ray_tracing_factory =
+        ray_tracing_camera_fallback_pipeline_
+            ? RayCameraShaderVariantCache::RayTracingFactory(
+                  [per_frame_layout = per_frame_layout_, ray_tracing_layout = ray_tracing_layout_,
+                   camera_output_layout = ray_tracing_camera_output_layout_,
+                   miss_shader = ray_tracing_camera_fallback_pipeline_->miss_shader,
+                   closest_hit_shader =
+                       ray_tracing_camera_fallback_pipeline_->closest_hit_shader](const uint32_t feature_mask) {
+                    return CreateRayTracingCameraPipeline(per_frame_layout, ray_tracing_layout, camera_output_layout,
+                                                          CameraVariantShaderHeader(feature_mask), miss_shader,
+                                                          closest_hit_shader);
+                  })
+            : RayCameraShaderVariantCache::RayTracingFactory{};
+    const auto ray_query_factory =
+        ray_query_camera_fallback_pipeline_
+            ? RayCameraShaderVariantCache::RayQueryFactory(
+                  [per_frame_layout = per_frame_layout_, ray_tracing_layout = ray_tracing_layout_,
+                   camera_output_layout = ray_tracing_camera_output_layout_](const uint32_t feature_mask) {
+                    return CreateRayQueryCameraPipeline(per_frame_layout, ray_tracing_layout, camera_output_layout,
+                                                        CameraVariantShaderHeader(feature_mask));
+                  })
+            : RayCameraShaderVariantCache::RayQueryFactory{};
+    ray_camera_shader_variant_cache_ = std::make_shared<RayCameraShaderVariantCache>(
+        ray_tracing_camera_fallback_pipeline_, ray_query_camera_fallback_pipeline_, ray_tracing_factory,
+        ray_query_factory);
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
     ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();
@@ -2893,6 +2947,42 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayAccelerationStructureEnabled();
   if (update_ray_tracing_resources) {
+    if (ray_camera_shader_variant_cache_) {
+      bool need_ray_tracing = false;
+      bool need_ray_query = false;
+      for (const auto& [transform, camera] : current_render_instances->cameras) {
+        if (!camera)
+          continue;
+        const auto mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
+        need_ray_tracing |= mode == Camera::CameraRenderMode::RayTracing;
+        need_ray_query |= mode == Camera::CameraRenderMode::RayQuery;
+      }
+      const auto feature_mask = force_full_ray_camera_shader_variant
+                                    ? kGltfSceneAllFeatures
+                                    : DetectGltfSceneFeatures(current_render_instances->GetGltfShadeMaterials(),
+                                                              current_render_instances->GetGltfTextureInfos());
+      const auto variant_update =
+          ray_camera_shader_variant_cache_->Update(feature_mask, need_ray_tracing, need_ray_query);
+      ray_tracing_camera_pipeline = ray_camera_shader_variant_cache_->GetRayTracingPipeline();
+      ray_query_camera_pipeline_ = ray_camera_shader_variant_cache_->GetRayQueryPipeline();
+      bool reset_ray_tracing = false;
+      bool reset_ray_query = false;
+      for (const auto& [transform, camera] : current_render_instances->cameras) {
+        if (!camera)
+          continue;
+        const auto mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
+        if ((variant_update.ray_tracing_activated && mode == Camera::CameraRenderMode::RayTracing) ||
+            (variant_update.ray_query_activated && mode == Camera::CameraRenderMode::RayQuery)) {
+          camera->ResetFrameCount();
+          reset_ray_tracing |= mode == Camera::CameraRenderMode::RayTracing;
+          reset_ray_query |= mode == Camera::CameraRenderMode::RayQuery;
+        }
+      }
+      if (reset_ray_tracing)
+        ray_camera_shader_variant_cache_->RecordAccumulationReset(RayCameraShaderTechnique::RayTracing);
+      if (reset_ray_query)
+        ray_camera_shader_variant_cache_->RecordAccumulationReset(RayCameraShaderTechnique::RayQuery);
+    }
     current_render_instances->UpdateTopLevelAccelerationStructure();
 
     if (current_render_instances->mesh_top_level_acceleration_structure) {
@@ -3808,6 +3898,16 @@ bool RenderLayer::RequiresCameraWideTemporalHistoryRejection() const {
   const auto render_instances = GetCurrentRenderInstanceStorage();
   return (render_instances && render_instances->RequiresCameraWideTemporalHistoryRejection()) ||
          !deferred_rendering_external_functions.empty() || !forward_rendering_external_functions.empty();
+}
+
+RayCameraShaderVariantStats RenderLayer::GetRayCameraShaderVariantStats(
+    const RayCameraShaderTechnique technique) const {
+  return ray_camera_shader_variant_cache_ ? ray_camera_shader_variant_cache_->GetStats(technique)
+                                          : RayCameraShaderVariantStats{};
+}
+
+bool RenderLayer::IsRayCameraShaderVariantReady(const RayCameraShaderTechnique technique) const {
+  return !ray_camera_shader_variant_cache_ || ray_camera_shader_variant_cache_->IsReady(technique);
 }
 
 void RenderLayer::ApplyAnimators() const {
@@ -4752,6 +4852,16 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
   if (resolved_render_mode == Camera::CameraRenderMode::RayTracing ||
       resolved_render_mode == Camera::CameraRenderMode::RayQuery) {
     const bool use_ray_query = resolved_render_mode == Camera::CameraRenderMode::RayQuery;
+    const auto ray_query_pipeline = ray_query_camera_pipeline_;
+    const auto ray_tracing_pipeline = ray_tracing_camera_pipeline;
+    if ((use_ray_query && (!ray_query_pipeline || !ray_query_pipeline->Initialized())) ||
+        (!use_ray_query && (!ray_tracing_pipeline || !ray_tracing_pipeline->Initialized()))) {
+      return;
+    }
+    if (ray_camera_shader_variant_cache_) {
+      ray_camera_shader_variant_cache_->RecordFallbackFrame(use_ray_query ? RayCameraShaderTechnique::RayQuery
+                                                                          : RayCameraShaderTechnique::RayTracing);
+    }
     const char* ray_camera_pass_name =
         use_ray_query ? RenderPassNames::ray_query_camera : RenderPassNames::ray_tracing_camera;
     VolumetricCloudSettings volumetric_cloud_settings{};
@@ -4782,7 +4892,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       camera_render_graph.AddPass(
           RayQueryCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
             RayQueryCameraPass::Execute(
-                context, {camera, ray_query_camera_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                context, {camera, ray_query_pipeline, per_frame_descriptor_sets_[current_frame_index],
                           ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
                           record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
           });
@@ -4790,7 +4900,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       camera_render_graph.AddPass(
           RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
             RayTracingCameraPass::Execute(
-                context, {camera, ray_tracing_camera_pipeline, per_frame_descriptor_sets_[current_frame_index],
+                context, {camera, ray_tracing_pipeline, per_frame_descriptor_sets_[current_frame_index],
                           ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
                           record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
           });
@@ -4873,6 +4983,8 @@ void RenderLayer::PreUpdate() {
 }
 
 void RenderLayer::OnDestroy() {
+  if (ray_camera_shader_variant_cache_)
+    ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
 }
 

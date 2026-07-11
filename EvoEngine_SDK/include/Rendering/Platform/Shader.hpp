@@ -27,6 +27,16 @@ enum class ShaderType {
   Unknown                 /**< Unknown shader type */
 };
 
+struct ShaderCompileCacheStats {
+  uint64_t memory_hits = 0;
+  uint64_t disk_hits = 0;
+  uint64_t disk_misses = 0;
+  uint64_t compilations = 0;
+  uint64_t coalesced_waits = 0;
+  uint64_t corrupt_entries = 0;
+  uint64_t failures = 0;
+};
+
 /**
  * @class Shader
  * @brief Represents a graphics shader asset in the engine.
@@ -94,7 +104,15 @@ class Shader final : public IAsset {
    *
    * @return A set of file system paths currently registered.
    */
-  static const std::set<std::filesystem::path>& GetRegisteredShaderIncludePaths();
+  static std::set<std::filesystem::path> GetRegisteredShaderIncludePaths();
+
+  /** Compiles GLSL to SPIR-V without creating a Vulkan shader module. */
+  [[nodiscard]] static bool CompileToSpirv(ShaderType shader_type, const std::string& source,
+                                           std::vector<uint32_t>& binaries, const std::filesystem::path& path = {});
+
+  [[nodiscard]] static ShaderCompileCacheStats GetCompileCacheStats();
+  static void ResetCompileCacheStats();
+  static void ClearInMemoryCompileCache();
 
   /**
    * @brief Checks whether the shader is compiled successfully.

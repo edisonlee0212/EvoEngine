@@ -225,6 +225,21 @@ zero-width CDF entries keep hit weight 1. The camera setting `emissive_triangle_
 `--preview-emissive-nee enabled|disabled` capture override disable only this estimator and its hit competitor; hit-time
 emission remains available for matched energy tests.
 
+### Camera-Ray Shader Variants
+
+Normal scene preparation detects the glTF behaviors used by collected materials and requests an exact camera-ray shader
+variant. The detector is material-order invariant and promotes volume scatter to volume and transmission. The host and
+shader storage ABI always retain every material field; only `EE_GLTF_USE_*` behavior gates vary. RTX compiles the shared
+integrator through specialized raygen and any-hit modules while reusing miss/closest-hit modules. RayQuery compiles only
+its compute shader and does not depend on an RTX pipeline, SBT, or SER capability.
+
+The all-feature startup pipelines are permanent fallbacks. Missing variants compile asynchronously on the render
+executor, remain cached by technique plus feature mask, and publish only at frame preparation. A publication resets the
+matching camera histories once. Successful pipelines are retained until render-layer destruction because Vulkan
+pipelines have no general deferred-retirement queue yet. The editor's Render Layer inspection shows requested and active
+keys; automated captures can select `--preview-ray-shader-variant auto|full` and wait for exact readiness before counting
+samples.
+
 Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
 sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
 contiguous range has one material descriptor, one compatible pipeline-state key, one push-constant base instance, and an

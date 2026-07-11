@@ -51,6 +51,7 @@ struct EditorCommandLine {
   std::optional<bool> preview_capture_firefly_clamp_enabled;
   std::optional<float> preview_capture_firefly_clamp_threshold;
   std::optional<bool> preview_capture_emissive_triangle_nee_enabled;
+  bool preview_force_full_ray_shader_variant = false;
   std::optional<bool> preview_capture_auto_spp_enabled;
   std::optional<int> preview_capture_auto_spp_min_samples;
   std::optional<int> preview_capture_auto_spp_max_samples;
@@ -369,6 +370,16 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_capture_emissive_triangle_nee_enabled =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-ray-shader-variant") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ray-shader-variant requires auto or full.");
+      }
+      const std::string value = argv[++arg_index] ? argv[arg_index] : "";
+      if (value == "full") {
+        command_line.preview_force_full_ray_shader_variant = true;
+      } else if (value != "auto") {
+        throw std::invalid_argument("--preview-ray-shader-variant requires auto or full.");
+      }
     } else if (argument == "--preview-auto-spp") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-auto-spp requires enabled or disabled.");
@@ -914,7 +925,7 @@ void CaptureDemoPreview(
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<bool>& preview_firefly_clamp_enabled,
     const std::optional<float>& preview_firefly_clamp_threshold,
-    const std::optional<bool>& preview_emissive_triangle_nee_enabled,
+    const std::optional<bool>& preview_emissive_triangle_nee_enabled, const bool force_full_ray_shader_variant,
     const std::optional<bool>& preview_auto_spp_enabled, const std::optional<int>& preview_auto_spp_min_samples,
     const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
@@ -1099,6 +1110,13 @@ void CaptureDemoPreview(
     }
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    if (!render_layer) {
+      throw std::runtime_error("Ray preview capture requires RenderLayer.");
+    }
+    render_layer->force_full_ray_camera_shader_variant = force_full_ray_shader_variant;
+  }
   if (linear_hdr_output && !Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     throw std::invalid_argument("Linear HDR preview capture requires raytracing or rayquery mode.");
   }
@@ -1143,6 +1161,25 @@ void CaptureDemoPreview(
   }
   scene_camera->Resize(preview_resolution);
   WaitForDemoPreviewSceneInputsReady();
+  if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
+                               ? RayCameraShaderTechnique::RayQuery
+                               : RayCameraShaderTechnique::RayTracing;
+    constexpr size_t max_variant_wait_frames = 30000;
+    size_t wait_frames = 0;
+    while (!render_layer->IsRayCameraShaderVariantReady(technique)) {
+      const auto stats = render_layer->GetRayCameraShaderVariantStats(technique);
+      if (stats.failed) {
+        throw std::runtime_error("Ray camera shader variant failed: " + stats.last_error);
+      }
+      if (!ApplicationContext::Get().Loop()) {
+        throw std::runtime_error("Application ended before the ray camera shader variant became ready.");
+      }
+      if (++wait_frames >= max_variant_wait_frames) {
+        throw std::runtime_error("Timed out waiting for the ray camera shader variant.");
+      }
+    }
+  }
   if (const auto active_scene = ApplicationContext::Get().GetActiveScene()) {
     if (const auto main_camera = active_scene->main_camera.Get<Camera>(); main_camera && main_camera != scene_camera) {
       main_camera->SetRequireRendering(false);
@@ -1242,6 +1279,38 @@ void CaptureDemoPreview(
                              {"ray_tracing_pipeline", capabilities.support_ray_tracing},
                              {"ray_query", capabilities.support_ray_query},
                              {"shader_execution_reordering", capabilities.support_shader_execution_reordering}};
+  metrics["ray_shader_variant"] = nullptr;
+  if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
+                               ? RayCameraShaderTechnique::RayQuery
+                               : RayCameraShaderTechnique::RayTracing;
+    const auto variant = render_layer->GetRayCameraShaderVariantStats(technique);
+    metrics["ray_shader_variant"] = {
+        {"technique", technique == RayCameraShaderTechnique::RayQuery ? "RayQuery" : "RayTracing"},
+        {"selection_mode", force_full_ray_shader_variant ? "full" : "auto"},
+        {"requested_mask", variant.requested_mask},
+        {"active_mask", variant.active_mask},
+        {"requested_key", variant.requested_key},
+        {"active_key", variant.active_key},
+        {"cache_source", variant.cache_source},
+        {"pending", variant.pending},
+        {"ready", variant.ready},
+        {"fallback_active", variant.fallback_active},
+        {"failed", variant.failed},
+        {"last_error", variant.last_error},
+        {"build_count", variant.build_count},
+        {"activation_count", variant.activation_count},
+        {"accumulation_reset_count", variant.accumulation_reset_count},
+        {"fallback_frame_count", variant.fallback_frame_count},
+        {"shader_cache",
+         {{"memory_hits", variant.shader_cache.memory_hits},
+          {"disk_hits", variant.shader_cache.disk_hits},
+          {"disk_misses", variant.shader_cache.disk_misses},
+          {"compilations", variant.shader_cache.compilations},
+          {"coalesced_waits", variant.shader_cache.coalesced_waits},
+          {"corrupt_entries", variant.shader_cache.corrupt_entries},
+          {"failures", variant.shader_cache.failures}}}};
+  }
   metrics["deterministic"] = deterministic_capture;
   metrics["accumulation_wall_seconds"] = capture_elapsed_seconds;
   metrics["frames_per_second"] = capture_frames_per_second;
@@ -1325,7 +1394,8 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_warmup_frames, command_line.demo_profile_id,
               command_line.preview_capture_render_mode, command_line.preview_capture_ser_mode,
               command_line.preview_capture_firefly_clamp_enabled, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_emissive_triangle_nee_enabled, command_line.preview_capture_auto_spp_enabled,
+              command_line.preview_capture_emissive_triangle_nee_enabled,
+              command_line.preview_force_full_ray_shader_variant, command_line.preview_capture_auto_spp_enabled,
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,

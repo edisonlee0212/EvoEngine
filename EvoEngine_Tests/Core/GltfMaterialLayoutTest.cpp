@@ -77,5 +77,6 @@ TEST(GltfMaterialLayout, ShaderIncludeKeepsMaterialLayoutGatesSeparateFromBehavi
   EXPECT_NE(shader_source.find("uint16_t pbr_base_color_texture"), std::string::npos);
   EXPECT_NE(shader_source.find("float retroreflection_factor"), std::string::npos);
   EXPECT_NE(shader_source.find("uint16_t retroreflection_texture"), std::string::npos);
-  EXPECT_EQ(shader_source.find("GLTF_USE_"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_GLTF_USE_TRANSMISSION"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_GLTF_USE_TEXTURE_TRANSFORM"), std::string::npos);
 }

@@ -442,6 +442,7 @@ class Platform final {
    * @brief Global defines for shaders, set during initialization.
    */
   std::string shader_global_defines = {};
+  mutable std::mutex shader_include_paths_mutex_;
   std::set<std::filesystem::path> shader_include_paths_{};
 
  public:
@@ -474,7 +475,7 @@ class Platform final {
   [[nodiscard]] const Capabilities& GetCapabilities() const;
   [[nodiscard]] Capabilities& GetCapabilities();
   void RegisterShaderIncludePath(const std::filesystem::path& path);
-  [[nodiscard]] const std::set<std::filesystem::path>& GetRegisteredShaderIncludePaths() const;
+  [[nodiscard]] std::set<std::filesystem::path> GetRegisteredShaderIncludePaths() const;
   [[nodiscard]] static QueueFamilySelection SelectQueueFamilies(const std::vector<QueueFamilySupport>& queue_families);
 
   static bool RayTracingEnabled();

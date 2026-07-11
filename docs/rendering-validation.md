@@ -380,6 +380,42 @@ The final 2560x1440, 2048-SPP Bistro run reports RTX-versus-RayQuery linear-HDR 
 `0.0007596530/0.0022384434`, within the M0 gate. Its optimized path-trace averages are `243.599 ms` RTX and `342.975 ms`
 RayQuery on the recorded RTX 5070 configuration. Evidence is under `out/m4-validation/bistro-canonical-final`.
 
+### M5 Camera-Ray Shader Variants
+
+Camera-ray shaders keep the full 288-byte glTF material ABI while compiling behavior-only variants from the feature set
+actually referenced by the current scene. `MAT_EXT_*` remains layout-only; deterministic `EE_GLTF_USE_*` defines select
+transmission, volume/scatter, clearcoat, iridescence, anisotropy, sheen, dispersion, diffuse transmission,
+retroreflection, unlit, specular, IOR, specular-glossiness, and texture-transform behavior. Volume scatter promotes
+volume, and volume promotes transmission. RTX specializes raygen plus any-hit while sharing miss/closest-hit modules;
+RayQuery builds only its independent compute pipeline. A permanent all-feature pipeline remains available for startup,
+failure fallback, and `--preview-ray-shader-variant full` comparisons.
+
+Variant compilation runs on the render executor and publishes only during normal scene preparation. A published pipeline
+resets matching camera accumulation exactly once. Automated captures wait for the exact requested variant before counting
+SPP and record requested/active masks and keys, cache origin, pending/failure state, fallback frames, activations, resets,
+and shader-cache counters under `ray_shader_variant` in the metrics JSON.
+
+Use isolated cache directories for cold runs, reuse the same directory for the matching warm run, and capture the fixed
+640x360, 512-SPP matrix named by `Scripts/validate_ray_shader_variants.py`. Every capture uses deterministic mode,
+4 samples per frame for 128 frames, Auto-SPP disabled, firefly clamp 10, and SER disabled. The matrix compares full versus
+automatic variants for Bistro and `rendering-regression`, cold versus warm automatic variants, and normal versus forced
+query-only RayQuery:
+
+```bat
+set EVOENGINE_SHADER_CACHE_DIR=out\m5-validation\matrix\rtx-cache
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\m5-validation\matrix\bistro-rtx-auto-cold.hdr --preview-metrics-json out\m5-validation\matrix\bistro-rtx-auto-cold.json --preview-render-mode raytracing --preview-ray-shader-variant auto --preview-warmup-frames 128 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-ser disabled --preview-width 640 --preview-height 360 --preview-deterministic
+python Scripts\validate_ray_shader_variants.py --matrix-dir out\m5-validation\matrix --out out\m5-validation\matrix\validation.json
+```
+
+Cold/warm and normal/query-only captures must be bit-exact because they execute the same specialized SPIR-V. Full versus
+automatic variants use a tight linear-HDR equivalence gate (`max <= 1e-2`, `mean <= 1e-6`, `RMS <= 5e-5`) because removing
+inactive material branches can change floating-point instruction scheduling even when the rendered behavior is equivalent.
+
+The shader disk cache preprocesses before keying, so transitive include content participates alongside stage, schema,
+Vulkan 1.3/SPIR-V 1.4 targets, and compile options. Entries carry validated metadata and payload checksums, publish via a
+same-directory temporary file plus rename, treat truncated/corrupt data as a miss, and coalesce identical in-process
+requests. `EVOENGINE_SHADER_CACHE_DIR` still selects the cache root; legacy decimal YAML entries are ignored.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

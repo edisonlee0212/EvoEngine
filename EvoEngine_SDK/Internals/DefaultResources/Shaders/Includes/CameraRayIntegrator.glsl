@@ -1400,7 +1400,7 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
       break;
     }
 
-#if MAT_EXT_UNLIT
+#if EE_GLTF_USE_UNLIT
     if (EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0) {
       radiance += throughput * surface_hit.surface.base_color.rgb;
       break;

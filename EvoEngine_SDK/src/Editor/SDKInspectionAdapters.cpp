@@ -1490,6 +1490,16 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
   }
   ImGui::Checkbox("Indirect Rendering", &render_layer.enable_indirect_rendering);
   ImGui::Checkbox("Show entities", &render_layer.render_settings.enable_debug_visualization);
+  ImGui::Checkbox("Full camera-ray shaders", &render_layer.force_full_ray_camera_shader_variant);
+  const auto draw_variant = [&](const char* label, const RayCameraShaderTechnique technique) {
+    const auto stats = render_layer.GetRayCameraShaderVariantStats(technique);
+    ImGui::Text("%s: %s -> %s (%s%s)", label, stats.requested_key.c_str(), stats.active_key.c_str(),
+                stats.cache_source.c_str(), stats.pending ? ", pending" : "");
+  };
+  if (Platform::RayTracingEnabled())
+    draw_variant("RTX variant", RayCameraShaderTechnique::RayTracing);
+  if (Platform::RayQueryEnabled())
+    draw_variant("Ray Query variant", RayCameraShaderTechnique::RayQuery);
 }
 
 void InspectRenderLayerStats() {

@@ -120,6 +120,31 @@ TEST(GltfRayTracingMaterial, ActiveRayCamerasShareOneIntegratorWithTraversalAdap
   EXPECT_EQ(ray_query_traversal.find("traceRayEXT("), std::string::npos);
 }
 
+TEST(GltfRayTracingMaterial, CameraRayVariantsKeepLayoutAndTechniqueOwnershipIndependent) {
+  const auto material = ReadTextFile(ShaderPath("Includes/GltfMaterial.glsl"));
+  const auto raster = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
+  const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto variant_cache = ReadTextFile(SdkPath("src/RayCameraShaderVariantCache.cpp"));
+  const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
+
+  EXPECT_NE(material.find("#define EE_GLTF_USE_TRANSMISSION MAT_EXT_TRANSMISSION"), std::string::npos);
+  EXPECT_NE(material.find("#define EE_GLTF_USE_TEXTURE_TRANSFORM MAT_EXT_TEXTURE_TRANSFORM"), std::string::npos);
+  EXPECT_EQ(raster.find("#if MAT_EXT_"), std::string::npos);
+  EXPECT_EQ(bsdf.find("#if MAT_EXT_"), std::string::npos);
+  EXPECT_EQ(integrator.find("#if MAT_EXT_UNLIT"), std::string::npos);
+  EXPECT_NE(integrator.find("#if EE_GLTF_USE_UNLIT"), std::string::npos);
+  EXPECT_NE(render_layer.find("ShaderType::RayGen, shader_header"), std::string::npos);
+  EXPECT_NE(render_layer.find("ShaderType::AnyHit, shader_header"), std::string::npos);
+  EXPECT_NE(render_layer.find("ShaderType::Compute, shader_header"), std::string::npos);
+  EXPECT_NE(variant_cache.find("void RayCameraShaderVariantCache::RequestRayQuery"), std::string::npos);
+  EXPECT_NE(variant_cache.find("void RayCameraShaderVariantCache::RequestRayTracing"), std::string::npos);
+  EXPECT_NE(variant_cache.find("Jobs::RunOnRenderThread"), std::string::npos);
+  EXPECT_NE(editor.find("--preview-ray-shader-variant"), std::string::npos);
+  EXPECT_NE(editor.find("ray_shader_variant"), std::string::npos);
+}
+
 TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
   const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.rahit"));
   const auto evaluator = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
@@ -659,9 +684,11 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfLetsLobesHandleBackfacingMappedNormal
 
 TEST(GltfRayTracingMaterial, RayTracingDiffuseBsdfSamplesUseMaterialTangentFrame) {
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
+  const auto math = ReadTextFile(ShaderPath("Includes/GltfRayTracingMath.glsl"));
   ASSERT_FALSE(bsdf.empty());
+  ASSERT_FALSE(math.empty());
 
-  EXPECT_NE(bsdf.find("vec3 EE_GLTF_RT_SAMPLE_COSINE_HEMISPHERE(const vec2 xi)"), std::string::npos);
+  EXPECT_NE(math.find("vec3 EE_GLTF_RT_SAMPLE_COSINE_HEMISPHERE(const vec2 xi)"), std::string::npos);
   EXPECT_EQ(bsdf.find("mat3 EE_GLTF_RT_TANGENT_SPACE"), std::string::npos);
   EXPECT_EQ(bsdf.find("EE_GLTF_RT_SAMPLE_COSINE_HEMISPHERE(data.xi.xy, material.normal)"), std::string::npos);
   EXPECT_EQ(bsdf.find("EE_GLTF_RT_SAMPLE_COSINE_HEMISPHERE(data.xi.xy, -material.normal)"), std::string::npos);

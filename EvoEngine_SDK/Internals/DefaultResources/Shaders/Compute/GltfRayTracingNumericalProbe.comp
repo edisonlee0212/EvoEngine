@@ -1,0 +1,27 @@
+#extension GL_GOOGLE_include_directive : require
+
+#include "GltfRayTracingMath.glsl"
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(set = 0, binding = 0, std430) buffer ProbeOutput {
+  float values[];
+}
+EE_GLTF_RT_NUMERICAL_PROBE;
+
+void main() {
+  const float f0 = EE_GLTF_RT_IOR_TO_F0(1.0f, 1.5f);
+  const vec3 fresnel_normal = EE_GLTF_RT_FRESNEL_SCHLICK(1.0f, vec3(f0));
+  const vec3 fresnel_grazing = EE_GLTF_RT_FRESNEL_SCHLICK(0.0f, vec3(f0));
+  const vec3 sample_direction = EE_GLTF_RT_SAMPLE_COSINE_HEMISPHERE(vec2(0.25f, 0.5f));
+  const float pdf = EE_GLTF_RT_COSINE_HEMISPHERE_PDF(vec3(0.0f, 0.0f, 1.0f), sample_direction);
+  EE_GLTF_RT_NUMERICAL_PROBE.values[0] = f0;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[1] = fresnel_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[2] = fresnel_grazing.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[3] = length(sample_direction);
+  EE_GLTF_RT_NUMERICAL_PROBE.values[4] = sample_direction.z;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[5] = pdf;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[6] = sample_direction.z / EE_GLTF_RT_MATH_PI;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[7] = EE_GLTF_RT_F0_TO_IOR(f0);
+  EE_GLTF_RT_NUMERICAL_PROBE.values[8] =
+      float(!any(isnan(sample_direction)) && !any(isinf(sample_direction)));
+}

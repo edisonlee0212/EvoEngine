@@ -99,9 +99,9 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
-    if (!render_texture || !parameters.pipeline || !parameters.per_frame_descriptor_set ||
-        !parameters.ray_tracing_descriptor_set || !parameters.output_descriptor_set_layout ||
-        !parameters.transient_resources) {
+    if (!render_texture || !parameters.pipeline || !parameters.pipeline->Initialized() ||
+        !parameters.per_frame_descriptor_set || !parameters.ray_tracing_descriptor_set ||
+        !parameters.output_descriptor_set_layout || !parameters.transient_resources) {
       return;
     }
     auto& history_resources =
@@ -171,9 +171,9 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
-    if (!render_texture || !parameters.pipeline || !parameters.per_frame_descriptor_set ||
-        !parameters.ray_tracing_descriptor_set || !parameters.output_descriptor_set_layout ||
-        !parameters.transient_resources) {
+    if (!render_texture || !parameters.pipeline || !parameters.pipeline->Initialized() ||
+        !parameters.per_frame_descriptor_set || !parameters.ray_tracing_descriptor_set ||
+        !parameters.output_descriptor_set_layout || !parameters.transient_resources) {
       return;
     }
     auto& history_resources =

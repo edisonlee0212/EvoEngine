@@ -27,8 +27,10 @@ set(EVOENGINE_TEST_SOURCES
 	Core/Texture2DTest.cpp
 	Core/GltfMaterialLayoutTest.cpp
 	Core/GltfMaterialConversionTest.cpp
+	Core/GltfSceneFeaturesTest.cpp
 	Core/GltfRasterMaterialShaderTest.cpp
 	Core/GltfRayTracingMaterialShaderTest.cpp
+	Core/ShaderCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
@@ -164,6 +166,11 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GltfSceneFeatures.*
+	PROPERTIES LABELS "core,render,material,shader-variants"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER GltfRasterMaterial.*
 	PROPERTIES LABELS "core,render,material"
 	)
@@ -171,6 +178,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER GltfRayTracingMaterial.*
 	PROPERTIES LABELS "core,render,material"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER ShaderCache.*
+	PROPERTIES LABELS "core,render,shader-cache"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

@@ -8,6 +8,7 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "PointCloudSample.hpp"
+#include "RayCameraShaderVariantCache.hpp"
 #include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
 
@@ -203,6 +204,12 @@ class RenderLayer final : public ILayer {
 
   /// Specifies the rendering settings.
   RenderSettings render_settings{};
+
+  /// Uses the permanent all-feature camera-ray shaders instead of scene-specialized variants.
+  bool force_full_ray_camera_shader_variant = false;
+
+  [[nodiscard]] RayCameraShaderVariantStats GetRayCameraShaderVariantStats(RayCameraShaderTechnique technique) const;
+  [[nodiscard]] bool IsRayCameraShaderVariantReady(RayCameraShaderTechnique technique) const;
 
   [[nodiscard]] DdgiSettings& GetDdgiSettings();
   [[nodiscard]] const DdgiSettings& GetDdgiSettings() const;
@@ -784,10 +791,13 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
+  std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;
 
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
+  std::shared_ptr<RayTracingPipeline> ray_tracing_camera_fallback_pipeline_;
+  std::shared_ptr<RayCameraShaderVariantCache> ray_camera_shader_variant_cache_;
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   friend class PointCloud;
   std::shared_ptr<RayTracingPipeline> ray_tracing_point_cloud_pipeline;
