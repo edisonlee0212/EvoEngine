@@ -176,7 +176,11 @@ allocation when its capacity permits. Upload, build/update, and traversal barrie
 there is no separate immediate-submit fence. Mesh-empty ray scenes bind a valid TLAS containing one inactive dummy
 instance. Instanced meshes assign each particle a ray-only instance block containing its composed world transform so hit
 reconstruction does not fall back to the particle renderer's parent transform. Static mesh BLAS objects remain
-asset-owned; animated skinned-mesh BLAS maintenance is handled separately.
+asset-owned. Each animated skinned renderer owns a persistent updateable BLAS and a fixed packed ray-payload topology.
+Bone-only changes remap the deformed vertices into that topology, update the existing GeometryStorage vertex range, and
+record an in-place BLAS update before TLAS maintenance. A BLAS content generation forces a TLAS update even when its
+device address and instance bytes are unchanged, so deformed bounds remain current. Pose and generation state commit only
+when the frame is submitted; discarded frames retry both the payload and BLAS update.
 
 Ray-tracing cameras bind the per-frame descriptor set and ray-tracing descriptor set, then dispatch the camera
 ray-generation shader. The camera raygen owns path depth, direct light evaluation, environment misses, BSDF-sampled

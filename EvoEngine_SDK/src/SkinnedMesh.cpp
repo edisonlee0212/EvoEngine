@@ -144,6 +144,17 @@ std::vector<Vertex> evo_engine::BuildSkinnedRayTracingVertices(const std::vector
   return vertices;
 }
 
+std::vector<Vertex> evo_engine::BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
+                                                               const std::vector<glm::mat4>& bone_matrices,
+                                                               const std::vector<uint32_t>& source_vertex_indices) {
+  std::vector<Vertex> vertices;
+  vertices.reserve(source_vertex_indices.size());
+  for (const auto source_vertex_index : source_vertex_indices) {
+    vertices.emplace_back(BuildSkinnedRayTracingVertex(skinned_vertices.at(source_vertex_index), bone_matrices));
+  }
+  return vertices;
+}
+
 bool SkinnedMesh::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".eveskinnedmesh") {
     return Serialization::SaveAssetAsYaml(*this, path);

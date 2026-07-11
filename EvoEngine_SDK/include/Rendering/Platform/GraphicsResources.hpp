@@ -1026,6 +1026,17 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
   std::shared_ptr<Buffer> vertex_buffer;    /**< Buffer for vertex data. */
   std::shared_ptr<Buffer> index_buffer;     /**< Buffer for index data. */
   std::shared_ptr<Buffer> transform_buffer; /**< Buffer for transform data. */
+  std::shared_ptr<Buffer> scratch_buffer_{};
+  std::vector<std::shared_ptr<Buffer>> vertex_staging_buffers_{};
+  uint32_t vertex_count_ = 0;
+  uint32_t primitive_count_ = 0;
+  uint32_t content_version_ = 0;
+  uint32_t pending_content_version_ = 0;
+  bool allow_update_ = false;
+  bool pending_update_ = false;
+  std::shared_ptr<FrameSubmissionState> pending_submission_state_{};
+
+  void ResolvePendingUpdate();
 
  public:
   /**
@@ -1034,7 +1045,20 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
    * @param triangles List of triangles for the structure.
    */
   explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
-                                            const std::vector<glm::uvec3>& triangles);
+                                            const std::vector<glm::uvec3>& triangles, bool allow_update = false);
+
+  /**
+   * @brief Records an in-place vertex-only update for a dynamic BLAS.
+   * @param vertices Packed vertices matching the topology used for the initial build.
+   * @return Submission state used to commit or retry the update.
+   */
+  [[nodiscard]] std::shared_ptr<FrameSubmissionState> UpdateVertices(const std::vector<Vertex>& vertices);
+
+  /**
+   * @brief Retrieves the content version visible to work recorded for the current frame.
+   * @return Committed or pending vertex-content version.
+   */
+  [[nodiscard]] uint32_t GetContentVersion();
 
   /**
    * @brief Destructor for BottomLevelAccelerationStructure.
@@ -1067,12 +1091,14 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
   std::shared_ptr<Buffer> scratch_buffer_{};
   bool built_ = false;
   std::vector<VkAccelerationStructureInstanceKHR> previous_instances_{};
+  std::vector<uint32_t> previous_blas_content_versions_{};
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> committed_blas_references_{};
   bool pending_ = false;
   uint32_t pending_frame_index_ = 0;
   uint32_t pending_frame_count_ = 0;
   std::shared_ptr<FrameSubmissionState> pending_submission_state_{};
   std::vector<VkAccelerationStructureInstanceKHR> pending_instances_{};
+  std::vector<uint32_t> pending_blas_content_versions_{};
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> pending_final_blas_references_{};
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> pending_retained_blas_references_{};
   std::vector<std::shared_ptr<Buffer>> pending_extra_staging_buffers_{};
@@ -1109,6 +1135,12 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
   [[nodiscard]] static UpdateMode ClassifyUpdateMode(
       bool built, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
       const std::vector<VkAccelerationStructureInstanceKHR>& current_instances);
+
+  [[nodiscard]] static UpdateMode ClassifyUpdateMode(
+      bool built, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
+      const std::vector<VkAccelerationStructureInstanceKHR>& current_instances,
+      const std::vector<uint32_t>& previous_blas_content_versions,
+      const std::vector<uint32_t>& current_blas_content_versions);
 
   /**
    * @brief Retrieves the Vulkan handle for the top-level acceleration structure.

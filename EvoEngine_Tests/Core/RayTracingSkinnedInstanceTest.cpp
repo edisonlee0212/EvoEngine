@@ -49,6 +49,30 @@ TEST(RayTracingSkinned, RayTracingVertexBuilderAppliesAnimatedPose) {
   EXPECT_EQ(vertex.tex_coord, skinned_vertex.tex_coord);
 }
 
+TEST(RayTracingSkinned, PackedVertexRemapPreservesReorderingAndDuplication) {
+  std::vector<evo_engine::SkinnedVertex> source_vertices(3);
+  for (uint32_t index = 0; index < source_vertices.size(); index++) {
+    auto& vertex = source_vertices[index];
+    vertex.position = glm::vec3(static_cast<float>(index), static_cast<float>(index + 1), 0.0f);
+    vertex.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    vertex.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+    vertex.color = glm::vec4(static_cast<float>(index), 0.5f, 0.25f, 1.0f);
+    vertex.tex_coord = glm::vec2(static_cast<float>(index) * 0.1f, 0.75f);
+  }
+  const std::vector<uint32_t> remap = {2, 0, 2, 1};
+  const auto packed = evo_engine::BuildSkinnedRayTracingVertices(source_vertices, {}, remap);
+  ASSERT_EQ(packed.size(), remap.size());
+  for (size_t index = 0; index < remap.size(); index++) {
+    const auto expected = evo_engine::BuildSkinnedRayTracingVertex(source_vertices[remap[index]], {});
+    EXPECT_EQ(packed[index].position, expected.position);
+    EXPECT_EQ(packed[index].normal, expected.normal);
+    EXPECT_EQ(packed[index].tangent, expected.tangent);
+    EXPECT_EQ(packed[index].color, expected.color);
+    EXPECT_EQ(packed[index].tex_coord, expected.tex_coord);
+  }
+  EXPECT_THROW(evo_engine::BuildSkinnedRayTracingVertices(source_vertices, {}, {3}), std::out_of_range);
+}
+
 TEST(RayTracingSkinned, SkinnedMeshBuildsBindPoseFallbackWithSharedConversion) {
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Geometry/SkinnedMesh.hpp"));
   const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/SkinnedMesh.cpp"));
@@ -104,16 +128,30 @@ TEST(RayTracingSkinned, SkinnedRendererBuildsAnimatedPayloadBeforeTlas) {
 
   EXPECT_NE(renderer_header.find("ray_tracing_blas_"), std::string::npos);
   EXPECT_NE(renderer_header.find("ray_tracing_bone_matrices_"), std::string::npos);
+  EXPECT_NE(renderer_header.find("ray_tracing_packed_source_vertex_indices_"), std::string::npos);
+  EXPECT_NE(renderer_header.find("ray_tracing_payload_retry_required_"), std::string::npos);
   EXPECT_NE(renderer_header.find("ray_tracing_geometry_version_"), std::string::npos);
   EXPECT_NE(renderer_header.find("void UpdateRayTracingGeometry()"), std::string::npos);
 
-  EXPECT_NE(renderer_source.find("BoneMatricesMatch(ray_tracing_bone_matrices_, bone_matrices->value)"),
+  const auto update_geometry = renderer_source.find("void SkinnedMeshRenderer::UpdateRayTracingGeometry");
+  const auto update_geometry_end = renderer_source.find("void SkinnedMeshRenderer::OnCreate", update_geometry);
+  ASSERT_NE(update_geometry, std::string::npos);
+  ASSERT_NE(update_geometry_end, std::string::npos);
+  const auto update_geometry_source = renderer_source.substr(update_geometry, update_geometry_end - update_geometry);
+  EXPECT_NE(update_geometry_source.find("FrameSubmissionState::Status::Pending"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("FrameSubmissionState::Status::Submitted"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("ray_tracing_payload_retry_required_ = true"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("if (topology_changed)"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("&ray_tracing_packed_source_vertex_indices_"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("BottomLevelAccelerationStructure>(vertices, triangles, true)"),
             std::string::npos);
-  EXPECT_NE(renderer_source.find("GeometryStorage::FreeMesh(GetHandle())"), std::string::npos);
-  EXPECT_NE(renderer_source.find("BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value)"),
-            std::string::npos);
-  EXPECT_NE(renderer_source.find("ray_tracing_blas_ = std::make_shared<BottomLevelAccelerationStructure>"),
-            std::string::npos);
+  const auto steady_update = update_geometry_source.find("const auto packed_vertices");
+  ASSERT_NE(steady_update, std::string::npos);
+  const auto steady_update_source = update_geometry_source.substr(steady_update);
+  EXPECT_NE(steady_update_source.find("GeometryStorage::UpdateMeshVertices"), std::string::npos);
+  EXPECT_NE(steady_update_source.find("ray_tracing_blas_->UpdateVertices(packed_vertices)"), std::string::npos);
+  EXPECT_EQ(steady_update_source.find("GeometryStorage::FreeMesh"), std::string::npos);
+  EXPECT_EQ(steady_update_source.find("make_shared<BottomLevelAccelerationStructure>"), std::string::npos);
 
   const auto prepare_scene = render_layer_source.find("void RenderLayer::PrepareSceneForRendering");
   const auto apply_animators = render_layer_source.find("ApplyAnimators();", prepare_scene);
@@ -135,6 +173,42 @@ TEST(RayTracingSkinned, SkinnedRendererBuildsAnimatedPayloadBeforeTlas) {
   ASSERT_NE(upload_bones, std::string::npos);
   EXPECT_LT(update_bones, update_ray_geometry);
   EXPECT_LT(update_ray_geometry, upload_bones);
+
+  const auto apply_animators_end =
+      render_layer_source.find("void RenderLayer::PreparePointAndSpotLightShadowMap", apply_animators_def);
+  const auto apply_animators_source =
+      render_layer_source.substr(apply_animators_def, apply_animators_end - apply_animators_def);
+  const auto first_bone_update = apply_animators_source.find("UpdateBoneMatrices()");
+  ASSERT_NE(first_bone_update, std::string::npos);
+  EXPECT_EQ(apply_animators_source.find("UpdateBoneMatrices()", first_bone_update + 1), std::string::npos);
+  const auto serial_loop = apply_animators_source.find("for (const auto& i : *owners)");
+  ASSERT_NE(serial_loop, std::string::npos);
+  const auto serial_loop_source = apply_animators_source.substr(serial_loop);
+  EXPECT_NE(serial_loop_source.find("continue;"), std::string::npos);
+  EXPECT_EQ(serial_loop_source.find("return;"), std::string::npos);
+}
+
+TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Platform/GraphicsResources.hpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/GraphicsResources.cpp"));
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  ASSERT_FALSE(header.empty());
+  ASSERT_FALSE(source.empty());
+  ASSERT_FALSE(render_layer.empty());
+
+  EXPECT_NE(header.find("std::shared_ptr<FrameSubmissionState> UpdateVertices"), std::string::npos);
+  EXPECT_NE(header.find("pending_content_version_"), std::string::npos);
+  EXPECT_NE(source.find("std::max(build_sizes.buildScratchSize, build_sizes.updateScratchSize)"), std::string::npos);
+  EXPECT_NE(source.find("VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR"), std::string::npos);
+  EXPECT_NE(source.find("build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR"), std::string::npos);
+  EXPECT_NE(source.find("build_info.srcAccelerationStructure = vk_acceleration_structure_khr_"), std::string::npos);
+  EXPECT_NE(source.find("build_info.dstAccelerationStructure = vk_acceleration_structure_khr_"), std::string::npos);
+  EXPECT_NE(source.find("Platform::RecordCommandsMainQueue"), std::string::npos);
+  EXPECT_NE(source.find("BeginGpuTimestampScope(vk_command_buffer, \"BLAS Update\")"), std::string::npos);
+  EXPECT_NE(source.find("pending_content_version_ = content_version_ + 1"), std::string::npos);
+  EXPECT_NE(source.find("pending_submission_state_ = Platform::TrackCurrentFrameSubmission()"), std::string::npos);
+  EXPECT_NE(source.find("previous_blas_content_versions != current_blas_content_versions"), std::string::npos);
+  EXPECT_NE(render_layer.find("skinned->bone_matrices_snapshot"), std::string::npos);
 }
 
 TEST(RayTracingSkinned, TopLevelAccelerationStructureRegistersSkinnedCollections) {

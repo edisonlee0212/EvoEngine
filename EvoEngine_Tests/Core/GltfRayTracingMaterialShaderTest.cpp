@@ -688,9 +688,7 @@ TEST(GltfRayTracingMaterial, TopLevelAccelerationStructureUsesReferenceMaterialI
   EXPECT_EQ(source.find("acceleration_structure_instance.flags = "
                         "VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;"),
             std::string::npos);
-  EXPECT_NE(source.find("acceleration_structure_geometry.flags = "
-                        "VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;"),
-            std::string::npos);
+  EXPECT_NE(source.find("geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;"), std::string::npos);
   EXPECT_EQ(source.find("VK_GEOMETRY_OPAQUE_BIT_KHR"), std::string::npos);
 }
 
@@ -1096,6 +1094,7 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(graphics_resources.find("\"TLAS Build\""), std::string::npos);
   EXPECT_NE(graphics_resources.find("\"TLAS Update\""), std::string::npos);
   EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"BLAS Build\""), std::string::npos);
+  EXPECT_NE(graphics_resources.find("BeginGpuTimestampScope(vk_command_buffer, \"BLAS Update\")"), std::string::npos);
 
   EXPECT_NE(runner.find("PINNED_EVOENGINE_BASE"), std::string::npos);
   EXPECT_NE(runner.find("PINNED_REFERENCE"), std::string::npos);
@@ -1130,6 +1129,8 @@ TEST(GltfRayTracingMaterial, TlasUpdateClassifierFollowsVulkanCompatibilityRules
   const std::vector original = {MakeTlasTestInstance()};
   EXPECT_EQ(Tlas::ClassifyUpdateMode(false, {}, original), Tlas::UpdateMode::Build);
   EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original), Tlas::UpdateMode::NoOp);
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original, {7}, {7}), Tlas::UpdateMode::NoOp);
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original, {7}, {8}), Tlas::UpdateMode::Update);
 
   auto transformed = original;
   transformed[0].transform.matrix[0][3] = 2.0f;

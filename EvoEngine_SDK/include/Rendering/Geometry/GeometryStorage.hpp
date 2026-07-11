@@ -350,7 +350,10 @@ class GeometryStorage final {
 
   static void AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
                            const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
-                           const std::shared_ptr<RangeDescriptor>& target_triangle_range);
+                           const std::shared_ptr<RangeDescriptor>& target_triangle_range,
+                           std::vector<uint32_t>* packed_source_vertex_indices = nullptr);
+  static void UpdateMeshVertices(const std::shared_ptr<RangeDescriptor>& meshlet_range,
+                                 const std::vector<Vertex>& packed_vertices);
   static void AllocateSkinnedMesh(const Handle& handle, const std::vector<SkinnedVertex>& skinned_vertices,
                                   const std::vector<glm::uvec3>& skinned_triangles,
                                   const std::shared_ptr<RangeDescriptor>& target_skinned_meshlet_range,

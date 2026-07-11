@@ -83,6 +83,10 @@ class BoneMatrices {
 [[nodiscard]] std::vector<Vertex> BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
                                                                  const std::vector<glm::mat4>& bone_matrices);
 
+[[nodiscard]] std::vector<Vertex> BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
+                                                                 const std::vector<glm::mat4>& bone_matrices,
+                                                                 const std::vector<uint32_t>& source_vertex_indices);
+
 /**
  * @class SkinnedMesh
  * @brief Represents a skinned mesh used for skeletal animation and rendering.

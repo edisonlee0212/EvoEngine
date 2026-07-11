@@ -81,8 +81,9 @@ tone mapping are disabled for that capture so renderer comparisons do not includ
 `RAY_CAPTURE_JSON` prefix. It includes effective SPP, wall throughput, GPU/driver identity, startup GPU timestamps, and
 capture-only GPU timestamps. `startup_gpu_sections` covers initialization before the fixed capture window;
 `gpu_sections` preserves the profile's exact frame/sample budget. The expected section names are `Path Trace (RTX)`,
-`Path Trace (RQ)`, `TLAS Build`, `TLAS Update`, and `BLAS Build` when animated geometry is rebuilt. Timestamp availability
-is reported explicitly because some Vulkan devices do not expose graphics-and-compute timestamps.
+`Path Trace (RQ)`, `TLAS Build`, `TLAS Update`, `BLAS Build` when geometry is rebuilt, and `BLAS Update` for persistent
+animated geometry refits. Timestamp availability is reported explicitly because some Vulkan devices do not expose
+graphics-and-compute timestamps.
 
 Other useful preview flags:
 
@@ -239,6 +240,14 @@ animated `BLAS Build` samples, and `0.691 s` wall time. The final static evidenc
 validation, device-loss, and fatal-error messages. Unit/source-contract coverage separately checks the Vulkan update
 classifier, mesh-empty inactive dummy instance, per-particle world-transform blocks, and submitted-versus-discarded frame
 tickets.
+
+The M1b motion validation replaces all 32 capture-window animated `BLAS Build` samples with in-place `BLAS Update`
+samples. RTX averages `0.095087 ms` (`3.043 ms` total) with `0.313 s` wall time, and RayQuery averages `0.095416 ms`
+(`3.053 ms` total) with `0.303 s` wall time. Both remain below the M0 `9.97 ms` GPU and `0.677 s` wall targets, record
+16 TLAS updates for the changing animated bounds, and report no capture-window BLAS or TLAS builds. Each technique's HDR
+is bit-exact to its pre-M1b deterministic motion capture. Static Bistro RTX and RayQuery remain bit-exact to M1a with no
+capture-window acceleration-structure work. Evidence is under `out\m1b-final-motion` and
+`out\raytracer-m1b-final-fast`.
 
 Run both RT-pipeline and RayQuery techniques with:
 

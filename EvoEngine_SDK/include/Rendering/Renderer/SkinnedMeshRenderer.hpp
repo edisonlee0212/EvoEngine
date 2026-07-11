@@ -34,7 +34,11 @@ class SkinnedMeshRenderer : public IPrivateComponent {
   std::shared_ptr<RangeDescriptor> ray_tracing_meshlet_range_;
   std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range_;
   std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas_;
+  std::vector<uint32_t> ray_tracing_packed_source_vertex_indices_;
   std::vector<glm::mat4> ray_tracing_bone_matrices_;
+  std::vector<glm::mat4> pending_ray_tracing_bone_matrices_;
+  std::shared_ptr<FrameSubmissionState> pending_ray_tracing_submission_state_;
+  bool ray_tracing_payload_retry_required_ = false;
   uint32_t ray_tracing_geometry_version_ = 0;
 
  public:

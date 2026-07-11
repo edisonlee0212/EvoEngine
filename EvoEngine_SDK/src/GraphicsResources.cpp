@@ -19,6 +19,8 @@ constexpr uint32_t kDdgiRayMaskGeometry = 0x01u;
 constexpr uint32_t kDdgiRayMaskShadow = 0x02u;
 constexpr VkBuildAccelerationStructureFlagsKHR kTlasBuildFlags =
     VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+constexpr VkBuildAccelerationStructureFlagsKHR kBlasBuildFlags =
+    VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
 
 VkGeometryInstanceFlagsKHR BuildGltfRayTracingInstanceFlags(
     const RenderInstanceStorage::IRenderInstance& render_instance,
@@ -65,6 +67,29 @@ bool AccelerationStructureInstancesEqual(const VkAccelerationStructureInstanceKH
          lhs.instanceCustomIndex == rhs.instanceCustomIndex && lhs.mask == rhs.mask &&
          lhs.instanceShaderBindingTableRecordOffset == rhs.instanceShaderBindingTableRecordOffset &&
          lhs.flags == rhs.flags && lhs.accelerationStructureReference == rhs.accelerationStructureReference;
+}
+
+VkAccelerationStructureGeometryKHR CreateBlasGeometry(const Buffer& vertex_buffer, const Buffer& index_buffer,
+                                                      const Buffer& transform_buffer, const uint32_t vertex_count) {
+  VkAccelerationStructureGeometryKHR geometry{};
+  geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+  geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+  geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
+  geometry.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+  geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+  geometry.geometry.triangles.maxVertex = vertex_count - 1;
+  geometry.geometry.triangles.vertexStride = sizeof(Vertex);
+  geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
+  geometry.geometry.triangles.vertexData.deviceAddress = vertex_buffer.GetDeviceAddress();
+  geometry.geometry.triangles.indexData.deviceAddress = index_buffer.GetDeviceAddress();
+  geometry.geometry.triangles.transformData.deviceAddress = transform_buffer.GetDeviceAddress();
+  return geometry;
+}
+
+bool HasFiniteBlasPositions(const std::vector<Vertex>& vertices) {
+  return std::all_of(vertices.begin(), vertices.end(), [](const Vertex& vertex) {
+    return std::isfinite(vertex.position.x) && std::isfinite(vertex.position.y) && std::isfinite(vertex.position.z);
+  });
 }
 }  // namespace
 
@@ -1598,124 +1623,239 @@ VkQueue CommandQueue::GetVkQueue() const {
 }
 
 BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
-                                                                   const std::vector<glm::uvec3>& triangles) {
-  if (!Platform::Initialized())
+                                                                   const std::vector<glm::uvec3>& triangles,
+                                                                   const bool allow_update)
+    : vertex_count_(static_cast<uint32_t>(vertices.size())),
+      primitive_count_(static_cast<uint32_t>(triangles.size())),
+      allow_update_(allow_update) {
+  if (!Platform::Initialized() || vertices.empty() || triangles.empty())
     return;
+  if (!HasFiniteBlasPositions(vertices)) {
+    throw std::runtime_error("BLAS vertices contain a non-finite position.");
+  }
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
                              VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo device_allocation_create_info{};
+  device_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-  VmaAllocationCreateInfo buffer_vma_allocation_create_info{};
-  buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   buffer_create_info.size = vertices.size() * sizeof(Vertex);
-  vertex_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-
+  vertex_buffer = std::make_shared<Buffer>(buffer_create_info, device_allocation_create_info);
   vertex_buffer->UploadVector(vertices);
-
   buffer_create_info.size = triangles.size() * sizeof(glm::uvec3);
-  index_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  index_buffer = std::make_shared<Buffer>(buffer_create_info, device_allocation_create_info);
   index_buffer->UploadVector(triangles);
   buffer_create_info.size = sizeof(VkTransformMatrixKHR);
-  transform_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  VkTransformMatrixKHR transform_matrix = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+  transform_buffer = std::make_shared<Buffer>(buffer_create_info, device_allocation_create_info);
+  const VkTransformMatrixKHR transform_matrix = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+                                                 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
   transform_buffer->Upload(transform_matrix);
 
-  // The bottom level acceleration structure contains one set of triangles as the input geometry
-  VkAccelerationStructureGeometryKHR acceleration_structure_geometry{};
-  acceleration_structure_geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-  acceleration_structure_geometry.pNext = nullptr;
-  acceleration_structure_geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-  acceleration_structure_geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
-  acceleration_structure_geometry.geometry.triangles = {};
-  acceleration_structure_geometry.geometry.triangles.sType =
-      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-  acceleration_structure_geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-  acceleration_structure_geometry.geometry.triangles.maxVertex = static_cast<uint32_t>(vertices.size() - 1);
-  acceleration_structure_geometry.geometry.triangles.pNext = nullptr;
-  acceleration_structure_geometry.geometry.triangles.vertexStride = sizeof(Vertex);
-  acceleration_structure_geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
-  acceleration_structure_geometry.geometry.triangles.vertexData.deviceAddress = vertex_buffer->GetDeviceAddress();
-  acceleration_structure_geometry.geometry.triangles.indexData.deviceAddress = index_buffer->GetDeviceAddress();
-  acceleration_structure_geometry.geometry.triangles.transformData.deviceAddress = transform_buffer->GetDeviceAddress();
-
-  // Get the size requirements for buffers involved in the acceleration structure build process
-  VkAccelerationStructureBuildGeometryInfoKHR acceleration_structure_build_geometry_info{};
-  acceleration_structure_build_geometry_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-  acceleration_structure_build_geometry_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-  acceleration_structure_build_geometry_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-  acceleration_structure_build_geometry_info.geometryCount = 1;
-  acceleration_structure_build_geometry_info.pGeometries = &acceleration_structure_geometry;
-
-  const auto primitive_count = static_cast<uint32_t>(triangles.size());
-
-  VkAccelerationStructureBuildSizesInfoKHR acceleration_structure_build_sizes_info{};
-  acceleration_structure_build_sizes_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+  auto geometry = CreateBlasGeometry(*vertex_buffer, *index_buffer, *transform_buffer, vertex_count_);
+  VkAccelerationStructureBuildGeometryInfoKHR size_info{};
+  size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+  size_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  size_info.flags = kBlasBuildFlags | (allow_update_ ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0);
+  size_info.geometryCount = 1;
+  size_info.pGeometries = &geometry;
+  VkAccelerationStructureBuildSizesInfoKHR build_sizes{};
+  build_sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
   vkGetAccelerationStructureBuildSizesKHR(Platform::GetVkDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-                                          &acceleration_structure_build_geometry_info, &primitive_count,
-                                          &acceleration_structure_build_sizes_info);
+                                          &size_info, &primitive_count_, &build_sizes);
 
-  buffer_create_info.size = acceleration_structure_build_sizes_info.accelerationStructureSize;
-  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = build_sizes.accelerationStructureSize;
   buffer_create_info.usage =
       VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-
-  acceleration_structure_buffer_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  // Create a scratch buffer as a temporary storage for the acceleration structure build
-  const auto& scratch_buffer_alignment =
-      Platform::GetSelectedPhysicalDevice()
-          ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment;
-  buffer_create_info.size = acceleration_structure_build_sizes_info.buildScratchSize + scratch_buffer_alignment;
+  acceleration_structure_buffer_ = std::make_shared<Buffer>(buffer_create_info, device_allocation_create_info);
+  const auto scratch_alignment =
+      std::max(1u, Platform::GetSelectedPhysicalDevice()
+                       ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment);
+  buffer_create_info.size = (allow_update_ ? std::max(build_sizes.buildScratchSize, build_sizes.updateScratchSize)
+                                           : build_sizes.buildScratchSize) +
+                            static_cast<VkDeviceSize>(scratch_alignment) - 1;
   buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, device_allocation_create_info);
+  if (allow_update_) {
+    scratch_buffer_ = scratch_buffer;
+    const auto frame_slots = std::max(1u, static_cast<uint32_t>(Platform::GetMaxFramesInFlight()));
+    vertex_staging_buffers_.reserve(frame_slots);
+    for (uint32_t frame_slot = 0; frame_slot < frame_slots; frame_slot++) {
+      vertex_staging_buffers_.emplace_back(std::make_shared<Buffer>(vertices.size() * sizeof(Vertex)));
+    }
+  }
 
-  const auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  VkAccelerationStructureCreateInfoKHR create_info{};
+  create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+  create_info.buffer = acceleration_structure_buffer_->GetVkBuffer();
+  create_info.size = build_sizes.accelerationStructureSize;
+  create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  Platform::CheckVk(vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &create_info, nullptr,
+                                                     &vk_acceleration_structure_khr_));
 
-  VkAccelerationStructureCreateInfoKHR acceleration_structure_create_info{};
-  acceleration_structure_create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-  acceleration_structure_create_info.buffer = acceleration_structure_buffer_->GetVkBuffer();
-  acceleration_structure_create_info.size = acceleration_structure_build_sizes_info.accelerationStructureSize;
-  acceleration_structure_create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-  acceleration_structure_create_info.pNext = nullptr;
-  Platform::CheckVk(vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &acceleration_structure_create_info,
-                                                     nullptr, &vk_acceleration_structure_khr_));
-
-  // The actual build process starts here
-
-  VkAccelerationStructureBuildGeometryInfoKHR acceleration_build_geometry_info{};
-  acceleration_build_geometry_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-  acceleration_build_geometry_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-  acceleration_build_geometry_info.flags = acceleration_structure_build_geometry_info.flags;
-  acceleration_build_geometry_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-  acceleration_build_geometry_info.dstAccelerationStructure = vk_acceleration_structure_khr_;
-  acceleration_build_geometry_info.geometryCount = 1;
-  acceleration_build_geometry_info.pGeometries = &acceleration_structure_geometry;
-  acceleration_build_geometry_info.scratchData.deviceAddress =
-      (scratch_buffer->GetDeviceAddress() + scratch_buffer_alignment - 1) / scratch_buffer_alignment *
-      scratch_buffer_alignment;
-
-  VkAccelerationStructureBuildRangeInfoKHR acceleration_structure_build_range_info{};
-  acceleration_structure_build_range_info.primitiveCount = primitive_count;
-  acceleration_structure_build_range_info.primitiveOffset = 0;
-  acceleration_structure_build_range_info.firstVertex = 0;
-  acceleration_structure_build_range_info.transformOffset = 0;
-
-  std::vector acceleration_build_structure_range_infos = {&acceleration_structure_build_range_info};
-
-  // Build the acceleration structure on the device via a one-time command buffer submission
-  // Some implementations may support acceleration structure building on the host
-  // (VkPhysicalDeviceAccelerationStructureFeaturesKHR->accelerationStructureHostCommands), but we prefer device builds
+  VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+  build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+  build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  build_info.flags = size_info.flags;
+  build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+  build_info.dstAccelerationStructure = vk_acceleration_structure_khr_;
+  build_info.geometryCount = 1;
+  build_info.pGeometries = &geometry;
+  build_info.scratchData.deviceAddress =
+      (scratch_buffer->GetDeviceAddress() + scratch_alignment - 1) / scratch_alignment * scratch_alignment;
+  VkAccelerationStructureBuildRangeInfoKHR range_info{};
+  range_info.primitiveCount = primitive_count_;
+  const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
   Platform::ImmediateSubmitWithGpuTimestamp("BLAS Build", [&](const VkCommandBuffer vk_command_buffer) {
-    vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &acceleration_build_geometry_info,
-                                        acceleration_build_structure_range_infos.data());
+    vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &build_info, range_infos);
   });
 
-  // Get the bottom acceleration structure's handle, which will be used during the top level acceleration build
-  VkAccelerationStructureDeviceAddressInfoKHR acceleration_device_address_info{};
-  acceleration_device_address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
-  acceleration_device_address_info.accelerationStructure = vk_acceleration_structure_khr_;
-  device_address_ =
-      vkGetAccelerationStructureDeviceAddressKHR(Platform::GetVkDevice(), &acceleration_device_address_info);
+  VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+  address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+  address_info.accelerationStructure = vk_acceleration_structure_khr_;
+  device_address_ = vkGetAccelerationStructureDeviceAddressKHR(Platform::GetVkDevice(), &address_info);
+  content_version_ = 1;
+  if (allow_update_) {
+    vertex_buffer->SetDebugName("Dynamic BLAS Vertex Input");
+    index_buffer->SetDebugName("Dynamic BLAS Index Input");
+    acceleration_structure_buffer_->SetDebugName("Dynamic BLAS Storage");
+    scratch_buffer_->SetDebugName("Dynamic BLAS Scratch");
+  }
+}
+
+void BottomLevelAccelerationStructure::ResolvePendingUpdate() {
+  if (!pending_update_ || !pending_submission_state_ ||
+      pending_submission_state_->status == FrameSubmissionState::Status::Pending) {
+    return;
+  }
+  if (pending_submission_state_->status == FrameSubmissionState::Status::Submitted) {
+    content_version_ = pending_content_version_;
+  }
+  pending_update_ = false;
+  pending_content_version_ = 0;
+  pending_submission_state_.reset();
+}
+
+std::shared_ptr<FrameSubmissionState> BottomLevelAccelerationStructure::UpdateVertices(
+    const std::vector<Vertex>& vertices) {
+  if (!allow_update_ || !scratch_buffer_) {
+    throw std::runtime_error("Bottom-level acceleration structure was not created for updates.");
+  }
+  if (vertices.size() != vertex_count_) {
+    throw std::runtime_error("Dynamic BLAS vertex count changed; a full rebuild is required.");
+  }
+  if (!HasFiniteBlasPositions(vertices)) {
+    throw std::runtime_error("Dynamic BLAS vertices contain a non-finite position.");
+  }
+  ResolvePendingUpdate();
+  if (pending_update_) {
+    return pending_submission_state_;
+  }
+
+  const auto byte_size = static_cast<VkDeviceSize>(vertices.size() * sizeof(Vertex));
+  const auto staging_buffer = vertex_staging_buffers_.at(Platform::GetCurrentFrameIndex());
+  void* mapped_data = nullptr;
+  Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), &mapped_data));
+  memcpy(mapped_data, vertices.data(), byte_size);
+  Platform::CheckVk(vmaFlushAllocation(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), 0, byte_size));
+  vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation());
+
+  Platform::RecordCommandsMainQueue([this, staging_buffer, byte_size](const VkCommandBuffer vk_command_buffer) {
+    VkBufferMemoryBarrier2 reuse_vertex_barrier{};
+    reuse_vertex_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+    reuse_vertex_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    reuse_vertex_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    reuse_vertex_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    reuse_vertex_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    reuse_vertex_barrier.buffer = vertex_buffer->GetVkBuffer();
+    reuse_vertex_barrier.offset = 0;
+    reuse_vertex_barrier.size = byte_size;
+    VkDependencyInfo reuse_vertex_dependency{};
+    reuse_vertex_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    reuse_vertex_dependency.bufferMemoryBarrierCount = 1;
+    reuse_vertex_dependency.pBufferMemoryBarriers = &reuse_vertex_barrier;
+    vkCmdPipelineBarrier2(vk_command_buffer, &reuse_vertex_dependency);
+
+    VkBufferCopy copy_region{};
+    copy_region.size = byte_size;
+    vkCmdCopyBuffer(vk_command_buffer, staging_buffer->GetVkBuffer(), vertex_buffer->GetVkBuffer(), 1, &copy_region);
+
+    VkBufferMemoryBarrier2 vertex_barrier{};
+    vertex_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+    vertex_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    vertex_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    vertex_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    vertex_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    vertex_barrier.buffer = vertex_buffer->GetVkBuffer();
+    vertex_barrier.offset = 0;
+    vertex_barrier.size = byte_size;
+
+    VkMemoryBarrier2 reuse_as_barrier{};
+    reuse_as_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    reuse_as_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                                    VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
+                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    reuse_as_barrier.srcAccessMask =
+        VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    reuse_as_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    reuse_as_barrier.dstAccessMask =
+        VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    VkDependencyInfo pre_update_dependency{};
+    pre_update_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    pre_update_dependency.memoryBarrierCount = 1;
+    pre_update_dependency.pMemoryBarriers = &reuse_as_barrier;
+    pre_update_dependency.bufferMemoryBarrierCount = 1;
+    pre_update_dependency.pBufferMemoryBarriers = &vertex_barrier;
+    vkCmdPipelineBarrier2(vk_command_buffer, &pre_update_dependency);
+
+    auto geometry = CreateBlasGeometry(*vertex_buffer, *index_buffer, *transform_buffer, vertex_count_);
+    VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+    build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+    build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+    build_info.flags = kBlasBuildFlags | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+    build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
+    build_info.srcAccelerationStructure = vk_acceleration_structure_khr_;
+    build_info.dstAccelerationStructure = vk_acceleration_structure_khr_;
+    build_info.geometryCount = 1;
+    build_info.pGeometries = &geometry;
+    const auto scratch_alignment =
+        std::max(1u, Platform::GetSelectedPhysicalDevice()
+                         ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment);
+    build_info.scratchData.deviceAddress =
+        (scratch_buffer_->GetDeviceAddress() + scratch_alignment - 1) / scratch_alignment * scratch_alignment;
+    VkAccelerationStructureBuildRangeInfoKHR range_info{};
+    range_info.primitiveCount = primitive_count_;
+    const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
+    const auto timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "BLAS Update");
+    vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &build_info, range_infos);
+    Platform::EndGpuTimestampScope(vk_command_buffer, timestamp);
+
+    VkMemoryBarrier2 completion_barrier{};
+    completion_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+    completion_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+    completion_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    completion_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
+                                      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
+                                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    completion_barrier.dstAccessMask =
+        VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+    VkDependencyInfo completion_dependency{};
+    completion_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    completion_dependency.memoryBarrierCount = 1;
+    completion_dependency.pMemoryBarriers = &completion_barrier;
+    vkCmdPipelineBarrier2(vk_command_buffer, &completion_dependency);
+  });
+
+  pending_update_ = true;
+  pending_content_version_ = content_version_ + 1;
+  pending_submission_state_ = Platform::TrackCurrentFrameSubmission();
+  return pending_submission_state_;
+}
+
+uint32_t BottomLevelAccelerationStructure::GetContentVersion() {
+  ResolvePendingUpdate();
+  return pending_update_ ? pending_content_version_ : content_version_;
 }
 
 BottomLevelAccelerationStructure::~BottomLevelAccelerationStructure() {
@@ -1732,6 +1872,14 @@ VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
 TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::ClassifyUpdateMode(
     const bool built, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
     const std::vector<VkAccelerationStructureInstanceKHR>& current_instances) {
+  return ClassifyUpdateMode(built, previous_instances, current_instances, {}, {});
+}
+
+TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::ClassifyUpdateMode(
+    const bool built, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
+    const std::vector<VkAccelerationStructureInstanceKHR>& current_instances,
+    const std::vector<uint32_t>& previous_blas_content_versions,
+    const std::vector<uint32_t>& current_blas_content_versions) {
   if (!built || previous_instances.size() != current_instances.size()) {
     return UpdateMode::Build;
   }
@@ -1744,7 +1892,8 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Classif
     }
     changed |= !AccelerationStructureInstancesEqual(previous, current);
   }
-  return changed ? UpdateMode::Update : UpdateMode::NoOp;
+  return changed || previous_blas_content_versions != current_blas_content_versions ? UpdateMode::Update
+                                                                                    : UpdateMode::NoOp;
 }
 
 void TopLevelAccelerationStructure::Destroy() {
@@ -1760,10 +1909,12 @@ void TopLevelAccelerationStructure::Destroy() {
   instance_capacity_ = 0;
   built_ = false;
   previous_instances_.clear();
+  previous_blas_content_versions_.clear();
   committed_blas_references_.clear();
   pending_ = false;
   pending_submission_state_.reset();
   pending_instances_.clear();
+  pending_blas_content_versions_.clear();
   pending_final_blas_references_.clear();
   pending_retained_blas_references_.clear();
   pending_extra_staging_buffers_.clear();
@@ -1844,11 +1995,13 @@ void TopLevelAccelerationStructure::ResolvePendingUpdate() {
   if (pending_submission_state_->status == FrameSubmissionState::Status::Submitted) {
     built_ = true;
     previous_instances_ = std::move(pending_instances_);
+    previous_blas_content_versions_ = std::move(pending_blas_content_versions_);
     committed_blas_references_ = std::move(pending_final_blas_references_);
   }
   pending_ = false;
   pending_submission_state_.reset();
   pending_instances_.clear();
+  pending_blas_content_versions_.clear();
   pending_final_blas_references_.clear();
   pending_retained_blas_references_.clear();
   pending_extra_staging_buffers_.clear();
@@ -1862,6 +2015,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   ResolvePendingUpdate();
 
   std::vector<VkAccelerationStructureInstanceKHR> instances;
+  std::vector<uint32_t> blas_content_versions;
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> blas_references;
   const auto append_blas_reference = [&](const std::shared_ptr<BottomLevelAccelerationStructure>& blas) {
     if (std::find(blas_references.begin(), blas_references.end(), blas) == blas_references.end()) {
@@ -1879,6 +2033,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
       throw std::runtime_error("Ray tracing instance custom index exceeds 24 bits.");
     }
     auto& instance = instances.emplace_back();
+    blas_content_versions.emplace_back(blas->GetContentVersion());
     instance.instanceCustomIndex = custom_index;
     instance.instanceShaderBindingTableRecordOffset = 0;
     if (!IsValidAccelerationStructureTransform(model)) {
@@ -1944,6 +2099,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
 
   if (instances.empty()) {
     auto& dummy = instances.emplace_back();
+    blas_content_versions.emplace_back(0);
     SetAccelerationStructureTransform(dummy, glm::mat4(1.0f));
     dummy.mask = 0;
     dummy.accelerationStructureReference = 0;
@@ -1960,7 +2116,10 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
       pending_ && pending_frame_index_ == frame_index && pending_frame_count_ == frame_count;
   const bool base_built = same_pending_frame || built_;
   const auto& base_instances = same_pending_frame ? pending_instances_ : previous_instances_;
-  auto mode = ClassifyUpdateMode(base_built, base_instances, instances);
+  const auto& base_blas_content_versions =
+      same_pending_frame ? pending_blas_content_versions_ : previous_blas_content_versions_;
+  auto mode =
+      ClassifyUpdateMode(base_built, base_instances, instances, base_blas_content_versions, blas_content_versions);
   if (mode == UpdateMode::NoOp) {
     return mode;
   }
@@ -2102,6 +2261,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     pending_submission_state_ = Platform::TrackCurrentFrameSubmission();
   }
   pending_instances_ = std::move(instances);
+  pending_blas_content_versions_ = std::move(blas_content_versions);
   pending_final_blas_references_ = std::move(blas_references);
   return mode;
 }

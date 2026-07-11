@@ -1077,6 +1077,13 @@ uint64_t MakeDdgiGeometrySignature(const std::shared_ptr<RenderInstanceStorage::
       }
     }
   }
+  if (const auto skinned =
+          std::dynamic_pointer_cast<RenderInstanceStorage::SkinnedMeshRenderInstance>(render_instance)) {
+    signature = MixDdgiSignature(signature, skinned->bone_matrices_snapshot.size());
+    for (const auto& bone_matrix : skinned->bone_matrices_snapshot) {
+      signature = MixDdgiMat4(signature, bone_matrix);
+    }
+  }
   return MixDdgiMat4(signature, render_instance->model.value);
 }
 
@@ -3810,11 +3817,10 @@ void RenderLayer::ApplyAnimators() const {
     });
     for (const auto& i : *owners) {
       if (!scene->IsEntityEnabled(i))
-        return;
+        continue;
       const auto skinned_mesh_renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(i).lock();
       if (!skinned_mesh_renderer->IsEnabled())
-        return;
-      skinned_mesh_renderer->UpdateBoneMatrices();
+        continue;
       skinned_mesh_renderer->UpdateRayTracingGeometry();
       skinned_mesh_renderer->bone_matrices->UploadData();
     }

@@ -455,7 +455,8 @@ const StrandPoint& GeometryStorage::PeekStrandPoint(const size_t strand_point_in
 void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices,
                                    std::vector<glm::uvec3>& triangles,
                                    const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
-                                   const std::shared_ptr<RangeDescriptor>& target_triangle_range) {
+                                   const std::shared_ptr<RangeDescriptor>& target_triangle_range,
+                                   std::vector<uint32_t>* packed_source_vertex_indices) {
   if (vertices.empty() || triangles.empty()) {
     throw std::runtime_error("Empty vertices or triangles!");
   }
@@ -491,6 +492,10 @@ void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& ve
       Platform::Constants::meshlet_max_vertices_size, Platform::Constants::meshlet_max_triangles_size, 0);
   std::vector<Vertex> replacement_vertices;
   std::vector<glm::uvec3> replacement_triangles;
+  if (packed_source_vertex_indices) {
+    packed_source_vertex_indices->clear();
+    packed_source_vertex_indices->reserve(vertices.size());
+  }
 
   target_meshlet_range->range = meshlet_size;
   for (size_t meshlet_index = 0; meshlet_index < meshlet_size; meshlet_index++) {
@@ -507,8 +512,12 @@ void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& ve
     const uint32_t replacement_vertex_offset = replacement_vertices.size();
 
     for (uint32_t vi = 0; vi < meshlet_result.vertex_count; vi++) {
-      current_chunk.vertex_data[vi] = vertices[meshlet_result_vertices.at(meshlet_result.vertex_offset + vi)];
+      const auto source_vertex_index = meshlet_result_vertices.at(meshlet_result.vertex_offset + vi);
+      current_chunk.vertex_data[vi] = vertices[source_vertex_index];
       replacement_vertices.emplace_back(current_chunk.vertex_data[vi]);
+      if (packed_source_vertex_indices) {
+        packed_source_vertex_indices->emplace_back(source_vertex_index);
+      }
     }
     current_meshlet.vertices_size = meshlet_result.vertex_count;
     current_meshlet.triangle_size = meshlet_result.triangle_count;
@@ -540,6 +549,36 @@ void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& ve
   storage.mesh_vertex_dirty_range_.Mark(meshlet_begin, target_meshlet_range->range);
   storage.meshlet_dirty_range_.Mark(meshlet_begin, target_meshlet_range->range);
   storage.triangle_dirty_range_.Mark(triangle_begin, target_triangle_range->range);
+  storage.require_mesh_data_device_update_ = true;
+}
+
+void GeometryStorage::UpdateMeshVertices(const std::shared_ptr<RangeDescriptor>& meshlet_range,
+                                         const std::vector<Vertex>& packed_vertices) {
+  if (!meshlet_range) {
+    throw std::invalid_argument("Meshlet range is null.");
+  }
+  auto& storage = GetInstance();
+  WaitPendingUpload(storage.pending_mesh_upload_);
+  storage.CompletePendingUpload(storage.pending_mesh_upload_);
+  if (meshlet_range->offset + meshlet_range->range > storage.meshlets_.size()) {
+    throw std::runtime_error("Meshlet range is outside geometry storage.");
+  }
+
+  size_t packed_vertex_index = 0;
+  for (uint32_t meshlet_index = 0; meshlet_index < meshlet_range->range; meshlet_index++) {
+    const auto& meshlet = storage.meshlets_[meshlet_range->offset + meshlet_index];
+    if (packed_vertex_index + meshlet.vertices_size > packed_vertices.size() ||
+        meshlet.vertex_chunk_index >= storage.vertex_data_chunks_.size()) {
+      throw std::runtime_error("Packed mesh vertices do not match the existing meshlet topology.");
+    }
+    auto& chunk = storage.vertex_data_chunks_[meshlet.vertex_chunk_index];
+    std::copy_n(packed_vertices.begin() + packed_vertex_index, meshlet.vertices_size, chunk.vertex_data);
+    packed_vertex_index += meshlet.vertices_size;
+  }
+  if (packed_vertex_index != packed_vertices.size()) {
+    throw std::runtime_error("Packed mesh vertex count does not match the existing meshlet topology.");
+  }
+  storage.mesh_vertex_dirty_range_.Mark(meshlet_range->offset, meshlet_range->range);
   storage.require_mesh_data_device_update_ = true;
 }
 

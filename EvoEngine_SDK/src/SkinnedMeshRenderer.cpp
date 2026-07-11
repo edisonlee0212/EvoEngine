@@ -54,6 +54,19 @@ void SkinnedMeshRenderer::UpdateBoneMatrices() {
 }
 
 void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
+  if (pending_ray_tracing_submission_state_) {
+    if (pending_ray_tracing_submission_state_->status == FrameSubmissionState::Status::Pending) {
+      return;
+    }
+    if (pending_ray_tracing_submission_state_->status == FrameSubmissionState::Status::Submitted) {
+      ray_tracing_bone_matrices_ = std::move(pending_ray_tracing_bone_matrices_);
+      ray_tracing_payload_retry_required_ = false;
+    } else {
+      ray_tracing_payload_retry_required_ = true;
+    }
+    pending_ray_tracing_submission_state_.reset();
+    pending_ray_tracing_bone_matrices_.clear();
+  }
   const auto clear_ray_tracing_geometry = [&]() {
     if (!ray_tracing_meshlet_range_ && !ray_tracing_triangle_range_ && !ray_tracing_blas_ &&
         ray_tracing_bone_matrices_.empty() && ray_tracing_geometry_version_ == 0) {
@@ -63,7 +76,11 @@ void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
     ray_tracing_meshlet_range_.reset();
     ray_tracing_triangle_range_.reset();
     ray_tracing_blas_.reset();
+    ray_tracing_packed_source_vertex_indices_.clear();
     ray_tracing_bone_matrices_.clear();
+    pending_ray_tracing_bone_matrices_.clear();
+    pending_ray_tracing_submission_state_.reset();
+    ray_tracing_payload_retry_required_ = false;
     ray_tracing_geometry_version_ = 0;
   };
   if (!Platform::RayTracingEnabled() || !bone_matrices) {
@@ -76,26 +93,33 @@ void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
     return;
   }
   const auto geometry_version = mesh->GetVersion();
-  if (ray_tracing_blas_ && ray_tracing_geometry_version_ == geometry_version &&
+  const bool topology_changed = !ray_tracing_blas_ || ray_tracing_geometry_version_ != geometry_version ||
+                                ray_tracing_packed_source_vertex_indices_.empty();
+  if (!topology_changed && !ray_tracing_payload_retry_required_ &&
       BoneMatricesMatch(ray_tracing_bone_matrices_, bone_matrices->value)) {
     return;
   }
 
-  if (!ray_tracing_meshlet_range_) {
+  if (topology_changed) {
+    GeometryStorage::FreeMesh(GetHandle());
     ray_tracing_meshlet_range_ = std::make_shared<RangeDescriptor>();
-  }
-  if (!ray_tracing_triangle_range_) {
     ray_tracing_triangle_range_ = std::make_shared<RangeDescriptor>();
+    auto vertices = BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value);
+    auto triangles = mesh->skinned_triangles_;
+    GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,
+                                  ray_tracing_triangle_range_, &ray_tracing_packed_source_vertex_indices_);
+    ray_tracing_blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles, true);
+    ray_tracing_geometry_version_ = geometry_version;
+    ray_tracing_bone_matrices_ = bone_matrices->value;
+    ray_tracing_payload_retry_required_ = false;
+    return;
   }
 
-  GeometryStorage::FreeMesh(GetHandle());
-  auto vertices = BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value);
-  auto triangles = mesh->skinned_triangles_;
-  GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,
-                                ray_tracing_triangle_range_);
-  ray_tracing_blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
-  ray_tracing_geometry_version_ = geometry_version;
-  ray_tracing_bone_matrices_ = bone_matrices->value;
+  const auto packed_vertices = BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value,
+                                                              ray_tracing_packed_source_vertex_indices_);
+  GeometryStorage::UpdateMeshVertices(ray_tracing_meshlet_range_, packed_vertices);
+  pending_ray_tracing_submission_state_ = ray_tracing_blas_->UpdateVertices(packed_vertices);
+  pending_ray_tracing_bone_matrices_ = bone_matrices->value;
 }
 
 void SkinnedMeshRenderer::OnCreate() {
@@ -215,7 +239,11 @@ void SkinnedMeshRenderer::OnDestroy() {
   ray_tracing_meshlet_range_.reset();
   ray_tracing_triangle_range_.reset();
   ray_tracing_blas_.reset();
+  ray_tracing_packed_source_vertex_indices_.clear();
   ray_tracing_bone_matrices_.clear();
+  pending_ray_tracing_bone_matrices_.clear();
+  pending_ray_tracing_submission_state_.reset();
+  ray_tracing_payload_retry_required_ = false;
   ray_tracing_geometry_version_ = 0;
   rag_doll_transform_chain_.clear();
   bound_entities_.clear();
