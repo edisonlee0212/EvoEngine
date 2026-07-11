@@ -18,10 +18,11 @@ namespace evo_engine {
  * @brief Represents the attributes of a skinned vertex.
  */
 struct SkinnedVertexAttributes {
-  bool normal = false;    /**< Whether the normal attribute is enabled. */
-  bool tangent = false;   /**< Whether the tangent attribute is enabled. */
-  bool tex_coord = false; /**< Whether the texture coordinate attribute is enabled. */
-  bool color = false;     /**< Whether the color attribute is enabled. */
+  bool normal = false;      /**< Whether the normal attribute is enabled. */
+  bool tangent = false;     /**< Whether the tangent attribute is enabled. */
+  bool tex_coord = false;   /**< Whether the texture coordinate attribute is enabled. */
+  bool tex_coord_1 = false; /**< Whether the secondary texture coordinate attribute is enabled. */
+  bool color = false;       /**< Whether the color attribute is enabled. */
 
   /**
    * @brief Serializes the attributes to a YAML emitter.
@@ -178,7 +179,8 @@ class SkinnedMesh : public IAsset, public IGeometry {
    * @param indices A vector of indices defining triangles.
    */
   void SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
-                   const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<unsigned>& indices);
+                   const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<unsigned>& indices,
+                   bool use_secondary_tex_coord_for_tangents = false);
 
   /**
    * @brief Sets the vertices for the skinned mesh using attribute information, vertices, and triangle data.
@@ -187,7 +189,8 @@ class SkinnedMesh : public IAsset, public IGeometry {
    * @param triangles A vector of glm::uvec3 objects defining triangles.
    */
   void SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
-                   const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<glm::uvec3>& triangles);
+                   const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<glm::uvec3>& triangles,
+                   bool use_secondary_tex_coord_for_tangents = false);
 
   /**
    * @brief Gets the amount of skinned vertices.
@@ -215,7 +218,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
   /**
    * @brief Recalculates the tangents of the skinned mesh.
    */
-  void RecalculateTangent();
+  void RecalculateTangent(bool use_secondary_tex_coord = false);
 
   /**
    * @brief Provides unsafe access to the skinned vertices.

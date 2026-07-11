@@ -15,3 +15,7 @@ struct Instance {
 layout(set = EE_INSTANCES_BLOCK_SET, binding = EE_INSTANCES_BLOCK_BINDING) readonly buffer EE_INSTANCE_BLOCK {
   Instance EE_INSTANCES[];
 };
+
+float EE_TRANSFORM_HANDEDNESS(mat4 transform) {
+  return determinant(mat3(transform)) < 0.0 ? -1.0 : 1.0;
+}

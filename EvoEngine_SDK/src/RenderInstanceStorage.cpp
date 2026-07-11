@@ -18,6 +18,43 @@ bool UsesTransparentRasterPass(const Material& material, const GltfShadeMaterial
   return material.draw_settings.blending || GltfMaterialRequiresTransparentPass(shade_material);
 }
 
+VkCullModeFlags SwapCullModeFaces(const VkCullModeFlags cull_mode) {
+  if (cull_mode == VK_CULL_MODE_BACK_BIT) {
+    return VK_CULL_MODE_FRONT_BIT;
+  }
+  if (cull_mode == VK_CULL_MODE_FRONT_BIT) {
+    return VK_CULL_MODE_BACK_BIT;
+  }
+  return cull_mode;
+}
+
+VkCullModeFlags ResolveCullModeForTransform(const VkCullModeFlags cull_mode, const glm::mat4& model) {
+  if (glm::determinant(glm::mat3(model)) >= 0.0f) {
+    return cull_mode;
+  }
+  return SwapCullModeFaces(cull_mode);
+}
+
+VkCullModeFlags ResolveInstancedCullModeForTransforms(const VkCullModeFlags cull_mode, const glm::mat4& model,
+                                                      const std::vector<ParticleInfo>& particle_infos) {
+  if (cull_mode == VK_CULL_MODE_NONE || cull_mode == VK_CULL_MODE_FRONT_AND_BACK || particle_infos.empty()) {
+    return cull_mode;
+  }
+  bool has_positive_determinant = false;
+  bool has_negative_determinant = false;
+  for (const auto& particle_info : particle_infos) {
+    if (glm::determinant(glm::mat3(model * particle_info.instance_matrix.value)) < 0.0f) {
+      has_negative_determinant = true;
+    } else {
+      has_positive_determinant = true;
+    }
+    if (has_positive_determinant && has_negative_determinant) {
+      return VK_CULL_MODE_NONE;
+    }
+  }
+  return has_negative_determinant ? SwapCullModeFaces(cull_mode) : cull_mode;
+}
+
 VkDrawMeshTasksIndirectCommandEXT CreateMeshTaskCommand(const uint32_t meshlet_range) {
   VkDrawMeshTasksIndirectCommandEXT command{};
   const uint32_t task_work_group_invocations =
@@ -1866,7 +1903,7 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, model.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -1908,7 +1945,8 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveInstancedCullModeForTransforms(material->draw_settings.cull_mode, model.value,
+                                                                     particle_info_list->PeekParticleInfoList());
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -1951,7 +1989,7 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(entity);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (out_material_index) {
@@ -2033,7 +2071,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -2127,7 +2165,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -2197,7 +2235,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -2254,7 +2292,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->particle_info_list_version = particle_info_list->GetVersion();
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveInstancedCullModeForTransforms(material->draw_settings.cull_mode, gt.value,
+                                                                     particle_info_list->PeekParticleInfoList());
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {

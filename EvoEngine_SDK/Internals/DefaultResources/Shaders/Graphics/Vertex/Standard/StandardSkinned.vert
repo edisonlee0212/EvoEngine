@@ -11,6 +11,7 @@ layout (location = 2) in vec3 inTangent;
 layout (location = 3) in vec2 inTexCoord;
 layout (location = 4) in vec4 inColor;
 layout (location = 9) in float inTangentHandedness;
+layout (location = 10) in vec2 inTexCoord1;
 
 layout (location = 5) in ivec4 inBoneIds; 
 layout (location = 6) in vec4 inWeights;
@@ -23,9 +24,12 @@ layout(location = 0) out VS_OUT {
 	vec3 Tangent;
 	flat float TangentHandedness;
 	vec2 TexCoord;
+	vec2 TexCoord1;
+	vec4 Color;
 } vs_out;
 
-layout(location = 5) out flat uint currentInstanceIndex;
+layout(location = 7) out flat uint currentInstanceIndex;
+layout(location = 8) out flat float transformHandedness;
 
 void main()
 {
@@ -55,11 +59,14 @@ void main()
 
 	boneTransform = EE_INSTANCES[currentInstanceIndex].model * boneTransform;
 	vs_out.FragPos = vec3(boneTransform * vec4(inPosition, 1.0));
-	vec3 N = normalize(vec3(boneTransform * vec4(inNormal, 0.0)));
-	vec3 T = vec3(boneTransform * vec4(inTangent, 0.0));
+	vec3 N = normalize(transpose(inverse(mat3(boneTransform))) * inNormal);
+	vec3 T = mat3(boneTransform) * inTangent;
 	vs_out.Normal = N;
 	vs_out.Tangent = T;
-	vs_out.TangentHandedness = inTangentHandedness < 0.0 ? -1.0 : 1.0;
+	transformHandedness = EE_TRANSFORM_HANDEDNESS(boneTransform);
+	vs_out.TangentHandedness = (inTangentHandedness < 0.0 ? -1.0 : 1.0) * transformHandedness;
 	vs_out.TexCoord = inTexCoord;
+	vs_out.TexCoord1 = inTexCoord1;
+	vs_out.Color = inColor;
 	gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(vs_out.FragPos, 1.0);
 }

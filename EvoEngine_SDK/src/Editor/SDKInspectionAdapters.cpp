@@ -1375,7 +1375,7 @@ bool InspectProceduralNoise4D(InspectorContext& context, pn::ProceduralNoise4D& 
   return changed;
 }
 
-bool InspectDrawSettings(DrawSettings& draw_settings) {
+bool InspectDrawSettings(DrawSettings& draw_settings, const bool inspect_material_render_state = true) {
   bool changed = false;
   int polygon_mode_tmp = 0;
   switch (draw_settings.polygon_mode) {
@@ -1406,50 +1406,52 @@ bool InspectDrawSettings(DrawSettings& draw_settings) {
   if (draw_settings.polygon_mode == VK_POLYGON_MODE_LINE) {
     ImGui::DragFloat("Line width", &draw_settings.line_width, 0.1f, 0.0f, 100.0f);
   }
-  int cull_face_mode_tmp = 0;
-  switch (draw_settings.cull_mode) {
-    case VK_CULL_MODE_FRONT_BIT:
-      cull_face_mode_tmp = 0;
-      break;
-    case VK_CULL_MODE_BACK_BIT:
-      cull_face_mode_tmp = 1;
-      break;
-    case VK_CULL_MODE_FRONT_AND_BACK:
-      cull_face_mode_tmp = 2;
-      break;
-    case VK_CULL_MODE_NONE:
-      cull_face_mode_tmp = 3;
-      break;
-  }
-  if (ImGui::Combo("Cull Face Mode", &cull_face_mode_tmp, culling_mode_string, IM_ARRAYSIZE(culling_mode_string))) {
-    changed = true;
-    switch (cull_face_mode_tmp) {
-      case 0:
-        draw_settings.cull_mode = VK_CULL_MODE_FRONT_BIT;
+  if (inspect_material_render_state) {
+    int cull_face_mode_tmp = 0;
+    switch (draw_settings.cull_mode) {
+      case VK_CULL_MODE_FRONT_BIT:
+        cull_face_mode_tmp = 0;
         break;
-      case 1:
-        draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+      case VK_CULL_MODE_BACK_BIT:
+        cull_face_mode_tmp = 1;
         break;
-      case 2:
-        draw_settings.cull_mode = VK_CULL_MODE_FRONT_AND_BACK;
+      case VK_CULL_MODE_FRONT_AND_BACK:
+        cull_face_mode_tmp = 2;
         break;
-      case 3:
-        draw_settings.cull_mode = VK_CULL_MODE_NONE;
+      case VK_CULL_MODE_NONE:
+        cull_face_mode_tmp = 3;
         break;
     }
-  }
-
-  if (ImGui::Checkbox("Blending", &draw_settings.blending))
-    changed = true;
-
-  if (false && draw_settings.blending) {
-    if (ImGui::Combo("Blending Source Factor", reinterpret_cast<int*>(&draw_settings.blending_src_factor),
-                     blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+    if (ImGui::Combo("Cull Face Mode", &cull_face_mode_tmp, culling_mode_string, IM_ARRAYSIZE(culling_mode_string))) {
       changed = true;
+      switch (cull_face_mode_tmp) {
+        case 0:
+          draw_settings.cull_mode = VK_CULL_MODE_FRONT_BIT;
+          break;
+        case 1:
+          draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+          break;
+        case 2:
+          draw_settings.cull_mode = VK_CULL_MODE_FRONT_AND_BACK;
+          break;
+        case 3:
+          draw_settings.cull_mode = VK_CULL_MODE_NONE;
+          break;
+      }
     }
-    if (ImGui::Combo("Blending Destination Factor", reinterpret_cast<int*>(&draw_settings.blending_dst_factor),
-                     blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+
+    if (ImGui::Checkbox("Blending", &draw_settings.blending))
       changed = true;
+
+    if (false && draw_settings.blending) {
+      if (ImGui::Combo("Blending Source Factor", reinterpret_cast<int*>(&draw_settings.blending_src_factor),
+                       blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+        changed = true;
+      }
+      if (ImGui::Combo("Blending Destination Factor", reinterpret_cast<int*>(&draw_settings.blending_dst_factor),
+                       blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+        changed = true;
+      }
     }
   }
   return changed;
@@ -2773,7 +2775,7 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Others##Material")) {
-    if (InspectDrawSettings(material.draw_settings)) {
+    if (InspectDrawSettings(material.draw_settings, false)) {
       changed = true;
     }
     ImGui::TreePop();

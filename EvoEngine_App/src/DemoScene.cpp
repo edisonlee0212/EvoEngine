@@ -11,6 +11,7 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "Particles.hpp"
 #include "PathUtils.hpp"
 #include "PlayerController.hpp"
 #include "PostProcessingStack.hpp"
@@ -22,6 +23,7 @@
 #include "Times.hpp"
 #include "TransformGraph.hpp"
 
+#include <array>
 #include <cmath>
 #include <optional>
 #include <sstream>
@@ -227,6 +229,145 @@ Entity CreateRenderingRegressionProbe(const std::shared_ptr<Scene>& scene, const
   scene->SetDataComponent(entity, transform);
   scene->SetParent(entity, root);
   return entity;
+}
+
+std::shared_ptr<Mesh> CreateRenderingRegressionMaterialQuad(const std::array<glm::vec4, 4>& colors) {
+  std::vector<Vertex> vertices(4);
+  vertices[0].position = glm::vec3(-0.5f, -0.5f, 0.0f);
+  vertices[1].position = glm::vec3(0.5f, -0.5f, 0.0f);
+  vertices[2].position = glm::vec3(0.5f, 0.5f, 0.0f);
+  vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
+  const std::array<glm::vec2, 4> tex_coords_0 = {glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f, 1.0f),
+                                                 glm::vec2(0.0f, 1.0f)};
+  const std::array<glm::vec2, 4> tex_coords_1 = {glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f),
+                                                 glm::vec2(1.0f, 1.0f)};
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    vertices[i].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    vertices[i].color = colors[i];
+    vertices[i].tex_coord = tex_coords_0[i];
+    vertices[i].tex_coord_1 = tex_coords_1[i];
+  }
+
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.tex_coord_1 = true;
+  attributes.color = true;
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3)}, true);
+  return mesh;
+}
+
+Entity CreateRenderingRegressionMaterialQuadEntity(const std::shared_ptr<Scene>& scene, const Entity& root,
+                                                   const std::string& name, const std::shared_ptr<Mesh>& mesh,
+                                                   const std::shared_ptr<Material>& material, const glm::vec3& position,
+                                                   const glm::vec3& rotation, const glm::vec3& scale) {
+  const auto entity = scene->CreateEntity(name);
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+  renderer->mesh = mesh;
+  renderer->material = material;
+  Transform transform;
+  transform.SetValue(position, rotation, scale);
+  scene->SetDataComponent(entity, transform);
+  scene->SetParent(entity, root);
+  return entity;
+}
+
+void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  const auto textured_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.35f, 0.2f, 1.0f), glm::vec4(0.2f, 1.0f, 0.35f, 1.0f),
+                                             glm::vec4(0.25f, 0.45f, 1.0f, 1.0f), glm::vec4(1.0f, 0.9f, 0.25f, 1.0f)});
+  const auto textured_material = AssetManager::CreateTemporaryAsset<Material>();
+  auto color_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  color_texture->SetRgbaChannelData({glm::vec4(1.0f, 0.15f, 0.04f, 1.0f), glm::vec4(0.04f, 0.25f, 1.0f, 1.0f),
+                                     glm::vec4(0.04f, 1.0f, 0.18f, 1.0f), glm::vec4(1.0f, 0.8f, 0.04f, 1.0f)},
+                                    glm::uvec2(2, 2));
+  auto normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  normal_texture->SetRgbaChannelData({glm::vec4(0.72f, 0.50f, 0.95f, 1.0f), glm::vec4(0.28f, 0.50f, 0.95f, 1.0f),
+                                      glm::vec4(0.50f, 0.72f, 0.95f, 1.0f), glm::vec4(0.50f, 0.28f, 0.95f, 1.0f)},
+                                     glm::uvec2(2, 2));
+  const float rotation = glm::radians(30.0f);
+  const glm::mat3x2 texture_transform(1.35f * std::cos(rotation), 1.35f * std::sin(rotation),
+                                      -0.85f * std::sin(rotation), 0.85f * std::cos(rotation), 0.15f, 0.1f);
+  const auto base_color_slot =
+      textured_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, color_texture, 1, texture_transform);
+  textured_material->material_data.texture_infos[base_color_slot].color_space =
+      static_cast<int32_t>(GltfTextureColorSpace::Srgb);
+  textured_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 1, texture_transform);
+  ConfigureMaterial(textured_material, glm::vec3(1.0f), 0.45f, 0.0f);
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a UV1 Transform Vertex Color Probe", textured_mesh, textured_material,
+      glm::vec3(-1.75f, 0.85f, -1.35f), glm::radians(glm::vec3(8.0f, 22.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
+
+  const auto mirrored_normal_material = AssetManager::CreateTemporaryAsset<Material>();
+  mirrored_normal_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 1, texture_transform);
+  ConfigureMaterial(mirrored_normal_material, glm::vec3(0.25f, 0.65f, 1.0f), 0.45f, 0.0f);
+  mirrored_normal_material->material_data.shade_material.double_sided = 1;
+  mirrored_normal_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a Mirrored Double Sided Normal Probe", textured_mesh, mirrored_normal_material,
+      glm::vec3(-0.6f, 1.55f, -1.55f), glm::radians(glm::vec3(8.0f, 18.0f, 0.0f)), glm::vec3(-0.55f, 0.32f, 1.0f));
+
+  const auto instanced_entity = scene->CreateEntity("M3a Mixed Mirrored Instanced Probe");
+  const auto particles = scene->GetOrSetPrivateComponent<Particles>(instanced_entity).lock();
+  particles->mesh = textured_mesh;
+  particles->material = textured_material;
+  const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
+  std::vector<ParticleInfo> particle_infos(2);
+  particle_infos[0].instance_matrix.SetValue(glm::vec3(-1.55f, 1.55f, -1.55f),
+                                             glm::radians(glm::vec3(5.0f, 12.0f, 0.0f)), glm::vec3(0.38f, 0.25f, 1.0f));
+  particle_infos[1].instance_matrix.SetValue(
+      glm::vec3(1.55f, 1.55f, -1.55f), glm::radians(glm::vec3(-5.0f, -12.0f, 0.0f)), glm::vec3(-0.38f, 0.25f, 1.0f));
+  particle_info_list->SetParticleInfos(particle_infos);
+  particles->RecalculateBoundingBox();
+  scene->SetParent(instanced_entity, root);
+
+  const auto spec_gloss_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.45f, 0.45f, 1.0f), glm::vec4(0.45f, 1.0f, 0.45f, 1.0f),
+                                             glm::vec4(0.45f, 0.55f, 1.0f, 1.0f), glm::vec4(1.0f, 0.85f, 0.45f, 1.0f)});
+  const auto spec_gloss_material = AssetManager::CreateTemporaryAsset<Material>();
+  auto& spec_gloss = spec_gloss_material->material_data.shade_material;
+  spec_gloss.pbr_model = static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
+  spec_gloss.pbr_diffuse_factor = glm::vec4(0.9f, 0.75f, 0.55f, 1.0f);
+  spec_gloss.pbr_specular_factor = glm::vec3(0.78f, 0.16f, 0.06f);
+  spec_gloss.pbr_glossiness_factor = 0.72f;
+  spec_gloss_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a Specular Glossiness F0 Probe", spec_gloss_mesh, spec_gloss_material,
+      glm::vec3(-0.55f, 0.85f, -1.35f), glm::radians(glm::vec3(-5.0f, -18.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
+
+  const auto opaque_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(0.1f, 1.0f, 0.3f, 0.0f), glm::vec4(0.1f, 1.0f, 0.3f, 0.0f),
+                                             glm::vec4(0.1f, 1.0f, 0.3f, 0.0f), glm::vec4(0.1f, 1.0f, 0.3f, 0.0f)});
+  const auto opaque_material = AssetManager::CreateTemporaryAsset<Material>();
+  opaque_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(1.0f, 0.8f, 0.25f, 0.0f);
+  opaque_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Opaque);
+  opaque_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M3a Opaque Ignores Alpha Probe", opaque_mesh,
+                                              opaque_material, glm::vec3(0.65f, 0.85f, -1.35f), glm::vec3(0.0f),
+                                              glm::vec3(0.75f, 0.48f, 1.0f));
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a Mirrored Single Sided Visibility Probe", opaque_mesh, opaque_material,
+      glm::vec3(0.65f, 1.55f, -1.55f), glm::radians(glm::vec3(-5.0f, -18.0f, 0.0f)), glm::vec3(-0.55f, 0.32f, 1.0f));
+
+  const auto alpha_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.3f, 0.1f, 0.0f), glm::vec4(1.0f, 0.3f, 0.1f, 1.0f),
+                                             glm::vec4(0.2f, 0.55f, 1.0f, 1.0f), glm::vec4(0.2f, 0.55f, 1.0f, 0.0f)});
+  const auto alpha_material = AssetManager::CreateTemporaryAsset<Material>();
+  alpha_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+  alpha_material->material_data.shade_material.alpha_cutoff = 0.5f;
+  alpha_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M3a Vertex Alpha Mask Probe", alpha_mesh, alpha_material,
+                                              glm::vec3(1.85f, 0.85f, -1.35f), glm::vec3(0.0f),
+                                              glm::vec3(0.75f, 0.48f, 1.0f));
+
+  const auto blend_material = AssetManager::CreateTemporaryAsset<Material>();
+  blend_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(0.35f, 0.65f, 1.0f, 0.55f);
+  blend_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+  blend_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M3a Vertex Alpha Blend Probe", alpha_mesh, blend_material,
+                                              glm::vec3(2.75f, 0.85f, -1.35f), glm::vec3(0.0f),
+                                              glm::vec3(0.55f, 0.48f, 1.0f));
 }
 
 void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
@@ -1391,6 +1532,7 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
       scene, root, "M42 Temporal Moving Transparent Probe", primitives.sphere, glm::vec3(1.35f, 0.42f, -1.15f),
       glm::vec3(0.28f), glm::vec3(0.25f, 0.65f, 1.0f), 0.12f, 0.0f, 0.0f, false, 0.72f);
 
+  ConfigureRenderingRegressionGltfMaterialProbes(scene, root);
   ConfigureRenderingRegressionImportedProbes(scene, root);
   ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);

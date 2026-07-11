@@ -73,7 +73,7 @@ intentionally absent; the old normal and UV/material-index compatibility attachm
 | 17 | Camera depth | NDC depth. |
 | 20 | Base color / AO | `rgb = evaluated linear base color`, `a = evaluated occlusion`. |
 | 21 | Normal / roughness | `xyz = world normal`, `a = evaluated roughness`. |
-| 22 | PBR / flags | `x = evaluated metallic`, `y = default-lit shading model id`, `z/w = reserved`. |
+| 22 | PBR / flags | `x = evaluated metallic`, `yzw = evaluated dielectric/specular F0`. |
 | 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
@@ -89,12 +89,13 @@ keeps depth as-is and introduces this logical schema:
 | --- | --- | --- |
 | Base color / AO | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = linear base color`, `a = occlusion`. |
 | Normal / roughness | `VK_FORMAT_R16G16B16A16_SFLOAT` | `xyz = world normal`, `a = roughness`. A later compact packing may replace full-vector normal storage after validation. |
-| PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `y = shading model id`, `z = material flags`, `w = reserved custom data`. |
+| PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `yzw = dielectric/specular F0`. |
 | Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = emissive radiance`, `a = reserved custom data`. |
 | Utility | `VK_FORMAT_R32G32B32A32_SFLOAT` | `x = instance index`, `y = instance info index`, `z = optional material index for debug or fallback`, `w = reserved`. |
 
-The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials and specular-glossiness
-materials are both reduced to base color, metallic, roughness, normal, occlusion, and emissive by the geometry pass.
+The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials produce base color, metallic,
+roughness, and derived F0. Specular-glossiness materials retain the Khronos diffuse term, independent colored F0, and
+`roughness = 1 - glossiness`; they are no longer approximated as metallic-roughness.
 Masked alpha remains a geometry-pass discard. Transparent blend, transmission, diffuse transmission, volume/scatter,
 clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their existing transparent, forward, ray, or
 documented fallback paths until a later milestone defines their GBuffer representation.
@@ -127,6 +128,29 @@ does not deduplicate descriptor sets across material indices because material in
 running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
 bind the documented fallback textures.
 
+glTF base-material evaluation shares one texture-info ABI across raster, RT-pipeline, and RayQuery. It carries UV0 and
+UV1 independently, applies `KHR_texture_transform` after selecting the extension-overridden coordinate set, multiplies
+linear `COLOR_0` RGBA into metallic-roughness base color or specular-glossiness diffuse, and treats `OPAQUE` alpha as
+coverage-independent. Ray footprints track separate UV0/UV1 texel densities before selecting a texture gradient; zero
+footprints use explicit mip 0 outside fragment stages. Color-semantic RGB channels (base/diffuse, emissive,
+specular-glossiness, specular color, sheen color, and diffuse-transmission color) use the exact sRGB transfer function
+when the texture view does not already decode sRGB. Alpha and data-texture channels remain linear.
+
+`GltfShadeMaterial` is the canonical owner of material-facing raster state: `double_sided` selects culling, while alpha
+mode and transmission select the opaque or transparent pass. The Material inspector exposes those canonical controls
+instead of separate cull/blending overrides so raster, RT-pipeline, and RayQuery cannot silently disagree.
+
+Requested DDS images are preferred and retain authored BC7 mip chains and hardware sRGB decoding; same-stem
+PNG/TGA/JPG/JPEG files remain fallback sources when the DDS is absent. Float fallback textures generate a complete mip
+chain, but the shared `Texture2D` storage still uses repeat/linear sampling and performs semantic sRGB decoding after
+hardware filtering. Per-glTF sampler wrap/filter state and fully linear-space filtering/mipmap generation for sRGB
+fallback images are deliberate follow-up work.
+
+The canonical extension parser currently reads external-image `.gltf` files. `.glb`, embedded-image, data-URI material
+extension parsing, and `TEXCOORD_2+` vertex storage remain follow-up work. Authored glTF tangents are preserved; missing
+tangents are generated from the normal texture's selected UV0/UV1 set before geometry upload, but the generator is not
+yet MikkTSpace and does not split vertices at tangent discontinuities.
+
 Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
 sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
 contiguous range has one material descriptor, one compatible pipeline-state key, one push-constant base instance, and an
@@ -136,11 +160,13 @@ material per-frame descriptor set that keeps the shared per-frame buffers but om
 bindings.
 
 Built-in shadow-map passes treat all mesh materials as opaque. They use texture-free depth shaders, do not bind raster
-material descriptor sets, and do not sample material textures for alpha discard. This keeps regular mesh shadow draws on
-the opaque shadow indirect command path when indirect rendering is enabled. Transparent mesh pipelines still use the
-fixed raster material backend and bind the material descriptor set before direct material-sampling draws. Package or
-external forward callbacks that evaluate glTF raster materials are explicit migration fallbacks until their owners
-provide fixed material descriptors or material-batched submission.
+material descriptor sets, do not sample material textures for alpha discard, and retain fixed pass-level culling rather
+than material- and transform-aware logical facing. Alpha-cutout silhouettes and mirrored single-sided shadow casters are
+therefore deliberate follow-up work. This keeps regular mesh shadow draws on the opaque shadow indirect command path when
+indirect rendering is enabled. Transparent mesh pipelines still use the fixed raster material backend and bind the
+material descriptor set before direct material-sampling draws. Package or external forward callbacks that evaluate glTF
+raster materials are explicit migration fallbacks until their owners provide fixed material descriptors or
+material-batched submission.
 
 Raster lighting uses a fixed raster-global texture descriptor set for image-based lighting inputs instead of sampling the
 bindless texture arrays. Deferred lighting binds this set after the shared lighting descriptor set, and transparent mesh

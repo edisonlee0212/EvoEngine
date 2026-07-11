@@ -35,6 +35,7 @@ void SkinnedVertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
   out << YAML::Key << "tangent" << YAML::Value << tangent;
   out << YAML::Key << "tex_coord" << YAML::Value << tex_coord;
+  out << YAML::Key << "tex_coord_1" << YAML::Value << tex_coord_1;
   out << YAML::Key << "color" << YAML::Value << color;
 }
 
@@ -45,6 +46,8 @@ void SkinnedVertexAttributes::Deserialize(const YAML::Node& in) {
     tangent = in["tangent"].as<bool>();
   if (in["tex_coord"])
     tex_coord = in["tex_coord"].as<bool>();
+  if (in["tex_coord_1"])
+    tex_coord_1 = in["tex_coord_1"].as<bool>();
   if (in["color"])
     color = in["color"].as<bool>();
 }
@@ -111,6 +114,7 @@ Vertex evo_engine::BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_ver
   vertex.color = skinned_vertex.color;
   vertex.tex_coord = skinned_vertex.tex_coord;
   vertex.vertex_info4 = skinned_vertex.vertex_info4;
+  vertex.tex_coord_1 = skinned_vertex.tex_coord_1;
 
   glm::mat4 bone_transform(0.0f);
   bool has_valid_weight = false;
@@ -271,8 +275,8 @@ void SkinnedMesh::OnCreate() {
 }
 
 void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
-                              const std::vector<SkinnedVertex>& skinned_vertices,
-                              const std::vector<unsigned>& indices) {
+                              const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<unsigned>& indices,
+                              const bool use_secondary_tex_coord_for_tangents) {
   if (indices.size() % 3 != 0) {
     EVOENGINE_ERROR("Triangle size wrong!");
     return;
@@ -280,12 +284,13 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   std::vector<glm::uvec3> triangles;
   triangles.resize(indices.size() / 3);
   memcpy(triangles.data(), indices.data(), indices.size() * sizeof(unsigned));
-  SetVertices(skinned_vertex_attributes, skinned_vertices, triangles);
+  SetVertices(skinned_vertex_attributes, skinned_vertices, triangles, use_secondary_tex_coord_for_tangents);
 }
 
 void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                               const std::vector<SkinnedVertex>& skinned_vertices,
-                              const std::vector<glm::uvec3>& triangles) {
+                              const std::vector<glm::uvec3>& triangles,
+                              const bool use_secondary_tex_coord_for_tangents) {
   if (skinned_vertices.empty() || triangles.empty()) {
     EVOENGINE_LOG("Skinned vertices or triangles empty!");
     return;
@@ -310,7 +315,7 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   if (!skinned_vertex_attributes.normal)
     RecalculateNormal();
   if (!skinned_vertex_attributes.tangent)
-    RecalculateTangent();
+    RecalculateTangent(use_secondary_tex_coord_for_tangents);
 
   skinned_vertex_attributes_ = skinned_vertex_attributes;
   skinned_vertex_attributes_.normal = true;
@@ -369,7 +374,7 @@ void SkinnedMesh::RecalculateNormal() {
   }
 }
 
-void SkinnedMesh::RecalculateTangent() {
+void SkinnedMesh::RecalculateTangent(const bool use_secondary_tex_coord) {
   auto tangent_lists = std::vector<std::vector<glm::vec3>>();
   auto handedness_sums = std::vector<float>();
   auto size = skinned_vertices_.size();
@@ -384,9 +389,9 @@ void SkinnedMesh::RecalculateTangent() {
     auto p1 = skinned_vertices_[i1].position;
     auto p2 = skinned_vertices_[i2].position;
     auto p3 = skinned_vertices_[i3].position;
-    auto uv1 = skinned_vertices_[i1].tex_coord;
-    auto uv2 = skinned_vertices_[i2].tex_coord;
-    auto uv3 = skinned_vertices_[i3].tex_coord;
+    const auto& uv1 = use_secondary_tex_coord ? skinned_vertices_[i1].tex_coord_1 : skinned_vertices_[i1].tex_coord;
+    const auto& uv2 = use_secondary_tex_coord ? skinned_vertices_[i2].tex_coord_1 : skinned_vertices_[i2].tex_coord;
+    const auto& uv3 = use_secondary_tex_coord ? skinned_vertices_[i3].tex_coord_1 : skinned_vertices_[i3].tex_coord;
 
     auto e21 = p2 - p1;
     auto d21 = uv2 - uv1;
@@ -400,7 +405,7 @@ void SkinnedMesh::RecalculateTangent() {
     const auto tangent =
         f * glm::vec3(d31.y * e21.x - d21.y * e31.x, d31.y * e21.y - d21.y * e31.y, d31.y * e21.z - d21.y * e31.z);
     const auto bitangent =
-        f * glm::vec3(d31.x * e21.x - d21.x * e31.x, d31.x * e21.y - d21.x * e31.y, d31.x * e21.z - d21.x * e31.z);
+        f * glm::vec3(d21.x * e31.x - d31.x * e21.x, d21.x * e31.y - d31.x * e21.y, d21.x * e31.z - d31.x * e21.z);
     tangent_lists[i1].push_back(tangent);
     tangent_lists[i2].push_back(tangent);
     tangent_lists[i3].push_back(tangent);

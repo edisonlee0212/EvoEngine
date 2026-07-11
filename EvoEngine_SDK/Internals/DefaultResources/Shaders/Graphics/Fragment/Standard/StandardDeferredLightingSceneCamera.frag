@@ -113,8 +113,7 @@ void main()
     vec3 viewDir = normalize(cameraPosition - fragPos);
     bool receiveShadow = true;
 
-    vec3 F0 = vec3(0.04);
-    F0 = mix(F0, albedo.rgb, metallic);
+    vec3 F0 = pbrFlags.yzw;
 
     vec3 direct  = EE_FUNC_CALCULATE_LIGHTS(receiveShadow,
                                             albedo.rgb, 1.0, depth,

@@ -59,6 +59,7 @@ struct GltfRayTracingPbrMaterial {
   float dispersion;
   float specular;
   vec3 specular_color;
+  vec3 specular_f0;
   float transmission;
   vec3 attenuation_color;
   float attenuation_distance;
@@ -105,6 +106,7 @@ struct GltfRayTracingBsdfLobeWeights {
   float clearcoat_reflection;
   float diffuse_transmission;
   vec3 tint;
+  vec3 specular_tint;
 };
 
 vec3 EE_GLTF_RT_SAFE_NORMALIZE(const vec3 value, const vec3 fallback) {
@@ -541,6 +543,7 @@ GltfRayTracingBsdfLobeWeights EE_GLTF_RT_COMPUTE_LOBE_WEIGHTS(const GltfRayTraci
   weights.clearcoat_reflection = 0.0f;
   weights.diffuse_transmission = 0.0f;
   weights.tint = material.base_color;
+  weights.specular_tint = vec3(1.0f);
 
   float coat_fresnel = 0.0f;
   if (material.clearcoat > 0.0f) {
@@ -552,24 +555,20 @@ GltfRayTracingBsdfLobeWeights EE_GLTF_RT_COMPUTE_LOBE_WEIGHTS(const GltfRayTraci
                          0.0f, 1.0f);
   }
 
-  float dielectric_fresnel = 0.0f;
+  vec3 dielectric_fresnel = vec3(0.0f);
   if (material.specular > 0.0f) {
     const float dielectric_cosine = EE_GLTF_RT_FRESNEL_COSINE_APPROXIMATION(
         v_dot_n, (material.roughness.x + material.roughness.y) * 0.5f);
-    dielectric_fresnel = EE_GLTF_RT_IOR_FRESNEL(max(material.ior2, EE_GLTF_RT_BSDF_EPSILON) /
-                                                     max(material.ior1, EE_GLTF_RT_BSDF_EPSILON),
-                                                 dielectric_cosine) *
-                         material.specular;
+    dielectric_fresnel = EE_GLTF_RT_FRESNEL_SCHLICK(
+        dielectric_cosine, clamp(material.specular_f0, vec3(0.0f), vec3(1.0f)));
   }
 
   if (material.iridescence > 0.0f && material.iridescence_thickness > 0.0f) {
     const vec3 iridescence_fresnel = EE_GLTF_RT_THIN_FILM_FACTOR(
         material.iridescence_thickness, material.iridescence_ior, material.ior2, material.ior1,
         v_dot_n);
-    dielectric_fresnel =
-        mix(dielectric_fresnel, max(iridescence_fresnel.x, max(iridescence_fresnel.y,
-                                                               iridescence_fresnel.z)),
-            clamp(material.iridescence, 0.0f, 1.0f));
+    dielectric_fresnel = mix(dielectric_fresnel, iridescence_fresnel,
+                             clamp(material.iridescence, 0.0f, 1.0f));
     weights.tint =
         EE_GLTF_RT_MIX_RGB(weights.tint, material.specular_color, iridescence_fresnel *
                                                                     clamp(material.iridescence, 0.0f, 1.0f));
@@ -591,8 +590,13 @@ GltfRayTracingBsdfLobeWeights EE_GLTF_RT_COMPUTE_LOBE_WEIGHTS(const GltfRayTraci
   weights.metal_reflection = base_weight * clamp(material.metallic, 0.0f, 1.0f);
   base_weight *= 1.0f - clamp(material.metallic, 0.0f, 1.0f);
 
-  weights.specular_reflection = base_weight * clamp(dielectric_fresnel, 0.0f, 1.0f);
-  base_weight *= 1.0f - clamp(dielectric_fresnel, 0.0f, 1.0f);
+  const float dielectric_fresnel_weight =
+      clamp(max(dielectric_fresnel.x, max(dielectric_fresnel.y, dielectric_fresnel.z)), 0.0f, 1.0f);
+  weights.specular_tint = dielectric_fresnel_weight > EE_GLTF_RT_BSDF_EPSILON
+                              ? dielectric_fresnel / dielectric_fresnel_weight
+                              : vec3(0.0f);
+  weights.specular_reflection = base_weight * dielectric_fresnel_weight;
+  base_weight *= 1.0f - dielectric_fresnel_weight;
 
   const float transmission = clamp(material.transmission, 0.0f, 1.0f);
   weights.specular_transmission = base_weight * transmission;
@@ -644,11 +648,11 @@ int EE_GLTF_RT_FIND_BSDF_LOBE(const GltfRayTracingBsdfLobeWeights weights, const
 }
 
 GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal, vec3 tangent, vec3 bitangent,
-    vec3 geometric_normal, bool is_inside, float tex_grad) {
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color, vec3 normal, vec3 tangent,
+    vec3 bitangent, vec3 geometric_normal, bool is_inside, vec2 tex_grad) {
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
   const GltfRasterMaterial surface =
-      EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, tex_grad);
+      EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vertex_color, tex_grad);
 
   GltfRayTracingPbrMaterial pbr;
   pbr.base_color = max(surface.base_color.rgb, vec3(0.0f));
@@ -681,6 +685,7 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
   pbr.dispersion = 0.0f;
   pbr.specular = 1.0f;
   pbr.specular_color = vec3(1.0f);
+  pbr.specular_f0 = surface.specular_f0;
   pbr.transmission = 0.0f;
   pbr.attenuation_color = vec3(1.0f);
   pbr.attenuation_distance = 1.0f;
@@ -711,6 +716,15 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
 #if MAT_EXT_IOR
   pbr.ior2 = max(material.ior, 1.0f);
 #endif
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  if (material.pbr_model != EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS)
+#endif
+  {
+    const float dielectric_f0 = pow((pbr.ior2 - pbr.ior1) / max(pbr.ior2 + pbr.ior1,
+                                                                EE_GLTF_RT_BSDF_EPSILON),
+                                    2.0f);
+    pbr.specular_f0 = vec3(dielectric_f0);
+  }
   if (is_inside && pbr.thickness > 0.0f) {
     pbr.ior1 = pbr.ior2;
     pbr.ior2 = 1.0f;
@@ -729,6 +743,12 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
       pbr.specular *=
           EE_GLTF_SAMPLE_TEXTURE(material.specular_texture, tex_coord_0, tex_coord_1, vec4(1.0f), tex_grad).a;
     }
+  }
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  if (material.pbr_model != EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS)
+#endif
+  {
+    pbr.specular_f0 *= clamp(pbr.specular * pbr.specular_color, vec3(0.0f), vec3(1.0f));
   }
 #endif
 
@@ -857,10 +877,38 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
 }
 
 GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color, vec3 normal, vec3 tangent,
+    vec3 bitangent, vec3 geometric_normal, bool is_inside, float tex_grad) {
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coord_0, tex_coord_1, vertex_color, normal,
+                                                   tangent, bitangent, geometric_normal, is_inside, vec2(tex_grad));
+}
+
+GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal, vec3 tangent, vec3 bitangent,
+    vec3 geometric_normal, bool is_inside, vec2 tex_grad) {
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coord_0, tex_coord_1, vec4(1.0), normal,
+                                                   tangent, bitangent, geometric_normal, is_inside, tex_grad);
+}
+
+GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal, vec3 tangent, vec3 bitangent,
+    vec3 geometric_normal, bool is_inside, float tex_grad) {
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coord_0, tex_coord_1, vec4(1.0), normal,
+                                                   tangent, bitangent, geometric_normal, is_inside, vec2(tex_grad));
+}
+
+GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color, vec3 normal, vec3 tangent,
+    vec3 bitangent, vec3 geometric_normal, bool is_inside) {
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coord_0, tex_coord_1, vertex_color, normal,
+                                                   tangent, bitangent, geometric_normal, is_inside, vec2(0.0f));
+}
+
+GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
     uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal, vec3 tangent, vec3 bitangent,
     vec3 geometric_normal, bool is_inside) {
-  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coord_0, tex_coord_1, normal, tangent,
-                                                   bitangent, geometric_normal, is_inside, 0.0f);
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coord_0, tex_coord_1, vec4(1.0), normal,
+                                                   tangent, bitangent, geometric_normal, is_inside, vec2(0.0f));
 }
 
 void EE_GLTF_RT_EVALUATE_DIFFUSE_REFLECTION(inout GltfRayTracingBsdfEvaluateData data,
@@ -1103,7 +1151,7 @@ void EE_GLTF_RT_BSDF_EVALUATE(inout GltfRayTracingBsdfEvaluateData data,
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_DIFFUSE_TRANSMISSION) {
     EE_GLTF_RT_EVALUATE_DIFFUSE_TRANSMISSION(data, material, material.diffuse_transmission_color);
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_SPECULAR_REFLECTION) {
-    EE_GLTF_RT_EVALUATE_GGX_REFLECTION_LOBE(data, material, lobe, material.specular_color, material.normal,
+    EE_GLTF_RT_EVALUATE_GGX_REFLECTION_LOBE(data, material, lobe, weights.specular_tint, material.normal,
                                             material.tangent, material.bitangent, material.roughness);
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_SPECULAR_TRANSMISSION) {
     EE_GLTF_RT_EVALUATE_GGX_TRANSMISSION(data, material, weights.tint);
@@ -1150,7 +1198,7 @@ void EE_GLTF_RT_BSDF_SAMPLE(inout GltfRayTracingBsdfSampleData data, const GltfR
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_DIFFUSE_TRANSMISSION) {
     EE_GLTF_RT_SAMPLE_DIFFUSE_TRANSMISSION(data, material, material.diffuse_transmission_color);
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_SPECULAR_REFLECTION) {
-    EE_GLTF_RT_SAMPLE_GGX_REFLECTION_LOBE(data, material, lobe, material.specular_color, material.normal,
+    EE_GLTF_RT_SAMPLE_GGX_REFLECTION_LOBE(data, material, lobe, weights.specular_tint, material.normal,
                                           material.tangent, material.bitangent, material.roughness);
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_SPECULAR_TRANSMISSION) {
     EE_GLTF_RT_SAMPLE_GGX_TRANSMISSION(data, material, weights.tint);

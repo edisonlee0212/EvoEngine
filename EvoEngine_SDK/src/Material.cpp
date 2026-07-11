@@ -65,6 +65,7 @@ std::shared_ptr<Texture2D> Material::GenerateThumbnailTexture() {
 
 Material::Material() {
   material_data.shade_material.pbr_metallic_factor = 0.0f;
+  SyncRenderStateFromGltfMaterial();
 }
 
 Material::~Material() {
@@ -181,7 +182,7 @@ void Material::SetGltfMaterialData(const GltfMaterialData& data) {
 
 void Material::SyncRenderStateFromGltfMaterial() {
   draw_settings.blending = GltfMaterialRequiresTransparentPass(material_data.shade_material);
-  draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  draw_settings.cull_mode = material_data.shade_material.double_sided != 0 ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
 }
 
 void Material::MarkDirty() {

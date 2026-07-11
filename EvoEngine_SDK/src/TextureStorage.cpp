@@ -72,6 +72,22 @@ bool SupportsSampledTextureFormat(const VkFormat format) {
   return (format_properties.optimalTilingFeatures & required_features) == required_features;
 }
 
+bool SupportsLinearBlitTextureFormat(const VkFormat format) {
+  if (!Platform::Initialized()) {
+    return false;
+  }
+  const auto& physical_device = Platform::GetSelectedPhysicalDevice();
+  if (!physical_device || physical_device->vk_physical_device == VK_NULL_HANDLE) {
+    return false;
+  }
+
+  VkFormatProperties format_properties{};
+  vkGetPhysicalDeviceFormatProperties(physical_device->vk_physical_device, format, &format_properties);
+  constexpr VkFormatFeatureFlags required_features = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                                     VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+  return (format_properties.optimalTilingFeatures & required_features) == required_features;
+}
+
 size_t CompressedTextureBlockSize(const VkFormat format) {
   switch (format) {
     case VK_FORMAT_BC7_UNORM_BLOCK:
@@ -309,7 +325,13 @@ bool Texture2DStorage::IsGpuUploadPending() const {
 }
 
 void Texture2DStorage::Initialize(const glm::uvec2& resolution) {
-  Initialize(resolution, Platform::Constants::texture_2d, true);
+  uint32_t mip_levels = 1;
+  if (SupportsLinearBlitTextureFormat(Platform::Constants::texture_2d)) {
+    for (auto dimension = glm::max(resolution.x, resolution.y); dimension > 1; dimension /= 2) {
+      ++mip_levels;
+    }
+  }
+  Initialize(resolution, Platform::Constants::texture_2d, true, mip_levels);
 }
 
 void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat format, const bool storage_image,

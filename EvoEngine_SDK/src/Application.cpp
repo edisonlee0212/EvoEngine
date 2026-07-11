@@ -686,6 +686,7 @@ void SaveGltfTextureInfos(const Material& material, YAML::Emitter& out) {
     const auto& texture_info = material.material_data.texture_infos[i];
     out << YAML::BeginMap;
     out << YAML::Key << "tex_coord" << YAML::Value << texture_info.tex_coord;
+    out << YAML::Key << "color_space" << YAML::Value << texture_info.color_space;
 #if MAT_EXT_TEXTURE_TRANSFORM
     SaveMat3x2("uv_transform", texture_info.uv_transform, out);
 #endif
@@ -706,6 +707,8 @@ void LoadGltfTextureInfos(const YAML::Node& in, GltfMaterialData& data, std::vec
       texture_info.index = -1;
       if (texture_info_node["tex_coord"])
         texture_info.tex_coord = texture_info_node["tex_coord"].as<int32_t>();
+      if (texture_info_node["color_space"])
+        texture_info.color_space = texture_info_node["color_space"].as<int32_t>();
 #if MAT_EXT_TEXTURE_TRANSFORM
       texture_info.uv_transform = LoadMat3x2(texture_info_node["uv_transform"]);
 #endif
@@ -1129,6 +1132,18 @@ VertexAttributes DefaultVertexAttributes() {
   return attributes;
 }
 
+template <typename VertexType>
+std::vector<VertexType> DeserializeVertexData(const YAML::Binary& data, const size_t stride) {
+  if (stride == 0 || data.size() % stride != 0) {
+    return {};
+  }
+  std::vector<VertexType> vertices(data.size() / stride);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(&vertices[i], data.data() + i * stride, std::min(stride, sizeof(VertexType)));
+  }
+  return vertices;
+}
+
 SkinnedVertexAttributes DefaultSkinnedVertexAttributes() {
   SkinnedVertexAttributes attributes{};
   attributes.normal = true;
@@ -1154,6 +1169,7 @@ void SerializeMesh(YAML::Emitter& out, const Mesh& mesh) {
   const auto& vertices = mesh.PeekVertices();
   const auto& triangles = mesh.PeekTriangles();
   if (!vertices.empty() && !triangles.empty()) {
+    out << YAML::Key << "vertex_stride_" << YAML::Value << sizeof(Vertex);
     out << YAML::Key << "vertices_" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(vertices.data()), vertices.size() * sizeof(Vertex));
     out << YAML::Key << "triangles_" << YAML::Value
@@ -1170,9 +1186,8 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
 
   if (in["vertices_"] && in["triangles_"]) {
     const auto& vertex_data = in["vertices_"].as<YAML::Binary>();
-    std::vector<Vertex> vertices;
-    vertices.resize(vertex_data.size() / sizeof(Vertex));
-    std::memcpy(vertices.data(), vertex_data.data(), vertex_data.size());
+    const auto stride = in["vertex_stride_"] ? in["vertex_stride_"].as<size_t>() : size_t{80};
+    auto vertices = DeserializeVertexData<Vertex>(vertex_data, stride);
 
     const auto& triangle_data = in["triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;
@@ -1197,6 +1212,7 @@ void SerializeSkinnedMesh(YAML::Emitter& out, const SkinnedMesh& mesh) {
   const auto& vertices = mesh.PeekSkinnedVertices();
   const auto& triangles = mesh.PeekTriangles();
   if (!vertices.empty() && !triangles.empty()) {
+    out << YAML::Key << "skinned_vertex_stride_" << YAML::Value << sizeof(SkinnedVertex);
     out << YAML::Key << "skinned_vertices_" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(vertices.data()),
                         vertices.size() * sizeof(SkinnedVertex));
@@ -1220,9 +1236,8 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
 
   if (in["skinned_vertices_"] && in["skinned_triangles_"]) {
     const auto& vertex_data = in["skinned_vertices_"].as<YAML::Binary>();
-    std::vector<SkinnedVertex> vertices;
-    vertices.resize(vertex_data.size() / sizeof(SkinnedVertex));
-    std::memcpy(vertices.data(), vertex_data.data(), vertex_data.size());
+    const auto stride = in["skinned_vertex_stride_"] ? in["skinned_vertex_stride_"].as<size_t>() : size_t{144};
+    auto vertices = DeserializeVertexData<SkinnedVertex>(vertex_data, stride);
 
     const auto& triangle_data = in["skinned_triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;

@@ -134,7 +134,7 @@ TEST(BistroDemoScript, GeneratesIgnoredProjectFromExistingSourceRoot) {
   EXPECT_NE(readme.find("MSFT_texture_dds textures: 1"), std::string::npos);
 }
 
-TEST(BistroDemoScript, PrefabImporterKeepsDdsFallbackCandidatePolicy) {
+TEST(BistroDemoScript, PrefabImporterKeepsDdsFallbackAndResolvedFlipPolicy) {
   const auto prefab_source =
       ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "Prefab.cpp");
 
@@ -142,7 +142,17 @@ TEST(BistroDemoScript, PrefabImporterKeepsDdsFallbackCandidatePolicy) {
   EXPECT_NE(prefab_source.find("extension == \".dds\""), std::string::npos);
   EXPECT_NE(prefab_source.find("\".png\", \".tga\", \".jpg\", \".jpeg\""), std::string::npos);
   EXPECT_NE(prefab_source.find("!texture_2d->Import(full_path)"), std::string::npos);
-  EXPECT_NE(prefab_source.find("TextureUriUsesDds(resolve_texture_uri(texture_index))"), std::string::npos);
+  EXPECT_NE(prefab_source.find("TexturePathNeedsYFlip(full_path)"), std::string::npos);
+  EXPECT_NE(prefab_source.find("resolved_texture_source_needs_y_flip"), std::string::npos);
+  EXPECT_EQ(prefab_source.find("TextureUriUsesDds"), std::string::npos);
+  const auto add_candidate_begin = prefab_source.find("void AddTextureImportCandidate");
+  const auto collect_candidates_begin = prefab_source.find("CollectTextureImportCandidates", add_candidate_begin);
+  ASSERT_NE(add_candidate_begin, std::string::npos);
+  ASSERT_NE(collect_candidates_begin, std::string::npos);
+  const auto candidate_function =
+      prefab_source.substr(add_candidate_begin, collect_candidates_begin - add_candidate_begin);
+  EXPECT_LT(candidate_function.find("candidates.emplace_back(absolute_path)"),
+            candidate_function.find("for (const auto* fallback_extension"));
   EXPECT_NE(prefab_source.find("resolved_texture_uris"), std::string::npos);
   EXPECT_NE(prefab_source.find("target_material->SetGltfMaterialData(imported_material_data->material_data)"),
             std::string::npos);

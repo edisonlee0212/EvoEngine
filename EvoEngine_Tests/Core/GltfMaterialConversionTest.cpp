@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "GltfMaterialCache.hpp"
 #include "Material.hpp"
+#include "Mesh.hpp"
 
 using namespace evo_engine;
 
@@ -80,10 +81,13 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
   EXPECT_NEAR(base_color.uv_transform[1][1], 3.0f, kEpsilon);
   EXPECT_NEAR(base_color.uv_transform[2][0], 0.1f, kEpsilon);
   EXPECT_NEAR(base_color.uv_transform[2][1], 0.2f, kEpsilon);
+  EXPECT_EQ(base_color.color_space, static_cast<int32_t>(GltfTextureColorSpace::Srgb));
 
   ASSERT_NE(material.normal_texture, 0);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].index, 104);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 1);
+  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Linear));
 }
 
 TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlossModel) {
@@ -145,9 +149,15 @@ TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlos
   EXPECT_EQ(materials[0].texture_infos[material.pbr_diffuse_texture].index, 202);
   EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].index, 203);
   EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].tex_coord, 1);
+  EXPECT_EQ(materials[0].texture_infos[material.pbr_diffuse_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
+  EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
   EXPECT_EQ(materials[0].texture_infos[material.transmission_texture].index, 206);
   EXPECT_EQ(materials[0].texture_infos[material.clearcoat_texture].index, 207);
   EXPECT_EQ(materials[0].texture_infos[material.sheen_color_texture].index, 208);
+  EXPECT_EQ(materials[0].texture_infos[material.sheen_color_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
 }
 
 TEST(GltfMaterialConversion, TransparentExtensionsImportDiffuseTransmissionAndVolumeScatter) {
@@ -185,6 +195,10 @@ TEST(GltfMaterialConversion, TransparentExtensionsImportDiffuseTransmissionAndVo
   EXPECT_EQ(materials[0].texture_infos[material.diffuse_transmission_texture].index, 302);
   EXPECT_EQ(materials[0].texture_infos[material.diffuse_transmission_texture].tex_coord, 1);
   EXPECT_EQ(materials[0].texture_infos[material.diffuse_transmission_color_texture].index, 303);
+  EXPECT_EQ(materials[0].texture_infos[material.diffuse_transmission_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Linear));
+  EXPECT_EQ(materials[0].texture_infos[material.diffuse_transmission_color_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
 
   GltfMaterialCache cache;
   const auto material_index = cache.Append(materials[0]);
@@ -213,7 +227,7 @@ TEST(GltfMaterialConversion, MsftTextureDdsOverridesTextureSourceUri) {
   EXPECT_EQ(ResolveGltfTextureUri(gltf, 0, false), "textures/base.png");
 }
 
-TEST(GltfMaterialConversion, DdsTextureInfosApplyVerticalFlipAfterTextureTransform) {
+TEST(GltfMaterialConversion, TextureInfosApplyRequestedVerticalFlipAfterTextureTransform) {
   const auto gltf = YAML::Load(R"({
     "materials": [{
       "normalTexture": {"index": 4},
@@ -265,6 +279,129 @@ TEST(GltfMaterialConversion, DdsTextureInfosApplyVerticalFlipAfterTextureTransfo
   EXPECT_NEAR(normal.uv_transform[2][1], 0.0f, kEpsilon);
 }
 
+TEST(GltfMaterialConversion, TextureTransformRotationKeepsKhronosOrderBeforeStorageFlip) {
+  const auto gltf = YAML::Load(R"({
+    "materials": [{
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 2,
+          "extensions": {
+            "KHR_texture_transform": {
+              "offset": [0.25, 0.4],
+              "scale": [2.0, 3.0],
+              "rotation": 1.5707963267948966
+            }
+          }
+        },
+        "metallicRoughnessTexture": {
+          "index": 3,
+          "extensions": {
+            "KHR_texture_transform": {
+              "offset": [0.25, 0.4],
+              "scale": [2.0, 3.0],
+              "rotation": 1.5707963267948966
+            }
+          }
+        }
+      }
+    }]
+  })");
+
+  const auto materials = BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [](const int32_t texture_index) {
+        return texture_index;
+      },
+      [](const int32_t texture_index) {
+        return texture_index == 2;
+      });
+
+  ASSERT_EQ(materials.size(), 1);
+  const auto& shade = materials[0].shade_material;
+  const auto& flipped = materials[0].texture_infos[shade.pbr_base_color_texture].uv_transform;
+  const auto& unflipped = materials[0].texture_infos[shade.pbr_metallic_roughness_texture].uv_transform;
+  EXPECT_NEAR(flipped[0][0], 0.0f, kEpsilon);
+  EXPECT_NEAR(flipped[0][1], -2.0f, kEpsilon);
+  EXPECT_NEAR(flipped[1][0], -3.0f, kEpsilon);
+  EXPECT_NEAR(flipped[1][1], 0.0f, kEpsilon);
+  EXPECT_NEAR(flipped[2][0], 0.25f, kEpsilon);
+  EXPECT_NEAR(flipped[2][1], 0.6f, kEpsilon);
+  EXPECT_NEAR(unflipped[0][0], 0.0f, kEpsilon);
+  EXPECT_NEAR(unflipped[0][1], 2.0f, kEpsilon);
+  EXPECT_NEAR(unflipped[1][0], -3.0f, kEpsilon);
+  EXPECT_NEAR(unflipped[1][1], 0.0f, kEpsilon);
+  EXPECT_NEAR(unflipped[2][0], 0.25f, kEpsilon);
+  EXPECT_NEAR(unflipped[2][1], 0.4f, kEpsilon);
+}
+
+TEST(GltfMaterialConversion, SemanticColorSpaceAvoidsHardwareSrgbDoubleDecode) {
+  const auto gltf = YAML::Load(R"({
+    "materials": [{
+      "normalTexture": {"index": 2},
+      "pbrMetallicRoughness": {"baseColorTexture": {"index": 3}}
+    }]
+  })");
+
+  const auto shader_decoded = BuildGltfMaterialDataFromGltfNode(gltf, [](const int32_t texture_index) {
+    return texture_index;
+  });
+  const auto hardware_decoded = BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [](const int32_t texture_index) {
+        return texture_index;
+      },
+      {},
+      [](const int32_t texture_index) {
+        return texture_index == 3;
+      });
+
+  ASSERT_EQ(shader_decoded.size(), 1);
+  const auto& shader_shade = shader_decoded[0].shade_material;
+  EXPECT_EQ(shader_decoded[0].texture_infos[shader_shade.pbr_base_color_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
+  EXPECT_EQ(shader_decoded[0].texture_infos[shader_shade.normal_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Linear));
+
+  ASSERT_EQ(hardware_decoded.size(), 1);
+  const auto& hardware_shade = hardware_decoded[0].shade_material;
+  EXPECT_EQ(hardware_decoded[0].texture_infos[hardware_shade.pbr_base_color_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Linear));
+  EXPECT_EQ(hardware_decoded[0].texture_infos[hardware_shade.normal_texture].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Linear));
+}
+
+TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesSecondaryUvSetBeforeUpload) {
+  Application app;
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.tex_coord_1 = true;
+
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  for (auto& vertex : vertices) {
+    vertex.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+  }
+  vertices[0].tex_coord = glm::vec2(0.0f, 0.0f);
+  vertices[1].tex_coord = glm::vec2(1.0f, 0.0f);
+  vertices[2].tex_coord = glm::vec2(0.0f, 1.0f);
+  vertices[0].tex_coord_1 = glm::vec2(0.0f, 0.0f);
+  vertices[1].tex_coord_1 = glm::vec2(0.0f, 1.0f);
+  vertices[2].tex_coord_1 = glm::vec2(1.0f, 0.0f);
+
+  Mesh mesh;
+  mesh.OnCreate();
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, true);
+
+  ASSERT_EQ(mesh.PeekVertices().size(), 3);
+  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.x, 0.0f, kEpsilon);
+  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.y, 1.0f, kEpsilon);
+  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.z, 0.0f, kEpsilon);
+  EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
+}
+
 TEST(GltfMaterialConversion, EmptyGltfMaterialPreservesReferenceMetallicDefault) {
   const auto gltf = YAML::Load(R"({
     "materials": [{}]
@@ -287,6 +424,7 @@ TEST(GltfMaterialConversion, NativeMaterialAssetDefaultsToDielectric) {
 
   EXPECT_NEAR(material_data.shade_material.pbr_metallic_factor, 0.0f, kEpsilon);
   EXPECT_NEAR(material_data.shade_material.pbr_roughness_factor, 1.0f, kEpsilon);
+  EXPECT_EQ(material.draw_settings.cull_mode, VK_CULL_MODE_BACK_BIT);
 }
 
 TEST(GltfMaterialConversion, CanonicalMaterialAssetBuildsGltfMaterialDataDirectly) {
@@ -344,7 +482,7 @@ TEST(GltfMaterialConversion, CanonicalMaterialAssetSynchronizesDrawSettings) {
   material.MarkDirty();
 
   EXPECT_TRUE(material.draw_settings.blending);
-  EXPECT_EQ(material.draw_settings.cull_mode, VK_CULL_MODE_NONE);
+  EXPECT_EQ(material.draw_settings.cull_mode, VK_CULL_MODE_BACK_BIT);
 
   material.draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
   material.material_data.shade_material.double_sided = 1;

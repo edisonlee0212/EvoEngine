@@ -72,7 +72,10 @@ TEST(GltfRasterMaterial, EvaluatorCoversSpecGlossAndPbrTerms) {
 
   EXPECT_NE(source.find("EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS"), std::string::npos);
   EXPECT_NE(source.find("pbr_specular_glossiness_texture"), std::string::npos);
-  EXPECT_NE(source.find("EE_GLTF_CONVERT_SPEC_GLOSS_TO_METALLIC_ROUGHNESS"), std::string::npos);
+  EXPECT_EQ(source.find("EE_GLTF_CONVERT_SPEC_GLOSS_TO_METALLIC_ROUGHNESS"), std::string::npos);
+  EXPECT_NE(source.find("surface.specular_f0 = clamp(specular"), std::string::npos);
+  EXPECT_NE(source.find("surface.base_color.rgb = diffuse.rgb * (1.0 - max(surface.specular_f0.r"), std::string::npos);
+  EXPECT_NE(source.find("surface.roughness = max(1.0 - glossiness"), std::string::npos);
   EXPECT_NE(source.find("pbr_metallic_roughness_texture"), std::string::npos);
   EXPECT_NE(source.find("surface.occlusion = 1.0 + surface.occlusion * (occlusion - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("material.normal_texture_scale"), std::string::npos);
@@ -86,6 +89,12 @@ TEST(GltfRasterMaterial, EvaluatorCoversSpecGlossAndPbrTerms) {
   EXPECT_NE(source.find("surface.multiscatter_color_factor = max(material.multiscatter_color_factor"),
             std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO"), std::string::npos);
+  EXPECT_NE(source.find("material.pbr_diffuse_factor * vertex_color"), std::string::npos);
+  EXPECT_NE(source.find("material.pbr_base_color_factor * vertex_color"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_SRGB_TO_LINEAR"), std::string::npos);
+  EXPECT_NE(source.find("lessThanEqual(encoded, vec3(0.04045))"), std::string::npos);
+  EXPECT_NE(source.find("sample_value.rgb = EE_GLTF_SRGB_TO_LINEAR(sample_value.rgb)"), std::string::npos);
+  EXPECT_NE(source.find("surface.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
@@ -590,6 +599,7 @@ TEST(GltfRasterMaterial, DeferredLightingReadsExpandedGBuffer) {
     EXPECT_NE(source.find("binding = 23) uniform sampler2D inEmissive"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float roughness = normalRoughness.a"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float metallic = pbrFlags.x"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("vec3 F0 = pbrFlags.yzw"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float ao = baseColorAO.a"), std::string::npos) << path.string();
     EXPECT_NE(source.find("vec4 albedo = vec4(baseColorAO.rgb, 1.0)"), std::string::npos) << path.string();
   }
@@ -610,7 +620,7 @@ TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
                           "max(surface.occlusion, 0.0))"),
             std::string::npos);
   EXPECT_NE(deferred.find("outGBufferNormalRoughness = vec4(world_normal, surface.roughness)"), std::string::npos);
-  EXPECT_NE(deferred.find("outGBufferPbrFlags = vec4(surface.metallic, 0.0, 0.0, 0.0)"), std::string::npos);
+  EXPECT_NE(deferred.find("outGBufferPbrFlags = vec4(surface.metallic, surface.specular_f0)"), std::string::npos);
   EXPECT_NE(deferred.find("outGBufferEmissive = vec4(surface.emissive, 0.0)"), std::string::npos);
   EXPECT_NE(deferred.find("outGBufferUtility = vec4(float(instance_index), float(instance.info_index), "
                           "float(instance.material_index), 0.0)"),
@@ -684,6 +694,7 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
     EXPECT_NE(source.find("layout(location = 2) out vec4 outGBufferPbrFlags"), std::string::npos) << path.string();
     EXPECT_NE(source.find("layout(location = 3) out vec4 outGBufferEmissive"), std::string::npos) << path.string();
     EXPECT_NE(source.find("layout(location = 4) out vec4 outGBufferUtility"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_GLTF_RASTER_REBASE_SPECULAR_F0"), std::string::npos) << path.string();
     EXPECT_NE(source.find("outGBufferUtility = vec4(float(EE_INSTANCE_INDEX)"), std::string::npos) << path.string();
   }
 
@@ -710,8 +721,15 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   const auto standard_skinned = ReadTextFile(ShaderPath("Graphics/Vertex/Standard/StandardSkinned.vert"));
   const auto standard_mesh = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/Standard.mesh"));
   const auto standard_meshlet_colored = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/StandardMeshletColored.mesh"));
+  const auto standard_strands = ReadTextFile(ShaderPath("Graphics/Geometry/Standard/StandardStrands.geom"));
+  const auto instances = ReadTextFile(ShaderPath("Includes/Instances.glsl"));
   const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"));
+  const auto transparent = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.frag"));
   const auto raster_material = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
+  const auto render_instance_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto inspection_adapters = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto scots_pine = ReadTextFile(RepoPath("EvoEngine_Packages/LSystem/src/ScotsPine.cpp"));
+  const auto soil = ReadTextFile(RepoPath("EvoEngine_Packages/EcoSysLab/src/Soil.cpp"));
 
   ASSERT_FALSE(geometry.empty());
   ASSERT_FALSE(standard.empty());
@@ -719,8 +737,15 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   ASSERT_FALSE(standard_skinned.empty());
   ASSERT_FALSE(standard_mesh.empty());
   ASSERT_FALSE(standard_meshlet_colored.empty());
+  ASSERT_FALSE(standard_strands.empty());
+  ASSERT_FALSE(instances.empty());
   ASSERT_FALSE(deferred.empty());
+  ASSERT_FALSE(transparent.empty());
   ASSERT_FALSE(raster_material.empty());
+  ASSERT_FALSE(render_instance_storage.empty());
+  ASSERT_FALSE(inspection_adapters.empty());
+  ASSERT_FALSE(scots_pine.empty());
+  ASSERT_FALSE(soil.empty());
 
   EXPECT_NE(geometry.find("mesh[5].location = 9"), std::string::npos);
   EXPECT_NE(geometry.find("mesh[5].format = VK_FORMAT_R32_SFLOAT"), std::string::npos);
@@ -728,22 +753,37 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(geometry.find("skinned_mesh[9].location = 9"), std::string::npos);
   EXPECT_NE(geometry.find("skinned_mesh[9].format = VK_FORMAT_R32_SFLOAT"), std::string::npos);
   EXPECT_NE(geometry.find("skinned_mesh[9].offset = offsetof(SkinnedVertex, vertex_info3)"), std::string::npos);
+  EXPECT_NE(geometry.find("mesh[6].location = 10"), std::string::npos);
+  EXPECT_NE(geometry.find("mesh[6].offset = offsetof(Vertex, tex_coord_1)"), std::string::npos);
+  EXPECT_NE(geometry.find("skinned_mesh[10].location = 10"), std::string::npos);
+  EXPECT_NE(geometry.find("skinned_mesh[10].offset = offsetof(SkinnedVertex, tex_coord_1)"), std::string::npos);
 
   for (const auto* source : {&standard, &standard_instanced, &standard_skinned}) {
     EXPECT_NE(source->find("layout (location = 9) in float inTangentHandedness"), std::string::npos);
     EXPECT_NE(source->find("flat float TangentHandedness"), std::string::npos);
-    EXPECT_NE(source->find("vs_out.TangentHandedness = inTangentHandedness < 0.0 ? -1.0 : 1.0"), std::string::npos);
+    EXPECT_NE(source->find("layout (location = 10) in vec2 inTexCoord1"), std::string::npos);
+    EXPECT_NE(source->find("transpose(inverse(mat3("), std::string::npos);
+    EXPECT_NE(source->find("vs_out.TexCoord1 = inTexCoord1"), std::string::npos);
+    EXPECT_NE(source->find("vs_out.Color = inColor"), std::string::npos);
+    EXPECT_NE(source->find("transformHandedness = EE_TRANSFORM_HANDEDNESS("), std::string::npos);
+    EXPECT_NE(source->find("* transformHandedness"), std::string::npos);
     EXPECT_EQ(source->find("T = normalize(T - dot(T, N) * N)"), std::string::npos);
   }
 
   for (const auto* source : {&standard_mesh, &standard_meshlet_colored}) {
     EXPECT_NE(source->find("flat float TangentHandedness"), std::string::npos);
-    EXPECT_NE(source->find("ms_v_out[vert].TangentHandedness = v.vertex_info3 < 0.0 ? -1.0 : 1.0"), std::string::npos);
+    EXPECT_NE(source->find("transpose(inverse(mat3(model)))"), std::string::npos);
+    EXPECT_NE(source->find("ms_v_out[vert].TexCoord1 = v.tex_coord_1"), std::string::npos);
+    EXPECT_NE(source->find("ms_v_out[vert].Color = v.color"), std::string::npos);
+    EXPECT_NE(source->find("transformHandedness[vert] = EE_TRANSFORM_HANDEDNESS(model)"), std::string::npos);
+    EXPECT_NE(source->find("* transformHandedness[vert]"), std::string::npos);
     EXPECT_EQ(source->find("T = normalize(T - dot(T, N) * N)"), std::string::npos);
   }
 
   EXPECT_NE(deferred.find("flat float TangentHandedness"), std::string::npos);
   EXPECT_NE(deferred.find("fs_in.TangentHandedness"), std::string::npos);
+  EXPECT_NE(deferred.find("fs_in.TexCoord1"), std::string::npos);
+  EXPECT_NE(deferred.find("fs_in.Color"), std::string::npos);
   EXPECT_EQ(deferred.find("EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, fs_in.Normal, "
                           "fs_in.Tangent)"),
             std::string::npos);
@@ -751,6 +791,28 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(raster_material.find("tangent - n * dot(n, tangent)"), std::string::npos);
   EXPECT_NE(raster_material.find("EE_GLTF_FALLBACK_TANGENT(n)"), std::string::npos);
   EXPECT_NE(raster_material.find("vec3 b = cross(n, t) * bitangent_sign"), std::string::npos);
+  EXPECT_NE(standard_strands.find("gs_out.TangentHandedness = modelHandedness"), std::string::npos);
+  for (const auto* source : {&deferred, &transparent}) {
+    EXPECT_NE(source->find("layout(location = 8) in flat float transformHandedness"), std::string::npos);
+    EXPECT_NE(source->find("(gl_FrontFacing ? 1.0 : -1.0) * transformHandedness"), std::string::npos);
+    EXPECT_NE(source->find("EE_GLTF_MATERIALS[material_index].double_sided == 0 && facing_sign < 0.0"),
+              std::string::npos);
+  }
+  EXPECT_NE(instances.find("float EE_TRANSFORM_HANDEDNESS(mat4 transform)"), std::string::npos);
+  EXPECT_NE(instances.find("determinant(mat3(transform)) < 0.0 ? -1.0 : 1.0"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("VkCullModeFlags ResolveCullModeForTransform"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("VkCullModeFlags ResolveInstancedCullModeForTransforms"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("has_positive_determinant && has_negative_determinant"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("return VK_CULL_MODE_NONE"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("return VK_CULL_MODE_FRONT_BIT"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("return VK_CULL_MODE_BACK_BIT"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("render_instance->cull_mode = ResolveCullModeForTransform"),
+            std::string::npos);
+  EXPECT_EQ(render_instance_storage.find("render_instance->cull_mode = material->draw_settings.cull_mode;"),
+            std::string::npos);
+  EXPECT_NE(inspection_adapters.find("InspectDrawSettings(material.draw_settings, false)"), std::string::npos);
+  EXPECT_NE(scots_pine.find("needle_material->material_data.shade_material.double_sided = 1"), std::string::npos);
+  EXPECT_EQ(CountOccurrences(soil, "material->material_data.shade_material.double_sided = 1"), 2);
 }
 
 TEST(GltfRasterMaterial, PrefabImporterPreservesMissingTexCoordAttributes) {
@@ -759,4 +821,11 @@ TEST(GltfRasterMaterial, PrefabImporterPreservesMissingTexCoordAttributes) {
 
   EXPECT_NE(prefab_source.find("attributes.tex_coord = false"), std::string::npos);
   EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord = false"), std::string::npos);
+  EXPECT_NE(prefab_source.find("attributes.tex_coord_1 = true"), std::string::npos);
+  EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_1 = true"), std::string::npos);
+  EXPECT_NE(prefab_source.find("glm::vec4(color.r, color.g, color.b, color.a)"), std::string::npos);
+  EXPECT_NE(prefab_source.find("ReadImportedTexCoord(importer_mesh, 1"), std::string::npos);
+  EXPECT_NE(prefab_source.find("bool parsed_gltf = false"), std::string::npos);
+  EXPECT_NE(prefab_source.find("extension == \".gltf\" && parsed_gltf"), std::string::npos);
+  EXPECT_EQ(prefab_source.find("extension == \".gltf\" && !gltf_material_data.empty()"), std::string::npos);
 }

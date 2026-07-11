@@ -12,9 +12,12 @@ layout (location = 0) in VS_OUT {
 	vec3 Tangent;
 	flat float TangentHandedness;
 	vec2 TexCoord;
+	vec2 TexCoord1;
+	vec4 Color;
 } fs_in;
 
-layout(location = 5) in flat uint currentInstanceIndex;
+layout(location = 7) in flat uint currentInstanceIndex;
+layout(location = 8) in flat float transformHandedness;
 
 layout (location = 0) out vec4 FragColor;
 
@@ -22,14 +25,16 @@ void main()
 {
 	int instance_index = int(currentInstanceIndex);
 	Instance instance = EE_INSTANCES[instance_index];
-	vec2 tex_coord = fs_in.TexCoord;
 	uint material_index = uint(instance.material_index);
-	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
+	float facing_sign = (gl_FrontFacing ? 1.0 : -1.0) * transformHandedness;
+	if (EE_GLTF_MATERIALS[material_index].double_sided == 0 && facing_sign < 0.0) discard;
+	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
+		material_index, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Color);
 	if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) discard;
 
 	vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL(
-		material_index, tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
-	normal = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
+		material_index, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
+	normal = normalize(facing_sign * normal);
 
 	vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 	vec3 viewDir = normalize(cameraPosition - fs_in.FragPos);
@@ -37,7 +42,7 @@ void main()
 	vec4 albedo = surface.base_color;
 	float roughness = surface.roughness;
 	float metallic = surface.metallic;
-	vec3 F0 = mix(vec3(0.04f), albedo.rgb, metallic);
+	vec3 F0 = surface.specular_f0;
 
 	vec3 direct = EE_FUNC_CALCULATE_LIGHTS(true, albedo.rgb, 1.0, depth, normal, viewDir, fs_in.FragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb, normal, viewDir, metallic, roughness, F0) +

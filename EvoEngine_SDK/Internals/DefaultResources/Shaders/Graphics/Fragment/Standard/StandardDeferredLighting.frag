@@ -49,8 +49,7 @@ void main()
 
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;
-	vec3 F0 = vec3(0.04f); 
-	F0 = mix(F0, albedo.xyz, metallic);
+	vec3 F0 = pbrFlags.yzw;
 	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0) +
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.xyz, normal, viewDir, fragPos);

@@ -34,8 +34,10 @@ struct EE_CAMERA_SURFACE_HIT {
   vec3 geometric_normal;
   vec3 tangent;
   vec3 bitangent;
-  vec2 tex_coord;
-  float tex_grad;
+  vec2 tex_coord_0;
+  vec2 tex_coord_1;
+  vec4 vertex_color;
+  vec2 tex_gradients;
   uint material_index;
   GltfRasterMaterial surface;
   GltfRayTracingPbrMaterial pbr;
@@ -83,14 +85,17 @@ vec3 EE_CAMERA_SAFE_OFFSET_RAY(const vec3 world_position, const vec3 offset_dire
                                               : offset_position.z);
 }
 
-float EE_CAMERA_TEXEL_DENSITY(const mat4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
+vec2 EE_CAMERA_TEXEL_DENSITY(const mat4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
   const vec3 world_edge_1 = vec3(model * vec4(v1.position - v0.position, 0.0f));
   const vec3 world_edge_2 = vec3(model * vec4(v2.position - v0.position, 0.0f));
   const float world_area = length(cross(world_edge_1, world_edge_2));
-  const vec2 uv_edge_1 = v1.tex_coord - v0.tex_coord;
-  const vec2 uv_edge_2 = v2.tex_coord - v0.tex_coord;
-  const float uv_area = abs(uv_edge_1.x * uv_edge_2.y - uv_edge_1.y * uv_edge_2.x);
-  return sqrt(max(uv_area, 1e-20f) / max(world_area, 1e-20f));
+  const vec2 uv0_edge_1 = v1.tex_coord - v0.tex_coord;
+  const vec2 uv0_edge_2 = v2.tex_coord - v0.tex_coord;
+  const vec2 uv1_edge_1 = v1.tex_coord_1 - v0.tex_coord_1;
+  const vec2 uv1_edge_2 = v2.tex_coord_1 - v0.tex_coord_1;
+  const vec2 uv_area = abs(vec2(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
+                                uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y));
+  return sqrt(uv_area / max(world_area, 1e-20f));
 }
 
 float EE_CAMERA_WORLD_FOOTPRINT(const float ray_cone_width, const float hit_t, const vec3 geometric_normal,
@@ -100,9 +105,9 @@ float EE_CAMERA_WORLD_FOOTPRINT(const float ray_cone_width, const float hit_t, c
   return (ray_cone_width + hit_t * pixel_angle) / max(abs(dot(geometric_normal, -ray_direction)), 1e-3f);
 }
 
-float EE_CAMERA_TEXTURE_GRAD(const float ray_cone_width, const float hit_t, const vec3 geometric_normal,
-                             const vec3 ray_direction, const mat4 model, const Vertex v0, const Vertex v1,
-                             const Vertex v2) {
+vec2 EE_CAMERA_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const vec3 geometric_normal,
+                                 const vec3 ray_direction, const mat4 model, const Vertex v0, const Vertex v1,
+                                 const Vertex v2) {
   return EE_CAMERA_WORLD_FOOTPRINT(ray_cone_width, hit_t, geometric_normal, ray_direction) *
          EE_CAMERA_TEXEL_DENSITY(model, v0, v1, v2);
 }
@@ -1068,13 +1073,17 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
   const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
                                                                       v2.position - v0.position),
                                                                 vec3(0.0f, 1.0f, 0.0f));
-  const vec2 tex_coord = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y +
-                         v2.tex_coord * barycentrics.z;
+  const vec2 tex_coord_0 = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y +
+                           v2.tex_coord * barycentrics.z;
+  const vec2 tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
+                           v2.tex_coord_1 * barycentrics.z;
+  const vec4 vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
   const vec3 object_normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y +
                              v2.normal * barycentrics.z;
   const vec3 object_tangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y +
                               v2.tangent * barycentrics.z;
-  const float tangent_handedness = v0.vertex_info3 < 0.0f ? -1.0f : 1.0f;
+  const float tangent_handedness =
+      (v0.vertex_info3 < 0.0f ? -1.0f : 1.0f) * EE_TRANSFORM_HANDEDNESS(instance.model);
   const mat3 normal_matrix = transpose(inverse(mat3(instance.model)));
 
   hit.material_index = hit_value.material_index;
@@ -1090,9 +1099,10 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
                                                              v0_shadow_normal, v1_shadow_normal, v2_shadow_normal,
                                                              barycentrics);
   hit.shadow_position = vec3(instance.model * vec4(object_shadow_position, 1.0f));
-  hit.tex_grad = EE_CAMERA_TEXTURE_GRAD(ray_cone_width, hit_value.hit_t, hit.geometric_normal, ray_direction,
-                                        instance.model, v0, v1, v2);
-  hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE(hit.material_index, tex_coord, tex_coord, hit.tex_grad);
+  hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width, hit_value.hit_t, hit.geometric_normal,
+                                                  ray_direction, instance.model, v0, v1, v2);
+  hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE(hit.material_index, tex_coord_0, tex_coord_1, vertex_color,
+                                                hit.tex_gradients);
   hit.normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal, hit.geometric_normal);
   const vec3 world_tangent = mat3(instance.model) * object_tangent;
   hit.tangent = EE_CAMERA_SAFE_NORMALIZE(world_tangent - hit.normal * dot(world_tangent, hit.normal),
@@ -1109,10 +1119,12 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
     hit.normal = hit.geometric_normal;
   }
   hit.shading_normal = hit.normal;
-  hit.tex_coord = tex_coord;
-  hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(hit.material_index, tex_coord, tex_coord, hit.normal,
-                                                       hit.tangent, hit.bitangent, hit.geometric_normal,
-                                                       is_inside, hit.tex_grad);
+  hit.tex_coord_0 = tex_coord_0;
+  hit.tex_coord_1 = tex_coord_1;
+  hit.vertex_color = vertex_color;
+  hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+      hit.material_index, tex_coord_0, tex_coord_1, vertex_color, hit.normal, hit.tangent, hit.bitangent,
+      hit.geometric_normal, is_inside, hit.tex_gradients);
   hit.normal = hit.pbr.normal;
   hit.tangent = hit.pbr.tangent;
   hit.bitangent = hit.pbr.bitangent;

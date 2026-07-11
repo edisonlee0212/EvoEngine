@@ -70,12 +70,19 @@ enum class GltfAlphaMode : int32_t {
   Blend = 2,
 };
 
+enum class GltfTextureColorSpace : int32_t {
+  Linear = 0,
+  Srgb = 1,
+};
+
 struct GltfTextureInfo {
 #if MAT_EXT_TEXTURE_TRANSFORM
   glm::mat3x2 uv_transform = glm::mat3x2(1.0f);
 #endif
   int32_t index = -1;
   int32_t tex_coord = 0;
+  int32_t color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
+  int32_t padding = 0;
 };
 
 inline bool operator!=(const GltfTextureInfo& lhs, const GltfTextureInfo& rhs) {
@@ -86,6 +93,8 @@ inline bool operator!=(const GltfTextureInfo& lhs, const GltfTextureInfo& rhs) {
   if (lhs.index != rhs.index)
     return true;
   if (lhs.tex_coord != rhs.tex_coord)
+    return true;
+  if (lhs.color_space != rhs.color_space)
     return true;
   return false;
 }

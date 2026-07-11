@@ -10,6 +10,8 @@
 
 #include "RayTracingBasic.glsl"
 #include "Random.glsl"
+#define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
+#define EE_GLTF_TEXTURE_LOD 0.0
 #include "GltfRasterMaterial.glsl"
 #include "GltfRayTracingBsdf.glsl"
 #include "CameraRayTracingPayload.glsl"

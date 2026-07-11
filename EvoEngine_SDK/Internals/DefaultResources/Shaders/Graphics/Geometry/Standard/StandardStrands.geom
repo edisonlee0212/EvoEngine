@@ -12,19 +12,24 @@ layout (location = 0) in TES_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	float TexCoord;
+	vec4 Color;
 } tes_in[];
 
 layout (location = 0) out VS_OUT {
 	vec3 FragPos;
 	vec3 Normal;
 	vec3 Tangent;
+	flat float TangentHandedness;
 	vec2 TexCoord;
+	vec2 TexCoord1;
+	vec4 Color;
 } gs_out;
 
 const float PI2 = 6.28318531;
 
-layout(location = 5) in uint currentInstanceIndexIn[];
-layout(location = 5) out uint currentInstanceIndexOut;
+layout(location = 7) in uint currentInstanceIndexIn[];
+layout(location = 7) out uint currentInstanceIndexOut;
+layout(location = 8) out flat float transformHandedness;
 
 void main(){
 	
@@ -32,6 +37,7 @@ void main(){
 	uint instanceIndex = currentInstanceIndexIn[0];
 	mat4 model = EE_INSTANCES[instanceIndex].model;
 	mat4 inverseModel = inverse(model);
+	float modelHandedness = EE_TRANSFORM_HANDEDNESS(model);
 	
 	for(int i = 0; i < tes_in.length() - 1; ++i)
 	{
@@ -78,7 +84,11 @@ void main(){
 			gs_out.FragPos = newPS;
 			gs_out.Normal = normalize(newPS - worldPosS);
 			gs_out.Tangent = tS;
+			gs_out.TangentHandedness = modelHandedness;
+			transformHandedness = modelHandedness;
 			gs_out.TexCoord = vec2(1.0 * tempIS / ringAmountS, tes_in[i].TexCoord);
+			gs_out.TexCoord1 = gs_out.TexCoord;
+			gs_out.Color = tes_in[i].Color;
 			gl_Position = cameraProjectionView * vec4(newPS, 1);
 			EmitVertex();
 
@@ -87,7 +97,11 @@ void main(){
 			gs_out.FragPos = newPT;
 			gs_out.Normal = normalize(newPT - worldPosT);
 			gs_out.Tangent = tT;
+			gs_out.TangentHandedness = modelHandedness;
+			transformHandedness = modelHandedness;
 			gs_out.TexCoord = vec2(1.0 * tempIT / ringAmountT, tes_in[i + 1].TexCoord);
+			gs_out.TexCoord1 = gs_out.TexCoord;
+			gs_out.Color = tes_in[i + 1].Color;
 			gl_Position = cameraProjectionView * vec4(newPT, 1);
 			EmitVertex();
 		}

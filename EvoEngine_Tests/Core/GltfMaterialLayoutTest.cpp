@@ -1,4 +1,5 @@
 #include "GltfMaterial.hpp"
+#include "Vertex.hpp"
 
 #include <gtest/gtest.h>
 
@@ -20,10 +21,22 @@ TEST(GltfMaterialLayout, HostTextureInfoMatchesReferenceAnchors) {
   using evo_engine::GltfTextureInfo;
 
   EXPECT_TRUE(std::is_standard_layout_v<GltfTextureInfo>);
-  EXPECT_EQ(sizeof(GltfTextureInfo), 32);
+  EXPECT_EQ(sizeof(GltfTextureInfo), 40);
   EXPECT_EQ(offsetof(GltfTextureInfo, uv_transform), 0);
   EXPECT_EQ(offsetof(GltfTextureInfo, index), 24);
   EXPECT_EQ(offsetof(GltfTextureInfo, tex_coord), 28);
+  EXPECT_EQ(offsetof(GltfTextureInfo, color_space), 32);
+  EXPECT_EQ(offsetof(GltfTextureInfo, padding), 36);
+}
+
+TEST(GltfMaterialLayout, ExtendedVerticesPreserveLegacyPrefixAndAppendSecondaryUv) {
+  using evo_engine::SkinnedVertex;
+  using evo_engine::Vertex;
+
+  EXPECT_EQ(sizeof(Vertex), 96);
+  EXPECT_EQ(offsetof(Vertex, tex_coord_1), 80);
+  EXPECT_EQ(sizeof(SkinnedVertex), 160);
+  EXPECT_EQ(offsetof(SkinnedVertex, tex_coord_1), 144);
 }
 
 TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {
@@ -47,6 +60,8 @@ TEST(GltfMaterialLayout, ShaderIncludeKeepsMaterialLayoutGatesSeparateFromBehavi
   EXPECT_NE(shader_source.find("MAT_EXT_SPECULAR_GLOSSINESS"), std::string::npos);
   EXPECT_NE(shader_source.find("MAT_EXT_TEXTURE_TRANSFORM"), std::string::npos);
   EXPECT_NE(shader_source.find("struct GltfTextureInfo"), std::string::npos);
+  EXPECT_NE(shader_source.find("int color_space"), std::string::npos);
+  EXPECT_NE(shader_source.find("int padding"), std::string::npos);
   EXPECT_NE(shader_source.find("struct GltfShadeMaterial"), std::string::npos);
   EXPECT_NE(shader_source.find("uint16_t pbr_base_color_texture"), std::string::npos);
   EXPECT_EQ(shader_source.find("GLTF_USE_"), std::string::npos);

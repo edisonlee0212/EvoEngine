@@ -322,7 +322,8 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
   SetMaterialTextures(material, albedo_tex, normal_tex, roughness_tex, metallic_tex);
   const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(quad_entity).lock();
   mesh_renderer->material = material;
-  material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  material->material_data.shade_material.double_sided = 1;
+  material->MarkDirty();
   mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().quad;
 
   GlobalTransform global_transform;
@@ -368,7 +369,8 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   SetMaterialTextures(material, albedo_tex, normal_tex, roughness_tex, metallic_tex);
 
   mesh_renderer->material = material;
-  material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  material->material_data.shade_material.double_sided = 1;
+  material->MarkDirty();
   mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().quad;
 
   GlobalTransform global_transform;

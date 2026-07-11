@@ -42,16 +42,18 @@ void main() {
 
   vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL(uint(material_index), tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent);
 
-  vec3 world_normal = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
+  float facing_sign = (gl_FrontFacing ? 1.0 : -1.0) * EE_TRANSFORM_HANDEDNESS(instance.model);
+  vec3 world_normal = normalize(facing_sign * normal);
   vec3 base_color = max(surface.base_color.rgb, vec3(0.0));
   float info_index = float(instance.info_index);
   if (color_mode != COLOR_STANDARD) {
     base_color = max(fs_in.Color.rgb, vec3(0.0));
     info_index = float(instance.info_index + 2);
   }
+  surface.specular_f0 = EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint(material_index), surface, base_color);
   outGBufferBaseColorAO = vec4(base_color, max(surface.occlusion, 0.0));
   outGBufferNormalRoughness = vec4(world_normal, surface.roughness);
-  outGBufferPbrFlags = vec4(surface.metallic, 0.0, 0.0, 0.0);
+  outGBufferPbrFlags = vec4(surface.metallic, surface.specular_f0);
   outGBufferEmissive = vec4(surface.emissive, 0.0);
   outGBufferUtility = vec4(float(EE_INSTANCE_INDEX), info_index, float(material_index), 0.0);
 }

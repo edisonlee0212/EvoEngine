@@ -36,6 +36,7 @@ layout(set = EE_GLTF_RASTER_MATERIAL_SET, binding = EE_GLTF_RASTER_OCCLUSION_TEX
 
 struct GltfRasterMaterial {
   vec4 base_color;
+  vec3 specular_f0;
   vec3 emissive;
   float metallic;
   float roughness;
@@ -67,6 +68,19 @@ vec2 EE_GLTF_TEXTURE_UV(GltfTextureInfo texture_info, vec2 tex_coord_0, vec2 tex
   uv = texture_info.uv_transform * vec3(uv, 1.0);
 #endif
   return uv;
+}
+
+vec3 EE_GLTF_SRGB_TO_LINEAR(vec3 encoded) {
+  const vec3 low = encoded / 12.92;
+  const vec3 high = pow(max((encoded + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+  return mix(high, low, lessThanEqual(encoded, vec3(0.04045)));
+}
+
+vec4 EE_GLTF_DECODE_TEXTURE_SAMPLE(const GltfTextureInfo texture_info, vec4 sample_value) {
+  if (texture_info.color_space == EE_GLTF_TEXTURE_COLOR_SPACE_SRGB) {
+    sample_value.rgb = EE_GLTF_SRGB_TO_LINEAR(sample_value.rgb);
+  }
+  return sample_value;
 }
 
 #ifndef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES
@@ -154,7 +168,7 @@ vec4 EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE_LOD0(int texture_slot, vec2 uv, vec4 fa
 
 vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT(
     uint16_t texture_info_slot, int texture_slot, vec2 tex_coord_0, vec2 tex_coord_1, vec4 fallback,
-    float tex_grad) {
+    vec2 tex_gradients) {
   if (!EE_GLTF_HAS_TEXTURE(texture_info_slot)) {
     return fallback;
   }
@@ -164,6 +178,8 @@ vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT(
   }
 
   vec2 uv = EE_GLTF_TEXTURE_UV(texture_info, tex_coord_0, tex_coord_1);
+  const float tex_grad = texture_info.tex_coord == 1 ? tex_gradients.y : tex_gradients.x;
+  vec4 sample_value;
   if (tex_grad > 0.0) {
 #if MAT_EXT_TEXTURE_TRANSFORM
     vec2 ddx_uv = texture_info.uv_transform * vec3(tex_grad, 0.0, 0.0);
@@ -173,24 +189,38 @@ vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT(
     vec2 ddy_uv = vec2(0.0, tex_grad);
 #endif
 #ifdef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES
-    return EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE(texture_slot, uv, ddx_uv, ddy_uv, true, fallback);
+    sample_value = EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE(texture_slot, uv, ddx_uv, ddy_uv, true, fallback);
 #else
-    return EE_GLTF_SAMPLE_BINDLESS_TEXTURE(texture_info, uv, ddx_uv, ddy_uv, true);
+    sample_value = EE_GLTF_SAMPLE_BINDLESS_TEXTURE(texture_info, uv, ddx_uv, ddy_uv, true);
+#endif
+  } else {
+    const vec2 ddx_uv = vec2(0.0);
+    const vec2 ddy_uv = vec2(0.0);
+#ifdef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES
+    sample_value = EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE(texture_slot, uv, ddx_uv, ddy_uv, false, fallback);
+#else
+    sample_value = EE_GLTF_SAMPLE_BINDLESS_TEXTURE(texture_info, uv, ddx_uv, ddy_uv, false);
 #endif
   }
-  const vec2 ddx_uv = vec2(0.0);
-  const vec2 ddy_uv = vec2(0.0);
-#ifdef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES
-  return EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE(texture_slot, uv, ddx_uv, ddy_uv, false, fallback);
-#else
-  return EE_GLTF_SAMPLE_BINDLESS_TEXTURE(texture_info, uv, ddx_uv, ddy_uv, false);
-#endif
+  return EE_GLTF_DECODE_TEXTURE_SAMPLE(texture_info, sample_value);
+}
+
+vec4 EE_GLTF_SAMPLE_TEXTURE(
+    uint16_t texture_info_slot, vec2 tex_coord_0, vec2 tex_coord_1, vec4 fallback, vec2 tex_gradients) {
+  return EE_GLTF_SAMPLE_TEXTURE_SLOT(texture_info_slot, EE_GLTF_RASTER_TEXTURE_UNSUPPORTED_EXTENSION, tex_coord_0,
+                                     tex_coord_1, fallback, tex_gradients);
+}
+
+vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT(
+    uint16_t texture_info_slot, int texture_slot, vec2 tex_coord_0, vec2 tex_coord_1, vec4 fallback,
+    float tex_grad) {
+  return EE_GLTF_SAMPLE_TEXTURE_SLOT(texture_info_slot, texture_slot, tex_coord_0, tex_coord_1, fallback,
+                                     vec2(tex_grad));
 }
 
 vec4 EE_GLTF_SAMPLE_TEXTURE(
     uint16_t texture_info_slot, vec2 tex_coord_0, vec2 tex_coord_1, vec4 fallback, float tex_grad) {
-  return EE_GLTF_SAMPLE_TEXTURE_SLOT(texture_info_slot, EE_GLTF_RASTER_TEXTURE_UNSUPPORTED_EXTENSION, tex_coord_0,
-                                     tex_coord_1, fallback, tex_grad);
+  return EE_GLTF_SAMPLE_TEXTURE(texture_info_slot, tex_coord_0, tex_coord_1, fallback, vec2(tex_grad));
 }
 
 vec4 EE_GLTF_SAMPLE_TEXTURE(uint16_t texture_info_slot, vec2 tex_coord_0, vec2 tex_coord_1, vec4 fallback) {
@@ -209,36 +239,17 @@ vec4 EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
 
   const vec2 uv = EE_GLTF_TEXTURE_UV(texture_info, tex_coord_0, tex_coord_1);
 #ifdef EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES
-  return EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE_LOD0(texture_slot, uv, fallback);
+  const vec4 sample_value = EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE_LOD0(texture_slot, uv, fallback);
 #else
-  return EE_GLTF_SAMPLE_BINDLESS_TEXTURE_LOD0(texture_info, uv);
+  const vec4 sample_value = EE_GLTF_SAMPLE_BINDLESS_TEXTURE_LOD0(texture_info, uv);
 #endif
+  return EE_GLTF_DECODE_TEXTURE_SAMPLE(texture_info, sample_value);
 }
 
 vec4 EE_GLTF_SAMPLE_TEXTURE_LOD0(uint16_t texture_info_slot, vec2 tex_coord_0, vec2 tex_coord_1, vec4 fallback) {
   return EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(texture_info_slot, EE_GLTF_RASTER_TEXTURE_UNSUPPORTED_EXTENSION, tex_coord_0,
                                           tex_coord_1, fallback);
 }
-
-#if MAT_EXT_SPECULAR_GLOSSINESS
-vec3 EE_GLTF_CONVERT_SPEC_GLOSS_TO_METALLIC_ROUGHNESS(
-    vec3 diffuse_color, vec3 specular_color, float glossiness, out float metallic, out float roughness) {
-  const float dielectric_specular = 0.04;
-  float specular_intensity = max(specular_color.r, max(specular_color.g, specular_color.b));
-  metallic = smoothstep(dielectric_specular + 0.01, dielectric_specular + 0.05, specular_intensity);
-
-  vec3 base_color;
-  if (metallic > 0.0) {
-    base_color = specular_color;
-  } else {
-    base_color = diffuse_color / (1.0 - dielectric_specular * (1.0 - metallic));
-    base_color = clamp(base_color, 0.0, 1.0);
-  }
-
-  roughness = max(1.0 - glossiness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
-  return base_color;
-}
-#endif
 
 #if MAT_EXT_VOLUME_SCATTER
 vec3 EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO(vec3 rho_ms) {
@@ -249,10 +260,12 @@ vec3 EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO(vec3 rho_ms) {
 #endif
 
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
-    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, float tex_grad) {
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color, vec2 tex_gradients) {
   GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
   GltfRasterMaterial surface;
-  surface.base_color = material.pbr_base_color_factor;
+  vertex_color = clamp(vertex_color, vec4(0.0), vec4(1.0));
+  surface.base_color = material.pbr_base_color_factor * vertex_color;
+  surface.specular_f0 = vec3(0.04);
   surface.emissive = material.emissive_factor;
   surface.metallic = material.pbr_metallic_factor;
   surface.roughness = material.pbr_roughness_factor;
@@ -271,40 +284,44 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
 
 #if MAT_EXT_SPECULAR_GLOSSINESS
   if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    vec4 diffuse = material.pbr_diffuse_factor;
+    vec4 diffuse = material.pbr_diffuse_factor * vertex_color;
     vec3 specular = material.pbr_specular_factor;
     float glossiness = material.pbr_glossiness_factor;
 
     diffuse *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
-                                           tex_coord_0, tex_coord_1, vec4(1.0), tex_grad);
+                                           tex_coord_0, tex_coord_1, vec4(1.0), tex_gradients);
     vec4 specular_glossiness = EE_GLTF_SAMPLE_TEXTURE_SLOT(
         material.pbr_specular_glossiness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS, tex_coord_0,
-        tex_coord_1, vec4(1.0), tex_grad);
+        tex_coord_1, vec4(1.0), tex_gradients);
     specular *= specular_glossiness.rgb;
     glossiness *= specular_glossiness.a;
 
-    surface.base_color.rgb = EE_GLTF_CONVERT_SPEC_GLOSS_TO_METALLIC_ROUGHNESS(
-        diffuse.rgb, specular, glossiness, surface.metallic, surface.roughness);
+    surface.specular_f0 = clamp(specular, vec3(0.0), vec3(1.0));
+    surface.base_color.rgb = diffuse.rgb * (1.0 - max(surface.specular_f0.r,
+                                                       max(surface.specular_f0.g, surface.specular_f0.b)));
     surface.base_color.a = diffuse.a;
+    surface.metallic = 0.0;
+    surface.roughness = max(1.0 - glossiness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
   } else
 #endif
   {
     surface.base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT(
         material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coord_0, tex_coord_1,
-        vec4(1.0), tex_grad);
+        vec4(1.0), tex_gradients);
     vec4 metallic_roughness = EE_GLTF_SAMPLE_TEXTURE_SLOT(
         material.pbr_metallic_roughness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS, tex_coord_0,
-        tex_coord_1, vec4(1.0), tex_grad);
+        tex_coord_1, vec4(1.0), tex_gradients);
     surface.roughness *= metallic_roughness.g;
     surface.metallic *= metallic_roughness.b;
     surface.roughness = max(surface.roughness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
     surface.metallic = clamp(surface.metallic, 0.0, 1.0);
+    surface.specular_f0 = mix(vec3(0.04), max(surface.base_color.rgb, vec3(0.0)), surface.metallic);
   }
 
   if (EE_GLTF_HAS_TEXTURE(material.occlusion_texture)) {
     float occlusion = EE_GLTF_SAMPLE_TEXTURE_SLOT(
         material.occlusion_texture, EE_GLTF_RASTER_TEXTURE_OCCLUSION, tex_coord_0, tex_coord_1, vec4(1.0),
-        tex_grad).r;
+        tex_gradients).r;
     surface.occlusion = 1.0 + surface.occlusion * (occlusion - 1.0);
   }
 
@@ -312,7 +329,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   surface.transmission = material.transmission_factor;
   if (EE_GLTF_HAS_TEXTURE(material.transmission_texture)) {
     surface.transmission *=
-        EE_GLTF_SAMPLE_TEXTURE(material.transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0), tex_grad).r;
+        EE_GLTF_SAMPLE_TEXTURE(material.transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0), tex_gradients).r;
   }
 #endif
 
@@ -322,7 +339,7 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   surface.thickness = material.thickness_factor;
   if (EE_GLTF_HAS_TEXTURE(material.thickness_texture)) {
     surface.thickness *=
-        EE_GLTF_SAMPLE_TEXTURE(material.thickness_texture, tex_coord_0, tex_coord_1, vec4(1.0), tex_grad).g;
+        EE_GLTF_SAMPLE_TEXTURE(material.thickness_texture, tex_coord_0, tex_coord_1, vec4(1.0), tex_gradients).g;
   }
 #endif
 
@@ -331,13 +348,13 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
   if (EE_GLTF_HAS_TEXTURE(material.diffuse_transmission_texture)) {
     surface.diffuse_transmission_factor *=
         EE_GLTF_SAMPLE_TEXTURE(material.diffuse_transmission_texture, tex_coord_0, tex_coord_1, vec4(1.0),
-                               tex_grad).a;
+                               tex_gradients).a;
   }
   surface.diffuse_transmission_color = material.diffuse_transmission_color;
   if (EE_GLTF_HAS_TEXTURE(material.diffuse_transmission_color_texture)) {
     surface.diffuse_transmission_color *=
         EE_GLTF_SAMPLE_TEXTURE(material.diffuse_transmission_color_texture, tex_coord_0, tex_coord_1, vec4(1.0),
-                               tex_grad).rgb;
+                               tex_gradients).rgb;
   }
 #endif
 
@@ -354,13 +371,42 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
 
   surface.emissive *= EE_GLTF_SAMPLE_TEXTURE_SLOT(
       material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE, tex_coord_0, tex_coord_1, vec4(1.0),
-      tex_grad).rgb;
+      tex_gradients).rgb;
   surface.emissive = max(vec3(0.0), surface.emissive);
   return surface;
 }
 
+GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color, float tex_grad) {
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vertex_color, vec2(tex_grad));
+}
+
+GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec2 tex_gradients) {
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vec4(1.0), tex_gradients);
+}
+
+GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, float tex_grad) {
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vec4(1.0), vec2(tex_grad));
+}
+
+GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color) {
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vertex_color, vec2(0.0));
+}
+
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1) {
-  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, 0.0);
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vec4(1.0), vec2(0.0));
+}
+
+vec3 EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint material_index, GltfRasterMaterial surface, vec3 base_color) {
+#if MAT_EXT_SPECULAR_GLOSSINESS
+  if (EE_GLTF_MATERIALS[material_index].pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
+    return surface.specular_f0;
+  }
+#endif
+  return mix(vec3(0.04), max(base_color, vec3(0.0)), clamp(surface.metallic, 0.0, 1.0));
 }
 
 vec3 EE_GLTF_SAFE_NORMALIZE(vec3 value, vec3 fallback) {
@@ -374,7 +420,7 @@ vec3 EE_GLTF_FALLBACK_TANGENT(vec3 normal) {
 }
 
 vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal,
-                                    vec3 tangent, float tangent_handedness, float tex_grad) {
+                                    vec3 tangent, float tangent_handedness, vec2 tex_gradients) {
   GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
   vec3 n = EE_GLTF_SAFE_NORMALIZE(normal, vec3(0.0, 1.0, 0.0));
   if (!EE_GLTF_HAS_TEXTURE(material.normal_texture)) {
@@ -383,7 +429,7 @@ vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, vec2 tex_coord_0, vec2 
 
   vec3 normal_vector = EE_GLTF_SAMPLE_TEXTURE_SLOT(
       material.normal_texture, EE_GLTF_RASTER_TEXTURE_NORMAL, tex_coord_0, tex_coord_1,
-      vec4(0.5, 0.5, 1.0, 1.0), tex_grad).xyz;
+      vec4(0.5, 0.5, 1.0, 1.0), tex_gradients).xyz;
   normal_vector = normal_vector * 2.0 - 1.0;
   normal_vector.xy *= material.normal_texture_scale;
 
@@ -395,9 +441,15 @@ vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, vec2 tex_coord_0, vec2 
 }
 
 vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal,
+                                    vec3 tangent, float tangent_handedness, float tex_grad) {
+  return EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord_0, tex_coord_1, normal, tangent,
+                                         tangent_handedness, vec2(tex_grad));
+}
+
+vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec3 normal,
                                     vec3 tangent, float tangent_handedness) {
   return EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord_0, tex_coord_1, normal, tangent,
-                                        tangent_handedness, 0.0);
+                                        tangent_handedness, vec2(0.0));
 }
 
 vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(
@@ -406,12 +458,17 @@ vec3 EE_EVALUATE_GLTF_RASTER_NORMAL(
 }
 
 float EE_GLTF_RASTER_OPACITY(GltfRasterMaterial surface) {
-  const float alpha = clamp(surface.base_color.a, 0.0, 1.0);
+  const float alpha = surface.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE
+                          ? 1.0
+                          : clamp(surface.base_color.a, 0.0, 1.0);
   const float transmission = clamp(max(surface.transmission, surface.diffuse_transmission_factor), 0.0, 1.0);
   return alpha * (1.0 - transmission);
 }
 
 bool EE_GLTF_RASTER_SHOULD_DISCARD(GltfRasterMaterial surface) {
+  if (surface.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE) {
+    return false;
+  }
   if (surface.alpha_mode == EE_GLTF_ALPHA_MODE_MASK) {
     return surface.base_color.a < surface.alpha_cutoff;
   }

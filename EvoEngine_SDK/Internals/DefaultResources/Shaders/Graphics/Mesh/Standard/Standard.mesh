@@ -21,6 +21,8 @@ layout(location = 0) out MS_V_OUT {
 	vec3 Tangent;
 	flat float TangentHandedness;
 	vec2 TexCoord;
+	vec2 TexCoord1;
+	vec4 Color;
 } ms_v_out[];
 
 struct Task{
@@ -34,7 +36,8 @@ taskPayloadSharedEXT Task ts_in;
 uint meshletID = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
-layout(location = 5) out flat uint currentInstanceIndex[];
+layout(location = 7) out flat uint currentInstanceIndex[];
+layout(location = 8) out flat float transformHandedness[];
 
 void main()
 {
@@ -56,13 +59,17 @@ void main()
 		if (vert >= verticesSize) break;
 
 		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
-		vec3 N = normalize(vec3(model * vec4(v.normal.xyz, 0.0)));
-		vec3 T = vec3(model * vec4(v.tangent.xyz, 0.0));
+		vec3 N = normalize(transpose(inverse(mat3(model))) * v.normal);
+		vec3 T = mat3(model) * v.tangent;
 		ms_v_out[vert].FragPos =	vec3(model * vec4(v.position.xyz, 1.0));
 		ms_v_out[vert].Normal = N;
 		ms_v_out[vert].Tangent = T;
-		ms_v_out[vert].TangentHandedness = v.vertex_info3 < 0.0 ? -1.0 : 1.0;
+		transformHandedness[vert] = EE_TRANSFORM_HANDEDNESS(model);
+		ms_v_out[vert].TangentHandedness =
+			(v.vertex_info3 < 0.0 ? -1.0 : 1.0) * transformHandedness[vert];
 		ms_v_out[vert].TexCoord = v.tex_coord.xy;
+		ms_v_out[vert].TexCoord1 = v.tex_coord_1;
+		ms_v_out[vert].Color = v.color;
 		gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(ms_v_out[vert].FragPos, 1.0);
 		currentInstanceIndex[vert] = instanceIndex;
 	}

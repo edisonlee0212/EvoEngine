@@ -18,9 +18,10 @@ layout(location = 0) out VS_OUT {
 	float Thickness;
 	vec3 Normal;
 	float TexCoord;
+	vec4 Color;
 } vs_out;
 
-layout(location = 5) out flat uint currentInstanceIndex;
+layout(location = 7) out flat uint currentInstanceIndex;
 
 void main()
 {
@@ -28,5 +29,6 @@ void main()
 	vs_out.FragPos = vec3(EE_INSTANCES[currentInstanceIndex].model * vec4(inPosition, 1.0));
 	vs_out.Thickness = inThickness;
 	vs_out.TexCoord = inTexCoord;
+	vs_out.Color = inColor;
 	vs_out.Normal = vec3(EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(inNormal, 0.0));
 }

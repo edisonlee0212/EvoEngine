@@ -268,6 +268,42 @@ device-loss, or fatal log hits. The normal fast RTX and RayQuery HDR hashes rema
 RTX-versus-RayQuery MAE/RMS is `0.001001/0.002475`, within the M0 `0.001003/0.002483` gate. Evidence is under
 `out\m2-rq-only`, `out\raytracer-m2-fast`, and `out\raytracer-m2-canonical-final`.
 
+### M3a Base-Material Parity
+
+The `rendering-regression` scene contains focused M3a probes that Bistro does not: independent UV0/UV1 coordinates,
+rotated/nonuniform `KHR_texture_transform`, vertex RGBA, a UV1 normal map under nonuniform instance scale, native
+specular-glossiness colored F0, OPAQUE alpha zero, vertex-driven MASK coverage, and vertex-driven BLEND opacity. Capture
+the scene in all three techniques with the same dimensions and deterministic settings. Mirrored single-sided,
+double-sided normal-map, and mixed positive/negative instanced probes additionally cover winding and tangent-frame
+handedness. Inspect the named `M3a` probes and compare the linear RTX/RayQuery outputs in addition to checking the display
+PNGs.
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3a-raster.png --preview-render-mode rasterization --preview-warmup-frames 1800 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3a-rtx.hdr --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m3a-rayquery.hdr --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+```
+
+The finalized M3a probe captures at 1280x720 and 2048 SPP produced an RT-pipeline-versus-RayQuery linear HDR MAE of
+`0.0001972075` and RMS of `0.001589219`. The 2560x1440 Bistro baselines below record the broader reference gap without
+using it as a substitute for the focused probes:
+
+| Profile | Comparison | Linear MAE | Linear RMS |
+| --- | --- | ---: | ---: |
+| fast, 64 SPP | reference RTX vs EvoEngine RTX | 0.0174610 | 0.0454867 |
+| fast, 64 SPP | reference RayQuery vs EvoEngine RayQuery | 0.0174641 | 0.0452488 |
+| fast, 64 SPP | EvoEngine RTX vs RayQuery | 0.00201219 | 0.0109933 |
+| canonical, 2048 SPP | reference RTX vs EvoEngine RTX | 0.0127995 | 0.0310318 |
+| canonical, 2048 SPP | reference RayQuery vs EvoEngine RayQuery | 0.0128016 | 0.0310532 |
+| canonical, 2048 SPP | EvoEngine RTX vs RayQuery | 0.000708048 | 0.00215062 |
+
+The corresponding manifests are `out/raytracer-m3a-final-fast/manifest.json` and
+`out/raytracer-m3a-final-canonical/manifest.json`; focused-probe evidence is under `out/m3a-validation/final`.
+
+Bistro remains the canonical performance and broad imported-material regression scene, but its current asset closure has
+no `TEXCOORD_1`, `COLOR_0`, or `KHR_texture_transform` primitives, so a valid Bistro image alone is not an M3a material
+parity gate.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

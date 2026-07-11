@@ -36,21 +36,21 @@ VkPipelineStageFlags2 RayTraversalStageMask() {
 VkGeometryInstanceFlagsKHR BuildGltfRayTracingInstanceFlags(
     const RenderInstanceStorage::IRenderInstance& render_instance,
     const std::vector<GltfShadeMaterial>& gltf_shade_materials) {
+  VkGeometryInstanceFlagsKHR flags{};
   const auto material_index = render_instance.material_index;
   if (material_index < 0 || static_cast<size_t>(material_index) >= gltf_shade_materials.size()) {
-    return VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-  }
-
-  const auto& material = gltf_shade_materials[material_index];
-  VkGeometryInstanceFlagsKHR flags{};
-  const bool opaque = material.transmission_factor == 0.0f &&
-                      material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque) &&
-                      material.diffuse_transmission_factor == 0.0f;
-  if (opaque) {
-    flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
-  }
-  if (material.double_sided != 0 || material.thickness_factor > 0.0f || material.transmission_factor > 0.0f) {
     flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+  } else {
+    const auto& material = gltf_shade_materials[material_index];
+    const bool opaque = material.transmission_factor == 0.0f &&
+                        material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque) &&
+                        material.diffuse_transmission_factor == 0.0f;
+    if (opaque) {
+      flags |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+    }
+    if (material.double_sided != 0 || material.thickness_factor > 0.0f || material.transmission_factor > 0.0f) {
+      flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+    }
   }
   return flags;
 }
@@ -466,6 +466,16 @@ void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuff
 }
 
 void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
+  if (mip_levels_ > 1) {
+    VkFormatProperties format_properties{};
+    vkGetPhysicalDeviceFormatProperties(Platform::GetSelectedPhysicalDevice()->vk_physical_device, format_,
+                                        &format_properties);
+    constexpr VkFormatFeatureFlags required_features = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT |
+                                                       VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    if ((format_properties.optimalTilingFeatures & required_features) != required_features) {
+      throw std::runtime_error("Image format does not support linear mipmap blits.");
+    }
+  }
   VkImageMemoryBarrier barrier{};
   barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
   barrier.image = vk_image_;
@@ -511,7 +521,7 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-    vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+    vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
                          nullptr, 0, nullptr, 1, &barrier);
 
     if (mip_width > 1)
@@ -525,7 +535,7 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-  vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0,
+  vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
                        nullptr, 0, nullptr, 1, &barrier);
   layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }

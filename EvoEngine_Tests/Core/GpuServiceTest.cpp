@@ -319,6 +319,23 @@ TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {
   EXPECT_NE(texture_storage.GetVkImageView(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkSampler(), VK_NULL_HANDLE);
   EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  EXPECT_EQ(texture_storage.GetMipLevels(), 2u);
+
+  Buffer mip_readback(sizeof(glm::vec4), true);
+  VkBufferImageCopy mip_copy{};
+  mip_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  mip_copy.imageSubresource.mipLevel = 1;
+  mip_copy.imageSubresource.layerCount = 1;
+  mip_copy.imageExtent = {1, 1, 1};
+  mip_readback.CopyFromImage(*texture_storage.GetImage(), mip_copy);
+  const auto mip_bytes = mip_readback.DownloadDataAsync(sizeof(glm::vec4)).get();
+  ASSERT_EQ(mip_bytes.size(), sizeof(glm::vec4));
+  glm::vec4 mip_pixel;
+  memcpy(&mip_pixel, mip_bytes.data(), sizeof(mip_pixel));
+  EXPECT_NEAR(mip_pixel.r, 0.5f, 0.001f);
+  EXPECT_NEAR(mip_pixel.g, 0.5f, 0.001f);
+  EXPECT_NEAR(mip_pixel.b, 0.5f, 0.001f);
+  EXPECT_NEAR(mip_pixel.a, 1.0f, 0.001f);
 }
 
 TEST(GpuService, Texture2DRuntimeUpdateTracksGpuReadiness) {

@@ -114,116 +114,46 @@ vec3 Barycentric(vec3 p, vec3 a, vec3 b, vec3 c) {
   return vec3(1.0f - y - z, y, z);
 }
 
-Vertex GetTriangleP0(uint triangle_index){
-  uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
-  uint t = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].x);
-  Vertex p;
-  p.position = scene_geometry_data[vertices_offset + t * 5].xyz;
-  p.vertex_info1 = scene_geometry_data[vertices_offset + t * 5].w;
+Vertex GetVertex(uint vertex_index) {
+  const uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
+  const uint offset = vertices_offset + vertex_index * 6;
+  Vertex vertex;
+  vertex.position = scene_geometry_data[offset].xyz;
+  vertex.vertex_info1 = scene_geometry_data[offset].w;
+  vertex.normal = scene_geometry_data[offset + 1].xyz;
+  vertex.vertex_info2 = scene_geometry_data[offset + 1].w;
+  vertex.tangent = scene_geometry_data[offset + 2].xyz;
+  vertex.vertex_info3 = scene_geometry_data[offset + 2].w;
+  vertex.color = scene_geometry_data[offset + 3];
+  vertex.tex_coord = scene_geometry_data[offset + 4].xy;
+  vertex.vertex_info4 = scene_geometry_data[offset + 4].zw;
+  vertex.tex_coord_1 = scene_geometry_data[offset + 5].xy;
+  vertex.padding = scene_geometry_data[offset + 5].zw;
+  return vertex;
+}
 
-  p.normal = scene_geometry_data[vertices_offset + t * 5 + 1].xyz;
-  p.vertex_info2 = scene_geometry_data[vertices_offset + t * 5 + 1].w;
+Vertex GetTriangleP0(uint triangle_index) {
+  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
+  return GetVertex(floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].x));
+}
 
-  p.tangent = scene_geometry_data[vertices_offset + t * 5 + 2].xyz;
-  p.vertex_info3 = scene_geometry_data[vertices_offset + t * 5 + 2].w;
+Vertex GetTriangleP1(uint triangle_index) {
+  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
+  return GetVertex(floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].y));
+}
 
-  p.color = scene_geometry_data[vertices_offset + t * 5 + 3];
-  p.tex_coord = scene_geometry_data[vertices_offset + t * 5 + 4].xy;
-  p.vertex_info4 = scene_geometry_data[vertices_offset + t * 5 + 4].zw;
+Vertex GetTriangleP2(uint triangle_index) {
+  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
+  return GetVertex(floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].z));
+}
 
-  return p;
-};
-
-Vertex GetTriangleP1(uint triangle_index){
-  uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
-  uint t = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].y);
-  Vertex p;
-  p.position = scene_geometry_data[vertices_offset + t * 5].xyz;
-  p.vertex_info1 = scene_geometry_data[vertices_offset + t * 5].w;
-
-  p.normal = scene_geometry_data[vertices_offset + t * 5 + 1].xyz;
-  p.vertex_info2 = scene_geometry_data[vertices_offset + t * 5 + 1].w;
-
-  p.tangent = scene_geometry_data[vertices_offset + t * 5 + 2].xyz;
-  p.vertex_info3 = scene_geometry_data[vertices_offset + t * 5 + 2].w;
-
-  p.color = scene_geometry_data[vertices_offset + t * 5 + 3];
-  p.tex_coord = scene_geometry_data[vertices_offset + t * 5 + 4].xy;
-  p.vertex_info4 = scene_geometry_data[vertices_offset + t * 5 + 4].zw;
-
-  return p;
-};
-
-Vertex GetTriangleP2(uint triangle_index){
-  uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
-  uint t = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].z);
-  Vertex p;
-  p.position = scene_geometry_data[vertices_offset + t * 5].xyz;
-  p.vertex_info1 = scene_geometry_data[vertices_offset + t * 5].w;
-
-  p.normal = scene_geometry_data[vertices_offset + t * 5 + 1].xyz;
-  p.vertex_info2 = scene_geometry_data[vertices_offset + t * 5 + 1].w;
-
-  p.tangent = scene_geometry_data[vertices_offset + t * 5 + 2].xyz;
-  p.vertex_info3 = scene_geometry_data[vertices_offset + t * 5 + 2].w;
-
-  p.color = scene_geometry_data[vertices_offset + t * 5 + 3];
-  p.tex_coord = scene_geometry_data[vertices_offset + t * 5 + 4].xy;
-  p.vertex_info4 = scene_geometry_data[vertices_offset + t * 5 + 4].zw;
-
-  return p;
-};
-
-void GetTriangle(in uint triangle_index, out Vertex p0, out Vertex p1, out Vertex p2){
-  uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
-  uint t_x = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].x);
-  uint t_y = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].y);
-  uint t_z = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].z);
-
-  p0.position = scene_geometry_data[vertices_offset + t_x * 5].xyz;
-  p0.vertex_info1 = scene_geometry_data[vertices_offset + t_x * 5].w;
-
-  p0.normal = scene_geometry_data[vertices_offset + t_x * 5 + 1].xyz;
-  p0.vertex_info2 = scene_geometry_data[vertices_offset + t_x * 5 + 1].w;
-
-  p0.tangent = scene_geometry_data[vertices_offset + t_x * 5 + 2].xyz;
-  p0.vertex_info3 = scene_geometry_data[vertices_offset + t_x * 5 + 2].w;
-
-  p0.color = scene_geometry_data[vertices_offset + t_x * 5 + 3];
-  p0.tex_coord = scene_geometry_data[vertices_offset + t_x * 5 + 4].xy;
-  p0.vertex_info4 = scene_geometry_data[vertices_offset + t_x * 5 + 4].zw;
-
-  p1.position = scene_geometry_data[vertices_offset + t_y * 5].xyz;
-  p1.vertex_info1 = scene_geometry_data[vertices_offset + t_y * 5].w;
-
-  p1.normal = scene_geometry_data[vertices_offset + t_y * 5 + 1].xyz;
-  p1.vertex_info2 = scene_geometry_data[vertices_offset + t_y * 5 + 1].w;
-
-  p1.tangent = scene_geometry_data[vertices_offset + t_y * 5 + 2].xyz;
-  p1.vertex_info3 = scene_geometry_data[vertices_offset + t_y * 5 + 2].w;
-
-  p1.color = scene_geometry_data[vertices_offset + t_y * 5 + 3];
-  p1.tex_coord = scene_geometry_data[vertices_offset + t_y * 5 + 4].xy;
-  p1.vertex_info4 = scene_geometry_data[vertices_offset + t_y * 5 + 4].zw;
-
-  p2.position = scene_geometry_data[vertices_offset + t_z * 5].xyz;
-  p2.vertex_info1 = scene_geometry_data[vertices_offset + t_z * 5].w;
-
-  p2.normal = scene_geometry_data[vertices_offset + t_z * 5 + 1].xyz;
-  p2.vertex_info2 = scene_geometry_data[vertices_offset + t_z * 5 + 1].w;
-
-  p2.tangent = scene_geometry_data[vertices_offset + t_z * 5 + 2].xyz;
-  p2.vertex_info3 = scene_geometry_data[vertices_offset + t_z * 5 + 2].w;
-
-  p2.color = scene_geometry_data[vertices_offset + t_z * 5 + 3];
-  p2.tex_coord = scene_geometry_data[vertices_offset + t_z * 5 + 4].xy;
-  p2.vertex_info4 = scene_geometry_data[vertices_offset + t_z * 5 + 4].zw;
-
-};
+void GetTriangle(in uint triangle_index, out Vertex p0, out Vertex p1, out Vertex p2) {
+  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
+  const vec3 triangle = scene_geometry_data[triangles_offset + triangle_index].xyz;
+  p0 = GetVertex(floatBitsToUint(triangle.x));
+  p1 = GetVertex(floatBitsToUint(triangle.y));
+  p2 = GetVertex(floatBitsToUint(triangle.z));
+}
 
 HitInfo Trace(in RayDescriptor ray_descriptor, in bool cull_back_face, in bool cull_front_face, out bool has_hit) {
   HitInfo hit_info;
@@ -340,9 +270,9 @@ HitInfo Trace(in RayDescriptor ray_descriptor, in bool cull_back_face, in bool c
               uint t_x = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].x);
               uint t_y = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].y);
               uint t_z = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].z);
-              vec3 p0 = scene_geometry_data[vertices_offset + t_x * 5].xyz;
-              vec3 p1 = scene_geometry_data[vertices_offset + t_y * 5].xyz;
-              vec3 p2 = scene_geometry_data[vertices_offset + t_z * 5].xyz;
+              vec3 p0 = scene_geometry_data[vertices_offset + t_x * 6].xyz;
+              vec3 p1 = scene_geometry_data[vertices_offset + t_y * 6].xyz;
+              vec3 p2 = scene_geometry_data[vertices_offset + t_z * 6].xyz;
               if (p0.x == p1.x && p0.y == p1.y && p0.z == p1.z && p1.x == p2.x && p1.y == p2.y && p1.z == p2.z)
                 continue;
               vec3 node_space_triangle_normal = normalize(cross(p1 - p0, p2 - p0));

@@ -10,6 +10,7 @@ layout (location = 0) in VS_OUT {
 	float Thickness;
 	vec3 Normal;
 	float TexCoord;
+	vec4 Color;
 } vs_in[];
 
 layout (location = 0) out TCS_OUT {
@@ -17,10 +18,11 @@ layout (location = 0) out TCS_OUT {
 	float Thickness;
 	vec3 Normal;
 	float TexCoord;
+	vec4 Color;
 } tcs_out[];
 
-layout(location = 5) in uint currentInstanceIndexIn[];
-layout(location = 5) patch out uint currentInstanceIndexOut;
+layout(location = 7) in uint currentInstanceIndexIn[];
+layout(location = 7) patch out uint currentInstanceIndexOut;
 
 void main(){
 	currentInstanceIndexOut = currentInstanceIndexIn[gl_InvocationID];
@@ -33,4 +35,5 @@ void main(){
 	tcs_out[gl_InvocationID].Thickness = vs_in[gl_InvocationID].Thickness;
 	tcs_out[gl_InvocationID].Normal = vs_in[gl_InvocationID].Normal;
 	tcs_out[gl_InvocationID].TexCoord = vs_in[gl_InvocationID].TexCoord;
+	tcs_out[gl_InvocationID].Color = vs_in[gl_InvocationID].Color;
 }

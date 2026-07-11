@@ -64,12 +64,17 @@ const int EE_GLTF_ALPHA_MODE_OPAQUE = 0;
 const int EE_GLTF_ALPHA_MODE_MASK = 1;
 const int EE_GLTF_ALPHA_MODE_BLEND = 2;
 
+const int EE_GLTF_TEXTURE_COLOR_SPACE_LINEAR = 0;
+const int EE_GLTF_TEXTURE_COLOR_SPACE_SRGB = 1;
+
 struct GltfTextureInfo {
 #if MAT_EXT_TEXTURE_TRANSFORM
   mat3x2 uv_transform;
 #endif
   int index;
   int tex_coord;
+  int color_space;
+  int padding;
 };
 
 struct GltfShadeMaterial {
