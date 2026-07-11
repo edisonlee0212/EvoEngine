@@ -388,9 +388,10 @@ class RenderInstanceStorage {
    * @brief Struct for instanced render instance functionality.
    */
   struct InstancedRenderInstance : IRenderInstance {
-    uint32_t particle_info_list_version;               ///< Version of the particle information list.
-    std::shared_ptr<Mesh> mesh;                        ///< Shared pointer to the mesh.
-    std::shared_ptr<ParticleInfoList> particle_infos;  ///< Shared pointer to the particle information list.
+    uint32_t particle_info_list_version;                 ///< Version of the particle information list.
+    std::shared_ptr<Mesh> mesh;                          ///< Shared pointer to the mesh.
+    std::shared_ptr<ParticleInfoList> particle_infos;    ///< Shared pointer to the particle information list.
+    std::vector<uint32_t> ray_tracing_instance_indices;  ///< Ray-only instance blocks, one per particle.
 
     /**
      * @brief Compares two InstancedRenderInstance objects for inequality.
@@ -828,9 +829,8 @@ class RenderInstanceStorage {
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.
-   * @param scene The scene for which to update the acceleration structure.
    */
-  void UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene);
+  void UpdateTopLevelAccelerationStructure();
 
   /**
    * @brief Finds the material index via a material handle.

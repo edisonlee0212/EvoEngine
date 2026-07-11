@@ -1062,6 +1062,21 @@ uint64_t MakeDdgiGeometrySignature(const std::shared_ptr<RenderInstanceStorage::
   signature = MixDdgiSignature(signature, render_instance->geometry_version);
   signature = MixDdgiSignature(signature, render_instance->cull_mode);
   signature = MixDdgiSignature(signature, render_instance->polygon_mode);
+  if (const auto instanced =
+          std::dynamic_pointer_cast<RenderInstanceStorage::InstancedRenderInstance>(render_instance)) {
+    signature = MixDdgiSignature(signature, instanced->particle_info_list_version);
+    if (instanced->particle_infos) {
+      const auto& particle_infos = instanced->particle_infos->PeekParticleInfoList();
+      signature = MixDdgiSignature(signature, particle_infos.size());
+      for (const auto& particle_info : particle_infos) {
+        signature = MixDdgiMat4(signature, particle_info.instance_matrix.value);
+        signature = MixDdgiFloat(signature, particle_info.instance_color.x);
+        signature = MixDdgiFloat(signature, particle_info.instance_color.y);
+        signature = MixDdgiFloat(signature, particle_info.instance_color.z);
+        signature = MixDdgiFloat(signature, particle_info.instance_color.w);
+      }
+    }
+  }
   return MixDdgiMat4(signature, render_instance->model.value);
 }
 
@@ -2857,7 +2872,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayTracingEnabled();
   if (update_ray_tracing_resources) {
-    current_render_instances->UpdateTopLevelAccelerationStructure(scene);
+    current_render_instances->UpdateTopLevelAccelerationStructure();
 
     if (current_render_instances->mesh_top_level_acceleration_structure) {
       ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(

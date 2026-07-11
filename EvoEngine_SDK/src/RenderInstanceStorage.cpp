@@ -1038,6 +1038,34 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   external_render_instances->ForEachExternalRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
   });
+
+  const auto append_particle_ray_instances = [&](const std::shared_ptr<InstancedRenderInstance>& render_instance) {
+    render_instance->ray_tracing_instance_indices.clear();
+    if (!Platform::RayTracingEnabled() || !render_instance->particle_infos || render_instance->instance_index < 0 ||
+        static_cast<size_t>(render_instance->instance_index) >= instance_info_blocks_.size()) {
+      return;
+    }
+    const auto base_block = instance_info_blocks_[render_instance->instance_index];
+    for (const auto& particle_info : render_instance->particle_infos->PeekParticleInfoList()) {
+      if (instance_info_blocks_.size() > 0x00ffffffu) {
+        throw std::runtime_error("Ray tracing instance custom index exceeds 24 bits.");
+      }
+      const auto ray_instance_index = static_cast<uint32_t>(instance_info_blocks_.size());
+      auto& ray_instance_block = instance_info_blocks_.emplace_back(base_block);
+      ray_instance_block.model.value = render_instance->model.value * particle_info.instance_matrix.value;
+      rigid_motion_supported_.emplace_back(0u);
+      render_instance->ray_tracing_instance_indices.emplace_back(ray_instance_index);
+      if (render_instance->entity_handle != 0) {
+        instance_entity_handles_[ray_instance_index] = render_instance->entity_handle;
+      }
+      if (render_instance->renderer_handle != 0) {
+        instance_renderer_handles_[ray_instance_index] = render_instance->renderer_handle;
+      }
+    }
+  };
+  deferred_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+  forward_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+  transparent_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
@@ -1958,18 +1986,11 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
   CollectLights(scene, world_bound);
 }
 
-void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  mesh_top_level_acceleration_structure.reset();
-  if (!deferred_render_instances->Empty() || !deferred_instanced_render_instances->Empty() ||
-      !deferred_skinned_render_instances->Empty() || !forward_render_instances->Empty() ||
-      !forward_instanced_render_instances->Empty() || !forward_skinned_render_instances->Empty() ||
-      !transparent_render_instances->Empty() || !transparent_instanced_render_instances->Empty() ||
-      !transparent_skinned_render_instances->Empty() || external_render_instances->HasDdgiRayTracingGeometry()) {
-    auto acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
-    if (acceleration_structure->GetVkAccelerationStructure() != VK_NULL_HANDLE) {
-      mesh_top_level_acceleration_structure = acceleration_structure;
-    }
+void RenderInstanceStorage::UpdateTopLevelAccelerationStructure() {
+  if (!mesh_top_level_acceleration_structure) {
+    mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>();
   }
+  mesh_top_level_acceleration_structure->Update(*this);
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,

@@ -170,10 +170,18 @@ Current shadow policy:
 
 ## Ray Camera Paths
 
-Ray-tracing cameras update the TLAS, bind the per-frame descriptor set and ray-tracing descriptor set, then dispatch the
-camera ray-generation shader. The camera raygen owns path depth, direct light evaluation, environment misses,
-BSDF-sampled next-bounce rays, throughput, Russian roulette, firefly clamping, and Auto SPP convergence. Closest-hit
-shaders record surface identity and geometry data into `CameraRayTracingPayload`.
+Each frame slot owns a persistent TLAS. Unchanged instance input reuses it without recording GPU work, compatible
+transform or instance-data changes use an in-place TLAS update, and topology or active-state changes rebuild the same
+allocation when its capacity permits. Upload, build/update, and traversal barriers are recorded on the main frame queue;
+there is no separate immediate-submit fence. Mesh-empty ray scenes bind a valid TLAS containing one inactive dummy
+instance. Instanced meshes assign each particle a ray-only instance block containing its composed world transform so hit
+reconstruction does not fall back to the particle renderer's parent transform. Static mesh BLAS objects remain
+asset-owned; animated skinned-mesh BLAS maintenance is handled separately.
+
+Ray-tracing cameras bind the per-frame descriptor set and ray-tracing descriptor set, then dispatch the camera
+ray-generation shader. The camera raygen owns path depth, direct light evaluation, environment misses, BSDF-sampled
+next-bounce rays, throughput, Russian roulette, firefly clamping, and Auto SPP convergence. Closest-hit shaders record
+surface identity and geometry data into `CameraRayTracingPayload`.
 
 RayQuery cameras use the compute path and share the same high-level camera material and light data where supported.
 

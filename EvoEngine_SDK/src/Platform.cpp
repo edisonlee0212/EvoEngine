@@ -26,6 +26,16 @@
 using namespace evo_engine;
 
 namespace {
+void ResolveFrameSubmissionStates(std::vector<std::weak_ptr<FrameSubmissionState>>& states,
+                                  const FrameSubmissionState::Status status) {
+  for (const auto& weak_state : states) {
+    if (const auto state = weak_state.lock(); state && state->status == FrameSubmissionState::Status::Pending) {
+      state->status = status;
+    }
+  }
+  states.clear();
+}
+
 void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, const size_t prim_count,
                   const size_t indirect_draw_commands) {
   stats.prim_count += prim_count;
@@ -2213,6 +2223,11 @@ void Platform::CreateSwapChainSyncObjects() {
   fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
   compute_finished_semaphores_.clear();
   in_flight_fences_.clear();
+  for (auto& states : frame_submission_states_) {
+    ResolveFrameSubmissionStates(states, FrameSubmissionState::Status::Discarded);
+  }
+  frame_submission_states_.clear();
+  frame_submission_states_.resize(max_frame_in_flight_);
   for (int i = 0; i < max_frame_in_flight_; i++) {
     compute_finished_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
     in_flight_fences_.emplace_back(std::make_unique<Fence>(fence_create_info));
@@ -2226,6 +2241,9 @@ void Platform::RecreateSwapChain() {
 
 void Platform::OnDestroy() {
   auto& graphics = GetInstance();
+  for (auto& states : graphics.frame_submission_states_) {
+    ResolveFrameSubmissionStates(states, FrameSubmissionState::Status::Discarded);
+  }
   if (graphics.gpu_service_) {
     graphics.gpu_service_->Shutdown();
   }
@@ -2265,6 +2283,7 @@ void Platform::OnDestroy() {
   graphics.render_finished_semaphores_.clear();
   graphics.compute_finished_semaphores_.clear();
   graphics.in_flight_fences_.clear();
+  graphics.frame_submission_states_.clear();
   graphics.current_frame_index_ = 0;
   graphics.next_image_index_ = 0;
   graphics.buffer_sync_actions.clear();
@@ -2315,6 +2334,8 @@ void Platform::ResetCommandBuffers() {
 
 void Platform::PreUpdate() {
   auto& graphics = GetInstance();
+  ResolveFrameSubmissionStates(graphics.frame_submission_states_[graphics.current_frame_index_],
+                               FrameSubmissionState::Status::Discarded);
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
     const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
@@ -2405,6 +2426,8 @@ void Platform::LateUpdate() {
 
   const VkFence in_flight_fences[] = {graphics.in_flight_fences_[submitted_frame_index]->GetVkFence()};
   CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
+  ResolveFrameSubmissionStates(graphics.frame_submission_states_[submitted_frame_index],
+                               FrameSubmissionState::Status::Submitted);
   graphics.ResolveGpuTimestampFrame(submitted_frame_index);
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
@@ -2441,6 +2464,13 @@ bool Platform::Initialized() {
 uint32_t Platform::GetFrameCount() {
   const auto& graphics = GetInstance();
   return graphics.frame_count;
+}
+
+std::shared_ptr<FrameSubmissionState> Platform::TrackCurrentFrameSubmission() {
+  auto& graphics = GetInstance();
+  auto state = std::make_shared<FrameSubmissionState>();
+  graphics.frame_submission_states_[graphics.current_frame_index_].emplace_back(state);
+  return state;
 }
 
 bool Platform::CheckExtensionSupport(const std::string& extension_name) {

@@ -12,11 +12,7 @@ namespace evo_engine {
  */
 class RenderInstanceStorage;
 
-/**
- * @class Scene
- * @brief Forward declaration for Scene class.
- */
-class Scene;
+struct FrameSubmissionState;
 
 /**
  * @class CommandBuffer
@@ -1057,26 +1053,62 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
  * @brief Represents a Vulkan top-level acceleration structure resource.
  */
 class TopLevelAccelerationStructure final : public IGraphicsResource {
+ public:
+  enum class UpdateMode { NoOp, Build, Update };
+
+ private:
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ =
       VK_NULL_HANDLE;                                       /**< Vulkan top-level acceleration structure handle. */
   std::shared_ptr<Buffer> acceleration_structure_buffer_{}; /**< Buffer associated with the acceleration structure. */
   VkDeviceAddress device_address_{};                        /**< Device address of the structure. */
+  uint32_t instance_capacity_ = 0;
+  std::shared_ptr<Buffer> instance_staging_buffer_{};
+  std::shared_ptr<Buffer> instances_data_buffer_{};
+  std::shared_ptr<Buffer> scratch_buffer_{};
+  bool built_ = false;
+  std::vector<VkAccelerationStructureInstanceKHR> previous_instances_{};
+  std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> committed_blas_references_{};
+  bool pending_ = false;
+  uint32_t pending_frame_index_ = 0;
+  uint32_t pending_frame_count_ = 0;
+  std::shared_ptr<FrameSubmissionState> pending_submission_state_{};
+  std::vector<VkAccelerationStructureInstanceKHR> pending_instances_{};
+  std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> pending_final_blas_references_{};
+  std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> pending_retained_blas_references_{};
+  std::vector<std::shared_ptr<Buffer>> pending_extra_staging_buffers_{};
 
-  std::shared_ptr<Buffer> instances_data_buffer; /**< Buffer for instance data. */
+  void Allocate(uint32_t instance_capacity);
+  void Destroy();
+  void ResolvePendingUpdate();
 
  public:
   /**
-   * @brief Constructs a TopLevelAccelerationStructure using a scene and its render instance storage.
-   * @param scene Shared pointer to the scene object.
-   * @param render_instance_storage Reference to the render instance storage.
+   * @brief Constructs an initially empty top-level acceleration structure.
    */
-  explicit TopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene,
-                                         const RenderInstanceStorage& render_instance_storage);
+  TopLevelAccelerationStructure() = default;
 
   /**
    * @brief Destructor for TopLevelAccelerationStructure.
    */
   ~TopLevelAccelerationStructure() override;
+
+  /**
+   * @brief Records a build or update for the current render instances on the main queue.
+   * @param render_instance_storage Current frame-slot render instances.
+   * @return The operation recorded, or NoOp when the instance input is unchanged.
+   */
+  UpdateMode Update(RenderInstanceStorage& render_instance_storage);
+
+  /**
+   * @brief Classifies an acceleration-structure input change.
+   * @param built Whether the destination acceleration structure contains a completed build.
+   * @param previous_instances Last completed or earlier same-frame instance input.
+   * @param current_instances New instance input.
+   * @return NoOp for identical input, Update for compatible input, or Build otherwise.
+   */
+  [[nodiscard]] static UpdateMode ClassifyUpdateMode(
+      bool built, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
+      const std::vector<VkAccelerationStructureInstanceKHR>& current_instances);
 
   /**
    * @brief Retrieves the Vulkan handle for the top-level acceleration structure.

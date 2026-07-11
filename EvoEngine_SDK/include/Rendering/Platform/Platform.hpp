@@ -28,6 +28,11 @@
 #endif
 
 namespace evo_engine {
+
+struct FrameSubmissionState {
+  enum class Status { Pending, Submitted, Discarded };
+  Status status = Status::Pending;
+};
 class GpuService;
 class PlatformLifecycleTestAccess;
 
@@ -337,6 +342,7 @@ class Platform final {
   std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};   ///< Semaphores for render finish.
   std::vector<std::shared_ptr<Semaphore>> compute_finished_semaphores_ = {};  ///< Semaphores for compute finish.
   std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};                 ///< Fences for in-flight frames.
+  std::vector<std::vector<std::weak_ptr<FrameSubmissionState>>> frame_submission_states_ = {};
 
   uint32_t current_frame_index_ = 0;  ///< Index of current frame being rendered.
 
@@ -487,6 +493,12 @@ class Platform final {
    * @return The frame count.
    */
   static uint32_t GetFrameCount();
+
+  /**
+   * @brief Tracks whether commands recorded for the current frame are submitted or discarded.
+   * @return Shared state resolved by the frame lifecycle.
+   */
+  [[nodiscard]] static std::shared_ptr<FrameSubmissionState> TrackCurrentFrameSubmission();
 
   /**
    * @brief Adds a temporary buffer synchronization action.

@@ -118,7 +118,7 @@ TEST(RayTracingSkinned, SkinnedRendererBuildsAnimatedPayloadBeforeTlas) {
   const auto prepare_scene = render_layer_source.find("void RenderLayer::PrepareSceneForRendering");
   const auto apply_animators = render_layer_source.find("ApplyAnimators();", prepare_scene);
   const auto wait_uploads = render_layer_source.find("GeometryStorage::WaitForPendingUploads()", prepare_scene);
-  const auto update_tlas = render_layer_source.find("UpdateTopLevelAccelerationStructure(scene)", prepare_scene);
+  const auto update_tlas = render_layer_source.find("UpdateTopLevelAccelerationStructure()", prepare_scene);
   ASSERT_NE(apply_animators, std::string::npos);
   ASSERT_NE(wait_uploads, std::string::npos);
   ASSERT_NE(update_tlas, std::string::npos);
@@ -142,28 +142,26 @@ TEST(RayTracingSkinned, TopLevelAccelerationStructureRegistersSkinnedCollections
   ASSERT_FALSE(source.empty());
 
   EXPECT_NE(source.find("#include \"SkinnedMesh.hpp\""), std::string::npos);
-  const auto register_static = source.find("const auto register_mesh_render_instance");
-  const auto register_skinned = source.find("const auto register_skinned_mesh_render_instance");
-  const auto register_instanced = source.find("const auto register_instanced_mesh_render_instance");
+  const auto register_static = source.find("const auto register_mesh");
+  const auto register_skinned = source.find("const auto register_skinned");
+  const auto register_instanced = source.find("const auto register_instanced");
   ASSERT_NE(register_static, std::string::npos);
   ASSERT_NE(register_skinned, std::string::npos);
   ASSERT_NE(register_instanced, std::string::npos);
   EXPECT_LT(register_static, register_skinned);
   EXPECT_LT(register_skinned, register_instanced);
 
-  EXPECT_NE(source.find("std::dynamic_pointer_cast<RenderInstanceStorage::SkinnedMeshRenderInstance>"),
-            std::string::npos);
-  EXPECT_NE(source.find("skinned_render_instance->ray_tracing_blas ? skinned_render_instance->ray_tracing_blas"),
-            std::string::npos);
-  EXPECT_NE(source.find("skinned_render_instance->skinned_mesh->blas_"), std::string::npos);
+  EXPECT_NE(source.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"), std::string::npos);
+  EXPECT_NE(source.find("render_instance->skinned_mesh->blas_"), std::string::npos);
   EXPECT_NE(source.find("blas->GetDeviceAddress()"), std::string::npos);
   EXPECT_NE(source.find("render_instance->model.value"), std::string::npos);
-  EXPECT_NE(source.find("render_instance_storage.deferred_skinned_render_instances->ForEachRenderInstance"),
+  EXPECT_NE(source.find("render_instance_storage.deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance"),
             std::string::npos);
-  EXPECT_NE(source.find("render_instance_storage.forward_skinned_render_instances->ForEachRenderInstance"),
+  EXPECT_NE(source.find("render_instance_storage.forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance"),
             std::string::npos);
-  EXPECT_NE(source.find("render_instance_storage.transparent_skinned_render_instances->ForEachRenderInstance"),
-            std::string::npos);
+  EXPECT_NE(
+      source.find("render_instance_storage.transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance"),
+      std::string::npos);
 }
 
 TEST(RayTracingSkinned, RenderInstanceStorageBuildsTlasForSkinnedOnlyScenes) {
@@ -172,16 +170,7 @@ TEST(RayTracingSkinned, RenderInstanceStorageBuildsTlasForSkinnedOnlyScenes) {
 
   const auto update_tlas = source.find("void RenderInstanceStorage::UpdateTopLevelAccelerationStructure");
   ASSERT_NE(update_tlas, std::string::npos);
-  const auto create_tlas = source.find("std::make_shared<TopLevelAccelerationStructure>(scene, *this)", update_tlas);
+  const auto create_tlas = source.find("std::make_shared<TopLevelAccelerationStructure>()", update_tlas);
   ASSERT_NE(create_tlas, std::string::npos);
-
-  const auto deferred_skinned = source.find("!deferred_skinned_render_instances->Empty()", update_tlas);
-  const auto forward_skinned = source.find("!forward_skinned_render_instances->Empty()", update_tlas);
-  const auto transparent_skinned = source.find("!transparent_skinned_render_instances->Empty()", update_tlas);
-  ASSERT_NE(deferred_skinned, std::string::npos);
-  ASSERT_NE(forward_skinned, std::string::npos);
-  ASSERT_NE(transparent_skinned, std::string::npos);
-  EXPECT_LT(deferred_skinned, create_tlas);
-  EXPECT_LT(forward_skinned, create_tlas);
-  EXPECT_LT(transparent_skinned, create_tlas);
+  EXPECT_NE(source.find("mesh_top_level_acceleration_structure->Update(*this)", create_tlas), std::string::npos);
 }

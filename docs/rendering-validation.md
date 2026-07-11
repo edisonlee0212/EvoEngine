@@ -78,10 +78,11 @@ The output extension selects the capture contract. PNG stores the display result
 and is restricted to `raytracing` and `rayquery`; ambient occlusion, bloom, screen-space reflections, anti-aliasing, and
 tone mapping are disabled for that capture so renderer comparisons do not include a presentation path. Pass
 `--preview-metrics-json <path>` with `--capture-demo-preview` to write the same structured record printed after the
-`RAY_CAPTURE_JSON` prefix. It includes effective SPP, wall throughput, GPU/driver identity, and any available GPU timestamp
-sections. The expected section names are `Path Trace (RTX)`, `Path Trace (RQ)`, `TLAS Build`, and `BLAS Build` when animated
-geometry is rebuilt. Timestamp availability is reported explicitly because some Vulkan devices do not expose
-graphics-and-compute timestamps.
+`RAY_CAPTURE_JSON` prefix. It includes effective SPP, wall throughput, GPU/driver identity, startup GPU timestamps, and
+capture-only GPU timestamps. `startup_gpu_sections` covers initialization before the fixed capture window;
+`gpu_sections` preserves the profile's exact frame/sample budget. The expected section names are `Path Trace (RTX)`,
+`Path Trace (RQ)`, `TLAS Build`, `TLAS Update`, and `BLAS Build` when animated geometry is rebuilt. Timestamp availability
+is reported explicitly because some Vulkan devices do not expose graphics-and-compute timestamps.
 
 Other useful preview flags:
 
@@ -227,6 +228,17 @@ animated mesh parts: 32 `BLAS Build` samples at `0.311 ms` average (`9.97 ms` to
 path tracing at `3.784 ms`, and `0.677 s` wall time. M1a targets no static steady-state TLAS work after at most two
 frame-slot initialization builds. M1b targets no steady-state full BLAS builds, an equivalent update/refit GPU total below
 `9.97 ms`, and wall time below `0.677 s` on this probe.
+
+The M1a validation uses the same GPU/driver and installed optimized editor. The static Bistro startup records exactly two
+frame-slot builds: RTX averages `0.182352 ms` (`0.364704 ms` total) versus M0's `2.800 ms` 16-frame total, while RayQuery
+averages `0.181600 ms` (`0.363200 ms` total) versus M0's `2.752 ms` total. The following 16-frame capture windows report no
+`TLAS Build` or `TLAS Update` samples, and their RTX and RayQuery linear-HDR hashes exactly match M0. The motion probe
+reports 16 in-place `TLAS Update` samples at `0.023036 ms` average (`0.368576 ms` total), no TLAS rebuilds, unchanged 32
+animated `BLAS Build` samples, and `0.691 s` wall time. The final static evidence is under
+`out\raytracer-m1a-final-fast`; the transform evidence is under `out\m1a-final-motion`. Both log sets are free of
+validation, device-loss, and fatal-error messages. Unit/source-contract coverage separately checks the Vulkan update
+classifier, mesh-empty inactive dummy instance, per-particle world-transform blocks, and submitted-versus-discarded frame
+tickets.
 
 Run both RT-pipeline and RayQuery techniques with:
 

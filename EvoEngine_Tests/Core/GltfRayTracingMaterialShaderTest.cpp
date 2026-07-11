@@ -1,4 +1,5 @@
 #include "EvoEngine_SDK_PCH.hpp"
+#include "GraphicsResources.hpp"
 
 #include <gtest/gtest.h>
 
@@ -25,6 +26,16 @@ std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
 
 std::filesystem::path AppPath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App" / relative_path;
+}
+
+VkAccelerationStructureInstanceKHR MakeTlasTestInstance(const VkDeviceAddress address = 1) {
+  VkAccelerationStructureInstanceKHR instance{};
+  instance.transform.matrix[0][0] = 1.0f;
+  instance.transform.matrix[1][1] = 1.0f;
+  instance.transform.matrix[2][2] = 1.0f;
+  instance.mask = 0xff;
+  instance.accelerationStructureReference = address;
+  return instance;
 }
 }  // namespace
 
@@ -1060,6 +1071,7 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(editor_source.find("--preview-metrics-json"), std::string::npos);
   EXPECT_NE(editor_source.find("RAY_CAPTURE_JSON "), std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"effective_spp\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"startup_gpu_sections\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"gpu_sections\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(true)"), std::string::npos);
   EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(false)"), std::string::npos);
@@ -1079,7 +1091,10 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(shader_source.find("GetShaderBinaryDirectory()"), std::string::npos);
   EXPECT_NE(ray_camera_pass.find("BeginGpuTimestampScope(vk_command_buffer, \"Path Trace (RTX)\")"), std::string::npos);
   EXPECT_NE(ray_camera_pass.find("BeginGpuTimestampScope(vk_command_buffer, \"Path Trace (RQ)\")"), std::string::npos);
-  EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"TLAS Build\""), std::string::npos);
+  EXPECT_EQ(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"TLAS Build\""), std::string::npos);
+  EXPECT_NE(graphics_resources.find("RecordCommandsMainQueue"), std::string::npos);
+  EXPECT_NE(graphics_resources.find("\"TLAS Build\""), std::string::npos);
+  EXPECT_NE(graphics_resources.find("\"TLAS Update\""), std::string::npos);
   EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"BLAS Build\""), std::string::npos);
 
   EXPECT_NE(runner.find("PINNED_EVOENGINE_BASE"), std::string::npos);
@@ -1108,6 +1123,74 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(runner.find("--hdrEnvIntensity"), std::string::npos);
   EXPECT_NE(runner.find("--solidBackgroundColor"), std::string::npos);
   EXPECT_NE(reference_patch.find("gpu_timer_name"), std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, TlasUpdateClassifierFollowsVulkanCompatibilityRules) {
+  using Tlas = evo_engine::TopLevelAccelerationStructure;
+  const std::vector original = {MakeTlasTestInstance()};
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(false, {}, original), Tlas::UpdateMode::Build);
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original), Tlas::UpdateMode::NoOp);
+
+  auto transformed = original;
+  transformed[0].transform.matrix[0][3] = 2.0f;
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, transformed), Tlas::UpdateMode::Update);
+  auto remasked = original;
+  remasked[0].mask = 0x01;
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, remasked), Tlas::UpdateMode::Update);
+  auto reflaged = original;
+  reflaged[0].flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, reflaged), Tlas::UpdateMode::Update);
+  auto changed_blas = original;
+  changed_blas[0].accelerationStructureReference = 2;
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, changed_blas), Tlas::UpdateMode::Update);
+
+  auto inactive = original;
+  inactive[0].mask = 0;
+  inactive[0].accelerationStructureReference = 0;
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, inactive), Tlas::UpdateMode::Build);
+  auto added = original;
+  added.emplace_back(MakeTlasTestInstance(2));
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, added), Tlas::UpdateMode::Build);
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(false, {}, inactive), Tlas::UpdateMode::Build);
+  EXPECT_EQ(Tlas::ClassifyUpdateMode(true, inactive, inactive), Tlas::UpdateMode::NoOp);
+}
+
+TEST(GltfRayTracingMaterial, PersistentTlasUsesMainQueueAndRayOnlyParticleInstances) {
+  const auto header = ReadTextFile(SdkPath("include/Rendering/Platform/GraphicsResources.hpp"));
+  const auto graphics = ReadTextFile(SdkPath("src/GraphicsResources.cpp"));
+  const auto storage_header = ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
+  const auto storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto platform = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  ASSERT_FALSE(header.empty());
+  ASSERT_FALSE(graphics.empty());
+  ASSERT_FALSE(storage_header.empty());
+  ASSERT_FALSE(storage.empty());
+  ASSERT_FALSE(platform.empty());
+  ASSERT_FALSE(render_layer.empty());
+
+  EXPECT_NE(header.find("pending_frame_count_"), std::string::npos);
+  EXPECT_NE(header.find("pending_submission_state_"), std::string::npos);
+  EXPECT_NE(header.find("ClassifyUpdateMode"), std::string::npos);
+  EXPECT_NE(graphics.find("Platform::RecordCommandsMainQueue"), std::string::npos);
+  EXPECT_NE(graphics.find("vkCmdCopyBuffer"), std::string::npos);
+  EXPECT_NE(graphics.find("VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR"), std::string::npos);
+  EXPECT_NE(graphics.find("instance.accelerationStructureReference = 0"), std::string::npos);
+  EXPECT_NE(graphics.find("dummy.accelerationStructureReference = 0"), std::string::npos);
+  EXPECT_EQ(graphics.find("ImmediateSubmitWithGpuTimestamp(\"TLAS Build\""), std::string::npos);
+  EXPECT_NE(storage_header.find("ray_tracing_instance_indices"), std::string::npos);
+  EXPECT_NE(storage.find("ray_instance_block.model.value"), std::string::npos);
+  EXPECT_NE(storage.find("mesh_top_level_acceleration_structure->Update(*this)"), std::string::npos);
+  EXPECT_EQ(storage.find("mesh_top_level_acceleration_structure.reset()"), std::string::npos);
+  EXPECT_NE(platform.find("FrameSubmissionState::Status::Discarded"), std::string::npos);
+  EXPECT_NE(platform.find("FrameSubmissionState::Status::Submitted"), std::string::npos);
+  EXPECT_NE(platform.find("Platform::TrackCurrentFrameSubmission"), std::string::npos);
+  EXPECT_NE(graphics.find("reuse_instance_buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT"),
+            std::string::npos);
+  EXPECT_NE(graphics.find("reuse_instance_buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("particle_info.instance_matrix.value"), std::string::npos);
+  EXPECT_NE(render_layer.find("particle_info.instance_color"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, RenderInstanceMaterialAndTextureChangesResetRayCameraAccumulation) {

@@ -1133,6 +1133,7 @@ void CaptureDemoPreview(
     SetRenderingRegressionTemporalMotionEnabled(*preview_anti_aliasing_motion_sequence);
   }
   scene_camera->ResetFrameCount();
+  const auto startup_gpu_timestamp_stats = Platform::GetGpuTimestampStats();
   Platform::SetGpuTimestampCaptureEnabled(true);
   const auto capture_start_time = std::chrono::steady_clock::now();
   const bool temporal_motion_capture =
@@ -1221,6 +1222,15 @@ void CaptureDemoPreview(
                     {"device_id", physical_device.deviceID},
                     {"driver_version", physical_device.driverVersion},
                     {"api_version", physical_device.apiVersion}};
+  metrics["startup_gpu_sections"] = nlohmann::ordered_json::array();
+  for (const auto& stats : startup_gpu_timestamp_stats) {
+    metrics["startup_gpu_sections"].push_back({{"name", stats.name},
+                                               {"last_ms", stats.last_milliseconds},
+                                               {"average_ms", stats.AverageMilliseconds()},
+                                               {"minimum_ms", stats.minimum_milliseconds},
+                                               {"maximum_ms", stats.maximum_milliseconds},
+                                               {"sample_count", stats.sample_count}});
+  }
   metrics["gpu_sections"] = nlohmann::ordered_json::array();
   for (const auto& stats : Platform::GetGpuTimestampStats()) {
     metrics["gpu_sections"].push_back({{"name", stats.name},
@@ -1264,6 +1274,9 @@ int main(const int argc, char** argv) {
         ApplyGraphicsCommandLineOverrides(command_line, application_info);
         ApplicationContext::Get().Initialize(application_info);
         initialized = true;
+        if (command_line.demo_preview_capture_path) {
+          Platform::SetGpuTimestampCaptureEnabled(true);
+        }
         if (command_line.application_mode == ApplicationMode::Editor) {
           ApplyDemoEditorDefaults(*command_line.demo_profile_id);
         }
