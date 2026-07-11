@@ -495,6 +495,10 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     }
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
+    if (ImGui::Checkbox("Emissive triangle NEE", &camera.camera_settings.emissive_triangle_nee_enabled)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
     if (ImGui::Checkbox("Firefly clamp", &camera.camera_settings.firefly_clamp_enabled)) {
       camera.ResetFrameCount();
       changed = true;

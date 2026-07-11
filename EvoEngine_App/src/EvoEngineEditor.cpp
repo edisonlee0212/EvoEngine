@@ -50,6 +50,7 @@ struct EditorCommandLine {
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<bool> preview_capture_firefly_clamp_enabled;
   std::optional<float> preview_capture_firefly_clamp_threshold;
+  std::optional<bool> preview_capture_emissive_triangle_nee_enabled;
   std::optional<bool> preview_capture_auto_spp_enabled;
   std::optional<int> preview_capture_auto_spp_min_samples;
   std::optional<int> preview_capture_auto_spp_max_samples;
@@ -362,6 +363,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
       }
       command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-emissive-nee") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-emissive-nee requires enabled or disabled.");
+      }
+      command_line.preview_capture_emissive_triangle_nee_enabled =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-auto-spp") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-auto-spp requires enabled or disabled.");
@@ -906,8 +913,10 @@ void CaptureDemoPreview(
     const std::optional<Camera::CameraRenderMode>& preview_render_mode,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<bool>& preview_firefly_clamp_enabled,
-    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
-    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
+    const std::optional<float>& preview_firefly_clamp_threshold,
+    const std::optional<bool>& preview_emissive_triangle_nee_enabled,
+    const std::optional<bool>& preview_auto_spp_enabled, const std::optional<int>& preview_auto_spp_min_samples,
+    const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
@@ -961,6 +970,10 @@ void CaptureDemoPreview(
   }
   if (preview_firefly_clamp_threshold) {
     scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_emissive_triangle_nee_enabled) {
+    scene_camera->camera_settings.emissive_triangle_nee_enabled = *preview_emissive_triangle_nee_enabled;
     scene_camera->ResetFrameCount();
   }
   if (preview_auto_spp_enabled) {
@@ -1191,6 +1204,7 @@ void CaptureDemoPreview(
   metrics["schema"] = 1;
   metrics["type"] = "evoengine_ray_capture";
   metrics["renderer"] = "EvoEngine";
+  metrics["demo_profile"] = demo_profile_id ? GetDemoProfileIdName(*demo_profile_id) : "";
   metrics["render_mode"] = Camera::GetCameraRenderModeName(resolved_render_mode);
   metrics["output_path"] = output_path.string();
   metrics["output_format"] = linear_hdr_output ? "radiance_hdr_linear" : "png_display";
@@ -1206,8 +1220,17 @@ void CaptureDemoPreview(
   metrics["bounce_depth"] = scene_camera->camera_settings.bounce;
   metrics["firefly_clamp_enabled"] = scene_camera->camera_settings.firefly_clamp_enabled;
   metrics["firefly_clamp_threshold"] = scene_camera->camera_settings.firefly_clamp_threshold;
+  metrics["emissive_triangle_nee_enabled"] = scene_camera->camera_settings.emissive_triangle_nee_enabled;
   metrics["auto_spp_enabled"] = scene_camera->camera_settings.auto_spp_enabled;
   metrics["temporal_motion_capture"] = temporal_motion_capture;
+  metrics["camera_position_override"] = nullptr;
+  metrics["camera_look_at_override"] = nullptr;
+  if (preview_camera_position && preview_camera_look_at) {
+    metrics["camera_position_override"] = {preview_camera_position->x, preview_camera_position->y,
+                                           preview_camera_position->z};
+    metrics["camera_look_at_override"] = {preview_camera_look_at->x, preview_camera_look_at->y,
+                                          preview_camera_look_at->z};
+  }
   metrics["ser_mode_requested"] =
       Camera::GetShaderExecutionReorderingModeName(scene_camera->camera_settings.shader_execution_reordering_mode);
   metrics["ser_supported"] = Platform::GetInstance().GetCapabilities().support_shader_execution_reordering;
@@ -1302,8 +1325,8 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_warmup_frames, command_line.demo_profile_id,
               command_line.preview_capture_render_mode, command_line.preview_capture_ser_mode,
               command_line.preview_capture_firefly_clamp_enabled, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_auto_spp_enabled, command_line.preview_capture_auto_spp_min_samples,
-              command_line.preview_capture_auto_spp_max_samples,
+              command_line.preview_capture_emissive_triangle_nee_enabled, command_line.preview_capture_auto_spp_enabled,
+              command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
               command_line.preview_ambient_occlusion_enabled, command_line.preview_ambient_occlusion_algorithm,

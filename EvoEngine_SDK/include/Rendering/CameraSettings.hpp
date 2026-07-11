@@ -61,6 +61,11 @@ struct CameraSettings {
   float firefly_clamp_threshold = 10.0f;
 
   /**
+   * \brief Enables static emissive-triangle next-event sampling for ray cameras.
+   */
+  bool emissive_triangle_nee_enabled = true;
+
+  /**
    * \brief Enables per-pixel adaptive ray tracing accumulation.
    */
   bool auto_spp_enabled = false;

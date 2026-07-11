@@ -1,11 +1,13 @@
 #include "EvoEngine_SDK_PCH.hpp"
 #include "GraphicsResources.hpp"
+#include "RenderInstanceStorage.hpp"
 
 #include <gtest/gtest.h>
 
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -889,7 +891,7 @@ TEST(GltfRayTracingMaterial, AdvancedRayExtensionsFollowKhronosAndShareOneBsdf) 
             std::string::npos);
 
   const auto unlit_test = integrator.find("EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0");
-  const auto emissive_add = integrator.find("radiance += throughput * surface_hit.pbr.emissive");
+  const auto emissive_add = integrator.find("radiance += throughput * emissive_hit_mis_weight * emissive_radiance");
   ASSERT_NE(unlit_test, std::string::npos);
   ASSERT_NE(emissive_add, std::string::npos);
   EXPECT_LT(unlit_test, emissive_add);
@@ -1860,6 +1862,8 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   const auto demo_profiles_source = ReadTextFile(AppPath("src/DemoProfiles.cpp"));
   const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
   const auto docs = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "docs/rendering-validation.md");
+  const auto emissive_validation =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Scripts/validate_emissive_triangle_nee.py");
 
   ASSERT_FALSE(demo_scene_header.empty());
   ASSERT_FALSE(demo_scene_source.empty());
@@ -1867,6 +1871,7 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   ASSERT_FALSE(demo_profiles_source.empty());
   ASSERT_FALSE(editor_source.empty());
   ASSERT_FALSE(docs.empty());
+  ASSERT_FALSE(emissive_validation.empty());
 
   EXPECT_NE(demo_profiles_header.find("RenderingRegression"), std::string::npos);
   EXPECT_NE(demo_profiles_source.find("\"rendering-regression\""), std::string::npos);
@@ -1894,6 +1899,10 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(demo_scene_source.find("M3b Specular Factor 0.5 F90 Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3b Unlit Ignores Emissive Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3b Retroreflection Camera Light"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M4 Emissive NEE Constant Emitter"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M4 Emissive NEE Textured Emitter"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M4 Emissive NEE Receiver Floor"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::emissive_texture"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::iridescence_texture"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::iridescence_thickness_texture"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::anisotropy_texture"), std::string::npos);
@@ -1918,6 +1927,9 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(docs.find("rendering-regression"), std::string::npos);
   EXPECT_NE(docs.find("## Bistro Reference Parity"), std::string::npos);
   EXPECT_NE(docs.find("### M3b Advanced-Material Parity"), std::string::npos);
+  EXPECT_NE(docs.find("### M4 Static Emissive-Triangle NEE"), std::string::npos);
+  EXPECT_NE(emissive_validation.find("VARIANCE_RMS_RATIO_LIMIT = 0.75"), std::string::npos);
+  EXPECT_NE(emissive_validation.find("ray_query_independent_exact"), std::string::npos);
   EXPECT_NE(docs.find("Scripts\\run_raytracer_baseline.py"), std::string::npos);
 }
 
@@ -1953,4 +1965,112 @@ TEST(GltfRayTracingMaterial, MaterialAbiKeepsAdvancedExtensionTextureSlots) {
   EXPECT_NE(source.find("float retroreflection_factor"), std::string::npos);
   EXPECT_NE(source.find("vec3 multiscatter_color_factor"), std::string::npos);
   EXPECT_NE(source.find("float scatter_anisotropy"), std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, EmissiveTriangleDistributionUsesQuantizedCdfIntervals) {
+  using Candidate = evo_engine::RenderInstanceStorage::EmissiveTriangleCandidate;
+  using Record = evo_engine::RenderInstanceStorage::EmissiveTriangleInfoBlock;
+  static_assert(sizeof(Record) == 16);
+  static_assert(offsetof(Record, instance_index) == 0);
+  static_assert(offsetof(Record, primitive_id) == 4);
+  static_assert(offsetof(Record, cdf) == 8);
+  static_assert(offsetof(Record, area_pdf) == 12);
+
+  const auto records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
+      {{2u, 5u, 2.0, 1.0},
+       {1u, 3u, 1.0, 2.0},
+       {0u, 0u, 0.0, 1.0},
+       {4u, 0u, 1.0, std::numeric_limits<double>::quiet_NaN()}});
+  ASSERT_EQ(records.size(), 2u);
+  EXPECT_EQ(records[0].instance_index, 1u);
+  EXPECT_EQ(records[0].primitive_id, 3u);
+  EXPECT_FLOAT_EQ(records[0].cdf, 0.5f);
+  EXPECT_FLOAT_EQ(records[0].area_pdf, 0.5f);
+  EXPECT_EQ(records[1].instance_index, 2u);
+  EXPECT_EQ(records[1].primitive_id, 5u);
+  EXPECT_FLOAT_EQ(records[1].cdf, 1.0f);
+  EXPECT_FLOAT_EQ(records[1].area_pdf, 0.25f);
+
+  float previous_cdf = 0.0f;
+  const float sorted_areas[] = {1.0f, 2.0f};
+  for (size_t i = 0; i < records.size(); ++i) {
+    EXPECT_FLOAT_EQ(records[i].area_pdf * sorted_areas[i], records[i].cdf - previous_cdf);
+    previous_cdf = records[i].cdf;
+  }
+}
+
+TEST(GltfRayTracingMaterial, EmissiveTriangleSolidAnglePdfAndBalanceWeightsMatch) {
+  constexpr float selection_pdf = 0.25f;
+  constexpr float area = 2.0f;
+  constexpr float distance_squared = 4.0f;
+  constexpr float light_cosine = 0.5f;
+  constexpr float bsdf_pdf = 0.25f;
+  const float solid_angle_pdf = selection_pdf / area * distance_squared / light_cosine;
+  EXPECT_FLOAT_EQ(solid_angle_pdf, 1.0f);
+  EXPECT_FLOAT_EQ(solid_angle_pdf / (solid_angle_pdf + bsdf_pdf), 0.8f);
+  EXPECT_FLOAT_EQ(bsdf_pdf / (solid_angle_pdf + bsdf_pdf), 0.2f);
+}
+
+TEST(GltfRayTracingMaterial, StaticEmissiveTrianglesAreSharedByRayTracingAndRayQuery) {
+  const auto basic = ReadTextFile(ShaderPath("Includes/RayTracingBasic.glsl"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  const auto raster_material = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
+  const auto render_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto render_storage_header =
+      ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
+  const auto geometry_header = ReadTextFile(SdkPath("include/Rendering/Geometry/GeometryStorage.hpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
+  const auto demo_scene = ReadTextFile(AppPath("src/DemoScene.cpp"));
+  const auto validator =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Scripts/validate_emissive_triangle_nee.py");
+
+  EXPECT_NE(basic.find("struct EmissiveTriangleInfo"), std::string::npos);
+  EXPECT_NE(basic.find("binding = 3"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE_RECORD"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_FIND_EMISSIVE_TRIANGLE"), std::string::npos);
+  EXPECT_NE(integrator.find("record.area_pdf * distance_squared / light_cosine"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_PREPARE_EMISSIVE_LIGHTING"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_VOLUME_EMISSIVE_NEE"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_BALANCE_HEURISTIC(last_sample_pdf, emissive_pdf)"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(surface_material, surface_hit.tex_coord_0, "
+                            "surface_hit.tex_coord_1)"),
+            std::string::npos);
+  EXPECT_NE(integrator.find(": surface_hit.pbr.emissive"), std::string::npos);
+  EXPECT_NE(raster_material.find("EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0"), std::string::npos);
+  EXPECT_NE(demo_scene.find("kEmissiveTextureResolution = 32"), std::string::npos);
+  EXPECT_NE(geometry_header.find("PeekTriangle"), std::string::npos);
+  EXPECT_NE(render_storage.find("append_collection(deferred_render_instances)"), std::string::npos);
+  EXPECT_NE(render_storage.find("append_collection(forward_render_instances)"), std::string::npos);
+  EXPECT_EQ(render_storage.find("append_collection(transparent_render_instances)"), std::string::npos);
+  const auto cache_gate = render_storage.find("emissive_triangle_instance_signatures_ == signatures");
+  const auto triangle_walk = render_storage.find("for (const auto& emissive_instance : emissive_instances)");
+  EXPECT_NE(cache_gate, std::string::npos);
+  EXPECT_NE(triangle_walk, std::string::npos);
+  EXPECT_LT(cache_gate, triangle_walk);
+  EXPECT_NE(render_storage_header.find("double importance"), std::string::npos);
+  EXPECT_NE(render_storage_header.find("emissive_triangle_info_dirty_"), std::string::npos);
+  EXPECT_NE(render_storage.find("if (emissive_triangle_info_dirty_)"), std::string::npos);
+  const auto clear = render_storage.find("void RenderInstanceStorage::Clear()");
+  const auto upload_storage = render_storage.find("void RenderInstanceStorage::Upload()", clear);
+  ASSERT_NE(clear, std::string::npos);
+  ASSERT_NE(upload_storage, std::string::npos);
+  EXPECT_EQ(render_storage.substr(clear, upload_storage - clear).find("emissive_triangle_info_blocks_.clear()"),
+            std::string::npos);
+  const auto upload = render_layer.find("current_render_instances->Upload()");
+  const auto bind =
+      render_layer.find("BindRenderInstanceStorage(current_frame_index, current_render_instances)", upload);
+  const auto emissive_binding = render_layer.find("emissive_triangle_info_descriptor_buffer", bind);
+  EXPECT_NE(upload, std::string::npos);
+  EXPECT_NE(bind, std::string::npos);
+  EXPECT_NE(emissive_binding, std::string::npos);
+  EXPECT_NE(editor.find("--preview-emissive-nee"), std::string::npos);
+  EXPECT_NE(editor.find("metrics[\"emissive_triangle_nee_enabled\"]"), std::string::npos);
+  EXPECT_NE(editor.find("metrics[\"demo_profile\"]"), std::string::npos);
+  EXPECT_NE(editor.find("metrics[\"camera_position_override\"]"), std::string::npos);
+  EXPECT_NE(validator.find("validate_capture_evidence"), std::string::npos);
+  EXPECT_NE(validator.find("rendering-regression"), std::string::npos);
+  EXPECT_NE(validator.find("camera_position_override"), std::string::npos);
+  EXPECT_NE(validator.find("effective_spp"), std::string::npos);
+  EXPECT_NE(validator.find("ray_tracing_pipeline"), std::string::npos);
 }

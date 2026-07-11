@@ -43,7 +43,7 @@ struct CameraInfoBlock {
   uint32_t auto_spp_min_samples = 16;
   uint32_t auto_spp_max_samples = 256;
   float auto_spp_convergence_threshold = 0.01f;
-  uint32_t auto_spp_padding0 = 0;
+  uint32_t emissive_triangle_nee_enabled = 1;
   uint32_t auto_spp_padding1 = 0;
   uint32_t auto_spp_padding2 = 0;
 

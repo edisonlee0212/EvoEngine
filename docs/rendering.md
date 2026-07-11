@@ -196,6 +196,35 @@ fractional specular F90 channel. The legacy CPU/compute ray display is likewise 
 Clearcoat-normal scale, coated-emission attenuation, and validation/rejection of spec-forbidden unlit or
 specular-glossiness extension combinations remain documented follow-up work rather than silent conformance claims.
 
+### Emissive-Triangle Next-Event Sampling
+
+RT-pipeline and RayQuery cameras share one static emissive-triangle distribution. Eligible emitters are fill-mode,
+opaque, non-transmissive, non-unlit `MeshRenderer` instances with a valid BLAS. Skinned meshes, particle/instanced
+meshes, strands, Gaussian splats, external geometry, alpha-mask/blend materials, and transmissive materials are not in
+the distribution. They retain hit-time emission where their existing material path permits it.
+
+Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. Selection weight is
+world-space triangle area times emissive-factor luminance, with a two-sided importance factor where applicable. The GPU
+samples the stored float CDF, and each entry's area PDF is derived from that exact quantized CDF interval so sampling and
+hit-side MIS have identical discrete support. Textures are deliberately excluded from the proposal distribution; the
+sampled UV0/UV1 emission is evaluated exactly at mip 0 with the shared texture transform and sRGB rules. Hits on table
+emitters use that same explicit-LOD radiance for the competing BSDF estimator; unsupported hit-only emitters retain their
+ray-footprint LOD. This keeps the MIS estimators on one integrand without requiring CPU texture readback.
+
+Each frame slot retains its distribution across `RenderInstanceStorage::Clear()`. An exact ordered signature of the
+eligible static mesh handle/version, packed triangle range, ray instance index, model transform, and derived importance
+gates the triangle walk; unchanged slots restore only the table count and do not transform, sort, compare, or upload the
+triangle records again. The key intentionally does not use the global geometry-storage revision, so unrelated skinned
+mesh updates cannot invalidate the static-emitter table. The storage buffer is uploaded only when that exact signature
+changes.
+
+Emissive NEE is an independent one-sample estimator in addition to the existing punctual/environment estimator. It uses
+the area-to-solid-angle PDF and balance-heuristic MIS against the BSDF or volume phase PDF. BSDF/phase rays that hit a
+table emitter perform a key lookup and apply the reciprocal MIS weight. Primary and Dirac hits, unsupported emitters, and
+zero-width CDF entries keep hit weight 1. The camera setting `emissive_triangle_nee_enabled` and
+`--preview-emissive-nee enabled|disabled` capture override disable only this estimator and its hit competitor; hit-time
+emission remains available for matched energy tests.
+
 Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
 sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
 contiguous range has one material descriptor, one compatible pipeline-state key, one push-constant base instance, and an

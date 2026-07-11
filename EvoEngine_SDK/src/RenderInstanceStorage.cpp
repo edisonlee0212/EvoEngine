@@ -8,6 +8,7 @@
 #include "RenderLayer.hpp"
 #include "Texture2D.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_map>
 
@@ -759,8 +760,57 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
     return true;
   if (shadow_fade_parameters != other.shadow_fade_parameters)
     return true;
+  if (emissive_triangle_parameters != other.emissive_triangle_parameters)
+    return true;
 
   return false;
+}
+
+bool RenderInstanceStorage::EmissiveTriangleInstanceSignature::operator==(
+    const EmissiveTriangleInstanceSignature& other) const {
+  return mesh_handle == other.mesh_handle && geometry_version == other.geometry_version &&
+         instance_index == other.instance_index && triangle_offset == other.triangle_offset &&
+         triangle_count == other.triangle_count && model == other.model && importance == other.importance;
+}
+
+std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock> RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
+    std::vector<EmissiveTriangleCandidate> candidates) {
+  candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                                  [](const EmissiveTriangleCandidate& candidate) {
+                                    return !std::isfinite(candidate.area) || !std::isfinite(candidate.importance) ||
+                                           candidate.area <= 0.0 || candidate.importance <= 0.0;
+                                  }),
+                   candidates.end());
+  std::sort(candidates.begin(), candidates.end(),
+            [](const EmissiveTriangleCandidate& lhs, const EmissiveTriangleCandidate& rhs) {
+              return lhs.instance_index < rhs.instance_index ||
+                     (lhs.instance_index == rhs.instance_index && lhs.primitive_id < rhs.primitive_id);
+            });
+
+  double total_weight = 0.0;
+  for (const auto& candidate : candidates) {
+    total_weight += candidate.area * candidate.importance;
+  }
+  if (!std::isfinite(total_weight) || total_weight <= 0.0) {
+    return {};
+  }
+
+  std::vector<EmissiveTriangleInfoBlock> result;
+  result.reserve(candidates.size());
+  double cumulative_weight = 0.0;
+  for (const auto& candidate : candidates) {
+    cumulative_weight += candidate.area * candidate.importance;
+    const float cdf = static_cast<float>(glm::min(cumulative_weight / total_weight, 1.0));
+    result.push_back({candidate.instance_index, candidate.primitive_id, cdf, 0.0f});
+  }
+  result.back().cdf = 1.0f;
+  float previous_cdf = 0.0f;
+  for (size_t i = 0; i < result.size(); ++i) {
+    const float selection_pdf = result[i].cdf - previous_cdf;
+    result[i].area_pdf = selection_pdf > 0.0f ? selection_pdf / static_cast<float>(candidates[i].area) : 0.0f;
+    previous_cdf = result[i].cdf;
+  }
+  return result;
 }
 
 bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentInfoBlock& other) const {
@@ -1104,6 +1154,90 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   deferred_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
   forward_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
   transparent_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+}
+
+void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
+  if (!Platform::RayAccelerationStructureEnabled()) {
+    emissive_triangle_info_dirty_ = !emissive_triangle_info_blocks_.empty();
+    emissive_triangle_info_blocks_.clear();
+    emissive_triangle_instance_signatures_.clear();
+    render_info_block.emissive_triangle_parameters.x = 0u;
+    return;
+  }
+
+  struct EmissiveTriangleInstance {
+    std::shared_ptr<MeshRenderInstance> render_instance;
+    uint32_t triangle_offset;
+    uint32_t triangle_count;
+    double importance;
+  };
+  std::vector<EmissiveTriangleInstance> emissive_instances;
+  std::vector<EmissiveTriangleInstanceSignature> signatures;
+  const auto& shade_materials = gltf_material_cache_.GetShadeMaterials();
+  const auto append_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection) {
+    collection->ForEachMeshRenderInstance([&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
+      if (!render_instance || !render_instance->mesh || !render_instance->mesh->blas_ ||
+          !render_instance->mesh->triangle_range_ || !render_instance->material ||
+          render_instance->instance_index < 0 || render_instance->polygon_mode != VK_POLYGON_MODE_FILL ||
+          render_instance->material->draw_settings.blending || render_instance->material_index < 0 ||
+          static_cast<size_t>(render_instance->material_index) >= shade_materials.size()) {
+        return;
+      }
+
+      const auto& material = shade_materials[render_instance->material_index];
+      if (material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque) || material.transmission_factor > 0.0f ||
+          material.diffuse_transmission_factor > 0.0f || material.unlit != 0) {
+        return;
+      }
+      const float transform_determinant = glm::determinant(glm::mat3(render_instance->model.value));
+      if (!std::isfinite(transform_determinant) || transform_determinant == 0.0f) {
+        return;
+      }
+      const glm::vec3 emissive_factor = glm::max(material.emissive_factor, glm::vec3(0.0f));
+      double importance = static_cast<double>(glm::dot(emissive_factor, glm::vec3(0.2126f, 0.7152f, 0.0722f)));
+      if (!std::isfinite(importance) || importance <= 0.0) {
+        return;
+      }
+      if (material.double_sided != 0) {
+        importance *= 2.0;
+      }
+
+      const auto triangle_offset = render_instance->mesh->triangle_range_->prev_frame_offset;
+      const auto triangle_count = render_instance->mesh->triangle_range_->prev_frame_index_count;
+      signatures.push_back({render_instance->mesh->GetHandle().GetValue(), render_instance->geometry_version,
+                            render_instance->instance_index, triangle_offset, triangle_count, render_instance->model,
+                            importance});
+      emissive_instances.push_back({render_instance, triangle_offset, triangle_count, importance});
+    });
+  };
+  append_collection(deferred_render_instances);
+  append_collection(forward_render_instances);
+
+  if (emissive_triangle_instance_signatures_ == signatures) {
+    render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
+    return;
+  }
+
+  std::vector<EmissiveTriangleCandidate> candidates;
+  for (const auto& emissive_instance : emissive_instances) {
+    const auto& render_instance = emissive_instance.render_instance;
+    for (uint32_t primitive_id = 0; primitive_id < emissive_instance.triangle_count; ++primitive_id) {
+      const auto& triangle = GeometryStorage::PeekTriangle(emissive_instance.triangle_offset + primitive_id);
+      const glm::vec3 p0 =
+          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.x).position, 1.0f));
+      const glm::vec3 p1 =
+          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.y).position, 1.0f));
+      const glm::vec3 p2 =
+          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.z).position, 1.0f));
+      const double area = 0.5 * static_cast<double>(glm::length(glm::cross(p1 - p0, p2 - p0)));
+      candidates.push_back(
+          {static_cast<uint32_t>(render_instance->instance_index), primitive_id, area, emissive_instance.importance});
+    }
+  }
+  emissive_triangle_info_blocks_ = BuildEmissiveTriangleInfoBlocks(std::move(candidates));
+  emissive_triangle_instance_signatures_ = std::move(signatures);
+  emissive_triangle_info_dirty_ = true;
+  render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
@@ -1487,6 +1621,9 @@ RenderInstanceStorage::RenderInstanceStorage() {
       glm::max(static_cast<size_t>(1), sizeof(PreviousInstanceInfoBlock) * Platform::Constants::initial_instance_size);
   previous_instance_info_descriptor_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.size = sizeof(EmissiveTriangleInfoBlock);
+  emissive_triangle_info_descriptor_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
   buffer_create_info.size = glm::max(static_cast<size_t>(1),
                                      sizeof(VkDrawIndexedIndirectCommand) * mesh_draw_indexed_indirect_commands.size());
@@ -1584,7 +1721,7 @@ void RenderInstanceStorage::Clear() {
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
 }
 
-void RenderInstanceStorage::Upload() const {
+void RenderInstanceStorage::Upload() {
   if (!Platform::Initialized())
     return;
   camera_info_descriptor_buffer->UploadVector(camera_info_blocks_);
@@ -1592,6 +1729,10 @@ void RenderInstanceStorage::Upload() const {
   gltf_texture_info_descriptor_buffer->UploadVector(gltf_material_cache_.GetTextureInfos());
   instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
   previous_instance_info_descriptor_buffer->UploadVector(previous_instance_info_blocks_);
+  if (emissive_triangle_info_dirty_) {
+    emissive_triangle_info_descriptor_buffer->UploadVector(emissive_triangle_info_blocks_);
+    emissive_triangle_info_dirty_ = false;
+  }
   render_info_descriptor_buffer->Upload(render_info_block);
   directional_light_info_descriptor_buffer->UploadVector(directional_light_info_blocks_);
   point_light_info_descriptor_buffer->UploadVector(point_light_info_blocks_);
@@ -1857,6 +1998,9 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
   if (GetGltfTextureInfos() != other.GetGltfTextureInfos())
     return true;
 
+  if (emissive_triangle_instance_signatures_ != other.emissive_triangle_instance_signatures_)
+    return true;
+
   for (uint32_t i = 0; i < camera_info_blocks_.size(); i++) {
     if (camera_info_blocks_[i] != other.camera_info_blocks_[i])
       return true;
@@ -2022,6 +2166,7 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
   }
   CollectEntityRenderers(scene, world_bound);
   BuildRenderInstanceBlocks();
+  BuildEmissiveTriangleInfoBlocks();
   CollectLights(scene, world_bound);
 }
 

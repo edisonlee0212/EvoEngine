@@ -1465,6 +1465,7 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     ray_tracing_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
     ray_tracing_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
                                                ray_camera_geometry_stages, 0);
+    ray_tracing_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
     ray_tracing_layout_->Initialize();
   }
   if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_camera_output_layout_) {
@@ -3324,6 +3325,10 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
   if (per_frame_bindless_texture_descriptors_enabled_) {
     TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
     TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+  }
+  if (Platform::RayAccelerationStructureEnabled() && current_frame_index < ray_tracing_descriptor_sets_.size()) {
+    ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        3, render_instances->emissive_triangle_info_descriptor_buffer);
   }
 }
 

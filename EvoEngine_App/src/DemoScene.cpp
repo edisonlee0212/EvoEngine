@@ -479,6 +479,49 @@ void ConfigureRenderingRegressionAdvancedRayMaterialProbes(const std::shared_ptr
                                  glm::vec3(0.03f, 0.12f, 1.0f), 0.8f, 0.0f, 4.0f, false);
 }
 
+void ConfigureRenderingRegressionEmissiveNeeProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  const auto cube = Resources::GetInstance().GetPrimitives().cube;
+  CreateRenderingRegressionProbe(scene, root, "M4 Emissive NEE Receiver Floor", cube, glm::vec3(0.0f, 3.75f, -2.4f),
+                                 glm::vec3(2.0f, 0.05f, 1.5f), glm::vec3(0.72f), 0.9f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M4 Emissive NEE Receiver Back Wall", cube, glm::vec3(0.0f, 4.4f, -3.85f),
+                                 glm::vec3(2.0f, 0.7f, 0.05f), glm::vec3(0.62f, 0.66f, 0.72f), 0.9f, 0.0f);
+
+  const auto constant_emitter = CreateRenderingRegressionProbe(
+      scene, root, "M4 Emissive NEE Constant Emitter", cube, glm::vec3(-0.72f, 5.15f, -2.4f),
+      glm::vec3(0.22f, 0.025f, 0.22f), glm::vec3(1.0f, 0.48f, 0.14f), 0.8f, 0.0f, 50.0f);
+  const auto constant_material =
+      scene->GetOrSetPrivateComponent<MeshRenderer>(constant_emitter).lock()->material.Get<Material>();
+  constant_material->material_data.shade_material.double_sided = 0;
+  constant_material->MarkDirty();
+
+  const auto textured_emitter = CreateRenderingRegressionProbe(
+      scene, root, "M4 Emissive NEE Textured Emitter", cube, glm::vec3(0.72f, 5.15f, -2.4f),
+      glm::vec3(0.22f, 0.025f, 0.22f), glm::vec3(0.24f, 0.62f, 1.0f), 0.8f, 0.0f, 50.0f);
+  const auto textured_material =
+      scene->GetOrSetPrivateComponent<MeshRenderer>(textured_emitter).lock()->material.Get<Material>();
+  const auto emissive_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  constexpr uint32_t kEmissiveTextureResolution = 32;
+  const std::array emissive_palette = {glm::vec4(1.0f, 0.18f, 0.04f, 1.0f), glm::vec4(0.04f, 0.25f, 1.0f, 1.0f),
+                                       glm::vec4(0.05f, 1.0f, 0.22f, 1.0f), glm::vec4(1.0f, 0.85f, 0.08f, 1.0f)};
+  std::vector<glm::vec4> emissive_pixels;
+  emissive_pixels.reserve(kEmissiveTextureResolution * kEmissiveTextureResolution);
+  for (uint32_t y = 0; y < kEmissiveTextureResolution; ++y) {
+    for (uint32_t x = 0; x < kEmissiveTextureResolution; ++x) {
+      emissive_pixels.emplace_back(emissive_palette[(x + y * 3u) % emissive_palette.size()]);
+    }
+  }
+  emissive_texture->SetRgbaChannelData(emissive_pixels, glm::uvec2(kEmissiveTextureResolution));
+  const float texture_rotation = glm::radians(22.5f);
+  const glm::mat3x2 texture_transform(1.25f * std::cos(texture_rotation), 1.25f * std::sin(texture_rotation),
+                                      -0.8f * std::sin(texture_rotation), 0.8f * std::cos(texture_rotation), 0.1f,
+                                      0.15f);
+  const auto emissive_slot =
+      textured_material->SetTexture(&GltfShadeMaterial::emissive_texture, emissive_texture, 1, texture_transform);
+  textured_material->material_data.texture_infos[emissive_slot].color_space =
+      static_cast<int32_t>(GltfTextureColorSpace::Srgb);
+  textured_material->MarkDirty();
+}
+
 void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
   const glm::vec3 camera_position(0.0f, 1.15f, 5.6f);
   const glm::vec3 camera_target(0.0f, 0.35f, -2.4f);
@@ -1657,6 +1700,7 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
 
   ConfigureRenderingRegressionGltfMaterialProbes(scene, root);
   ConfigureRenderingRegressionAdvancedRayMaterialProbes(scene, root);
+  ConfigureRenderingRegressionEmissiveNeeProbes(scene, root);
   ConfigureRenderingRegressionImportedProbes(scene, root);
   ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);

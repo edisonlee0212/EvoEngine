@@ -440,6 +440,10 @@ const Vertex& GeometryStorage::PeekVertex(const size_t vertex_index) {
       .vertex_data[vertex_index % Platform::Constants::meshlet_max_vertices_size];
 }
 
+const glm::uvec3& GeometryStorage::PeekTriangle(const size_t triangle_index) {
+  return GetInstance().triangles_[triangle_index];
+}
+
 const SkinnedVertex& GeometryStorage::PeekSkinnedVertex(const size_t skinned_vertex_index) {
   const auto& storage = GetInstance();
   return storage.skinned_vertex_data_chunks_[skinned_vertex_index / Platform::Constants::meshlet_max_vertices_size]

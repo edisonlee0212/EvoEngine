@@ -90,7 +90,8 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_enabled), offsetof(CameraInfoBlock, auto_spp_min_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_min_samples), offsetof(CameraInfoBlock, auto_spp_max_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_max_samples), offsetof(CameraInfoBlock, auto_spp_convergence_threshold));
-  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold), offsetof(CameraInfoBlock, auto_spp_padding0));
+  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold),
+            offsetof(CameraInfoBlock, emissive_triangle_nee_enabled));
 }
 
 TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
@@ -107,6 +108,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
     camera.camera_settings.firefly_clamp_enabled = false;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
+    camera.camera_settings.emissive_triangle_nee_enabled = false;
     camera.camera_settings.auto_spp_enabled = true;
     camera.camera_settings.auto_spp_min_samples = 8;
     camera.camera_settings.auto_spp_max_samples = 64;
@@ -125,6 +127,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FALSE(node["firefly_clamp_enabled"].as<bool>());
     ASSERT_TRUE(node["firefly_clamp_threshold"]);
     EXPECT_FLOAT_EQ(node["firefly_clamp_threshold"].as<float>(), 3.5f);
+    ASSERT_TRUE(node["emissive_triangle_nee_enabled"]);
+    EXPECT_FALSE(node["emissive_triangle_nee_enabled"].as<bool>());
     ASSERT_TRUE(node["auto_spp_enabled"]);
     EXPECT_TRUE(node["auto_spp_enabled"].as<bool>());
     ASSERT_TRUE(node["auto_spp_min_samples"]);
@@ -142,6 +146,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
     EXPECT_FALSE(restored_camera.camera_settings.firefly_clamp_enabled);
     EXPECT_FLOAT_EQ(restored_camera.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_FALSE(restored_camera.camera_settings.emissive_triangle_nee_enabled);
     EXPECT_TRUE(restored_camera.camera_settings.auto_spp_enabled);
     EXPECT_EQ(restored_camera.camera_settings.auto_spp_min_samples, 8);
     EXPECT_EQ(restored_camera.camera_settings.auto_spp_max_samples, 64);

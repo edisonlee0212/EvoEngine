@@ -185,6 +185,8 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
   out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << camera.camera_settings.firefly_clamp_enabled;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << camera.camera_settings.firefly_clamp_threshold;
+  out << YAML::Key << "emissive_triangle_nee_enabled" << YAML::Value
+      << camera.camera_settings.emissive_triangle_nee_enabled;
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << camera.camera_settings.auto_spp_enabled;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << camera.camera_settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << camera.camera_settings.auto_spp_max_samples;
@@ -235,6 +237,8 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.firefly_clamp_enabled = in["firefly_clamp_enabled"].as<bool>();
   if (in["firefly_clamp_threshold"])
     camera.camera_settings.firefly_clamp_threshold = in["firefly_clamp_threshold"].as<float>();
+  if (in["emissive_triangle_nee_enabled"])
+    camera.camera_settings.emissive_triangle_nee_enabled = in["emissive_triangle_nee_enabled"].as<bool>();
   if (in["auto_spp_enabled"])
     camera.camera_settings.auto_spp_enabled = in["auto_spp_enabled"].as<bool>();
   if (in["auto_spp_min_samples"])

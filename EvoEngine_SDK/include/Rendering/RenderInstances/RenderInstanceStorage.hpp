@@ -186,6 +186,7 @@ class RenderInstanceStorage {
     glm::vec4 ddgi_sampling_parameters = glm::vec4(1.0f);
     glm::ivec4 shadow_debug_parameters = glm::ivec4(0);
     glm::vec4 shadow_fade_parameters = glm::vec4(20.0f, 0.0f, 0.0f, 0.0f);
+    glm::uvec4 emissive_triangle_parameters = glm::uvec4(0);
 
     /**
      * @brief Applies the settings from the target RenderSettings.
@@ -200,6 +201,23 @@ class RenderInstanceStorage {
      */
     bool operator!=(const RenderInfoBlock& other) const;
   };
+
+  struct EmissiveTriangleInfoBlock {
+    uint32_t instance_index = 0;
+    uint32_t primitive_id = 0;
+    float cdf = 0.0f;
+    float area_pdf = 0.0f;
+  };
+
+  struct EmissiveTriangleCandidate {
+    uint32_t instance_index = 0;
+    uint32_t primitive_id = 0;
+    double area = 0.0;
+    double importance = 0.0;
+  };
+
+  [[nodiscard]] static std::vector<EmissiveTriangleInfoBlock> BuildEmissiveTriangleInfoBlocks(
+      std::vector<EmissiveTriangleCandidate> candidates);
 
   /**
    * @brief Struct to hold environment-related rendering information.
@@ -753,6 +771,7 @@ class RenderInstanceStorage {
   std::shared_ptr<Buffer> spot_light_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> render_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> camera_info_descriptor_buffer = {};
+  std::shared_ptr<Buffer> emissive_triangle_info_descriptor_buffer = {};
 
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
   std::vector<std::shared_ptr<DescriptorSet>> raster_material_descriptor_sets;
@@ -870,7 +889,7 @@ class RenderInstanceStorage {
   /**
    * @brief Uploads all data and render instance information to the GPU.
    */
-  void Upload() const;
+  void Upload();
 
   [[nodiscard]] const std::vector<GltfShadeMaterial>& GetGltfShadeMaterials() const;
 
@@ -919,6 +938,22 @@ class RenderInstanceStorage {
   std::vector<InstanceInfoBlock> instance_info_blocks_{};
   std::vector<PreviousInstanceInfoBlock> previous_instance_info_blocks_{};
   std::vector<uint32_t> rigid_motion_supported_{};
+
+  struct EmissiveTriangleInstanceSignature {
+    uint64_t mesh_handle = 0;
+    uint32_t geometry_version = 0;
+    int32_t instance_index = -1;
+    uint32_t triangle_offset = 0;
+    uint32_t triangle_count = 0;
+    GlobalTransform model{};
+    double importance = 0.0;
+
+    bool operator==(const EmissiveTriangleInstanceSignature& other) const;
+  };
+
+  std::vector<EmissiveTriangleInfoBlock> emissive_triangle_info_blocks_{};
+  std::vector<EmissiveTriangleInstanceSignature> emissive_triangle_instance_signatures_{};
+  bool emissive_triangle_info_dirty_ = false;
 
   /**
    * @brief Stores rendering-related information like shadow splits and lighting.
@@ -976,6 +1011,7 @@ class RenderInstanceStorage {
    * @brief Builds render instance blocks for rendering.
    */
   void BuildRenderInstanceBlocks();
+  void BuildEmissiveTriangleInfoBlocks();
 
   /**
    * @brief Collects lighting information from the scene.

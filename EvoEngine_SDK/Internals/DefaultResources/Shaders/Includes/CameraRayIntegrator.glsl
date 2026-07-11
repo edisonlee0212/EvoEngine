@@ -534,6 +534,129 @@ struct EE_CAMERA_BOUNCE_SCRATCH {
   float cast_shadow;
 };
 
+uint EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() {
+  return EE_RENDER_INFO.emissive_triangle_parameters.x;
+}
+
+bool EE_CAMERA_FIND_EMISSIVE_TRIANGLE(const uint instance_index, const uint primitive_id,
+                                      out EmissiveTriangleInfo result) {
+  const uint count = EE_CAMERA_EMISSIVE_TRIANGLE_COUNT();
+  if (count == 0u) {
+    return false;
+  }
+  uint low = 0u;
+  uint high = count;
+  for (int iteration = 0; iteration < 32 && low < high; ++iteration) {
+    const uint mid = low + (high - low) / 2u;
+    const EmissiveTriangleInfo candidate = EE_EMISSIVE_TRIANGLES[mid];
+    if (candidate.instance_index < instance_index ||
+        (candidate.instance_index == instance_index && candidate.primitive_id < primitive_id)) {
+      low = mid + 1u;
+    } else {
+      high = mid;
+    }
+  }
+  if (low >= count) {
+    return false;
+  }
+  result = EE_EMISSIVE_TRIANGLES[low];
+  return result.instance_index == instance_index && result.primitive_id == primitive_id;
+}
+
+EmissiveTriangleInfo EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE_RECORD(const float sample_value) {
+  uint low = 0u;
+  uint high = EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() - 1u;
+  for (int iteration = 0; iteration < 32 && low < high; ++iteration) {
+    const uint mid = low + (high - low) / 2u;
+    if (sample_value < EE_EMISSIVE_TRIANGLES[mid].cdf) {
+      high = mid;
+    } else {
+      low = mid + 1u;
+    }
+  }
+  return EE_EMISSIVE_TRIANGLES[low];
+}
+
+vec3 EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(const GltfShadeMaterial material, const vec2 tex_coord_0,
+                                          const vec2 tex_coord_1) {
+  const vec3 texture_value = EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
+      material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE, tex_coord_0, tex_coord_1, vec4(1.0f)).rgb;
+  return max(material.emissive_factor * texture_value, vec3(0.0f));
+}
+
+void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint seed,
+                                        out EE_CAMERA_DIRECT_LIGHT direct_light) {
+  direct_light.direction = vec3(0.0f, 1.0f, 0.0f);
+  direct_light.radiance_over_pdf = vec3(0.0f);
+  direct_light.distance = 0.0f;
+  direct_light.pdf = 0.0f;
+  direct_light.cast_shadow = 1.0f;
+  if (EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() == 0u) {
+    return;
+  }
+
+  const EmissiveTriangleInfo record = EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE_RECORD(EE_RANDOM(seed));
+  const Instance instance = EE_INSTANCES[record.instance_index];
+  const int triangle_offset = instance.triangle_offset + int(record.primitive_id);
+  const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
+  const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
+  const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
+  const float barycentric_sqrt = sqrt(EE_RANDOM(seed));
+  const float barycentric_y = EE_RANDOM(seed);
+  const vec3 barycentrics = vec3(1.0f - barycentric_sqrt, barycentric_sqrt * (1.0f - barycentric_y),
+                                 barycentric_sqrt * barycentric_y);
+  const vec3 p0 = vec3(instance.model * vec4(v0.position, 1.0f));
+  const vec3 p1 = vec3(instance.model * vec4(v1.position, 1.0f));
+  const vec3 p2 = vec3(instance.model * vec4(v2.position, 1.0f));
+  const vec3 light_position = p0 * barycentrics.x + p1 * barycentrics.y + p2 * barycentrics.z;
+  const vec3 to_light = light_position - shading_position;
+  const float distance_squared = dot(to_light, to_light);
+  if (distance_squared <= EE_CAMERA_RAY_EPSILON * EE_CAMERA_RAY_EPSILON) {
+    return;
+  }
+
+  const float distance = sqrt(distance_squared);
+  const vec3 direction = to_light / distance;
+  const vec3 object_light_normal = cross(v1.position - v0.position, v2.position - v0.position);
+  const vec3 light_normal = EE_CAMERA_SAFE_NORMALIZE(transpose(inverse(mat3(instance.model))) * object_light_normal,
+                                                      vec3(0.0f, 1.0f, 0.0f));
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[instance.material_index];
+  const float light_cosine = material.double_sided != 0 ? abs(dot(light_normal, -direction))
+                                                         : max(dot(light_normal, -direction), 0.0f);
+  if (light_cosine <= EE_CAMERA_PDF_EPSILON) {
+    return;
+  }
+
+  const float solid_angle_pdf = record.area_pdf * distance_squared / light_cosine;
+  if (solid_angle_pdf <= 0.0f || isnan(solid_angle_pdf) || isinf(solid_angle_pdf)) {
+    return;
+  }
+  const vec2 tex_coord_0 = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y +
+                           v2.tex_coord * barycentrics.z;
+  const vec2 tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
+                           v2.tex_coord_1 * barycentrics.z;
+  direct_light.direction = direction;
+  direct_light.radiance_over_pdf = EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(material, tex_coord_0, tex_coord_1) /
+                                   solid_angle_pdf;
+  direct_light.distance = distance;
+  direct_light.pdf = solid_angle_pdf;
+}
+
+float EE_CAMERA_EMISSIVE_TRIANGLE_HIT_PDF(const EmissiveTriangleInfo record, const vec3 previous_position,
+                                          const vec3 hit_position, const vec3 hit_geometric_normal) {
+  const vec3 to_hit = hit_position - previous_position;
+  const float distance_squared = dot(to_hit, to_hit);
+  if (distance_squared <= EE_CAMERA_RAY_EPSILON * EE_CAMERA_RAY_EPSILON) {
+    return 0.0f;
+  }
+  const float light_cosine = abs(dot(EE_CAMERA_SAFE_NORMALIZE(hit_geometric_normal, vec3(0.0f, 1.0f, 0.0f)),
+                                     -to_hit * inversesqrt(distance_squared)));
+  if (light_cosine <= EE_CAMERA_PDF_EPSILON) {
+    return 0.0f;
+  }
+  return record.area_pdf * distance_squared / light_cosine;
+}
+
 struct EE_CAMERA_LIGHT_TECHNIQUE_PROBABILITIES {
   float light_weight;
   float environment_weight;
@@ -865,6 +988,45 @@ void EE_CAMERA_PREPARE_DIRECT_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const ve
   bounce.contribution = contribution;
 }
 
+void EE_CAMERA_PREPARE_EMISSIVE_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction,
+                                         const vec3 throughput, inout uint seed,
+                                         inout EE_CAMERA_BOUNCE_SCRATCH bounce) {
+  if (EE_CAMERAS[EE_CAMERA_INDEX].emissive_triangle_nee_enabled == 0u ||
+      EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() == 0u) {
+    return;
+  }
+  EE_CAMERA_DIRECT_LIGHT direct_light;
+  EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(hit.position, seed, direct_light);
+  if (direct_light.pdf <= 0.0f ||
+      (dot(direct_light.direction, hit.shading_normal) <= 0.0f && hit.pbr.diffuse_transmission_factor <= 0.0f)) {
+    return;
+  }
+
+  const bool shadow_side_forward = dot(direct_light.direction, hit.shading_normal) > 0.0f;
+  const vec3 offset_direction = shadow_side_forward ? hit.geometric_normal : -hit.geometric_normal;
+  const vec3 shadow_base = shadow_side_forward &&
+                                   dot(hit.shadow_position - hit.position, hit.geometric_normal) >= -EE_CAMERA_RAY_EPSILON
+                               ? hit.shadow_position
+                               : hit.position;
+  bounce.next_event_valid = true;
+  bounce.shadow_ray_origin = EE_CAMERA_SAFE_OFFSET_RAY(shadow_base, offset_direction);
+  bounce.shadow_ray_direction = direct_light.direction;
+  const float origin_advance = max(dot(bounce.shadow_ray_origin - hit.position, direct_light.direction), 0.0f);
+  bounce.shadow_ray_distance = max(direct_light.distance - origin_advance - EE_CAMERA_RAY_EPSILON, 0.0f);
+  bounce.cast_shadow = 1.0f;
+
+  float bsdf_pdf = 0.0f;
+  const vec3 bsdf_radiance = EE_CAMERA_EVALUATE_DIRECT_BSDF(
+      hit, view_direction, direct_light.direction, direct_light.radiance_over_pdf, seed, bsdf_pdf);
+  const float mis_weight = EE_CAMERA_BALANCE_HEURISTIC(direct_light.pdf, bsdf_pdf);
+  const vec3 contribution = EE_CAMERA_SANITIZE_RADIANCE(throughput * bsdf_radiance * mis_weight);
+  if (max(contribution.x, max(contribution.y, contribution.z)) <= EE_CAMERA_PDF_EPSILON) {
+    bounce.next_event_valid = false;
+    return;
+  }
+  bounce.contribution = contribution;
+}
+
 vec3 EE_CAMERA_RESOLVE_DIRECT_LIGHTING(const EE_CAMERA_BOUNCE_SCRATCH bounce, inout uint seed) {
   if (!bounce.next_event_valid) {
     return vec3(0.0f);
@@ -1015,6 +1177,34 @@ vec3 EE_CAMERA_VOLUME_SCATTER_NEE(const EE_CAMERA_VOLUME_MEDIUM medium, const ve
   return EE_CAMERA_SANITIZE_RADIANCE(throughput * direct_light.radiance_over_pdf * mis_weight * phase_pdf);
 }
 
+vec3 EE_CAMERA_VOLUME_EMISSIVE_NEE(const EE_CAMERA_VOLUME_MEDIUM medium, const vec3 scatter_position,
+                                   const vec3 wi_before_scatter, const vec3 throughput, inout uint seed) {
+  if (EE_CAMERAS[EE_CAMERA_INDEX].emissive_triangle_nee_enabled == 0u ||
+      EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() == 0u) {
+    return vec3(0.0f);
+  }
+  EE_CAMERA_DIRECT_LIGHT direct_light;
+  EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(scatter_position, seed, direct_light);
+  if (direct_light.pdf <= 0.0f ||
+      max(direct_light.radiance_over_pdf.x,
+          max(direct_light.radiance_over_pdf.y, direct_light.radiance_over_pdf.z)) <= EE_CAMERA_PDF_EPSILON) {
+    return vec3(0.0f);
+  }
+
+  const vec3 shadow_origin = scatter_position + direct_light.direction * EE_CAMERA_RAY_EPSILON;
+  const vec3 shadow_transmission = EE_CAMERA_SHADOW_TRANSMISSION(
+      shadow_origin, direct_light.direction, max(direct_light.distance - 2.0f * EE_CAMERA_RAY_EPSILON, 0.0f), seed,
+      true);
+  if (max(shadow_transmission.x, max(shadow_transmission.y, shadow_transmission.z)) <= EE_CAMERA_PDF_EPSILON) {
+    return vec3(0.0f);
+  }
+  const float phase_pdf = EE_CAMERA_HENYEY_GREENSTEIN_PDF(dot(wi_before_scatter, direct_light.direction),
+                                                           medium.scatter_anisotropy);
+  const float mis_weight = EE_CAMERA_BALANCE_HEURISTIC(direct_light.pdf, phase_pdf);
+  return EE_CAMERA_SANITIZE_RADIANCE(throughput * direct_light.radiance_over_pdf * shadow_transmission * mis_weight *
+                                     phase_pdf);
+}
+
 bool EE_CAMERA_PROCESS_VOLUME_SEGMENT(const float hit_distance, inout vec3 ray_origin, inout vec3 ray_direction,
                                       inout vec3 throughput, inout vec3 radiance, inout float last_sample_pdf,
                                       const EE_CAMERA_VOLUME_MEDIUM medium, inout uint seed,
@@ -1041,8 +1231,9 @@ bool EE_CAMERA_PROCESS_VOLUME_SEGMENT(const float hit_distance, inout vec3 ray_o
       ray_direction = EE_CAMERA_SAMPLE_HENYEY_GREENSTEIN(vec2(EE_RANDOM(seed), EE_RANDOM(seed)),
                                                          medium.scatter_anisotropy, wi_before_scatter);
       last_sample_pdf = EE_CAMERA_HENYEY_GREENSTEIN_PDF(dot(wi_before_scatter, ray_direction),
-                                                        medium.scatter_anisotropy);
+                                                         medium.scatter_anisotropy);
       radiance += EE_CAMERA_VOLUME_SCATTER_NEE(medium, ray_origin, wi_before_scatter, throughput, seed);
+      radiance += EE_CAMERA_VOLUME_EMISSIVE_NEE(medium, ray_origin, wi_before_scatter, throughput, seed);
       scatter_bounces += 1u;
       return true;
     }
@@ -1142,6 +1333,7 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
   const uint max_depth = max(camera.bounce, 1u);
   vec3 radiance = vec3(0.0f);
   vec3 throughput = vec3(1.0f);
+  vec3 previous_scattering_position = ray_origin;
   vec2 max_roughness = vec2(0.0f);
   float last_sample_pdf = EE_CAMERA_DIRAC_PDF;
   float ray_cone_width = 0.0f;
@@ -1185,17 +1377,10 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
     surface_hit.pbr.roughness = max_roughness;
     const vec3 view_direction = EE_CAMERA_SAFE_NORMALIZE(-ray_direction, surface_hit.normal);
 
-#if MAT_EXT_UNLIT
-    if (EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0) {
-      radiance += throughput * surface_hit.surface.base_color.rgb;
-      break;
-    }
-#endif
-    radiance += throughput * surface_hit.pbr.emissive;
-
     if (is_inside && EE_CAMERA_PROCESS_VOLUME_SEGMENT(hit_value.hit_t, ray_origin, ray_direction, throughput,
                                                        radiance, last_sample_pdf, volume_medium, seed,
                                                        scatter_bounces)) {
+      previous_scattering_position = ray_origin;
       throughput = EE_CAMERA_SANITIZE_RADIANCE(throughput);
       if (max(throughput.x, max(throughput.y, throughput.z)) <= EE_CAMERA_PDF_EPSILON) {
         break;
@@ -1214,11 +1399,41 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
     if (max(throughput.x, max(throughput.y, throughput.z)) <= EE_CAMERA_PDF_EPSILON) {
       break;
     }
+
+#if MAT_EXT_UNLIT
+    if (EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0) {
+      radiance += throughput * surface_hit.surface.base_color.rgb;
+      break;
+    }
+#endif
+    const GltfShadeMaterial surface_material = EE_GLTF_MATERIALS[surface_hit.material_index];
+    EmissiveTriangleInfo emissive_record;
+    const bool emissive_triangle_hit =
+        EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() != 0u &&
+        max(surface_material.emissive_factor.x,
+            max(surface_material.emissive_factor.y, surface_material.emissive_factor.z)) > 0.0f &&
+        EE_CAMERA_FIND_EMISSIVE_TRIANGLE(hit_value.instance_index, hit_value.primitive_id, emissive_record);
+    const vec3 emissive_radiance =
+        emissive_triangle_hit
+            ? EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(surface_material, surface_hit.tex_coord_0, surface_hit.tex_coord_1)
+            : surface_hit.pbr.emissive;
+    float emissive_hit_mis_weight = 1.0f;
+    if (camera.emissive_triangle_nee_enabled != 0u && last_sample_pdf != EE_CAMERA_DIRAC_PDF &&
+        emissive_triangle_hit) {
+      const float emissive_pdf = EE_CAMERA_EMISSIVE_TRIANGLE_HIT_PDF(
+          emissive_record, previous_scattering_position, surface_hit.position, surface_hit.geometric_normal);
+      if (emissive_pdf > 0.0f) {
+        emissive_hit_mis_weight = EE_CAMERA_BALANCE_HEURISTIC(last_sample_pdf, emissive_pdf);
+      }
+    }
+    radiance += throughput * emissive_hit_mis_weight * emissive_radiance;
     ray_cone_width =
         EE_CAMERA_WORLD_FOOTPRINT(ray_cone_width, hit_value.hit_t, surface_hit.geometric_normal, ray_direction);
 
     EE_CAMERA_BOUNCE_SCRATCH bounce = EE_CAMERA_EMPTY_BOUNCE_SCRATCH();
+    EE_CAMERA_BOUNCE_SCRATCH emissive_bounce = EE_CAMERA_EMPTY_BOUNCE_SCRATCH();
     EE_CAMERA_PREPARE_DIRECT_LIGHTING(surface_hit, view_direction, throughput, seed, bounce);
+    EE_CAMERA_PREPARE_EMISSIVE_LIGHTING(surface_hit, view_direction, throughput, seed, emissive_bounce);
 
     GltfRayTracingBsdfSampleData sample_data;
     sample_data.k1 = view_direction;
@@ -1233,6 +1448,7 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
       if (max(throughput.x, max(throughput.y, throughput.z)) <= EE_CAMERA_PDF_EPSILON) {
         terminate_path = true;
       } else {
+        previous_scattering_position = surface_hit.position;
         ray_origin = EE_CAMERA_OFFSET_RAY_ORIGIN(surface_hit, sample_data.k2);
         ray_direction = sample_data.k2;
         last_sample_pdf = sample_data.pdf;
@@ -1249,6 +1465,7 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
     }
 
     radiance += EE_CAMERA_RESOLVE_DIRECT_LIGHTING(bounce, seed);
+    radiance += EE_CAMERA_RESOLVE_DIRECT_LIGHTING(emissive_bounce, seed);
     if (terminate_path) {
       break;
     }

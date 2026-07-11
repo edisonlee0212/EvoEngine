@@ -31,6 +31,7 @@ struct RenderInfo {
   vec4 ddgi_sampling_parameters;
   ivec4 shadow_debug_parameters;
   vec4 shadow_fade_parameters;
+  uvec4 emissive_triangle_parameters;
 };
 
 layout(set = EE_RENDER_INFO_BLOCK_SET, binding = EE_RENDER_INFO_BLOCK_BINDING) uniform EE_RENDER_INFO_BLOCK {

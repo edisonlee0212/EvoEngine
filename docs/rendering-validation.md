@@ -351,6 +351,35 @@ apart from the expected forced-run SER capability fallback. The broad Bistro mat
 RT-pipeline-versus-RayQuery MAE/RMS was `0.0008044209/0.0022774957`, within the M0 gate. The focused material filter passed
 all 93 tests across layout, conversion, raster, ray-material, and serialization-migration suites.
 
+### M4 Static Emissive-Triangle NEE
+
+The `rendering-regression` scene adds isolated constant and high-frequency 32x32 sRGB-textured static emitters above
+diffuse floor/back-wall receivers. The textured emitter uses UV1 plus a texture transform. The camera override
+`--preview-camera-position 0,4.8,5.6 --preview-camera-look-at 0,4.4,-2.4` frames only this upper probe. Capture RTX and
+RayQuery with `--preview-emissive-nee enabled` and `disabled`; disabling NEE preserves hit-only emission. Use 2048 SPP
+for energy/parity, 64 SPP for variance, firefly clamp disabled for the energy/variance pairs, and clamp 10 for the
+existing M0 cross-technique MAE/RMS gate. A forced query-only 64-SPP capture must match normal RayQuery exactly.
+
+The matrix filenames and local validator are fixed so the gate is repeatable:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\m4-validation\matrix\rtx-on-2048.hdr --preview-metrics-json out\m4-validation\matrix\rtx-on-2048.json --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp disabled --preview-emissive-nee enabled --preview-camera-position 0,4.8,5.6 --preview-camera-look-at 0,4.4,-2.4 --preview-width 1280 --preview-height 720 --preview-deterministic
+python Scripts\validate_emissive_triangle_nee.py --matrix-dir out\m4-validation\matrix --out out\m4-validation\matrix\validation.json
+```
+
+The validator reads every adjacent metrics JSON and rejects a mismatched output path, demo profile, camera override,
+render mode, SPP, clamp/NEE/SER state, dimensions, non-deterministic capture, missing ray capability, or invalid
+forced-query-only capability set before accepting image comparisons. The final fresh-cache matrix reports clamp-10
+RTX-versus-RayQuery MAE/RMS `0.0000439001/0.0018905856`, below the M0 limits `0.001003/0.002483`, and
+normal-versus-forced-query-only RayQuery is bit-exact. With clamp disabled, 2048-SPP NEE versus hit-only receiver
+luminance differs by `0.0567%` RTX and `0.0560%` RayQuery; every RGB channel differs by less than `0.06%`. At 64 SPP,
+NEE receiver RMS is `0.6817x` RTX and `0.6814x` RayQuery relative to hit-only, exceeding the required 25% variance
+reduction. Evidence is under `out/m4-validation/matrix-final`.
+
+The final 2560x1440, 2048-SPP Bistro run reports RTX-versus-RayQuery linear-HDR MAE/RMS
+`0.0007596530/0.0022384434`, within the M0 gate. Its optimized path-trace averages are `243.599 ms` RTX and `342.975 ms`
+RayQuery on the recorded RTX 5070 configuration. Evidence is under `out/m4-validation/bistro-canonical-final`.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

@@ -345,6 +345,7 @@ class GeometryStorage final {
   static void BindStrandPoints(VkCommandBuffer vk_command_buffer);
 
   [[nodiscard]] static const Vertex& PeekVertex(size_t vertex_index);
+  [[nodiscard]] static const glm::uvec3& PeekTriangle(size_t triangle_index);
   [[nodiscard]] static const SkinnedVertex& PeekSkinnedVertex(size_t skinned_vertex_index);
   [[nodiscard]] static const StrandPoint& PeekStrandPoint(size_t strand_point_index);
 
