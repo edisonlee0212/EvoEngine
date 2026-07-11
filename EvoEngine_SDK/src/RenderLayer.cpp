@@ -221,16 +221,17 @@ void PushPerFrameSceneDescriptorBindings(const std::shared_ptr<DescriptorSetLayo
 void PushPerFrameBindlessTextureDescriptorBindings(
     const std::shared_ptr<DescriptorSetLayout>& layout,
     const ApplicationInitializationSettings& application_initialization_settings) {
-  layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT |
-                                    VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
+  auto texture_2d_stages = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+  auto cubemap_stages = texture_2d_stages;
+  if (Platform::RayTracingEnabled()) {
+    texture_2d_stages |=
+        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+    cubemap_stages |= texture_2d_stages | VK_SHADER_STAGE_MISS_BIT_KHR;
+  }
+  layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texture_2d_stages,
                                 VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
                                 application_initialization_settings.graphics_settings.max_texture_2d_resource_size);
-  layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_FRAGMENT_BIT |
-                                    VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+  layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, cubemap_stages,
                                 VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
                                 application_initialization_settings.graphics_settings.max_cubemap_resource_size);
 }
@@ -1450,19 +1451,31 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     lighting_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     lighting_layout_->Initialize();
   }
-  if (!ray_tracing_layout_) {
+  if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_layout_) {
     ray_tracing_layout_ = std::make_shared<DescriptorSetLayout>();
-    constexpr auto ray_camera_geometry_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR |
-                                                VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
+    VkShaderStageFlags ray_camera_geometry_stages = 0;
+    if (Platform::RayQueryEnabled()) {
+      ray_camera_geometry_stages |= VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    if (Platform::RayTracingEnabled()) {
+      ray_camera_geometry_stages |=
+          VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    }
     ray_tracing_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
     ray_tracing_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
     ray_tracing_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
                                                ray_camera_geometry_stages, 0);
     ray_tracing_layout_->Initialize();
   }
-  if (!ray_tracing_camera_output_layout_) {
+  if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_camera_output_layout_) {
     ray_tracing_camera_output_layout_ = std::make_shared<DescriptorSetLayout>();
-    constexpr auto ray_camera_output_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_COMPUTE_BIT;
+    VkShaderStageFlags ray_camera_output_stages = 0;
+    if (Platform::RayQueryEnabled()) {
+      ray_camera_output_stages |= VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+    if (Platform::RayTracingEnabled()) {
+      ray_camera_output_stages |= VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+    }
     ray_tracing_camera_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                              ray_camera_output_stages, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
@@ -1473,13 +1486,13 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                              ray_camera_output_stages, 0);
     ray_tracing_camera_output_layout_->Initialize();
   }
-  if (!ray_tracing_point_cloud_layout_) {
+  if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_layout_) {
     ray_tracing_point_cloud_layout_ = std::make_shared<DescriptorSetLayout>();
     ray_tracing_point_cloud_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                            VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_point_cloud_layout_->Initialize();
   }
-  if (!ddgi_probe_ray_output_layout_) {
+  if (Platform::RayTracingEnabled() && !ddgi_probe_ray_output_layout_) {
     ddgi_probe_ray_output_layout_ = std::make_shared<DescriptorSetLayout>();
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
@@ -2689,7 +2702,7 @@ void RenderLayer::OnCreate() {
   }
 
   ray_tracing_descriptor_sets_.clear();
-  if (Platform::GetInstance().GetCapabilities().support_ray_tracing) {
+  if (Platform::RayAccelerationStructureEnabled()) {
     for (size_t i = 0; i < max_frames_in_flight; i++) {
       auto descriptor_set = std::make_shared<DescriptorSet>(ray_tracing_layout_);
       ray_tracing_descriptor_sets_.emplace_back(descriptor_set);
@@ -2877,7 +2890,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   const bool render_instance_updated = UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras,
                                                                    update_editor_selection, track_ddgi_scene_inputs);
 
-  const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayTracingEnabled();
+  const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayAccelerationStructureEnabled();
   if (update_ray_tracing_resources) {
     current_render_instances->UpdateTopLevelAccelerationStructure();
 
@@ -3618,7 +3631,7 @@ void RenderLayer::RenderAll() {
     }
   }
 
-  if (Platform::RayTracingEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
+  if (Platform::RayAccelerationStructureEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
     for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
       if (camera->require_rendering_) {
         RenderToCameraRayTracing(scene, cameraGlobalTransform, camera);

@@ -486,10 +486,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     if (ImGui::DragFloat("Gamma", &camera.camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
       changed = true;
     }
-    const char* sample_label =
-        camera.camera_render_mode == Camera::CameraRenderMode::RayTracing && camera.camera_settings.auto_spp_enabled
-            ? "Samples/frame"
-            : "Samples";
+    const char* sample_label = camera.camera_settings.auto_spp_enabled ? "Samples/frame" : "Samples";
     if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
@@ -497,7 +494,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       changed = true;
     }
   }
-  if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+  if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
     if (ImGui::Checkbox("Firefly clamp", &camera.camera_settings.firefly_clamp_enabled)) {
       camera.ResetFrameCount();
       changed = true;
@@ -536,6 +533,8 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
         changed = true;
       }
     }
+  }
+  if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     uint32_t ser_mode = static_cast<uint32_t>(camera.camera_settings.shader_execution_reordering_mode);
     if (ImGui::Combo("Shader Execution Reordering", Camera::GetShaderExecutionReorderingModeNames(), ser_mode)) {
       camera.camera_settings.shader_execution_reordering_mode =

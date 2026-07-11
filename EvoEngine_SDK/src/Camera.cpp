@@ -219,7 +219,7 @@ bool Camera::IsRayCameraRenderMode(const CameraRenderMode mode) {
 Camera::CameraRenderMode Camera::ResolveCameraRenderMode(const CameraRenderMode requested_mode) {
   auto fallback_mode = requested_mode;
   if (requested_mode == CameraRenderMode::RayTracing && !Platform::RayTracingEnabled()) {
-    fallback_mode = CameraRenderMode::Rasterization;
+    fallback_mode = Platform::RayQueryEnabled() ? CameraRenderMode::RayQuery : CameraRenderMode::Rasterization;
   } else if (requested_mode == CameraRenderMode::RayQuery && !Platform::RayQueryEnabled()) {
     fallback_mode = Platform::RayTracingEnabled() ? CameraRenderMode::RayTracing : CameraRenderMode::Rasterization;
   }

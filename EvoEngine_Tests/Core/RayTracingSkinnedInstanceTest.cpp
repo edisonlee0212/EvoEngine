@@ -87,7 +87,7 @@ TEST(RayTracingSkinned, SkinnedMeshBuildsBindPoseFallbackWithSharedConversion) {
   EXPECT_NE(header.find("BuildSkinnedRayTracingVertex"), std::string::npos);
   EXPECT_NE(header.find("BuildSkinnedRayTracingVertices"), std::string::npos);
 
-  EXPECT_NE(source.find("if (Platform::RayTracingEnabled())"), std::string::npos);
+  EXPECT_NE(source.find("if (Platform::RayAccelerationStructureEnabled())"), std::string::npos);
   EXPECT_NE(source.find("BuildSkinnedRayTracingVertices(skinned_vertices_, {})"), std::string::npos);
   EXPECT_NE(source.find("GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_"),
             std::string::npos);

@@ -182,12 +182,17 @@ record an in-place BLAS update before TLAS maintenance. A BLAS content generatio
 device address and instance bytes are unchanged, so deformed bounds remain current. Pose and generation state commit only
 when the frame is submitted; discarded frames retry both the payload and BLAS update.
 
-Ray-tracing cameras bind the per-frame descriptor set and ray-tracing descriptor set, then dispatch the camera
-ray-generation shader. The camera raygen owns path depth, direct light evaluation, environment misses, BSDF-sampled
-next-bounce rays, throughput, Russian roulette, firefly clamping, and Auto SPP convergence. Closest-hit shaders record
-surface identity and geometry data into `CameraRayTracingPayload`.
+Ray cameras share one GLSL estimator in `CameraRayIntegrator.glsl`. It owns path depth, direct-light and environment MIS,
+BSDF sampling, volume transport, throughput, Russian roulette, invalid-radiance rejection, configurable firefly clamping,
+accumulation, and Auto SPP convergence. `CameraRayTracingTraversal.glsl` adapts that estimator to the Vulkan ray-tracing
+pipeline and payload shaders; `CameraRayQueryTraversal.glsl` adapts it to inline RayQuery traversal from a compute shader.
+The active `.rgen` and `.comp` files are stage-specific entry points only. `CameraLegacy` remains a separate fallback.
 
-RayQuery cameras use the compute path and share the same high-level camera material and light data where supported.
+Acceleration structures are a shared capability rather than an RT-pipeline capability. Static, skinned, and particle
+BLAS data, TLAS updates, geometry descriptors, and synchronization are available when either RT pipelines or RayQuery are
+enabled. RT pipelines, shader binding tables, SER, point-cloud ray tracing, and DDGI ray diagnostics remain RT-only.
+RayQuery pipeline creation and dispatch require only acceleration-structure and RayQuery support; an unavailable requested
+ray mode falls back to the other ray technique before rasterization.
 
 ## Render Graph And Extension Model
 
@@ -265,3 +270,4 @@ The renderer has moved many built-in resources into explicit graph resources, bu
 | Lighting shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl` |
 | glTF raster material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRasterMaterial.glsl` |
 | glTF ray material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRayTracingBsdf.glsl` |
+| Shared ray estimator and traversal adapters | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.glsl`, `CameraRayTracingTraversal.glsl`, `CameraRayQueryTraversal.glsl` |

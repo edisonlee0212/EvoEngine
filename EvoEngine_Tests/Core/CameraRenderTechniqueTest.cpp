@@ -172,7 +172,10 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   const auto ray_camera_pass_source =
       ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/RayTracingCameraPass.cpp"));
   const auto ray_query_shader =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RayQueryCamera.comp"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RayQueryCamera.comp")) +
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.glsl")) +
+      ReadTextFile(
+          SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayQueryTraversal.glsl"));
   const auto ray_tracing_basic =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/RayTracingBasic.glsl"));
   const auto editor_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
@@ -187,11 +190,17 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(camera_source.find("requested_mode == CameraRenderMode::RayQuery && !Platform::RayQueryEnabled()"),
             std::string::npos);
   EXPECT_NE(platform_header.find("support_ray_query"), std::string::npos);
+  EXPECT_NE(platform_header.find("support_acceleration_structure"), std::string::npos);
   EXPECT_NE(platform_header.find("RayQueryEnabled"), std::string::npos);
+  EXPECT_NE(platform_header.find("RayAccelerationStructureEnabled"), std::string::npos);
   EXPECT_NE(platform_header.find("support_shader_execution_reordering"), std::string::npos);
   EXPECT_NE(platform_header.find("ShaderExecutionReorderingEnabled"), std::string::npos);
   EXPECT_NE(platform_source.find("VK_KHR_RAY_QUERY_EXTENSION_NAME"), std::string::npos);
   EXPECT_NE(platform_source.find("VkPhysicalDeviceRayQueryFeaturesKHR"), std::string::npos);
+  EXPECT_NE(platform_source.find("ray_query_features.rayQuery == VK_TRUE"), std::string::npos);
+  EXPECT_NE(platform_source.find("ray_tracing_pipeline_features.rayTracingPipeline == VK_TRUE"), std::string::npos);
+  EXPECT_NE(platform_source.find("acceleration_structure_features.accelerationStructure == VK_TRUE"),
+            std::string::npos);
   EXPECT_NE(platform_source.find("VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME"), std::string::npos);
   EXPECT_NE(platform_source.find("VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV"), std::string::npos);
   EXPECT_NE(render_graph_header.find("ray_query_camera"), std::string::npos);
@@ -200,6 +209,7 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(render_layer_source.find("RayQueryCameraPass::CreateDescriptor()"), std::string::npos);
   EXPECT_NE(render_layer_source.find("RayQueryCameraPass::Execute"), std::string::npos);
   EXPECT_NE(render_layer_source.find("VK_SHADER_STAGE_COMPUTE_BIT"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("Platform::RayAccelerationStructureEnabled()"), std::string::npos);
   EXPECT_NE(ray_camera_pass_header.find("class RayQueryCameraPass final"), std::string::npos);
   EXPECT_NE(ray_camera_pass_source.find("ComputePipeline"), std::string::npos);
   EXPECT_NE(ray_camera_pass_source.find("RenderPassNames::ray_query_camera"), std::string::npos);
@@ -243,5 +253,35 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(editor_source.find("--preview-auto-spp-min-samples"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-auto-spp-max-samples"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-auto-spp-threshold"), std::string::npos);
+  EXPECT_NE(editor_source.find("--disable-ray-tracing-pipeline"), std::string::npos);
+  EXPECT_NE(editor_source.find("capabilities.support_acceleration_structure"), std::string::npos);
+  EXPECT_NE(editor_source.find("capabilities.support_ray_tracing"), std::string::npos);
+  EXPECT_NE(editor_source.find("capabilities.support_ray_query"), std::string::npos);
   EXPECT_NE(editor_source.find("ParsePreviewBool"), std::string::npos);
+}
+
+TEST(CameraRenderTechnique, RayQuerySharedResourcesDoNotRequireRayTracingPipeline) {
+  const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
+  const auto graphics_resources = ReadTextFile(SourcePath("EvoEngine_SDK/src/GraphicsResources.cpp"));
+  const auto mesh_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Mesh.cpp"));
+  const auto skinned_mesh_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/SkinnedMesh.cpp"));
+  const auto skinned_renderer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/SkinnedMeshRenderer.cpp"));
+  const auto render_storage_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
+  const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+
+  EXPECT_NE(camera_source.find("Platform::RayQueryEnabled() ? CameraRenderMode::RayQuery"), std::string::npos);
+  EXPECT_NE(graphics_resources.find("VkPipelineStageFlags2 RayTraversalStageMask()"), std::string::npos);
+  EXPECT_NE(graphics_resources.find("if (Platform::RayTracingEnabled())"), std::string::npos);
+  EXPECT_NE(graphics_resources.find("if (Platform::RayQueryEnabled())"), std::string::npos);
+  EXPECT_NE(mesh_source.find("if (Platform::RayAccelerationStructureEnabled())"), std::string::npos);
+  EXPECT_NE(skinned_mesh_source.find("if (Platform::RayAccelerationStructureEnabled())"), std::string::npos);
+  EXPECT_NE(skinned_renderer_source.find("if (!Platform::RayAccelerationStructureEnabled()"), std::string::npos);
+  EXPECT_NE(render_storage_source.find("if (!Platform::RayAccelerationStructureEnabled()"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("update_ray_tracing && Platform::RayAccelerationStructureEnabled()"),
+            std::string::npos);
+  EXPECT_NE(render_layer_source.find("if (Platform::RayAccelerationStructureEnabled() &&"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("if (Platform::RayQueryEnabled() && !ray_query_camera_pipeline_)"),
+            std::string::npos);
+  EXPECT_NE(render_layer_source.find("if (Platform::RayTracingEnabled() && !ray_tracing_camera_pipeline)"),
+            std::string::npos);
 }

@@ -22,6 +22,17 @@ constexpr VkBuildAccelerationStructureFlagsKHR kTlasBuildFlags =
 constexpr VkBuildAccelerationStructureFlagsKHR kBlasBuildFlags =
     VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
 
+VkPipelineStageFlags2 RayTraversalStageMask() {
+  VkPipelineStageFlags2 stages = 0;
+  if (Platform::RayTracingEnabled()) {
+    stages |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+  }
+  if (Platform::RayQueryEnabled()) {
+    stages |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  }
+  return stages;
+}
+
 VkGeometryInstanceFlagsKHR BuildGltfRayTracingInstanceFlags(
     const RenderInstanceStorage::IRenderInstance& render_instance,
     const std::vector<GltfShadeMaterial>& gltf_shade_materials) {
@@ -1793,9 +1804,7 @@ std::shared_ptr<FrameSubmissionState> BottomLevelAccelerationStructure::UpdateVe
 
     VkMemoryBarrier2 reuse_as_barrier{};
     reuse_as_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    reuse_as_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
-                                    VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
-                                    VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    reuse_as_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | RayTraversalStageMask();
     reuse_as_barrier.srcAccessMask =
         VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
     reuse_as_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -1835,9 +1844,8 @@ std::shared_ptr<FrameSubmissionState> BottomLevelAccelerationStructure::UpdateVe
     completion_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     completion_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
     completion_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    completion_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
-                                      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
-                                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    completion_barrier.dstStageMask =
+        VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | RayTraversalStageMask();
     completion_barrier.dstAccessMask =
         VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
     VkDependencyInfo completion_dependency{};
@@ -2184,9 +2192,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
 
     VkMemoryBarrier2 reuse_barrier{};
     reuse_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-    reuse_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR |
-                                 VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
-                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    reuse_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | RayTraversalStageMask();
     reuse_barrier.srcAccessMask =
         VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
     reuse_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -2234,8 +2240,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     traversal_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     traversal_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
     traversal_barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-    traversal_barrier.dstStageMask =
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    traversal_barrier.dstStageMask = RayTraversalStageMask();
     traversal_barrier.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
     VkDependencyInfo post_build_dependency{};
     post_build_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;

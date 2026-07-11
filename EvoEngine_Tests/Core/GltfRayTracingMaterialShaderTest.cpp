@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <utility>
 
 namespace {
 std::string ReadTextFile(const std::filesystem::path& path) {
@@ -26,6 +27,18 @@ std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
 
 std::filesystem::path AppPath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App" / relative_path;
+}
+
+std::string ReadRayTracingCameraSource() {
+  return ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen")) +
+         ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl")) +
+         ReadTextFile(ShaderPath("Includes/CameraRayTracingTraversal.glsl"));
+}
+
+std::string ReadRayQueryCameraSource() {
+  return ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp")) +
+         ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl")) +
+         ReadTextFile(ShaderPath("Includes/CameraRayQueryTraversal.glsl"));
 }
 
 VkAccelerationStructureInstanceKHR MakeTlasTestInstance(const VkDeviceAddress address = 1) {
@@ -68,12 +81,49 @@ TEST(GltfRayTracingMaterial, CameraClosestHitRecordsRaygenHitPayload) {
   EXPECT_EQ(source.find("EE_SAMPLE_TEXTURE_2D"), std::string::npos);
 }
 
+TEST(GltfRayTracingMaterial, ActiveRayCamerasShareOneIntegratorWithTraversalAdapters) {
+  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  const auto ray_tracing_traversal = ReadTextFile(ShaderPath("Includes/CameraRayTracingTraversal.glsl"));
+  const auto ray_query_traversal = ReadTextFile(ShaderPath("Includes/CameraRayQueryTraversal.glsl"));
+
+  ASSERT_FALSE(raygen.empty());
+  ASSERT_FALSE(ray_query.empty());
+  ASSERT_FALSE(integrator.empty());
+  ASSERT_FALSE(ray_tracing_traversal.empty());
+  ASSERT_FALSE(ray_query_traversal.empty());
+
+  EXPECT_NE(raygen.find("#define EE_CAMERA_RAY_TRACING_TRAVERSAL"), std::string::npos);
+  EXPECT_NE(ray_query.find("#define EE_CAMERA_RAY_QUERY_TRAVERSAL"), std::string::npos);
+  EXPECT_NE(raygen.find("#include \"CameraRayIntegrator.glsl\""), std::string::npos);
+  EXPECT_NE(ray_query.find("#include \"CameraRayIntegrator.glsl\""), std::string::npos);
+  EXPECT_EQ(raygen.find("EE_CAMERA_TRACE_PATH"), std::string::npos);
+  EXPECT_EQ(ray_query.find("EE_CAMERA_TRACE_PATH"), std::string::npos);
+
+  EXPECT_NE(integrator.find("vec3 EE_CAMERA_TRACE_PATH"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_PREPARE_DIRECT_LIGHTING"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_GLTF_RT_BSDF_SAMPLE"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_PROCESS_VOLUME_SEGMENT"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH"), std::string::npos);
+  EXPECT_NE(integrator.find("void EE_CAMERA_RENDER_PIXEL"), std::string::npos);
+  EXPECT_EQ(integrator.find("traceRayEXT("), std::string::npos);
+  EXPECT_EQ(integrator.find("rayQueryInitializeEXT"), std::string::npos);
+  EXPECT_EQ(integrator.find("gl_LaunchIDEXT"), std::string::npos);
+  EXPECT_EQ(integrator.find("gl_GlobalInvocationID"), std::string::npos);
+
+  EXPECT_NE(ray_tracing_traversal.find("traceRayEXT("), std::string::npos);
+  EXPECT_EQ(ray_tracing_traversal.find("rayQueryInitializeEXT"), std::string::npos);
+  EXPECT_NE(ray_query_traversal.find("rayQueryInitializeEXT"), std::string::npos);
+  EXPECT_EQ(ray_query_traversal.find("traceRayEXT("), std::string::npos);
+}
+
 TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
   const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.rahit"));
   const auto evaluator = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto pipeline = ReadTextFile(SdkPath("src/RayTracingPipeline.cpp"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
 
   ASSERT_FALSE(any_hit.empty());
   ASSERT_FALSE(evaluator.empty());
@@ -107,7 +157,7 @@ TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
 TEST(GltfRayTracingMaterial, CameraRaygenUsesRgbTransparentShadowTransmission) {
   const auto payload = ReadTextFile(ShaderPath("Includes/CameraRayTracingPayload.glsl"));
   const auto evaluator = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
   const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.rahit"));
   const auto miss = ReadTextFile(ShaderPath("RayTracing/Miss/Camera.rmiss"));
   ASSERT_FALSE(payload.empty());
@@ -139,7 +189,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesRgbTransparentShadowTransmission) {
   EXPECT_NE(evaluator.find("scatter_coefficient"), std::string::npos);
   EXPECT_NE(any_hit.find("abs(gl_HitTEXT - hit_value.shadow_previous_hit_t)"), std::string::npos);
   EXPECT_NE(any_hit.find("hit_value.shadow_is_inside = is_inside ? 1u : 0u"), std::string::npos);
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto ray_query = ReadRayQueryCameraSource();
   ASSERT_FALSE(ray_query.empty());
   EXPECT_NE(ray_query.find("const float hit_t = rayQueryGetIntersectionTEXT(ray_query, false)"), std::string::npos);
   EXPECT_NE(ray_query.find("const float segment_length = max(0.0f, hit_t - previous_hit_t)"), std::string::npos);
@@ -194,8 +244,8 @@ TEST(GltfRayTracingMaterial, RayShadersUseCanonicalMaterialBlockOnly) {
 TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   const auto evaluator = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.rahit"));
   ASSERT_FALSE(evaluator.empty());
   ASSERT_FALSE(bsdf.empty());
@@ -349,8 +399,8 @@ TEST(GltfRayTracingMaterial, CameraMissWeightsBsdfSampledEnvironmentHits) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
-  const auto source = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto source = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   ASSERT_FALSE(source.empty());
   ASSERT_FALSE(ray_query.empty());
 
@@ -505,8 +555,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenKeepsMappedNormalHemisphereGuard) {
-  const auto source = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto source = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
   ASSERT_FALSE(source.empty());
   ASSERT_FALSE(ray_query.empty());
@@ -554,8 +604,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenKeepsMappedNormalHemisphereGuard) {
 }
 
 TEST(GltfRayTracingMaterial, RayCamerasUseReferenceSafeOffsetsForSurfaceRays) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
 
@@ -623,8 +673,8 @@ TEST(GltfRayTracingMaterial, RayTracingDiffuseBsdfSamplesUseMaterialTangentFrame
 
 TEST(GltfRayTracingMaterial, RayTracingBsdfSampleKeepsLobeSamplerResult) {
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
 
   ASSERT_FALSE(bsdf.empty());
   ASSERT_FALSE(raygen.empty());
@@ -651,8 +701,8 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfSampleKeepsLobeSamplerResult) {
 }
 
 TEST(GltfRayTracingMaterial, CameraPathRaysCullBackfacesButShadowRaysUseReferenceFlags) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
 
@@ -694,7 +744,7 @@ TEST(GltfRayTracingMaterial, TopLevelAccelerationStructureUsesReferenceMaterialI
 
 TEST(GltfRayTracingMaterial, TransmissionBsdfSplitsSpecularAndDiffuseLobes) {
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
 
   ASSERT_FALSE(bsdf.empty());
   ASSERT_FALSE(raygen.empty());
@@ -745,7 +795,7 @@ TEST(GltfRayTracingMaterial, RayTracingBtdfUsesReferenceGgxTransmissionModel) {
 
 TEST(GltfRayTracingMaterial, RayTracingBsdfUsesReferenceLayeredLobeModel) {
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
 
   ASSERT_FALSE(bsdf.empty());
   ASSERT_FALSE(raygen.empty());
@@ -781,7 +831,7 @@ TEST(GltfRayTracingMaterial, RayTracingBsdfUsesReferenceLayeredLobeModel) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenProcessesVolumeSegmentBeforeSurfaceBounce) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
   const auto bsdf = ReadTextFile(ShaderPath("Includes/GltfRayTracingBsdf.glsl"));
 
   ASSERT_FALSE(raygen.empty());
@@ -825,8 +875,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenProcessesVolumeSegmentBeforeSurfaceBoun
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenResolvesNeeBeforeSurfaceTermination) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
 
@@ -887,7 +937,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenResolvesNeeBeforeSurfaceTermination) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenBuildsReferenceStylePrimaryRays) {
-  const auto source = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto source = ReadRayTracingCameraSource();
   ASSERT_FALSE(source.empty());
 
   EXPECT_NE(source.find("const vec2 clip_coords = (sample_position + sample_offset) / image_size * 2.0f - 1.0f"),
@@ -956,7 +1006,7 @@ TEST(GltfRayTracingMaterial, GeneratedTangentsPreserveHandedness) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenDoesNotBindPrimaryDdgiResources) {
-  const auto source = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto source = ReadRayTracingCameraSource();
   ASSERT_FALSE(source.empty());
   EXPECT_EQ(source.find("layout(set = 2, binding = 17) uniform sampler2D EE_DDGI_IRRADIANCE_ATLAS"), std::string::npos);
   EXPECT_EQ(source.find("layout(set = 2, binding = 18) uniform sampler2D EE_DDGI_VISIBILITY_ATLAS"), std::string::npos);
@@ -984,21 +1034,27 @@ TEST(GltfRayTracingMaterial, CameraRaygenDoesNotBindPrimaryDdgiResources) {
   EXPECT_EQ(render_layer.find("RayTracingCameraPass::CreateDescriptor(ray_camera_samples_ddgi)"), std::string::npos);
 }
 
-TEST(GltfRayTracingMaterial, PerFrameTextureBindingsAllowRaygenMaterialEvaluation) {
+TEST(GltfRayTracingMaterial, PerFrameTextureBindingsExposeEnabledRayCameraStages) {
   const auto source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   ASSERT_FALSE(source.empty());
 
-  const auto texture_2d_binding = source.find("9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER");
+  const auto binding_function = source.find("void PushPerFrameBindlessTextureDescriptorBindings");
+  ASSERT_NE(binding_function, std::string::npos);
+  const auto texture_2d_binding = source.find("9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER", binding_function);
   ASSERT_NE(texture_2d_binding, std::string::npos);
   const auto cubemap_binding = source.find("10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER");
   ASSERT_NE(cubemap_binding, std::string::npos);
   const auto material_buffer_binding = source.find("11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER");
   ASSERT_NE(material_buffer_binding, std::string::npos);
 
-  EXPECT_NE(source.find("VK_SHADER_STAGE_RAYGEN_BIT_KHR", texture_2d_binding), std::string::npos);
-  EXPECT_LT(source.find("VK_SHADER_STAGE_RAYGEN_BIT_KHR", texture_2d_binding), cubemap_binding);
-  EXPECT_NE(source.find("VK_SHADER_STAGE_RAYGEN_BIT_KHR", cubemap_binding), std::string::npos);
-  EXPECT_LT(source.find("VK_SHADER_STAGE_RAYGEN_BIT_KHR", cubemap_binding), material_buffer_binding);
+  const auto ray_tracing_stage_gate = source.find("if (Platform::RayTracingEnabled())", binding_function);
+  ASSERT_NE(ray_tracing_stage_gate, std::string::npos);
+  EXPECT_LT(ray_tracing_stage_gate, texture_2d_binding);
+  EXPECT_LT(source.find("VK_SHADER_STAGE_RAYGEN_BIT_KHR", ray_tracing_stage_gate), texture_2d_binding);
+  EXPECT_NE(source.find("9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, texture_2d_stages"), std::string::npos);
+  EXPECT_NE(source.find("10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, cubemap_stages"), std::string::npos);
+  EXPECT_LT(texture_2d_binding, cubemap_binding);
+  EXPECT_LT(cubemap_binding, material_buffer_binding);
 }
 
 TEST(GltfRayTracingMaterial, DemoPreviewRayCaptureWaitsForAccumulatedFramesAfterResets) {
@@ -1216,25 +1272,23 @@ TEST(GltfRayTracingMaterial, RenderInstanceMaterialAndTextureChangesResetRayCame
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenWritesLinearRadianceForPostTonemapping) {
-  const std::filesystem::path paths[] = {
-      ShaderPath("RayTracing/RayGen/Camera.rgen"),
-      ShaderPath("RayTracing/RayGen/CameraLegacy.rgen"),
+  const std::pair<std::string, std::string> sources[] = {
+      {"Camera.rgen", ReadRayTracingCameraSource()},
+      {"CameraLegacy.rgen", ReadTextFile(ShaderPath("RayTracing/RayGen/CameraLegacy.rgen"))},
   };
 
-  for (const auto& path : paths) {
-    const auto source = ReadTextFile(path);
-    ASSERT_FALSE(source.empty()) << path.string();
+  for (const auto& [name, source] : sources) {
+    ASSERT_FALSE(source.empty()) << name;
 
-    EXPECT_NE(source.find("linear_radiance"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("previous_linear_radiance"), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("display_color"), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("pow(max(linear_radiance"), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("pow(prev_color"), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("pow(previous_linear_radiance"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(linear_radiance"), std::string::npos)
-        << path.string();
-    EXPECT_NE(source.find("imageStore(radiance_history_image"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("vec4(linear_radiance"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("linear_radiance"), std::string::npos) << name;
+    EXPECT_NE(source.find("previous_linear_radiance"), std::string::npos) << name;
+    EXPECT_EQ(source.find("display_color"), std::string::npos) << name;
+    EXPECT_EQ(source.find("pow(max(linear_radiance"), std::string::npos) << name;
+    EXPECT_EQ(source.find("pow(prev_color"), std::string::npos) << name;
+    EXPECT_EQ(source.find("pow(previous_linear_radiance"), std::string::npos) << name;
+    EXPECT_NE(source.find("imageStore(result_image"), std::string::npos) << name;
+    EXPECT_NE(source.find("imageStore(radiance_history_image"), std::string::npos) << name;
+    EXPECT_NE(source.find("vec4(linear_radiance"), std::string::npos) << name;
   }
 }
 
@@ -1302,7 +1356,7 @@ TEST(GltfRayTracingMaterial, CameraMissRecordsEnvironmentForRaygenLoop) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenUsesSkyColorForPrimaryMisses) {
-  const auto source = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto source = ReadRayTracingCameraSource();
   ASSERT_FALSE(source.empty());
 
   EXPECT_NE(
@@ -1314,7 +1368,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesSkyColorForPrimaryMisses) {
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenLightsFromCameraBackground) {
-  const auto source = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto source = ReadRayTracingCameraSource();
   ASSERT_FALSE(source.empty());
 
   EXPECT_NE(source.find("vec3 EE_CAMERA_BACKGROUND_LIGHT_RADIANCE"), std::string::npos);
@@ -1342,9 +1396,9 @@ TEST(GltfRayTracingMaterial, DirectSkyEnvironmentModeRemoved) {
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
   const auto render_storage_source = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
   const auto editor_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
   const auto miss = ReadTextFile(ShaderPath("RayTracing/Miss/Camera.rmiss"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto ray_query = ReadRayQueryCameraSource();
 
   ASSERT_FALSE(environment_include.empty());
   ASSERT_FALSE(scene_header.empty());
@@ -1396,7 +1450,7 @@ TEST(GltfRayTracingMaterial, EnvironmentMapModeUsesGeneratedPdfTexture) {
   const auto environment_include = ReadTextFile(ShaderPath("Includes/Environment.glsl"));
   const auto conversion_shader =
       ReadTextFile(ShaderPath("Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
   const auto miss = ReadTextFile(ShaderPath("RayTracing/Miss/Camera.rmiss"));
   const auto environmental_map_header = ReadTextFile(SdkPath("include/Rendering/PBR/EnvironmentalMap.hpp"));
   const auto environmental_map_source = ReadTextFile(SdkPath("src/EnvironmentalMap.cpp"));
@@ -1436,7 +1490,7 @@ TEST(GltfRayTracingMaterial, EnvironmentMapModeUsesGeneratedPdfTexture) {
 
 TEST(GltfRayTracingMaterial, CameraRaygenUsesReferenceRngJitterAndAccumulation) {
   const auto random = ReadTextFile(ShaderPath("Includes/Random.glsl"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
   const auto render_storage_header =
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
   const auto ray_tracing_pass_source = ReadTextFile(SdkPath("src/RenderPasses/RayTracingCameraPass.cpp"));
@@ -1480,8 +1534,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesReferenceRngJitterAndAccumulation) 
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenUsesAutoSppConvergenceControl) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   const auto cameras_include = ReadTextFile(ShaderPath("Includes/Cameras.glsl"));
   const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
   const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
@@ -1556,15 +1610,15 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesAutoSppConvergenceControl) {
   EXPECT_NE(editor_source.find("--preview-auto-spp-threshold"), std::string::npos);
   EXPECT_NE(python_binding.find("auto_spp_enabled"), std::string::npos);
 
-  EXPECT_EQ(ray_query.find("auto_spp_enabled"), std::string::npos);
-  EXPECT_EQ(ray_query.find("convergence_history_image"), std::string::npos);
+  EXPECT_NE(ray_query.find("camera.auto_spp_enabled != 0u"), std::string::npos);
+  EXPECT_NE(ray_query.find("convergence_history_image"), std::string::npos);
   EXPECT_NE(docs.find("Auto SPP convergence mode"), std::string::npos);
-  EXPECT_NE(docs.find("RayQuery Auto SPP support is deferred"), std::string::npos);
+  EXPECT_EQ(docs.find("RayQuery Auto SPP support is deferred"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenUsesConfigurableFireflyClamp) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  const auto ray_query = ReadTextFile(ShaderPath("Compute/RayQueryCamera.comp"));
+  const auto raygen = ReadRayTracingCameraSource();
+  const auto ray_query = ReadRayQueryCameraSource();
   const auto cameras_include = ReadTextFile(ShaderPath("Includes/Cameras.glsl"));
   const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
   const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
@@ -1600,7 +1654,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesConfigurableFireflyClamp) {
   EXPECT_NE(raygen.find("EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS"), std::string::npos);
   EXPECT_NE(raygen.find("EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS(invalid_radiance_rejections, firefly_clamp_count)"),
             std::string::npos);
-  EXPECT_NE(raygen.find("imageStore(result_image, ivec2(gl_LaunchIDEXT.xy), vec4(linear_radiance, 1.0f)"),
+  EXPECT_NE(raygen.find("imageStore(result_image, ivec2(pixel_coordinate), vec4(linear_radiance, 1.0f)"),
             std::string::npos);
   EXPECT_NE(raygen.find("imageStore(radiance_history_image"), std::string::npos);
 
@@ -1628,16 +1682,16 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesConfigurableFireflyClamp) {
   EXPECT_NE(editor_source.find("preview_capture_firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(editor_source.find("preview_capture_firefly_clamp_threshold"), std::string::npos);
 
-  EXPECT_NE(ray_query.find("EE_CAMERA_FIREFLY_CLAMP_THRESHOLD = 10.0f"), std::string::npos);
-  EXPECT_EQ(ray_query.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_EQ(ray_query.find("firefly_clamp_threshold"), std::string::npos);
+  EXPECT_EQ(ray_query.find("EE_CAMERA_FIREFLY_CLAMP_THRESHOLD"), std::string::npos);
+  EXPECT_NE(ray_query.find("camera.firefly_clamp_enabled == 0u"), std::string::npos);
+  EXPECT_NE(ray_query.find("camera.firefly_clamp_threshold"), std::string::npos);
   EXPECT_NE(docs.find("firefly luminance clamp"), std::string::npos);
   EXPECT_NE(docs.find("enabled at luminance `10.0`"), std::string::npos);
   EXPECT_NE(docs.find("NaN/Inf radiance rejection"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenGatesSerWithHitObjectTrace) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto raygen = ReadRayTracingCameraSource();
   const auto platform_source = ReadTextFile(SdkPath("src/Platform.cpp"));
   const auto render_storage_header =
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
@@ -1664,14 +1718,14 @@ TEST(GltfRayTracingMaterial, CameraRaygenGatesSerWithHitObjectTrace) {
   EXPECT_NE(raygen.find("#if EE_SHADER_EXECUTION_REORDERING_SUPPORTED"), std::string::npos);
   EXPECT_NE(raygen.find("#extension GL_NV_shader_invocation_reorder : require"), std::string::npos);
   EXPECT_NE(raygen.find("uint EE_SHADER_EXECUTION_REORDERING"), std::string::npos);
-  EXPECT_NE(raygen.find("void EE_CAMERA_TRACE_SURFACE_RAY"), std::string::npos);
+  EXPECT_NE(raygen.find("void EE_CAMERA_TRACE_SURFACE"), std::string::npos);
   EXPECT_NE(raygen.find("if (EE_SHADER_EXECUTION_REORDERING != 0u)"), std::string::npos);
   EXPECT_NE(raygen.find("hitObjectTraceRayNV(hit_object, EE_TLAS, gl_RayFlagsCullBackFacingTrianglesEXT"),
             std::string::npos);
   EXPECT_NE(raygen.find("reorderThreadNV(hit_object)"), std::string::npos);
   EXPECT_NE(raygen.find("hitObjectExecuteShaderNV(hit_object, 0)"), std::string::npos);
   EXPECT_NE(raygen.find("traceRayEXT(EE_TLAS, gl_RayFlagsCullBackFacingTrianglesEXT"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_TRACE_SURFACE_RAY(ray_origin"), std::string::npos);
+  EXPECT_NE(raygen.find("EE_CAMERA_TRACE_SURFACE(ray_origin, ray_direction"), std::string::npos);
   EXPECT_EQ(raygen.find("reorderThreadNV(0u)"), std::string::npos);
 }
 

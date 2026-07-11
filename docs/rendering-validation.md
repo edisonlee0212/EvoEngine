@@ -74,6 +74,11 @@ out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --edi
 `--preview-render-mode` accepts `rasterization`, `raytracing`, and `rayquery`. RayQuery captures require a device with
 RayQuery support. `--preview-sample-size` controls manual samples per rendered frame for ray techniques.
 
+`--disable-ray-tracing-pipeline` is a validation mask applied before Vulkan device creation. It omits RT-pipeline support
+without disabling acceleration structures or RayQuery, allowing an RT-capable development GPU to exercise the genuine
+query-only initialization path. Capture JSON records resolved `acceleration_structure`, `ray_tracing_pipeline`,
+`ray_query`, and `shader_execution_reordering` capabilities.
+
 The output extension selects the capture contract. PNG stores the display result. Radiance HDR (`.hdr`) stores linear RGB
 and is restricted to `raytracing` and `rayquery`; ambient occlusion, bloom, screen-space reflections, anti-aliasing, and
 tone mapping are disabled for that capture so renderer comparisons do not include a presentation path. Pass
@@ -102,10 +107,18 @@ Other useful preview flags:
 - `--preview-aa-motion-sequence enabled|disabled` for the `rendering-regression` profile
 - `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence|taa-no-history|smaa-edges|smaa-weights`
 
-The RT-pipeline Auto SPP convergence mode is optional; reproducible baselines disable it and use an exact frame and sample
-budget. RayQuery Auto SPP support is deferred until the shared-integrator milestone. NaN/Inf radiance rejection happens
-before accumulation in both ray techniques. The M0 comparison keeps the firefly luminance clamp enabled at luminance `10.0`
-in both renderers.
+Auto SPP convergence mode is optional in both ray techniques; reproducible baselines disable it and use an exact frame and
+sample budget. NaN/Inf radiance rejection happens before accumulation in both ray techniques. The M0 comparison keeps the
+configurable firefly luminance clamp enabled at luminance `10.0` in both renderers.
+
+Exercise the query-only device path with an installed editor:
+
+```bat
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\m2-rq-only\evo-rq-64spp.hdr --preview-metrics-json out\m2-rq-only\evo-rq.json --preview-render-mode rayquery --preview-warmup-frames 16 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-ser automatic --preview-width 1280 --preview-height 720 --preview-deterministic --disable-ray-tracing-pipeline
+```
+
+The result must report acceleration structures and RayQuery enabled, the RT pipeline and SER disabled, only a
+`Path Trace (RQ)` GPU section, finite nonblank HDR pixels, and no validation, device-loss, or fatal errors.
 
 TAA presets, controls, and debug modes require `--preview-aa taa`; SMAA presets and debug modes require
 `--preview-aa smaa`. Incompatible combinations are rejected. The TAA debug modes capture motion vectors,
@@ -248,6 +261,12 @@ samples. RTX averages `0.095087 ms` (`3.043 ms` total) with `0.313 s` wall time,
 is bit-exact to its pre-M1b deterministic motion capture. Static Bistro RTX and RayQuery remain bit-exact to M1a with no
 capture-window acceleration-structure work. Evidence is under `out\m1b-final-motion` and
 `out\raytracer-m1b-final-fast`.
+
+The M2 query-only smoke capture reports acceleration structures and RayQuery enabled with the RT pipeline and SER disabled.
+Its 1280x720, 64-SPP HDR is finite and nonblank, records only `Path Trace (RQ)`, and has no validation, fallback,
+device-loss, or fatal log hits. The normal fast RTX and RayQuery HDR hashes remain bit-exact to M1b. The canonical
+RTX-versus-RayQuery MAE/RMS is `0.001001/0.002475`, within the M0 `0.001003/0.002483` gate. Evidence is under
+`out\m2-rq-only`, `out\raytracer-m2-fast`, and `out\raytracer-m2-canonical-final`.
 
 Run both RT-pipeline and RayQuery techniques with:
 

@@ -213,7 +213,15 @@ class Platform final {
     VkPhysicalDeviceFeatures features{};
 
     /// Acceleration structure features.
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+
+    /// Ray tracing pipeline features.
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+
+    /// Ray query features.
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
 
     /**
      * @brief Struct representing queue family indices needed by the application.
@@ -442,6 +450,7 @@ class Platform final {
    */
   struct Capabilities {
     bool support_mesh_shader = true;
+    bool support_acceleration_structure = true;
     bool support_ray_tracing = true;
     bool support_ray_query = true;
     bool support_shader_execution_reordering = false;
@@ -470,6 +479,7 @@ class Platform final {
 
   static bool RayTracingEnabled();
   static bool RayQueryEnabled();
+  static bool RayAccelerationStructureEnabled();
   static bool ShaderExecutionReorderingEnabled();
   static bool MeshShaderEnabled();
   static constexpr size_t kRenderPassDrawBucketCount = static_cast<size_t>(RenderPassDrawBucket::Count);

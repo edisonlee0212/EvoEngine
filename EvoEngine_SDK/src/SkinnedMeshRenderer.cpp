@@ -83,7 +83,7 @@ void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
     ray_tracing_payload_retry_required_ = false;
     ray_tracing_geometry_version_ = 0;
   };
-  if (!Platform::RayTracingEnabled() || !bone_matrices) {
+  if (!Platform::RayAccelerationStructureEnabled() || !bone_matrices) {
     clear_ray_tracing_geometry();
     return;
   }

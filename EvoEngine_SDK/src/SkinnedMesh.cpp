@@ -324,7 +324,7 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
                                        skinned_triangle_range_);
 
   version_++;
-  if (Platform::RayTracingEnabled()) {
+  if (Platform::RayAccelerationStructureEnabled()) {
     auto vertices = BuildSkinnedRayTracingVertices(skinned_vertices_, {});
     auto triangles = skinned_triangles_;
     GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,

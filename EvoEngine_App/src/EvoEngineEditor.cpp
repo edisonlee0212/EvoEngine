@@ -77,6 +77,7 @@ struct EditorCommandLine {
   std::optional<int> preview_shadow_debug_light;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
+  bool disable_ray_tracing_pipeline = false;
 };
 
 Camera::CameraRenderMode ParsePreviewRenderMode(const std::string& value) {
@@ -339,9 +340,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
     } else if (argument == "--preview-render-mode") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-render-mode requires rasterization or raytracing.");
+        throw std::invalid_argument("--preview-render-mode requires rasterization, raytracing, or rayquery.");
       }
       command_line.preview_capture_render_mode = ParsePreviewRenderMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--disable-ray-tracing-pipeline") {
+      command_line.disable_ray_tracing_pipeline = true;
     } else if (argument == "--preview-ser") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ser requires disabled, automatic, or enabled.");
@@ -587,6 +590,9 @@ void ApplyGraphicsCommandLineOverrides(const EditorCommandLine& command_line,
                                        ApplicationInitializationSettings& application_info) {
   if (command_line.shadow_map_resolution_quality) {
     application_info.graphics_settings.SetShadowMapResolutionQuality(*command_line.shadow_map_resolution_quality);
+  }
+  if (command_line.disable_ray_tracing_pipeline) {
+    Platform::GetInstance().GetCapabilities().support_ray_tracing = false;
   }
 }
 
@@ -1208,6 +1214,11 @@ void CaptureDemoPreview(
   metrics["ser_enabled"] =
       resolved_render_mode == Camera::CameraRenderMode::RayTracing &&
       Camera::ResolveShaderExecutionReorderingEnabled(scene_camera->camera_settings.shader_execution_reordering_mode);
+  const auto& capabilities = Platform::GetInstance().GetCapabilities();
+  metrics["capabilities"] = {{"acceleration_structure", capabilities.support_acceleration_structure},
+                             {"ray_tracing_pipeline", capabilities.support_ray_tracing},
+                             {"ray_query", capabilities.support_ray_query},
+                             {"shader_execution_reordering", capabilities.support_shader_execution_reordering}};
   metrics["deterministic"] = deterministic_capture;
   metrics["accumulation_wall_seconds"] = capture_elapsed_seconds;
   metrics["frames_per_second"] = capture_frames_per_second;

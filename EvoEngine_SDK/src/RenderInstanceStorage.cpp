@@ -1041,7 +1041,8 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
 
   const auto append_particle_ray_instances = [&](const std::shared_ptr<InstancedRenderInstance>& render_instance) {
     render_instance->ray_tracing_instance_indices.clear();
-    if (!Platform::RayTracingEnabled() || !render_instance->particle_infos || render_instance->instance_index < 0 ||
+    if (!Platform::RayAccelerationStructureEnabled() || !render_instance->particle_infos ||
+        render_instance->instance_index < 0 ||
         static_cast<size_t>(render_instance->instance_index) >= instance_info_blocks_.size()) {
       return;
     }
