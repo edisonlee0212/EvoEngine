@@ -57,6 +57,23 @@ uint EE_PCG(inout uint state) {
   return (word >> 22u) ^ word;
 }
 
-float EE_REFERENCE_RANDOM(inout uint seed) {
+float EE_PCG_RANDOM(inout uint seed) {
   return float(EE_PCG(seed)) * (1.0f / float(0xffffffffu));
+}
+
+vec2 EE_PCG_RANDOM_2(inout uint seed) {
+  const float x = EE_PCG_RANDOM(seed);
+  const float y = EE_PCG_RANDOM(seed);
+  return vec2(x, y);
+}
+
+vec3 EE_PCG_RANDOM_3(inout uint seed) {
+  const float x = EE_PCG_RANDOM(seed);
+  const float y = EE_PCG_RANDOM(seed);
+  const float z = EE_PCG_RANDOM(seed);
+  return vec3(x, y, z);
+}
+
+float EE_REFERENCE_RANDOM(inout uint seed) {
+  return EE_PCG_RANDOM(seed);
 }

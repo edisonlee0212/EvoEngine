@@ -267,6 +267,9 @@ class Scene final : public IAsset {
     /// Gamma value for color correction in the environment.
     float environment_gamma = 2.2f;
 
+    /// Rotation around the world Y axis in radians.
+    float environment_rotation = 0.0f;
+
     /// Intensity of the ambient light in the environment.
     float ambient_light_intensity = 0.8f;
 

@@ -70,7 +70,7 @@ void main() {
   const vec3 world_geometric_normal = EE_CAMERA_WORLD_NORMAL(object_geometric_normal, -gl_WorldRayDirectionEXT);
   const float opacity = EE_GLTF_RASTER_OPACITY_LOD0(
       material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a);
-  if (EE_RANDOM(hit_value.seed) > opacity) {
+  if (EE_PCG_RANDOM(hit_value.seed) > opacity) {
     ignoreIntersectionEXT;
   }
   if (hit_value.type != EE_CAMERA_RAY_PAYLOAD_SHADOW) {

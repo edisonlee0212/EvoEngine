@@ -26,9 +26,9 @@ vec3 EE_SKY_COLOR(vec3 direction) {
 		return camera.clear_color.xyz * camera.clear_color.w;
 	}
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
-	return pow(texture(EE_RASTER_SKYBOX, normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+	return pow(texture(EE_RASTER_SKYBOX, normalize(EE_ENVIRONMENT_LOCAL_DIRECTION(direction))).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
 #else
-	return pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+	return pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(EE_ENVIRONMENT_LOCAL_DIRECTION(direction))).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
 #endif
 }
 
@@ -210,21 +210,21 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
 	kD *= 1.0f - metallic;
 
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
-	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_RASTER_IRRADIANCE_MAP, normal).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_RASTER_IRRADIANCE_MAP, EE_ENVIRONMENT_LOCAL_DIRECTION(normal)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 #else
-	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], normal).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], EE_ENVIRONMENT_LOCAL_DIRECTION(normal)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 #endif
 	vec3 diffuse = irradiance * albedo;
 
 	// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
 	float reflectionLodScale = float(textureQueryLevels(EE_RASTER_PREFILTERED_MAP));
-	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_RASTER_PREFILTERED_MAP, R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_RASTER_PREFILTERED_MAP, EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_RASTER_BRDF_LUT, vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
 #else
 	int prefilteredMapIndex = EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index;
 	float reflectionLodScale = float(textureQueryLevels(EE_CUBEMAPS[prefilteredMapIndex]));
-	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
 #endif
 	vec3 specular = prefilteredColor * (F * brdf.x + vec3(F90 * brdf.y));

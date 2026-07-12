@@ -651,6 +651,79 @@ selection, while `NEAREST_MIPMAP_LINEAR`/`LINEAR_MIPMAP_LINEAR` interpolate betw
 also match the pinned reference. When either filter or the texture's sampler is omitted, EvoEngine retains its conforming
 repeat/trilinear implementation choice rather than inventing a serialized glTF value.
 
+### M10 Sampling And Environment Transport
+
+M10 uses one PCG implementation with domain-separated streams derived from the pixel/global-sample seed and a monotonic
+path-segment index. Camera jitter, surface alpha, punctual/environment light selection, direct and continuation BSDF,
+emissive NEE, surface shadows, volume free flight/phase/NEE, and roulette each own a documented domain. Every local stream
+advances through `EE_PCG_RANDOM`; sequenced two- and three-value helpers avoid relying on expression evaluation order.
+This keeps variable alpha-candidate counts from shifting later transport decisions and keeps ordinary RayQuery and forced
+query-only deterministic across independent processes.
+
+Texture2D environment maps use a two-level marginal/conditional CDF built from exact lat-long texel solid angles. The two
+CDF draws are remapped within the selected probability intervals, so azimuth is continuous and elevation is uniform in
+solid angle inside the texel. PDF evaluation remains piecewise constant and uses the selected texel. Zero-energy maps omit
+the CDF and use the uniform-sphere fallback. Direct cubemap and EvoEngine's existing baked-sky construction also use that
+valid `1 / (4 pi)` fallback; M10 does not add or port the reference renderer's Physical Sky.
+
+`EnvironmentalMap` retains the raw constructed cubemap separately from its irradiance/reflection probes. Ray-traced
+environment lighting evaluates that scene source, while the camera clear color or skybox remains a primary-background
+choice. Environment rotation is radians around world `+Y`: sampling rotates local directions by `+rotation`, while
+radiance and PDF evaluation rotate world directions by `-rotation`. Raster skybox, irradiance, and prefiltered lookups use
+the same convention. Cubemap assets serialize every RGBA32F face and mip as binary floats in Vulkan face order
+`+X, -X, +Y, -Y, +Z, -Z`, with each face's mip chain contiguous. Generated maps persist a rebuild recipe for a
+file-backed Texture2D/Cubemap source or the complete baked-sky parameters, so temporary runtime cubemaps and PDF textures
+are restored after asset reload without recursively embedding those generated assets. Serialization rejects allocated
+cubemaps whose GPU storage has never received valid texels instead of reading or persisting uninitialized device memory.
+This milestone's
+rotation scope is the active glTF raster, RTX, RayQuery, and forced query-only paths; the roadmap-excluded `CameraLegacy`
+and point-cloud ray shaders remain unchanged.
+
+Directional and environment shadow rays use the shared finite traversal maximum rather than camera far distance. Camera
+far remains the primary/miss depth sentinel. A true volume scatter advances ray-cone width by travel distance times the
+camera spread angle before the next surface chooses texture gradients; the diagnostic atlas uses its effective per-tile
+viewport height for that spread. Absorption-only segments retain the existing single-segment surface update.
+
+The first deterministic 1280x720, 64-SPP RTX, ordinary-RayQuery, and forced-query-only atlases under
+`out/m10-validation/precommit` are retained only as rejected fixture-calibration evidence. They proved byte-exact
+ordinary-RayQuery/query-only extension independence, but the camera still viewed the crowded M42 rig instead of the
+translated M10 probes, so none of their RTX, transport, or ROI results is accepted. The approved acceptance-blocker
+exception adds exactly two replacement launches: RTX and ordinary RayQuery viewing the isolated `isolated-v2` fixture at
+world `X=48`. The validator recomputes the historical query-only comparison from its original directory, pins all source
+artifacts plus the original executable byte-for-byte and pins affected ray-shader hashes after canonical LF newline
+normalization, so checkout line-ending conversion cannot invalidate unchanged source. It fails if the fresh RayQuery variant no longer
+matches the retained key/mask. It never labels the retained pair as fresh corrected-fixture evidence.
+
+The corrected fixture includes a rotated high-contrast environment, enlarged directional receivers with a blocker beyond
+camera far, and a checker around a transmissive scattering volume. Fresh RTX/RayQuery attributes and conservation retain
+the M7 limits. M10's separately named high-contrast transport limits were pre-locked from the rejected pilot before the
+replacement images; they do not modify M7. PDF normalization, constant-environment energy, high-contrast variance,
+rotation round trips, PCG vectors/domains, distant range, and volume-cone math remain focused tests rather than extra
+renderer launches. Together with the three rejected launches and normal post-commit delivery capture, M10 uses six
+launches total. The pinned reference is not rerun.
+
+The replacement atlases are revalidated from their saved HDRs without another renderer launch. Material ID locates the
+actual receiver interiors: the beyond-far blocker produces zero direct-punctual luminance while the control measures
+`0.686155` in both RTX and RayQuery. For the checker, the validator does not use coefficient of variation: three sparse
+volume pixels dominate that statistic. Instead it finds the dominant checker-panel and volume Material IDs, erodes their
+antialiased boundaries with every eligible `12x12` patch, and measures the two diagonal fundamentals of the known `64x64`
+XOR texture after 5/95-percent winsorization. The median clear-to-volume frequency response must be at least `2x`; the
+accepted saved images measure `5.57x` RTX and `6.28x` RayQuery. This image gate is deliberately named checker-frequency
+suppression: scattering or opacity can also suppress the pattern, so it is not presented as causal LOD evidence. The
+focused numerical contract separately proves that the shader's scatter-distance cone advance increases the next
+surface's texture gradient and selected LOD, while shader-source ordering and GPU compilation keep that math connected to
+both traversal techniques. Use:
+
+The accepted schema-4 saved-HDR report is `out/m10-validation/replacement/validation-corrected.json`; it embeds the M10
+frequency/LOD threshold blocks and the complete expectations-file SHA-256. The earlier `validation.json` remains rejected
+evidence of the stale receiver rectangles and invalid raw-contrast metric.
+
+```bat
+out\build\vs2026-x64-tests\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="GltfRayTracingMaterial.*:CameraRenderTechnique.*:GpuService.Cubemap*:GpuService.M10CameraRayTransportShadersCompile:SerializationRegistry.BuiltInAnimationAndPostProcessingTypesInstallSerializationHandlers:VolumetricCloudSettings.SceneEnvironment*"
+python Scripts\validate_raytracer_m10.py --self-test
+python Scripts\validate_raytracer_m10.py --matrix-dir out\m10-validation\replacement --retained-query-only-dir out\m10-validation\precommit --out out\m10-validation\replacement\validation-corrected.json
+```
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

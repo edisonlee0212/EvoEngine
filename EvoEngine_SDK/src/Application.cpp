@@ -56,6 +56,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -392,16 +393,117 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   }
 }
 
+void SerializeCubemap(YAML::Emitter& out, const Cubemap& cubemap) {
+  std::vector<glm::vec4> pixels;
+  cubemap.GetRgbaChannelData(pixels);
+  const uint32_t resolution = cubemap.GetResolution();
+  const uint32_t mip_levels = cubemap.GetMipLevels();
+  const size_t expected_pixel_count = Cubemap::CalculatePixelCount(resolution, mip_levels);
+  const bool canonical_empty = resolution == 0 && mip_levels == 1 && pixels.empty();
+  if (!canonical_empty && (expected_pixel_count == 0 || expected_pixel_count != pixels.size())) {
+    throw std::runtime_error("Cubemap pixel data is unavailable or incomplete.");
+  }
+  out << YAML::Key << "resolution" << YAML::Value << resolution;
+  out << YAML::Key << "mip_levels" << YAML::Value << mip_levels;
+  Serialization::SerializeVector("pixels", pixels, out);
+}
+
+void DeserializeCubemap(const YAML::Node& in, Cubemap& cubemap) {
+  const uint32_t resolution = in["resolution"] ? in["resolution"].as<uint32_t>() : 0u;
+  const uint32_t mip_levels = in["mip_levels"] ? in["mip_levels"].as<uint32_t>() : 1u;
+  if (resolution == 0 && !in["pixels"]) {
+    cubemap.Reset();
+    return;
+  }
+  const size_t pixel_count = Cubemap::CalculatePixelCount(resolution, mip_levels);
+  if (pixel_count == 0 || !in["pixels"]) {
+    throw std::invalid_argument("Cubemap dimensions or pixel payload are invalid.");
+  }
+  const auto& binary = in["pixels"].as<YAML::Binary>();
+  if (binary.size() != pixel_count * sizeof(glm::vec4)) {
+    throw std::invalid_argument("Cubemap pixel payload size does not match its faces and mip levels.");
+  }
+  std::vector<glm::vec4> pixels(pixel_count);
+  std::memcpy(pixels.data(), binary.data(), binary.size());
+  if (!cubemap.SetRgbaChannelData(pixels, resolution, mip_levels)) {
+    throw std::invalid_argument("Cubemap pixel payload could not be applied.");
+  }
+}
+
 void SerializeEnvironmentalMap(YAML::Emitter& out, const EnvironmentalMap& environmental_map) {
   environmental_map.light_probe.Save("light_probe", out);
   environmental_map.reflection_probe.Save("reflection_probe", out);
   environmental_map.environment_pdf_texture.Save("environment_pdf_texture", out);
+  environmental_map.environment_cubemap.Save("environment_cubemap", out);
+  environmental_map.environment_source.Save("environment_source", out);
+  out << YAML::Key << "environment_source_type" << YAML::Value
+      << static_cast<uint32_t>(environmental_map.environment_source_type);
+  out << YAML::Key << "environment_source_pdf_expected" << YAML::Value
+      << environmental_map.environment_source_pdf_expected;
+  out << YAML::Key << "sky_illumination_resolution" << YAML::Value << environmental_map.sky_illumination_resolution;
+  const auto& sky = environmental_map.sky_illumination_source;
+  out << YAML::Key << "sky_illumination_source" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "earth_radius" << YAML::Value << sky.atmosphere.earth_radius;
+  out << YAML::Key << "atmosphere_radius" << YAML::Value << sky.atmosphere.atmosphere_radius;
+  out << YAML::Key << "hr" << YAML::Value << sky.atmosphere.hr;
+  out << YAML::Key << "hm" << YAML::Value << sky.atmosphere.hm;
+  out << YAML::Key << "g" << YAML::Value << sky.atmosphere.g;
+  out << YAML::Key << "num_samples" << YAML::Value << sky.atmosphere.num_samples;
+  out << YAML::Key << "num_samples_light" << YAML::Value << sky.atmosphere.num_samples_light;
+  out << YAML::Key << "intensity" << YAML::Value << sky.atmosphere.intensity;
+  out << YAML::Key << "sun_direction" << YAML::Value << sky.sun_direction;
+  out << YAML::Key << "gamma" << YAML::Value << sky.gamma;
+  out << YAML::Key << "ground_color" << YAML::Value << sky.ground_color;
+  out << YAML::Key << "ground_transmittance" << YAML::Value << sky.ground_transmittance;
+  out << YAML::EndMap;
 }
 
 void DeserializeEnvironmentalMap(const YAML::Node& in, EnvironmentalMap& environmental_map) {
   environmental_map.light_probe.Load("light_probe", in);
   environmental_map.reflection_probe.Load("reflection_probe", in);
   environmental_map.environment_pdf_texture.Load("environment_pdf_texture", in);
+  environmental_map.environment_cubemap.Load("environment_cubemap", in);
+  environmental_map.environment_source.Load("environment_source", in);
+  if (in["environment_source_type"]) {
+    const auto source_type = in["environment_source_type"].as<uint32_t>();
+    environmental_map.environment_source_type =
+        source_type <= static_cast<uint32_t>(EnvironmentalMap::SourceType::SkyIllumination)
+            ? static_cast<EnvironmentalMap::SourceType>(source_type)
+            : EnvironmentalMap::SourceType::None;
+  }
+  if (in["environment_source_pdf_expected"]) {
+    environmental_map.environment_source_pdf_expected = in["environment_source_pdf_expected"].as<bool>();
+  }
+  if (in["sky_illumination_resolution"]) {
+    environmental_map.sky_illumination_resolution = in["sky_illumination_resolution"].as<uint32_t>();
+  }
+  if (const auto sky_node = in["sky_illumination_source"]) {
+    auto& sky = environmental_map.sky_illumination_source;
+    if (sky_node["earth_radius"])
+      sky.atmosphere.earth_radius = sky_node["earth_radius"].as<float>();
+    if (sky_node["atmosphere_radius"])
+      sky.atmosphere.atmosphere_radius = sky_node["atmosphere_radius"].as<float>();
+    if (sky_node["hr"])
+      sky.atmosphere.hr = sky_node["hr"].as<float>();
+    if (sky_node["hm"])
+      sky.atmosphere.hm = sky_node["hm"].as<float>();
+    if (sky_node["g"])
+      sky.atmosphere.g = sky_node["g"].as<float>();
+    if (sky_node["num_samples"])
+      sky.atmosphere.num_samples = sky_node["num_samples"].as<int>();
+    if (sky_node["num_samples_light"])
+      sky.atmosphere.num_samples_light = sky_node["num_samples_light"].as<int>();
+    if (sky_node["intensity"])
+      sky.atmosphere.intensity = sky_node["intensity"].as<float>();
+    if (sky_node["sun_direction"])
+      sky.sun_direction = sky_node["sun_direction"].as<glm::vec3>();
+    if (sky_node["gamma"])
+      sky.gamma = sky_node["gamma"].as<float>();
+    if (sky_node["ground_color"])
+      sky.ground_color = sky_node["ground_color"].as<glm::vec3>();
+    if (sky_node["ground_transmittance"])
+      sky.ground_transmittance = sky_node["ground_transmittance"].as<float>();
+  }
 }
 
 void SaveMat3x2(const std::string& name, const glm::mat3x2& value, YAML::Emitter& out) {
@@ -1876,6 +1978,7 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<PostProcessingStack>(
       SerializePostProcessingStack, DeserializePostProcessingStack, {}, "PostProcessingStack");
   Serialization::RegisterSerializationHandler<Material>(SerializeMaterial, DeserializeMaterial, {}, "Material");
+  Serialization::RegisterSerializationHandler<Cubemap>(SerializeCubemap, DeserializeCubemap, {}, "Cubemap");
   Serialization::RegisterSerializationHandler<EnvironmentalMap>(SerializeEnvironmentalMap, DeserializeEnvironmentalMap,
                                                                 {}, "EnvironmentalMap");
   Serialization::RegisterSerializationHandler<Shader>(SerializeShader, DeserializeShader, {}, "Shader");

@@ -1,15 +1,87 @@
 #include "Cubemap.hpp"
 #include "Application.hpp"
 #include "Console.hpp"
+#include "GpuService.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
+
+#include <limits>
+
 using namespace evo_engine;
 
 namespace {
 constexpr float kEnvironmentPi = 3.14159265358979323846f;
+
+void SynchronizeCubemapResourceMutation() {
+  const auto action = [] {
+    Platform::WaitForDeviceIdle();
+  };
+  if (const auto gpu_service = Platform::TryGetGpuService();
+      gpu_service && gpu_service->Initialized() && !gpu_service->IsGpuThread()) {
+    GpuWorkOptions options;
+    options.debug_name = "Cubemap::SynchronizeResourceMutation";
+    const auto handle = gpu_service->Enqueue(options, action);
+    gpu_service->Wait(handle);
+  } else {
+    action();
+  }
+}
+
+size_t CalculateCubemapPixelCount(const uint32_t resolution, const uint32_t mip_levels) {
+  if (resolution == 0 || mip_levels == 0) {
+    return 0;
+  }
+  uint32_t max_mip_levels = 1;
+  for (uint32_t size = resolution; size > 1; size /= 2) {
+    ++max_mip_levels;
+  }
+  if (mip_levels > max_mip_levels) {
+    return 0;
+  }
+  size_t face_pixels = 0;
+  uint32_t size = resolution;
+  for (uint32_t mip_level = 0; mip_level < mip_levels; ++mip_level) {
+    if (size > std::numeric_limits<size_t>::max() / size) {
+      return 0;
+    }
+    const size_t mip_pixels = static_cast<size_t>(size) * size;
+    if (face_pixels > std::numeric_limits<size_t>::max() - mip_pixels) {
+      return 0;
+    }
+    face_pixels += mip_pixels;
+    size = glm::max(size / 2, 1u);
+  }
+  if (face_pixels > std::numeric_limits<size_t>::max() / 6) {
+    return 0;
+  }
+  const size_t pixel_count = face_pixels * 6;
+  return pixel_count <= std::numeric_limits<size_t>::max() / sizeof(glm::vec4) ? pixel_count : 0;
+}
+
+std::vector<VkBufferImageCopy> BuildCubemapCopyRegions(const uint32_t resolution, const uint32_t mip_levels) {
+  std::vector<VkBufferImageCopy> regions;
+  regions.reserve(static_cast<size_t>(mip_levels) * 6);
+  VkDeviceSize offset = 0;
+  for (uint32_t face = 0; face < 6; ++face) {
+    uint32_t size = resolution;
+    for (uint32_t mip_level = 0; mip_level < mip_levels; ++mip_level) {
+      VkBufferImageCopy region{};
+      region.bufferOffset = offset;
+      region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+      region.imageSubresource.mipLevel = mip_level;
+      region.imageSubresource.baseArrayLayer = face;
+      region.imageSubresource.layerCount = 1;
+      region.imageExtent = {size, size, 1};
+      regions.emplace_back(region);
+      offset += static_cast<VkDeviceSize>(size) * size * sizeof(glm::vec4);
+      size = glm::max(size / 2, 1u);
+    }
+  }
+  return regions;
+}
 
 float EnvironmentLuminance(const glm::vec3& value) {
   return glm::max(glm::dot(glm::max(value, glm::vec3(0.0f)), glm::vec3(0.2126f, 0.7152f, 0.0722f)), 0.0f);
@@ -24,12 +96,11 @@ float CalculateEnvironmentPdfScale(const std::shared_ptr<Texture2D>& texture) {
     return 0.0f;
 
   const float d_azimuth = 2.0f * kEnvironmentPi / static_cast<float>(resolution.x);
-  const float d_elevation = kEnvironmentPi / static_cast<float>(resolution.y);
   double integral = 0.0;
   for (uint32_t y = 0; y < resolution.y; ++y) {
-    const float v = (static_cast<float>(y) + 0.5f) / static_cast<float>(resolution.y);
-    const float elevation = (v - 0.5f) * kEnvironmentPi;
-    const float solid_angle = d_azimuth * d_elevation * glm::max(glm::cos(elevation), 0.0f);
+    const float elevation_0 = (static_cast<float>(y) / static_cast<float>(resolution.y) - 0.5f) * kEnvironmentPi;
+    const float elevation_1 = (static_cast<float>(y + 1u) / static_cast<float>(resolution.y) - 0.5f) * kEnvironmentPi;
+    const float solid_angle = d_azimuth * (glm::sin(elevation_1) - glm::sin(elevation_0));
     for (uint32_t x = 0; x < resolution.x; ++x) {
       integral += EnvironmentLuminance(glm::vec3(pixels[static_cast<size_t>(y) * resolution.x + x])) * solid_angle;
     }
@@ -55,7 +126,122 @@ Cubemap::~Cubemap() {
 }
 
 void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels) const {
+  resolution_ = resolution;
+  mip_levels_ = mip_levels;
+  local_data_.clear();
+  local_data_dirty_ = false;
+  gpu_content_valid_ = false;
   RefStorage().Initialize(resolution, mip_levels);
+}
+
+void Cubemap::UploadLocalData() const {
+  const size_t pixel_count = CalculatePixelCount(resolution_, mip_levels_);
+  if (!Platform::Initialized() || !local_data_dirty_ || local_data_.size() != pixel_count) {
+    return;
+  }
+  SynchronizeCubemapResourceMutation();
+  auto& storage = RefStorage();
+  gpu_content_valid_ = false;
+  storage.Initialize(resolution_, mip_levels_);
+  if (!storage.image) {
+    return;
+  }
+  Buffer staging_buffer(pixel_count * sizeof(glm::vec4));
+  staging_buffer.UploadVector(local_data_);
+  const auto copy_regions = BuildCubemapCopyRegions(resolution_, mip_levels_);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    storage.image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer(), copy_regions);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  });
+  local_data_dirty_ = false;
+  MarkGpuContentValid();
+}
+
+void Cubemap::MarkGpuContentValid() const {
+  gpu_content_valid_ = true;
+}
+
+void Cubemap::BeginGpuWrite() const {
+  local_data_.clear();
+  local_data_dirty_ = false;
+  gpu_content_valid_ = false;
+}
+
+bool Cubemap::SetRgbaChannelData(const std::vector<glm::vec4>& pixels, const uint32_t resolution,
+                                 const uint32_t mip_levels) {
+  const size_t pixel_count = CalculatePixelCount(resolution, mip_levels);
+  if (pixel_count == 0 || pixels.size() != pixel_count) {
+    return false;
+  }
+  resolution_ = resolution;
+  mip_levels_ = mip_levels;
+  local_data_ = pixels;
+  local_data_dirty_ = true;
+  gpu_content_valid_ = false;
+  UploadLocalData();
+  SetUnsaved();
+  return true;
+}
+
+void Cubemap::Reset() {
+  resolution_ = 0;
+  mip_levels_ = 1;
+  local_data_.clear();
+  local_data_dirty_ = false;
+  gpu_content_valid_ = false;
+  if (Platform::Initialized()) {
+    SynchronizeCubemapResourceMutation();
+    RefStorage().Initialize(1, 1);
+  }
+  SetUnsaved();
+}
+
+void Cubemap::GetRgbaChannelData(std::vector<glm::vec4>& pixels, const bool force_gpu_readback) const {
+  const size_t pixel_count = CalculatePixelCount(GetResolution(), GetMipLevels());
+  if (pixel_count == 0) {
+    pixels.clear();
+    return;
+  }
+  if (!force_gpu_readback && local_data_.size() == pixel_count) {
+    pixels = local_data_;
+    return;
+  }
+  const auto& storage = PeekStorage();
+  if (!Platform::Initialized() || !storage.image || !gpu_content_valid_ ||
+      storage.image->GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED) {
+    pixels = local_data_.size() == pixel_count ? local_data_ : std::vector<glm::vec4>{};
+    return;
+  }
+  SynchronizeCubemapResourceMutation();
+  Buffer image_buffer(pixel_count * sizeof(glm::vec4));
+  const auto copy_regions = BuildCubemapCopyRegions(GetResolution(), GetMipLevels());
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    const auto previous_layout = storage.image->GetLayout();
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkCmdCopyImageToBuffer(vk_command_buffer, storage.image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           image_buffer.GetVkBuffer(), static_cast<uint32_t>(copy_regions.size()), copy_regions.data());
+    storage.image->TransitImageLayout(vk_command_buffer, previous_layout);
+  });
+  image_buffer.DownloadVector(local_data_, pixel_count);
+  local_data_dirty_ = false;
+  pixels = local_data_;
+}
+
+const std::vector<glm::vec4>& Cubemap::PeekLocalData() const {
+  return local_data_;
+}
+
+size_t Cubemap::CalculatePixelCount(const uint32_t resolution, const uint32_t mip_levels) {
+  return CalculateCubemapPixelCount(resolution, mip_levels);
+}
+
+uint32_t Cubemap::GetResolution() const {
+  return resolution_;
+}
+
+uint32_t Cubemap::GetMipLevels() const {
+  return mip_levels_;
 }
 
 uint32_t Cubemap::GetTextureStorageIndex() const {
@@ -150,6 +336,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
 
     atmosphere_to_cubemap_pipeline_->Initialize();
   }
+  BeginGpuWrite();
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 #pragma region Viewport and scissor
@@ -222,18 +409,19 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
     }
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
+  MarkGpuContentValid();
 }
 
 void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>& target_texture) const {
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return;
-  Initialize(1024);
-  auto& storage = RefStorage();
-  if (!target_texture->GetImage()) {
+  if (!target_texture || !target_texture->GetImage()) {
     EVOENGINE_ERROR("Target texture doesn't contain any content!");
     return;
   }
+  Initialize(1024);
+  auto& storage = RefStorage();
   const float environment_pdf_scale = CalculateEnvironmentPdfScale(target_texture);
 #pragma region Depth
   VkImageCreateInfo depth_image_info{};
@@ -310,6 +498,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
 
     equirectangular_to_cubemap_pipeline_->Initialize();
   }
+  BeginGpuWrite();
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 #pragma region Viewport and scissor
@@ -386,24 +575,29 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     }
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
+  MarkGpuContentValid();
 }
 
 const std::shared_ptr<Image>& Cubemap::GetImage() const {
+  UploadLocalData();
   auto& storage = RefStorage();
   return storage.image;
 }
 
 const std::shared_ptr<ImageView>& Cubemap::GetImageView() const {
+  UploadLocalData();
   auto& storage = RefStorage();
   return storage.image_view;
 }
 
 const std::shared_ptr<Sampler>& Cubemap::GetSampler() const {
+  UploadLocalData();
   auto& storage = RefStorage();
   return storage.sampler;
 }
 
 const std::vector<std::shared_ptr<ImageView>>& Cubemap::GetFaceViews() const {
+  UploadLocalData();
   auto& storage = RefStorage();
   return storage.face_views;
 }

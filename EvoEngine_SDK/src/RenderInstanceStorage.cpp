@@ -826,6 +826,10 @@ bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentIn
     return true;
   if (environment_pdf_texture_index != other.environment_pdf_texture_index)
     return true;
+  if (environment_cubemap_index != other.environment_cubemap_index)
+    return true;
+  if (environment_rotation != other.environment_rotation)
+    return true;
 
   return false;
 }
@@ -1531,14 +1535,19 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
 
 void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& target_scene) {
   environment_info_block.environment_pdf_texture_index = -1.0f;
+  environment_info_block.environment_cubemap_index = -1.0f;
   switch (target_scene->environment.environment_type) {
     case Scene::EnvironmentType::EnvironmentalMap: {
       environment_info_block.background_color.w = 0.0f;
       environment_info_block.environment_type = 0.0f;
       if (const auto environmental_map = target_scene->environment.environmental_map.Get<EnvironmentalMap>()) {
+        environmental_map->EnsureEnvironmentSource();
         if (const auto pdf_texture = environmental_map->environment_pdf_texture.Get<Texture2D>()) {
           environment_info_block.environment_pdf_texture_index =
               static_cast<float>(pdf_texture->GetTextureStorageIndex());
+        }
+        if (const auto cubemap = environmental_map->environment_cubemap.Get<Cubemap>()) {
+          environment_info_block.environment_cubemap_index = static_cast<float>(cubemap->GetTextureStorageIndex());
         }
       }
     } break;
@@ -1548,6 +1557,7 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
     } break;
   }
   environment_info_block.environmental_map_gamma = target_scene->environment.environment_gamma;
+  environment_info_block.environment_rotation = target_scene->environment.environment_rotation;
   environment_info_block.environmental_lighting_intensity = target_scene->environment.ambient_light_intensity;
   environment_info_block.background_intensity = target_scene->environment.background_intensity;
 }

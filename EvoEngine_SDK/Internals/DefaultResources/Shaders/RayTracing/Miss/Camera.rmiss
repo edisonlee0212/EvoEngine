@@ -15,7 +15,8 @@ const uint EE_CAMERA_RAY_PAYLOAD_SHADOW = 1u;
 const uint EE_CAMERA_RAY_PAYLOAD_MISS = 2u;
 
 vec3 EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(const int cubemap_index, const vec3 direction, const float lod) {
-  vec3 environment_color = textureLod(EE_CUBEMAPS[cubemap_index], normalize(direction), lod).rgb;
+  vec3 environment_color =
+      textureLod(EE_CUBEMAPS[cubemap_index], normalize(EE_ENVIRONMENT_LOCAL_DIRECTION(direction)), lod).rgb;
   if (EE_ENVIRONMENT.gamma != 1.0f) {
     environment_color = pow(max(environment_color, vec3(0.0f)), vec3(1.0f / max(EE_ENVIRONMENT.gamma, 0.001f)));
   }
@@ -36,7 +37,8 @@ float EE_CAMERA_ENVIRONMENT_MAP_PDF(const vec3 direction) {
   if (texture_size.x <= 0 || texture_size.y <= 0) {
     return 1.0f / (4.0f * EE_CAMERA_PI);
   }
-  const vec2 uv = EE_CAMERA_ENVIRONMENT_SPHERICAL_UV(direction);
+  vec2 uv = EE_CAMERA_ENVIRONMENT_SPHERICAL_UV(EE_ENVIRONMENT_LOCAL_DIRECTION(direction));
+  uv.x = fract(uv.x);
   const ivec2 texel = clamp(ivec2(uv * vec2(texture_size)), ivec2(0), texture_size - ivec2(1));
   return max(texelFetch(EE_TEXTURE_2DS[pdf_texture_index], texel, 0).b, 0.0f);
 }
@@ -52,22 +54,24 @@ vec3 EE_CAMERA_SKY_RADIANCE(const vec3 ray_direction) {
 
 vec3 EE_CAMERA_ENVIRONMENT_RADIANCE(const vec3 ray_direction) {
   const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-  if (camera.use_clear_color == 1) {
-    return EE_CAMERA_SKY_RADIANCE(ray_direction);
+  if (EE_ENVIRONMENT.light_intensity <= 0.0f) {
+    return vec3(0.0f);
   }
   if (EE_ENVIRONMENT.background_color.w == 1.0f) {
     return max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f)) * max(EE_ENVIRONMENT.light_intensity, 0.0f);
   }
 
-  return EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, ray_direction, 0.0f) *
-         max(camera.clear_color.w, 0.0f) * max(EE_ENVIRONMENT.light_intensity, 0.0f);
+  const int environment_cubemap_index = int(round(EE_ENVIRONMENT.environment_cubemap_index));
+  const int cubemap_index = environment_cubemap_index >= 0 ? environment_cubemap_index : camera.skybox_tex_index;
+  return EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(cubemap_index, ray_direction, 0.0f) *
+         max(EE_ENVIRONMENT.light_intensity, 0.0f);
 }
 
 float EE_CAMERA_ENVIRONMENT_PDF() {
-  if (EE_ENVIRONMENT.light_intensity <= 0.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
+  if (EE_ENVIRONMENT.light_intensity <= 0.0f) {
     return 0.0f;
   }
-  if (EE_ENVIRONMENT.background_color.w != 1.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
+  if (EE_ENVIRONMENT.background_color.w != 1.0f) {
     return EE_CAMERA_ENVIRONMENT_MAP_PDF(normalize(gl_WorldRayDirectionEXT));
   }
   return 1.0f / (4.0f * EE_CAMERA_PI);

@@ -32,14 +32,14 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
   if (EE_SHADER_EXECUTION_REORDERING != 0u) {
     hitObjectNV hit_object;
     hitObjectTraceRayNV(hit_object, EE_TLAS, gl_RayFlagsCullBackFacingTrianglesEXT, 0xff, 0, 0, 0, origin,
-                        min_distance, direction, 1e20f, 0);
+                        min_distance, direction, EE_CAMERA_MAX_TRACE_DISTANCE, 0);
     reorderThreadNV(hit_object);
     hitObjectExecuteShaderNV(hit_object, 0);
     return;
   }
 #endif
   traceRayEXT(EE_TLAS, gl_RayFlagsCullBackFacingTrianglesEXT, 0xff, 0, 0, 0, origin, min_distance, direction,
-              1e20f, 0);
+              EE_CAMERA_MAX_TRACE_DISTANCE, 0);
 }
 
 #endif

@@ -2239,6 +2239,9 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
     if (ImGui::DragFloat("Environmental light gamma", &scene.environment.environment_gamma, 0.01f, 0.0f, 10.0f)) {
       modified = true;
     }
+    if (ImGui::SliderAngle("Environment rotation", &scene.environment.environment_rotation, -360.0f, 360.0f)) {
+      modified = true;
+    }
     if (ImGui::TreeNodeEx("Volumetric clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
       if (InspectVolumetricCloudSettings(scene.environment.volumetric_cloud_settings))
         modified = true;

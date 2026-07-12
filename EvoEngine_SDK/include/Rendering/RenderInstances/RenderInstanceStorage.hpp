@@ -229,6 +229,8 @@ class RenderInstanceStorage {
     alignas(4) float background_intensity = 1.0f;                    ///< Intensity of the background.
     alignas(4) float environment_type = 0.0f;                        ///< Scene::EnvironmentType value.
     alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
+    alignas(4) float environment_cubemap_index = -1.0f;  ///< Cubemap index for ray-traced environment light.
+    alignas(4) float environment_rotation = 0.0f;        ///< Y-axis rotation in radians.
 
     /**
      * @brief Compares two EnvironmentInfoBlock objects for inequality.

@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "ComputePipeline.hpp"
+#include "Cubemap.hpp"
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "Jobs.hpp"
@@ -265,6 +266,46 @@ TEST(GpuService, BufferUploadReadbackRoundTrip) {
   }
 }
 
+TEST(GpuService, CubemapFaceMipUploadReadbackRoundTrip) {
+  ScopedGpuPlatform platform;
+  Cubemap cubemap;
+  constexpr uint32_t resolution = 2;
+  constexpr uint32_t mip_levels = 2;
+  std::vector<glm::vec4> expected(30);
+  for (size_t index = 0; index < expected.size(); ++index) {
+    expected[index] =
+        glm::vec4(static_cast<float>(index), static_cast<float>(index) + 0.25f, static_cast<float>(index) + 0.5f, 1.0f);
+  }
+
+  ASSERT_TRUE(cubemap.SetRgbaChannelData(expected, resolution, mip_levels));
+  EXPECT_EQ(cubemap.GetResolution(), resolution);
+  EXPECT_EQ(cubemap.GetMipLevels(), mip_levels);
+  std::vector<glm::vec4> restored;
+  cubemap.GetRgbaChannelData(restored, true);
+  ASSERT_EQ(restored.size(), expected.size());
+  for (size_t index = 0; index < expected.size(); ++index) {
+    for (int channel = 0; channel < 4; ++channel) {
+      EXPECT_FLOAT_EQ(restored[index][channel], expected[index][channel]);
+    }
+  }
+  ASSERT_TRUE(cubemap.GetImage());
+  EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(GpuService, CubemapUninitializedGpuStorageRejectsReadback) {
+  ScopedGpuPlatform platform;
+  Cubemap cubemap;
+  cubemap.Initialize(2u);
+  ASSERT_TRUE(cubemap.GetImage());
+  ASSERT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  std::vector<glm::vec4> pixels = {glm::vec4(1.0f)};
+  cubemap.GetRgbaChannelData(pixels);
+  EXPECT_TRUE(pixels.empty());
+  EXPECT_TRUE(cubemap.PeekLocalData().empty());
+  EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
 TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   ScopedGpuPlatform platform;
   const auto shader_root =
@@ -326,6 +367,23 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   EXPECT_NEAR(values[17], 1.92f, 1.0e-6f);
   EXPECT_NEAR(values[18], 0.0f, 1.0e-6f);
   EXPECT_FLOAT_EQ(values[19], 1.0f);
+}
+
+TEST(GpuService, M10CameraRayTransportShadersCompile) {
+  ScopedGpuPlatform platform;
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  const auto header = Platform::GetShaderGlobalDefines();
+
+  Shader raygen;
+  Shader any_hit;
+  Shader miss;
+  Shader ray_query;
+  EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.rgen"));
+  EXPECT_TRUE(any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/Camera.rahit"));
+  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.rmiss"));
+  EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.comp"));
 }
 
 TEST(GpuService, BufferUploadSubrangeRoundTrip) {

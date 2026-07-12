@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "milestone": "M10",
+  "calibrated": true,
+  "calibration_basis": "The isolated-v2 Material ID tile fixes the receiver interiors and drives an all-eligible-patch checker-frequency gate. Visual frequency suppression is kept separate from the numerical cone-to-LOD contract; transport limits remain frozen from the rejected pilot.",
+  "m7_contract_sha256": "a9724c4185586a8dec7d3f7bc051418e3006872c4b811c260040fcc9badb5b58",
+  "retained_query_only_proof": {
+    "artifact_hash_mode": "sha256-byte-exact-v1",
+    "shader_source_hash_mode": "sha256-lf-normalized-v1",
+    "artifacts": {
+      "rq.hdr": "47c61b2d1887321267b08f7dc6a51f6fc7e5dd93b03560a06e47faad6190ae2d",
+      "rq-only.hdr": "47c61b2d1887321267b08f7dc6a51f6fc7e5dd93b03560a06e47faad6190ae2d",
+      "rq.json": "bc4add9507ffb1be09432f0c84b81856adb4d7fdf4c36a79eeee8c04c74d8116",
+      "rq-only.json": "69b6a759a9484a39edc77f00ae303f0cc76f5172f5ae600bf71702bf7c26bf61",
+      "rq.log": "c5952ead9c6bb8139fb112c4df3417e29c159d36d676e074fbd6e2eb5b27217e",
+      "rq-only.log": "964fd28fe376775fabd9ff79c424746225d6d3f7946b734a476e9bf2bbd4f5af",
+      "validation.json": "6264467cf9b792bfd507bfa76cb4a165043fb6cf3096876092c075e2b01fcca0",
+      "retained-EvoEngineEditor.exe": "0c82f0df8be9396a5d9b2f3141c64a4a89213e2dd56721aca0d188c5052b4ef1"
+    },
+    "shader_sources": {
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.glsl": "4bb9d120393cbad3e7348f56dce8aa9e2126afc0b7fd6667137e60c205adeec0",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayQueryTraversal.glsl": "875d80d8cdcba1ac606251c806bffafa038fe6a4f25217209e156df5b390c6f6",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayTracingTraversal.glsl": "0ab89bcc4abff928593e50aad9da72a8352bbf32bc0ae09d8bbdbfb52a81d19b",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Environment.glsl": "abc031bb2ef7693fbd4ceea7486bd429d5a7dcffc565bd6cd2d23773f61af5c0",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl": "2eb7dc63239c9f81a3c02e264475d45b029792d2821a219946f462c0bc0bdcb7",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Random.glsl": "ed7d823ff9696b68b00a2d1b941f5e366de49890f6047c84de29a0fbfec8bb83",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/RayTracing/AnyHit/Camera.rahit": "ba5dc93f6494b6df08d1b54e6473c4e1ff4f3c26cd76d9cda9a747ca4df75e67",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/RayTracing/Miss/Camera.rmiss": "dd11503819744dbb3fe5d0f4a1bc2fdc974c38b986005c79ac3d4c180ff9323a",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RayQueryCamera.comp": "a58f48491b06db7366e74a0cf3212e072936f334905c3ed41607871a1edcda9b",
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/RayTracing/RayGen/Camera.rgen": "cf49152fbdd6fb21e9378b668c17d4061c29b4705affb01dd0bbc3fb2ae4b2a3"
+    }
+  },
+  "m10_transport_basis": "Pre-locked from the rejected high-contrast pilot with approximately 25 percent headroom; M7 constants remain unchanged.",
+  "m10_transport_limits": {
+    "Beauty": {
+      "mean_abs_error": 0.032,
+      "p999_abs_error": 3.25,
+      "max_abs_error": 256.0,
+      "tail_abs_error": 1.0,
+      "tail_count": 768,
+      "classification": "bounded_stochastic_noise"
+    },
+    "Emission": {
+      "mean_abs_error": 0.00015,
+      "p999_abs_error": 0.05,
+      "max_abs_error": 1.0,
+      "tail_abs_error": 0.5,
+      "tail_count": 5,
+      "classification": "bounded_stochastic_noise"
+    },
+    "Direct Punctual": {
+      "mean_abs_error": 0.0045,
+      "p999_abs_error": 0.08,
+      "max_abs_error": 256.0,
+      "tail_abs_error": 1.0,
+      "tail_count": 12,
+      "classification": "bounded_stochastic_noise"
+    },
+    "Direct Environment": {
+      "mean_abs_error": 0.00003,
+      "p999_abs_error": 0.01,
+      "max_abs_error": 0.16,
+      "classification": "conformant"
+    },
+    "Direct Emissive": {
+      "mean_abs_error": 0.000002,
+      "p999_abs_error": 0.00025,
+      "max_abs_error": 0.012,
+      "classification": "conformant"
+    },
+    "Indirect Radiance": {
+      "mean_abs_error": 0.028,
+      "p999_abs_error": 3.25,
+      "max_abs_error": 10.0,
+      "tail_abs_error": 1.0,
+      "tail_count": 768,
+      "classification": "bounded_stochastic_noise"
+    }
+  },
+  "rois": [],
+  "relations": [],
+  "m10_rois": [
+    {
+      "name": "distant_shadow_blocked",
+      "view": "Direct Punctual",
+      "rect": [80, 126, 93, 130],
+      "max_luminance": 0.02,
+      "cross_technique_luminance_max": 0.01
+    },
+    {
+      "name": "distant_shadow_control",
+      "view": "Direct Punctual",
+      "rect": [163, 126, 176, 130],
+      "min_luminance": 0.02,
+      "cross_technique_luminance_max": 0.02
+    },
+    {
+      "name": "rotated_environment_lobe",
+      "view": "Direct Environment",
+      "rect": [96, 64, 106, 78],
+      "min_luminance": 0.001,
+      "cross_technique_luminance_max": 0.02
+    },
+    {
+      "name": "clear_checker",
+      "view": "Beauty",
+      "rect": [96, 64, 106, 78],
+      "min_luminance": 0.001,
+      "min_contrast": 0.02
+    },
+    {
+      "name": "volume_checker",
+      "view": "Beauty",
+      "rect": [124, 68, 132, 76],
+      "min_luminance": 0.000001,
+      "cross_technique_luminance_max": 0.05
+    }
+  ],
+  "m10_relations": [
+    {
+      "name": "distant_shadow_ratio",
+      "kind": "luminance_ratio",
+      "lhs": "distant_shadow_blocked",
+      "rhs": "distant_shadow_control",
+      "maximum": 0.5
+    }
+  ],
+  "m10_checker_frequency": {
+    "checker_resolution": 64,
+    "patch_size": 12,
+    "minimum_patch_count": 32,
+    "minimum_valid_fraction": 0.5,
+    "winsor_low": 0.05,
+    "winsor_high": 0.95,
+    "minimum_clear_response": 0.2,
+    "minimum_clear_to_volume_ratio": 2.0
+  },
+  "m10_volume_cone_lod": {
+    "inverse_projection_y": 1.25,
+    "resolution_y": 144,
+    "entry_distance": 4.0,
+    "scatter_distance": 0.75,
+    "next_hit_distance": 2.0,
+    "incidence_cosine": 0.8,
+    "texel_density": 0.5,
+    "texture_extent": 64,
+    "minimum_lod_increase": 0.15
+  },
+  "classifications": [
+    {
+      "subject": "PCG domain streams and deterministic global-sample mapping",
+      "category": "conformant"
+    },
+    {
+      "subject": "continuous Texture2D environment importance sampling",
+      "category": "conformant"
+    },
+    {
+      "subject": "cubemap and baked-sky uniform-sphere fallback",
+      "category": "conformant"
+    },
+    {
+      "subject": "retained scene environment source and Y rotation",
+      "category": "conformant"
+    },
+    {
+      "subject": "distant shadow range and volume ray-cone propagation",
+      "category": "conformant"
+    }
+  ]
+}

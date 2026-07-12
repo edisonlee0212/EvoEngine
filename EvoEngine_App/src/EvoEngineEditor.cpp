@@ -81,6 +81,7 @@ struct EditorCommandLine {
   std::optional<int> preview_shadow_debug_light;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
+  bool preview_capture_m10_ray_transport = false;
   bool disable_ray_tracing_pipeline = false;
 };
 
@@ -515,6 +516,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_deterministic = true;
     } else if (argument == "--preview-bistro-ddgi") {
       command_line.preview_capture_bistro_ddgi = true;
+    } else if (argument == "--preview-m10-ray-transport") {
+      command_line.preview_capture_m10_ray_transport = true;
     } else {
       auto application_mode = command_line.application_mode;
       if (!ConsumeApplicationModeArgument(argc, argv, arg_index, application_mode)) {
@@ -580,6 +583,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_bistro_ddgi && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_m10_ray_transport && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-m10-ray-transport requires --capture-demo-preview.");
+  }
   if ((command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
        command_line.preview_shadow_debug_light) &&
       !command_line.demo_preview_capture_path) {
@@ -592,6 +598,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   }
   if (command_line.preview_capture_bistro_ddgi && command_line.demo_profile_id != DemoProfileId::Bistro) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --demo bistro.");
+  }
+  if (command_line.preview_capture_m10_ray_transport &&
+      command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-m10-ray-transport requires --demo rendering-regression.");
   }
   if (command_line.preview_anti_aliasing_motion_sequence &&
       command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
@@ -1042,13 +1052,16 @@ void CaptureDemoPreview(
     const std::optional<float>& preview_shadow_cascade_transition_width,
     const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
-    const bool deterministic_capture, const bool preview_bistro_ddgi) {
+    const bool deterministic_capture, const bool preview_bistro_ddgi, const bool preview_m10_ray_transport) {
   auto output_extension = output_path.extension().string();
   std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (preview_m10_ray_transport) {
+    ConfigureM10RayTransportValidation(ApplicationContext::Get().GetActiveScene());
+  }
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     window_layer->ResizeWindow(width, height);
     window_layer->CenterWindow();
@@ -1385,6 +1398,12 @@ void CaptureDemoPreview(
   metrics["firefly_clamp_threshold"] = scene_camera->camera_settings.firefly_clamp_threshold;
   metrics["emissive_triangle_nee_enabled"] = scene_camera->camera_settings.emissive_triangle_nee_enabled;
   metrics["auto_spp_enabled"] = scene_camera->camera_settings.auto_spp_enabled;
+  metrics["m10_ray_transport"] = preview_m10_ray_transport;
+  if (preview_m10_ray_transport) {
+    metrics["m10_fixture_version"] = "isolated-v2";
+  } else {
+    metrics["m10_fixture_version"] = nullptr;
+  }
   metrics["temporal_motion_capture"] = temporal_motion_capture;
   metrics["camera_position_override"] = nullptr;
   metrics["camera_look_at_override"] = nullptr;
@@ -1536,7 +1555,8 @@ int main(const int argc, char** argv) {
               command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
               command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
-              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi);
+              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
+              command_line.preview_capture_m10_ray_transport);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

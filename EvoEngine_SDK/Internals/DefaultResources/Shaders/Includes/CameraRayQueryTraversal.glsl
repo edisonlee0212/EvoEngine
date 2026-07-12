@@ -13,10 +13,10 @@ vec3 EE_CAMERA_RAY_QUERY_SKY_RADIANCE(const vec3 ray_direction) {
 }
 
 float EE_CAMERA_RAY_QUERY_ENVIRONMENT_PDF(const vec3 ray_direction) {
-  if (EE_ENVIRONMENT.light_intensity <= 0.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
+  if (EE_ENVIRONMENT.light_intensity <= 0.0f) {
     return 0.0f;
   }
-  if (EE_ENVIRONMENT.background_color.w != 1.0f && EE_CAMERAS[EE_CAMERA_INDEX].use_clear_color != 1) {
+  if (EE_ENVIRONMENT.background_color.w != 1.0f) {
     return EE_CAMERA_ENVIRONMENT_MAP_PDF(normalize(ray_direction));
   }
   return 1.0f / (4.0f * EE_CAMERA_PI);
@@ -120,7 +120,7 @@ bool EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, const ve
 void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const float min_distance, inout uint seed) {
   rayQueryEXT ray_query;
   rayQueryInitializeEXT(ray_query, EE_TLAS, gl_RayFlagsCullBackFacingTrianglesEXT, 0xff, origin, min_distance, direction,
-                        1e20f);
+                        EE_CAMERA_MAX_TRACE_DISTANCE);
   while (rayQueryProceedEXT(ray_query)) {
     if (rayQueryGetIntersectionTypeEXT(ray_query, false) != gl_RayQueryCandidateIntersectionTriangleEXT) {
       continue;
@@ -133,7 +133,7 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
     vec4 vertex_color;
     EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, direction, material_index, tex_coord_0, tex_coord_1,
                                           tex_coord_2, tex_coord_3, vertex_color);
-    if (EE_RANDOM(seed) <=
+    if (EE_PCG_RANDOM(seed) <=
         EE_GLTF_RASTER_OPACITY_LOD0(
             material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a)) {
       rayQueryConfirmIntersectionEXT(ray_query);
@@ -202,7 +202,7 @@ vec3 EE_CAMERA_SHADOW_TRANSMISSION(const vec3 origin, const vec3 direction, cons
     vec4 vertex_color;
     EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, direction, material_index, tex_coord_0, tex_coord_1,
                                           tex_coord_2, tex_coord_3, vertex_color);
-    if (EE_RANDOM(seed) >
+    if (EE_PCG_RANDOM(seed) >
         EE_GLTF_RASTER_OPACITY_LOD0(
             material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a)) {
       continue;

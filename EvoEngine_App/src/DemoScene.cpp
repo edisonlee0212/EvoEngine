@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
 #include "Lights.hpp"
@@ -1853,6 +1854,111 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
     rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
   }
   RegisterRenderingRegressionTemporalMotionUpdate();
+}
+
+void evo_engine::ConfigureM10RayTransportValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  constexpr const char* kValidationRootName = "M10 Ray Transport Validation";
+  constexpr float kM10ValidationOffsetX = 48.0f;
+  if (const auto existing_root = FindEntityNamed(scene, kValidationRootName)) {
+    scene->DeleteEntity(*existing_root);
+  }
+  const auto root = scene->CreateEntity(kValidationRootName);
+  Transform root_transform;
+  root_transform.SetPosition(glm::vec3(kM10ValidationOffsetX, 0.0f, 0.0f));
+  scene->SetDataComponent(root, root_transform);
+  const auto& primitives = Resources::GetInstance().GetPrimitives();
+
+  const glm::uvec2 environment_resolution(64u, 32u);
+  std::vector<glm::vec4> environment_pixels(environment_resolution.x * environment_resolution.y,
+                                            glm::vec4(0.01f, 0.015f, 0.025f, 1.0f));
+  for (uint32_t y = 14u; y < 18u; ++y) {
+    for (uint32_t x = 6u; x < 10u; ++x) {
+      environment_pixels[static_cast<size_t>(y) * environment_resolution.x + x] = glm::vec4(16.0f, 4.0f, 1.0f, 1.0f);
+    }
+  }
+  const auto environment_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  environment_texture->SetRgbaChannelData(environment_pixels, environment_resolution);
+  environment_texture->UnsafeUploadDataImmediately();
+  const auto environmental_map = AssetManager::CreateTemporaryAsset<EnvironmentalMap>();
+  environmental_map->ConstructFromTexture2D(environment_texture);
+  scene->environment.environmental_map = environmental_map;
+  scene->environment.environment_type = Scene::EnvironmentType::EnvironmentalMap;
+  scene->environment.environment_gamma = 1.0f;
+  scene->environment.environment_rotation = glm::half_pi<float>();
+  scene->environment.ambient_light_intensity = 1.0f;
+
+  for (const char* light_name :
+       {"M42 Punctual Light Probe Point", "M42 Punctual Light Probe Spot", "M3b Retroreflection Camera Light"}) {
+    if (const auto light = FindEntityNamed(scene, light_name)) {
+      scene->DeleteEntity(*light);
+    }
+  }
+  const glm::vec3 directional_light_direction(0.35f, -0.8f, -0.48f);
+  if (const auto directional_entity = FindEntityNamed(scene, "M42 Punctual Light Probe Directional")) {
+    if (const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(*directional_entity).lock()) {
+      directional_light->diffuse_brightness = 4.0f;
+      directional_light->light_size = 0.0f;
+    }
+  }
+  const glm::vec3 blocked_receiver_position(-1.15f, -0.48f, -2.55f);
+  CreateRenderingRegressionProbe(scene, root, "M10 Distant Shadow Blocked Receiver", primitives.cube,
+                                 blocked_receiver_position, glm::vec3(0.5f, 0.08f, 0.5f), glm::vec3(0.82f), 0.9f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M10 Distant Shadow Control Receiver", primitives.cube,
+                                 glm::vec3(1.15f, -0.48f, -2.55f), glm::vec3(0.5f, 0.08f, 0.5f), glm::vec3(0.82f), 0.9f,
+                                 0.0f);
+  const glm::vec3 shadow_direction = -glm::normalize(directional_light_direction);
+  CreateRenderingRegressionProbe(scene, root, "M10 Beyond Far Distant Shadow Blocker", primitives.cube,
+                                 blocked_receiver_position + shadow_direction * 24.0f, glm::vec3(0.45f),
+                                 glm::vec3(0.02f), 1.0f, 0.0f);
+
+  constexpr uint32_t checker_resolution = 64u;
+  std::vector<glm::vec4> checker_pixels(checker_resolution * checker_resolution);
+  for (uint32_t y = 0; y < checker_resolution; ++y) {
+    for (uint32_t x = 0; x < checker_resolution; ++x) {
+      const float value = ((x ^ y) & 1u) != 0u ? 1.0f : 0.01f;
+      checker_pixels[static_cast<size_t>(y) * checker_resolution + x] = glm::vec4(value, value, value, 1.0f);
+    }
+  }
+  const auto checker_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  checker_texture->SetRgbaChannelData(checker_pixels, glm::uvec2(checker_resolution));
+  SetRenderingRegressionSampler(checker_texture, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  const auto checker_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(checker_material, glm::vec3(1.0f), 0.9f, 0.0f);
+  checker_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, checker_texture);
+  checker_material->MarkDirty();
+  const auto checker_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f)});
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M10 Volume Cone Checker", checker_mesh, checker_material,
+                                              glm::vec3(0.0f, 1.15f, -3.0f), glm::vec3(0.0f),
+                                              glm::vec3(3.0f, 1.8f, 1.0f));
+  const auto volume_entity = CreateRenderingRegressionProbe(scene, root, "M10 Volume Cone Scatterer", primitives.sphere,
+                                                            glm::vec3(0.0f, 1.15f, -1.7f), glm::vec3(0.65f),
+                                                            glm::vec3(1.0f), 0.04f, 0.0f, 0.0f, true, 1.0f);
+  if (const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(volume_entity).lock()) {
+    if (const auto material = renderer->material.Get<Material>()) {
+      auto& shade = material->material_data.shade_material;
+      shade.thickness_factor = 1.0f;
+      shade.attenuation_color = glm::vec3(0.82f, 0.88f, 0.96f);
+      shade.attenuation_distance = 0.85f;
+      shade.multiscatter_color_factor = glm::vec3(0.75f);
+      shade.scatter_anisotropy = 0.8f;
+      material->MarkDirty();
+    }
+  }
+
+  const auto configure_camera = [](const std::shared_ptr<Camera>& camera) {
+    if (camera) {
+      camera->camera_settings.far_distance = 12.0f;
+      camera->ResetFrameCount();
+    }
+  };
+  configure_camera(scene->main_camera.Get<Camera>());
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    configure_camera(editor_layer->GetSceneCamera());
+  }
 }
 
 void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<Camera>& camera) {

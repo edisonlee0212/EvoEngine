@@ -136,6 +136,7 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
 
     prefilter_construct_pipeline_->Initialize();
   }
+  cubemap_->BeginGpuWrite();
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
 
@@ -218,4 +219,5 @@ void ReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targe
     }
     cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   });
+  cubemap_->MarkGpuContentValid();
 }

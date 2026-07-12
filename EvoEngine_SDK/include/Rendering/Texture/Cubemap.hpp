@@ -37,6 +37,15 @@ class Cubemap final : public IAsset {
   std::shared_ptr<TextureStorageHandle> texture_storage_handle_;
   mutable std::shared_ptr<GraphicsPipeline> atmosphere_to_cubemap_pipeline_;
   mutable std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap_pipeline_;
+  mutable uint32_t resolution_ = 0;
+  mutable uint32_t mip_levels_ = 1;
+  mutable std::vector<glm::vec4> local_data_;
+  mutable bool local_data_dirty_ = false;
+  mutable bool gpu_content_valid_ = false;
+
+  void UploadLocalData() const;
+  void BeginGpuWrite() const;
+  void MarkGpuContentValid() const;
 
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
@@ -87,6 +96,24 @@ class Cubemap final : public IAsset {
    * @param mip_levels The number of mip levels (default is 1).
    */
   void Initialize(uint32_t resolution, uint32_t mip_levels = 1) const;
+
+  /**
+   * @brief Stores all cubemap texels in Vulkan face order (+X, -X, +Y, -Y, +Z, -Z), then mip-major order per face.
+   * @return False when the dimensions or payload size are invalid.
+   */
+  bool SetRgbaChannelData(const std::vector<glm::vec4>& pixels, uint32_t resolution, uint32_t mip_levels = 1);
+
+  /** @brief Restores the canonical empty state while retaining a valid GPU placeholder. */
+  void Reset();
+
+  /** @brief Reads texels in the same face/mip order, optionally bypassing the valid CPU cache. */
+  void GetRgbaChannelData(std::vector<glm::vec4>& pixels, bool force_gpu_readback = false) const;
+
+  [[nodiscard]] static size_t CalculatePixelCount(uint32_t resolution, uint32_t mip_levels);
+
+  [[nodiscard]] const std::vector<glm::vec4>& PeekLocalData() const;
+  [[nodiscard]] uint32_t GetResolution() const;
+  [[nodiscard]] uint32_t GetMipLevels() const;
 
   /**
    * @brief Gets the texture storage index associated with this cubemap.
