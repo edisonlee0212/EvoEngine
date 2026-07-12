@@ -2822,6 +2822,12 @@ RenderLayer::GetRasterMaterialFallbackDescriptorImageInfos() const {
                                                      image_infos[3]);
   TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
                                                      image_infos[4]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
+                                                     image_infos[5]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
+                                                     image_infos[6]);
+  TextureStorage::TryGetTexture2DDescriptorImageInfo(
+      raster_material_flat_normal_fallback_texture_->GetTextureStorageIndex(), image_infos[7]);
   return image_infos;
 }
 

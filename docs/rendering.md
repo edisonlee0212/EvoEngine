@@ -74,7 +74,7 @@ intentionally absent; the old normal and UV/material-index compatibility attachm
 | 20 | Base color / AO | `rgb = evaluated linear base color`, `a = evaluated occlusion`. |
 | 21 | Normal / roughness | `xyz = world normal`, `a = evaluated roughness`. |
 | 22 | PBR / flags | `x = evaluated metallic`, `yzw = evaluated dielectric/specular F0`. |
-| 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
+| 23 | Emissive | `rgb = evaluated coated emissive radiance`, `a = scalar specular F90`; a negative alpha marks unlit. |
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
 `StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
@@ -90,7 +90,7 @@ keeps depth as-is and introduces this logical schema:
 | Base color / AO | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = linear base color`, `a = occlusion`. |
 | Normal / roughness | `VK_FORMAT_R16G16B16A16_SFLOAT` | `xyz = world normal`, `a = roughness`. A later compact packing may replace full-vector normal storage after validation. |
 | PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `yzw = dielectric/specular F0`. |
-| Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = emissive radiance`, `a = reserved custom data`. |
+| Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = coated emissive radiance`, `a = scalar specular F90`; a negative alpha marks unlit. |
 | Utility | `VK_FORMAT_R32G32B32A32_SFLOAT` | `x = instance index`, `y = instance info index`, `z = optional material index for debug or fallback`, `w = reserved`. |
 
 The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials produce base color, metallic,
@@ -122,6 +122,9 @@ itself is a normal fixed binding, such as a shadow-map array or atlas texture.
 | 2 | Normal | Flat normal. |
 | 3 | Emissive | Black. |
 | 4 | Occlusion | White. |
+| 5 | Clearcoat | White. |
+| 6 | Clearcoat roughness | White. |
+| 7 | Clearcoat normal | Flat normal. |
 
 Raster material descriptor sets are renderer-owned runtime state keyed by material index. The first migration intentionally
 does not deduplicate descriptor sets across material indices because material indices can change while the renderer is
@@ -176,8 +179,8 @@ The implementation follows Khronos when the pinned reference differs:
 - `KHR_materials_ior.ior: 0` retains the specification's positive-infinity compatibility mode: surface F0 is 1,
   transmission uses a finite infinity surrogate for stable arithmetic, and dispersion is disabled. Invalid authored IORs
   between 0 and 1 normalize to 1 rather than being interpreted as this compatibility mode;
-- unlit ray materials return base color only, without adding emissive first. Diffuse or glossy transmission events both
-  update the current volume medium.
+- unlit raster and ray materials return base color only, without adding emissive or lighting first. Diffuse or glossy
+  transmission events both update the current volume medium.
 
 `KHR_materials_retroreflection` is not in the Khronos extension registry. EvoEngine accepts that spelling, plus the older
 `EXT_materials_retroreflection` spelling, only as experimental compatibility with `vk_gltf_renderer` at
@@ -187,14 +190,24 @@ substitution to reflection lobes and leaves transmission conventional. Evaluatio
 marginal forward/retro mixture BSDF and PDF. Sample throughput is the full mixture BSDF divided by that marginal PDF; it
 does not divide again by the selected branch probability, which would over-brighten fractional blends.
 
-Opaque raster stores IOR/specular-aware colored F0. Ray shadow transmission samples the specular-transmission,
+Opaque raster stores IOR/specular-aware colored F0 plus scalar F90; the emissive attachment alpha carries F90, with a
+negative value reserved for the unlit lighting bypass. Ray shadow transmission samples the specular-transmission,
 base-color, diffuse-transmission factor/color, specular factor/color, and vertex-color inputs. It applies Fresnel remaining
 energy first, then layers diffuse transmission only over the `(1 - specularTransmission)` share. The current fixed raster
-material descriptors and deferred GBuffer do not encode iridescence, anisotropy, dispersion, or retroreflection lobes, so
-those effects are ray-path features rather than claimed raster parity. Deferred raster also stores F0 but has no separate
-fractional specular F90 channel. The legacy CPU/compute ray display is likewise not an advanced-material integrator.
-Clearcoat-normal scale, coated-emission attenuation, and validation/rejection of spec-forbidden unlit or
-specular-glossiness extension combinations remain documented follow-up work rather than silent conformance claims.
+material descriptors include clearcoat factor, roughness, and normal textures so authored clearcoat-normal scale and
+coated-emission attenuation work in opaque and transparent raster as well as RTX and RayQuery. The deferred raster
+lighting model still does not add a clearcoat reflection lobe or encode iridescence, anisotropy, dispersion, or
+retroreflection, so those effects remain ray-path features rather than claimed raster parity. The legacy CPU/compute ray
+display is likewise not an advanced-material integrator.
+
+Native `KHR_materials_pbrSpecularGlossiness` remains a distinct diffuse/F0/glossiness model; EvoEngine does not reproduce
+the pinned reference's lossy metallic-roughness conversion. Khronos material extensions that explicitly exclude unlit or
+specular-glossiness are rejected per material with an error diagnostic. The importer preserves the material-array entry
+and its primary unlit or specular-glossiness model while ignoring only conflicting extension factors and textures.
+
+Clearcoat emission uses `emission * (1 - clearcoat * clearcoatFresnel)`. Ray hit emission and emissive-triangle NEE call
+the same helper; the NEE path reconstructs the sampled emitter's UVs, tangent basis, emissive/clearcoat textures, and
+clearcoat normal so MIS never combines differently coated radiance values.
 
 ### Emissive-Triangle Next-Event Sampling
 

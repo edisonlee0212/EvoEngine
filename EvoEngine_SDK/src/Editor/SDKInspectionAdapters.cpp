@@ -2786,6 +2786,10 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     if (ImGui::DragFloat("Clearcoat Roughness##Material", &shade_material.clearcoat_roughness, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
+    if (ImGui::DragFloat("Clearcoat Normal Scale##Material", &shade_material.clearcoat_normal_texture_scale, 0.01f,
+                         -2.0f, 2.0f)) {
+      changed = true;
+    }
     if (ImGui::ColorEdit3("Sheen Color##Material", &shade_material.sheen_color_factor.x)) {
       changed = true;
     }

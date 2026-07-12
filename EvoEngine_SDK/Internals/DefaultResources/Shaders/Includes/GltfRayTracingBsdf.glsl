@@ -158,8 +158,73 @@ float EE_GLTF_RT_GEOMETRY_SMITH(const vec3 normal, const vec3 view_direction, co
 
 vec3 EE_GLTF_RT_WEIGHTED_SPECULAR_FRESNEL(const GltfRayTracingPbrMaterial material,
                                            const float cos_theta) {
-  return clamp(material.specular, 0.0f, 1.0f) *
-         EE_GLTF_RT_FRESNEL_SCHLICK(cos_theta, clamp(material.specular_f0, vec3(0.0f), vec3(1.0f)));
+  const float weight = clamp(material.specular, 0.0f, 1.0f);
+  return EE_GLTF_RT_FRESNEL_SCHLICK(cos_theta,
+                                    weight * clamp(material.specular_f0, vec3(0.0f), vec3(1.0f)),
+                                    vec3(weight));
+}
+
+float EE_GLTF_RT_CLEARCOAT_FRESNEL(const vec3 clearcoat_normal, const vec3 outgoing_direction) {
+  const vec3 safe_normal = EE_GLTF_RT_SAFE_NORMALIZE(clearcoat_normal, vec3(0.0f, 1.0f, 0.0f));
+  const float cosine =
+      clamp(abs(dot(EE_GLTF_RT_SAFE_NORMALIZE(outgoing_direction, safe_normal), safe_normal)), 0.0f, 1.0f);
+  return EE_GLTF_RT_FRESNEL_SCHLICK(cosine, vec3(0.04f)).x;
+}
+
+vec3 EE_GLTF_RT_COATED_EMISSION_VALUE(const vec3 emissive, const float clearcoat,
+                                      const vec3 clearcoat_normal, const vec3 outgoing_direction) {
+  const float coat = clamp(clearcoat, 0.0f, 1.0f);
+  if (coat <= 0.0f) {
+    return emissive;
+  }
+  const float fresnel = EE_GLTF_RT_CLEARCOAT_FRESNEL(clearcoat_normal, outgoing_direction);
+  return emissive * max(1.0f - coat * fresnel, 0.0f);
+}
+
+vec3 EE_GLTF_RT_COATED_EMISSION(const GltfRayTracingPbrMaterial material,
+                                const vec3 outgoing_direction) {
+  return EE_GLTF_RT_COATED_EMISSION_VALUE(material.emissive, material.clearcoat,
+                                          material.clearcoat_normal, outgoing_direction);
+}
+
+vec3 EE_GLTF_RT_COATED_EMISSION_LOD0(const uint material_index, const vec2 tex_coord_0,
+                                     const vec2 tex_coord_1, const vec3 normal, const vec3 tangent,
+                                     const vec3 bitangent, const vec3 outgoing_direction) {
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
+  const vec3 emissive = max(
+      material.emissive_factor *
+          EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE,
+                                           tex_coord_0, tex_coord_1, vec4(1.0f)).rgb,
+      vec3(0.0f));
+#if EE_GLTF_USE_CLEARCOAT
+  const float clearcoat = material.clearcoat_factor *
+                          EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
+                              material.clearcoat_texture, EE_GLTF_RASTER_TEXTURE_CLEARCOAT,
+                              tex_coord_0, tex_coord_1, vec4(1.0f)).r;
+  if (clamp(clearcoat, 0.0f, 1.0f) <= 0.0f) {
+    return emissive;
+  }
+  vec3 clearcoat_normal = EE_GLTF_RT_SAFE_NORMALIZE(normal, vec3(0.0f, 1.0f, 0.0f));
+  if (EE_GLTF_HAS_TEXTURE(material.clearcoat_normal_texture)) {
+    const vec3 safe_tangent = EE_GLTF_RT_SAFE_NORMALIZE(tangent, vec3(1.0f, 0.0f, 0.0f));
+    const vec3 safe_bitangent =
+        EE_GLTF_RT_SAFE_NORMALIZE(bitangent, cross(clearcoat_normal, safe_tangent));
+    vec3 normal_vector =
+        EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.clearcoat_normal_texture,
+                                         EE_GLTF_RASTER_TEXTURE_CLEARCOAT_NORMAL, tex_coord_0,
+                                         tex_coord_1, vec4(0.5f, 0.5f, 1.0f, 1.0f)).xyz *
+            2.0f -
+        1.0f;
+    normal_vector.xy *= material.clearcoat_normal_texture_scale;
+    clearcoat_normal = EE_GLTF_RT_SAFE_NORMALIZE(
+        mat3(safe_tangent, safe_bitangent, clearcoat_normal) * normal_vector,
+        clearcoat_normal);
+  }
+  return EE_GLTF_RT_COATED_EMISSION_VALUE(emissive, clearcoat, clearcoat_normal,
+                                          outgoing_direction);
+#else
+  return emissive;
+#endif
 }
 
 float EE_GLTF_RT_FRESNEL_COSINE_APPROXIMATION(const float v_dot_n, const float roughness) {
@@ -712,6 +777,9 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
   pbr.geometric_normal = EE_GLTF_RT_SAFE_NORMALIZE(geometric_normal, pbr.normal);
   pbr.tangent = EE_GLTF_RT_SAFE_NORMALIZE(tangent, vec3(1.0f, 0.0f, 0.0f));
   pbr.bitangent = EE_GLTF_RT_SAFE_NORMALIZE(bitangent, cross(pbr.normal, pbr.tangent));
+  const vec3 clearcoat_basis_normal = pbr.normal;
+  const vec3 clearcoat_basis_tangent = pbr.tangent;
+  const vec3 clearcoat_basis_bitangent = pbr.bitangent;
   const float basis_handedness =
       dot(cross(pbr.normal, pbr.tangent), pbr.bitangent) < 0.0f ? -1.0f : 1.0f;
   bool needs_tangent_update = false;
@@ -740,7 +808,7 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
   pbr.scatter_anisotropy = 0.0f;
   pbr.clearcoat = 0.0f;
   pbr.clearcoat_roughness = EE_GLTF_RT_BSDF_MIN_ROUGHNESS;
-  pbr.clearcoat_normal = pbr.normal;
+  pbr.clearcoat_normal = clearcoat_basis_normal;
   pbr.iridescence = 0.0f;
   pbr.iridescence_ior = 1.3f;
   pbr.iridescence_thickness = 400.0f;
@@ -819,8 +887,10 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
         EE_GLTF_SAMPLE_TEXTURE(material.clearcoat_normal_texture, tex_coord_0, tex_coord_1,
                                vec4(0.5f, 0.5f, 1.0f, 1.0f), tex_grad).xyz;
     normal_vector = normal_vector * 2.0f - 1.0f;
-    pbr.clearcoat_normal =
-        EE_GLTF_RT_SAFE_NORMALIZE(mat3(pbr.tangent, pbr.bitangent, pbr.normal) * normal_vector, pbr.normal);
+    normal_vector.xy *= material.clearcoat_normal_texture_scale;
+    pbr.clearcoat_normal = EE_GLTF_RT_SAFE_NORMALIZE(
+        mat3(clearcoat_basis_tangent, clearcoat_basis_bitangent, clearcoat_basis_normal) * normal_vector,
+        clearcoat_basis_normal);
   }
 #endif
 

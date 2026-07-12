@@ -442,6 +442,7 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
 #if MAT_EXT_CLEARCOAT
   out << YAML::Key << "clearcoat_factor" << YAML::Value << material.clearcoat_factor;
   out << YAML::Key << "clearcoat_roughness" << YAML::Value << material.clearcoat_roughness;
+  out << YAML::Key << "clearcoat_normal_texture_scale" << YAML::Value << material.clearcoat_normal_texture_scale;
 #endif
 #if MAT_EXT_SPECULAR
   out << YAML::Key << "specular_color_factor" << YAML::Value << material.specular_color_factor;
@@ -573,6 +574,8 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
     material.clearcoat_factor = in["clearcoat_factor"].as<float>();
   if (in["clearcoat_roughness"])
     material.clearcoat_roughness = in["clearcoat_roughness"].as<float>();
+  if (in["clearcoat_normal_texture_scale"])
+    material.clearcoat_normal_texture_scale = in["clearcoat_normal_texture_scale"].as<float>();
 #endif
 #if MAT_EXT_SPECULAR
   if (in["specular_color_factor"])

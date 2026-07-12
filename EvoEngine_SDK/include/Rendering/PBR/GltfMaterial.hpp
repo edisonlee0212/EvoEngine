@@ -106,7 +106,7 @@ inline bool operator==(const GltfTextureInfo& lhs, const GltfTextureInfo& rhs) {
   return !(lhs != rhs);
 }
 
-struct GltfShadeMaterial {
+struct alignas(8) GltfShadeMaterial {
   glm::vec4 pbr_base_color_factor = glm::vec4(1.0f);
   glm::vec3 emissive_factor = glm::vec3(0.0f);
   float normal_texture_scale = 1.0f;
@@ -258,7 +258,13 @@ struct GltfShadeMaterial {
   uint16_t retroreflection_texture = 0;
 #endif
 
-  uint64_t pad = 0;
+  uint32_t padding0 = 0;
+#if MAT_EXT_CLEARCOAT
+  float clearcoat_normal_texture_scale = 1.0f;
+#else
+  float clearcoat_padding = 0.0f;
+#endif
+  uint32_t padding1 = 0;
 };
 
 inline bool GltfMaterialRequiresTransparentPass(const GltfShadeMaterial& material) {
@@ -455,7 +461,16 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.retroreflection_texture != rhs.retroreflection_texture)
     return true;
 #endif
-  if (lhs.pad != rhs.pad)
+  if (lhs.padding0 != rhs.padding0)
+    return true;
+#if MAT_EXT_CLEARCOAT
+  if (lhs.clearcoat_normal_texture_scale != rhs.clearcoat_normal_texture_scale)
+    return true;
+#else
+  if (lhs.clearcoat_padding != rhs.clearcoat_padding)
+    return true;
+#endif
+  if (lhs.padding1 != rhs.padding1)
     return true;
   return false;
 }

@@ -69,21 +69,22 @@ float EE_FUNC_GEOMETRY_SMITH(vec3 N, vec3 V, vec3 L, float roughness)
 	return ggx1 * ggx2;
 }
 // ----------------------------------------------------------------------------
-vec3 EE_FUNC_FRESNEL_SCHLICK(float cosTheta, vec3 F0)
+vec3 EE_FUNC_FRESNEL_SCHLICK(float cosTheta, vec3 F0, float F90)
 {
-	return F0 + (1.0f - F0) * pow(max(1.0f - cosTheta, 0.0f), 5.0f);
+	return F0 + (vec3(F90) - F0) * pow(max(1.0f - clamp(cosTheta, 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
 // ----------------------------------------------------------------------------
-vec3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, vec3 F0, float roughness)
+vec3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, vec3 F0, float F90, float roughness)
 {
-	return F0 + (max(vec3(1.0f - roughness), F0) - F0) * pow(max(1.0f - cosTheta, 0.0f), 5.0f);
+	return F0 + (max(vec3(F90 * (1.0f - roughness)), F0) - F0) *
+	             pow(max(1.0f - clamp(cosTheta, 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
-vec3 EE_FUNC_CALCULATE_LIGHTS(in bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0);
-vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0);
-vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0);
-vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0);
+vec3 EE_FUNC_CALCULATE_LIGHTS(in bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0, float F90);
+vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90);
+vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90);
+vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90);
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3 normal, float cameraFragDistance);
 float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
 float EE_FUNC_SPOT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
@@ -199,10 +200,10 @@ vec3 EE_FUNC_CALCULATE_DDGI_DIFFUSE(vec3 albedo, vec3 normal, vec3 viewDir, vec3
   return albedo / EE_DDGI_PI * diffuse * intensity * volume_blend_weight;
 }
 
-vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	// ambient lighting (we now use IBL as the ambient term)
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(max(dot(normal, viewDir), 0.0f), F0, roughness);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(max(dot(normal, viewDir), 0.0f), F0, F90, roughness);
 	vec3 R = reflect(-viewDir, normal);
 	vec3 kS = F;
 	vec3 kD = 1.0f - kS;
@@ -226,12 +227,12 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
 	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
 #endif
-	vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+	vec3 specular = prefilteredColor * (F * brdf.x + vec3(F90 * brdf.y));
 	vec3 ambient = (kD * diffuse + specular) * EE_ENVIRONMENT.light_intensity;
 	return ambient;
 }
 
-vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0) {
+vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0, float F90) {
 	vec3 result = vec3(0.0, 0.0, 0.0f);
 	vec3 fragToCamera = fragPos - EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 	float cameraFragDistance = length(fragToCamera);
@@ -242,7 +243,7 @@ vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular,
 		if (calculateShadow && EE_DIRECTIONAL_LIGHTS[lightIndex].diffuse.w == 1.0f) {
 			shadow = EE_FUNC_DIRECTIONAL_LIGHT_CASCADE_SHADOW(lightIndex, dist, fragPos, normal, cameraFragDistance);
 		}
-		result += EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, lightIndex, normal, viewDir, metallic, roughness, F0) * shadow;
+		result += EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, lightIndex, normal, viewDir, metallic, roughness, F0, F90) * shadow;
 	}
 	// phase 2: point lights
 	for (int i = 0; i < EE_RENDER_INFO.point_light_size; i++) {
@@ -250,7 +251,7 @@ vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular,
 		if (calculateShadow && EE_POINT_LIGHTS[i].diffuse.w == 1.0f) {
 			shadow = EE_FUNC_POINT_LIGHT_SHADOW(i, fragPos, cameraFragDistance);
 		}
-		result += EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0) * shadow;
+		result += EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90) * shadow;
 	}
 	// phase 3: spot light
 	for (int i = 0; i < EE_RENDER_INFO.spot_light_size; i++) {
@@ -258,13 +259,13 @@ vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular,
 		if (calculateShadow && EE_SPOT_LIGHTS[i].diffuse.w == 1.0f) {
 			shadow = EE_FUNC_SPOT_LIGHT_SHADOW(i, fragPos, cameraFragDistance);
 		}
-		result += EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0) * shadow;
+		result += EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90) * shadow;
 	}
 	return result;
 }
 
 // calculates the color when using a directional light.
-vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	DirectionalLight light = EE_DIRECTIONAL_LIGHTS[i];
 	vec3 lightDir = normalize(-light.direction);
@@ -272,7 +273,7 @@ vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, 
 	vec3 radiance = light.diffuse.xyz;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0f), F0);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0f), F0, F90);
 	vec3 nominator = normalDF * G * F;
 	float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
 	vec3 spec = nominator / max(denominator, 0.001f) * specular;
@@ -284,7 +285,7 @@ vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, 
 }
 
 // calculates the color when using a point light.
-vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	PointLight light = EE_POINT_LIGHTS[i];
 	vec3 lightDir = normalize(light.position - fragPos);
@@ -294,7 +295,7 @@ vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 f
 	vec3 radiance = light.diffuse.xyz * attenuation;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
 	vec3 nominator = normalDF * G * F;
 	float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
 	vec3 spec = nominator / max(denominator, 0.001) * specular;
@@ -307,7 +308,7 @@ vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 f
 }
 
 // calculates the color when using a spot light.
-vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	SpotLight light = EE_SPOT_LIGHTS[i];
 	vec3 lightDir = normalize(light.position - fragPos);
@@ -322,7 +323,7 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 	vec3 radiance = light.diffuse.xyz * attenuation * intensity;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
 	vec3 nominator = normalDF * G * F;
 	float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
 	vec3 spec = nominator / max(denominator, 0.001f) * specular;

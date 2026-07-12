@@ -108,23 +108,6 @@ TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlos
         },
         "KHR_materials_emissive_strength": {
           "emissiveStrength": 2.5
-        },
-        "KHR_materials_transmission": {
-          "transmissionFactor": 0.35,
-          "transmissionTexture": {"index": 6}
-        },
-        "KHR_materials_ior": {
-          "ior": 1.33
-        },
-        "KHR_materials_clearcoat": {
-          "clearcoatFactor": 0.45,
-          "clearcoatRoughnessFactor": 0.12,
-          "clearcoatTexture": {"index": 7}
-        },
-        "KHR_materials_sheen": {
-          "sheenColorFactor": [0.2, 0.3, 0.4],
-          "sheenRoughnessFactor": 0.55,
-          "sheenColorTexture": {"index": 8}
         }
       },
       "emissiveFactor": [0.1, 0.2, 0.3]
@@ -142,12 +125,6 @@ TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlos
   ExpectVec3Near(material.pbr_specular_factor, glm::vec3(0.4f, 0.3f, 0.2f));
   EXPECT_NEAR(material.pbr_glossiness_factor, 0.81f, kEpsilon);
   ExpectVec3Near(material.emissive_factor, glm::vec3(0.25f, 0.5f, 0.75f));
-  EXPECT_NEAR(material.transmission_factor, 0.35f, kEpsilon);
-  EXPECT_NEAR(material.ior, 1.33f, kEpsilon);
-  EXPECT_NEAR(material.clearcoat_factor, 0.45f, kEpsilon);
-  EXPECT_NEAR(material.clearcoat_roughness, 0.12f, kEpsilon);
-  ExpectVec3Near(material.sheen_color_factor, glm::vec3(0.2f, 0.3f, 0.4f));
-  EXPECT_NEAR(material.sheen_roughness_factor, 0.55f, kEpsilon);
 
   ASSERT_NE(material.pbr_diffuse_texture, 0);
   ASSERT_NE(material.pbr_specular_glossiness_texture, 0);
@@ -158,11 +135,67 @@ TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlos
             static_cast<int32_t>(GltfTextureColorSpace::Srgb));
   EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].color_space,
             static_cast<int32_t>(GltfTextureColorSpace::Srgb));
-  EXPECT_EQ(materials[0].texture_infos[material.transmission_texture].index, 206);
-  EXPECT_EQ(materials[0].texture_infos[material.clearcoat_texture].index, 207);
-  EXPECT_EQ(materials[0].texture_infos[material.sheen_color_texture].index, 208);
-  EXPECT_EQ(materials[0].texture_infos[material.sheen_color_texture].color_space,
-            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
+}
+
+TEST(GltfMaterialConversion, ForbiddenShadingModelExtensionCombinationsAreDiagnosedAndRejected) {
+  const auto gltf = YAML::Load(R"({
+    "materials": [{
+      "extensions": {
+        "KHR_materials_pbrSpecularGlossiness": {"specularFactor": [0.2, 0.3, 0.4]},
+        "KHR_materials_specular": {"specularFactor": 0.25},
+        "KHR_materials_transmission": {"transmissionFactor": 0.75, "transmissionTexture": {"index": 2}},
+        "KHR_materials_clearcoat": {"clearcoatFactor": 0.8, "clearcoatNormalTexture": {"index": 3}},
+        "KHR_materials_iridescence": {"iridescenceFactor": 0.6, "iridescenceTexture": {"index": 4}}
+      }
+    }, {
+      "extensions": {
+        "KHR_materials_unlit": {},
+        "KHR_materials_pbrSpecularGlossiness": {"glossinessFactor": 0.2},
+        "KHR_materials_specular": {"specularFactor": 0.1},
+        "KHR_materials_transmission": {"transmissionFactor": 0.9},
+        "KHR_materials_clearcoat": {"clearcoatFactor": 0.7},
+        "KHR_materials_iridescence": {"iridescenceFactor": 0.5}
+      }
+    }]
+  })");
+
+  std::vector<std::string> diagnostics;
+  const auto materials = BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [](const int32_t texture_index) {
+        return texture_index;
+      },
+      {}, {},
+      [&](const std::string& message) {
+        diagnostics.push_back(message);
+      });
+
+  ASSERT_EQ(materials.size(), 2);
+  EXPECT_EQ(materials[0].shade_material.pbr_model, static_cast<int32_t>(GltfPbrModel::SpecularGlossiness));
+  ExpectVec3Near(materials[0].shade_material.pbr_specular_factor, glm::vec3(0.2f, 0.3f, 0.4f));
+  EXPECT_FLOAT_EQ(materials[0].shade_material.specular_factor, 1.0f);
+  EXPECT_FLOAT_EQ(materials[0].shade_material.transmission_factor, 0.0f);
+  EXPECT_FLOAT_EQ(materials[0].shade_material.clearcoat_factor, 0.0f);
+  EXPECT_FLOAT_EQ(materials[0].shade_material.iridescence_factor, 0.0f);
+  EXPECT_EQ(materials[0].shade_material.transmission_texture, 0);
+  EXPECT_EQ(materials[0].shade_material.clearcoat_normal_texture, 0);
+  EXPECT_EQ(materials[0].shade_material.iridescence_texture, 0);
+
+  EXPECT_EQ(materials[1].shade_material.unlit, 1);
+  EXPECT_EQ(materials[1].shade_material.pbr_model, static_cast<int32_t>(GltfPbrModel::MetallicRoughness));
+  EXPECT_FLOAT_EQ(materials[1].shade_material.transmission_factor, 0.0f);
+  EXPECT_FLOAT_EQ(materials[1].shade_material.clearcoat_factor, 0.0f);
+  EXPECT_FLOAT_EQ(materials[1].shade_material.iridescence_factor, 0.0f);
+
+  ASSERT_EQ(diagnostics.size(), 9);
+  std::string combined_diagnostics;
+  for (const auto& diagnostic : diagnostics) {
+    combined_diagnostics += diagnostic + '\n';
+  }
+  EXPECT_NE(combined_diagnostics.find("glTF material 0 rejects KHR_materials_specular"), std::string::npos);
+  EXPECT_NE(combined_diagnostics.find("glTF material 1 rejects KHR_materials_pbrSpecularGlossiness"),
+            std::string::npos);
+  EXPECT_NE(combined_diagnostics.find("incompatible with KHR_materials_unlit"), std::string::npos);
 }
 
 TEST(GltfMaterialConversion, TransparentExtensionsImportDiffuseTransmissionAndVolumeScatter) {
@@ -240,6 +273,10 @@ TEST(GltfMaterialConversion, AdvancedRayExtensionsImportNormativeFactorsTextures
           "anisotropyTexture": {"index": 4, "texCoord": 1}
         },
         "KHR_materials_dispersion": {"dispersion": 2.5},
+        "KHR_materials_clearcoat": {
+          "clearcoatFactor": 0.7,
+          "clearcoatNormalTexture": {"index": 7, "texCoord": 1, "scale": 0.35}
+        },
         "KHR_materials_retroreflection": {
           "retroreflectionFactor": 1.5,
           "retroreflectionTexture": {"index": 5}
@@ -271,12 +308,15 @@ TEST(GltfMaterialConversion, AdvancedRayExtensionsImportNormativeFactorsTextures
   EXPECT_FLOAT_EQ(material.anisotropy_strength, 1.0f);
   ExpectVec2Near(material.anisotropy_rotation, glm::vec2(0.0f, 1.0f));
   EXPECT_FLOAT_EQ(material.dispersion, 2.5f);
+  EXPECT_FLOAT_EQ(material.clearcoat_factor, 0.7f);
+  EXPECT_FLOAT_EQ(material.clearcoat_normal_texture_scale, 0.35f);
   EXPECT_FLOAT_EQ(material.retroreflection_factor, 1.0f);
 
   ASSERT_NE(material.iridescence_texture, 0);
   ASSERT_NE(material.iridescence_thickness_texture, 0);
   ASSERT_NE(material.anisotropy_texture, 0);
   ASSERT_NE(material.retroreflection_texture, 0);
+  ASSERT_NE(material.clearcoat_normal_texture, 0);
   const auto& iridescence = materials[0].texture_infos[material.iridescence_texture];
   EXPECT_EQ(iridescence.index, 402);
   EXPECT_EQ(iridescence.tex_coord, 1);
@@ -289,6 +329,8 @@ TEST(GltfMaterialConversion, AdvancedRayExtensionsImportNormativeFactorsTextures
   EXPECT_EQ(materials[0].texture_infos[material.retroreflection_texture].index, 405);
   EXPECT_EQ(materials[0].texture_infos[material.retroreflection_texture].color_space,
             static_cast<int32_t>(GltfTextureColorSpace::Linear));
+  EXPECT_EQ(materials[0].texture_infos[material.clearcoat_normal_texture].index, 407);
+  EXPECT_EQ(materials[0].texture_infos[material.clearcoat_normal_texture].tex_coord, 1);
 
   GltfMaterialCache cache;
   EXPECT_EQ(cache.Append(materials[0]), 0);

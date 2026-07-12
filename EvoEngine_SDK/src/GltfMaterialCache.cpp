@@ -1,5 +1,6 @@
 #include "GltfMaterialCache.hpp"
 
+#include "Console.hpp"
 #include "Material.hpp"
 
 #include <algorithm>
@@ -65,6 +66,26 @@ YAML::Node ChildNode(const YAML::Node& node, const char* key) {
   } catch (const YAML::Exception&) {
     return {};
   }
+}
+
+void ReportMaterialError(const GltfMaterialErrorCallback& report_error, const std::string& message) {
+  if (report_error) {
+    report_error(message);
+    return;
+  }
+  EVOENGINE_ERROR(message)
+}
+
+YAML::Node CompatibleMaterialExtension(const YAML::Node& extensions, const char* extension_name,
+                                       const std::string& primary_model, const size_t material_index,
+                                       const GltfMaterialErrorCallback& report_error) {
+  const auto extension = ChildNode(extensions, extension_name);
+  if (!extension || !extension.IsMap() || primary_model.empty() || primary_model == extension_name) {
+    return extension;
+  }
+  ReportMaterialError(report_error, "glTF material " + std::to_string(material_index) + " rejects " + extension_name +
+                                        " because it is incompatible with " + primary_model + ".");
+  return {};
 }
 
 std::string ReadString(const YAML::Node& node, const std::string& fallback = {}) {
@@ -267,7 +288,8 @@ std::string evo_engine::ResolveGltfTextureUri(const YAML::Node& gltf, const int3
 std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
     const YAML::Node& gltf, const std::function<int32_t(int32_t texture_index)>& resolve_texture_index,
     const std::function<bool(int32_t texture_index)>& texture_source_needs_y_flip,
-    const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb) {
+    const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb,
+    const GltfMaterialErrorCallback& report_error) {
   std::vector<GltfMaterialData> result;
   const auto materials = ChildNode(gltf, "materials");
   if (!materials || !materials.IsSequence()) {
@@ -275,7 +297,8 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
   }
 
   result.reserve(materials.size());
-  for (const auto& source_material : materials) {
+  for (size_t material_index = 0; material_index < materials.size(); ++material_index) {
+    const auto source_material = materials[material_index];
     GltfMaterialData material_data;
     auto& shade_material = material_data.shade_material;
 
@@ -301,17 +324,27 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
                                                   shade_material.occlusion_strength);
 
     const auto extensions = ChildNode(source_material, "extensions");
+    const auto raw_unlit = ChildNode(extensions, "KHR_materials_unlit");
+    const auto raw_specular_glossiness = ChildNode(extensions, "KHR_materials_pbrSpecularGlossiness");
+    const std::string primary_model = raw_unlit && raw_unlit.IsMap() ? "KHR_materials_unlit"
+                                      : raw_specular_glossiness && raw_specular_glossiness.IsMap()
+                                          ? "KHR_materials_pbrSpecularGlossiness"
+                                          : "";
 #if MAT_EXT_TRANSMISSION
-    const auto transmission = ChildNode(extensions, "KHR_materials_transmission");
+    const auto transmission = CompatibleMaterialExtension(extensions, "KHR_materials_transmission", primary_model,
+                                                          material_index, report_error);
     shade_material.transmission_factor =
         ReadFloat(ChildNode(transmission, "transmissionFactor"), shade_material.transmission_factor);
 #endif
 #if MAT_EXT_IOR
-    const float ior = ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_ior"), "ior"), shade_material.ior);
+    const auto ior_extension =
+        CompatibleMaterialExtension(extensions, "KHR_materials_ior", primary_model, material_index, report_error);
+    const float ior = ReadFloat(ChildNode(ior_extension, "ior"), shade_material.ior);
     shade_material.ior = ior == 0.0f ? 0.0f : std::max(ior, 1.0f);
 #endif
 #if MAT_EXT_VOLUME
-    const auto volume = ChildNode(extensions, "KHR_materials_volume");
+    const auto volume =
+        CompatibleMaterialExtension(extensions, "KHR_materials_volume", primary_model, material_index, report_error);
     shade_material.thickness_factor = ReadFloat(ChildNode(volume, "thicknessFactor"), shade_material.thickness_factor);
     shade_material.attenuation_distance =
         ReadFloat(ChildNode(volume, "attenuationDistance"), shade_material.attenuation_distance);
@@ -319,14 +352,19 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         ReadVec3(ChildNode(volume, "attenuationColor"), shade_material.attenuation_color);
 #endif
 #if MAT_EXT_CLEARCOAT
-    const auto clearcoat = ChildNode(extensions, "KHR_materials_clearcoat");
+    const auto clearcoat =
+        CompatibleMaterialExtension(extensions, "KHR_materials_clearcoat", primary_model, material_index, report_error);
     shade_material.clearcoat_factor =
         ReadFloat(ChildNode(clearcoat, "clearcoatFactor"), shade_material.clearcoat_factor);
     shade_material.clearcoat_roughness =
         ReadFloat(ChildNode(clearcoat, "clearcoatRoughnessFactor"), shade_material.clearcoat_roughness);
+    shade_material.clearcoat_normal_texture_scale =
+        ReadFloat(ChildNode(ChildNode(clearcoat, "clearcoatNormalTexture"), "scale"),
+                  shade_material.clearcoat_normal_texture_scale);
 #endif
 #if MAT_EXT_SPECULAR
-    const auto specular = ChildNode(extensions, "KHR_materials_specular");
+    const auto specular =
+        CompatibleMaterialExtension(extensions, "KHR_materials_specular", primary_model, material_index, report_error);
     shade_material.specular_factor =
         ClampFloat(ReadFloat(ChildNode(specular, "specularFactor"), shade_material.specular_factor), 0.0f, 1.0f);
     shade_material.specular_color_factor = glm::max(
@@ -336,18 +374,20 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_emissive_strength"), "emissiveStrength"), 1.0f);
     shade_material.emissive_factor *= emissive_strength;
 #if MAT_EXT_UNLIT
-    const auto unlit = ChildNode(extensions, "KHR_materials_unlit");
+    const auto unlit = raw_unlit;
     shade_material.unlit = unlit && unlit.IsMap() ? 1 : 0;
 #endif
 #if MAT_EXT_SHEEN
-    const auto sheen = ChildNode(extensions, "KHR_materials_sheen");
+    const auto sheen =
+        CompatibleMaterialExtension(extensions, "KHR_materials_sheen", primary_model, material_index, report_error);
     shade_material.sheen_color_factor =
         ReadVec3(ChildNode(sheen, "sheenColorFactor"), shade_material.sheen_color_factor);
     shade_material.sheen_roughness_factor =
         ReadFloat(ChildNode(sheen, "sheenRoughnessFactor"), shade_material.sheen_roughness_factor);
 #endif
 #if MAT_EXT_IRIDESCENCE
-    const auto iridescence = ChildNode(extensions, "KHR_materials_iridescence");
+    const auto iridescence = CompatibleMaterialExtension(extensions, "KHR_materials_iridescence", primary_model,
+                                                         material_index, report_error);
     shade_material.iridescence_factor = ClampFloat(
         ReadFloat(ChildNode(iridescence, "iridescenceFactor"), shade_material.iridescence_factor), 0.0f, 1.0f);
     shade_material.iridescence_ior =
@@ -360,21 +400,24 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         0.0f);
 #endif
 #if MAT_EXT_ANISOTROPY
-    const auto anisotropy = ChildNode(extensions, "KHR_materials_anisotropy");
+    const auto anisotropy = CompatibleMaterialExtension(extensions, "KHR_materials_anisotropy", primary_model,
+                                                        material_index, report_error);
     shade_material.anisotropy_strength = ClampFloat(
         ReadFloat(ChildNode(anisotropy, "anisotropyStrength"), shade_material.anisotropy_strength), 0.0f, 1.0f);
     const float anisotropy_rotation = ReadFloat(ChildNode(anisotropy, "anisotropyRotation"), 0.0f);
     shade_material.anisotropy_rotation = glm::vec2(std::cos(anisotropy_rotation), std::sin(anisotropy_rotation));
 #endif
 #if MAT_EXT_DISPERSION
+    const auto dispersion = CompatibleMaterialExtension(extensions, "KHR_materials_dispersion", primary_model,
+                                                        material_index, report_error);
     shade_material.dispersion =
-        std::max(ReadFloat(ChildNode(ChildNode(extensions, "KHR_materials_dispersion"), "dispersion"),
-                           shade_material.dispersion),
-                 0.0f);
+        std::max(ReadFloat(ChildNode(dispersion, "dispersion"), shade_material.dispersion), 0.0f);
 #endif
 #if MAT_EXT_RETROREFLECTION
-    const auto khr_retroreflection = ChildNode(extensions, "KHR_materials_retroreflection");
-    const auto ext_retroreflection = ChildNode(extensions, "EXT_materials_retroreflection");
+    const auto khr_retroreflection = CompatibleMaterialExtension(extensions, "KHR_materials_retroreflection",
+                                                                 primary_model, material_index, report_error);
+    const auto ext_retroreflection = CompatibleMaterialExtension(extensions, "EXT_materials_retroreflection",
+                                                                 primary_model, material_index, report_error);
     const auto retroreflection =
         khr_retroreflection && khr_retroreflection.IsMap() ? khr_retroreflection : ext_retroreflection;
     shade_material.retroreflection_factor = ClampFloat(
@@ -382,7 +425,8 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         1.0f);
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
-    const auto diffuse_transmission = ChildNode(extensions, "KHR_materials_diffuse_transmission");
+    const auto diffuse_transmission = CompatibleMaterialExtension(extensions, "KHR_materials_diffuse_transmission",
+                                                                  primary_model, material_index, report_error);
     shade_material.diffuse_transmission_factor = ReadFloat(ChildNode(diffuse_transmission, "diffuseTransmissionFactor"),
                                                            shade_material.diffuse_transmission_factor);
     shade_material.diffuse_transmission_color = ReadVec3(ChildNode(diffuse_transmission, "diffuseTransmissionColor"),
@@ -391,7 +435,8 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         ChildNode(diffuse_transmission, "diffuseTransmissionColorFactor"), shade_material.diffuse_transmission_color);
 #endif
 #if MAT_EXT_VOLUME_SCATTER
-    const auto volume_scatter = ChildNode(extensions, "KHR_materials_volume_scatter");
+    const auto volume_scatter = CompatibleMaterialExtension(extensions, "KHR_materials_volume_scatter", primary_model,
+                                                            material_index, report_error);
     shade_material.multiscatter_color_factor =
         ReadVec3(ChildNode(volume_scatter, "multiscatterColorFactor"), shade_material.multiscatter_color_factor);
     shade_material.multiscatter_color_factor =
@@ -400,7 +445,8 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
         ReadFloat(ChildNode(volume_scatter, "scatterAnisotropy"), shade_material.scatter_anisotropy), -0.999f, 0.999f);
 #endif
 #if MAT_EXT_SPECULAR_GLOSSINESS
-    const auto specular_glossiness = ChildNode(extensions, "KHR_materials_pbrSpecularGlossiness");
+    const auto specular_glossiness = CompatibleMaterialExtension(extensions, "KHR_materials_pbrSpecularGlossiness",
+                                                                 primary_model, material_index, report_error);
     if (specular_glossiness && specular_glossiness.IsMap()) {
       shade_material.pbr_model = static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
       shade_material.pbr_diffuse_factor =

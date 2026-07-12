@@ -678,13 +678,6 @@ EmissiveTriangleInfo EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE_RECORD(const float sampl
   return EE_EMISSIVE_TRIANGLES[low];
 }
 
-vec3 EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(const GltfShadeMaterial material, const vec2 tex_coord_0,
-                                          const vec2 tex_coord_1) {
-  const vec3 texture_value = EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
-      material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE, tex_coord_0, tex_coord_1, vec4(1.0f)).rgb;
-  return max(material.emissive_factor * texture_value, vec3(0.0f));
-}
-
 void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint seed,
                                         out EE_CAMERA_DIRECT_LIGHT direct_light) {
   direct_light.direction = vec3(0.0f, 1.0f, 0.0f);
@@ -739,9 +732,37 @@ void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint 
                            v2.tex_coord * barycentrics.z;
   const vec2 tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
                            v2.tex_coord_1 * barycentrics.z;
+  const vec3 object_normal =
+      v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
+  const vec3 object_tangent =
+      v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
+  const float side = dot(light_normal, -direction) >= 0.0f ? 1.0f : -1.0f;
+  const vec3 geometric_normal = light_normal * side;
+  const mat3 normal_matrix = transpose(inverse(mat3(instance.model)));
+  vec3 normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal, geometric_normal);
+  vec3 tangent = EE_CAMERA_SAFE_NORMALIZE(
+      mat3(instance.model) * object_tangent - normal * dot(mat3(instance.model) * object_tangent, normal),
+      vec3(1.0f, 0.0f, 0.0f));
+  const float tangent_handedness =
+      (v0.vertex_info3 < 0.0f ? -1.0f : 1.0f) * EE_TRANSFORM_HANDEDNESS(instance.model);
+  vec3 bitangent = EE_CAMERA_SAFE_NORMALIZE(cross(normal, tangent) * tangent_handedness,
+                                             vec3(0.0f, 0.0f, 1.0f));
+  if (dot(normal, geometric_normal) < 0.0f) {
+    normal = -normal;
+    tangent = -tangent;
+    bitangent = -bitangent;
+  }
+  const vec3 reflected_direction = reflect(direction, normal);
+  if (dot(reflected_direction, geometric_normal) < 0.0f) {
+    normal = geometric_normal;
+    tangent = EE_CAMERA_SAFE_NORMALIZE(tangent - normal * dot(tangent, normal), vec3(1.0f, 0.0f, 0.0f));
+    bitangent = EE_CAMERA_SAFE_NORMALIZE(cross(normal, tangent) * tangent_handedness, vec3(0.0f, 0.0f, 1.0f));
+  }
   direct_light.direction = direction;
-  direct_light.radiance_over_pdf = EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(material, tex_coord_0, tex_coord_1) /
-                                   solid_angle_pdf;
+  direct_light.radiance_over_pdf =
+      EE_GLTF_RT_COATED_EMISSION_LOD0(uint(instance.material_index), tex_coord_0, tex_coord_1, normal,
+                                      tangent, bitangent, -direction) /
+      solid_angle_pdf;
   direct_light.distance = distance;
   direct_light.pdf = solid_angle_pdf;
 }
@@ -1440,6 +1461,10 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
   const vec3 reflected_direction = reflect(EE_CAMERA_SAFE_NORMALIZE(ray_direction, -hit.geometric_normal), hit.normal);
   if (dot(reflected_direction, hit.geometric_normal) < 0.0f) {
     hit.normal = hit.geometric_normal;
+    hit.tangent = EE_CAMERA_SAFE_NORMALIZE(hit.tangent - hit.normal * dot(hit.tangent, hit.normal),
+                                            vec3(1.0f, 0.0f, 0.0f));
+    hit.bitangent = EE_CAMERA_SAFE_NORMALIZE(cross(hit.normal, hit.tangent) * tangent_handedness,
+                                              vec3(0.0f, 0.0f, 1.0f));
   }
   hit.shading_normal = hit.normal;
   hit.tex_coord_0 = tex_coord_0;
@@ -1449,8 +1474,6 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
       hit.material_index, tex_coord_0, tex_coord_1, vertex_color, hit.normal, hit.tangent, hit.bitangent,
       hit.geometric_normal, is_inside, hit.tex_gradients);
   hit.normal = hit.pbr.normal;
-  hit.tangent = hit.pbr.tangent;
-  hit.bitangent = hit.pbr.bitangent;
   return hit;
 }
 
@@ -1596,8 +1619,10 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction,
         EE_CAMERA_FIND_EMISSIVE_TRIANGLE(hit_value.instance_index, hit_value.primitive_id, emissive_record);
     const vec3 emissive_radiance =
         emissive_triangle_hit
-            ? EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(surface_material, surface_hit.tex_coord_0, surface_hit.tex_coord_1)
-            : surface_hit.pbr.emissive;
+            ? EE_GLTF_RT_COATED_EMISSION_LOD0(
+                  surface_hit.material_index, surface_hit.tex_coord_0, surface_hit.tex_coord_1,
+                  surface_hit.shading_normal, surface_hit.tangent, surface_hit.bitangent, view_direction)
+            : EE_GLTF_RT_COATED_EMISSION(surface_hit.pbr, view_direction);
     float emissive_hit_mis_weight = 1.0f;
     if (camera.emissive_triangle_nee_enabled != 0u && last_sample_pdf != EE_CAMERA_DIRAC_PDF &&
         emissive_triangle_hit) {

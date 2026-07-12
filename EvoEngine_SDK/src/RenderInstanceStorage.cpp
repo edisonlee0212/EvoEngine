@@ -1932,6 +1932,15 @@ void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
     descriptor_set->UpdateImageDescriptorBinding(2, resolve_image_info(material.normal_texture, 2));
     descriptor_set->UpdateImageDescriptorBinding(3, resolve_image_info(material.emissive_texture, 3));
     descriptor_set->UpdateImageDescriptorBinding(4, resolve_image_info(material.occlusion_texture, 4));
+#if MAT_EXT_CLEARCOAT
+    descriptor_set->UpdateImageDescriptorBinding(5, resolve_image_info(material.clearcoat_texture, 5));
+    descriptor_set->UpdateImageDescriptorBinding(6, resolve_image_info(material.clearcoat_roughness_texture, 6));
+    descriptor_set->UpdateImageDescriptorBinding(7, resolve_image_info(material.clearcoat_normal_texture, 7));
+#else
+    descriptor_set->UpdateImageDescriptorBinding(5, fallback_image_infos[5]);
+    descriptor_set->UpdateImageDescriptorBinding(6, fallback_image_infos[6]);
+    descriptor_set->UpdateImageDescriptorBinding(7, fallback_image_infos[7]);
+#endif
   }
   raster_material_descriptor_texture_storage_version_ = current_texture_storage_version;
 }

@@ -10,6 +10,7 @@
 namespace evo_engine {
 
 class Material;
+using GltfMaterialErrorCallback = std::function<void(const std::string&)>;
 
 GltfTextureInfo MakeGltfTextureInfo(int32_t texture_index, int32_t tex_coord = 0,
                                     const glm::mat3x2& uv_transform = glm::mat3x2(1.0f),
@@ -25,7 +26,8 @@ std::string ResolveGltfTextureUri(const YAML::Node& gltf, int32_t texture_index,
 std::vector<GltfMaterialData> BuildGltfMaterialDataFromGltfNode(
     const YAML::Node& gltf, const std::function<int32_t(int32_t texture_index)>& resolve_texture_index,
     const std::function<bool(int32_t texture_index)>& texture_source_needs_y_flip = {},
-    const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb = {});
+    const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb = {},
+    const GltfMaterialErrorCallback& report_error = {});
 
 class GltfMaterialCache {
  public:

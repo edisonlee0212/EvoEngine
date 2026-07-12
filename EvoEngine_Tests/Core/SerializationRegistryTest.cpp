@@ -2316,6 +2316,7 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   shade_material.diffuse_transmission_color = glm::vec3(0.7f, 0.8f, 0.9f);
   shade_material.diffuse_transmission_factor = 0.65f;
   shade_material.specular_factor = 0.0f;
+  shade_material.clearcoat_normal_texture_scale = 0.35f;
   shade_material.iridescence_factor = 0.8f;
   shade_material.iridescence_ior = 1.4f;
   shade_material.iridescence_thickness_minimum = 125.0f;
@@ -2356,6 +2357,7 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   EXPECT_EQ(restored_material.diffuse_transmission_color, glm::vec3(0.7f, 0.8f, 0.9f));
   EXPECT_FLOAT_EQ(restored_material.diffuse_transmission_factor, 0.65f);
   EXPECT_FLOAT_EQ(restored_material.specular_factor, 0.0f);
+  EXPECT_FLOAT_EQ(restored_material.clearcoat_normal_texture_scale, 0.35f);
   EXPECT_FLOAT_EQ(restored_material.iridescence_factor, 0.8f);
   EXPECT_FLOAT_EQ(restored_material.iridescence_ior, 1.4f);
   EXPECT_FLOAT_EQ(restored_material.iridescence_thickness_minimum, 125.0f);

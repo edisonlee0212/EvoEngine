@@ -275,7 +275,7 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   descriptor_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   descriptor_layout->Initialize();
 
-  constexpr size_t value_count = 9;
+  constexpr size_t value_count = 20;
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.size = value_count * sizeof(float);
@@ -315,6 +315,17 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   EXPECT_NEAR(values[5], values[6], 1.0e-6f);
   EXPECT_NEAR(values[7], 1.5f, 1.0e-5f);
   EXPECT_FLOAT_EQ(values[8], 1.0f);
+  EXPECT_NEAR(values[9], 0.04f, 1.0e-6f);
+  EXPECT_NEAR(values[10], 0.01f, 1.0e-6f);
+  EXPECT_NEAR(values[11], 0.02f, 1.0e-6f);
+  EXPECT_NEAR(values[12], 0.5f, 1.0e-6f);
+  EXPECT_NEAR(values[13], 0.5f, 1.0e-6f);
+  EXPECT_NEAR(values[14], 0.3f / std::sqrt(1.18f), 1.0e-6f);
+  EXPECT_NEAR(values[15], -0.3f / std::sqrt(1.18f), 1.0e-6f);
+  EXPECT_NEAR(values[16], 1.0f, 1.0e-6f);
+  EXPECT_NEAR(values[17], 1.92f, 1.0e-6f);
+  EXPECT_NEAR(values[18], 0.0f, 1.0e-6f);
+  EXPECT_FLOAT_EQ(values[19], 1.0f);
 }
 
 TEST(GpuService, BufferUploadSubrangeRoundTrip) {

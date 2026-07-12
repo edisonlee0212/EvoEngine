@@ -60,7 +60,9 @@ TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {
   EXPECT_EQ(offsetof(GltfShadeMaterial, iridescence_thickness_texture), 258);
   EXPECT_EQ(offsetof(GltfShadeMaterial, anisotropy_texture), 260);
   EXPECT_EQ(offsetof(GltfShadeMaterial, retroreflection_texture), 274);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, pad), 280);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, padding0), 276);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, clearcoat_normal_texture_scale), 280);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, padding1), 284);
 }
 
 TEST(GltfMaterialLayout, ShaderIncludeKeepsMaterialLayoutGatesSeparateFromBehaviorGates) {
@@ -76,6 +78,7 @@ TEST(GltfMaterialLayout, ShaderIncludeKeepsMaterialLayoutGatesSeparateFromBehavi
   EXPECT_NE(shader_source.find("struct GltfShadeMaterial"), std::string::npos);
   EXPECT_NE(shader_source.find("uint16_t pbr_base_color_texture"), std::string::npos);
   EXPECT_NE(shader_source.find("float retroreflection_factor"), std::string::npos);
+  EXPECT_NE(shader_source.find("float clearcoat_normal_texture_scale"), std::string::npos);
   EXPECT_NE(shader_source.find("uint16_t retroreflection_texture"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_GLTF_USE_TRANSMISSION"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_GLTF_USE_TEXTURE_TRANSFORM"), std::string::npos);

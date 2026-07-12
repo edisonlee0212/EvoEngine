@@ -153,7 +153,7 @@ enum class RenderInstanceType {
  */
 class RenderInstanceStorage {
  public:
-  static constexpr uint32_t kRasterMaterialTextureSlotCount = 5;
+  static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
 
   /**
    * @brief Struct to hold information related to render settings applied.

@@ -279,7 +279,13 @@ struct GltfShadeMaterial {
   uint16_t retroreflection_texture;
 #endif
 
-  uint64_t pad;
+  uint padding0;
+#if MAT_EXT_CLEARCOAT
+  float clearcoat_normal_texture_scale;
+#else
+  float clearcoat_padding;
+#endif
+  uint padding1;
 };
 
 #ifdef EE_GLTF_MATERIALS_BLOCK_BINDING

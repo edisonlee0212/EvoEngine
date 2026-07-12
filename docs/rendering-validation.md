@@ -580,6 +580,45 @@ classifications committed in `Scripts/raytracer_m7_expectations.json`. Known sem
 rather than being hidden by the visualization; alpha-blend traversal-edge and coverage-weighting behavior remains
 classified as bounded stochastic noise pending M10.
 
+### M8 Material-Semantic Closure
+
+M8 keeps the M7 5x4 atlas contract and adds focused `rendering-regression` probes rather than changing the diagnostic
+enum or invalidating M7 evidence. The scene now pairs clearcoat normal scale 0/1, uncoated/coated emission, and matched
+fractional-specular controls with and without iridescence. Existing probes continue to cover native colored-F0
+specular-glossiness, transmission, scalar specular 0/0.5, and unlit base color. Import-only forbidden combinations stay in
+unit tests and never receive accidental render goldens.
+
+The focused gate uses exactly three renderer launches: one deterministic 1280x720 raster PNG plus matched 1280x720,
+64-SPP RTX and forced query-only atlases. It reruns M7 attribute, transport, conservation, provenance, and ROI checks for
+the two fresh ray lanes, while hash-verifying the accepted M7 report that proved ordinary RayQuery and forced query-only
+were bit-exact. M8 then checks raster and ray clearcoat-normal/coated-emission relationships plus the raster F90/unlit
+path. The normal post-commit 2560x1440, 2048-SPP Bistro image is the fourth and final launch. The pinned reference is not
+rerun because neither its revision nor the matched reference input changed.
+
+Adding two opaque coated-emission probes changes the 64-SPP emissive-selection distribution, so M8 records a separate
+deterministic single-capture, bounded-stochastic guardrail for the fresh RTX/query-only Direct Emissive atlas
+(`mean <= 4e-6`, `p99.9 <= 5.5e-4`, `max <= 0.025`) instead of relabeling the older M7 scene envelope. The accepted M7
+report and its tighter ordinary RayQuery/query-only result remain hash-pinned and unchanged; every other fresh transport
+limit retains the M7 value.
+
+The material unit gate includes the 288-byte host/shader ABI, import diagnostics and deterministic recovery, material
+serialization, raster and shared-ray source contracts, plus one GPU numerical dispatch covering colored F0, scalar F90,
+clearcoat normal scaling, coated-emission bounds, and finite energy. Run the focused validation with:
+
+```bat
+out\build\vs2026-x64-tests\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="GltfMaterialConversion.*:GltfMaterialLayout.*:GltfRasterMaterial.*:GltfRayTracingMaterial.*:GpuService.GltfRayTracingNumericalProbeMatchesAnalyticValues:SerializationRegistry.MaterialRoundTripKeepsTransparentExtensionFields"
+python Scripts\validate_raytracer_m8.py --self-test
+python Scripts\validate_raytracer_m8.py --capture --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe
+```
+
+The retained pre-commit evidence under `out/m8-validation/precommit-final` passes all 48 M8 gates and all 88 compact-atlas
+gates. Raster grazing F90 separation is `22.99x` its matched center separation; clearcoat-normal and coated-emission rim
+luminance ratios are `0.891` and `0.930`. RTX/query-only coated-emission ratios agree within `0.0001`, the matched
+iridescence controls retain bit-exact F0, and their Beauty values separate by `0.0461`/`0.0474`. The raster PNG SHA-256 is
+`45c4136d3993c4a8c599b6e1345ff9d76067c37793ce686bbdf81a9a7b2600a3`; RTX and forced-query-only HDR SHA-256 values are
+`4045071c6f107b8ea119c6af3d4ef3b3793db913283e5a0759944675bd02976b` and
+`9fb034a277104270fa9276de8d376eabc65efa8a1ff9f0b011fb7d9461cbb928`.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

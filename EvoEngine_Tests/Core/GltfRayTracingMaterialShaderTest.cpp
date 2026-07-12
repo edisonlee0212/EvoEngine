@@ -592,12 +592,15 @@ TEST(GltfRayTracingMaterial, CameraRaygenKeepsMappedNormalHemisphereGuard) {
   ASSERT_FALSE(bsdf.empty());
 
   const auto expect_reference_hit_normal_order = [](const std::string& shader_source) {
-    const auto base_normal = shader_source.find("hit.normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal");
+    const auto reconstruction = shader_source.find("EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT");
+    ASSERT_NE(reconstruction, std::string::npos);
+    const auto base_normal =
+        shader_source.find("hit.normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal", reconstruction);
     const auto tangent_basis =
-        shader_source.find("hit.bitangent = EE_CAMERA_SAFE_NORMALIZE(cross(hit.normal, hit.tangent)");
-    const auto side_check = shader_source.find("if (dot(hit.normal, hit.geometric_normal) < 0.0f)");
+        shader_source.find("hit.bitangent = EE_CAMERA_SAFE_NORMALIZE(cross(hit.normal, hit.tangent)", reconstruction);
+    const auto side_check = shader_source.find("if (dot(hit.normal, hit.geometric_normal) < 0.0f)", reconstruction);
     const auto tangent_flip = shader_source.find("hit.tangent = -hit.tangent", side_check);
-    const auto reflection_clamp = shader_source.find("const vec3 reflected_direction = reflect");
+    const auto reflection_clamp = shader_source.find("const vec3 reflected_direction = reflect", side_check);
     const auto hard_reset = shader_source.find("hit.normal = hit.geometric_normal", reflection_clamp);
     const auto shading_normal = shader_source.find("hit.shading_normal = hit.normal", hard_reset);
     const auto pbr_eval = shader_source.find("hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL", shading_normal);
@@ -909,7 +912,14 @@ TEST(GltfRayTracingMaterial, AdvancedRayExtensionsFollowKhronosAndShareOneBsdf) 
 
   EXPECT_NE(bsdf.find("pbr.specular = clamp(material.specular_factor, 0.0f, 1.0f)"), std::string::npos);
   EXPECT_NE(bsdf.find("EE_GLTF_RT_WEIGHTED_SPECULAR_FRESNEL"), std::string::npos);
+  EXPECT_NE(bsdf.find("vec3(weight)"), std::string::npos);
   EXPECT_NE(bsdf.find("pbr.specular_f0 * max(pbr.specular_color"), std::string::npos);
+  EXPECT_NE(bsdf.find("normal_vector.xy *= material.clearcoat_normal_texture_scale"), std::string::npos);
+  EXPECT_NE(bsdf.find("const vec3 clearcoat_basis_normal = pbr.normal"), std::string::npos);
+  EXPECT_NE(bsdf.find("pbr.clearcoat_normal = clearcoat_basis_normal"), std::string::npos);
+  EXPECT_NE(bsdf.find("EE_GLTF_RT_COATED_EMISSION"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_GLTF_RT_COATED_EMISSION_LOD0(uint(instance.material_index)"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_GLTF_RT_COATED_EMISSION(surface_hit.pbr, view_direction)"), std::string::npos);
   EXPECT_NE(bsdf.find("dielectric_ior = material.ior == 0.0f ? 0.0f"), std::string::npos);
   EXPECT_NE(bsdf.find("material.ior == 0.0f ? EE_GLTF_RT_IOR_COMPATIBILITY_INFINITY"), std::string::npos);
   EXPECT_NE(bsdf.find("if (material.ior != 0.0f)"), std::string::npos);
@@ -1944,6 +1954,12 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(demo_scene_source.find("M3b Explicit Specular Factor 0 Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3b Specular Factor 0.5 F90 Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3b Unlit Ignores Emissive Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M8 Clearcoat Normal Scale 0 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M8 Clearcoat Normal Scale 1 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M8 Uncoated Emission Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M8 Coated Emission Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M8 Specular 0.5 Iridescence F90 Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M8 Specular 0.5 Iridescence Control Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3b Retroreflection Camera Light"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M4 Emissive NEE Constant Emitter"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M4 Emissive NEE Textured Emitter"), std::string::npos);
@@ -2000,6 +2016,8 @@ TEST(GltfRayTracingMaterial, MaterialAbiKeepsAdvancedExtensionTextureSlots) {
   EXPECT_NE(source.find("uint16_t transmission_texture"), std::string::npos);
   EXPECT_NE(source.find("uint16_t clearcoat_texture"), std::string::npos);
   EXPECT_NE(source.find("uint16_t clearcoat_roughness_texture"), std::string::npos);
+  EXPECT_NE(source.find("uint16_t clearcoat_normal_texture"), std::string::npos);
+  EXPECT_NE(source.find("float clearcoat_normal_texture_scale"), std::string::npos);
   EXPECT_NE(source.find("uint16_t sheen_color_texture"), std::string::npos);
   EXPECT_NE(source.find("uint16_t sheen_roughness_texture"), std::string::npos);
   EXPECT_NE(source.find("uint16_t diffuse_transmission_texture"), std::string::npos);
@@ -2079,10 +2097,8 @@ TEST(GltfRayTracingMaterial, StaticEmissiveTrianglesAreSharedByRayTracingAndRayQ
   EXPECT_NE(integrator.find("EE_CAMERA_PREPARE_EMISSIVE_LIGHTING"), std::string::npos);
   EXPECT_NE(integrator.find("EE_CAMERA_VOLUME_EMISSIVE_NEE"), std::string::npos);
   EXPECT_NE(integrator.find("EE_CAMERA_BALANCE_HEURISTIC(last_sample_pdf, emissive_pdf)"), std::string::npos);
-  EXPECT_NE(integrator.find("EE_CAMERA_EMISSIVE_TRIANGLE_RADIANCE(surface_material, surface_hit.tex_coord_0, "
-                            "surface_hit.tex_coord_1)"),
-            std::string::npos);
-  EXPECT_NE(integrator.find(": surface_hit.pbr.emissive"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_GLTF_RT_COATED_EMISSION_LOD0(uint(instance.material_index)"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_GLTF_RT_COATED_EMISSION(surface_hit.pbr, view_direction)"), std::string::npos);
   EXPECT_NE(raster_material.find("EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0"), std::string::npos);
   EXPECT_NE(demo_scene.find("kEmissiveTextureResolution = 32"), std::string::npos);
   EXPECT_NE(geometry_header.find("PeekTriangle"), std::string::npos);

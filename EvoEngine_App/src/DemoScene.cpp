@@ -540,6 +540,58 @@ void ConfigureRenderingRegressionAdvancedRayMaterialProbes(const std::shared_ptr
   unlit->material_data.shade_material.emissive_factor = glm::vec3(8.0f, 0.0f, 0.0f);
   unlit->MarkDirty();
 
+  const auto clearcoat_normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  clearcoat_normal_texture->SetRgbaChannelData({glm::vec4(0.8f, 0.35f, 0.9f, 1.0f)}, glm::uvec2(1));
+  const auto configure_clearcoat_normal = [&](const std::shared_ptr<Material>& material, const float scale) {
+    auto& shade = material->material_data.shade_material;
+    shade.clearcoat_factor = 1.0f;
+    shade.clearcoat_roughness = 0.12f;
+    shade.clearcoat_normal_texture_scale = scale;
+    shade.pbr_base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    shade.specular_factor = 0.0f;
+    shade.emissive_factor = glm::vec3(12.0f, 4.0f, 1.0f);
+    shade.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+    material->SetTexture(&GltfShadeMaterial::clearcoat_normal_texture, clearcoat_normal_texture);
+    material->MarkDirty();
+  };
+  auto clearcoat_normal_zero = create_probe("M8 Clearcoat Normal Scale 0 Probe", glm::vec3(-2.0f, 2.15f, -1.4f),
+                                            glm::vec3(0.64f, 0.72f, 0.9f), 0.28f, 0.0f);
+  auto clearcoat_normal_one = create_probe("M8 Clearcoat Normal Scale 1 Probe", glm::vec3(-1.6f, 2.15f, -1.4f),
+                                           glm::vec3(0.64f, 0.72f, 0.9f), 0.28f, 0.0f);
+  configure_clearcoat_normal(clearcoat_normal_zero, 0.0f);
+  configure_clearcoat_normal(clearcoat_normal_one, 1.0f);
+
+  const auto configure_coated_emitter = [](const std::shared_ptr<Material>& material, const float clearcoat) {
+    auto& shade = material->material_data.shade_material;
+    shade.pbr_base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    shade.specular_factor = 0.0f;
+    shade.emissive_factor = glm::vec3(12.0f, 4.0f, 1.0f);
+    shade.clearcoat_factor = clearcoat;
+    shade.clearcoat_roughness = 0.08f;
+    material->MarkDirty();
+  };
+  auto uncoated_emitter =
+      create_probe("M8 Uncoated Emission Probe", glm::vec3(-1.2f, 2.15f, -1.4f), glm::vec3(0.4f), 0.3f, 0.0f);
+  auto coated_emitter =
+      create_probe("M8 Coated Emission Probe", glm::vec3(-0.8f, 2.15f, -1.4f), glm::vec3(0.4f), 0.3f, 0.0f);
+  configure_coated_emitter(uncoated_emitter, 0.0f);
+  configure_coated_emitter(coated_emitter, 1.0f);
+
+  auto half_specular_iridescence = create_probe("M8 Specular 0.5 Iridescence F90 Probe", glm::vec3(-0.4f, 2.15f, -1.4f),
+                                                glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  half_specular_iridescence->material_data.shade_material.specular_factor = 0.5f;
+  half_specular_iridescence->material_data.shade_material.specular_color_factor = glm::vec3(2.0f, 1.0f, 0.5f);
+  half_specular_iridescence->material_data.shade_material.iridescence_factor = 1.0f;
+  half_specular_iridescence->material_data.shade_material.iridescence_thickness_minimum = 350.0f;
+  half_specular_iridescence->material_data.shade_material.iridescence_thickness_maximum = 350.0f;
+  half_specular_iridescence->MarkDirty();
+
+  auto half_specular_control = create_probe("M8 Specular 0.5 Iridescence Control Probe", glm::vec3(0.0f, 2.15f, -1.4f),
+                                            glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  half_specular_control->material_data.shade_material.specular_factor = 0.5f;
+  half_specular_control->material_data.shade_material.specular_color_factor = glm::vec3(2.0f, 1.0f, 0.5f);
+  half_specular_control->MarkDirty();
+
   CreateRenderingRegressionProbe(scene, root, "M3b Dispersion Backdrop Red", primitives.cube,
                                  glm::vec3(-1.3f, 1.75f, -2.2f), glm::vec3(0.06f, 0.3f, 0.04f),
                                  glm::vec3(1.0f, 0.03f, 0.03f), 0.8f, 0.0f, 4.0f, false);

@@ -21,8 +21,12 @@ float EE_GLTF_RT_COSINE_HEMISPHERE_PDF(const vec3 normal, const vec3 direction) 
          EE_GLTF_RT_MATH_PI;
 }
 
+vec3 EE_GLTF_RT_FRESNEL_SCHLICK(const float cos_theta, const vec3 f0, const vec3 f90) {
+  return f0 + (f90 - f0) * pow(max(1.0f - clamp(cos_theta, 0.0f, 1.0f), 0.0f), 5.0f);
+}
+
 vec3 EE_GLTF_RT_FRESNEL_SCHLICK(const float cos_theta, const vec3 f0) {
-  return f0 + (vec3(1.0f) - f0) * pow(max(1.0f - cos_theta, 0.0f), 5.0f);
+  return EE_GLTF_RT_FRESNEL_SCHLICK(cos_theta, f0, vec3(1.0f));
 }
 
 float EE_GLTF_RT_IOR_TO_F0(const float incident_ior, const float transmitted_ior) {

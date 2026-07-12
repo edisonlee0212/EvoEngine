@@ -31,6 +31,10 @@ void main()
 	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
 		material_index, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Color);
 	if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) discard;
+	if (EE_GLTF_MATERIALS[material_index].unlit != 0) {
+		FragColor = vec4(surface.base_color.rgb, EE_GLTF_RASTER_OPACITY(surface));
+		return;
+	}
 
 	vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL(
 		material_index, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
@@ -44,10 +48,13 @@ void main()
 	float metallic = surface.metallic;
 	vec3 F0 = surface.specular_f0;
 
-	vec3 direct = EE_FUNC_CALCULATE_LIGHTS(true, albedo.rgb, 1.0, depth, normal, viewDir, fs_in.FragPos, metallic, roughness, F0);
-	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb, normal, viewDir, metallic, roughness, F0) +
+	vec3 direct = EE_FUNC_CALCULATE_LIGHTS(true, albedo.rgb, 1.0, depth, normal, viewDir, fs_in.FragPos, metallic, roughness, F0, surface.specular_f90);
+	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb, normal, viewDir, metallic, roughness, F0, surface.specular_f90) +
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fs_in.FragPos);
-	vec3 outputColor = direct + surface.emissive + ambient * surface.occlusion;
+	vec3 outputColor = direct + EE_GLTF_RASTER_COATED_EMISSION(
+	                                material_index, surface, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Normal,
+	                                fs_in.Tangent, fs_in.TangentHandedness, facing_sign, viewDir) +
+	                   ambient * surface.occlusion;
 
 	FragColor = vec4(outputColor, EE_GLTF_RASTER_OPACITY(surface));
 }
