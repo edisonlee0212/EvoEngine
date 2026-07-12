@@ -97,11 +97,29 @@ void GpuTimestampStats::AddSample(const double milliseconds) {
     minimum_milliseconds = std::min(minimum_milliseconds, milliseconds);
     maximum_milliseconds = std::max(maximum_milliseconds, milliseconds);
   }
+  samples_milliseconds.emplace_back(milliseconds);
   ++sample_count;
 }
 
 double GpuTimestampStats::AverageMilliseconds() const {
   return sample_count == 0 ? 0.0 : total_milliseconds / static_cast<double>(sample_count);
+}
+
+double GpuTimestampStats::MedianMilliseconds() const {
+  return PercentileMilliseconds(0.5);
+}
+
+double GpuTimestampStats::PercentileMilliseconds(const double percentile) const {
+  if (samples_milliseconds.empty()) {
+    return 0.0;
+  }
+  auto sorted_samples = samples_milliseconds;
+  std::sort(sorted_samples.begin(), sorted_samples.end());
+  const auto rank = std::clamp(percentile, 0.0, 1.0) * static_cast<double>(sorted_samples.size() - 1);
+  const auto lower = static_cast<size_t>(std::floor(rank));
+  const auto upper = static_cast<size_t>(std::ceil(rank));
+  const auto weight = rank - static_cast<double>(lower);
+  return sorted_samples[lower] * (1.0 - weight) + sorted_samples[upper] * weight;
 }
 
 const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket bucket) {
@@ -785,6 +803,10 @@ void Platform::ResetGpuTimestampStats() {
     const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
     graphics.gpu_timestamp_stats_.clear();
   }
+  {
+    const std::scoped_lock stats_lock(graphics.cpu_timing_stats_mutex_);
+    graphics.cpu_timing_stats_.clear();
+  }
   for (uint32_t frame_index = 0; frame_index < graphics.gpu_timestamp_frames_.size(); ++frame_index) {
     graphics.PrepareGpuTimestampFrame(frame_index);
   }
@@ -803,6 +825,51 @@ std::vector<GpuTimestampStats> Platform::GetGpuTimestampStats() {
   std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
     return left.name < right.name;
   });
+  return result;
+}
+
+std::vector<GpuTimestampStats> Platform::GetCpuTimingStats() {
+  auto& graphics = GetInstance();
+  std::vector<GpuTimestampStats> result;
+  {
+    const std::scoped_lock stats_lock(graphics.cpu_timing_stats_mutex_);
+    result.reserve(graphics.cpu_timing_stats_.size());
+    for (const auto& [name, stats] : graphics.cpu_timing_stats_) {
+      result.emplace_back(stats);
+    }
+  }
+  std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+    return left.name < right.name;
+  });
+  return result;
+}
+
+GpuMemorySnapshot Platform::GetGpuMemorySnapshot() {
+  auto& graphics = GetInstance();
+  GpuMemorySnapshot result;
+  if (graphics.vma_allocator_ == VK_NULL_HANDLE || !graphics.selected_physical_device) {
+    return result;
+  }
+  VmaTotalStatistics statistics{};
+  vmaCalculateStatistics(graphics.vma_allocator_, &statistics);
+  std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+  vmaGetHeapBudgets(graphics.vma_allocator_, budgets.data());
+  const auto& memory_properties = graphics.selected_physical_device->vk_physical_device_memory_properties;
+  const auto& total = statistics.total.statistics;
+  result.block_count = total.blockCount;
+  result.allocation_count = total.allocationCount;
+  result.block_bytes = total.blockBytes;
+  result.allocation_bytes = total.allocationBytes;
+  result.heaps.reserve(memory_properties.memoryHeapCount);
+  for (uint32_t heap_index = 0; heap_index < memory_properties.memoryHeapCount; ++heap_index) {
+    const auto& heap = memory_properties.memoryHeaps[heap_index];
+    const auto& heap_statistics = statistics.memoryHeap[heap_index].statistics;
+    const auto& budget = budgets[heap_index];
+    result.heaps.emplace_back(GpuMemoryHeapStats{heap_index, (heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0,
+                                                 heap.size, heap_statistics.blockCount, heap_statistics.allocationCount,
+                                                 heap_statistics.blockBytes, heap_statistics.allocationBytes,
+                                                 budget.usage, budget.budget});
+  }
   return result;
 }
 
@@ -1897,6 +1964,10 @@ void Platform::DestroyGpuTimestampResources() {
     const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
     gpu_timestamp_stats_.clear();
   }
+  {
+    const std::scoped_lock stats_lock(cpu_timing_stats_mutex_);
+    cpu_timing_stats_.clear();
+  }
 }
 
 void Platform::PrepareGpuTimestampFrame(const uint32_t frame_index) {
@@ -1937,6 +2008,13 @@ void Platform::ResolveGpuTimestampFrame(const uint32_t frame_index) {
 void Platform::AccumulateGpuTimestamp(const std::string& name, const double milliseconds) {
   const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
   auto& stats = gpu_timestamp_stats_[name];
+  stats.name = name;
+  stats.AddSample(milliseconds);
+}
+
+void Platform::AccumulateCpuTiming(const std::string& name, const double milliseconds) {
+  const std::scoped_lock stats_lock(cpu_timing_stats_mutex_);
+  auto& stats = cpu_timing_stats_[name];
   stats.name = name;
   stats.AddSample(milliseconds);
 }
@@ -2426,6 +2504,7 @@ void Platform::LateUpdate() {
     signal_semaphores.emplace_back(graphics.render_finished_semaphores_[graphics.next_image_index_]);
   }
   const auto submitted_frame_index = graphics.current_frame_index_;
+  const auto queue_submit_start = std::chrono::steady_clock::now();
   if (graphics.compute_queue_ && graphics.used_compute_command_buffer_size_ > 0) {
     const auto& compute_command_buffers = graphics.compute_command_buffer_pool_[submitted_frame_index];
     std::vector<std::shared_ptr<CommandBuffer>> submitted_compute_command_buffers(
@@ -2438,6 +2517,11 @@ void Platform::LateUpdate() {
   graphics.main_queue_->Submit(graphics.command_buffer_pool_[submitted_frame_index], 0,
                                graphics.used_command_buffer_size_, wait_semaphores, signal_semaphores,
                                graphics.in_flight_fences_[submitted_frame_index]);
+  if (graphics.gpu_timestamp_capture_enabled_) {
+    graphics.AccumulateCpuTiming(
+        "Queue Submit",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - queue_submit_start).count());
+  }
   if (window_layer) {
     std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
     targets.emplace_back(graphics.swapchain_, graphics.next_image_index_);
@@ -2446,7 +2530,13 @@ void Platform::LateUpdate() {
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
 
   const VkFence in_flight_fences[] = {graphics.in_flight_fences_[submitted_frame_index]->GetVkFence()};
+  const auto fence_wait_start = std::chrono::steady_clock::now();
   CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
+  if (graphics.gpu_timestamp_capture_enabled_) {
+    graphics.AccumulateCpuTiming(
+        "Submitted Frame Fence Wait",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - fence_wait_start).count());
+  }
   ResolveFrameSubmissionStates(graphics.frame_submission_states_[submitted_frame_index],
                                FrameSubmissionState::Status::Submitted);
   graphics.ResolveGpuTimestampFrame(submitted_frame_index);

@@ -46,6 +46,7 @@ struct EditorCommandLine {
   int preview_capture_width = 1280;
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
+  size_t preview_capture_timing_warmup_frames = 0;
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<bool> preview_capture_firefly_clamp_enabled;
@@ -340,6 +341,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-warmup-frames requires a non-negative integer.");
       }
       command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
+    } else if (argument == "--preview-timing-warmup-frames") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-timing-warmup-frames requires a non-negative integer.");
+      }
+      command_line.preview_capture_timing_warmup_frames =
+          static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
     } else if (argument == "--preview-render-mode") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-render-mode requires rasterization, raytracing, or rayquery.");
@@ -523,6 +530,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     });
     if (extension != ".png" && extension != ".hdr") {
       throw std::invalid_argument("--capture-demo-preview output must use .png or .hdr.");
+    }
+    if (command_line.preview_capture_warmup_frames != 0 &&
+        command_line.preview_capture_timing_warmup_frames >= command_line.preview_capture_warmup_frames) {
+      throw std::invalid_argument("--preview-timing-warmup-frames must be smaller than --preview-warmup-frames.");
     }
   }
   if (command_line.preview_capture_camera_position.has_value() !=
@@ -918,9 +929,71 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
   }
 }
 
+nlohmann::ordered_json TimingStatsJson(const std::vector<GpuTimestampStats>& timing_stats) {
+  auto result = nlohmann::ordered_json::array();
+  for (const auto& stats : timing_stats) {
+    result.push_back({{"name", stats.name},
+                      {"last_ms", stats.last_milliseconds},
+                      {"average_ms", stats.AverageMilliseconds()},
+                      {"median_ms", stats.MedianMilliseconds()},
+                      {"p95_ms", stats.PercentileMilliseconds(0.95)},
+                      {"minimum_ms", stats.minimum_milliseconds},
+                      {"maximum_ms", stats.maximum_milliseconds},
+                      {"total_ms", stats.total_milliseconds},
+                      {"sample_count", stats.sample_count}});
+  }
+  return result;
+}
+
+GpuMemorySnapshot MaxGpuMemorySnapshot(const GpuMemorySnapshot& left, const GpuMemorySnapshot& right) {
+  auto result = left;
+  result.block_count = std::max(left.block_count, right.block_count);
+  result.allocation_count = std::max(left.allocation_count, right.allocation_count);
+  result.block_bytes = std::max(left.block_bytes, right.block_bytes);
+  result.allocation_bytes = std::max(left.allocation_bytes, right.allocation_bytes);
+  if (result.heaps.size() < right.heaps.size()) {
+    result.heaps.resize(right.heaps.size());
+  }
+  for (size_t heap_index = 0; heap_index < right.heaps.size(); ++heap_index) {
+    auto& target = result.heaps[heap_index];
+    const auto& source = right.heaps[heap_index];
+    target.heap_index = source.heap_index;
+    target.device_local = source.device_local;
+    target.heap_size_bytes = source.heap_size_bytes;
+    target.block_count = std::max(target.block_count, source.block_count);
+    target.allocation_count = std::max(target.allocation_count, source.allocation_count);
+    target.block_bytes = std::max(target.block_bytes, source.block_bytes);
+    target.allocation_bytes = std::max(target.allocation_bytes, source.allocation_bytes);
+    target.driver_usage_bytes = std::max(target.driver_usage_bytes, source.driver_usage_bytes);
+    target.driver_budget_bytes = source.driver_budget_bytes;
+  }
+  return result;
+}
+
+nlohmann::ordered_json GpuMemorySnapshotJson(const GpuMemorySnapshot& snapshot) {
+  nlohmann::ordered_json heaps = nlohmann::ordered_json::array();
+  for (const auto& heap : snapshot.heaps) {
+    heaps.push_back({{"heap_index", heap.heap_index},
+                     {"category", heap.device_local ? "device_local" : "host"},
+                     {"heap_size_bytes", heap.heap_size_bytes},
+                     {"block_count", heap.block_count},
+                     {"allocation_count", heap.allocation_count},
+                     {"block_bytes", heap.block_bytes},
+                     {"allocation_bytes", heap.allocation_bytes},
+                     {"driver_usage_bytes", heap.driver_usage_bytes},
+                     {"driver_budget_bytes", heap.driver_budget_bytes}});
+  }
+  return {{"block_count", snapshot.block_count},
+          {"allocation_count", snapshot.allocation_count},
+          {"block_bytes", snapshot.block_bytes},
+          {"allocation_bytes", snapshot.allocation_bytes},
+          {"heaps", std::move(heaps)}};
+}
+
 void CaptureDemoPreview(
     const std::filesystem::path& output_path, const std::optional<std::filesystem::path>& metrics_path, const int width,
-    const int height, const size_t warmup_frames, const std::optional<DemoProfileId> demo_profile_id,
+    const int height, const size_t warmup_frames, const size_t timing_warmup_frames,
+    const std::optional<DemoProfileId> demo_profile_id,
     const std::optional<Camera::CameraRenderMode>& preview_render_mode,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<bool>& preview_firefly_clamp_enabled,
@@ -1190,8 +1263,13 @@ void CaptureDemoPreview(
   }
   scene_camera->ResetFrameCount();
   const auto startup_gpu_timestamp_stats = Platform::GetGpuTimestampStats();
+  const auto startup_cpu_timing_stats = Platform::GetCpuTimingStats();
+  const auto startup_gpu_memory = Platform::GetGpuMemorySnapshot();
+  auto peak_gpu_memory = startup_gpu_memory;
+  auto final_gpu_memory = startup_gpu_memory;
+  double memory_telemetry_seconds = 0.0;
   Platform::SetGpuTimestampCaptureEnabled(true);
-  const auto capture_start_time = std::chrono::steady_clock::now();
+  auto measurement_start_time = std::chrono::steady_clock::now();
   const bool temporal_motion_capture =
       demo_profile_id == DemoProfileId::RenderingRegression && preview_anti_aliasing_motion_sequence.value_or(false);
   const bool wait_for_ray_accumulation =
@@ -1204,22 +1282,36 @@ void CaptureDemoPreview(
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
+    const auto memory_telemetry_start = std::chrono::steady_clock::now();
+    final_gpu_memory = Platform::GetGpuMemorySnapshot();
+    peak_gpu_memory = MaxGpuMemorySnapshot(peak_gpu_memory, final_gpu_memory);
+    memory_telemetry_seconds +=
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - memory_telemetry_start).count();
     ++capture_frame_count;
+    if (capture_frame_count == std::min(timing_warmup_frames, warmup_frames)) {
+      Platform::ResetGpuTimestampStats();
+      memory_telemetry_seconds = 0.0;
+      measurement_start_time = std::chrono::steady_clock::now();
+    }
     if (capture_frame_count >= max_capture_frames) {
       throw std::runtime_error(wait_for_ray_accumulation
                                    ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
                                    : "Demo preview capture timed out.");
     }
   }
+  const auto effective_timing_warmup_frames = std::min(timing_warmup_frames, capture_frame_count);
+  const auto measured_frame_count = capture_frame_count - effective_timing_warmup_frames;
   const auto capture_elapsed_seconds =
-      std::chrono::duration<double>(std::chrono::steady_clock::now() - capture_start_time).count();
+      std::max(0.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - measurement_start_time).count() -
+                        memory_telemetry_seconds);
   const auto capture_frames_per_second =
-      capture_elapsed_seconds > 0.0 ? static_cast<double>(capture_frame_count) / capture_elapsed_seconds : 0.0;
+      capture_elapsed_seconds > 0.0 ? static_cast<double>(measured_frame_count) / capture_elapsed_seconds : 0.0;
   std::cout << "Demo preview capture timing: output=\"" << output_path.string()
             << "\" render_mode=" << Camera::GetCameraRenderModeName(resolved_render_mode) << " ser_mode="
             << Camera::GetShaderExecutionReorderingModeName(
                    scene_camera->camera_settings.shader_execution_reordering_mode)
-            << " warmup_frames=" << warmup_frames << " rendered_frames=" << capture_frame_count
+            << " requested_frames=" << warmup_frames << " timing_warmup_frames=" << effective_timing_warmup_frames
+            << " measured_frames=" << measured_frame_count << " rendered_frames=" << capture_frame_count
             << " camera_frames=" << scene_camera->GetFrameCount() << " elapsed_seconds=" << capture_elapsed_seconds
             << " frames_per_second=" << capture_frames_per_second << std::endl;
   const auto render_texture = scene_camera->GetRenderTexture();
@@ -1238,7 +1330,7 @@ void CaptureDemoPreview(
   }
 
   nlohmann::ordered_json metrics;
-  metrics["schema"] = 1;
+  metrics["schema"] = 2;
   metrics["type"] = "evoengine_ray_capture";
   metrics["renderer"] = "EvoEngine";
   metrics["demo_profile"] = demo_profile_id ? GetDemoProfileIdName(*demo_profile_id) : "";
@@ -1248,12 +1340,16 @@ void CaptureDemoPreview(
   metrics["width"] = width;
   metrics["height"] = height;
   metrics["requested_frames"] = warmup_frames;
+  metrics["timing_warmup_frames"] = effective_timing_warmup_frames;
+  metrics["measured_frames"] = measured_frame_count;
   metrics["rendered_frames"] = capture_frame_count;
   metrics["camera_frames"] = scene_camera->GetFrameCount();
   metrics["samples_per_frame"] = scene_camera->camera_settings.sample_size;
   const uint64_t effective_spp =
       static_cast<uint64_t>(scene_camera->GetFrameCount()) * scene_camera->camera_settings.sample_size;
   metrics["effective_spp"] = effective_spp;
+  const uint64_t measured_spp = static_cast<uint64_t>(measured_frame_count) * scene_camera->camera_settings.sample_size;
+  metrics["measured_spp"] = measured_spp;
   metrics["bounce_depth"] = scene_camera->camera_settings.bounce;
   metrics["firefly_clamp_enabled"] = scene_camera->camera_settings.firefly_clamp_enabled;
   metrics["firefly_clamp_threshold"] = scene_camera->camera_settings.firefly_clamp_threshold;
@@ -1268,6 +1364,11 @@ void CaptureDemoPreview(
     metrics["camera_look_at_override"] = {preview_camera_look_at->x, preview_camera_look_at->y,
                                           preview_camera_look_at->z};
   }
+  const auto camera_position = editor_layer->GetSceneCameraPosition();
+  const auto camera_front = editor_layer->GetSceneCameraRotation() * glm::vec3(0.0f, 0.0f, -1.0f);
+  const auto camera_look_at = camera_position + camera_front;
+  metrics["camera_position"] = {camera_position.x, camera_position.y, camera_position.z};
+  metrics["camera_look_at"] = {camera_look_at.x, camera_look_at.y, camera_look_at.z};
   metrics["ser_mode_requested"] =
       Camera::GetShaderExecutionReorderingModeName(scene_camera->camera_settings.shader_execution_reordering_mode);
   metrics["ser_supported"] = Platform::GetInstance().GetCapabilities().support_shader_execution_reordering;
@@ -1279,6 +1380,8 @@ void CaptureDemoPreview(
                              {"ray_tracing_pipeline", capabilities.support_ray_tracing},
                              {"ray_query", capabilities.support_ray_query},
                              {"shader_execution_reordering", capabilities.support_shader_execution_reordering}};
+  metrics["query_only"] =
+      resolved_render_mode == Camera::CameraRenderMode::RayQuery && !capabilities.support_ray_tracing;
   metrics["ray_shader_variant"] = nullptr;
   if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
@@ -1302,6 +1405,9 @@ void CaptureDemoPreview(
         {"activation_count", variant.activation_count},
         {"accumulation_reset_count", variant.accumulation_reset_count},
         {"fallback_frame_count", variant.fallback_frame_count},
+        {"build_ms", variant.build_milliseconds},
+        {"request_to_ready_ms", variant.request_to_ready_milliseconds},
+        {"fallback_build_ms", variant.fallback_build_milliseconds},
         {"shader_cache",
          {{"memory_hits", variant.shader_cache.memory_hits},
           {"disk_hits", variant.shader_cache.disk_hits},
@@ -1313,9 +1419,10 @@ void CaptureDemoPreview(
   }
   metrics["deterministic"] = deterministic_capture;
   metrics["accumulation_wall_seconds"] = capture_elapsed_seconds;
+  metrics["memory_telemetry_seconds_excluded"] = memory_telemetry_seconds;
   metrics["frames_per_second"] = capture_frames_per_second;
   const auto effective_samples =
-      static_cast<double>(width) * static_cast<double>(height) * static_cast<double>(effective_spp);
+      static_cast<double>(width) * static_cast<double>(height) * static_cast<double>(measured_spp);
   metrics["wall_throughput_msamples_per_second"] =
       capture_elapsed_seconds > 0.0 ? effective_samples / capture_elapsed_seconds / 1.0e6 : 0.0;
   metrics["gpu_timestamps_available"] = Platform::GpuTimestampCaptureAvailable();
@@ -1325,24 +1432,14 @@ void CaptureDemoPreview(
                     {"device_id", physical_device.deviceID},
                     {"driver_version", physical_device.driverVersion},
                     {"api_version", physical_device.apiVersion}};
-  metrics["startup_gpu_sections"] = nlohmann::ordered_json::array();
-  for (const auto& stats : startup_gpu_timestamp_stats) {
-    metrics["startup_gpu_sections"].push_back({{"name", stats.name},
-                                               {"last_ms", stats.last_milliseconds},
-                                               {"average_ms", stats.AverageMilliseconds()},
-                                               {"minimum_ms", stats.minimum_milliseconds},
-                                               {"maximum_ms", stats.maximum_milliseconds},
-                                               {"sample_count", stats.sample_count}});
-  }
-  metrics["gpu_sections"] = nlohmann::ordered_json::array();
-  for (const auto& stats : Platform::GetGpuTimestampStats()) {
-    metrics["gpu_sections"].push_back({{"name", stats.name},
-                                       {"last_ms", stats.last_milliseconds},
-                                       {"average_ms", stats.AverageMilliseconds()},
-                                       {"minimum_ms", stats.minimum_milliseconds},
-                                       {"maximum_ms", stats.maximum_milliseconds},
-                                       {"sample_count", stats.sample_count}});
-  }
+  metrics["startup_gpu_sections"] = TimingStatsJson(startup_gpu_timestamp_stats);
+  metrics["gpu_sections"] = TimingStatsJson(Platform::GetGpuTimestampStats());
+  metrics["startup_cpu_sections"] = TimingStatsJson(startup_cpu_timing_stats);
+  metrics["cpu_sections"] = TimingStatsJson(Platform::GetCpuTimingStats());
+  metrics["gpu_memory"] = {{"scope", "startup-ready plus capture-window samples; pre-ready transient peaks excluded"},
+                           {"startup_ready", GpuMemorySnapshotJson(startup_gpu_memory)},
+                           {"peak", GpuMemorySnapshotJson(peak_gpu_memory)},
+                           {"final", GpuMemorySnapshotJson(final_gpu_memory)}};
   std::cout << "RAY_CAPTURE_JSON " << metrics.dump() << std::endl;
   if (metrics_path) {
     if (const auto parent_path = metrics_path->parent_path(); !parent_path.empty()) {
@@ -1391,9 +1488,10 @@ int main(const int argc, char** argv) {
           CaptureDemoPreview(
               *command_line.demo_preview_capture_path, command_line.preview_capture_metrics_path,
               command_line.preview_capture_width, command_line.preview_capture_height,
-              command_line.preview_capture_warmup_frames, command_line.demo_profile_id,
-              command_line.preview_capture_render_mode, command_line.preview_capture_ser_mode,
-              command_line.preview_capture_firefly_clamp_enabled, command_line.preview_capture_firefly_clamp_threshold,
+              command_line.preview_capture_warmup_frames, command_line.preview_capture_timing_warmup_frames,
+              command_line.demo_profile_id, command_line.preview_capture_render_mode,
+              command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_enabled,
+              command_line.preview_capture_firefly_clamp_threshold,
               command_line.preview_capture_emissive_triangle_nee_enabled,
               command_line.preview_force_full_ray_shader_variant, command_line.preview_capture_auto_spp_enabled,
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,

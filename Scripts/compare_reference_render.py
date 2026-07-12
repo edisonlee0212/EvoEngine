@@ -330,6 +330,7 @@ def compare_hdr_images(reference: HdrImage, candidate: HdrImage) -> dict[str, ob
     channel_max = [0.0, 0.0, 0.0]
     relative_sum = 0.0
     relative_square_sum = 0.0
+    reference_square_sum = 0.0
     mismatch_count = 0
     for index, (reference_value, candidate_value) in enumerate(zip(reference.rgb, candidate.rgb)):
         channel = index % 3
@@ -341,6 +342,7 @@ def compare_hdr_images(reference: HdrImage, candidate: HdrImage) -> dict[str, ob
         relative = 2.0 * difference / denominator
         relative_sum += relative
         relative_square_sum += relative * relative
+        reference_square_sum += reference_value * reference_value
         mismatch_count += difference != 0.0
     pixels = reference.width * reference.height
     total_diff_sum = sum(channel_diff_sum)
@@ -358,6 +360,8 @@ def compare_hdr_images(reference: HdrImage, candidate: HdrImage) -> dict[str, ob
             "mean_abs_error_per_channel": [value / pixels for value in channel_diff_sum],
             "rms_error": math.sqrt(total_diff_square_sum / value_count),
             "rms_error_per_channel": [math.sqrt(value / pixels) for value in channel_diff_square_sum],
+            "reference_rms": math.sqrt(reference_square_sum / value_count),
+            "relative_l2_error": math.sqrt(total_diff_square_sum / max(reference_square_sum, 1.0e-20)),
             "mean_symmetric_relative_error": relative_sum / value_count,
             "rms_symmetric_relative_error": math.sqrt(relative_square_sum / value_count),
         }
@@ -482,7 +486,12 @@ def run_self_test() -> int:
     if uncompressed.width != 2 or list(uncompressed.rgb) != [1.0, 0.5, 0.25, 0.5, 1.0, 2.0]:
         print("Self-test failed: uncompressed HDR decoding was incorrect", file=sys.stderr)
         return 1
-    if hdr_exact["exact_match"] is not True or hdr_changed["exact_match"] is not False:
+    if (
+        hdr_exact["exact_match"] is not True
+        or hdr_exact["relative_l2_error"] != 0.0
+        or hdr_changed["exact_match"] is not False
+        or hdr_changed["relative_l2_error"] <= 0.0
+    ):
         print("Self-test failed: HDR comparison metrics were incorrect", file=sys.stderr)
         return 1
     print("Self-test passed")

@@ -416,6 +416,108 @@ Vulkan 1.3/SPIR-V 1.4 targets, and compile options. Entries carry validated meta
 same-directory temporary file plus rename, treat truncated/corrupt data as a miss, and coalesce identical in-process
 requests. `EVOENGINE_SHADER_CACHE_DIR` still selects the cache root; legacy decimal YAML entries are ignored.
 
+### M6 Four-Capture Evo Benchmark
+
+M6 adds `Scripts/reference_patches/vk_gltf_renderer_m6.patch` on top of the M0 reference instrumentation. That patch
+recorded benchmark-only SER state, isolated Vulkan pipeline-cache evidence, GPU and host-render timing, active shader
+features, pipeline/frontend build latency, acceleration-structure counts, and categorized memory without enabling
+denoising, upscaling, or Physical Sky. The pinned reference completed and excluded one warmup submission before its
+measurement window. Its BLAS telemetry distinguishes original, compacted, simultaneous-live, and peak allocation bytes.
+
+The approved M6 plan does not rebuild or rerun the reference. Two earlier specialized cold captures are copied read-only
+to `out/raytracer-m6-reference-baseline`: RTX repetition 4 and RayQuery repetition 3, both at the fixed Bistro overview
+camera, 1280x720, and 512 requested SPP. `Scripts/raytracer_m6_suite.json` pins their provenance, record, HDR, and log
+hashes plus the complete reference/Evo camera mapping. The runner rejects a missing or changed archive or camera, stale
+absolute paths inside the moved records are never trusted, and the archived records remain on their original evidence
+fingerprint. Reapplying the M6 patch and rebuilding the reference is an archival-reproduction step only:
+
+```bat
+git -C out\reference\vk_gltf_renderer apply C:\Users\lllll\Documents\GitHub\EvoEngine\Scripts\reference_patches\vk_gltf_renderer_m6.patch
+cmake --build out\reference\vk_gltf_renderer\build-m0 --config RelWithDebInfo --target vk_gltf_renderer
+```
+
+There are exactly four new captures. The automated benchmark contains three fresh EvoEngine captures: RTX, RayQuery, and
+forced query-only RayQuery, each using the fixed Bistro overview camera at 1280x720, 512 requested SPP, specialized/auto
+shaders, SER disabled, and isolated cold runtime/cache state. After the M6 commit, the normal 2560x1440 2048-SPP Bistro PNG
+is the fourth capture and remains a delivery artifact outside the automated benchmark plan. No fresh reference, warm-cache,
+pilot, truth, EvoEngine-only, canonical, material, or motion/AS benchmark capture is hidden in the plan.
+
+The compact report is descriptive, not statistically repeated. Fresh EvoEngine rows contain wall throughput,
+capture-frame GPU median/p95, CPU queue-submit timing, shader build latency and source, active features,
+acceleration-structure work, and categorized memory. Separate historical-reference rows preserve the archived timing,
+cache, AS, and memory context. Image comparisons cover frozen-reference RTX versus fresh EvoEngine RTX,
+frozen-reference RayQuery versus fresh EvoEngine RayQuery, fresh EvoEngine RTX versus RayQuery, normal versus forced
+query-only RayQuery, and frozen-reference RTX versus RayQuery. Do not infer time-to-quality, cross-run p95,
+variance-adjusted targets, same-session speedups, or binding acceptance targets from the archived reference timing.
+
+The four-capture delivery plan has no warm pairs. Every fresh EvoEngine process still receives an isolated shader cache and
+ImGui state, must report the expected cold compile source and artifact, and passes strict project-reset, log, and artifact
+integrity gates. The stopped 877-record expanded run remains exploratory cache-pair evidence under
+`out/raytracer-m6-expanded-partial-877`; it is not rewritten or represented as the final M6 plan.
+
+```bat
+python Scripts\run_raytracer_m6.py --phase self-test
+python Scripts\run_raytracer_m6.py --phase plan
+python Scripts\run_raytracer_m6.py --phase all
+```
+
+Compact mode may run `measure` and `analyze` separately. `--resume` applies only to complete fresh EvoEngine records whose
+image, log, metrics, specification, cache artifact, project-reset evidence, and current provenance still validate; it never
+imports an archived reference as a fresh measurement. Each Evo Bistro process records its post-run generated project
+state, resets it, and requires the reset to be byte-identical to the prepared pre-run state. The runner verifies the
+frozen-reference archive, pinned assets, optimized EvoEngine build metadata, installed binary/DLL closure, generated camera
+assets, and per-run telemetry before it writes `runs.csv`, `historical-reference-runs.csv`, `image-comparisons.json`, and
+`report.json` under `out/raytracer-m6`.
+The exact runner, suite, and comparator used for the three captures are preserved under
+`out/raytracer-m6/harness-snapshot` with hashes matching `provenance.json`. Two post-capture runner corrections strengthen
+resume validation for expanded warm-cache and optional `--skip-evo-prepare` records; neither branch is reachable from the
+frozen cold compact plan. The captured root remains tied to its preserved harness snapshot instead of being relabeled or
+rerun as fresh evidence.
+
+EvoEngine's reported memory peak is explicitly limited to startup-ready and capture-window samples; it excludes pre-ready
+transient allocation peaks and therefore cannot by itself define M12's transient startup-memory target. Pinned-reference
+timing is a historical archived observation, not a concurrent measurement. Reports retain its original revision,
+instrumentation, hardware/driver, timing source, and sample count, and exclude it from matched speedup ratios or target
+acceptance.
+
+#### M6 Baseline and Approval-Pending Targets
+
+The fresh one-run M6 slice on the NVIDIA GPU/driver recorded in `report.json` produced the following current EvoEngine
+baseline. These are descriptive observations, not estimates of run-to-run variance:
+
+| Lane | Accumulation wall | Wall throughput | Path GPU median | Queue-submit median | Startup BLAS GPU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| RTX, SER off | 10.4163 s | 44.946 Msample/s | 66.085 ms | 0.1322 ms | 399.757 ms / 2,909 builds |
+| RayQuery | 9.7394 s | 48.070 Msample/s | 62.986 ms | 0.1187 ms | 400.764 ms / 2,909 builds |
+| forced query-only | 9.7549 s | 47.994 Msample/s | 61.933 ms | 0.1297 ms | 401.202 ms / 2,909 builds |
+
+All three lanes recorded two startup TLAS builds totaling about `0.366-0.368 ms`, zero capture-window BLAS/TLAS work,
+and final device-local VMA allocation of about `6.086e9` bytes (`5.668 GiB`). RayQuery and forced query-only were
+bit-exact. RTX versus RayQuery relative L2 was `0.008947`. The following targets remain proposals until explicitly
+approved:
+
+- M11, with SER disabled: RTX must reach at least `49.5 Msample/s`, at most `60.0 ms` GPU median, and at most `9.50 s`
+  accumulation wall time. RayQuery must reach at least `53.0 Msample/s`, at most `57.5 ms` GPU median, and at most
+  `8.90 s` wall time. Both queue-submit medians must remain at or below `0.15 ms`; forced query-only must remain bit-exact
+  to RayQuery and reach at least `45.0 Msample/s`; RTX-versus-RayQuery relative L2 must remain at or below `0.010`.
+- M12: preserve exactly zero capture-window AS work; keep raw startup BLAS-build GPU total at or below `425 ms` while
+  adding compaction; honor the fixed 512 MiB scheduling hint except for one oversized singleton; keep aggregate compacted
+  bytes for eligible static BLASes at or below 75% of those same BLASes' aggregate uncompacted bytes; and reduce final
+  device-local allocation on this exact slice to at most `6.00e9` bytes. M6 did not observe pre-ready transient peaks or
+  EvoEngine scratch/compaction categories, so it cannot define binding transient-peak, scratch-peak, pass-count, or
+  compaction-inclusive startup-wall targets; M12 must add that telemetry before evaluating them.
+- M13: the fresh M6 binding gate is exact zero static capture-window BLAS/TLAS builds and updates. The interrupted expanded
+  run's unchanged 64-SPP `motion-as` probe is exploratory only: its complete specialized/cold records observed 30 BLAS
+  updates, 15 TLAS updates, zero builds, `2.853-3.066 ms` BLAS total, `0.326-0.562 ms` TLAS total, and wall ranges of
+  `0.405-0.420 s` RTX, `0.346-0.354 s` RayQuery, and `0.342-0.347 s` query-only. Before M13 changes, refresh that probe;
+  proposed regression ceilings are zero builds, the expected 30/15 updates, `3.20 ms` BLAS total, `0.60 ms` TLAS total,
+  `0.45 s` RTX wall, and `0.38 s` RayQuery/query-only wall. Morph and large-instance paths require their own fresh baselines.
+- M16: each lane's queue-submit median must be at most `0.10 ms`; normalized non-path wall overhead,
+  `(accumulation_wall_ms - measured_path_gpu_total_ms) / 127`, must be at most `12.5 ms/frame`; new wait-reason telemetry
+  must report zero redundant or just-submitted-frame waits; and path GPU median must not regress by more than 5% from the
+  approved post-M11 slice. The existing generic fence-wait duration follows GPU completion and is not an independent
+  acceptance target.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

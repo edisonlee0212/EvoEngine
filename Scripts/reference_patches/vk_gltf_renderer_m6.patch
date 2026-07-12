@@ -1,0 +1,1008 @@
+diff --git a/src/benchmarking.cpp b/src/benchmarking.cpp
+index f741387b0296725d26d2aeefb04d8b2445fa1e65..ef14edd26c5fac17fe29f8f57ea925aa8ee02349 100644
+--- a/src/benchmarking.cpp
++++ b/src/benchmarking.cpp
+@@ -47,7 +47,7 @@ using json = nlohmann::json;
+ // compatible if the payload evolves.
+ void emitJsonLine(json record)
+ {
+-  record["schema"] = 1;
++  record["schema"] = 2;
+   std::cout << "BENCHMARK_JSON " << record.dump() << std::endl;
+ }
+ 
+@@ -192,6 +192,24 @@ void BenchmarkController::beginHeadlessTimingIfNeeded(bool isHeadless, const Hea
+   emitJsonLine({{"type", "headless_start"}, {"frames", info.totalFrames}, {"maxFrames", info.maxFrames}, {"ptSamples", info.ptSamples}});
+ }
+ 
++//--------------------------------------------------------------------------------------------------
++// Start the measured window only after the renderer has waited for the excluded warmup submission.
++bool BenchmarkController::needsHeadlessMeasuredBoundary() const
++{
++  return m_headlessTimingActive && !m_headlessMeasuredTimingActive && m_headlessFramesDone >= kHeadlessWarmupFrames;
++}
++
++void BenchmarkController::beginHeadlessMeasuredTiming()
++{
++  if(!needsHeadlessMeasuredBoundary())
++  {
++    return;
++  }
++  m_headlessMeasuredTimer.reset();
++  m_headlessMeasuredTimingActive = true;
++  m_headlessMeasuredStartFrame   = m_headlessFramesDone;
++}
++
+ //--------------------------------------------------------------------------------------------------
+ // Called once per rendered frame during a headless run. Emits a progress
+ // record only on selected frames to avoid drowning the log: the first frame,
+@@ -210,13 +228,6 @@ void BenchmarkController::updateHeadlessProgressIfNeeded(const HeadlessFrameInfo
+   const bool   onTime      = (elapsedMs - m_headlessLastProgressLogMs) >= kHeadlessLogMinIntervalMs;
+   const bool   firstOrLast = m_headlessFramesDone == 1 || m_headlessFramesDone >= info.totalFrames;
+ 
+-  if(!m_headlessMeasuredTimingActive && m_headlessFramesDone >= kHeadlessWarmupFrames)
+-  {
+-    m_headlessMeasuredTimer.reset();
+-    m_headlessMeasuredTimingActive = true;
+-    m_headlessMeasuredStartFrame   = m_headlessFramesDone;
+-  }
+-
+   if(!firstOrLast && !onInterval && !onTime)
+   {
+     return;
+@@ -299,6 +310,28 @@ void BenchmarkController::logHeadlessSummary(const HeadlessFrameInfo& info)
+                   {"render_technique", info.renderTechnique},
+                   {"ser_supported", info.serSupported},
+                   {"ser_enabled", info.serEnabled},
++                  {"ser_requested", info.serRequested},
++                  {"optimal_shader", info.optimalShader},
++                  {"compiled_optimal", info.compiledOptimal},
++                  {"active_features", info.activeFeatures},
++                  {"scene_features", info.sceneFeatures},
++                  {"compiled_features", info.compiledFeatures},
++                  {"compiled_feature_mode", info.compiledFeatureMode},
++                  {"frontend_source", info.frontendSource},
++                  {"frontend_compile_ms", roundTo(info.frontendCompileMs, 1000.0)},
++                  {"variant_cache_hit", info.variantCacheHit},
++                  {"pipeline_cache_path", info.pipelineCachePath},
++                  {"pipeline_cache_initial_bytes", info.pipelineCacheInitialBytes},
++                  {"pipeline_cache_current_bytes", info.pipelineCacheCurrentBytes},
++                  {"pipeline_build_ms", roundTo(info.pipelineBuildMs, 1000.0)},
++                  {"pipeline_feedback_valid", info.pipelineFeedbackValid},
++                  {"pipeline_cache_hit", info.pipelineCacheHit},
++                  {"blas_count", info.blasCount},
++                  {"tlas_instance_count", info.tlasInstanceCount},
++                  {"blas_original_bytes", info.blasOriginalBytes},
++                  {"blas_compacted_bytes", info.blasCompactedBytes},
++                  {"blas_live_bytes", info.blasLiveBytes},
++                  {"blas_peak_bytes", info.blasPeakBytes},
+                   {"gpu_device_name", info.gpuDeviceName},
+                   {"gpu_vendor_id", info.gpuVendorId},
+                   {"gpu_device_id", info.gpuDeviceId},
+@@ -314,13 +347,18 @@ void BenchmarkController::logHeadlessSummary(const HeadlessFrameInfo& info)
+                   {"spp_per_sec", roundTo(sppPerSec, 100.0)}};
+   if(info.gpuSampleCount != 0)
+   {
+-    summary["gpu_timer_name"]       = info.gpuTimerName;
+-    summary["gpu_api_name"]         = info.gpuApiName;
+-    summary["gpu_last_ms"]          = roundTo(info.gpuLastMs, 1000.0);
+-    summary["gpu_average_ms"]       = roundTo(info.gpuAverageMs, 1000.0);
+-    summary["gpu_minimum_ms"]       = roundTo(info.gpuMinimumMs, 1000.0);
+-    summary["gpu_maximum_ms"]       = roundTo(info.gpuMaximumMs, 1000.0);
+-    summary["gpu_sample_count"]     = info.gpuSampleCount;
++    summary["gpu_timer_name"]   = info.gpuTimerName;
++    summary["gpu_api_name"]     = info.gpuApiName;
++    summary["gpu_last_ms"]      = roundTo(info.gpuLastMs, 1000.0);
++    summary["gpu_average_ms"]   = roundTo(info.gpuAverageMs, 1000.0);
++    summary["gpu_minimum_ms"]   = roundTo(info.gpuMinimumMs, 1000.0);
++    summary["gpu_maximum_ms"]   = roundTo(info.gpuMaximumMs, 1000.0);
++    summary["gpu_sample_count"] = info.gpuSampleCount;
++    summary["gpu_median_ms"]    = roundTo(info.gpuMedianMs, 1000.0);
++    summary["gpu_p95_ms"]       = roundTo(info.gpuP95Ms, 1000.0);
++    summary["cpu_median_ms"]    = roundTo(info.cpuMedianMs, 1000.0);
++    summary["cpu_p95_ms"]       = roundTo(info.cpuP95Ms, 1000.0);
++    summary["cpu_sample_count"] = info.cpuSampleCount;
+   }
+   emitJsonLine(std::move(summary));
+ }
+diff --git a/src/benchmarking.hpp b/src/benchmarking.hpp
+index af9359944de2f4ca367e0a0697d57179c9d5919d..0b46b0831af9bca7f3051c5629dcf6f2186e12dc 100644
+--- a/src/benchmarking.hpp
++++ b/src/benchmarking.hpp
+@@ -77,16 +77,38 @@ public:
+   // Cheap to copy and intentionally free of renderer types.
+   struct HeadlessFrameInfo
+   {
+-    uint32_t   totalFrames{0};  // Frames the headless run will render
+-    int        maxFrames{0};    // Path-tracer accumulation budget
+-    int        ptSamples{1};    // Samples per pixel per frame
+-    VkExtent2D imageSize{};     // Render target resolution
++    uint32_t    totalFrames{0};  // Frames the headless run will render
++    int         maxFrames{0};    // Path-tracer accumulation budget
++    int         ptSamples{1};    // Samples per pixel per frame
++    VkExtent2D  imageSize{};     // Render target resolution
+     int         maxDepth{0};
+     float       fireflyClamp{0.0F};
+     float       texGradScale{0.0F};
+     std::string renderTechnique{};
+     bool        serSupported{false};
+     bool        serEnabled{false};
++    int         serRequested{-1};
++    bool        optimalShader{false};
++    bool        compiledOptimal{false};
++    std::string activeFeatures{};
++    std::string sceneFeatures{};
++    std::string compiledFeatures{};
++    std::string compiledFeatureMode{};
++    std::string frontendSource{};
++    double      frontendCompileMs{0.0};
++    bool        variantCacheHit{false};
++    std::string pipelineCachePath{};
++    uint64_t    pipelineCacheInitialBytes{0};
++    uint64_t    pipelineCacheCurrentBytes{0};
++    double      pipelineBuildMs{0.0};
++    bool        pipelineFeedbackValid{false};
++    bool        pipelineCacheHit{false};
++    uint64_t    blasCount{0};
++    uint64_t    tlasInstanceCount{0};
++    uint64_t    blasOriginalBytes{0};
++    uint64_t    blasCompactedBytes{0};
++    uint64_t    blasLiveBytes{0};
++    uint64_t    blasPeakBytes{0};
+     std::string gpuDeviceName{};
+     uint32_t    gpuVendorId{0};
+     uint32_t    gpuDeviceId{0};
+@@ -99,6 +121,11 @@ public:
+     double      gpuMinimumMs{0.0};
+     double      gpuMaximumMs{0.0};
+     uint32_t    gpuSampleCount{0};
++    double      gpuMedianMs{0.0};
++    double      gpuP95Ms{0.0};
++    double      cpuMedianMs{0.0};
++    double      cpuP95Ms{0.0};
++    uint32_t    cpuSampleCount{0};
+   };
+ 
+   // One row of memory usage at a benchmark sequence boundary. Bytes are
+@@ -128,10 +155,12 @@ public:
+   // Begin / update / finalize wall-clock timing for a headless run.
+   // beginHeadlessTimingIfNeeded() is idempotent within a single run, and
+   // update/summary become no-ops once finishHeadlessTiming() is called.
+-  void beginHeadlessTimingIfNeeded(bool isHeadless, const HeadlessFrameInfo& info);
+-  void updateHeadlessProgressIfNeeded(const HeadlessFrameInfo& info);
+-  void logHeadlessSummary(const HeadlessFrameInfo& info);
+-  void finishHeadlessTiming();
++  void               beginHeadlessTimingIfNeeded(bool isHeadless, const HeadlessFrameInfo& info);
++  [[nodiscard]] bool needsHeadlessMeasuredBoundary() const;
++  void               beginHeadlessMeasuredTiming();
++  void               updateHeadlessProgressIfNeeded(const HeadlessFrameInfo& info);
++  void               logHeadlessSummary(const HeadlessFrameInfo& info);
++  void               finishHeadlessTiming();
+ 
+   // Emit a memory snapshot for the current benchmark sequence. The internal
+   // sequence id is incremented on each call so downstream tools can join
+diff --git a/src/gltf_scene_rtx.hpp b/src/gltf_scene_rtx.hpp
+index 36a9d811209b9770a65dfa249ae42043289cdfa1..8223dee67cbe1b708064d325221953fd0394575d 100644
+--- a/src/gltf_scene_rtx.hpp
++++ b/src/gltf_scene_rtx.hpp
+@@ -19,7 +19,6 @@
+ 
+ #pragma once
+ 
+-
+ #include <nvvk/acceleration_structures.hpp>
+ 
+ #include "gltf_scene_vk.hpp"
+@@ -28,7 +27,7 @@
+ /*-------------------------------------------------------------------------------------------------
+ # class nvvkgltf::SceneRtx
+ 
+->  This class is responsible for the ray tracing acceleration structure. 
++>  This class is responsible for the ray tracing acceleration structure.
+ 
+ It is using the `nvvkgltf::Scene` and `nvvkgltf::SceneVk` information to create the acceleration structure.
+ 
+@@ -71,7 +70,8 @@ public:
+   // Sync TLAS from Scene dirty flags (reads + clears renderNodesRtx). Returns true if TLAS was updated.
+   [[nodiscard]] bool syncTopLevelAS(VkCommandBuffer cmd, nvvk::StagingUploader& staging, nvvkgltf::Scene& scene);
+ 
+-  // GPU transform path: instance buffer was written by compute — run in-place TLAS update only (no CPU instance upload).
++  // GPU transform path: instance buffer was written by compute — run in-place TLAS update only (no CPU instance
++  // upload).
+   void                          cmdUpdateTlasFromInstanceBuffer(VkCommandBuffer cmd);
+   [[nodiscard]] VkDeviceAddress getInstancesBufferAddress() const { return m_instancesBuffer.address; }
+ 
+@@ -92,6 +92,7 @@ public:
+   GpuMemoryTracker&       getMemoryTracker() { return m_memoryTracker; }
+ 
+   const std::vector<VkAccelerationStructureInstanceKHR>& getTlasInstances() const { return m_tlasInstances; }
++  [[nodiscard]] size_t                                   getBlasCount() const { return m_blasAccel.size(); }
+ 
+ protected:
+   VkPhysicalDeviceRayTracingPipelinePropertiesKHR m_rtProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR};
+diff --git a/src/renderer.cpp b/src/renderer.cpp
+index c9ad4af9086e4df942831d893d82ce9db9345be0..641391f06726e9063457d0c1993f98b27d4cbed8 100644
+--- a/src/renderer.cpp
++++ b/src/renderer.cpp
+@@ -21,9 +21,9 @@
+ /*
+     GLTF Renderer with Ray Tracing and Rasterization Support
+ 
+-    This renderer demonstrates advanced real-time rendering of GLTF scenes 
++    This renderer demonstrates advanced real-time rendering of GLTF scenes
+     using both ray tracing and rasterization pipelines. Key features include:
+-    
++
+     - Dual rendering modes: path tracing and traditional rasterization
+     - PBR (Physically Based Rendering) material system
+     - HDR environment mapping with prefiltered importance sampling
+@@ -33,7 +33,7 @@
+     - GLTF 2.0 specification compliance with extensions
+     - Interactive ray picking for scene manipulation
+     - UI-driven scene editing capabilities
+-    
++
+     The implementation uses Vulkan with ray tracing extensions and
+     employs a modular architecture to handle the full rendering pipeline
+     from scene loading to final display, with careful memory management
+@@ -49,14 +49,14 @@
+   }
+ #define IMGUI_DEFINE_MATH_OPERATORS
+ 
++#include <vulkan/vulkan_core.h>
++#include <webp/decode.h>
+ #include <algorithm>
+ #include <cctype>
+ #include <cmath>
+ #include <thread>
+ #include <unordered_set>
+ #include <utility>
+-#include <vulkan/vulkan_core.h>
+-#include <webp/decode.h>
+ 
+ #include "GLFW/glfw3.h"
+ #undef APIENTRY
+@@ -70,11 +70,11 @@
+ #include "shaders/shaderio.h"  // Shared between host and device
+ 
+ // Pre-compiled shaders
+-#include "_autogen/tonemapper.slang.h"
+ #include "_autogen/hdr_dome.slang.h"
+ #include "_autogen/hdr_integrate_brdf.slang.h"
+ #include "_autogen/hdr_prefilter_diffuse.slang.h"
+ #include "_autogen/hdr_prefilter_glossy.slang.h"
++#include "_autogen/tonemapper.slang.h"
+ 
+ //
+ #include <nvaftermath/aftermath.hpp>
+@@ -86,18 +86,18 @@
+ #include <nvvk/formats.hpp>
+ #include <nvvk/mipmaps.hpp>
+ #include "gltf_camera_utils.hpp"
+-#include "gltf_scene_editor.hpp"
+ #include "gltf_scene_animation.hpp"
++#include "gltf_scene_editor.hpp"
+ #include "gltf_scene_transform_vk.hpp"
+ 
+ #include <glm/gtc/quaternion.hpp>
+ 
+ #include "renderer.hpp"
+ #include "scene_descriptor.hpp"
++#include "tinygltf_converter.hpp"
+ #include "tinygltf_utils.hpp"
+-#include "utils.hpp"
+ #include "tinyobjloader/tiny_obj_loader.h"
+-#include "tinygltf_converter.hpp"
++#include "utils.hpp"
+ 
+ extern nvutils::ProfilerManager g_profilerManager;  // #PROFILER
+ 
+@@ -135,14 +135,49 @@ bool webPLoadCallback(nvvkgltf::SceneVk::SceneImage& image, const void* data, si
+ 
+ namespace {
+ 
+-uint64_t sumTrackerCurrentBytes(const nvvkgltf::GpuMemoryTracker& tracker)
++std::vector<double> timerSamples(const nvutils::ProfilerTimeline::TimerStats& stats, uint32_t count, bool removeWarmup)
+ {
+-  return tracker.getTotalStats().currentBytes;
++  const size_t        capacity = stats.times.size();
++  const size_t        valid    = std::min<size_t>(count, capacity);
++  std::vector<double> samples;
++  samples.reserve(valid);
++  for(size_t index = 0; index < valid; ++index)
++  {
++    const double microseconds = stats.times[(stats.index + capacity - valid + index) % capacity];
++    if(std::isfinite(microseconds) && microseconds >= 0.0)
++      samples.push_back(microseconds / 1000.0);
++  }
++  if(removeWarmup && !samples.empty())
++    samples.erase(samples.begin());
++  return samples;
+ }
+ 
+-uint64_t sumTrackerPeakBytes(const nvvkgltf::GpuMemoryTracker& tracker)
++double samplePercentile(std::vector<double> samples, double fraction)
+ {
+-  return tracker.getTotalStats().peakBytes;
++  if(samples.empty())
++    return 0.0;
++  std::sort(samples.begin(), samples.end());
++  const double rank   = std::clamp(fraction, 0.0, 1.0) * static_cast<double>(samples.size() - 1);
++  const size_t lower  = static_cast<size_t>(std::floor(rank));
++  const size_t upper  = static_cast<size_t>(std::ceil(rank));
++  const double weight = rank - static_cast<double>(lower);
++  return samples[lower] * (1.0 - weight) + samples[upper] * weight;
++}
++
++void appendMemoryCategories(std::vector<BenchmarkController::MemorySample>& samples,
++                            const nvvkgltf::GpuMemoryTracker&               tracker,
++                            std::string_view                                prefix           = {},
++                            std::string_view                                excludedCategory = {})
++{
++  for(const std::string& category : tracker.getActiveCategories())
++  {
++    if(category == excludedCategory)
++      continue;
++    const auto stats = tracker.getStats(category);
++    samples.push_back({.category        = prefix.empty() ? category : std::string(prefix) + category,
++                       .deviceUsed      = stats.currentBytes,
++                       .deviceAllocated = stats.peakBytes});
++  }
+ }
+ 
+ }  // namespace
+@@ -270,7 +305,6 @@ void GltfRenderer::onAttach(nvapp::Application* app)
+   // If there is a leak (nvvkAllocID -> ID)
+   // m_resources.allocator.setLeakID(32914);
+ 
+-
+   m_transientCmdPool = nvvk::createTransientCommandPool(m_device, app->getQueue(0).familyIndex);
+   NVVK_DBG_NAME(m_transientCmdPool);
+ 
+@@ -281,7 +315,6 @@ void GltfRenderer::onAttach(nvapp::Application* app)
+ 
+   m_resources.commandPool = app->getCommandPool();
+ 
+-
+   // ===== Texture & Image Resources =====
+   m_resources.samplerPool.init(m_device);
+   VkSampler linearSampler{};
+@@ -344,7 +377,6 @@ void GltfRenderer::onAttach(nvapp::Application* app)
+                             int32_t(m_app->getQueue(0).familyIndex), false);
+   }
+ 
+-
+   // ===== Shader Compilation =====
+   {
+     SCOPED_TIMER("Shader Slang");
+@@ -360,7 +392,8 @@ void GltfRenderer::onAttach(nvapp::Application* app)
+         {CompilerOptionName::Optimization, {CompilerOptionValueKind::Int, SLANG_OPTIMIZATION_LEVEL_NONE}});
+ 
+     // Enable specific capabilities for better performance and features
+-    m_resources.slangCompiler.addCapability("spvShaderInvocationReorderNV");  // Enable the shader invocation reorder capability for better performance on NVIDIA hardware
++    m_resources.slangCompiler.addCapability("spvShaderInvocationReorderNV");  // Enable the shader invocation reorder capability for better performance on
++                                                                              // NVIDIA hardware
+     m_resources.slangCompiler.addCapability("spvInt64Atomics");            // # 64-bit atomic operations
+     m_resources.slangCompiler.addCapability("spvShaderClockKHR");          // # Shader clock for profiling
+     m_resources.slangCompiler.addCapability("spvRayTracingMotionBlurNV");  // # Motion blur for ray tracing
+@@ -517,19 +550,51 @@ void GltfRenderer::alignMaxFramesForHeadless(uint32_t headlessFrames)
+   BenchmarkController::alignMaxFramesForHeadless(m_resources.settings.maxFrames, headlessFrames);
+ }
+ 
+-BenchmarkController::HeadlessFrameInfo GltfRenderer::benchmarkFrameInfo() const
++BenchmarkController::HeadlessFrameInfo GltfRenderer::benchmarkFrameInfo(bool finalSnapshot) const
+ {
+   BenchmarkController::HeadlessFrameInfo info{.totalFrames = m_app ? m_app->getHeadlessFrameCount() : 0,
+-                                               .maxFrames   = m_resources.settings.maxFrames,
+-                                               .ptSamples   = m_pathTracer.m_pushConst.numSamples,
+-                                               .imageSize   = m_resources.gBuffers.getSize()};
+-  info.maxDepth        = m_pathTracer.m_pushConst.maxDepth;
+-  info.fireflyClamp    = m_pathTracer.m_pushConst.fireflyClampThreshold;
+-  info.texGradScale    = m_pathTracer.m_pushConst.texGradScale;
+-  info.renderTechnique =
+-      m_pathTracer.m_renderTechnique == PathTracer::RenderTechnique::RayTracing ? "raytracing" : "rayquery";
+-  info.serSupported    = m_pathTracer.m_supportSER;
+-  info.serEnabled      = info.renderTechnique == "raytracing" && m_pathTracer.m_supportSER && m_pathTracer.m_useSER;
++                                              .maxFrames   = m_resources.settings.maxFrames,
++                                              .ptSamples   = m_pathTracer.m_pushConst.numSamples,
++                                              .imageSize   = m_resources.gBuffers.getSize()};
++  if(!finalSnapshot)
++    return info;
++
++  info.maxDepth     = m_pathTracer.m_pushConst.maxDepth;
++  info.fireflyClamp = m_pathTracer.m_pushConst.fireflyClampThreshold;
++  info.texGradScale = m_pathTracer.m_pushConst.texGradScale;
++  info.renderTechnique = m_pathTracer.m_renderTechnique == PathTracer::RenderTechnique::RayTracing ? "raytracing" : "rayquery";
++  info.serSupported        = m_pathTracer.m_supportSER;
++  info.serEnabled          = info.renderTechnique == "raytracing" && m_pathTracer.m_supportSER && m_pathTracer.m_useSER;
++  info.serRequested        = m_pathTracer.m_serMode;
++  info.optimalShader       = m_resources.settings.optimalShader;
++  info.compiledOptimal     = m_pathTracer.m_compiledOptimal;
++  info.activeFeatures      = m_resources.currentFeatureSet.toString();
++  info.sceneFeatures       = info.activeFeatures;
++  info.compiledFeatures    = m_pathTracer.m_compiledOptimal ? m_pathTracer.m_compiledFeatures.toString() : "all";
++  info.compiledFeatureMode = m_pathTracer.m_compiledOptimal ? "scene_specialized" : "all";
++  info.frontendSource      = m_pathTracer.m_frontendSource;
++  info.frontendCompileMs   = m_pathTracer.m_frontendCompileMs;
++  info.variantCacheHit     = m_pathTracer.m_variantCacheHit;
++  info.pipelineCachePath   = m_pathTracer.m_pipelineCachePath.string();
++  info.pipelineCacheInitialBytes = m_pathTracer.m_pipelineCacheInitialBytes;
++  info.pipelineBuildMs           = m_pathTracer.m_pipelineBuildMs;
++  info.pipelineFeedbackValid     = m_pathTracer.m_pipelineFeedbackValid;
++  info.pipelineCacheHit          = m_pathTracer.m_pipelineCacheHit;
++  if(m_pathTracer.m_pipelineCache.getCache() != VK_NULL_HANDLE)
++  {
++    size_t cacheBytes = 0;
++    if(vkGetPipelineCacheData(m_device, m_pathTracer.m_pipelineCache.getCache(), &cacheBytes, nullptr) == VK_SUCCESS)
++      info.pipelineCacheCurrentBytes = cacheBytes;
++  }
++  if(m_resources.getScene() && m_resources.getScene()->valid())
++  {
++    info.blasCount          = m_resources.sceneRtx.getBlasCount();
++    info.tlasInstanceCount  = m_resources.sceneRtx.getTlasInstances().size();
++    info.blasOriginalBytes  = m_benchmarkBlasOriginalBytes;
++    info.blasCompactedBytes = m_benchmarkCompactedBlasBytes;
++    info.blasLiveBytes      = m_benchmarkBlasCurrentBytes;
++    info.blasPeakBytes      = m_benchmarkBlasPeakBytes;
++  }
+   if(m_app)
+   {
+     VkPhysicalDeviceProperties properties{};
+@@ -548,13 +613,21 @@ BenchmarkController::HeadlessFrameInfo GltfRenderer::benchmarkFrameInfo() const
+       std::string apiName;
+       if(m_profilerTimeline->getFrameTimerInfo(timerName, timerInfo, apiName) && timerInfo.numAveraged != 0)
+       {
+-        info.gpuTimerName   = timerName;
+-        info.gpuApiName     = apiName;
+-        info.gpuLastMs      = timerInfo.gpu.last / 1000.0;
+-        info.gpuAverageMs   = timerInfo.gpu.average / 1000.0;
+-        info.gpuMinimumMs   = timerInfo.gpu.absMinValue / 1000.0;
+-        info.gpuMaximumMs   = timerInfo.gpu.absMaxValue / 1000.0;
+-        info.gpuSampleCount = timerInfo.numAveraged;
++        const bool removeWarmup = info.totalFrames <= timerInfo.gpu.times.size();
++        const auto gpuSamples   = timerSamples(timerInfo.gpu, timerInfo.numAveraged, removeWarmup);
++        const auto cpuSamples   = timerSamples(timerInfo.cpu, timerInfo.numAveraged, removeWarmup);
++        info.gpuTimerName       = timerName;
++        info.gpuApiName         = apiName;
++        info.gpuLastMs          = timerInfo.gpu.last / 1000.0;
++        info.gpuAverageMs       = timerInfo.gpu.average / 1000.0;
++        info.gpuMinimumMs       = timerInfo.gpu.absMinValue / 1000.0;
++        info.gpuMaximumMs       = timerInfo.gpu.absMaxValue / 1000.0;
++        info.gpuSampleCount     = static_cast<uint32_t>(gpuSamples.size());
++        info.gpuMedianMs        = samplePercentile(gpuSamples, 0.5);
++        info.gpuP95Ms           = samplePercentile(gpuSamples, 0.95);
++        info.cpuSampleCount     = static_cast<uint32_t>(cpuSamples.size());
++        info.cpuMedianMs        = samplePercentile(cpuSamples, 0.5);
++        info.cpuP95Ms           = samplePercentile(cpuSamples, 0.95);
+         break;
+       }
+     }
+@@ -567,23 +640,18 @@ std::vector<BenchmarkController::MemorySample> GltfRenderer::benchmarkMemorySamp
+   std::vector<BenchmarkController::MemorySample> samples;
+   if(m_resources.getScene() && m_resources.getScene()->valid())
+   {
+-    const uint64_t sceneUsed = sumTrackerCurrentBytes(m_resources.sceneVk.getMemoryTracker())
+-                               + sumTrackerCurrentBytes(m_resources.sceneRtx.getMemoryTracker())
+-                               + sumTrackerCurrentBytes(m_resources.transformCompute.getMemoryTracker())
+-                               + sumTrackerCurrentBytes(m_resources.animationVk.getMemoryTracker());
+-    const uint64_t scenePeak = sumTrackerPeakBytes(m_resources.sceneVk.getMemoryTracker())
+-                               + sumTrackerPeakBytes(m_resources.sceneRtx.getMemoryTracker())
+-                               + sumTrackerPeakBytes(m_resources.transformCompute.getMemoryTracker())
+-                               + sumTrackerPeakBytes(m_resources.animationVk.getMemoryTracker());
+-    samples.push_back({.category = "Scene", .deviceUsed = sceneUsed, .deviceAllocated = scenePeak});
+-  }
+-  else
+-  {
+-    samples.push_back({.category = "Scene"});
++    appendMemoryCategories(samples, m_resources.sceneVk.getMemoryTracker());
++    appendMemoryCategories(samples, m_resources.sceneRtx.getMemoryTracker(), {}, "BLAS");
++    if(m_benchmarkBlasMemoryValid)
++    {
++      samples.push_back({.category = "BLAS", .deviceUsed = m_benchmarkBlasCurrentBytes, .deviceAllocated = m_benchmarkBlasPeakBytes});
++    }
++    appendMemoryCategories(samples, m_resources.transformCompute.getMemoryTracker(), "Transform/");
++    appendMemoryCategories(samples, m_resources.animationVk.getMemoryTracker(), "Animation/");
+   }
+ 
+   const auto& appStats = m_resources.appMemoryTracker.getTotalStats();
+-  samples.push_back({.category = (m_resources.settings.renderSystem == RenderingMode::ePathtracer) ? "PathTracer" : "Rasterizer",
++  samples.push_back({.category = (m_resources.settings.renderSystem == RenderingMode::ePathtracer) ? "Application/PathTracer" : "Application/Rasterizer",
+                      .deviceUsed      = appStats.currentBytes,
+                      .deviceAllocated = appStats.peakBytes});
+   return samples;
+@@ -621,7 +689,6 @@ void GltfRenderer::onUIRender()
+   renderUI();
+ }
+ 
+-
+ //--------------------------------------------------------------------------------------------------
+ // Render the scene
+ void GltfRenderer::onRender(VkCommandBuffer cmd)
+@@ -662,6 +729,11 @@ void GltfRenderer::onRender(VkCommandBuffer cmd)
+   m_resources.currentFeatureSet.set(nvvkgltf::SceneFeatureSet::eDlssGuide, dlssGuideRequired());
+ 
+   m_benchmark.beginHeadlessTimingIfNeeded(isHeadlessMode(), benchmarkFrameInfo());
++  if(m_benchmark.needsHeadlessMeasuredBoundary())
++  {
++    NVVK_CHECK(vkDeviceWaitIdle(m_device));
++    m_benchmark.beginHeadlessMeasuredTiming();
++  }
+ 
+   // Start the profiler section for the GPU timer
+   auto timerSection = m_profilerGpuTimer.cmdFrameSection(cmd, __FUNCTION__);
+@@ -788,7 +860,6 @@ void GltfRenderer::benchmarkAdvance(const nvutils::ParameterSequencer::State& st
+   m_benchmark.emitSequenceMemory(benchmarkMemorySamples());
+ }
+ 
+-
+ //--------------------------------------------------------------------------------------------------
+ // Render the UI menu: File, Tools, Renderer
+ void GltfRenderer::onUIMenu()
+@@ -800,7 +871,8 @@ void GltfRenderer::onUIMenu()
+ // Called with headless rendering, to save the final image
+ void GltfRenderer::onLastHeadlessFrame()
+ {
+-  m_benchmark.logHeadlessSummary(benchmarkFrameInfo());
++  m_benchmark.emitSequenceMemory(benchmarkMemorySamples());
++  m_benchmark.logHeadlessSummary(benchmarkFrameInfo(true));
+   saveHeadlessOutputImage();
+   m_benchmark.finishHeadlessTiming();
+ }
+@@ -1595,6 +1667,12 @@ void GltfRenderer::createVulkanScene()
+ //
+ void GltfRenderer::buildAccelerationStructures()
+ {
++  m_benchmarkBlasCurrentBytes   = 0;
++  m_benchmarkBlasPeakBytes      = 0;
++  m_benchmarkBlasOriginalBytes  = 0;
++  m_benchmarkCompactedBlasBytes = 0;
++  m_benchmarkBlasMemoryValid    = false;
++
+   VkBuildAccelerationStructureFlagsKHR flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR
+                                                | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+   if(m_resources.getScene() && m_resources.getScene()->animation().hasAnimation())
+@@ -1609,7 +1687,8 @@ void GltfRenderer::buildAccelerationStructures()
+   {
+     bool finished = false;
+ 
+-    // Building BLAS within a memory budget, which could involve multiple calls to cmdBuildBottomLevelAccelerationStructure
++    // Building BLAS within a memory budget, which could involve multiple calls to
++    // cmdBuildBottomLevelAccelerationStructure
+     do
+     {
+       VkCommandBuffer cmd{};
+@@ -1620,7 +1699,15 @@ void GltfRenderer::buildAccelerationStructures()
+       m_loadPipeline.enqueue(cmd, [this] {
+         VkCommandBuffer compactCmd{};
+         nvvk::beginSingleTimeCommands(compactCmd, m_device, m_transientCmdPool);
++        VmaTotalStatistics before{};
++        vmaCalculateStatistics(m_resources.allocator, &before);
+         m_resources.sceneRtx.cmdCompactBlas(compactCmd);
++        VmaTotalStatistics after{};
++        vmaCalculateStatistics(m_resources.allocator, &after);
++        if(after.total.statistics.allocationBytes >= before.total.statistics.allocationBytes)
++          m_benchmarkCompactedBlasBytes += after.total.statistics.allocationBytes - before.total.statistics.allocationBytes;
++        m_benchmarkBlasCurrentBytes = m_benchmarkBlasOriginalBytes + m_benchmarkCompactedBlasBytes;
++        m_benchmarkBlasPeakBytes    = m_benchmarkBlasCurrentBytes;
+         NVVK_CHECK(vkEndCommandBuffer(compactCmd));
+         m_loadPipeline.enqueue(compactCmd);
+       });
+@@ -1628,7 +1715,13 @@ void GltfRenderer::buildAccelerationStructures()
+     } while(!finished);
+ 
+     // Track all BLAS allocations now that they're all built
++    const uint64_t trackedBlasBytesBefore = m_resources.sceneRtx.getMemoryTracker().getStats("BLAS").currentBytes;
+     m_resources.sceneRtx.trackBlasMemory();
++    const uint64_t trackedBlasBytesAfter = m_resources.sceneRtx.getMemoryTracker().getStats("BLAS").currentBytes;
++    m_benchmarkBlasCurrentBytes          = trackedBlasBytesAfter - trackedBlasBytesBefore;
++    m_benchmarkBlasOriginalBytes         = m_benchmarkBlasCurrentBytes;
++    m_benchmarkBlasPeakBytes             = m_benchmarkBlasCurrentBytes;
++    m_benchmarkBlasMemoryValid           = true;
+ 
+     // Queue TLAS building for after all BLAS work completes
+     // TLAS is the top-level structure referencing all bottom-level acceleration structures
+@@ -1642,7 +1735,8 @@ void GltfRenderer::buildAccelerationStructures()
+     }
+   }
+ 
+-  // Avoid double-build: whoever called us (createVulkanScene, rebuildVulkanSceneInternal, or updateSceneChanges) just queued BLAS+TLAS.
++  // Avoid double-build: whoever called us (createVulkanScene, rebuildVulkanSceneInternal, or updateSceneChanges) just
++  // queued BLAS+TLAS.
+   if(m_resources.getScene())
+     m_resources.getScene()->getDirtyFlags().primitivesChanged = false;
+ 
+@@ -1695,9 +1789,9 @@ void GltfRenderer::createResourceBuffers()
+ 
+ //--------------------------------------------------------------------------------------------------
+ // Create the descriptor set and the pipelines
+-// There are two descriptor: one for the textures (set) and one (push) for the top level acceleration structure and the default output image
+-// There are two pipelines: one for the PathTracer and one for the Rasterizer
+-// The descriptor set is shared between the two pipelines
++// There are two descriptor: one for the textures (set) and one (push) for the top level acceleration structure and the
++// default output image There are two pipelines: one for the PathTracer and one for the Rasterizer The descriptor set is
++// shared between the two pipelines
+ void GltfRenderer::createDescriptorSets()
+ {
+   // Reserve texture descriptors (m_maxTextures from renderer.hpp, clamped to device limits)
+@@ -1737,8 +1831,10 @@ void GltfRenderer::createDescriptorSets()
+   poolSize.push_back({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kImTextureMaxSets});
+   VkDescriptorPoolCreateInfo dpoolInfo = {
+       .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+-      .flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT |  // allows descriptor sets to be updated after they have been bound to a command buffer
+-               VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,  // individual descriptor sets can be freed from the descriptor pool
++      .flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT |   // allows descriptor sets to be updated after they
++                                                                   // have been bound to a command buffer
++               VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,  // individual descriptor sets can be freed from the
++                                                                   // descriptor pool
+       .maxSets       = kImTextureMaxSets + 1,                      // ImTexture sets + the scene texture set
+       .poolSizeCount = uint32_t(poolSize.size()),
+       .pPoolSizes    = poolSize.data(),
+@@ -1755,7 +1851,6 @@ void GltfRenderer::createDescriptorSets()
+   NVVK_CHECK(vkAllocateDescriptorSets(m_device, &allocInfo, &m_resources.descriptorSet));
+   NVVK_DBG_NAME(m_resources.descriptorSet);
+ 
+-
+   // 1: Descriptor PUSH: top level acceleration structure and the output image
+   m_resources.descriptorBinding[1].addBinding(shaderio::BindingPoints::eTlas,
+                                               VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1, VK_SHADER_STAGE_ALL);
+@@ -1959,7 +2054,6 @@ void GltfRenderer::destroyResources()
+   m_resources.allocator.deinit();
+ }
+ 
+-
+ //--------------------------------------------------------------------------------------------------
+ // Update the scene animation
+ // - If there is an animation in the scene, and animation is enabled, update the animation
+@@ -1974,7 +2068,6 @@ bool GltfRenderer::updateAnimation(VkCommandBuffer cmd)
+   nvvkgltf::Scene&  scn      = *scnPtr;
+   AnimationControl& animCtrl = m_resources.animationControl;
+ 
+-
+   if(ui::animation::hasPlayableAnimation(scnPtr) && animCtrl.doAnimation())
+   {
+     const int nAnim = scn.animation().getNumAnimations();
+diff --git a/src/renderer.hpp b/src/renderer.hpp
+index 4837225429e208cc47a89cbdabbf9616418511f5..65b7c2cc888ee83586f735aeeec93fa107901c6b 100644
+--- a/src/renderer.hpp
++++ b/src/renderer.hpp
+@@ -126,7 +126,7 @@ private:
+   [[nodiscard]] bool                             isBenchmarkMode() const;
+   [[nodiscard]] bool                             isHeadlessMode() const;
+   [[nodiscard]] bool                             isAutomatedRun() const;
+-  BenchmarkController::HeadlessFrameInfo         benchmarkFrameInfo() const;
++  BenchmarkController::HeadlessFrameInfo         benchmarkFrameInfo(bool finalSnapshot = false) const;
+   std::vector<BenchmarkController::MemorySample> benchmarkMemorySamples() const;
+   void                                           saveHeadlessOutputImage();
+ 
+@@ -238,6 +238,12 @@ private:
+   // Worker threads enqueue command buffers; the main thread calls poll() each frame.
+   TimelinePipeline m_loadPipeline;
+ 
++  uint64_t m_benchmarkBlasCurrentBytes{0};
++  uint64_t m_benchmarkBlasPeakBytes{0};
++  uint64_t m_benchmarkBlasOriginalBytes{0};
++  uint64_t m_benchmarkCompactedBlasBytes{0};
++  bool     m_benchmarkBlasMemoryValid{false};
++
+   glm::mat4 m_prevMVP{1.f};  // Previous MVP matrix for motion vectors
+ 
+   VkCommandPool m_transientCmdPool{};  // Command pool for transient command buffers
+diff --git a/src/renderer_pathtracer.cpp b/src/renderer_pathtracer.cpp
+index a127d3bbb0a9de1b370e86e44b1eb1615aef910b..d3a65768eea4ff9b564c393f21ca2aeb618e28e0 100644
+--- a/src/renderer_pathtracer.cpp
++++ b/src/renderer_pathtracer.cpp
+@@ -30,13 +30,13 @@
+ #include <vector>
+ 
+ #include <nvapp/elem_dbgprintf.hpp>
++#include <nvgui/tooltip.hpp>
++#include <nvutils/parameter_registry.hpp>
+ #include <nvvk/check_error.hpp>
+ #include <nvvk/compute_pipeline.hpp>
+ #include <nvvk/debug_util.hpp>
+ #include <nvvk/sbt_generator.hpp>
+ #include <nvvk/specialization.hpp>
+-#include <nvutils/parameter_registry.hpp>
+-#include <nvgui/tooltip.hpp>
+ 
+ #include "renderer_pathtracer.hpp"
+ 
+@@ -55,7 +55,6 @@
+ #define USE_DEFERRED_RTX_COMPILE 0
+ #endif
+ 
+-
+ PathTracer::PathTracer()
+ {
+   // Default parameters for overall material
+@@ -82,8 +81,11 @@ void PathTracer::onAttach(Resources& resources, nvvk::ProfilerGpuTimer* profiler
+   m_device = resources.allocator.getDevice();
+ 
+   // Create pipeline cache for faster pipeline creation
+-  m_pipelineCache.init(m_device, nvutils::getExecutablePath().parent_path() / "pipeline_cache.bin");
+-
++  if(m_pipelineCachePath.empty())
++    m_pipelineCachePath = nvutils::getExecutablePath().parent_path() / "pipeline_cache.bin";
++  m_pipelineCacheInitialBytes =
++      std::filesystem::exists(m_pipelineCachePath) ? std::filesystem::file_size(m_pipelineCachePath) : 0;
++  m_pipelineCache.init(m_device, m_pipelineCachePath);
+ 
+   // Requesting ray tracing properties
+   VkPhysicalDeviceProperties2 prop2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+@@ -94,7 +96,11 @@ void PathTracer::onAttach(Resources& resources, nvvk::ProfilerGpuTimer* profiler
+   m_supportSER = (bool)(m_reorderProperties.rayTracingInvocationReorderReorderingHint & VK_RAY_TRACING_INVOCATION_REORDER_MODE_REORDER_NV) ?
+                      true :
+                      false;
+-  m_useSER = m_supportSER;
++  if(m_serMode > 0 && !m_supportSER)
++  {
++    throw std::runtime_error("ptSER requested SER on unsupported hardware");
++  }
++  m_useSER = m_serMode < 0 ? m_supportSER : m_serMode > 0;
+ 
+   // If SER is not supported, force recompiling without SER
+   compileShader(resources, (m_supportSER == true) ? false : true);
+@@ -126,6 +132,8 @@ void PathTracer::registerParameters(nvutils::ParameterRegistry* paramReg)
+   paramReg->add({"ptFocalDistance", "PathTracer: Focal distance"}, &m_pushConst.focalDistance);
+   paramReg->add({"ptAutoFocus", "PathTracer: Enable auto focus"}, &m_autoFocus);
+   paramReg->add({"ptTechnique", "PathTracer: Rendering technique [RayQuery:0, RayTracing:1]"}, (int*)&m_renderTechnique);
++  paramReg->add({"ptSER", "PathTracer: SER mode [Automatic:-1, Disabled:0, Enabled:1]"}, &m_serMode);
++  paramReg->add({"pipelineCachePath", "PathTracer: Vulkan pipeline cache path"}, &m_pipelineCachePath);
+   paramReg->add({"ptAdaptiveSampling", "PathTracer: Enable adaptive sampling"}, &m_adaptiveSampling);
+   paramReg->add({"ptPerformanceTarget", "PathTracer: Performance target [Interactive:0, Balanced:1, Quality:2, MaxQuality:3]"},
+                 (int*)&m_performanceTarget);
+@@ -268,7 +276,6 @@ bool PathTracer::onUIRender(Resources& resources)
+     PE::Checkbox("Optimize Shader for Current Scene", &resources.settings.optimalShader,
+                  "Recompile the shader to match scene features for better performance.\nMay take a few seconds.");
+ 
+-
+ #if !defined(NDEBUG)
+     // Status line : which scene features are active (informational)
+     if(resources.settings.optimalShader)
+@@ -512,7 +519,8 @@ void PathTracer::onRender(VkCommandBuffer cmd, Resources& resources)
+     NVVK_CHECK(vkQueueWaitIdle(resources.app->getQueue(0).queue));
+     if(resources.app->isHeadless())
+     {
+-      // In headless mode we must compile/build synchronously so frames are actually rendered before the application frame loop exits.
++      // In headless mode we must compile/build synchronously so frames are actually rendered before the application
++      // frame loop exits.
+       ensureShadersAndPipelines(resources);
+     }
+     else
+@@ -684,7 +692,6 @@ void PathTracer::pushDescriptorSet(VkCommandBuffer cmd, Resources& resources, Vk
+   }
+ #endif
+ 
+-
+   VkWriteDescriptorSet allTextures = resources.descriptorBinding[1].getWriteSet(shaderio::BindingPoints::eOutImages);
+   allTextures.descriptorCount      = uint32_t(outputImages.size());
+   write.append(allTextures, outputImages.data());
+@@ -726,6 +733,7 @@ void PathTracer::createPipeline(Resources& resources)
+ void PathTracer::createRqPipeline(Resources& /*resources*/)
+ {
+   SCOPED_TIMER(__FUNCTION__);
++  const auto createStart = std::chrono::steady_clock::now();
+ 
+   nvvk::Specialization specialization;
+   specialization.add(0, m_useSER ? 1 : 0);  // USE_SER
+@@ -765,13 +773,15 @@ void PathTracer::createRqPipeline(Resources& /*resources*/)
+     m_rqPipeline = rqPipeline;
+   }
+ 
+-  const bool valid = (feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT) != 0;
+-  const bool hit   = (feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT) != 0;
++  const bool valid  = (feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT) != 0;
++  const bool hit    = (feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT) != 0;
++  m_pipelineBuildMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - createStart).count();
++  m_pipelineFeedbackValid = valid;
++  m_pipelineCacheHit      = hit;
+   LOGI("RQ pipeline creation: %s, %s (%.2f ms)\n", valid ? "valid" : "invalid", hit ? "CACHE HIT" : "cache miss",
+        feedback.duration / 1e6);
+ }
+ 
+-
+ //--------------------------------------------------------------------------------------------------
+ // Create the RTX pipeline
+ void PathTracer::createRtxPipeline(Resources& resources)
+@@ -809,7 +819,7 @@ void PathTracer::createRtxPipeline(Resources& resources)
+   stages[eAnyHit].pName = "rahitMain";
+   stages[eAnyHit].stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+ 
+-  //Shadow
++  // Shadow
+   stages[eShadowMiss].pName = "rmissShadow";
+   stages[eShadowMiss].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+ 
+@@ -866,7 +876,6 @@ void PathTracer::createRtxPipeline(Resources& resources)
+ #endif
+   stages[eRaygen].pSpecializationInfo = specialization.getSpecializationInfo();
+ 
+-
+   // Query the driver about pipeline cache hit / compilation duration (core in Vulkan 1.3)
+   VkPipelineCreationFeedback           feedback{};
+   VkPipelineCreationFeedbackCreateInfo feedbackInfo{
+@@ -891,7 +900,6 @@ void PathTracer::createRtxPipeline(Resources& resources)
+     m_rtxPipeline = VK_NULL_HANDLE;
+   }
+ 
+-
+   // Time the create (+ join, when deferred) wall-clock ourselves. The NVIDIA driver does
+   // not populate VkPipelineCreationFeedback when a VkDeferredOperationKHR is used, so
+   // feedback.duration and the VALID_BIT cannot be relied on on the deferred path.
+@@ -971,6 +979,9 @@ void PathTracer::createRtxPipeline(Resources& resources)
+       valid ? ((feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT) ? "CACHE HIT" : "cache miss") :
+               "cache status unknown";
+   LOGI("RTX pipeline creation: %s, deferred=%s (%.2f ms)\n", cacheStatus, wasDeferred ? "yes" : "no", elapsedMs);
++  m_pipelineBuildMs       = elapsedMs;
++  m_pipelineFeedbackValid = valid;
++  m_pipelineCacheHit = valid && (feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT) != 0;
+ 
+   // Create the Shading Binding Table
+   {
+@@ -1006,7 +1017,6 @@ void PathTracer::createRtxPipeline(Resources& resources)
+   }
+ }
+ 
+-
+ //--------------------------------------------------------------------------------------------------
+ // Compile the shader
+ void PathTracer::reloadShader(Resources& resources)
+@@ -1028,6 +1038,8 @@ void PathTracer::reloadShader(Resources& resources)
+ void PathTracer::compileShader(Resources& resources, bool fromFile)
+ {
+   SCOPED_TIMER(__FUNCTION__);
++  const auto compileStart = std::chrono::steady_clock::now();
++  m_variantCacheHit       = false;
+   // Variant cache: try to find a previously-compiled shader + pipelines for the variant the
+   // user wants this frame. On hit we skip both the Slang recompile and the RT pipeline link
+   // (the slow part - the driver can take several seconds per RTX pipeline). On miss we
+@@ -1042,6 +1054,9 @@ void PathTracer::compileShader(Resources& resources, bool fromFile)
+     };
+     if(swapVariant(resources, targetKey))
+     {
++      m_variantCacheHit   = true;
++      m_frontendSource    = "variant_memory";
++      m_frontendCompileMs = 0.0;
+       LOGI("[PathTracer] Variant cache hit.\n");
+       return;
+     }
+@@ -1135,6 +1150,8 @@ void PathTracer::compileShader(Resources& resources, bool fromFile)
+     m_compiledOptimal   = compiledFromFile ? resources.settings.optimalShader : false;
+     m_compiledFeatures  = (compiledFromFile && resources.settings.optimalShader) ? resources.currentFeatureSet :
+                                                                                    nvvkgltf::SceneFeatureSet{};
++    m_frontendSource    = compiledFromFile ? "slang_compile" : "embedded_spirv";
++    m_frontendCompileMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - compileStart).count();
+ 
+     // Destroy pipeline since there is a new shader
+     destroyPipelinesLocked();
+@@ -1176,7 +1193,7 @@ bool PathTracer::swapVariant(Resources& resources, const VariantKey& newKey)
+   // The current variant key reflects what compileShader() last recorded.
+   const VariantKey currentKey{m_compiledWireframe, m_compiledOptimal, m_compiledFeatures};
+   const bool       hasLive = m_shaderModule != VK_NULL_HANDLE || m_rtxPipeline != VK_NULL_HANDLE
+-                       || m_rqPipeline != VK_NULL_HANDLE || m_sbtBuffer.buffer != VK_NULL_HANDLE;
++                             || m_rqPipeline != VK_NULL_HANDLE || m_sbtBuffer.buffer != VK_NULL_HANDLE;
+   if(hasLive)
+   {
+     // If the current variant already exists in the cache (possible after a switch that
+@@ -1275,7 +1292,6 @@ void PathTracer::destroyVariantCache(Resources& resources)
+   m_variantCache.clear();
+ }
+ 
+-
+ //--------------------------------------------------------------------------------------------------
+ // Update adaptive sampling based on frame timing
+ void PathTracer::updateAdaptiveSampling(Resources& resources)
+@@ -1328,11 +1344,8 @@ void PathTracer::updateAdaptiveSampling(Resources& resources)
+   }
+ }
+ 
+-
+ void PathTracer::updateStatistics(Resources& resources)
+ {
+-
+-
+   // Update rolling average throughput calculation using wall-clock time
+   {
+     // Time elapsed for this frame (wall-clock time from user perspective)
+@@ -1370,7 +1383,6 @@ void PathTracer::renderRayQuery(VkCommandBuffer cmd, VkExtent2D renderingSize, R
+   VkShaderStageFlagBits stage = VK_SHADER_STAGE_COMPUTE_BIT;
+   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_rqPipeline);
+ 
+-
+   // Bind the descriptor set: TLAS, output image, textures, etc. (Set: 0)
+   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipelineLayout, 0, 1, &resources.descriptorSet, 0, nullptr);
+ 
+@@ -1407,7 +1419,6 @@ void PathTracer::renderRayTrace(VkCommandBuffer cmd, VkExtent2D& renderingSize,
+ 
+   pushDescriptorSet(cmd, resources, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+ 
+-
+   vkCmdTraceRaysKHR(cmd, &m_sbtRegions.raygen, &m_sbtRegions.miss, &m_sbtRegions.hit, &m_sbtRegions.callable,
+                     renderingSize.width, renderingSize.height, 1);
+ }
+@@ -1432,10 +1443,10 @@ void PathTracer::denoiseDlss(VkCommandBuffer cmd, Resources& resources)
+     const VkExtent2D innerSz   = m_dlss->getRenderSize();
+     VkOffset3D       minCorner = {0, 0, 0};
+     VkImageBlit      blitRegions{
+-             .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+-             .srcOffsets     = {minCorner, {int(innerSz.width), int(innerSz.height), 1}},
+-             .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
+-             .dstOffsets = {minCorner, {int(resources.gBuffers.getSize().width), int(resources.gBuffers.getSize().height), 1}},
++        .srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
++        .srcOffsets     = {minCorner, {int(innerSz.width), int(innerSz.height), 1}},
++        .dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .layerCount = 1},
++        .dstOffsets = {minCorner, {int(resources.gBuffers.getSize().width), int(resources.gBuffers.getSize().height), 1}},
+     };
+     vkCmdBlitImage(cmd, m_dlss->getRrImage(shaderio::OutputImage::eSelectImage), VK_IMAGE_LAYOUT_GENERAL,
+                    resources.gBuffers.getColorImage(Resources::eImgSelection), VK_IMAGE_LAYOUT_GENERAL, 1, &blitRegions,
+@@ -1475,7 +1486,8 @@ void PathTracer::setupPushConstant(VkCommandBuffer cmd, Resources& resources, Vk
+   const Dlss::FrameContext fc = m_dlss->beginFrame();
+   if(useDlss)
+     frameCount = static_cast<int>(fc.frameIndex);
+-  // Patch only the 8-byte jitter slot; the rest of SceneFrameInfo was already written by renderer.cpp::renderFrame this frame.
++  // Patch only the 8-byte jitter slot; the rest of SceneFrameInfo was already written by renderer.cpp::renderFrame this
++  // frame.
+   vkCmdUpdateBuffer(cmd, resources.bFrameInfo.buffer, offsetof(shaderio::SceneFrameInfo, jitter), sizeof(glm::vec2), &fc.jitter);
+ #endif
+ 
+diff --git a/src/renderer_pathtracer.hpp b/src/renderer_pathtracer.hpp
+index bb7d15ab5856e55ca3990a4d93289302a27bfc27..7f2569fc8d350f7521668e4ae50a0b9eb484fec4 100644
+--- a/src/renderer_pathtracer.hpp
++++ b/src/renderer_pathtracer.hpp
+@@ -27,13 +27,13 @@
+ // Shader Input/Output
+ #include "shaders/shaderio.h"  // Shared between host and device
+ 
+-#include <nvvk/sbt_generator.hpp>
+ #include <nvutils/profiler.hpp>
+-#include "renderer_base.hpp"
+-#include "utils.hpp"
++#include <nvvk/sbt_generator.hpp>
+ #include "pipeline_cache_util.hpp"
++#include "renderer_base.hpp"
+ #include "scene_feature_detection.hpp"
+ #include "ui_busy_window.hpp"
++#include "utils.hpp"
+ 
+ // #DLSS
+ #if defined(USE_DLSS)
+@@ -45,7 +45,6 @@
+ #include "optix_denoiser.hpp"
+ #endif
+ 
+-
+ class PathTracer : public BaseRenderer
+ {
+ public:
+@@ -102,6 +101,15 @@ public:
+ 
+   bool                      m_supportSER{false};  // True when the device supports SER (Shader Execution Reordering).
+   bool                      m_useSER{false};      // True when the device is using SER.
++  int                       m_serMode{-1};        // CLI override: -1 automatic, 0 disabled, 1 enabled.
++  std::filesystem::path     m_pipelineCachePath{};
++  uint64_t                  m_pipelineCacheInitialBytes{0};
++  double                    m_pipelineBuildMs{0.0};
++  bool                      m_pipelineFeedbackValid{false};
++  bool                      m_pipelineCacheHit{false};
++  std::string               m_frontendSource{"embedded_spirv"};
++  double                    m_frontendCompileMs{0.0};
++  bool                      m_variantCacheHit{false};
+   bool                      m_compiledWireframe{false};  // True when the shader is the wireframe build.
+   bool                      m_compiledOptimal{false};    // True when the shader is the scene-aware optimized build.
+   nvvkgltf::SceneFeatureSet m_compiledFeatures{};        // The feature set the current shader was compiled against.
+@@ -204,7 +212,6 @@ public:
+   const Dlss*           getDlss() const { return m_dlss.get(); }
+ #endif
+ 
+-
+   // #OPTIX - Implementation of the OptiX denoiser
+ #if defined(USE_OPTIX_DENOISER)
+   std::unique_ptr<OptiXDenoiser> m_optix;
+@@ -212,7 +219,6 @@ public:
+   const OptiXDenoiser*           getOptiXDenoiser() const { return m_optix.get(); }
+ #endif
+ 
+-
+ private:
+   struct CompileStateSnapshot
+   {

@@ -2637,14 +2637,22 @@ void RenderLayer::OnCreate() {
   constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
                                                     VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
                                                     VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+  double ray_tracing_fallback_build_milliseconds = 0.0;
+  double ray_query_fallback_build_milliseconds = 0.0;
   if (Platform::RayTracingEnabled() && !ray_tracing_camera_fallback_pipeline_) {
+    const auto build_start = std::chrono::steady_clock::now();
     ray_tracing_camera_fallback_pipeline_ = CreateRayTracingCameraPipeline(
         per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, Platform::GetShaderGlobalDefines());
+    ray_tracing_fallback_build_milliseconds =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - build_start).count();
     ray_tracing_camera_pipeline = ray_tracing_camera_fallback_pipeline_;
   }
   if (Platform::RayQueryEnabled() && !ray_query_camera_fallback_pipeline_) {
+    const auto build_start = std::chrono::steady_clock::now();
     ray_query_camera_fallback_pipeline_ = CreateRayQueryCameraPipeline(
         per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, Platform::GetShaderGlobalDefines());
+    ray_query_fallback_build_milliseconds =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - build_start).count();
     ray_query_camera_pipeline_ = ray_query_camera_fallback_pipeline_;
   }
   if (!ray_camera_shader_variant_cache_ &&
@@ -2673,7 +2681,7 @@ void RenderLayer::OnCreate() {
             : RayCameraShaderVariantCache::RayQueryFactory{};
     ray_camera_shader_variant_cache_ = std::make_shared<RayCameraShaderVariantCache>(
         ray_tracing_camera_fallback_pipeline_, ray_query_camera_fallback_pipeline_, ray_tracing_factory,
-        ray_query_factory);
+        ray_query_factory, ray_tracing_fallback_build_milliseconds, ray_query_fallback_build_milliseconds);
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
     ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();

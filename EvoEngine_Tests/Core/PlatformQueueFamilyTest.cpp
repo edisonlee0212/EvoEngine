@@ -62,6 +62,21 @@ TEST(GpuTimestampStats, AggregatesValidSamples) {
   EXPECT_DOUBLE_EQ(stats.minimum_milliseconds, 1.0);
   EXPECT_DOUBLE_EQ(stats.maximum_milliseconds, 4.0);
   EXPECT_DOUBLE_EQ(stats.AverageMilliseconds(), 7.0 / 3.0);
+  EXPECT_DOUBLE_EQ(stats.MedianMilliseconds(), 2.0);
+  EXPECT_DOUBLE_EQ(stats.PercentileMilliseconds(0.95), 3.8);
+}
+
+TEST(GpuTimestampStats, InterpolatesEvenSamplePercentilesWithoutMutatingInsertionOrder) {
+  GpuTimestampStats stats;
+  stats.AddSample(8.0);
+  stats.AddSample(2.0);
+  stats.AddSample(6.0);
+  stats.AddSample(4.0);
+
+  EXPECT_DOUBLE_EQ(stats.MedianMilliseconds(), 5.0);
+  EXPECT_DOUBLE_EQ(stats.PercentileMilliseconds(0.0), 2.0);
+  EXPECT_DOUBLE_EQ(stats.PercentileMilliseconds(1.0), 8.0);
+  EXPECT_EQ(stats.samples_milliseconds, (std::vector<double>{8.0, 2.0, 6.0, 4.0}));
 }
 
 TEST(GpuTimestampStats, IgnoresInvalidSamples) {
@@ -72,4 +87,6 @@ TEST(GpuTimestampStats, IgnoresInvalidSamples) {
 
   EXPECT_EQ(stats.sample_count, 0u);
   EXPECT_DOUBLE_EQ(stats.AverageMilliseconds(), 0.0);
+  EXPECT_DOUBLE_EQ(stats.MedianMilliseconds(), 0.0);
+  EXPECT_TRUE(stats.samples_milliseconds.empty());
 }

@@ -85,9 +85,32 @@ struct GpuTimestampStats {
   double maximum_milliseconds = 0.0;
   double total_milliseconds = 0.0;
   uint64_t sample_count = 0;
+  std::vector<double> samples_milliseconds{};
 
   void AddSample(double milliseconds);
   [[nodiscard]] double AverageMilliseconds() const;
+  [[nodiscard]] double MedianMilliseconds() const;
+  [[nodiscard]] double PercentileMilliseconds(double percentile) const;
+};
+
+struct GpuMemoryHeapStats {
+  uint32_t heap_index = 0;
+  bool device_local = false;
+  uint64_t heap_size_bytes = 0;
+  uint64_t block_count = 0;
+  uint64_t allocation_count = 0;
+  uint64_t block_bytes = 0;
+  uint64_t allocation_bytes = 0;
+  uint64_t driver_usage_bytes = 0;
+  uint64_t driver_budget_bytes = 0;
+};
+
+struct GpuMemorySnapshot {
+  uint64_t block_count = 0;
+  uint64_t allocation_count = 0;
+  uint64_t block_bytes = 0;
+  uint64_t allocation_bytes = 0;
+  std::vector<GpuMemoryHeapStats> heaps{};
 };
 
 struct GpuTimestampScopeToken {
@@ -385,6 +408,7 @@ class Platform final {
   void PrepareGpuTimestampFrame(uint32_t frame_index);
   void ResolveGpuTimestampFrame(uint32_t frame_index);
   void AccumulateGpuTimestamp(const std::string& name, double milliseconds);
+  void AccumulateCpuTiming(const std::string& name, double milliseconds);
 
   /**
    * @brief Resets command buffers for reuse.
@@ -771,6 +795,8 @@ class Platform final {
   [[nodiscard]] static bool GpuTimestampCaptureAvailable();
   static void ResetGpuTimestampStats();
   [[nodiscard]] static std::vector<GpuTimestampStats> GetGpuTimestampStats();
+  [[nodiscard]] static std::vector<GpuTimestampStats> GetCpuTimingStats();
+  [[nodiscard]] static GpuMemorySnapshot GetGpuMemorySnapshot();
   [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
                                                                      const std::string& name);
   static void EndGpuTimestampScope(VkCommandBuffer vk_command_buffer, const GpuTimestampScopeToken& token);
@@ -965,6 +991,8 @@ class Platform final {
   std::recursive_mutex immediate_gpu_timestamp_mutex_{};
   mutable std::mutex gpu_timestamp_stats_mutex_{};
   std::unordered_map<std::string, GpuTimestampStats> gpu_timestamp_stats_{};
+  mutable std::mutex cpu_timing_stats_mutex_{};
+  std::unordered_map<std::string, GpuTimestampStats> cpu_timing_stats_{};
   std::optional<RenderCameraDrawScope> active_render_camera_draw_scope_{};
 };
 }  // namespace evo_engine

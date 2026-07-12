@@ -4,6 +4,7 @@
 #include "Jobs.hpp"
 #include "Shader.hpp"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -32,6 +33,9 @@ struct RayCameraShaderVariantStats {
   uint64_t activation_count = 0;
   uint64_t accumulation_reset_count = 0;
   uint64_t fallback_frame_count = 0;
+  double build_milliseconds = 0.0;
+  double request_to_ready_milliseconds = 0.0;
+  double fallback_build_milliseconds = 0.0;
   ShaderCompileCacheStats shader_cache;
 };
 
@@ -47,7 +51,9 @@ class RayCameraShaderVariantCache final {
 
   RayCameraShaderVariantCache(std::shared_ptr<RayTracingPipeline> ray_tracing_fallback,
                               std::shared_ptr<ComputePipeline> ray_query_fallback,
-                              RayTracingFactory ray_tracing_factory, RayQueryFactory ray_query_factory);
+                              RayTracingFactory ray_tracing_factory, RayQueryFactory ray_query_factory,
+                              double ray_tracing_fallback_build_milliseconds = 0.0,
+                              double ray_query_fallback_build_milliseconds = 0.0);
   ~RayCameraShaderVariantCache();
 
   RayCameraShaderVariantUpdate Update(uint32_t feature_mask, bool need_ray_tracing, bool need_ray_query);
@@ -68,6 +74,9 @@ class RayCameraShaderVariantCache final {
     std::shared_ptr<Pipeline> pipeline;
     std::string cache_source;
     std::string error;
+    std::chrono::steady_clock::time_point requested_at{};
+    double build_milliseconds = 0.0;
+    double request_to_ready_milliseconds = 0.0;
     uint64_t retry_after_update = 0;
     bool completed = false;
     bool success = false;
