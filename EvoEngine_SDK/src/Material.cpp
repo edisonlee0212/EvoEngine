@@ -96,6 +96,11 @@ void Material::SetTexture(const uint16_t texture_info_slot, const std::shared_pt
 
 uint16_t Material::SetTextureRef(uint16_t GltfShadeMaterial::* slot, const AssetRef& texture_ref,
                                  const int32_t tex_coord, const glm::mat3x2& uv_transform) {
+  if (tex_coord < 0 || tex_coord > 3) {
+    EVOENGINE_ERROR("Texture binding disabled because TEXCOORD_" + std::to_string(tex_coord) +
+                    " is outside the supported range 0..3.")
+    return SetTextureRef(slot, AssetRef{}, 0, uv_transform);
+  }
   auto resolved_ref = texture_ref;
   const auto texture = resolved_ref.Get<Texture2D>();
   uint16_t texture_info_slot = material_data.shade_material.*slot;
@@ -119,7 +124,7 @@ uint16_t Material::SetTextureRef(uint16_t GltfShadeMaterial::* slot, const Asset
   }
   auto& texture_info = material_data.texture_infos[texture_info_slot];
   texture_info.index = texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
-  texture_info.tex_coord = std::clamp(tex_coord, 0, 1);
+  texture_info.tex_coord = tex_coord;
 #if MAT_EXT_TEXTURE_TRANSFORM
   texture_info.uv_transform = uv_transform;
 #endif

@@ -3,14 +3,33 @@
 #include <gtest/gtest.h>
 
 #include "Application.hpp"
+#include "ApplicationContext.hpp"
+#include "ApplicationInitializationSettings.hpp"
+#include "AssetManager.hpp"
 #include "GltfMaterialCache.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
+#include "MeshRenderer.hpp"
+#include "Prefab.hpp"
+#include "SkinnedMesh.hpp"
+
+#include <fstream>
+#include <iterator>
 
 using namespace evo_engine;
 
 namespace {
 constexpr float kEpsilon = 0.0001f;
+
+ApplicationInitializationSettings EmptyProjectSettings() {
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  return settings;
+}
 
 void ExpectVec2Near(const glm::vec2& actual, const glm::vec2& expected) {
   EXPECT_NEAR(actual.x, expected.x, kEpsilon);
@@ -28,6 +47,22 @@ void ExpectVec4Near(const glm::vec4& actual, const glm::vec4& expected) {
   EXPECT_NEAR(actual.y, expected.y, kEpsilon);
   EXPECT_NEAR(actual.z, expected.z, kEpsilon);
   EXPECT_NEAR(actual.w, expected.w, kEpsilon);
+}
+
+std::shared_ptr<Material> FindFirstMaterial(const std::shared_ptr<Prefab>& prefab) {
+  for (const auto& holder : prefab->private_components) {
+    if (const auto renderer = std::dynamic_pointer_cast<MeshRenderer>(holder.private_component)) {
+      if (const auto material = renderer->material.Get<Material>()) {
+        return material;
+      }
+    }
+  }
+  for (const auto& child : prefab->child_prefabs) {
+    if (const auto material = FindFirstMaterial(child)) {
+      return material;
+    }
+  }
+  return {};
 }
 }  // namespace
 
@@ -90,9 +125,213 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
 
   ASSERT_NE(material.normal_texture, 0);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].index, 104);
-  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 1);
+  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 2);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].color_space,
             static_cast<int32_t>(GltfTextureColorSpace::Linear));
+}
+
+TEST(GltfMaterialConversion, SupportsFourUvSetsAndDisablesOnlyOutOfRangeBindings) {
+  const auto gltf = YAML::Load(R"({
+    "materials": [{
+      "normalTexture": {"index": 1, "texCoord": 2},
+      "occlusionTexture": {"index": 2, "texCoord": 4},
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 3,
+          "texCoord": 1,
+          "extensions": {"KHR_texture_transform": {"texCoord": 3}}
+        },
+        "metallicRoughnessTexture": {"index": 4, "texCoord": 0}
+      }
+    }]
+  })");
+
+  std::vector<std::string> diagnostics;
+  std::vector<int32_t> resolved;
+  const auto materials = BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [&](const int32_t texture_index) {
+        resolved.push_back(texture_index);
+        return 100 + texture_index;
+      },
+      {}, {},
+      [&](const std::string& message) {
+        diagnostics.push_back(message);
+      });
+
+  ASSERT_EQ(materials.size(), 1);
+  const auto& material = materials[0].shade_material;
+  ASSERT_NE(material.normal_texture, 0);
+  ASSERT_NE(material.pbr_base_color_texture, 0);
+  ASSERT_NE(material.pbr_metallic_roughness_texture, 0);
+  EXPECT_EQ(material.occlusion_texture, 0);
+  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 2);
+  EXPECT_EQ(materials[0].texture_infos[material.pbr_base_color_texture].tex_coord, 3);
+  EXPECT_EQ(materials[0].texture_infos[material.pbr_metallic_roughness_texture].tex_coord, 0);
+  EXPECT_EQ(resolved, (std::vector<int32_t>{1, 3, 4}));
+  ASSERT_EQ(diagnostics.size(), 1);
+  EXPECT_NE(diagnostics[0].find("TEXCOORD_4"), std::string::npos);
+  EXPECT_NE(diagnostics[0].find("supported range 0..3"), std::string::npos);
+}
+
+TEST(GltfMaterialConversion, GltfSamplerEnumsMapToVulkanWithoutReferenceMipSwap) {
+  const auto gltf = YAML::Load(R"({
+    "textures": [
+      {"sampler": 0}, {"sampler": 1}, {"sampler": 2},
+      {"sampler": 3}, {"sampler": 4}, {"sampler": 5}, {"sampler": 6}
+    ],
+    "samplers": [
+      {"magFilter": 9728, "minFilter": 9728, "wrapS": 33071, "wrapT": 33648},
+      {"minFilter": 9729}, {"minFilter": 9984}, {"minFilter": 9985},
+      {"minFilter": 9986}, {"minFilter": 9987},
+      {"magFilter": 7, "minFilter": 8, "wrapS": 9, "wrapT": 10}
+    ]
+  })");
+
+  const auto nearest = ReadGltfSamplerInfo(gltf, 0);
+  EXPECT_EQ(nearest.mag_filter, VK_FILTER_NEAREST);
+  EXPECT_EQ(nearest.min_filter, VK_FILTER_NEAREST);
+  EXPECT_EQ(nearest.mipmap_mode, VK_SAMPLER_MIPMAP_MODE_NEAREST);
+  EXPECT_FLOAT_EQ(nearest.max_lod, 0.0f);
+  EXPECT_EQ(nearest.address_mode_u, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+  EXPECT_EQ(nearest.address_mode_v, VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT);
+
+  const auto linear_no_mip = ReadGltfSamplerInfo(gltf, 1);
+  EXPECT_EQ(linear_no_mip.min_filter, VK_FILTER_LINEAR);
+  EXPECT_FLOAT_EQ(linear_no_mip.max_lod, 0.0f);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 2).mipmap_mode, VK_SAMPLER_MIPMAP_MODE_NEAREST);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 2).min_filter, VK_FILTER_NEAREST);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 3).mipmap_mode, VK_SAMPLER_MIPMAP_MODE_NEAREST);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 3).min_filter, VK_FILTER_LINEAR);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 4).mipmap_mode, VK_SAMPLER_MIPMAP_MODE_LINEAR);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 4).min_filter, VK_FILTER_NEAREST);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 5).mipmap_mode, VK_SAMPLER_MIPMAP_MODE_LINEAR);
+  EXPECT_EQ(ReadGltfSamplerInfo(gltf, 5).min_filter, VK_FILTER_LINEAR);
+
+  std::vector<std::string> diagnostics;
+  const auto invalid = ReadGltfSamplerInfo(gltf, 6, [&](const std::string& message) {
+    diagnostics.push_back(message);
+  });
+  EXPECT_EQ(invalid.mag_filter, VK_FILTER_LINEAR);
+  EXPECT_EQ(invalid.min_filter, VK_FILTER_LINEAR);
+  EXPECT_EQ(invalid.address_mode_u, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  EXPECT_EQ(invalid.address_mode_v, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  EXPECT_EQ(diagnostics.size(), 4);
+}
+
+TEST(GltfMaterialConversion, RootReaderParsesExternalAndBinaryContainersWithEmbeddedUris) {
+  const std::string json = R"({
+    "asset": {"version": "2.0"},
+    "buffers": [{"uri": "data:application/octet-stream;base64,AAAA", "byteLength": 3}],
+    "images": [{"uri": "data:image/png;base64,iVBORw0KGgo="}],
+    "materials": [{"extensions": {"KHR_materials_clearcoat": {"clearcoatFactor": 0.75}}}]
+  })";
+  const auto root = std::filesystem::temp_directory_path() / "EvoEngine_GltfRootReader_M9";
+  std::filesystem::create_directories(root);
+  const auto gltf_path = root / "embedded.gltf";
+  const auto glb_path = root / "embedded.glb";
+  {
+    std::ofstream stream(gltf_path, std::ios::binary);
+    stream << json;
+  }
+
+  std::string padded_json = json;
+  while (padded_json.size() % 4 != 0) {
+    padded_json.push_back(' ');
+  }
+  const uint32_t total_length = static_cast<uint32_t>(20 + padded_json.size());
+  const uint32_t header[] = {0x46546c67u, 2u, total_length, static_cast<uint32_t>(padded_json.size()), 0x4e4f534au};
+  {
+    std::ofstream stream(glb_path, std::ios::binary);
+    stream.write(reinterpret_cast<const char*>(header), sizeof(header));
+    stream.write(padded_json.data(), static_cast<std::streamsize>(padded_json.size()));
+  }
+
+  const auto external = ReadGltfRootNode(gltf_path);
+  const auto binary = ReadGltfRootNode(glb_path);
+  ASSERT_TRUE(external["materials"][0]["extensions"]["KHR_materials_clearcoat"]);
+  ASSERT_TRUE(binary["materials"][0]["extensions"]["KHR_materials_clearcoat"]);
+  EXPECT_FLOAT_EQ(binary["materials"][0]["extensions"]["KHR_materials_clearcoat"]["clearcoatFactor"].as<float>(),
+                  0.75f);
+  EXPECT_EQ(external["buffers"][0]["uri"].as<std::string>().find("data:"), 0);
+  EXPECT_EQ(binary["images"][0]["uri"].as<std::string>().find("data:image/png"), 0);
+
+  std::error_code error;
+  std::filesystem::remove_all(root, error);
+}
+
+TEST(GltfMaterialConversion, PrefabImportsExternalEmbeddedAndBinaryGltfTexturesWithSamplers) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto model_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" / "assimp" /
+                          "assimp" / "test" / "models" / "glTF2";
+  const std::filesystem::path paths[] = {
+      model_root / "BoxTextured-glTF" / "BoxTextured.gltf",
+      model_root / "BoxTextured-glTF-Embedded" / "BoxTextured.gltf",
+      model_root / "BoxTextured-glTF-Binary" / "BoxTextured.glb",
+  };
+
+  const auto validate_import = [](const std::filesystem::path& path) {
+    ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
+    const auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
+    ASSERT_TRUE(prefab->Import(path)) << path.string();
+    const auto material = FindFirstMaterial(prefab);
+    ASSERT_TRUE(material) << path.string();
+    const auto texture_slot = material->material_data.shade_material.pbr_base_color_texture;
+    ASSERT_NE(texture_slot, 0) << path.string();
+    const auto texture = material->GetTexture(texture_slot);
+    ASSERT_TRUE(texture) << path.string();
+    EXPECT_FALSE(texture->PeekLocalData().empty()) << path.string();
+    EXPECT_TRUE(texture->srgb) << path.string();
+
+    const auto gltf = ReadGltfRootNode(path);
+    const auto expected = ReadGltfSamplerInfo(gltf, 0);
+    const auto& sampler = texture->GetSamplerSettings();
+    EXPECT_EQ(sampler.mag_filter, expected.mag_filter) << path.string();
+    EXPECT_EQ(sampler.min_filter, expected.min_filter) << path.string();
+    EXPECT_EQ(sampler.mipmap_mode, expected.mipmap_mode) << path.string();
+    EXPECT_EQ(sampler.address_mode_u, expected.address_mode_u) << path.string();
+    EXPECT_EQ(sampler.address_mode_v, expected.address_mode_v) << path.string();
+    EXPECT_FLOAT_EQ(sampler.max_lod, expected.max_lod) << path.string();
+  };
+
+  for (const auto& path : paths) {
+    validate_import(path);
+  }
+
+  const auto uri_root = std::filesystem::temp_directory_path() / "EvoEngine_GltfUriFallback_M9";
+  std::filesystem::create_directories(uri_root);
+  std::filesystem::copy_file(paths[0].parent_path() / "BoxTextured0.bin", uri_root / "BoxTextured0.bin",
+                             std::filesystem::copy_options::overwrite_existing);
+  std::filesystem::copy_file(paths[0].parent_path() / "CesiumLogoFlat.png", uri_root / "Cesium Logo Flat.png",
+                             std::filesystem::copy_options::overwrite_existing);
+  std::ifstream source_stream(paths[0]);
+  std::string source((std::istreambuf_iterator<char>(source_stream)), std::istreambuf_iterator<char>());
+  const auto replace = [&](const std::string& from, const std::string& to) {
+    const auto position = source.find(from);
+    ASSERT_NE(position, std::string::npos);
+    source.replace(position, from.size(), to);
+  };
+  replace(R"("sampler": 0,
+            "source": 0)",
+          R"("sampler": 0,
+            "source": 0,
+            "extensions": {"MSFT_texture_dds": {"source": 1}})");
+  replace(R"({
+            "uri": "CesiumLogoFlat.png"
+        })",
+          R"({
+            "uri": "Cesium%20Logo%20Flat.png"
+        },
+        {
+            "uri": "Missing.dds"
+        })");
+  const auto uri_path = uri_root / "BoxTexturedUriFallback.gltf";
+  std::ofstream(uri_path, std::ios::binary) << source;
+  validate_import(uri_path);
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(uri_root, cleanup_error);
 }
 
 TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlossModel) {
@@ -448,6 +687,33 @@ TEST(GltfMaterialConversion, TextureInfosApplyRequestedVerticalFlipAfterTextureT
   EXPECT_NEAR(normal.uv_transform[2][1], 0.0f, kEpsilon);
 }
 
+TEST(GltfMaterialConversion, TextureSourceFlipCanDifferByColorSpace) {
+  const auto gltf = YAML::Load(R"({
+    "materials": [{
+      "normalTexture": {"index": 2},
+      "pbrMetallicRoughness": {"baseColorTexture": {"index": 2}}
+    }]
+  })");
+
+  const auto materials = BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [](const int32_t texture_index, const bool) {
+        return texture_index;
+      },
+      [](const int32_t texture_index, const bool srgb) {
+        return texture_index == 2 && srgb;
+      });
+
+  ASSERT_EQ(materials.size(), 1);
+  const auto& shade = materials[0].shade_material;
+  const auto& base_color = materials[0].texture_infos[shade.pbr_base_color_texture].uv_transform;
+  const auto& normal = materials[0].texture_infos[shade.normal_texture].uv_transform;
+  EXPECT_NEAR(base_color[1][1], -1.0f, kEpsilon);
+  EXPECT_NEAR(base_color[2][1], 1.0f, kEpsilon);
+  EXPECT_NEAR(normal[1][1], 1.0f, kEpsilon);
+  EXPECT_NEAR(normal[2][1], 0.0f, kEpsilon);
+}
+
 TEST(GltfMaterialConversion, TextureTransformRotationKeepsKhronosOrderBeforeStorageFlip) {
   const auto gltf = YAML::Load(R"({
     "materials": [{
@@ -562,13 +828,120 @@ TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesSecondaryUvSetBefor
 
   Mesh mesh;
   mesh.OnCreate();
-  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, true);
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 1);
 
   ASSERT_EQ(mesh.PeekVertices().size(), 3);
   EXPECT_NEAR(mesh.PeekVertices()[0].tangent.x, 0.0f, kEpsilon);
   EXPECT_NEAR(mesh.PeekVertices()[0].tangent.y, 1.0f, kEpsilon);
   EXPECT_NEAR(mesh.PeekVertices()[0].tangent.z, 0.0f, kEpsilon);
   EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
+}
+
+TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesFourthUvSet) {
+  Application app;
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.tex_coord_3 = true;
+
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  for (auto& vertex : vertices) {
+    vertex.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    vertex.tex_coord = glm::vec2(0.0f);
+  }
+  vertices[0].tex_coord_3 = glm::vec2(0.0f, 0.0f);
+  vertices[1].tex_coord_3 = glm::vec2(0.0f, 1.0f);
+  vertices[2].tex_coord_3 = glm::vec2(1.0f, 0.0f);
+
+  Mesh mesh;
+  mesh.OnCreate();
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 3);
+
+  ASSERT_EQ(mesh.PeekVertices().size(), 3);
+  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.x, 0.0f, kEpsilon);
+  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.y, 1.0f, kEpsilon);
+  EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
+}
+
+TEST(GltfMaterialConversion, MikkTangentsSplitMirroredChartsAndPreserveSkinnedData) {
+  Application app;
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+
+  std::vector<Vertex> vertices(4);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  vertices[3].position = glm::vec3(1.0f, 1.0f, 0.0f);
+  for (auto& vertex : vertices) {
+    vertex.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+  }
+  vertices[0].tex_coord = glm::vec2(0.0f, 0.0f);
+  vertices[1].tex_coord = glm::vec2(1.0f, 0.0f);
+  vertices[2].tex_coord = glm::vec2(0.0f, 1.0f);
+  vertices[3].tex_coord = glm::vec2(0.0f, 0.0f);
+  const std::vector<glm::uvec3> triangles{{0, 1, 2}, {2, 1, 3}};
+
+  Mesh mesh;
+  mesh.OnCreate();
+  mesh.SetVertices(attributes, vertices, triangles);
+  ASSERT_EQ(mesh.PeekVertices().size(), 6);
+  const auto& split_triangles = mesh.PeekTriangles();
+  const float first_sign = mesh.PeekVertices()[split_triangles[0].x].vertex_info3;
+  const float second_sign = mesh.PeekVertices()[split_triangles[1].x].vertex_info3;
+  EXPECT_EQ(first_sign, mesh.PeekVertices()[split_triangles[0].y].vertex_info3);
+  EXPECT_EQ(first_sign, mesh.PeekVertices()[split_triangles[0].z].vertex_info3);
+  EXPECT_EQ(second_sign, mesh.PeekVertices()[split_triangles[1].y].vertex_info3);
+  EXPECT_EQ(second_sign, mesh.PeekVertices()[split_triangles[1].z].vertex_info3);
+  EXPECT_EQ(first_sign, -second_sign);
+
+  SkinnedVertexAttributes skinned_attributes;
+  skinned_attributes.normal = true;
+  skinned_attributes.tex_coord = true;
+  std::vector<SkinnedVertex> skinned_vertices(vertices.size());
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    skinned_vertices[i].position = vertices[i].position;
+    skinned_vertices[i].normal = vertices[i].normal;
+    skinned_vertices[i].tex_coord = vertices[i].tex_coord;
+    skinned_vertices[i].bond_id = glm::ivec4(7);
+    skinned_vertices[i].weight = glm::vec4(0.25f);
+    skinned_vertices[i].vertex_info4 = glm::vec2(3.0f, 4.0f);
+  }
+  SkinnedMesh skinned_mesh;
+  skinned_mesh.OnCreate();
+  skinned_mesh.SetVertices(skinned_attributes, skinned_vertices, triangles);
+  ASSERT_EQ(skinned_mesh.PeekSkinnedVertices().size(), 6);
+  for (const auto& vertex : skinned_mesh.PeekSkinnedVertices()) {
+    EXPECT_EQ(vertex.bond_id, glm::ivec4(7));
+    EXPECT_EQ(vertex.weight, glm::vec4(0.25f));
+    EXPECT_EQ(vertex.vertex_info4, glm::vec2(3.0f, 4.0f));
+  }
+}
+
+TEST(GltfMaterialConversion, AuthoredTangentsRemainByteStableAndUnsplit) {
+  Application app;
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tangent = true;
+  attributes.tex_coord = true;
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    vertices[i].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    vertices[i].tangent = glm::vec3(0.25f + static_cast<float>(i), 0.5f, 0.75f);
+    vertices[i].vertex_info3 = i == 1 ? -1.0f : 1.0f;
+  }
+  Mesh mesh;
+  mesh.OnCreate();
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 3);
+  ASSERT_EQ(mesh.PeekVertices().size(), vertices.size());
+  EXPECT_EQ(std::memcmp(mesh.PeekVertices().data(), vertices.data(), vertices.size() * sizeof(Vertex)), 0);
 }
 
 TEST(GltfMaterialConversion, EmptyGltfMaterialPreservesReferenceMetallicDefault) {

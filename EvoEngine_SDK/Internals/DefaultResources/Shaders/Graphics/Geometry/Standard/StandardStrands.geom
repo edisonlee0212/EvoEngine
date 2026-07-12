@@ -20,8 +20,8 @@ layout (location = 0) out VS_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	flat float TangentHandedness;
-	vec2 TexCoord;
-	vec2 TexCoord1;
+	vec4 TexCoord01;
+	vec4 TexCoord23;
 	vec4 Color;
 } gs_out;
 
@@ -86,8 +86,9 @@ void main(){
 			gs_out.Tangent = tS;
 			gs_out.TangentHandedness = modelHandedness;
 			transformHandedness = modelHandedness;
-			gs_out.TexCoord = vec2(1.0 * tempIS / ringAmountS, tes_in[i].TexCoord);
-			gs_out.TexCoord1 = gs_out.TexCoord;
+			vec2 texCoordS = vec2(1.0 * tempIS / ringAmountS, tes_in[i].TexCoord);
+			gs_out.TexCoord01 = vec4(texCoordS, texCoordS);
+			gs_out.TexCoord23 = vec4(0.0);
 			gs_out.Color = tes_in[i].Color;
 			gl_Position = cameraProjectionView * vec4(newPS, 1);
 			EmitVertex();
@@ -99,8 +100,9 @@ void main(){
 			gs_out.Tangent = tT;
 			gs_out.TangentHandedness = modelHandedness;
 			transformHandedness = modelHandedness;
-			gs_out.TexCoord = vec2(1.0 * tempIT / ringAmountT, tes_in[i + 1].TexCoord);
-			gs_out.TexCoord1 = gs_out.TexCoord;
+			vec2 texCoordT = vec2(1.0 * tempIT / ringAmountT, tes_in[i + 1].TexCoord);
+			gs_out.TexCoord01 = vec4(texCoordT, texCoordT);
+			gs_out.TexCoord23 = vec4(0.0);
 			gs_out.Color = tes_in[i + 1].Color;
 			gl_Position = cameraProjectionView * vec4(newPT, 1);
 			EmitVertex();

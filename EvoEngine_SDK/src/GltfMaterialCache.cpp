@@ -17,7 +17,7 @@ struct GltfTextureNodeInfo {
 };
 
 int32_t ClampTexCoord(const int32_t tex_coord) {
-  return std::clamp(tex_coord, 0, 1);
+  return tex_coord >= 0 && tex_coord <= 3 ? tex_coord : -1;
 }
 
 float ReadFloat(const YAML::Node& node, const float fallback) {
@@ -140,39 +140,48 @@ glm::mat3x2 FlipTextureTransformY(const glm::mat3x2& uv_transform) {
   return result;
 }
 
-GltfTextureNodeInfo ReadTextureNodeInfo(const YAML::Node& texture_info) {
+GltfTextureNodeInfo ReadTextureNodeInfo(const YAML::Node& texture_info, const size_t material_index,
+                                        const GltfMaterialErrorCallback& report_error) {
   GltfTextureNodeInfo result;
-  if (!texture_info || !ChildNode(texture_info, "index")) {
+  const auto texture_index = ChildNode(texture_info, "index");
+  if (!texture_info || texture_info.IsNull() || !texture_index || texture_index.IsNull()) {
     return result;
   }
 
   result.present = true;
-  result.texture_index = ReadInt(ChildNode(texture_info, "index"), -1);
-  result.tex_coord = ClampTexCoord(ReadInt(ChildNode(texture_info, "texCoord"), 0));
+  result.texture_index = ReadInt(texture_index, -1);
+  result.tex_coord = ReadInt(ChildNode(texture_info, "texCoord"), 0);
   if (const auto transform = ChildNode(ChildNode(texture_info, "extensions"), "KHR_texture_transform")) {
     const auto offset = ReadVec2(ChildNode(transform, "offset"), glm::vec2(0.0f));
     const auto scale = ReadVec2(ChildNode(transform, "scale"), glm::vec2(1.0f));
     const auto rotation = ReadFloat(ChildNode(transform, "rotation"), 0.0f);
-    result.tex_coord = ClampTexCoord(ReadInt(ChildNode(transform, "texCoord"), result.tex_coord));
+    result.tex_coord = ReadInt(ChildNode(transform, "texCoord"), result.tex_coord);
     result.uv_transform = BuildTextureTransform(offset, scale, rotation);
+  }
+  if (ClampTexCoord(result.tex_coord) < 0) {
+    ReportMaterialError(report_error, "glTF material " + std::to_string(material_index) + " disables texture " +
+                                          std::to_string(result.texture_index) + " because TEXCOORD_" +
+                                          std::to_string(result.tex_coord) + " is outside the supported range 0..3.");
+    result.present = false;
   }
   return result;
 }
 
 void AssignTextureNode(GltfMaterialData& material_data, uint16_t GltfShadeMaterial::* slot,
                        const GltfTextureNodeInfo& texture_info,
-                       const std::function<int32_t(int32_t texture_index)>& resolve_texture_index,
-                       const std::function<bool(int32_t texture_index)>& texture_source_needs_y_flip,
-                       const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb, const bool srgb) {
+                       const std::function<int32_t(int32_t texture_index, bool srgb)>& resolve_texture_index,
+                       const std::function<bool(int32_t texture_index, bool srgb)>& texture_source_needs_y_flip,
+                       const std::function<bool(int32_t texture_index, bool srgb)>& texture_source_decodes_srgb,
+                       const bool srgb) {
   if (!texture_info.present) {
     return;
   }
-  const auto texture_index = resolve_texture_index(texture_info.texture_index);
-  const auto uv_transform = texture_source_needs_y_flip && texture_source_needs_y_flip(texture_info.texture_index)
+  const auto texture_index = resolve_texture_index(texture_info.texture_index, srgb);
+  const auto uv_transform = texture_source_needs_y_flip && texture_source_needs_y_flip(texture_info.texture_index, srgb)
                                 ? FlipTextureTransformY(texture_info.uv_transform)
                                 : texture_info.uv_transform;
   const auto color_space =
-      srgb && !(texture_source_decodes_srgb && texture_source_decodes_srgb(texture_info.texture_index))
+      srgb && !(texture_source_decodes_srgb && texture_source_decodes_srgb(texture_info.texture_index, srgb))
           ? GltfTextureColorSpace::Srgb
           : GltfTextureColorSpace::Linear;
   AssignGltfTextureSlot(material_data, slot, texture_index, texture_info.tex_coord, uv_transform, color_space);
@@ -235,6 +244,9 @@ GltfTextureInfo evo_engine::MakeGltfTextureInfo(const int32_t texture_index, con
   GltfTextureInfo result;
   result.index = texture_index;
   result.tex_coord = ClampTexCoord(tex_coord);
+  if (result.tex_coord < 0) {
+    result.index = -1;
+  }
   result.color_space = static_cast<int32_t>(color_space);
 #if MAT_EXT_TEXTURE_TRANSFORM
   result.uv_transform = uv_transform;
@@ -285,10 +297,87 @@ std::string evo_engine::ResolveGltfTextureUri(const YAML::Node& gltf, const int3
   return ReadString(ChildNode(images[image_index], "uri"));
 }
 
+GltfSamplerInfo evo_engine::ReadGltfSamplerInfo(const YAML::Node& gltf, const int32_t texture_index,
+                                                const GltfMaterialErrorCallback& report_error) {
+  GltfSamplerInfo result;
+  const auto textures = ChildNode(gltf, "textures");
+  if (!textures || texture_index < 0 || texture_index >= static_cast<int32_t>(textures.size())) {
+    ReportMaterialError(report_error, "glTF texture " + std::to_string(texture_index) + " is out of range.");
+    return result;
+  }
+  const int32_t sampler_index = ReadInt(ChildNode(textures[texture_index], "sampler"), -1);
+  if (sampler_index < 0) {
+    return result;
+  }
+  const auto samplers = ChildNode(gltf, "samplers");
+  if (!samplers || sampler_index >= static_cast<int32_t>(samplers.size())) {
+    ReportMaterialError(report_error, "glTF texture " + std::to_string(texture_index) + " references sampler " +
+                                          std::to_string(sampler_index) + " outside the sampler array.");
+    return result;
+  }
+  const auto sampler = samplers[sampler_index];
+  const auto report_value = [&](const char* field, const int32_t value) {
+    ReportMaterialError(report_error, "glTF sampler " + std::to_string(sampler_index) + " uses unsupported " + field +
+                                          " value " + std::to_string(value) + "; using the default.");
+  };
+
+  const int32_t mag_filter = ReadInt(ChildNode(sampler, "magFilter"), 9729);
+  if (mag_filter == 9728) {
+    result.mag_filter = VK_FILTER_NEAREST;
+  } else if (mag_filter != 9729) {
+    report_value("magFilter", mag_filter);
+  }
+
+  const int32_t min_filter = ReadInt(ChildNode(sampler, "minFilter"), 9987);
+  switch (min_filter) {
+    case 9728:
+      result.min_filter = VK_FILTER_NEAREST;
+      result.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+      result.max_lod = 0.0f;
+      break;
+    case 9729:
+      result.max_lod = 0.0f;
+      break;
+    case 9984:
+      result.min_filter = VK_FILTER_NEAREST;
+      result.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+      break;
+    case 9985:
+      result.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+      break;
+    case 9986:
+      result.min_filter = VK_FILTER_NEAREST;
+      break;
+    case 9987:
+      break;
+    default:
+      report_value("minFilter", min_filter);
+      break;
+  }
+
+  const auto read_address_mode = [&](const char* field) {
+    const int32_t value = ReadInt(ChildNode(sampler, field), 10497);
+    switch (value) {
+      case 33071:
+        return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+      case 33648:
+        return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+      case 10497:
+        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+      default:
+        report_value(field, value);
+        return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    }
+  };
+  result.address_mode_u = read_address_mode("wrapS");
+  result.address_mode_v = read_address_mode("wrapT");
+  return result;
+}
+
 std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
-    const YAML::Node& gltf, const std::function<int32_t(int32_t texture_index)>& resolve_texture_index,
-    const std::function<bool(int32_t texture_index)>& texture_source_needs_y_flip,
-    const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb,
+    const YAML::Node& gltf, const std::function<int32_t(int32_t texture_index, bool srgb)>& resolve_texture_index,
+    const std::function<bool(int32_t texture_index, bool srgb)>& texture_source_needs_y_flip,
+    const std::function<bool(int32_t texture_index, bool srgb)>& texture_source_decodes_srgb,
     const GltfMaterialErrorCallback& report_error) {
   std::vector<GltfMaterialData> result;
   const auto materials = ChildNode(gltf, "materials");
@@ -458,96 +547,118 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
     }
 #endif
 
+    const auto read_texture_info = [&](const YAML::Node& node) {
+      return ReadTextureNodeInfo(node, material_index, report_error);
+    };
     AssignTextureNode(material_data, &GltfShadeMaterial::emissive_texture,
-                      ReadTextureNodeInfo(ChildNode(source_material, "emissiveTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(source_material, "emissiveTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, true);
     AssignTextureNode(material_data, &GltfShadeMaterial::normal_texture,
-                      ReadTextureNodeInfo(ChildNode(source_material, "normalTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(source_material, "normalTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::pbr_base_color_texture,
-                      ReadTextureNodeInfo(ChildNode(pbr_metallic_roughness, "baseColorTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(pbr_metallic_roughness, "baseColorTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, true);
     AssignTextureNode(material_data, &GltfShadeMaterial::pbr_metallic_roughness_texture,
-                      ReadTextureNodeInfo(ChildNode(pbr_metallic_roughness, "metallicRoughnessTexture")),
+                      read_texture_info(ChildNode(pbr_metallic_roughness, "metallicRoughnessTexture")),
                       resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::occlusion_texture,
-                      ReadTextureNodeInfo(ChildNode(source_material, "occlusionTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(source_material, "occlusionTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #if MAT_EXT_TRANSMISSION
     AssignTextureNode(material_data, &GltfShadeMaterial::transmission_texture,
-                      ReadTextureNodeInfo(ChildNode(transmission, "transmissionTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(transmission, "transmissionTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 #if MAT_EXT_VOLUME
     AssignTextureNode(material_data, &GltfShadeMaterial::thickness_texture,
-                      ReadTextureNodeInfo(ChildNode(volume, "thicknessTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(volume, "thicknessTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 #if MAT_EXT_CLEARCOAT
     AssignTextureNode(material_data, &GltfShadeMaterial::clearcoat_roughness_texture,
-                      ReadTextureNodeInfo(ChildNode(clearcoat, "clearcoatRoughnessTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(clearcoat, "clearcoatRoughnessTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::clearcoat_texture,
-                      ReadTextureNodeInfo(ChildNode(clearcoat, "clearcoatTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(clearcoat, "clearcoatTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::clearcoat_normal_texture,
-                      ReadTextureNodeInfo(ChildNode(clearcoat, "clearcoatNormalTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(clearcoat, "clearcoatNormalTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 #if MAT_EXT_SPECULAR
     AssignTextureNode(material_data, &GltfShadeMaterial::specular_texture,
-                      ReadTextureNodeInfo(ChildNode(specular, "specularTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(specular, "specularTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::specular_color_texture,
-                      ReadTextureNodeInfo(ChildNode(specular, "specularColorTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(specular, "specularColorTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, true);
 #endif
 #if MAT_EXT_IRIDESCENCE
     AssignTextureNode(material_data, &GltfShadeMaterial::iridescence_texture,
-                      ReadTextureNodeInfo(ChildNode(iridescence, "iridescenceTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(iridescence, "iridescenceTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::iridescence_thickness_texture,
-                      ReadTextureNodeInfo(ChildNode(iridescence, "iridescenceThicknessTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(iridescence, "iridescenceThicknessTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 #if MAT_EXT_ANISOTROPY
     AssignTextureNode(material_data, &GltfShadeMaterial::anisotropy_texture,
-                      ReadTextureNodeInfo(ChildNode(anisotropy, "anisotropyTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(anisotropy, "anisotropyTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 #if MAT_EXT_SHEEN
     AssignTextureNode(material_data, &GltfShadeMaterial::sheen_color_texture,
-                      ReadTextureNodeInfo(ChildNode(sheen, "sheenColorTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(sheen, "sheenColorTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, true);
     AssignTextureNode(material_data, &GltfShadeMaterial::sheen_roughness_texture,
-                      ReadTextureNodeInfo(ChildNode(sheen, "sheenRoughnessTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(sheen, "sheenRoughnessTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 #if MAT_EXT_SPECULAR_GLOSSINESS
     AssignTextureNode(material_data, &GltfShadeMaterial::pbr_diffuse_texture,
-                      ReadTextureNodeInfo(ChildNode(specular_glossiness, "diffuseTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(specular_glossiness, "diffuseTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, true);
     AssignTextureNode(material_data, &GltfShadeMaterial::pbr_specular_glossiness_texture,
-                      ReadTextureNodeInfo(ChildNode(specular_glossiness, "specularGlossinessTexture")),
+                      read_texture_info(ChildNode(specular_glossiness, "specularGlossinessTexture")),
                       resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, true);
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
     AssignTextureNode(material_data, &GltfShadeMaterial::diffuse_transmission_texture,
-                      ReadTextureNodeInfo(ChildNode(diffuse_transmission, "diffuseTransmissionTexture")),
+                      read_texture_info(ChildNode(diffuse_transmission, "diffuseTransmissionTexture")),
                       resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, false);
     AssignTextureNode(material_data, &GltfShadeMaterial::diffuse_transmission_color_texture,
-                      ReadTextureNodeInfo(ChildNode(diffuse_transmission, "diffuseTransmissionColorTexture")),
+                      read_texture_info(ChildNode(diffuse_transmission, "diffuseTransmissionColorTexture")),
                       resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, true);
 #endif
 #if MAT_EXT_RETROREFLECTION
     AssignTextureNode(material_data, &GltfShadeMaterial::retroreflection_texture,
-                      ReadTextureNodeInfo(ChildNode(retroreflection, "retroreflectionTexture")), resolve_texture_index,
+                      read_texture_info(ChildNode(retroreflection, "retroreflectionTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
 #endif
 
     result.emplace_back(std::move(material_data));
   }
   return result;
+}
+
+std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
+    const YAML::Node& gltf, const std::function<int32_t(int32_t texture_index)>& resolve_texture_index,
+    const std::function<bool(int32_t texture_index)>& texture_source_needs_y_flip,
+    const std::function<bool(int32_t texture_index)>& texture_source_decodes_srgb,
+    const GltfMaterialErrorCallback& report_error) {
+  return BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [&](const int32_t texture_index, const bool) {
+        return resolve_texture_index(texture_index);
+      },
+      [&](const int32_t texture_index, const bool) {
+        return texture_source_needs_y_flip && texture_source_needs_y_flip(texture_index);
+      },
+      [&](const int32_t texture_index, const bool) {
+        return texture_source_decodes_srgb && texture_source_decodes_srgb(texture_index);
+      },
+      report_error);
 }
 
 void GltfMaterialCache::Clear() {

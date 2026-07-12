@@ -18,6 +18,8 @@ struct VertexAttributes {
   bool tangent = false;     /**< Indicates if tangents are enabled. */
   bool tex_coord = false;   /**< Indicates if texture coordinates are enabled. */
   bool tex_coord_1 = false; /**< Indicates if secondary texture coordinates are enabled. */
+  bool tex_coord_2 = false; /**< Indicates if third texture coordinates are enabled. */
+  bool tex_coord_3 = false; /**< Indicates if fourth texture coordinates are enabled. */
   bool color = false;       /**< Indicates if vertex color is enabled. */
 
   /**
@@ -199,7 +201,7 @@ class Mesh final : public IAsset, public IGeometry {
    * @param indices A vector containing the indices.
    */
   void SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                   const std::vector<unsigned>& indices, bool use_secondary_tex_coord_for_tangents = false);
+                   const std::vector<unsigned>& indices, int tangent_tex_coord = 0);
 
   /**
    * @brief Sets the vertices and triangles for the mesh.
@@ -209,7 +211,7 @@ class Mesh final : public IAsset, public IGeometry {
    * @param triangles A vector containing the triangle indices.
    */
   void SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                   const std::vector<glm::uvec3>& triangles, bool use_secondary_tex_coord_for_tangents = false);
+                   const std::vector<glm::uvec3>& triangles, int tangent_tex_coord = 0);
 
   /**
    * @brief Merges duplicate vertices in the mesh.
@@ -238,7 +240,7 @@ class Mesh final : public IAsset, public IGeometry {
   /**
    * @brief Recalculates the tangents for the mesh.
    */
-  void RecalculateTangent(bool use_secondary_tex_coord = false);
+  void RecalculateTangent(int tex_coord = 0);
 
   /**
    * @brief Retrieves the range descriptor for the triangles in the mesh.

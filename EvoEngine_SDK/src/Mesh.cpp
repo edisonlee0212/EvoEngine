@@ -5,24 +5,11 @@
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
+#include "MikkTangentSpace.hpp"
 #include "Platform.hpp"
 #include "Serialization.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
-
-namespace {
-glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback) {
-  const auto length_squared = glm::dot(value, value);
-  if (length_squared <= 0.0f) {
-    return fallback;
-  }
-  return value * glm::inversesqrt(length_squared);
-}
-
-float TangentHandedness(const glm::vec3& tangent, const glm::vec3& bitangent, const glm::vec3& normal) {
-  return glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f ? -1.0f : 1.0f;
-}
-}  // namespace
 
 bool Mesh::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".evemesh") {
@@ -126,7 +113,7 @@ void Mesh::DrawIndexed(VkCommandBuffer vk_command_buffer, GraphicsPipelineStates
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                       const std::vector<unsigned>& indices, const bool use_secondary_tex_coord_for_tangents) {
+                       const std::vector<unsigned>& indices, const int tangent_tex_coord) {
   if (indices.size() % 3 != 0) {
     EVOENGINE_ERROR("Triangle size wrong!");
     return;
@@ -134,11 +121,11 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   std::vector<glm::uvec3> triangles;
   triangles.resize(indices.size() / 3);
   memcpy(triangles.data(), indices.data(), indices.size() * sizeof(unsigned));
-  SetVertices(vertex_attributes, vertices, triangles, use_secondary_tex_coord_for_tangents);
+  SetVertices(vertex_attributes, vertices, triangles, tangent_tex_coord);
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                       const std::vector<glm::uvec3>& triangles, const bool use_secondary_tex_coord_for_tangents) {
+                       const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord) {
   if (vertices.empty() || triangles.empty()) {
 #ifndef NDEBUG
     EVOENGINE_LOG("Vertices or triangles empty!");
@@ -176,7 +163,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   if (!vertex_attributes.normal)
     RecalculateNormal();
   if (!vertex_attributes.tangent)
-    RecalculateTangent(use_secondary_tex_coord_for_tangents);
+    RecalculateTangent(tangent_tex_coord);
 
   vertex_attributes_ = vertex_attributes;
   vertex_attributes_.normal = true;
@@ -272,59 +259,8 @@ void Mesh::RecalculateNormal() {
   }
 }
 
-void Mesh::RecalculateTangent(const bool use_secondary_tex_coord) {
-  auto tangent_lists = std::vector<std::vector<glm::vec3>>();
-  auto handedness_sums = std::vector<float>();
-  const auto size = vertices_.size();
-  for (auto i = 0; i < size; i++) {
-    tangent_lists.emplace_back();
-    handedness_sums.emplace_back(0.0f);
-  }
-  for (const auto& triangle : triangles_) {
-    const auto i1 = triangle.x;
-    const auto i2 = triangle.y;
-    const auto i3 = triangle.z;
-    if (i1 >= vertices_.size())
-      continue;
-    if (i2 >= vertices_.size())
-      continue;
-    if (i3 >= vertices_.size())
-      continue;
-    const auto& p1 = vertices_[i1].position;
-    const auto& p2 = vertices_[i2].position;
-    const auto& p3 = vertices_[i3].position;
-    const auto& uv1 = use_secondary_tex_coord ? vertices_[i1].tex_coord_1 : vertices_[i1].tex_coord;
-    const auto& uv2 = use_secondary_tex_coord ? vertices_[i2].tex_coord_1 : vertices_[i2].tex_coord;
-    const auto& uv3 = use_secondary_tex_coord ? vertices_[i3].tex_coord_1 : vertices_[i3].tex_coord;
-
-    const auto e21 = p2 - p1;
-    const auto d21 = uv2 - uv1;
-    const auto e31 = p3 - p1;
-    const auto d31 = uv3 - uv1;
-    const float determinant = d21.x * d31.y - d31.x * d21.y;
-    if (glm::abs(determinant) <= 1e-8f) {
-      continue;
-    }
-    const float f = 1.0f / determinant;
-    const auto tangent =
-        f * glm::vec3(d31.y * e21.x - d21.y * e31.x, d31.y * e21.y - d21.y * e31.y, d31.y * e21.z - d21.y * e31.z);
-    const auto bitangent =
-        f * glm::vec3(d21.x * e31.x - d31.x * e21.x, d21.x * e31.y - d31.x * e21.y, d21.x * e31.z - d31.x * e21.z);
-    tangent_lists[i1].push_back(tangent);
-    tangent_lists[i2].push_back(tangent);
-    tangent_lists[i3].push_back(tangent);
-    handedness_sums[i1] += TangentHandedness(tangent, bitangent, vertices_[i1].normal);
-    handedness_sums[i2] += TangentHandedness(tangent, bitangent, vertices_[i2].normal);
-    handedness_sums[i3] += TangentHandedness(tangent, bitangent, vertices_[i3].normal);
-  }
-  for (auto i = 0; i < size; i++) {
-    auto tangent = glm::vec3(0.0f);
-    for (const auto& j : tangent_lists[i]) {
-      tangent += j;
-    }
-    vertices_[i].tangent = NormalizeOrFallback(tangent, glm::vec3(1.0f, 0.0f, 0.0f));
-    vertices_[i].vertex_info3 = handedness_sums[i] < 0.0f ? -1.0f : 1.0f;
-  }
+void Mesh::RecalculateTangent(const int tex_coord) {
+  GenerateMikkTangents(vertices_, triangles_, tex_coord);
 }
 
 const std::shared_ptr<RangeDescriptor>& Mesh::GetTriangleRange() const {
@@ -383,6 +319,8 @@ void VertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "tangent" << YAML::Value << tangent;
   out << YAML::Key << "tex_coord" << YAML::Value << tex_coord;
   out << YAML::Key << "tex_coord_1" << YAML::Value << tex_coord_1;
+  out << YAML::Key << "tex_coord_2" << YAML::Value << tex_coord_2;
+  out << YAML::Key << "tex_coord_3" << YAML::Value << tex_coord_3;
   out << YAML::Key << "color" << YAML::Value << color;
 }
 
@@ -395,6 +333,10 @@ void VertexAttributes::Deserialize(const YAML::Node& in) {
     tex_coord = in["tex_coord"].as<bool>();
   if (in["tex_coord_1"])
     tex_coord_1 = in["tex_coord_1"].as<bool>();
+  if (in["tex_coord_2"])
+    tex_coord_2 = in["tex_coord_2"].as<bool>();
+  if (in["tex_coord_3"])
+    tex_coord_3 = in["tex_coord_3"].as<bool>();
   if (in["color"])
     color = in["color"].as<bool>();
 }

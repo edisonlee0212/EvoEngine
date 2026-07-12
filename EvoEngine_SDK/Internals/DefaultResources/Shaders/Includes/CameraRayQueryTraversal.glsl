@@ -93,7 +93,7 @@ void EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(const rayQueryEXT ray_query, const
 
 bool EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, const vec3 ray_direction,
                                            out uint material_index, out vec2 tex_coord_0, out vec2 tex_coord_1,
-                                           out vec4 vertex_color) {
+                                           out vec2 tex_coord_2, out vec2 tex_coord_3, out vec4 vertex_color) {
   const int instance_index = rayQueryGetIntersectionInstanceCustomIndexEXT(ray_query, false);
   const Instance instance = EE_INSTANCES[instance_index];
   material_index = uint(instance.material_index);
@@ -109,6 +109,10 @@ bool EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, const ve
                 v2.tex_coord * barycentrics.z;
   tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
                 v2.tex_coord_1 * barycentrics.z;
+  tex_coord_2 = v0.tex_coord_2 * barycentrics.x + v1.tex_coord_2 * barycentrics.y +
+                v2.tex_coord_2 * barycentrics.z;
+  tex_coord_3 = v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y +
+                v2.tex_coord_3 * barycentrics.z;
   vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
   return true;
 }
@@ -124,11 +128,14 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
     uint material_index;
     vec2 tex_coord_0;
     vec2 tex_coord_1;
+    vec2 tex_coord_2;
+    vec2 tex_coord_3;
     vec4 vertex_color;
     EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, direction, material_index, tex_coord_0, tex_coord_1,
-                                          vertex_color);
+                                          tex_coord_2, tex_coord_3, vertex_color);
     if (EE_RANDOM(seed) <=
-        EE_GLTF_RASTER_OPACITY_LOD0(material_index, tex_coord_0, tex_coord_1, vertex_color.a)) {
+        EE_GLTF_RASTER_OPACITY_LOD0(
+            material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a)) {
       rayQueryConfirmIntersectionEXT(ray_query);
     }
   }
@@ -143,6 +150,7 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
 
 vec3 EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(const rayQueryEXT ray_query, const uint material_index,
                                               const vec2 tex_coord_0, const vec2 tex_coord_1,
+                                              const vec2 tex_coord_2, const vec2 tex_coord_3,
                                               const vec3 vertex_color, const vec3 ray_direction,
                                               inout float previous_hit_t, inout uint shadow_is_inside) {
   const int instance_index = rayQueryGetIntersectionInstanceCustomIndexEXT(ray_query, false);
@@ -164,8 +172,8 @@ vec3 EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(const rayQueryEXT ray_query, const 
   const float hit_t = rayQueryGetIntersectionTEXT(ray_query, false);
   const float segment_length = max(0.0f, hit_t - previous_hit_t);
   const vec3 transmission = EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(
-      material_index, tex_coord_0, tex_coord_1, vertex_color, cos_theta, segment_length, is_inside,
-      EE_CAMERA_MIN_SHADOW_TRANSMISSION);
+      material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, cos_theta,
+      segment_length, is_inside, EE_CAMERA_MIN_SHADOW_TRANSMISSION);
   shadow_is_inside = is_inside ? 1u : 0u;
   previous_hit_t = hit_t;
   return max(transmission, vec3(0.0f));
@@ -189,16 +197,19 @@ vec3 EE_CAMERA_SHADOW_TRANSMISSION(const vec3 origin, const vec3 direction, cons
     uint material_index;
     vec2 tex_coord_0;
     vec2 tex_coord_1;
+    vec2 tex_coord_2;
+    vec2 tex_coord_3;
     vec4 vertex_color;
     EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, direction, material_index, tex_coord_0, tex_coord_1,
-                                          vertex_color);
+                                          tex_coord_2, tex_coord_3, vertex_color);
     if (EE_RANDOM(seed) >
-        EE_GLTF_RASTER_OPACITY_LOD0(material_index, tex_coord_0, tex_coord_1, vertex_color.a)) {
+        EE_GLTF_RASTER_OPACITY_LOD0(
+            material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a)) {
       continue;
     }
     shadow_transmission *= EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(
-        ray_query, material_index, tex_coord_0, tex_coord_1, vertex_color.rgb, direction, previous_hit_t,
-        shadow_is_inside);
+        ray_query, material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.rgb,
+        direction, previous_hit_t, shadow_is_inside);
     if (max(max(shadow_transmission.x, shadow_transmission.y), shadow_transmission.z) <=
         EE_CAMERA_MIN_SHADOW_TRANSMISSION) {
       return vec3(0.0f);

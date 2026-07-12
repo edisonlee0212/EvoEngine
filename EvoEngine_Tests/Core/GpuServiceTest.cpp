@@ -373,13 +373,16 @@ TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {
       glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
   };
   auto& texture_storage = texture.RefTexture2DStorage();
+  const auto version_before_upload = TextureStorage::GetVersion();
 
   const auto upload = texture_storage.SetDataAsync(pixels, glm::uvec2(2, 2));
   ASSERT_TRUE(upload.Valid());
   EXPECT_TRUE(texture_storage.IsGpuUploadPending());
   gpu_service.Wait(upload);
+  TextureStorage::DeviceSync();
 
   EXPECT_FALSE(texture_storage.IsGpuUploadPending());
+  EXPECT_GT(TextureStorage::GetVersion(), version_before_upload);
   EXPECT_NE(texture_storage.GetVkImage(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkImageView(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkSampler(), VK_NULL_HANDLE);
@@ -431,6 +434,26 @@ TEST(GpuService, Texture2DRuntimeUpdateTracksGpuReadiness) {
     EXPECT_NEAR(readback[i].b, pixels[i].b, 0.001f);
     EXPECT_NEAR(readback[i].a, pixels[i].a, 0.001f);
   }
+}
+
+TEST(GpuService, Texture2DRejectsUndersizedUpload) {
+  ScopedGpuPlatform platform;
+  Texture2D texture;
+  auto& texture_storage = texture.RefTexture2DStorage();
+  const auto original_image = texture_storage.GetVkImage();
+  ASSERT_NE(original_image, VK_NULL_HANDLE);
+  EXPECT_FALSE(texture_storage.SetDataAsync({glm::vec4(1.0f)}, glm::uvec2(2, 2)).Valid());
+  EXPECT_EQ(texture_storage.GetVkImage(), original_image);
+}
+
+TEST(GpuService, Texture2DClearAfterImGuiShutdownSkipsBackendRemoval) {
+  ScopedGpuPlatform platform;
+  ASSERT_EQ(ImGui::GetCurrentContext(), nullptr);
+  Texture2D texture;
+  auto& texture_storage = texture.RefTexture2DStorage();
+  texture_storage.im_texture_id = static_cast<ImTextureID>(1);
+  texture_storage.Clear();
+  EXPECT_EQ(texture_storage.im_texture_id, 0);
 }
 
 TEST(GpuService, TextureStorageDeviceSyncUsesAsyncUploadPath) {

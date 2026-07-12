@@ -66,8 +66,10 @@ struct EE_CAMERA_SURFACE_HIT {
   vec3 bitangent;
   vec2 tex_coord_0;
   vec2 tex_coord_1;
+  vec2 tex_coord_2;
+  vec2 tex_coord_3;
   vec4 vertex_color;
-  vec2 tex_gradients;
+  vec4 tex_gradients;
   uint material_index;
   GltfRasterMaterial surface;
   GltfRayTracingPbrMaterial pbr;
@@ -178,7 +180,7 @@ vec3 EE_CAMERA_SAFE_OFFSET_RAY(const vec3 world_position, const vec3 offset_dire
                                               : offset_position.z);
 }
 
-vec2 EE_CAMERA_TEXEL_DENSITY(const mat4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
+vec4 EE_CAMERA_TEXEL_DENSITY(const mat4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
   const vec3 world_edge_1 = vec3(model * vec4(v1.position - v0.position, 0.0f));
   const vec3 world_edge_2 = vec3(model * vec4(v2.position - v0.position, 0.0f));
   const float world_area = length(cross(world_edge_1, world_edge_2));
@@ -186,8 +188,14 @@ vec2 EE_CAMERA_TEXEL_DENSITY(const mat4 model, const Vertex v0, const Vertex v1,
   const vec2 uv0_edge_2 = v2.tex_coord - v0.tex_coord;
   const vec2 uv1_edge_1 = v1.tex_coord_1 - v0.tex_coord_1;
   const vec2 uv1_edge_2 = v2.tex_coord_1 - v0.tex_coord_1;
-  const vec2 uv_area = abs(vec2(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
-                                uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y));
+  const vec2 uv2_edge_1 = v1.tex_coord_2 - v0.tex_coord_2;
+  const vec2 uv2_edge_2 = v2.tex_coord_2 - v0.tex_coord_2;
+  const vec2 uv3_edge_1 = v1.tex_coord_3 - v0.tex_coord_3;
+  const vec2 uv3_edge_2 = v2.tex_coord_3 - v0.tex_coord_3;
+  const vec4 uv_area = abs(vec4(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
+                                uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y,
+                                uv2_edge_1.x * uv2_edge_2.y - uv2_edge_2.x * uv2_edge_1.y,
+                                uv3_edge_1.x * uv3_edge_2.y - uv3_edge_2.x * uv3_edge_1.y));
   return sqrt(uv_area / max(world_area, 1e-20f));
 }
 
@@ -198,7 +206,7 @@ float EE_CAMERA_WORLD_FOOTPRINT(const float ray_cone_width, const float hit_t, c
   return (ray_cone_width + hit_t * pixel_angle) / max(abs(dot(geometric_normal, -ray_direction)), 1e-3f);
 }
 
-vec2 EE_CAMERA_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const vec3 geometric_normal,
+vec4 EE_CAMERA_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const vec3 geometric_normal,
                                  const vec3 ray_direction, const mat4 model, const Vertex v0, const Vertex v1,
                                  const Vertex v2) {
   return EE_CAMERA_WORLD_FOOTPRINT(ray_cone_width, hit_t, geometric_normal, ray_direction) *
@@ -732,6 +740,10 @@ void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint 
                            v2.tex_coord * barycentrics.z;
   const vec2 tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
                            v2.tex_coord_1 * barycentrics.z;
+  const vec2 tex_coord_2 = v0.tex_coord_2 * barycentrics.x + v1.tex_coord_2 * barycentrics.y +
+                           v2.tex_coord_2 * barycentrics.z;
+  const vec2 tex_coord_3 = v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y +
+                           v2.tex_coord_3 * barycentrics.z;
   const vec3 object_normal =
       v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
   const vec3 object_tangent =
@@ -760,8 +772,8 @@ void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint 
   }
   direct_light.direction = direction;
   direct_light.radiance_over_pdf =
-      EE_GLTF_RT_COATED_EMISSION_LOD0(uint(instance.material_index), tex_coord_0, tex_coord_1, normal,
-                                      tangent, bitangent, -direction) /
+      EE_GLTF_RT_COATED_EMISSION_LOD0(uint(instance.material_index), tex_coord_0, tex_coord_1, tex_coord_2,
+                                      tex_coord_3, normal, tangent, bitangent, -direction) /
       solid_angle_pdf;
   direct_light.distance = distance;
   direct_light.pdf = solid_angle_pdf;
@@ -1421,6 +1433,10 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
                            v2.tex_coord * barycentrics.z;
   const vec2 tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
                            v2.tex_coord_1 * barycentrics.z;
+  const vec2 tex_coord_2 = v0.tex_coord_2 * barycentrics.x + v1.tex_coord_2 * barycentrics.y +
+                           v2.tex_coord_2 * barycentrics.z;
+  const vec2 tex_coord_3 = v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y +
+                           v2.tex_coord_3 * barycentrics.z;
   const vec4 vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
   const vec3 object_normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y +
                              v2.normal * barycentrics.z;
@@ -1445,8 +1461,8 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
   hit.shadow_position = vec3(instance.model * vec4(object_shadow_position, 1.0f));
   hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width, hit_value.hit_t, hit.geometric_normal,
                                                   ray_direction, instance.model, v0, v1, v2);
-  hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE(hit.material_index, tex_coord_0, tex_coord_1, vertex_color,
-                                                hit.tex_gradients);
+  hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
+      hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, hit.tex_gradients);
   hit.normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal, hit.geometric_normal);
   const vec3 world_tangent = mat3(instance.model) * object_tangent;
   hit.tangent = EE_CAMERA_SAFE_NORMALIZE(world_tangent - hit.normal * dot(world_tangent, hit.normal),
@@ -1469,10 +1485,12 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
   hit.shading_normal = hit.normal;
   hit.tex_coord_0 = tex_coord_0;
   hit.tex_coord_1 = tex_coord_1;
+  hit.tex_coord_2 = tex_coord_2;
+  hit.tex_coord_3 = tex_coord_3;
   hit.vertex_color = vertex_color;
   hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-      hit.material_index, tex_coord_0, tex_coord_1, vertex_color, hit.normal, hit.tangent, hit.bitangent,
-      hit.geometric_normal, is_inside, hit.tex_gradients);
+      hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, hit.normal,
+      hit.tangent, hit.bitangent, hit.geometric_normal, is_inside, hit.tex_gradients);
   hit.normal = hit.pbr.normal;
   return hit;
 }
@@ -1621,7 +1639,8 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction,
         emissive_triangle_hit
             ? EE_GLTF_RT_COATED_EMISSION_LOD0(
                   surface_hit.material_index, surface_hit.tex_coord_0, surface_hit.tex_coord_1,
-                  surface_hit.shading_normal, surface_hit.tangent, surface_hit.bitangent, view_direction)
+                  surface_hit.tex_coord_2, surface_hit.tex_coord_3, surface_hit.shading_normal,
+                  surface_hit.tangent, surface_hit.bitangent, view_direction)
             : EE_GLTF_RT_COATED_EMISSION(surface_hit.pbr, view_direction);
     float emissive_hit_mis_weight = 1.0f;
     if (camera.emissive_triangle_nee_enabled != 0u && last_sample_pdf != EE_CAMERA_DIRAC_PDF &&

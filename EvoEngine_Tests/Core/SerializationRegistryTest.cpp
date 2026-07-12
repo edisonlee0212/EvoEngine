@@ -1138,6 +1138,15 @@ anti_aliasing:
   EXPECT_EQ(restored_gaussian_splat.spherical_harmonics_rest.size(), 4);
 
   Texture2D texture;
+  texture.srgb = true;
+  Texture2DSamplerSettings sampler_settings;
+  sampler_settings.mag_filter = VK_FILTER_NEAREST;
+  sampler_settings.min_filter = VK_FILTER_NEAREST;
+  sampler_settings.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  sampler_settings.address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_settings.address_mode_v = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+  sampler_settings.max_lod = 0.0f;
+  texture.SetSamplerSettings(sampler_settings);
   texture.SetRgbaChannelData({glm::vec4(1.0f, 0.5f, 0.25f, 1.0f)}, glm::uvec2(1, 1));
   YAML::Emitter texture_out;
   BeginMap(texture_out);
@@ -1147,13 +1156,18 @@ anti_aliasing:
   EXPECT_EQ(texture_node["resolution"].as<glm::uvec2>().x, 1);
   EXPECT_EQ(texture_node["resolution"].as<glm::uvec2>().y, 1);
   EXPECT_TRUE(texture_node["pixels"]);
+  EXPECT_TRUE(texture_node["srgb"].as<bool>());
+  EXPECT_EQ(texture_node["sampler"]["address_mode_v"].as<int32_t>(),
+            static_cast<int32_t>(VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT));
 
   Texture2D restored_texture;
   Serialization::DeserializeObject(texture_node, static_cast<IAsset&>(restored_texture));
   EXPECT_EQ(restored_texture.GetResolution().x, 1);
   EXPECT_EQ(restored_texture.GetResolution().y, 1);
   ASSERT_EQ(restored_texture.PeekLocalData().size(), 1);
-  EXPECT_GT(restored_texture.PeekLocalData()[0].r, 0.99f);
+  EXPECT_FLOAT_EQ(restored_texture.PeekLocalData()[0].r, 1.0f);
+  EXPECT_TRUE(restored_texture.srgb);
+  EXPECT_EQ(restored_texture.GetSamplerSettings(), sampler_settings);
 
   Animation animation;
   animation.bone_size = 1;
@@ -1197,12 +1211,16 @@ anti_aliasing:
   vertex_attributes.tangent = true;
   vertex_attributes.tex_coord = true;
   vertex_attributes.tex_coord_1 = true;
+  vertex_attributes.tex_coord_2 = true;
+  vertex_attributes.tex_coord_3 = true;
   vertex_attributes.color = true;
   std::vector<Vertex> vertices(3);
   vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
   vertices[1].tex_coord_1 = glm::vec2(0.25f, 0.75f);
+  vertices[1].tex_coord_2 = glm::vec2(0.4f, 0.6f);
+  vertices[1].tex_coord_3 = glm::vec2(0.8f, 0.2f);
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   mesh->SetVertices(vertex_attributes, vertices, {glm::uvec3(0, 1, 2)});
   YAML::Emitter mesh_out;
@@ -1220,6 +1238,8 @@ anti_aliasing:
   EXPECT_EQ(restored_mesh->PeekTriangles().size(), 1);
   EXPECT_FLOAT_EQ(restored_mesh->PeekVertices()[1].position.x, 1.0f);
   EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
+  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.4f, 0.6f));
+  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.8f, 0.2f));
 
   std::vector<unsigned char> legacy_vertex_data(vertices.size() * 80);
   for (size_t i = 0; i < vertices.size(); ++i) {
@@ -1233,18 +1253,39 @@ anti_aliasing:
   ASSERT_EQ(legacy_mesh->PeekVertices().size(), 3);
   EXPECT_FLOAT_EQ(legacy_mesh->PeekVertices()[1].position.x, 1.0f);
   EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.0f));
+
+  std::vector<unsigned char> previous_vertex_data(vertices.size() * 96);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(previous_vertex_data.data() + i * 96, &vertices[i], 88);
+    std::memset(previous_vertex_data.data() + i * 96 + 88, 0xff, 8);
+  }
+  auto previous_mesh_node = YAML::Clone(mesh_node);
+  previous_mesh_node["vertex_stride_"] = 96;
+  previous_mesh_node["vertices_"] = YAML::Binary(previous_vertex_data.data(), previous_vertex_data.size());
+  const auto previous_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(previous_mesh_node, static_cast<IAsset&>(*previous_mesh));
+  ASSERT_EQ(previous_mesh->PeekVertices().size(), 3);
+  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
+  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.0f));
 
   SkinnedVertexAttributes skinned_vertex_attributes;
   skinned_vertex_attributes.normal = true;
   skinned_vertex_attributes.tangent = true;
   skinned_vertex_attributes.tex_coord = true;
   skinned_vertex_attributes.tex_coord_1 = true;
+  skinned_vertex_attributes.tex_coord_2 = true;
+  skinned_vertex_attributes.tex_coord_3 = true;
   skinned_vertex_attributes.color = true;
   std::vector<SkinnedVertex> skinned_vertices(3);
   skinned_vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   skinned_vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   skinned_vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
   skinned_vertices[1].tex_coord_1 = glm::vec2(0.6f, 0.4f);
+  skinned_vertices[1].tex_coord_2 = glm::vec2(0.3f, 0.7f);
+  skinned_vertices[1].tex_coord_3 = glm::vec2(0.9f, 0.1f);
   const auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   skinned_mesh->bone_animator_indices = {2, 5};
   skinned_mesh->SetVertices(skinned_vertex_attributes, skinned_vertices, {glm::uvec3(0, 1, 2)});
@@ -1264,6 +1305,8 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh->PeekTriangles().size(), 1);
   EXPECT_EQ(restored_skinned_mesh->bone_animator_indices[1], 5);
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
+  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.3f, 0.7f));
+  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.9f, 0.1f));
 
   std::vector<unsigned char> legacy_skinned_vertex_data(skinned_vertices.size() * 144);
   for (size_t i = 0; i < skinned_vertices.size(); ++i) {
@@ -1278,7 +1321,25 @@ anti_aliasing:
   ASSERT_EQ(legacy_skinned_mesh->PeekSkinnedVertices().size(), 3);
   EXPECT_FLOAT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].position.x, 1.0f);
   EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.0f));
   EXPECT_EQ(legacy_skinned_mesh->bone_animator_indices, skinned_mesh->bone_animator_indices);
+
+  std::vector<unsigned char> previous_skinned_vertex_data(skinned_vertices.size() * 160);
+  for (size_t i = 0; i < skinned_vertices.size(); ++i) {
+    std::memcpy(previous_skinned_vertex_data.data() + i * 160, &skinned_vertices[i], 152);
+    std::memset(previous_skinned_vertex_data.data() + i * 160 + 152, 0xff, 8);
+  }
+  auto previous_skinned_mesh_node = YAML::Clone(skinned_mesh_node);
+  previous_skinned_mesh_node["skinned_vertex_stride_"] = 160;
+  previous_skinned_mesh_node["skinned_vertices_"] =
+      YAML::Binary(previous_skinned_vertex_data.data(), previous_skinned_vertex_data.size());
+  const auto previous_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
+  Serialization::DeserializeObject(previous_skinned_mesh_node, static_cast<IAsset&>(*previous_skinned_mesh));
+  ASSERT_EQ(previous_skinned_mesh->PeekSkinnedVertices().size(), 3);
+  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
+  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.0f));
 
   StrandPointAttributes strand_point_attributes;
   strand_point_attributes.normal = true;

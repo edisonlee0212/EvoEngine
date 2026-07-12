@@ -4,11 +4,30 @@
 #include "IAsset.hpp"
 #include "Jobs.hpp"
 #include "TextureStorage.hpp"
+
+#include <optional>
 namespace evo_engine {
 class Texture2DStorage;
 struct TextureStorageHandle;
 
 enum class TextureColorType { Red = 1, Rg = 2, Rgb = 3, Rgba = 4 };
+
+struct Texture2DSamplerSettings {
+  VkFilter mag_filter = VK_FILTER_LINEAR;
+  VkFilter min_filter = VK_FILTER_LINEAR;
+  VkSamplerMipmapMode mipmap_mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  VkSamplerAddressMode address_mode_u = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  VkSamplerAddressMode address_mode_v = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  float min_lod = 0.0f;
+  float max_lod = VK_LOD_CLAMP_NONE;
+
+  [[nodiscard]] VkSamplerCreateInfo CreateInfo() const;
+  [[nodiscard]] bool operator==(const Texture2DSamplerSettings& other) const {
+    return mag_filter == other.mag_filter && min_filter == other.min_filter && mipmap_mode == other.mipmap_mode &&
+           address_mode_u == other.address_mode_u && address_mode_v == other.address_mode_v &&
+           min_lod == other.min_lod && max_lod == other.max_lod;
+  }
+};
 
 class Texture2D : public IAsset {
   friend class Resources;
@@ -38,6 +57,7 @@ class Texture2D : public IAsset {
   bool green_channel = false;
   bool blue_channel = false;
   bool alpha_channel = false;
+  bool srgb = false;
 
   static void StoreToPng(const std::filesystem::path& path, const std::vector<float>& src_data, int src_x, int src_y,
                          int src_channel_size, int target_channel_size, unsigned compression_level = 8,
@@ -61,6 +81,10 @@ class Texture2D : public IAsset {
   [[nodiscard]] VkImage GetVkImage() const;
   [[nodiscard]] VkImageView GetVkImageView() const;
   [[nodiscard]] VkSampler GetVkSampler() const;
+  void SetSamplerSettings(const Texture2DSamplerSettings& settings);
+  [[nodiscard]] const Texture2DSamplerSettings& GetSamplerSettings() const;
+  void SetSrgbImportOverride(bool value);
+  [[nodiscard]] bool SamplesLinearSrgb() const;
   [[nodiscard]] std::shared_ptr<Image> GetImage() const;
   ImTextureID GetImTextureId() const;
   [[nodiscard]] uint32_t GetTextureStorageIndex() const;
@@ -97,6 +121,11 @@ class Texture2D : public IAsset {
                      const glm::uvec2& dst_resolution);
   static void Resize(const std::vector<float>& src, const glm::uvec2& src_resolution, std::vector<float>& dst,
                      const glm::uvec2& dst_resolution);
+
+ private:
+  Texture2DSamplerSettings sampler_settings_;
+  std::optional<bool> srgb_import_override_;
+  bool srgb_fallback_linear_ = false;
 };
 
 template <typename T>

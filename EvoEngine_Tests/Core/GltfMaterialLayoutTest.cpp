@@ -29,14 +29,18 @@ TEST(GltfMaterialLayout, HostTextureInfoMatchesReferenceAnchors) {
   EXPECT_EQ(offsetof(GltfTextureInfo, padding), 36);
 }
 
-TEST(GltfMaterialLayout, ExtendedVerticesPreserveLegacyPrefixAndAppendSecondaryUv) {
+TEST(GltfMaterialLayout, ExtendedVerticesPreserveLegacyPrefixAndAppendFourUvSets) {
   using evo_engine::SkinnedVertex;
   using evo_engine::Vertex;
 
-  EXPECT_EQ(sizeof(Vertex), 96);
+  EXPECT_EQ(sizeof(Vertex), 112);
   EXPECT_EQ(offsetof(Vertex, tex_coord_1), 80);
-  EXPECT_EQ(sizeof(SkinnedVertex), 160);
+  EXPECT_EQ(offsetof(Vertex, tex_coord_2), 88);
+  EXPECT_EQ(offsetof(Vertex, tex_coord_3), 96);
+  EXPECT_EQ(sizeof(SkinnedVertex), 176);
   EXPECT_EQ(offsetof(SkinnedVertex, tex_coord_1), 144);
+  EXPECT_EQ(offsetof(SkinnedVertex, tex_coord_2), 152);
+  EXPECT_EQ(offsetof(SkinnedVertex, tex_coord_3), 160);
 }
 
 TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {

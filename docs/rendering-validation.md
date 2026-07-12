@@ -619,6 +619,38 @@ iridescence controls retain bit-exact F0, and their Beauty values separate by `0
 `4045071c6f107b8ea119c6af3d4ef3b3793db913283e5a0759944675bd02976b` and
 `9fb034a277104270fa9276de8d376eabc65efa8a1ff9f0b011fb7d9461cbb928`.
 
+### M9 glTF Resource And Texture Fidelity
+
+M9 keeps M8's exact three successful pre-commit launch structure: one deterministic 1280x720 raster image and matched
+64-SPP RTX and forced query-only validation atlases. It reruns every inherited M7/M8 provenance, material, transport,
+conservation, and classification gate and hash-verifies the accepted M7 ordinary-RayQuery/query-only identity. It does
+not launch ordinary RayQuery or the pinned reference. One rejected raster wrote its image and metrics but crashed during
+shutdown after the ImGui Vulkan backend was gone; the explicitly approved replacement makes the post-commit 2560x1440,
+2048-SPP Bistro delivery image launch five. The rejected evidence remains under
+`out/m9-validation/precommit-shutdown-crash`.
+
+The rendering-regression scene routes the transformed base-color and normal textures through `TEXCOORD_3`, routes a
+minified checker through `TEXCOORD_2`, uses persistent texture sampler settings, and replaces the duplicated seam fixture
+with a shared-index mirrored chart that MikkTSpace must split. The checker is authored as alternating encoded sRGB black
+and white: correct linear filtering converges near `0.5`; encoded-space averaging followed by sRGB decoding would produce
+about `0.214`. Vertex color modulates the rendered probe, so the validator uses channel-specific bounds around a tight
+interior ROI plus spatial-deviation and RTX/query-only agreement gates. M9 permits only the two inherited M7 seam-right
+range failures superseded by the new Mikk fixture; every unrelated M7/M8 gate remains binding.
+
+Focused unit tests cover external-image `.gltf`, data-URI `.gltf`, binary `.glb`, sampler enum mapping, all four UV sets,
+invalid-set binding rejection, Mikk chart splitting, authored-tangent preservation, and texture/mesh serialization. Run:
+
+```bat
+out\build\vs2026-x64-tests\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="GltfMaterialConversion.*:GltfMaterialLayout.*:Texture2D.*:GpuService.Texture2D*:GpuService.TextureStorage*:SerializationRegistry.BuiltInAnimationAndPostProcessingTypesInstallSerializationHandlers:GltfRasterMaterial.*:GltfRayTracingMaterial.*:CameraRenderTechnique.*"
+python Scripts\validate_raytracer_m9.py --self-test
+python Scripts\validate_raytracer_m9.py --capture --editor out\build\vs2026-x64-tests\EvoEngine_App\RelWithDebInfo\EvoEngineEditor.exe --output-dir out\m9-validation\precommit-final
+```
+
+Khronos sampler definitions are authoritative: `NEAREST_MIPMAP_NEAREST`/`LINEAR_MIPMAP_NEAREST` select nearest mip
+selection, while `NEAREST_MIPMAP_LINEAR`/`LINEAR_MIPMAP_LINEAR` interpolate between mip levels. These explicit mappings
+also match the pinned reference. When either filter or the texture's sampler is omitted, EvoEngine retains its conforming
+repeat/trilinear implementation choice rather than inventing a serialized glTF value.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

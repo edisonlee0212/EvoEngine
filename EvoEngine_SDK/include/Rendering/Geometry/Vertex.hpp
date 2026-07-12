@@ -19,6 +19,8 @@ struct Vertex {
   glm::vec2 tex_coord = glm::vec2(0.0f);    /**< The texture coordinates of the vertex. */
   glm::vec2 vertex_info4 = glm::vec2(0.0f); /**< Additional vertex-specific information (2D vector). */
   glm::vec2 tex_coord_1 = glm::vec2(0.0f);  /**< The secondary texture coordinates of the vertex. */
+  glm::vec2 tex_coord_2 = glm::vec2(0.0f);  /**< The third texture coordinates of the vertex. */
+  glm::vec2 tex_coord_3 = glm::vec2(0.0f);  /**< The fourth texture coordinates of the vertex. */
   glm::vec2 padding = glm::vec2(0.0f);
 };
 
@@ -44,6 +46,8 @@ struct SkinnedVertex {
   glm::vec4 weight2 = {};   /**< Weights corresponding to the bone IDs (set 2). */
 
   glm::vec2 tex_coord_1 = glm::vec2(0.0f); /**< The secondary texture coordinates of the vertex. */
+  glm::vec2 tex_coord_2 = glm::vec2(0.0f); /**< The third texture coordinates of the vertex. */
+  glm::vec2 tex_coord_3 = glm::vec2(0.0f); /**< The fourth texture coordinates of the vertex. */
   glm::vec2 padding = glm::vec2(0.0f);
 };
 

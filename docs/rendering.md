@@ -131,13 +131,17 @@ does not deduplicate descriptor sets across material indices because material in
 running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
 bind the documented fallback textures.
 
-glTF base-material evaluation shares one texture-info ABI across raster, RT-pipeline, and RayQuery. It carries UV0 and
-UV1 independently, applies `KHR_texture_transform` after selecting the extension-overridden coordinate set, multiplies
+glTF base-material evaluation shares one texture-info ABI across raster, RT-pipeline, and RayQuery. It carries UV0 through
+UV3 independently, applies `KHR_texture_transform` after selecting the extension-overridden coordinate set, multiplies
 linear `COLOR_0` RGBA into metallic-roughness base color or specular-glossiness diffuse, and treats `OPAQUE` alpha as
-coverage-independent. Ray footprints track separate UV0/UV1 texel densities before selecting a texture gradient; zero
+coverage-independent. Ray footprints track separate texel densities for all four UV sets before selecting a texture gradient; zero
 footprints use explicit mip 0 outside fragment stages. Color-semantic RGB channels (base/diffuse, emissive,
 specular-glossiness, specular color, sheen color, and diffuse-transmission color) use the exact sRGB transfer function
 when the texture view does not already decode sRGB. Alpha and data-texture channels remain linear.
+
+Selections outside `TEXCOORD_0` through `TEXCOORD_3` disable only that texture binding and emit an error instead of
+silently sampling UV0. Missing tangents are generated with MikkTSpace from the normal texture's selected UV set, including
+vertex splits at mirrored or discontinuous tangent charts. Authored tangents remain unchanged.
 
 `GltfShadeMaterial` is the canonical owner of material-facing raster state: `double_sided` selects culling, while alpha
 mode and transmission select the opaque or transparent pass. The Material inspector exposes those canonical controls
@@ -145,21 +149,18 @@ instead of separate cull/blending overrides so raster, RT-pipeline, and RayQuery
 
 Requested DDS images are preferred and retain authored BC7 mip chains and hardware sRGB decoding; same-stem
 PNG/TGA/JPG/JPEG files remain fallback sources when the DDS is absent. Float fallback textures generate a complete mip
-chain, but the shared `Texture2D` storage still uses repeat/linear sampling and performs semantic sRGB decoding after
-hardware filtering. Per-glTF sampler wrap/filter state and fully linear-space filtering/mipmap generation for sRGB
-fallback images are deliberate follow-up work.
-
-The canonical extension parser currently reads external-image `.gltf` files. `.glb`, embedded-image, data-URI material
-extension parsing, and `TEXCOORD_2+` vertex storage remain follow-up work. Authored glTF tangents are preserved; missing
-tangents are generated from the normal texture's selected UV0/UV1 set before geometry upload, but the generator is not
-yet MikkTSpace and does not split vertices at tangent discontinuities.
+chain. Each imported glTF texture carries its authored wrap, magnification, minification, and mip-filter state into the
+combined sampler used by raster, RT-pipeline, and RayQuery. sRGB images use hardware sRGB views; if the selected format
+cannot generate filtered mips, the CPU fallback decodes RGB to linear, filters each level, and re-encodes it. Alpha remains
+linear. The canonical extension parser accepts external `.gltf`, data-URI and buffer-view images, and binary `.glb`
+containers; broad compression-extension and non-glTF format parity remain outside this roadmap.
 
 ### Advanced glTF Ray Materials
 
 The shared RT-pipeline/RayQuery material path imports and evaluates the ratified `KHR_materials_iridescence`,
 `KHR_materials_anisotropy`, and `KHR_materials_dispersion` extensions. Iridescence intensity uses texture R, thin-film
 thickness uses texture G, and anisotropy uses normalized texture RG with strength in B. These are linear data textures and
-reuse the same UV0/UV1, `KHR_texture_transform`, storage-flip, and ray-footprint behavior as the base material inputs.
+reuse the same four-UV, `KHR_texture_transform`, storage-flip, and ray-footprint behavior as the base material inputs.
 Dispersion has no texture and is evaluated only by the specular-transmission lobe.
 
 The implementation follows Khronos when the pinned reference differs:

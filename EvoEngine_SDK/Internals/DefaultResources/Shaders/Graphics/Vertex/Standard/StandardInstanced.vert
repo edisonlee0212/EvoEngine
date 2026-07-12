@@ -12,14 +12,16 @@ layout (location = 3) in vec2 inTexCoord;
 layout (location = 4) in vec4 inColor;
 layout (location = 9) in float inTangentHandedness;
 layout (location = 10) in vec2 inTexCoord1;
+layout (location = 11) in vec2 inTexCoord2;
+layout (location = 12) in vec2 inTexCoord3;
 
 layout(location = 0) out VS_OUT {
 	vec3 FragPos;
 	vec3 Normal;
 	vec3 Tangent;
 	flat float TangentHandedness;
-	vec2 TexCoord;
-	vec2 TexCoord1;
+	vec4 TexCoord01;
+	vec4 TexCoord23;
 	vec4 Color;
 } vs_out;
 
@@ -37,8 +39,8 @@ void main()
 	vs_out.Tangent = T;
 	transformHandedness = EE_TRANSFORM_HANDEDNESS(matrix);
 	vs_out.TangentHandedness = (inTangentHandedness < 0.0 ? -1.0 : 1.0) * transformHandedness;
-	vs_out.TexCoord = inTexCoord;
-	vs_out.TexCoord1 = inTexCoord1;
+	vs_out.TexCoord01 = vec4(inTexCoord, inTexCoord1);
+	vs_out.TexCoord23 = vec4(inTexCoord2, inTexCoord3);
 	vs_out.Color = inColor;
 	gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(vs_out.FragPos, 1.0);
 }

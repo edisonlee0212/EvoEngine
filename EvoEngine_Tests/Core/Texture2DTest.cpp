@@ -139,6 +139,29 @@ TEST(Texture2D, LoadsDx10Bc7DdsMipChainWithoutGpuPlatform) {
   EXPECT_EQ(texture.RefTexture2DStorage().GetMipLevels(), 4);
 }
 
+TEST(Texture2D, SemanticOverrideSelectsBc7ViewColorSpace) {
+  Application application;
+  TempDirectory directory;
+  const auto srgb_path = directory.Path() / "srgb.dds";
+  const auto linear_path = directory.Path() / "linear.dds";
+  WriteBc7Dds(srgb_path, 4, 4, 99);
+  WriteBc7Dds(linear_path, 4, 4, 98);
+
+  Texture2DTestAccess linear_texture;
+  linear_texture.SetSrgbImportOverride(false);
+  ASSERT_TRUE(linear_texture.LoadInternal(srgb_path));
+  EXPECT_FALSE(linear_texture.srgb);
+  EXPECT_EQ(linear_texture.RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_UNORM_BLOCK);
+  EXPECT_FALSE(linear_texture.SamplesLinearSrgb());
+
+  Texture2DTestAccess srgb_texture;
+  srgb_texture.SetSrgbImportOverride(true);
+  ASSERT_TRUE(srgb_texture.LoadInternal(linear_path));
+  EXPECT_TRUE(srgb_texture.srgb);
+  EXPECT_EQ(srgb_texture.RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_TRUE(srgb_texture.SamplesLinearSrgb());
+}
+
 TEST(Texture2D, RejectsUnsupportedDdsDxgiFormat) {
   Application application;
   TempDirectory directory;

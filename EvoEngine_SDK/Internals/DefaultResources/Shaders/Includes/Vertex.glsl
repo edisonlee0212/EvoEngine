@@ -10,5 +10,7 @@ struct Vertex {
   vec2 tex_coord;
   vec2 vertex_info4;
   vec2 tex_coord_1;
+  vec2 tex_coord_2;
+  vec2 tex_coord_3;
   vec2 padding;
 };

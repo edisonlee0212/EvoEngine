@@ -160,7 +160,7 @@ TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
 
   EXPECT_NE(any_hit.find("#include \"GltfRasterMaterial.glsl\""), std::string::npos);
   EXPECT_NE(any_hit.find("#include \"Random.glsl\""), std::string::npos);
-  EXPECT_NE(any_hit.find("EE_GLTF_RASTER_OPACITY_LOD0(material_index, tex_coord_0, tex_coord_1, vertex_color.a)"),
+  EXPECT_NE(any_hit.find("material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a"),
             std::string::npos);
   EXPECT_NE(evaluator.find("float EE_GLTF_RASTER_OPACITY_LOD0"), std::string::npos);
   EXPECT_NE(evaluator.find("material.alpha_mode == EE_GLTF_ALPHA_MODE_MASK"), std::string::npos);
@@ -264,7 +264,7 @@ TEST(GltfRayTracingMaterial, RayShadersUseCanonicalMaterialBlockOnly) {
   EXPECT_NE(evaluator.find("EE_GLTF_USE_EXPLICIT_TEXTURE_LOD"), std::string::npos);
   EXPECT_NE(evaluator.find("textureLod(EE_TEXTURE_2DS[nonuniformEXT(texture_info.index)], uv, EE_GLTF_TEXTURE_LOD)"),
             std::string::npos);
-  EXPECT_NE(evaluator.find("vec2 tex_gradients"), std::string::npos);
+  EXPECT_NE(evaluator.find("vec4 gradients"), std::string::npos);
   EXPECT_NE(evaluator.find("textureGrad(EE_TEXTURE_2DS[nonuniformEXT(texture_info.index)], uv, ddx_uv, ddy_uv)"),
             std::string::npos);
 }
@@ -282,26 +282,21 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   ASSERT_FALSE(any_hit.empty());
 
   EXPECT_NE(evaluator.find("vec4 EE_GLTF_SAMPLE_TEXTURE("), std::string::npos);
-  EXPECT_NE(evaluator.find("fallback, vec2 tex_gradients"), std::string::npos);
-  EXPECT_NE(evaluator.find("texture_info.tex_coord == 1 ? tex_gradients.y : tex_gradients.x"), std::string::npos);
+  EXPECT_NE(evaluator.find("GltfTexCoords tex_coords, vec4 fallback"), std::string::npos);
+  EXPECT_NE(evaluator.find("tex_coords.gradients[clamp(texture_info.tex_coord, 0, 3)]"), std::string::npos);
   EXPECT_NE(evaluator.find("texture_info.uv_transform * vec3(tex_grad, 0.0, 0.0)"), std::string::npos);
   EXPECT_NE(evaluator.find("textureGrad(EE_TEXTURE_2DS[nonuniformEXT(texture_info.index)], uv, ddx_uv, ddy_uv)"),
             std::string::npos);
-  EXPECT_NE(evaluator.find("uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec4 vertex_color, "
-                           "vec2 tex_gradients"),
-            std::string::npos);
+  EXPECT_NE(evaluator.find("vec2 tex_coord_2, vec2 tex_coord_3"), std::string::npos);
 
-  EXPECT_NE(bsdf.find("vec3 bitangent, vec3 geometric_normal, bool is_inside, vec2 tex_grad"), std::string::npos);
-  EXPECT_NE(bsdf.find("EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, vertex_color, "
-                      "tex_grad)"),
-            std::string::npos);
-  EXPECT_NE(bsdf.find("EE_GLTF_SAMPLE_TEXTURE(material.normal_texture, tex_coord_0, tex_coord_1"), std::string::npos);
-  EXPECT_NE(bsdf.find("tex_grad).xyz"), std::string::npos);
+  EXPECT_NE(bsdf.find("uint material_index, GltfTexCoords tex_coords, vec4 vertex_color"), std::string::npos);
+  EXPECT_NE(bsdf.find("EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coords, vertex_color)"), std::string::npos);
+  EXPECT_NE(bsdf.find("material.normal_texture, tex_coords"), std::string::npos);
 
   for (const auto* source : {&raygen, &ray_query}) {
     EXPECT_NE(source->find("#define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD"), std::string::npos);
     EXPECT_NE(source->find("#define EE_GLTF_TEXTURE_LOD 0.0"), std::string::npos);
-    EXPECT_NE(source->find("vec2 EE_CAMERA_TEXEL_DENSITY"), std::string::npos);
+    EXPECT_NE(source->find("vec4 EE_CAMERA_TEXEL_DENSITY"), std::string::npos);
     EXPECT_NE(source->find("return sqrt(uv_area / max(world_area, 1e-20f))"), std::string::npos);
     EXPECT_NE(source->find("float EE_CAMERA_WORLD_FOOTPRINT"), std::string::npos);
     EXPECT_NE(source->find("camera.inverse_projection[1][1]"), std::string::npos);
@@ -316,18 +311,22 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   }
 
   EXPECT_NE(raygen.find("hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width"), std::string::npos);
-  EXPECT_NE(raygen.find("hit.material_index, tex_coord_0, tex_coord_1, vertex_color"), std::string::npos);
+  EXPECT_NE(raygen.find("hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color"),
+            std::string::npos);
   EXPECT_NE(raygen.find("is_inside, hit.tex_gradients"), std::string::npos);
   EXPECT_NE(raygen.find("v0.tex_coord_1 * barycentrics.x"), std::string::npos);
+  EXPECT_NE(raygen.find("v0.tex_coord_2 * barycentrics.x"), std::string::npos);
+  EXPECT_NE(raygen.find("v0.tex_coord_3 * barycentrics.x"), std::string::npos);
   EXPECT_NE(raygen.find("v0.color * barycentrics.x"), std::string::npos);
   EXPECT_NE(ray_query.find("out uint material_index, out vec2 tex_coord_0, out vec2 tex_coord_1"), std::string::npos);
-  EXPECT_NE(ray_query.find("EE_GLTF_RASTER_OPACITY_LOD0(material_index, tex_coord_0, tex_coord_1, vertex_color.a)"),
+  EXPECT_NE(ray_query.find("material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a"),
             std::string::npos);
   EXPECT_NE(ray_query.find("EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0("), std::string::npos);
   EXPECT_NE(ray_query.find("hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width"), std::string::npos);
-  EXPECT_NE(ray_query.find("hit.material_index, tex_coord_0, tex_coord_1, vertex_color"), std::string::npos);
+  EXPECT_NE(ray_query.find("hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color"),
+            std::string::npos);
   EXPECT_NE(any_hit.find("layout(push_constant) uniform EE_CAMERA_CONSTANTS"), std::string::npos);
-  EXPECT_NE(any_hit.find("EE_GLTF_RASTER_OPACITY_LOD0(material_index, tex_coord_0, tex_coord_1, vertex_color.a)"),
+  EXPECT_NE(any_hit.find("material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a"),
             std::string::npos);
   EXPECT_NE(any_hit.find("v0.tex_coord_1 * barycentrics.x"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0("), std::string::npos);
@@ -454,7 +453,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(source.find("#include \"GltfRayTracingBsdf.glsl\""), std::string::npos);
   EXPECT_NE(source.find("GltfRayTracingPbrMaterial pbr"), std::string::npos);
   EXPECT_NE(source.find("EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL"), std::string::npos);
-  EXPECT_NE(source.find("hit.normal, hit.tangent, hit.bitangent"), std::string::npos);
+  EXPECT_NE(source.find("tex_coord_2, tex_coord_3, vertex_color, hit.normal"), std::string::npos);
   EXPECT_NE(source.find("hit.normal = hit.pbr.normal"), std::string::npos);
   EXPECT_NE(source.find("EE_CAMERA_DIRECT_LIGHTING"), std::string::npos);
   EXPECT_NE(source.find("dot(direct_light.direction, hit.shading_normal) <= 0.0f && "
@@ -1111,22 +1110,21 @@ TEST(GltfRayTracingMaterial, RayTracingNormalMapsPreserveImportedTangentHandedne
       std::string::npos);
 }
 
-TEST(GltfRayTracingMaterial, GeneratedTangentsPreserveHandedness) {
+TEST(GltfRayTracingMaterial, GeneratedTangentsUseMikkAndPreserveHandedness) {
   const auto mesh_source = ReadTextFile(SdkPath("src/Mesh.cpp"));
   const auto skinned_mesh_source = ReadTextFile(SdkPath("src/SkinnedMesh.cpp"));
+  const auto mikk_source = ReadTextFile(SdkPath("src/MikkTangentSpace.cpp"));
   ASSERT_FALSE(mesh_source.empty());
   ASSERT_FALSE(skinned_mesh_source.empty());
+  ASSERT_FALSE(mikk_source.empty());
 
   for (const auto* source : {&mesh_source, &skinned_mesh_source}) {
-    EXPECT_NE(source->find("float TangentHandedness(const glm::vec3& tangent, const glm::vec3& bitangent"),
-              std::string::npos);
-    EXPECT_NE(source->find("auto handedness_sums = std::vector<float>()"), std::string::npos);
-    EXPECT_NE(source->find("const auto bitangent ="), std::string::npos);
-    EXPECT_NE(source->find("d21.x * e31.x - d31.x * e21.x"), std::string::npos);
-    EXPECT_EQ(source->find("d31.x * e21.x - d21.x * e31.x"), std::string::npos);
-    EXPECT_NE(source->find("TangentHandedness(tangent, bitangent"), std::string::npos);
-    EXPECT_NE(source->find("vertex_info3 = handedness_sums[i] < 0.0f ? -1.0f : 1.0f"), std::string::npos);
+    EXPECT_NE(source->find("GenerateMikkTangents"), std::string::npos);
   }
+  EXPECT_NE(mikk_source.find("genTangSpaceDefault(&context)"), std::string::npos);
+  EXPECT_NE(mikk_source.find("vertices.emplace_back(vertices[source_index])"), std::string::npos);
+  EXPECT_NE(mikk_source.find("vertices[target_index].vertex_info3 = tangent.w"), std::string::npos);
+  EXPECT_NE(mikk_source.find("case 3:"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenDoesNotBindPrimaryDdgiResources) {
@@ -1390,7 +1388,7 @@ TEST(GltfRayTracingMaterial, RenderInstanceMaterialAndTextureChangesResetRayCame
 
   const auto texture_storage = ReadTextFile(SdkPath("src/TextureStorage.cpp"));
   ASSERT_FALSE(texture_storage.empty());
-  const auto upload_completion = texture_storage.find("gpu_upload_pending_last_sync_ && !upload_pending");
+  const auto upload_completion = texture_storage.find("gpu_upload_generation_last_sync_ != upload_generation");
   ASSERT_NE(upload_completion, std::string::npos);
   EXPECT_NE(texture_storage.find("storage.version_++", upload_completion), std::string::npos);
 }
@@ -1937,7 +1935,9 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(demo_scene_source.find("PrepareRenderingRegressionGeneratedAssets"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("Sponza_FBX"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M42 Material Probe Dielectric"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("M3a UV1 Transform Vertex Color Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M9 UV3 Transform Vertex Color Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M9 Linear sRGB Mip Probe"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("M9 Mikk Mirrored UV Tangent Seam Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3a Specular Glossiness F0 Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3a Opaque Ignores Alpha Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M3a Mirrored Double Sided Normal Probe"), std::string::npos);
@@ -1971,7 +1971,7 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileCoversCrossTechniqueProbe
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::retroreflection_texture"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("GltfTextureColorSpace::Srgb"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), "
-                                   "glm::uvec3(0, 2, 3)}, true)"),
+                                   "glm::uvec3(0, 2, 3)}, 3)"),
             std::string::npos);
   EXPECT_NE(demo_scene_source.find("M42 Imported Material Texture Probe"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("M42 Punctual Light Probe Directional"), std::string::npos);

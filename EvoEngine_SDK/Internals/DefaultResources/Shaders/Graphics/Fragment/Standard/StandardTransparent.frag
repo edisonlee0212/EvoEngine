@@ -11,8 +11,8 @@ layout (location = 0) in VS_OUT {
 	vec3 Normal;
 	vec3 Tangent;
 	flat float TangentHandedness;
-	vec2 TexCoord;
-	vec2 TexCoord1;
+	vec4 TexCoord01;
+	vec4 TexCoord23;
 	vec4 Color;
 } fs_in;
 
@@ -29,7 +29,8 @@ void main()
 	float facing_sign = (gl_FrontFacing ? 1.0 : -1.0) * transformHandedness;
 	if (EE_GLTF_MATERIALS[material_index].double_sided == 0 && facing_sign < 0.0) discard;
 	GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
-		material_index, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Color);
+		material_index, fs_in.TexCoord01.xy, fs_in.TexCoord01.zw, fs_in.TexCoord23.xy, fs_in.TexCoord23.zw,
+		fs_in.Color);
 	if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) discard;
 	if (EE_GLTF_MATERIALS[material_index].unlit != 0) {
 		FragColor = vec4(surface.base_color.rgb, EE_GLTF_RASTER_OPACITY(surface));
@@ -37,7 +38,8 @@ void main()
 	}
 
 	vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL(
-		material_index, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
+		material_index, fs_in.TexCoord01.xy, fs_in.TexCoord01.zw, fs_in.TexCoord23.xy, fs_in.TexCoord23.zw,
+		fs_in.Normal, fs_in.Tangent, fs_in.TangentHandedness);
 	normal = normalize(facing_sign * normal);
 
 	vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
@@ -52,7 +54,8 @@ void main()
 	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb, normal, viewDir, metallic, roughness, F0, surface.specular_f90) +
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fs_in.FragPos);
 	vec3 outputColor = direct + EE_GLTF_RASTER_COATED_EMISSION(
-	                                material_index, surface, fs_in.TexCoord, fs_in.TexCoord1, fs_in.Normal,
+	                                material_index, surface, fs_in.TexCoord01.xy, fs_in.TexCoord01.zw,
+	                                fs_in.TexCoord23.xy, fs_in.TexCoord23.zw, fs_in.Normal,
 	                                fs_in.Tangent, fs_in.TangentHandedness, facing_sign, viewDir) +
 	                   ambient * surface.occlusion;
 

@@ -22,6 +22,8 @@ struct SkinnedVertexAttributes {
   bool tangent = false;     /**< Whether the tangent attribute is enabled. */
   bool tex_coord = false;   /**< Whether the texture coordinate attribute is enabled. */
   bool tex_coord_1 = false; /**< Whether the secondary texture coordinate attribute is enabled. */
+  bool tex_coord_2 = false; /**< Whether the third texture coordinate attribute is enabled. */
+  bool tex_coord_3 = false; /**< Whether the fourth texture coordinate attribute is enabled. */
   bool color = false;       /**< Whether the color attribute is enabled. */
 
   /**
@@ -180,7 +182,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
    */
   void SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                    const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<unsigned>& indices,
-                   bool use_secondary_tex_coord_for_tangents = false);
+                   int tangent_tex_coord = 0);
 
   /**
    * @brief Sets the vertices for the skinned mesh using attribute information, vertices, and triangle data.
@@ -190,7 +192,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
    */
   void SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                    const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<glm::uvec3>& triangles,
-                   bool use_secondary_tex_coord_for_tangents = false);
+                   int tangent_tex_coord = 0);
 
   /**
    * @brief Gets the amount of skinned vertices.
@@ -218,7 +220,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
   /**
    * @brief Recalculates the tangents of the skinned mesh.
    */
-  void RecalculateTangent(bool use_secondary_tex_coord = false);
+  void RecalculateTangent(int tex_coord = 0);
 
   /**
    * @brief Provides unsafe access to the skinned vertices.

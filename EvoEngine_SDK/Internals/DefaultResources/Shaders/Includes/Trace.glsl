@@ -116,7 +116,7 @@ vec3 Barycentric(vec3 p, vec3 a, vec3 b, vec3 c) {
 
 Vertex GetVertex(uint vertex_index) {
   const uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
-  const uint offset = vertices_offset + vertex_index * 6;
+  const uint offset = vertices_offset + vertex_index * 7;
   Vertex vertex;
   vertex.position = scene_geometry_data[offset].xyz;
   vertex.vertex_info1 = scene_geometry_data[offset].w;
@@ -128,7 +128,9 @@ Vertex GetVertex(uint vertex_index) {
   vertex.tex_coord = scene_geometry_data[offset + 4].xy;
   vertex.vertex_info4 = scene_geometry_data[offset + 4].zw;
   vertex.tex_coord_1 = scene_geometry_data[offset + 5].xy;
-  vertex.padding = scene_geometry_data[offset + 5].zw;
+  vertex.tex_coord_2 = scene_geometry_data[offset + 5].zw;
+  vertex.tex_coord_3 = scene_geometry_data[offset + 6].xy;
+  vertex.padding = scene_geometry_data[offset + 6].zw;
   return vertex;
 }
 
@@ -270,9 +272,9 @@ HitInfo Trace(in RayDescriptor ray_descriptor, in bool cull_back_face, in bool c
               uint t_x = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].x);
               uint t_y = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].y);
               uint t_z = floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].z);
-              vec3 p0 = scene_geometry_data[vertices_offset + t_x * 6].xyz;
-              vec3 p1 = scene_geometry_data[vertices_offset + t_y * 6].xyz;
-              vec3 p2 = scene_geometry_data[vertices_offset + t_z * 6].xyz;
+              vec3 p0 = scene_geometry_data[vertices_offset + t_x * 7].xyz;
+              vec3 p1 = scene_geometry_data[vertices_offset + t_y * 7].xyz;
+              vec3 p2 = scene_geometry_data[vertices_offset + t_z * 7].xyz;
               if (p0.x == p1.x && p0.y == p1.y && p0.z == p1.z && p1.x == p2.x && p1.y == p2.y && p1.z == p2.z)
                 continue;
               vec3 node_space_triangle_normal = normalize(cross(p1 - p0, p2 - p0));

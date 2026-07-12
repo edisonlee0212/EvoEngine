@@ -51,6 +51,10 @@ It combines:
 - enabled skinned Capoeira probe;
 - high-emission firefly clamp probe;
 - low/high contrast Auto SPP convergence probes.
+- transformed UV2/UV3 material and normal-map probes;
+- repeat/clamp and nearest/linear glTF sampler probes;
+- a minified sRGB checker whose expected linear mip value is `0.5`;
+- a shared-index mirrored chart that requires MikkTSpace tangent splitting.
 
 The scene exists for cross-technique regression coverage. Rasterization, RayTracing, and RayQuery are not expected to be
 pixel-equal because their integrators and post-processing histories differ.

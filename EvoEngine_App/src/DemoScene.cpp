@@ -246,27 +246,28 @@ std::shared_ptr<Mesh> CreateRenderingRegressionMaterialQuad(const std::array<glm
     vertices[i].color = colors[i];
     vertices[i].tex_coord = tex_coords_0[i];
     vertices[i].tex_coord_1 = tex_coords_1[i];
+    vertices[i].tex_coord_2 = tex_coords_0[3 - i];
+    vertices[i].tex_coord_3 = tex_coords_1[i];
   }
 
   VertexAttributes attributes;
   attributes.normal = true;
   attributes.tex_coord = true;
   attributes.tex_coord_1 = true;
+  attributes.tex_coord_2 = true;
+  attributes.tex_coord_3 = true;
   attributes.color = true;
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3)}, true);
+  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3)}, 3);
   return mesh;
 }
 
 std::shared_ptr<Mesh> CreateRenderingRegressionMirroredTangentSeam() {
-  std::vector<Vertex> vertices(8);
-  const std::array positions = {glm::vec3(-1.0f, -0.5f, 0.0f), glm::vec3(0.0f, -0.5f, 0.0f),
-                                glm::vec3(0.0f, 0.5f, 0.0f),   glm::vec3(-1.0f, 0.5f, 0.0f),
-                                glm::vec3(0.0f, -0.5f, 0.0f),  glm::vec3(1.0f, -0.5f, 0.0f),
-                                glm::vec3(1.0f, 0.5f, 0.0f),   glm::vec3(0.0f, 0.5f, 0.0f)};
-  const std::array tex_coords = {glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f, 1.0f),
-                                 glm::vec2(0.0f, 1.0f), glm::vec2(1.0f, 0.0f), glm::vec2(0.0f, 0.0f),
-                                 glm::vec2(0.0f, 1.0f), glm::vec2(1.0f, 1.0f)};
+  std::vector<Vertex> vertices(4);
+  const std::array positions = {glm::vec3(-1.0f, -0.5f, 0.0f), glm::vec3(1.0f, -0.5f, 0.0f),
+                                glm::vec3(-1.0f, 0.5f, 0.0f), glm::vec3(1.0f, 0.5f, 0.0f)};
+  const std::array tex_coords = {glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(0.0f, 1.0f),
+                                 glm::vec2(0.0f, 0.0f)};
   for (size_t index = 0; index < vertices.size(); ++index) {
     vertices[index].position = positions[index];
     vertices[index].normal = glm::vec3(0.0f, 0.0f, 1.0f);
@@ -276,25 +277,20 @@ std::shared_ptr<Mesh> CreateRenderingRegressionMirroredTangentSeam() {
   attributes.normal = true;
   attributes.tex_coord = true;
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  mesh->SetVertices(attributes, vertices,
-                    {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3), glm::uvec3(4, 5, 6), glm::uvec3(4, 6, 7)});
+  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(2, 1, 3)});
   return mesh;
 }
 
 void SetRenderingRegressionSampler(const std::shared_ptr<Texture2D>& texture, const VkFilter filter,
                                    const VkSamplerAddressMode address_mode) {
+  Texture2DSamplerSettings settings;
+  settings.mag_filter = filter;
+  settings.min_filter = filter;
+  settings.mipmap_mode = filter == VK_FILTER_NEAREST ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  settings.address_mode_u = address_mode;
+  settings.address_mode_v = address_mode;
+  texture->SetSamplerSettings(settings);
   texture->UnsafeUploadDataImmediately();
-  VkSamplerCreateInfo sampler_info{};
-  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  sampler_info.magFilter = filter;
-  sampler_info.minFilter = filter;
-  sampler_info.mipmapMode =
-      filter == VK_FILTER_NEAREST ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  sampler_info.addressModeU = address_mode;
-  sampler_info.addressModeV = address_mode;
-  sampler_info.addressModeW = address_mode;
-  sampler_info.maxLod = VK_LOD_CLAMP_NONE;
-  texture->RefTexture2DStorage().sampler = std::make_shared<Sampler>(sampler_info);
 }
 
 Entity CreateRenderingRegressionMaterialQuadEntity(const std::shared_ptr<Scene>& scene, const Entity& root,
@@ -329,13 +325,13 @@ void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>
   const glm::mat3x2 texture_transform(1.35f * std::cos(rotation), 1.35f * std::sin(rotation),
                                       -0.85f * std::sin(rotation), 0.85f * std::cos(rotation), 0.15f, 0.1f);
   const auto base_color_slot =
-      textured_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, color_texture, 1, texture_transform);
+      textured_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, color_texture, 3, texture_transform);
   textured_material->material_data.texture_infos[base_color_slot].color_space =
       static_cast<int32_t>(GltfTextureColorSpace::Srgb);
-  textured_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 1, texture_transform);
+  textured_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 3, texture_transform);
   ConfigureMaterial(textured_material, glm::vec3(1.0f), 0.45f, 0.0f);
   CreateRenderingRegressionMaterialQuadEntity(
-      scene, root, "M3a UV1 Transform Vertex Color Probe", textured_mesh, textured_material,
+      scene, root, "M9 UV3 Transform Vertex Color Probe", textured_mesh, textured_material,
       glm::vec3(-1.75f, 0.85f, -1.35f), glm::radians(glm::vec3(8.0f, 22.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
 
   const auto mirrored_normal_material = AssetManager::CreateTemporaryAsset<Material>();
@@ -429,13 +425,36 @@ void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>
   create_sampler_probe("M7 Clamp Linear Sampler Probe", glm::vec3(-0.55f, 2.45f, -1.4f), VK_FILTER_LINEAR,
                        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
+  const auto mip_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  mip_texture->srgb = true;
+  std::vector<glm::vec4> mip_pixels(32 * 32);
+  for (uint32_t y = 0; y < 32; ++y) {
+    for (uint32_t x = 0; x < 32; ++x) {
+      const float value = (x + y) % 2 == 0 ? 1.0f : 0.0f;
+      mip_pixels[y * 32 + x] = glm::vec4(value, value, value, 1.0f);
+    }
+  }
+  mip_texture->SetRgbaChannelData(mip_pixels, glm::uvec2(32));
+  SetRenderingRegressionSampler(mip_texture, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  const auto mip_material = AssetManager::CreateTemporaryAsset<Material>();
+  const glm::mat3x2 minification_transform(32.0f, 0.0f, 0.0f, 32.0f, 0.0f, 0.0f);
+  const auto mip_slot =
+      mip_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, mip_texture, 2, minification_transform);
+  mip_material->material_data.texture_infos[mip_slot].color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
+  ConfigureMaterial(mip_material, glm::vec3(1.0f), 1.0f, 0.0f);
+  mip_material->material_data.shade_material.unlit = 1;
+  mip_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M9 Linear sRGB Mip Probe", textured_mesh, mip_material,
+                                              glm::vec3(2.35f, 2.45f, -1.4f), glm::vec3(0.0f),
+                                              glm::vec3(0.5f, 0.34f, 1.0f));
+
   const auto seam_normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   seam_normal_texture->SetRgbaChannelData({glm::vec4(0.75f, 0.5f, 0.9330127f, 1.0f)}, glm::uvec2(1));
   const auto seam_material = AssetManager::CreateTemporaryAsset<Material>();
   seam_material->SetTexture(&GltfShadeMaterial::normal_texture, seam_normal_texture);
   ConfigureMaterial(seam_material, glm::vec3(0.72f), 0.5f, 0.0f);
   CreateRenderingRegressionMaterialQuadEntity(
-      scene, root, "M7 Duplicated Mirrored UV Tangent Seam Probe", CreateRenderingRegressionMirroredTangentSeam(),
+      scene, root, "M9 Mikk Mirrored UV Tangent Seam Probe", CreateRenderingRegressionMirroredTangentSeam(),
       seam_material, glm::vec3(1.15f, 2.45f, -1.4f), glm::vec3(0.0f), glm::vec3(0.5f, 0.34f, 1.0f));
 }
 

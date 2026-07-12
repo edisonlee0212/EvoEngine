@@ -248,6 +248,7 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(ray_query_shader.find("EE_CAMERA_TEXTURE_GRADIENTS"), std::string::npos);
   EXPECT_NE(ray_query_shader.find("out uint material_index, out vec2 tex_coord_0, out vec2 tex_coord_1"),
             std::string::npos);
+  EXPECT_NE(ray_query_shader.find("out vec2 tex_coord_2, out vec2 tex_coord_3"), std::string::npos);
   EXPECT_NE(ray_query_shader.find("EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL"), std::string::npos);
   EXPECT_NE(ray_query_shader.find("imageStore(result_image, ivec2(pixel_coordinate), vec4(linear_radiance"),
             std::string::npos);

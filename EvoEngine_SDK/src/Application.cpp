@@ -1035,6 +1035,17 @@ void SerializeTexture2D(YAML::Emitter& out, const Texture2D& texture) {
   out << YAML::Key << "green_channel" << YAML::Value << texture.green_channel;
   out << YAML::Key << "blue_channel" << YAML::Value << texture.blue_channel;
   out << YAML::Key << "alpha_channel" << YAML::Value << texture.alpha_channel;
+  out << YAML::Key << "srgb" << YAML::Value << texture.srgb;
+  const auto& sampler = texture.GetSamplerSettings();
+  out << YAML::Key << "sampler" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "mag_filter" << YAML::Value << static_cast<int32_t>(sampler.mag_filter);
+  out << YAML::Key << "min_filter" << YAML::Value << static_cast<int32_t>(sampler.min_filter);
+  out << YAML::Key << "mipmap_mode" << YAML::Value << static_cast<int32_t>(sampler.mipmap_mode);
+  out << YAML::Key << "address_mode_u" << YAML::Value << static_cast<int32_t>(sampler.address_mode_u);
+  out << YAML::Key << "address_mode_v" << YAML::Value << static_cast<int32_t>(sampler.address_mode_v);
+  out << YAML::Key << "min_lod" << YAML::Value << sampler.min_lod;
+  out << YAML::Key << "max_lod" << YAML::Value << sampler.max_lod;
+  out << YAML::EndMap;
   const auto resolution = texture.GetResolution();
   out << YAML::Key << "resolution" << YAML::Value << resolution;
   if (resolution.x == 0 || resolution.y == 0) {
@@ -1082,6 +1093,26 @@ void DeserializeTexture2D(const YAML::Node& in, Texture2D& texture) {
     texture.alpha_channel = in["alpha_channel"].as<bool>();
   if (in["hdr"])
     texture.hdr = in["hdr"].as<bool>();
+  if (in["srgb"])
+    texture.srgb = in["srgb"].as<bool>();
+  auto sampler = texture.GetSamplerSettings();
+  if (const auto sampler_node = in["sampler"]) {
+    if (sampler_node["mag_filter"])
+      sampler.mag_filter = static_cast<VkFilter>(sampler_node["mag_filter"].as<int32_t>());
+    if (sampler_node["min_filter"])
+      sampler.min_filter = static_cast<VkFilter>(sampler_node["min_filter"].as<int32_t>());
+    if (sampler_node["mipmap_mode"])
+      sampler.mipmap_mode = static_cast<VkSamplerMipmapMode>(sampler_node["mipmap_mode"].as<int32_t>());
+    if (sampler_node["address_mode_u"])
+      sampler.address_mode_u = static_cast<VkSamplerAddressMode>(sampler_node["address_mode_u"].as<int32_t>());
+    if (sampler_node["address_mode_v"])
+      sampler.address_mode_v = static_cast<VkSamplerAddressMode>(sampler_node["address_mode_v"].as<int32_t>());
+    if (sampler_node["min_lod"])
+      sampler.min_lod = sampler_node["min_lod"].as<float>();
+    if (sampler_node["max_lod"])
+      sampler.max_lod = sampler_node["max_lod"].as<float>();
+  }
+  texture.SetSamplerSettings(sampler);
   if (in["resolution"])
     resolution = in["resolution"].as<glm::ivec2>();
   if (resolution.x == 0 || resolution.y == 0) {
@@ -1109,7 +1140,7 @@ void DeserializeTexture2D(const YAML::Node& in, Texture2D& texture) {
   pixels.resize(resolution.x * resolution.y);
   Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
     for (int channel = 0; channel < target_channel_size; channel++) {
-      pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
+      pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 255.0f, 0.f, 1.f);
     }
     if (target_channel_size < 4) {
       pixels[i][3] = 1.f;
@@ -1234,6 +1265,13 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
     const auto& vertex_data = in["vertices_"].as<YAML::Binary>();
     const auto stride = in["vertex_stride_"] ? in["vertex_stride_"].as<size_t>() : size_t{80};
     auto vertices = DeserializeVertexData<Vertex>(vertex_data, stride);
+    if (stride == 96) {
+      for (auto& vertex : vertices) {
+        vertex.tex_coord_2 = glm::vec2(0.0f);
+        vertex.tex_coord_3 = glm::vec2(0.0f);
+        vertex.padding = glm::vec2(0.0f);
+      }
+    }
 
     const auto& triangle_data = in["triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;
@@ -1284,6 +1322,13 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
     const auto& vertex_data = in["skinned_vertices_"].as<YAML::Binary>();
     const auto stride = in["skinned_vertex_stride_"] ? in["skinned_vertex_stride_"].as<size_t>() : size_t{144};
     auto vertices = DeserializeVertexData<SkinnedVertex>(vertex_data, stride);
+    if (stride == 160) {
+      for (auto& vertex : vertices) {
+        vertex.tex_coord_2 = glm::vec2(0.0f);
+        vertex.tex_coord_3 = glm::vec2(0.0f);
+        vertex.padding = glm::vec2(0.0f);
+      }
+    }
 
     const auto& triangle_data = in["skinned_triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;

@@ -812,13 +812,22 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(geometry.find("mesh[6].offset = offsetof(Vertex, tex_coord_1)"), std::string::npos);
   EXPECT_NE(geometry.find("skinned_mesh[10].location = 10"), std::string::npos);
   EXPECT_NE(geometry.find("skinned_mesh[10].offset = offsetof(SkinnedVertex, tex_coord_1)"), std::string::npos);
+  EXPECT_NE(geometry.find("mesh[7].location = 11"), std::string::npos);
+  EXPECT_NE(geometry.find("mesh[7].offset = offsetof(Vertex, tex_coord_2)"), std::string::npos);
+  EXPECT_NE(geometry.find("mesh[8].location = 12"), std::string::npos);
+  EXPECT_NE(geometry.find("mesh[8].offset = offsetof(Vertex, tex_coord_3)"), std::string::npos);
+  EXPECT_NE(geometry.find("skinned_mesh[11].location = 11"), std::string::npos);
+  EXPECT_NE(geometry.find("skinned_mesh[12].location = 12"), std::string::npos);
 
   for (const auto* source : {&standard, &standard_instanced, &standard_skinned}) {
     EXPECT_NE(source->find("layout (location = 9) in float inTangentHandedness"), std::string::npos);
     EXPECT_NE(source->find("flat float TangentHandedness"), std::string::npos);
     EXPECT_NE(source->find("layout (location = 10) in vec2 inTexCoord1"), std::string::npos);
+    EXPECT_NE(source->find("layout (location = 11) in vec2 inTexCoord2"), std::string::npos);
+    EXPECT_NE(source->find("layout (location = 12) in vec2 inTexCoord3"), std::string::npos);
     EXPECT_NE(source->find("transpose(inverse(mat3("), std::string::npos);
-    EXPECT_NE(source->find("vs_out.TexCoord1 = inTexCoord1"), std::string::npos);
+    EXPECT_NE(source->find("vs_out.TexCoord01 = vec4(inTexCoord, inTexCoord1)"), std::string::npos);
+    EXPECT_NE(source->find("vs_out.TexCoord23 = vec4(inTexCoord2, inTexCoord3)"), std::string::npos);
     EXPECT_NE(source->find("vs_out.Color = inColor"), std::string::npos);
     EXPECT_NE(source->find("transformHandedness = EE_TRANSFORM_HANDEDNESS("), std::string::npos);
     EXPECT_NE(source->find("* transformHandedness"), std::string::npos);
@@ -828,7 +837,8 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   for (const auto* source : {&standard_mesh, &standard_meshlet_colored}) {
     EXPECT_NE(source->find("flat float TangentHandedness"), std::string::npos);
     EXPECT_NE(source->find("transpose(inverse(mat3(model)))"), std::string::npos);
-    EXPECT_NE(source->find("ms_v_out[vert].TexCoord1 = v.tex_coord_1"), std::string::npos);
+    EXPECT_NE(source->find("ms_v_out[vert].TexCoord01 = vec4(v.tex_coord, v.tex_coord_1)"), std::string::npos);
+    EXPECT_NE(source->find("ms_v_out[vert].TexCoord23 = vec4(v.tex_coord_2, v.tex_coord_3)"), std::string::npos);
     EXPECT_NE(source->find("ms_v_out[vert].Color = v.color"), std::string::npos);
     EXPECT_NE(source->find("transformHandedness[vert] = EE_TRANSFORM_HANDEDNESS(model)"), std::string::npos);
     EXPECT_NE(source->find("* transformHandedness[vert]"), std::string::npos);
@@ -837,7 +847,9 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
 
   EXPECT_NE(deferred.find("flat float TangentHandedness"), std::string::npos);
   EXPECT_NE(deferred.find("fs_in.TangentHandedness"), std::string::npos);
-  EXPECT_NE(deferred.find("fs_in.TexCoord1"), std::string::npos);
+  EXPECT_NE(deferred.find("fs_in.TexCoord01.zw"), std::string::npos);
+  EXPECT_NE(deferred.find("fs_in.TexCoord23.xy"), std::string::npos);
+  EXPECT_NE(deferred.find("fs_in.TexCoord23.zw"), std::string::npos);
   EXPECT_NE(deferred.find("fs_in.Color"), std::string::npos);
   EXPECT_EQ(deferred.find("EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, fs_in.Normal, "
                           "fs_in.Tangent)"),
@@ -847,6 +859,8 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(raster_material.find("EE_GLTF_FALLBACK_TANGENT(n)"), std::string::npos);
   EXPECT_NE(raster_material.find("vec3 b = cross(n, t) * bitangent_sign"), std::string::npos);
   EXPECT_NE(standard_strands.find("gs_out.TangentHandedness = modelHandedness"), std::string::npos);
+  EXPECT_NE(standard_strands.find("gs_out.TexCoord01 = vec4(texCoordS, texCoordS)"), std::string::npos);
+  EXPECT_NE(standard_strands.find("gs_out.TexCoord23 = vec4(0.0)"), std::string::npos);
   for (const auto* source : {&deferred, &transparent}) {
     EXPECT_NE(source->find("layout(location = 8) in flat float transformHandedness"), std::string::npos);
     EXPECT_NE(source->find("(gl_FrontFacing ? 1.0 : -1.0) * transformHandedness"), std::string::npos);
@@ -878,9 +892,13 @@ TEST(GltfRasterMaterial, PrefabImporterPreservesMissingTexCoordAttributes) {
   EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord = false"), std::string::npos);
   EXPECT_NE(prefab_source.find("attributes.tex_coord_1 = true"), std::string::npos);
   EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_1 = true"), std::string::npos);
+  EXPECT_NE(prefab_source.find("attributes.tex_coord_2 = true"), std::string::npos);
+  EXPECT_NE(prefab_source.find("attributes.tex_coord_3 = true"), std::string::npos);
+  EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_2 = true"), std::string::npos);
+  EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_3 = true"), std::string::npos);
   EXPECT_NE(prefab_source.find("glm::vec4(color.r, color.g, color.b, color.a)"), std::string::npos);
   EXPECT_NE(prefab_source.find("ReadImportedTexCoord(importer_mesh, 1"), std::string::npos);
   EXPECT_NE(prefab_source.find("bool parsed_gltf = false"), std::string::npos);
-  EXPECT_NE(prefab_source.find("extension == \".gltf\" && parsed_gltf"), std::string::npos);
+  EXPECT_NE(prefab_source.find("(extension == \".gltf\" || extension == \".glb\") && parsed_gltf"), std::string::npos);
   EXPECT_EQ(prefab_source.find("extension == \".gltf\" && !gltf_material_data.empty()"), std::string::npos);
 }
