@@ -48,6 +48,7 @@ struct EditorCommandLine {
   size_t preview_capture_warmup_frames = 8;
   size_t preview_capture_timing_warmup_frames = 0;
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
+  std::optional<CameraSettings::RayDebugView> preview_capture_ray_debug_view;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<bool> preview_capture_firefly_clamp_enabled;
   std::optional<float> preview_capture_firefly_clamp_threshold;
@@ -103,6 +104,16 @@ CameraSettings::ShaderExecutionReorderingMode ParsePreviewShaderExecutionReorder
     return disabled_fallback;
   }
   throw std::invalid_argument("Unknown preview SER mode: " + value);
+}
+
+CameraSettings::RayDebugView ParsePreviewRayDebugView(const std::string& value) {
+  const auto beauty_fallback = Camera::ParseRayDebugView(value, CameraSettings::RayDebugView::Beauty);
+  const auto atlas_fallback = Camera::ParseRayDebugView(value, CameraSettings::RayDebugView::ValidationAtlas);
+  if (beauty_fallback != CameraSettings::RayDebugView::Beauty ||
+      atlas_fallback != CameraSettings::RayDebugView::ValidationAtlas) {
+    return beauty_fallback;
+  }
+  throw std::invalid_argument("Unknown preview ray debug view: " + value);
 }
 
 bool ParsePreviewBool(const std::string& value, const std::string& argument) {
@@ -352,6 +363,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-render-mode requires rasterization, raytracing, or rayquery.");
       }
       command_line.preview_capture_render_mode = ParsePreviewRenderMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-ray-debug" || argument == "--preview-ray-debug-view") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument(argument + " requires a ray debug view.");
+      }
+      command_line.preview_capture_ray_debug_view = ParsePreviewRayDebugView(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--disable-ray-tracing-pipeline") {
       command_line.disable_ray_tracing_pipeline = true;
     } else if (argument == "--preview-ser") {
@@ -522,6 +538,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   }
   if (command_line.preview_capture_metrics_path && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-metrics-json requires --capture-demo-preview.");
+  }
+  if (command_line.preview_capture_ray_debug_view && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-ray-debug requires --capture-demo-preview.");
+  }
+  if (command_line.preview_capture_ray_debug_view &&
+      (!command_line.preview_capture_render_mode ||
+       !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
+    throw std::invalid_argument("--preview-ray-debug requires --preview-render-mode raytracing or rayquery.");
   }
   if (command_line.demo_preview_capture_path) {
     auto extension = command_line.demo_preview_capture_path->extension().string();
@@ -995,6 +1019,7 @@ void CaptureDemoPreview(
     const int height, const size_t warmup_frames, const size_t timing_warmup_frames,
     const std::optional<DemoProfileId> demo_profile_id,
     const std::optional<Camera::CameraRenderMode>& preview_render_mode,
+    const std::optional<CameraSettings::RayDebugView>& preview_ray_debug_view,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<bool>& preview_firefly_clamp_enabled,
     const std::optional<float>& preview_firefly_clamp_threshold,
@@ -1042,6 +1067,10 @@ void CaptureDemoPreview(
   ApplyPreviewCameraOverride(editor_layer, preview_camera_position, preview_camera_look_at);
   if (preview_render_mode) {
     scene_camera->camera_render_mode = *preview_render_mode;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_ray_debug_view) {
+    scene_camera->camera_settings.ray_debug_view = *preview_ray_debug_view;
     scene_camera->ResetFrameCount();
   }
   if (preview_ser_mode) {
@@ -1335,6 +1364,7 @@ void CaptureDemoPreview(
   metrics["renderer"] = "EvoEngine";
   metrics["demo_profile"] = demo_profile_id ? GetDemoProfileIdName(*demo_profile_id) : "";
   metrics["render_mode"] = Camera::GetCameraRenderModeName(resolved_render_mode);
+  metrics["ray_debug_view"] = Camera::GetRayDebugViewName(scene_camera->camera_settings.ray_debug_view);
   metrics["output_path"] = output_path.string();
   metrics["output_format"] = linear_hdr_output ? "radiance_hdr_linear" : "png_display";
   metrics["width"] = width;
@@ -1490,8 +1520,8 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_width, command_line.preview_capture_height,
               command_line.preview_capture_warmup_frames, command_line.preview_capture_timing_warmup_frames,
               command_line.demo_profile_id, command_line.preview_capture_render_mode,
-              command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_enabled,
-              command_line.preview_capture_firefly_clamp_threshold,
+              command_line.preview_capture_ray_debug_view, command_line.preview_capture_ser_mode,
+              command_line.preview_capture_firefly_clamp_enabled, command_line.preview_capture_firefly_clamp_threshold,
               command_line.preview_capture_emissive_triangle_nee_enabled,
               command_line.preview_force_full_ray_shader_variant, command_line.preview_capture_auto_spp_enabled,
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,

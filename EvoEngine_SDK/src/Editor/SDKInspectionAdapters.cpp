@@ -483,6 +483,12 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     changed = true;
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
+    uint32_t debug_view = static_cast<uint32_t>(camera.camera_settings.ray_debug_view);
+    if (ImGui::Combo("Ray Debug View", Camera::GetRayDebugViewNames(), debug_view)) {
+      camera.camera_settings.ray_debug_view = Camera::NormalizeRayDebugView(debug_view);
+      camera.ResetFrameCount();
+      changed = true;
+    }
     if (ImGui::DragFloat("Gamma", &camera.camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
       changed = true;
     }

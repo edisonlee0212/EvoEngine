@@ -480,7 +480,7 @@ timing is a historical archived observation, not a concurrent measurement. Repor
 instrumentation, hardware/driver, timing source, and sample count, and exclude it from matched speedup ratios or target
 acceptance.
 
-#### M6 Baseline and Approval-Pending Targets
+#### M6 Baseline and Approved Targets
 
 The fresh one-run M6 slice on the NVIDIA GPU/driver recorded in `report.json` produced the following current EvoEngine
 baseline. These are descriptive observations, not estimates of run-to-run variance:
@@ -493,8 +493,7 @@ baseline. These are descriptive observations, not estimates of run-to-run varian
 
 All three lanes recorded two startup TLAS builds totaling about `0.366-0.368 ms`, zero capture-window BLAS/TLAS work,
 and final device-local VMA allocation of about `6.086e9` bytes (`5.668 GiB`). RayQuery and forced query-only were
-bit-exact. RTX versus RayQuery relative L2 was `0.008947`. The following targets remain proposals until explicitly
-approved:
+bit-exact. RTX versus RayQuery relative L2 was `0.008947`. The following targets were explicitly approved before M7:
 
 - M11, with SER disabled: RTX must reach at least `49.5 Msample/s`, at most `60.0 ms` GPU median, and at most `9.50 s`
   accumulation wall time. RayQuery must reach at least `53.0 Msample/s`, at most `57.5 ms` GPU median, and at most
@@ -517,6 +516,69 @@ approved:
   must report zero redundant or just-submitted-frame waits; and path GPU median must not regress by more than 5% from the
   approved post-M11 slice. The existing generic fence-wait duration follows GPU completion and is not an independent
   acceptance target.
+
+#### M7 Ray Diagnostic Views
+
+Ray cameras expose the same `RayDebugView` implementation through the RTX pipeline and RayQuery integrator. `Beauty` is
+the default. The editor Camera inspector provides `Ray Debug View`, and automated captures use
+`--preview-ray-debug <view>` together with an explicit ray `--preview-render-mode`. Capture metrics record the normalized
+view name as `ray_debug_view`. Changing the view resets accumulation.
+
+Automatic shader variants reserve a non-glTF cache-key bit for diagnostics. Steady-state Beauty-only RTX and RayQuery
+techniques, including all-material specializations, compile every diagnostic field and branch out of the shared
+integrator; the permanent all-material safety fallback retains diagnostics while an exact specialization builds.
+Diagnostic demand is tracked independently for RTX and RayQuery. If any camera of a technique selects a diagnostic view,
+that technique uses its diagnostic variant until all its cameras return to Beauty. Public material feature masks remain
+glTF-only, while the variant key appends `:debug` when instrumentation is active.
+
+Diagnostic HDRs are raw linear RGB rather than the pinned reference's display-oriented sRGB visualization. Normals are
+encoded as `0.5 * N + 0.5`. Roughness stores perceptual roughness and squared anisotropic alpha-x/alpha-y. Alpha stores
+per-accepted-candidate raw alpha, transport opacity, and candidate acceptance probability. Accumulated blend pixels are
+coverage-weighted because rejected candidates continue traversal; they do not display unconditional raw material values.
+M10 owns that documented sampling distinction. Transmission stores specular, diffuse, and combined transmission.
+Iridescence stores factor, thickness divided by 1200 nm, and IOR divided by 3. `Specular F0` is the effective
+scalar-weighted colored dielectric F0. PDF channels use zero for invalid, `0.75` for Dirac, and `0.05-0.50` for
+log-encoded finite positive values; the BSDF view contains path-sampled, punctual/environment-NEE-evaluated, and
+emissive-NEE-evaluated PDFs.
+
+`Validation Atlas` packs Beauty plus the 19 diagnostic outputs into a 5x4 image. Each cell letterboxes the same 16:9
+camera and seeds the estimator from tile-local coordinates, so Beauty, primary emission, the three direct-light terms,
+and indirect radiance can be checked for additive conservation without launching one process per view. Saved HDR/derived
+PNG rows are bottom-up in enum order: Beauty through Shading Normal are on the bottom row and Indirect Radiance through
+Emissive PDF are on the top row. `validation.json` records the explicit top-to-bottom mapping.
+
+The final binding matrix contains three fresh 1280x720, 64-SPP captures: RTX, RayQuery, and forced query-only. One earlier
+three-capture diagnostic matrix was discarded after it exposed a saved-HDR row-mapping error in the validator and an
+empty-UV1 tangent fixture; both were corrected before repeating the same matrix. The first post-commit Beauty capture was
+also rejected: although its image was bit-identical to M6, keeping diagnostic state live increased RTX GPU median from
+`264.458 ms` to `329.702 ms` (`24.67%`). M7 therefore compiles diagnostics out of Beauty, uses one focused forced-query-only
+capture to prove the guarded diagnostic path remains equivalent, and replaces the post-commit Beauty delivery capture.
+The resulting nine total renderer launches remain within ten. The pinned reference is not rerun because the generated
+EvoEngine regression scene is not a matched portable input.
+
+Run the focused gate with:
+
+```bat
+python Scripts\validate_ray_debug_views.py --self-test
+python Scripts\validate_ray_debug_views.py --dry-run --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe
+python Scripts\validate_ray_debug_views.py --capture --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe
+```
+
+The accepted report is `out/m7-validation/atlas/validation.json`. RayQuery and forced query-only are bit-exact with
+SHA-256 `07f4fceae79b5cbb682a7c558c03a68c4f7bc1aeb2646c88ec389afee242576f`. Every focused ROI and relation passes;
+the worst attribute MAE/RMS is `0.00002665/0.00061523`, and contribution-conservation relative L2 is at most `0.000610`.
+After the Beauty compile-out change, `out/m7-validation/perf-fix-query-only/rq-only.hdr` reproduced that SHA-256
+bit-for-bit with RT-pipeline capability disabled and exact active/requested key `rq:0x6eb3:debug`; its log was clean.
+Transport is gated per term rather than pooled. Beauty, emission, direct-punctual, and indirect differences are classified
+as bounded 64-SPP stochastic tails with explicit mean, 99.9th-percentile, maximum, and high-energy-count limits; direct
+environment and direct emissive pass tighter conformant bounds. The observed single-channel maxima of `112` in Beauty
+and direct punctual are therefore visible and bounded rather than diluted by other views. These single-capture limits are
+guardrails, not variance estimates; the established clamped 512-SPP Bistro relative-L2 gate remains separate.
+
+The validator also checks finite channel ranges, named material/sampler/tangent ROIs, capture provenance, and the
+classifications committed in `Scripts/raytracer_m7_expectations.json`. Known semantic gaps remain explicit M8/M9 inputs
+rather than being hidden by the visualization; alpha-blend traversal-edge and coverage-weighting behavior remains
+classified as bounded stochastic noise pending M10.
 
 Run both RT-pipeline and RayQuery techniques with:
 

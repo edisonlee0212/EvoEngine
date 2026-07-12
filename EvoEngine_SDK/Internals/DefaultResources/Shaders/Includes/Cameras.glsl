@@ -31,7 +31,7 @@ struct Camera {
   uint auto_spp_max_samples;
   float auto_spp_convergence_threshold;
   uint emissive_triangle_nee_enabled;
-  uint auto_spp_padding1;
+  uint ray_debug_view;
   uint auto_spp_padding2;
 };
 

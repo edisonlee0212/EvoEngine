@@ -39,7 +39,7 @@ float Halton(uint32_t index, const uint32_t base) {
 std::string NormalizeRenderModeName(std::string value) {
   value.erase(std::remove_if(value.begin(), value.end(),
                              [](const char character) {
-                               return character == '-' || character == '_' ||
+                               return character == '-' || character == '_' || character == '/' ||
                                       std::isspace(static_cast<unsigned char>(character));
                              }),
               value.end());
@@ -160,6 +160,57 @@ const char* Camera::GetShaderExecutionReorderingModeName(const CameraSettings::S
   return GetShaderExecutionReorderingModeNames()[index].c_str();
 }
 
+const std::vector<std::string>& Camera::GetRayDebugViewNames() {
+  static const std::vector<std::string> view_names{
+      "Beauty",          "Material ID",        "Base Color",      "Geometric Normal",  "Shading Normal", "Roughness",
+      "Metallic",        "Specular F0",        "Alpha/Coverage",  "Transmission",      "Iridescence",    "Emission",
+      "Direct Punctual", "Direct Environment", "Direct Emissive", "Indirect Radiance", "Path Depth",     "BSDF PDF",
+      "Light PDF",       "Emissive PDF",       "Validation Atlas"};
+  return view_names;
+}
+
+const char* Camera::GetRayDebugViewName(const CameraSettings::RayDebugView view) {
+  const auto index = static_cast<uint32_t>(NormalizeRayDebugView(static_cast<uint32_t>(view)));
+  return GetRayDebugViewNames()[index].c_str();
+}
+
+CameraSettings::RayDebugView Camera::ParseRayDebugView(const std::string& value,
+                                                       const CameraSettings::RayDebugView fallback) {
+  const auto normalized = NormalizeRenderModeName(value);
+  static const std::vector<std::string> names{
+      "beauty",         "materialid",        "basecolor",      "geometricnormal",  "shadingnormal", "roughness",
+      "metallic",       "specularf0",        "alphacoverage",  "transmission",     "iridescence",   "emission",
+      "directpunctual", "directenvironment", "directemissive", "indirectradiance", "pathdepth",     "bsdfpdf",
+      "lightpdf",       "emissivepdf",       "validationatlas"};
+  for (uint32_t index = 0; index < kRayDebugViewCount; ++index) {
+    if (normalized == std::to_string(index)) {
+      return static_cast<CameraSettings::RayDebugView>(index);
+    }
+  }
+  const auto match = std::find(names.begin(), names.end(), normalized);
+  if (match != names.end()) {
+    return static_cast<CameraSettings::RayDebugView>(std::distance(names.begin(), match));
+  }
+  if (normalized == "none" || normalized == "off" || normalized == "disabled") {
+    return CameraSettings::RayDebugView::Beauty;
+  }
+  if (normalized == "material") {
+    return CameraSettings::RayDebugView::MaterialId;
+  }
+  if (normalized == "alpha" || normalized == "opacity" || normalized == "coverage") {
+    return CameraSettings::RayDebugView::AlphaCoverage;
+  }
+  if (normalized == "f0") {
+    return CameraSettings::RayDebugView::SpecularF0;
+  }
+  return fallback;
+}
+
+CameraSettings::RayDebugView Camera::NormalizeRayDebugView(const uint32_t view) {
+  return view < kRayDebugViewCount ? static_cast<CameraSettings::RayDebugView>(view)
+                                   : CameraSettings::RayDebugView::Beauty;
+}
+
 CameraSettings::ShaderExecutionReorderingMode Camera::ParseShaderExecutionReorderingMode(
     const std::string& value, const CameraSettings::ShaderExecutionReorderingMode fallback) {
   const auto normalized = NormalizeRenderModeName(value);
@@ -273,6 +324,8 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
   if (firefly_clamp_threshold != other.firefly_clamp_threshold)
     return true;
   if (emissive_triangle_nee_enabled != other.emissive_triangle_nee_enabled)
+    return true;
+  if (ray_debug_view != other.ray_debug_view)
     return true;
   if (auto_spp_enabled != other.auto_spp_enabled)
     return true;
@@ -448,6 +501,8 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.firefly_clamp_enabled = camera_settings.firefly_clamp_enabled ? 1u : 0u;
   camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
   camera_info_block.emissive_triangle_nee_enabled = camera_settings.emissive_triangle_nee_enabled ? 1u : 0u;
+  camera_info_block.ray_debug_view =
+      static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
   const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));
   const auto auto_spp_max_samples =
       static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));

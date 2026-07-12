@@ -15,6 +15,36 @@ const float EE_CAMERA_MIN_SHADOW_TRANSMISSION = 0.01f;
 const float EE_CAMERA_VOLUME_MIN_SCATTER = 0.001f;
 const float EE_CAMERA_VOLUME_RAND_FLOOR = 1.0e-10f;
 const uint EE_CAMERA_VOLUME_FREE_BUDGET = 64u;
+#ifndef EE_CAMERA_ENABLE_DEBUG_VIEWS
+#define EE_CAMERA_ENABLE_DEBUG_VIEWS 1
+#endif
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+const uint EE_CAMERA_DEBUG_BEAUTY = 0u;
+const uint EE_CAMERA_DEBUG_MATERIAL_ID = 1u;
+const uint EE_CAMERA_DEBUG_BASE_COLOR = 2u;
+const uint EE_CAMERA_DEBUG_GEOMETRIC_NORMAL = 3u;
+const uint EE_CAMERA_DEBUG_SHADING_NORMAL = 4u;
+const uint EE_CAMERA_DEBUG_ROUGHNESS = 5u;
+const uint EE_CAMERA_DEBUG_METALLIC = 6u;
+const uint EE_CAMERA_DEBUG_SPECULAR_F0 = 7u;
+const uint EE_CAMERA_DEBUG_ALPHA_COVERAGE = 8u;
+const uint EE_CAMERA_DEBUG_TRANSMISSION = 9u;
+const uint EE_CAMERA_DEBUG_IRIDESCENCE = 10u;
+const uint EE_CAMERA_DEBUG_EMISSION = 11u;
+const uint EE_CAMERA_DEBUG_DIRECT_PUNCTUAL = 12u;
+const uint EE_CAMERA_DEBUG_DIRECT_ENVIRONMENT = 13u;
+const uint EE_CAMERA_DEBUG_DIRECT_EMISSIVE = 14u;
+const uint EE_CAMERA_DEBUG_INDIRECT_RADIANCE = 15u;
+const uint EE_CAMERA_DEBUG_PATH_DEPTH = 16u;
+const uint EE_CAMERA_DEBUG_BSDF_PDF = 17u;
+const uint EE_CAMERA_DEBUG_LIGHT_PDF = 18u;
+const uint EE_CAMERA_DEBUG_EMISSIVE_PDF = 19u;
+const uint EE_CAMERA_DEBUG_VALIDATION_ATLAS = 20u;
+const uint EE_CAMERA_LIGHT_KIND_NONE = 0u;
+const uint EE_CAMERA_LIGHT_KIND_PUNCTUAL = 1u;
+const uint EE_CAMERA_LIGHT_KIND_ENVIRONMENT = 2u;
+const uint EE_CAMERA_LIGHT_KIND_EMISSIVE = 3u;
+#endif
 
 struct EE_CAMERA_DIRECTION_SAMPLE {
   vec3 direction;
@@ -42,6 +72,69 @@ struct EE_CAMERA_SURFACE_HIT {
   GltfRasterMaterial surface;
   GltfRayTracingPbrMaterial pbr;
 };
+
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+bool EE_CAMERA_IS_MATERIAL_DEBUG_VIEW(const uint view) {
+  return view >= EE_CAMERA_DEBUG_MATERIAL_ID && view <= EE_CAMERA_DEBUG_IRIDESCENCE;
+}
+
+vec3 EE_CAMERA_ENCODE_NORMAL(const vec3 normal) {
+  return clamp(normal * 0.5f + 0.5f, vec3(0.0f), vec3(1.0f));
+}
+
+float EE_CAMERA_ENCODE_PDF(const float pdf) {
+  if (pdf == EE_CAMERA_DIRAC_PDF) {
+    return 0.75f;
+  }
+  return pdf > 0.0f ? 0.05f + 0.45f * clamp(log2(1.0f + pdf) / 16.0f, 0.0f, 1.0f) : 0.0f;
+}
+
+vec3 EE_CAMERA_MATERIAL_DEBUG_VALUE(const uint view, const EE_CAMERA_SURFACE_HIT hit) {
+  if (view == EE_CAMERA_DEBUG_MATERIAL_ID) {
+    const uint hash = EE_XXHASH32(uvec3(hit.material_index, 0x9e3779b9u, 0x85ebca6bu));
+    return 0.2f + 0.8f * vec3(float(hash & 255u), float((hash >> 8u) & 255u), float((hash >> 16u) & 255u)) /
+                            255.0f;
+  }
+  if (view == EE_CAMERA_DEBUG_BASE_COLOR) {
+    return hit.pbr.base_color;
+  }
+  if (view == EE_CAMERA_DEBUG_GEOMETRIC_NORMAL) {
+    return EE_CAMERA_ENCODE_NORMAL(hit.geometric_normal);
+  }
+  if (view == EE_CAMERA_DEBUG_SHADING_NORMAL) {
+    return EE_CAMERA_ENCODE_NORMAL(hit.pbr.normal);
+  }
+  if (view == EE_CAMERA_DEBUG_ROUGHNESS) {
+    return vec3(hit.surface.roughness, hit.pbr.roughness);
+  }
+  if (view == EE_CAMERA_DEBUG_METALLIC) {
+    return vec3(hit.pbr.metallic);
+  }
+  if (view == EE_CAMERA_DEBUG_SPECULAR_F0) {
+    return clamp(hit.pbr.specular * hit.pbr.specular_f0, vec3(0.0f), vec3(1.0f));
+  }
+  if (view == EE_CAMERA_DEBUG_ALPHA_COVERAGE) {
+    const float raw_alpha = clamp(hit.surface.base_color.a, 0.0f, 1.0f);
+    const float transport_opacity = EE_GLTF_RASTER_OPACITY(hit.surface);
+    const float accepted_coverage = hit.surface.alpha_mode == EE_GLTF_ALPHA_MODE_BLEND ? transport_opacity : 1.0f;
+    return vec3(raw_alpha, transport_opacity, accepted_coverage);
+  }
+  if (view == EE_CAMERA_DEBUG_TRANSMISSION) {
+    const float combined = 1.0f - (1.0f - hit.pbr.transmission) * (1.0f - hit.pbr.diffuse_transmission_factor);
+    return vec3(hit.pbr.transmission, hit.pbr.diffuse_transmission_factor, combined);
+  }
+  if (view == EE_CAMERA_DEBUG_IRIDESCENCE) {
+    return vec3(hit.pbr.iridescence, clamp(hit.pbr.iridescence_thickness / 1200.0f, 0.0f, 1.0f),
+                clamp(hit.pbr.iridescence_ior / 3.0f, 0.0f, 1.0f));
+  }
+#if EE_GLTF_USE_UNLIT
+  if (EE_GLTF_MATERIALS[hit.material_index].unlit > 0) {
+    return hit.surface.base_color.rgb;
+  }
+#endif
+  return hit.pbr.emissive;
+}
+#endif
 
 struct EE_CAMERA_VOLUME_MEDIUM {
   vec3 extinction;
@@ -523,6 +616,9 @@ struct EE_CAMERA_DIRECT_LIGHT {
   float distance;
   float pdf;
   float cast_shadow;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  uint kind;
+#endif
 };
 
 struct EE_CAMERA_BOUNCE_SCRATCH {
@@ -532,6 +628,11 @@ struct EE_CAMERA_BOUNCE_SCRATCH {
   vec3 shadow_ray_direction;
   float shadow_ray_distance;
   float cast_shadow;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  float light_pdf;
+  float bsdf_pdf;
+  uint light_kind;
+#endif
 };
 
 uint EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() {
@@ -591,6 +692,9 @@ void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint 
   direct_light.distance = 0.0f;
   direct_light.pdf = 0.0f;
   direct_light.cast_shadow = 1.0f;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  direct_light.kind = EE_CAMERA_LIGHT_KIND_EMISSIVE;
+#endif
   if (EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() == 0u) {
     return;
   }
@@ -885,6 +989,9 @@ void EE_CAMERA_SAMPLE_DIRECT_LIGHT(const EE_CAMERA_SURFACE_HIT hit, const vec3 v
   direct_light.distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
   direct_light.pdf = 0.0f;
   direct_light.cast_shadow = 0.0f;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  direct_light.kind = EE_CAMERA_LIGHT_KIND_NONE;
+#endif
 
   const EE_CAMERA_LIGHT_TECHNIQUE_PROBABILITIES probabilities =
       EE_CAMERA_GET_DIRECT_LIGHTING_TECHNIQUE_PROBABILITIES();
@@ -898,6 +1005,9 @@ void EE_CAMERA_SAMPLE_DIRECT_LIGHT(const EE_CAMERA_SURFACE_HIT hit, const vec3 v
   float environment_pdf = 0.0f;
   const bool sample_light = EE_RANDOM(seed) < light_weight;
   if (sample_light) {
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    direct_light.kind = EE_CAMERA_LIGHT_KIND_PUNCTUAL;
+#endif
     const int light_count = EE_CAMERA_PUNCTUAL_LIGHT_COUNT();
     const float selection_pdf = 1.0f / float(light_count);
     const int light_index = min(int(EE_RANDOM(seed) * float(light_count)), light_count - 1);
@@ -914,6 +1024,9 @@ void EE_CAMERA_SAMPLE_DIRECT_LIGHT(const EE_CAMERA_SURFACE_HIT hit, const vec3 v
 
   if (environment_weight > 0.0f && direct_light.pdf != EE_CAMERA_DIRAC_PDF) {
     if (!sample_light) {
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+      direct_light.kind = EE_CAMERA_LIGHT_KIND_ENVIRONMENT;
+#endif
       const EE_CAMERA_DIRECTION_SAMPLE environment_sample = EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(seed);
       direct_light.direction = environment_sample.direction;
       direct_light.distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
@@ -950,6 +1063,11 @@ EE_CAMERA_BOUNCE_SCRATCH EE_CAMERA_EMPTY_BOUNCE_SCRATCH() {
   bounce.shadow_ray_direction = vec3(0.0f, 1.0f, 0.0f);
   bounce.shadow_ray_distance = 0.0f;
   bounce.cast_shadow = 0.0f;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  bounce.light_pdf = 0.0f;
+  bounce.bsdf_pdf = 0.0f;
+  bounce.light_kind = EE_CAMERA_LIGHT_KIND_NONE;
+#endif
   return bounce;
 }
 
@@ -958,6 +1076,10 @@ void EE_CAMERA_PREPARE_DIRECT_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const ve
                                        inout EE_CAMERA_BOUNCE_SCRATCH bounce) {
   EE_CAMERA_DIRECT_LIGHT direct_light;
   EE_CAMERA_SAMPLE_DIRECT_LIGHT(hit, view_direction, seed, direct_light);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  bounce.light_pdf = direct_light.pdf;
+  bounce.light_kind = direct_light.kind;
+#endif
   if (direct_light.pdf == 0.0f) {
     return;
   }
@@ -980,6 +1102,9 @@ void EE_CAMERA_PREPARE_DIRECT_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const ve
   float bsdf_pdf = 0.0f;
   const vec3 bsdf_radiance = EE_CAMERA_EVALUATE_DIRECT_BSDF(
       hit, view_direction, direct_light.direction, direct_light.radiance_over_pdf, seed, bsdf_pdf);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  bounce.bsdf_pdf = bsdf_pdf;
+#endif
   const float mis_weight = EE_CAMERA_BALANCE_HEURISTIC(direct_light.pdf, bsdf_pdf);
   const vec3 contribution = EE_CAMERA_SANITIZE_RADIANCE(throughput * bsdf_radiance * mis_weight);
   if (max(contribution.x, max(contribution.y, contribution.z)) <= EE_CAMERA_PDF_EPSILON) {
@@ -997,6 +1122,10 @@ void EE_CAMERA_PREPARE_EMISSIVE_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const 
   }
   EE_CAMERA_DIRECT_LIGHT direct_light;
   EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(hit.position, seed, direct_light);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  bounce.light_pdf = direct_light.pdf;
+  bounce.light_kind = direct_light.kind;
+#endif
   if (direct_light.pdf <= 0.0f ||
       (dot(direct_light.direction, hit.shading_normal) <= 0.0f && hit.pbr.diffuse_transmission_factor <= 0.0f)) {
     return;
@@ -1018,6 +1147,9 @@ void EE_CAMERA_PREPARE_EMISSIVE_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const 
   float bsdf_pdf = 0.0f;
   const vec3 bsdf_radiance = EE_CAMERA_EVALUATE_DIRECT_BSDF(
       hit, view_direction, direct_light.direction, direct_light.radiance_over_pdf, seed, bsdf_pdf);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  bounce.bsdf_pdf = bsdf_pdf;
+#endif
   const float mis_weight = EE_CAMERA_BALANCE_HEURISTIC(direct_light.pdf, bsdf_pdf);
   const vec3 contribution = EE_CAMERA_SANITIZE_RADIANCE(throughput * bsdf_radiance * mis_weight);
   if (max(contribution.x, max(contribution.y, contribution.z)) <= EE_CAMERA_PDF_EPSILON) {
@@ -1328,10 +1460,17 @@ vec3 EE_CAMERA_OFFSET_RAY_ORIGIN(const EE_CAMERA_SURFACE_HIT hit, const vec3 dir
   return EE_CAMERA_SAFE_OFFSET_RAY(hit.position, offset_direction);
 }
 
-vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, out float primary_hit_distance) {
+vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction,
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+                          const uint debug_view,
+#endif
+                          out float primary_hit_distance) {
   const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
   const uint max_depth = max(camera.bounce, 1u);
   vec3 radiance = vec3(0.0f);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  vec3 debug_radiance = vec3(0.0f);
+#endif
   vec3 throughput = vec3(1.0f);
   vec3 previous_scattering_position = ray_origin;
   vec2 max_roughness = vec2(0.0f);
@@ -1340,6 +1479,9 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
   bool is_inside = false;
   EE_CAMERA_VOLUME_MEDIUM volume_medium = EE_CAMERA_EMPTY_VOLUME_MEDIUM();
   uint scatter_bounces = 0u;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  uint path_surface_count = 0u;
+#endif
   primary_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
 
   uint surface_depth = 0u;
@@ -1352,6 +1494,11 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
     if (hit_value.hit_count == 0u) {
       if (surface_depth == 0u) {
         radiance += throughput * hit_value.color;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+        if (debug_view == EE_CAMERA_DEBUG_DIRECT_ENVIRONMENT) {
+          debug_radiance += throughput * hit_value.color;
+        }
+#endif
         break;
       }
       const float environment_pdf =
@@ -1359,7 +1506,15 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
       const float environment_weight = EE_CAMERA_GET_DIRECT_LIGHTING_TECHNIQUE_PROBABILITIES().environment_weight;
       const float mis_weight =
           EE_CAMERA_ENVIRONMENT_HIT_MIS_WEIGHT(last_sample_pdf, environment_pdf, environment_weight);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+      const vec3 environment_contribution = throughput * mis_weight * hit_value.environment_radiance;
+      radiance += environment_contribution;
+      if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE) {
+        debug_radiance += environment_contribution;
+      }
+#else
       radiance += throughput * mis_weight * hit_value.environment_radiance;
+#endif
       break;
     }
 
@@ -1370,16 +1525,32 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
 
     EE_CAMERA_SURFACE_HIT surface_hit =
         EE_CAMERA_RECONSTRUCT_SURFACE_HIT(is_inside, ray_direction, ray_cone_width);
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    path_surface_count = max(path_surface_count, surface_depth + 1u);
+#endif
     if (surface_depth == 0u) {
       hit_value.initial_normal = surface_hit.normal;
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+      if (EE_CAMERA_IS_MATERIAL_DEBUG_VIEW(debug_view)) {
+        return EE_CAMERA_SANITIZE_RADIANCE(EE_CAMERA_MATERIAL_DEBUG_VALUE(debug_view, surface_hit));
+      }
+#endif
     }
     max_roughness = max(max_roughness, surface_hit.pbr.roughness);
     surface_hit.pbr.roughness = max_roughness;
     const vec3 view_direction = EE_CAMERA_SAFE_NORMALIZE(-ray_direction, surface_hit.normal);
 
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    const vec3 pre_volume_radiance = radiance;
+#endif
     if (is_inside && EE_CAMERA_PROCESS_VOLUME_SEGMENT(hit_value.hit_t, ray_origin, ray_direction, throughput,
                                                        radiance, last_sample_pdf, volume_medium, seed,
                                                        scatter_bounces)) {
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+      if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
+        debug_radiance += radiance - pre_volume_radiance;
+      }
+#endif
       previous_scattering_position = ray_origin;
       throughput = EE_CAMERA_SANITIZE_RADIANCE(throughput);
       if (max(throughput.x, max(throughput.y, throughput.z)) <= EE_CAMERA_PDF_EPSILON) {
@@ -1402,7 +1573,17 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
 
 #if EE_GLTF_USE_UNLIT
     if (EE_GLTF_MATERIALS[surface_hit.material_index].unlit > 0) {
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+      const vec3 unlit_contribution = throughput * surface_hit.surface.base_color.rgb;
+      radiance += unlit_contribution;
+      if (debug_view == EE_CAMERA_DEBUG_EMISSION && surface_depth == 0u) {
+        debug_radiance += unlit_contribution;
+      } else if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
+        debug_radiance += unlit_contribution;
+      }
+#else
       radiance += throughput * surface_hit.surface.base_color.rgb;
+#endif
       break;
     }
 #endif
@@ -1426,7 +1607,17 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
         emissive_hit_mis_weight = EE_CAMERA_BALANCE_HEURISTIC(last_sample_pdf, emissive_pdf);
       }
     }
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    const vec3 emissive_contribution = throughput * emissive_hit_mis_weight * emissive_radiance;
+    radiance += emissive_contribution;
+    if (debug_view == EE_CAMERA_DEBUG_EMISSION && surface_depth == 0u) {
+      debug_radiance += emissive_contribution;
+    } else if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
+      debug_radiance += emissive_contribution;
+    }
+#else
     radiance += throughput * emissive_hit_mis_weight * emissive_radiance;
+#endif
     ray_cone_width =
         EE_CAMERA_WORLD_FOOTPRINT(ray_cone_width, hit_value.hit_t, surface_hit.geometric_normal, ray_direction);
 
@@ -1460,12 +1651,45 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
                                          : EE_CAMERA_EMPTY_VOLUME_MEDIUM();
         }
       }
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    }
+#else
     } else {
       surface_depth = max_depth;
     }
+#endif
 
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    const vec3 direct_contribution = EE_CAMERA_RESOLVE_DIRECT_LIGHTING(bounce, seed);
+    const vec3 direct_emissive_contribution = EE_CAMERA_RESOLVE_DIRECT_LIGHTING(emissive_bounce, seed);
+    radiance += direct_contribution + direct_emissive_contribution;
+    if (surface_depth == 0u) {
+      if (debug_view == EE_CAMERA_DEBUG_DIRECT_PUNCTUAL &&
+          bounce.light_kind == EE_CAMERA_LIGHT_KIND_PUNCTUAL) {
+        debug_radiance += direct_contribution;
+      } else if (debug_view == EE_CAMERA_DEBUG_DIRECT_ENVIRONMENT &&
+                 bounce.light_kind == EE_CAMERA_LIGHT_KIND_ENVIRONMENT) {
+        debug_radiance += direct_contribution;
+      } else if (debug_view == EE_CAMERA_DEBUG_DIRECT_EMISSIVE) {
+        debug_radiance += direct_emissive_contribution;
+      } else if (debug_view == EE_CAMERA_DEBUG_BSDF_PDF) {
+        debug_radiance = vec3(EE_CAMERA_ENCODE_PDF(sample_data.pdf), EE_CAMERA_ENCODE_PDF(bounce.bsdf_pdf),
+                              EE_CAMERA_ENCODE_PDF(emissive_bounce.bsdf_pdf));
+      } else if (debug_view == EE_CAMERA_DEBUG_LIGHT_PDF) {
+        debug_radiance = vec3(EE_CAMERA_ENCODE_PDF(bounce.light_pdf),
+                              bounce.light_kind == EE_CAMERA_LIGHT_KIND_PUNCTUAL ? 1.0f : 0.0f,
+                              bounce.light_kind == EE_CAMERA_LIGHT_KIND_ENVIRONMENT ? 1.0f : 0.0f);
+      } else if (debug_view == EE_CAMERA_DEBUG_EMISSIVE_PDF) {
+        debug_radiance = vec3(EE_CAMERA_ENCODE_PDF(emissive_bounce.light_pdf),
+                              emissive_bounce.light_pdf > 0.0f ? 1.0f : 0.0f, 0.0f);
+      }
+    } else if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE) {
+      debug_radiance += direct_contribution + direct_emissive_contribution;
+    }
+#else
     radiance += EE_CAMERA_RESOLVE_DIRECT_LIGHTING(bounce, seed);
     radiance += EE_CAMERA_RESOLVE_DIRECT_LIGHTING(emissive_bounce, seed);
+#endif
     if (terminate_path) {
       break;
     }
@@ -1481,6 +1705,14 @@ vec3 EE_CAMERA_TRACE_PATH(inout uint seed, vec3 ray_origin, vec3 ray_direction, 
     surface_depth += 1u;
   }
 
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  if (debug_view != EE_CAMERA_DEBUG_BEAUTY) {
+    if (debug_view == EE_CAMERA_DEBUG_PATH_DEPTH) {
+      return vec3(float(path_surface_count) / float(max_depth));
+    }
+    return EE_CAMERA_SANITIZE_RADIANCE(debug_radiance);
+  }
+#endif
   return EE_CAMERA_SANITIZE_RADIANCE(radiance);
 }
 
@@ -1512,7 +1744,42 @@ vec2 EE_CAMERA_SAMPLE_GAUSSIAN(const vec2 value) {
 
 void EE_CAMERA_RENDER_PIXEL(const uvec2 pixel_coordinate, const uvec2 image_size) {
   const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  uint debug_view = camera.ray_debug_view;
+  uvec2 trace_pixel_coordinate = pixel_coordinate;
+  uvec2 trace_image_size = image_size;
+  if (debug_view == EE_CAMERA_DEBUG_VALIDATION_ATLAS) {
+    const uvec2 grid_size = uvec2(5u, 4u);
+    const uvec2 tile = min(pixel_coordinate * grid_size / image_size, grid_size - uvec2(1u));
+    const uvec2 cell_min = tile * image_size / grid_size;
+    const uvec2 cell_max = (tile + uvec2(1u)) * image_size / grid_size;
+    const uvec2 cell_size = max(cell_max - cell_min, uvec2(1u));
+    uvec2 viewport_size = cell_size;
+    if (cell_size.x * 9u <= cell_size.y * 16u) {
+      viewport_size.y = max(cell_size.x * 9u / 16u, 1u);
+    } else {
+      viewport_size.x = max(cell_size.y * 16u / 9u, 1u);
+    }
+    const uvec2 viewport_offset = (cell_size - viewport_size) / 2u;
+    const uvec2 cell_pixel = pixel_coordinate - cell_min;
+    if (any(lessThan(cell_pixel, viewport_offset)) ||
+        any(greaterThanEqual(cell_pixel, viewport_offset + viewport_size))) {
+      imageStore(result_image, ivec2(pixel_coordinate), vec4(0.0f, 0.0f, 0.0f, 1.0f));
+      imageStore(radiance_history_image, ivec2(pixel_coordinate), vec4(0.0f));
+      imageStore(convergence_history_image, ivec2(pixel_coordinate), vec4(0.0f));
+      imageStore(ray_hit_distance_image, ivec2(pixel_coordinate), vec4(EE_CAMERA_FAR(int(EE_CAMERA_INDEX))));
+      return;
+    }
+    trace_pixel_coordinate = cell_pixel - viewport_offset;
+    trace_image_size = viewport_size;
+    debug_view = tile.y * grid_size.x + tile.x;
+  }
+#else
   uint seed = EE_XXHASH32(uvec3(pixel_coordinate, EE_FRAME_ID));
+#endif
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+  uint seed = EE_XXHASH32(uvec3(trace_pixel_coordinate, EE_FRAME_ID));
+#endif
 
   const bool auto_spp_enabled = camera.auto_spp_enabled != 0u;
   const vec4 previous_history = EE_TOTAL_SAMPLES > 0u ? imageLoad(radiance_history_image, ivec2(pixel_coordinate))
@@ -1553,14 +1820,26 @@ void EE_CAMERA_RENDER_PIXEL(const uvec2 pixel_coordinate, const uvec2 image_size
 
   [[unroll]]
   for (uint i = 0u; i < sample_size; ++i) {
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
+    const EE_CAMERA_PRIMARY_RAY primary_ray =
+        EE_CAMERA_CREATE_PRIMARY_RAY(camera, vec2(trace_pixel_coordinate), sample_offset, vec2(trace_image_size));
+#else
     const EE_CAMERA_PRIMARY_RAY primary_ray =
         EE_CAMERA_CREATE_PRIMARY_RAY(camera, vec2(pixel_coordinate), sample_offset, vec2(image_size));
+#endif
 
     float sample_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
+#if EE_CAMERA_ENABLE_DEBUG_VIEWS
     vec3 sample_radiance =
         EE_CAMERA_REJECT_INVALID_RADIANCE(EE_CAMERA_TRACE_PATH(seed, primary_ray.origin, primary_ray.direction,
-                                                               sample_hit_distance),
+                                                               debug_view, sample_hit_distance),
                                           invalid_radiance_rejections);
+#else
+    vec3 sample_radiance =
+        EE_CAMERA_REJECT_INVALID_RADIANCE(
+            EE_CAMERA_TRACE_PATH(seed, primary_ray.origin, primary_ray.direction, sample_hit_distance),
+            invalid_radiance_rejections);
+#endif
     sample_radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera, sample_radiance, firefly_clamp_count);
     linear_radiance += sample_radiance;
     primary_hit_distance = min(primary_hit_distance, sample_hit_distance);

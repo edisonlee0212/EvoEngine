@@ -1171,7 +1171,9 @@ void AddDdgiRayTracingFrameResources(RenderGraph& graph) {
 }
 
 std::string CameraVariantShaderHeader(const uint32_t feature_mask) {
-  return Platform::GetShaderGlobalDefines() + "\n" + BuildGltfSceneFeatureDefines(feature_mask);
+  return Platform::GetShaderGlobalDefines() + "\n#define EE_CAMERA_ENABLE_DEBUG_VIEWS " +
+         ((feature_mask & kRayCameraDebugViewsFeature) != 0u ? "1\n" : "0\n") +
+         BuildGltfSceneFeatureDefines(feature_mask);
 }
 
 std::shared_ptr<RayTracingPipeline> CreateRayTracingCameraPipeline(
@@ -2958,19 +2960,26 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
     if (ray_camera_shader_variant_cache_) {
       bool need_ray_tracing = false;
       bool need_ray_query = false;
+      bool need_ray_tracing_debug_views = false;
+      bool need_ray_query_debug_views = false;
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
           continue;
         const auto mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
         need_ray_tracing |= mode == Camera::CameraRenderMode::RayTracing;
         need_ray_query |= mode == Camera::CameraRenderMode::RayQuery;
+        const bool debug_views = camera->camera_settings.ray_debug_view != CameraSettings::RayDebugView::Beauty;
+        need_ray_tracing_debug_views |= mode == Camera::CameraRenderMode::RayTracing && debug_views;
+        need_ray_query_debug_views |= mode == Camera::CameraRenderMode::RayQuery && debug_views;
       }
-      const auto feature_mask = force_full_ray_camera_shader_variant
-                                    ? kGltfSceneAllFeatures
-                                    : DetectGltfSceneFeatures(current_render_instances->GetGltfShadeMaterials(),
-                                                              current_render_instances->GetGltfTextureInfos());
+      auto feature_mask = force_full_ray_camera_shader_variant
+                              ? kGltfSceneAllFeatures
+                              : DetectGltfSceneFeatures(current_render_instances->GetGltfShadeMaterials(),
+                                                        current_render_instances->GetGltfTextureInfos());
       const auto variant_update =
-          ray_camera_shader_variant_cache_->Update(feature_mask, need_ray_tracing, need_ray_query);
+          ray_camera_shader_variant_cache_->Update(feature_mask, need_ray_tracing, need_ray_query,
+                                                   need_ray_tracing_debug_views || force_full_ray_camera_shader_variant,
+                                                   need_ray_query_debug_views || force_full_ray_camera_shader_variant);
       ray_tracing_camera_pipeline = ray_camera_shader_variant_cache_->GetRayTracingPipeline();
       ray_query_camera_pipeline_ = ray_camera_shader_variant_cache_->GetRayQueryPipeline();
       bool reset_ray_tracing = false;

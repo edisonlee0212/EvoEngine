@@ -44,7 +44,7 @@ struct CameraInfoBlock {
   uint32_t auto_spp_max_samples = 256;
   float auto_spp_convergence_threshold = 0.01f;
   uint32_t emissive_triangle_nee_enabled = 1;
-  uint32_t auto_spp_padding1 = 0;
+  uint32_t ray_debug_view = 0;
   uint32_t auto_spp_padding2 = 0;
 
   /**
@@ -79,12 +79,18 @@ class Camera final : public IPrivateComponent {
 
   static constexpr uint32_t kCameraRenderModeCount = 3;
   static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
+  static constexpr uint32_t kRayDebugViewCount = 21;
 
   [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
   [[nodiscard]] static const char* GetCameraRenderModeName(CameraRenderMode mode);
   [[nodiscard]] static const std::vector<std::string>& GetShaderExecutionReorderingModeNames();
   [[nodiscard]] static const char* GetShaderExecutionReorderingModeName(
       CameraSettings::ShaderExecutionReorderingMode mode);
+  [[nodiscard]] static const std::vector<std::string>& GetRayDebugViewNames();
+  [[nodiscard]] static const char* GetRayDebugViewName(CameraSettings::RayDebugView view);
+  [[nodiscard]] static CameraSettings::RayDebugView ParseRayDebugView(
+      const std::string& value, CameraSettings::RayDebugView fallback = CameraSettings::RayDebugView::Beauty);
+  [[nodiscard]] static CameraSettings::RayDebugView NormalizeRayDebugView(uint32_t view);
   [[nodiscard]] static CameraSettings::ShaderExecutionReorderingMode ParseShaderExecutionReorderingMode(
       const std::string& value,
       CameraSettings::ShaderExecutionReorderingMode fallback = CameraSettings::ShaderExecutionReorderingMode::Disabled);

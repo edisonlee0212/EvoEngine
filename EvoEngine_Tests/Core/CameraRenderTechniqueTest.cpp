@@ -78,6 +78,18 @@ TEST(CameraRenderTechnique, NamesAndAliasesExposeRasterRayTracingAndRayQuery) {
             CameraSettings::ShaderExecutionReorderingMode::Enabled);
   EXPECT_EQ(Camera::NormalizeShaderExecutionReorderingMode(999),
             CameraSettings::ShaderExecutionReorderingMode::Disabled);
+
+  const auto& debug_views = Camera::GetRayDebugViewNames();
+  ASSERT_EQ(debug_views.size(), Camera::kRayDebugViewCount);
+  EXPECT_EQ(debug_views[static_cast<uint32_t>(CameraSettings::RayDebugView::Beauty)], "Beauty");
+  EXPECT_EQ(debug_views[static_cast<uint32_t>(CameraSettings::RayDebugView::ValidationAtlas)], "Validation Atlas");
+  for (uint32_t index = 0; index < debug_views.size(); ++index) {
+    EXPECT_EQ(Camera::ParseRayDebugView(debug_views[index]), static_cast<CameraSettings::RayDebugView>(index));
+  }
+  EXPECT_EQ(Camera::ParseRayDebugView("specular-f0"), CameraSettings::RayDebugView::SpecularF0);
+  EXPECT_EQ(Camera::ParseRayDebugView("alpha coverage"), CameraSettings::RayDebugView::AlphaCoverage);
+  EXPECT_EQ(Camera::ParseRayDebugView("20"), CameraSettings::RayDebugView::ValidationAtlas);
+  EXPECT_EQ(Camera::NormalizeRayDebugView(999), CameraSettings::RayDebugView::Beauty);
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
@@ -92,6 +104,7 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_max_samples), offsetof(CameraInfoBlock, auto_spp_convergence_threshold));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold),
             offsetof(CameraInfoBlock, emissive_triangle_nee_enabled));
+  EXPECT_LT(offsetof(CameraInfoBlock, emissive_triangle_nee_enabled), offsetof(CameraInfoBlock, ray_debug_view));
 }
 
 TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
@@ -109,6 +122,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.firefly_clamp_enabled = false;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
     camera.camera_settings.emissive_triangle_nee_enabled = false;
+    camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::SpecularF0;
     camera.camera_settings.auto_spp_enabled = true;
     camera.camera_settings.auto_spp_min_samples = 8;
     camera.camera_settings.auto_spp_max_samples = 64;
@@ -129,6 +143,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FLOAT_EQ(node["firefly_clamp_threshold"].as<float>(), 3.5f);
     ASSERT_TRUE(node["emissive_triangle_nee_enabled"]);
     EXPECT_FALSE(node["emissive_triangle_nee_enabled"].as<bool>());
+    ASSERT_TRUE(node["ray_debug_view"]);
+    EXPECT_EQ(node["ray_debug_view"].as<std::string>(), "Specular F0");
     ASSERT_TRUE(node["auto_spp_enabled"]);
     EXPECT_TRUE(node["auto_spp_enabled"].as<bool>());
     ASSERT_TRUE(node["auto_spp_min_samples"]);
@@ -147,6 +163,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FALSE(restored_camera.camera_settings.firefly_clamp_enabled);
     EXPECT_FLOAT_EQ(restored_camera.camera_settings.firefly_clamp_threshold, 3.5f);
     EXPECT_FALSE(restored_camera.camera_settings.emissive_triangle_nee_enabled);
+    EXPECT_EQ(restored_camera.camera_settings.ray_debug_view, CameraSettings::RayDebugView::SpecularF0);
     EXPECT_TRUE(restored_camera.camera_settings.auto_spp_enabled);
     EXPECT_EQ(restored_camera.camera_settings.auto_spp_min_samples, 8);
     EXPECT_EQ(restored_camera.camera_settings.auto_spp_max_samples, 64);
@@ -163,6 +180,11 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
                                    static_cast<IPrivateComponent&>(legacy_ser_camera));
   EXPECT_EQ(legacy_ser_camera.camera_settings.shader_execution_reordering_mode,
             CameraSettings::ShaderExecutionReorderingMode::Automatic);
+
+  Camera legacy_debug_camera;
+  Serialization::DeserializeObject(YAML::Load("{ray_debug_view: 20}"),
+                                   static_cast<IPrivateComponent&>(legacy_debug_camera));
+  EXPECT_EQ(legacy_debug_camera.camera_settings.ray_debug_view, CameraSettings::RayDebugView::ValidationAtlas);
 }
 
 TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
@@ -235,6 +257,7 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(inspection_source.find("Shader Execution Reordering"), std::string::npos);
   EXPECT_NE(inspection_source.find("SER unavailable; using standard ray tracing scheduling."), std::string::npos);
   EXPECT_NE(inspection_source.find("Firefly clamp"), std::string::npos);
+  EXPECT_NE(inspection_source.find("Ray Debug View"), std::string::npos);
   EXPECT_NE(inspection_source.find("Firefly threshold"), std::string::npos);
   EXPECT_NE(inspection_source.find("Auto SPP"), std::string::npos);
   EXPECT_NE(inspection_source.find("Auto min SPP"), std::string::npos);
@@ -246,10 +269,12 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(application_source.find("firefly_clamp_threshold"), std::string::npos);
   EXPECT_NE(application_source.find("auto_spp_enabled"), std::string::npos);
   EXPECT_NE(application_source.find("auto_spp_convergence_threshold"), std::string::npos);
+  EXPECT_NE(application_source.find("ray_debug_view"), std::string::npos);
   EXPECT_NE(editor_layer_source.find("firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(editor_layer_source.find("firefly_clamp_threshold"), std::string::npos);
   EXPECT_NE(editor_layer_source.find("auto_spp_enabled"), std::string::npos);
   EXPECT_NE(editor_layer_source.find("auto_spp_convergence_threshold"), std::string::npos);
+  EXPECT_NE(editor_layer_source.find("ray_debug_view"), std::string::npos);
   EXPECT_NE(editor_source.find("Camera::ParseCameraRenderMode(value"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-firefly-clamp"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-firefly-clamp-threshold"), std::string::npos);
@@ -257,6 +282,8 @@ TEST(CameraRenderTechnique, RayQueryTechniquePlumbingHasDedicatedCameraPath) {
   EXPECT_NE(editor_source.find("--preview-auto-spp-min-samples"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-auto-spp-max-samples"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-auto-spp-threshold"), std::string::npos);
+  EXPECT_NE(editor_source.find("--preview-ray-debug"), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"ray_debug_view\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("--disable-ray-tracing-pipeline"), std::string::npos);
   EXPECT_NE(editor_source.find("capabilities.support_acceleration_structure"), std::string::npos);
   EXPECT_NE(editor_source.find("capabilities.support_ray_tracing"), std::string::npos);

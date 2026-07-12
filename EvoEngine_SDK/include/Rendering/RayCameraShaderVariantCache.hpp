@@ -18,6 +18,9 @@ class RayTracingPipeline;
 
 enum class RayCameraShaderTechnique { RayTracing, RayQuery };
 
+constexpr uint32_t kRayCameraDebugViewsFeature = 1u << 31u;
+static_assert((kRayCameraDebugViewsFeature & kGltfSceneAllFeatures) == 0u);
+
 struct RayCameraShaderVariantStats {
   uint32_t requested_mask = kGltfSceneAllFeatures;
   uint32_t active_mask = kGltfSceneAllFeatures;
@@ -56,7 +59,9 @@ class RayCameraShaderVariantCache final {
                               double ray_query_fallback_build_milliseconds = 0.0);
   ~RayCameraShaderVariantCache();
 
-  RayCameraShaderVariantUpdate Update(uint32_t feature_mask, bool need_ray_tracing, bool need_ray_query);
+  RayCameraShaderVariantUpdate Update(uint32_t feature_mask, bool need_ray_tracing, bool need_ray_query,
+                                      bool need_ray_tracing_debug_views = false,
+                                      bool need_ray_query_debug_views = false);
   [[nodiscard]] std::shared_ptr<RayTracingPipeline> GetRayTracingPipeline() const;
   [[nodiscard]] std::shared_ptr<ComputePipeline> GetRayQueryPipeline() const;
   [[nodiscard]] RayCameraShaderVariantStats GetStats(RayCameraShaderTechnique technique) const;

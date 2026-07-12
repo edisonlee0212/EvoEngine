@@ -8,6 +8,30 @@ namespace evo_engine {
  * @brief A structure to define the camera settings used in the engine.
  */
 struct CameraSettings {
+  enum class RayDebugView {
+    Beauty,
+    MaterialId,
+    BaseColor,
+    GeometricNormal,
+    ShadingNormal,
+    Roughness,
+    Metallic,
+    SpecularF0,
+    AlphaCoverage,
+    Transmission,
+    Iridescence,
+    Emission,
+    DirectPunctual,
+    DirectEnvironment,
+    DirectEmissive,
+    IndirectRadiance,
+    PathDepth,
+    BsdfPdf,
+    LightPdf,
+    EmissivePdf,
+    ValidationAtlas,
+  };
+
   enum class ShaderExecutionReorderingMode {
     Disabled,
     Automatic,
@@ -64,6 +88,9 @@ struct CameraSettings {
    * \brief Enables static emissive-triangle next-event sampling for ray cameras.
    */
   bool emissive_triangle_nee_enabled = true;
+
+  /** @brief Selects a shared RTX/RayQuery diagnostic output. */
+  RayDebugView ray_debug_view = RayDebugView::Beauty;
 
   /**
    * \brief Enables per-pixel adaptive ray tracing accumulation.
