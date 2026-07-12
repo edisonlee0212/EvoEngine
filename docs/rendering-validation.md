@@ -724,6 +724,45 @@ python Scripts\validate_raytracer_m10.py --self-test
 python Scripts\validate_raytracer_m10.py --matrix-dir out\m10-validation\replacement --retained-query-only-dir out\m10-validation\precommit --out out\m10-validation\replacement\validation-corrected.json
 ```
 
+### M11 Portable Path Dispatch
+
+M11 keeps SER disabled for binding acceptance and changes only vendor-neutral camera-path structure. Generic
+`RayTracingPipeline` users retain recursion depth 8 by default because the legacy camera, point-cloud, and DDGI diagnostic
+pipelines can trace from a hit shader. The iterative modern camera pipeline requests depth 1, rejects zero or values above
+the selected device's `maxRayRecursionDepth`, and records both requested depth and device limit in capture JSON.
+
+The active RTX and RayQuery cameras use a 48-byte compact payload containing intersection identity plus transparent-shadow
+state. Closest-hit and committed RayQuery handling return distance, instance, primitive, and barycentrics; the shared
+raygen/compute integrator reconstructs geometry and material once. Primary background and secondary environment misses
+are also evaluated in that shared integrator, leaving the RTX miss shader as a payload-state transition. CameraLegacy
+keeps the original full payload. RTX shadow rays no longer copy/restore the full path payload: ignored alpha/transmission
+intersections continue traversal, the shadow miss preserves accumulated transmission, and a committed opaque hit remains
+occluded while `TerminateOnFirstHit` and `SkipClosestHitShader` avoid a redundant closest-hit invocation.
+
+`Scripts/raytracer_m11_suite.json` pins the approved M6 report SHA-256, device/driver, per-lane baseline, active material
+mask/key, and absolute M11 targets. `Scripts/validate_raytracer_m11.py` reuses the compact M6 capture harness but emits an
+M11 plan and acceptance report. Before any capture it hashes the archived M6 report and derives the pinned lane metrics
+from that file, preventing the committed delta inputs from drifting independently. It requires exactly three isolated
+cold processes: RTX, ordinary RayQuery, and forced
+query-only, all at 1280x720 with 512 effective SPP, 508 measured SPP, the specialized `0x2001` material variant, and SER
+off. Capture JSON names the active ray backend; forced query-only must report the RayQuery compute backend while the RTX
+pipeline capability is disabled. The pinned reference is historical input only and is not launched. One separate
+post-commit 2560x1440 2048-SPP
+delivery capture brings the milestone total to four launches. Run the file-only checks and the single three-launch slice
+with:
+
+```bat
+python Scripts\validate_raytracer_m11.py --phase self-test
+python Scripts\validate_raytracer_m11.py --phase plan --output-dir out\raytracer-m11
+python Scripts\validate_raytracer_m11.py --phase all --output-dir out\raytracer-m11
+```
+
+The acceptance report gates RTX at `>=49.5 Msample/s`, `<=60.0 ms` GPU median, and `<=9.50 s` accumulation wall time;
+RayQuery at `>=53.0 Msample/s`, `<=57.5 ms`, and `<=8.90 s`; forced query-only at `>=45.0 Msample/s`; and every lane at
+`<=0.15 ms` queue-submit median. Ordinary and forced RayQuery must be bit-exact, RTX/RayQuery relative L2 must be
+`<=0.010`, and the fresh device/driver must match the approved M6 baseline. The report includes signed percentage deltas
+from M6 without presenting the archived reference timing as a contemporaneous speedup.
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

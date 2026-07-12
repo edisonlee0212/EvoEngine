@@ -775,11 +775,9 @@ int EE_GLTF_RT_FIND_BSDF_LOBE(const GltfRayTracingBsdfLobeWeights weights, const
 }
 
 GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-    uint material_index, GltfTexCoords tex_coords, vec4 vertex_color, vec3 normal, vec3 tangent,
-    vec3 bitangent, vec3 geometric_normal, bool is_inside) {
+    uint material_index, GltfTexCoords tex_coords, vec4 vertex_color, GltfRasterMaterial surface,
+    vec3 normal, vec3 tangent, vec3 bitangent, vec3 geometric_normal, bool is_inside) {
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-  const GltfRasterMaterial surface =
-      EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coords, vertex_color);
 
   GltfRayTracingPbrMaterial pbr;
   pbr.base_color = max(surface.base_color.rgb, vec3(0.0f));
@@ -1000,6 +998,25 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
 #endif
 
   return pbr;
+}
+
+GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+    uint material_index, GltfTexCoords tex_coords, vec4 vertex_color, vec3 normal, vec3 tangent,
+    vec3 bitangent, vec3 geometric_normal, bool is_inside) {
+  const GltfRasterMaterial surface =
+      EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coords, vertex_color);
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+      material_index, tex_coords, vertex_color, surface, normal, tangent, bitangent, geometric_normal, is_inside);
+}
+
+GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+    uint material_index, vec2 tex_coord_0, vec2 tex_coord_1, vec2 tex_coord_2, vec2 tex_coord_3,
+    vec4 vertex_color, GltfRasterMaterial surface, vec3 normal, vec3 tangent, vec3 bitangent,
+    vec3 geometric_normal, bool is_inside, vec4 tex_gradients) {
+  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
+      material_index,
+      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients), vertex_color,
+      surface, normal, tangent, bitangent, geometric_normal, is_inside);
 }
 
 GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(

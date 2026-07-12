@@ -1183,6 +1183,7 @@ std::shared_ptr<RayTracingPipeline> CreateRayTracingCameraPipeline(
     const std::shared_ptr<Shader>& shared_miss_shader = {},
     const std::shared_ptr<Shader>& shared_closest_hit_shader = {}) {
   auto pipeline = std::make_shared<RayTracingPipeline>();
+  pipeline->SetMaxRecursionDepth(1);
   pipeline->raygen_shader =
       Shader::CreateTemporary(ShaderType::RayGen, shader_header,
                               Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/Camera.rgen");
@@ -1413,6 +1414,13 @@ const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRayTracingDescriptor
 
 const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRayTracingPointCloudDescriptorSetLayout() const {
   return ray_tracing_point_cloud_layout_;
+}
+
+std::optional<uint32_t> RenderLayer::GetRayTracingCameraMaxRecursionDepth() const {
+  if (!ray_tracing_camera_pipeline) {
+    return std::nullopt;
+  }
+  return ray_tracing_camera_pipeline->GetMaxRecursionDepth();
 }
 
 const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetParticleInstancedDataDescriptorSetLayout() const {

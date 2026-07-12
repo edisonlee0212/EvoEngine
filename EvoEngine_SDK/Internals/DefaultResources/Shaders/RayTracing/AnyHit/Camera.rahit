@@ -1,6 +1,7 @@
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_ray_tracing : require
 
+#define EE_CAMERA_COMPACT_PAYLOAD
 #include "CameraRayTracingPayload.glsl"
 #include "RayTracingBasic.glsl"
 #include "Random.glsl"
@@ -47,7 +48,6 @@ void main() {
   const int instance_index = int(gl_InstanceCustomIndexEXT);
   const Instance instance = EE_INSTANCES[instance_index];
   const uint material_index = uint(instance.material_index);
-  hit_value.material_index = material_index;
   const int triangle_offset = instance.triangle_offset + gl_PrimitiveID;
 
   const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
@@ -64,10 +64,6 @@ void main() {
                            v2.tex_coord_3 * barycentrics.z;
   const vec4 vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
 
-  const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
-                                                                      v2.position - v0.position),
-                                                                vec3(0.0f, 1.0f, 0.0f));
-  const vec3 world_geometric_normal = EE_CAMERA_WORLD_NORMAL(object_geometric_normal, -gl_WorldRayDirectionEXT);
   const float opacity = EE_GLTF_RASTER_OPACITY_LOD0(
       material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a);
   if (EE_PCG_RANDOM(hit_value.seed) > opacity) {
@@ -77,12 +73,15 @@ void main() {
     return;
   }
 
+  const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
+                                                                      v2.position - v0.position),
+                                                                vec3(0.0f, 1.0f, 0.0f));
+  const vec3 world_geometric_normal = EE_CAMERA_WORLD_NORMAL(object_geometric_normal, -gl_WorldRayDirectionEXT);
   const vec3 transmission =
       EE_CAMERA_SHADOW_TRANSMISSION(material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3,
                                     vertex_color.rgb, world_geometric_normal);
   hit_value.shadow_previous_hit_t = gl_HitTEXT;
   hit_value.shadow_transmission *= transmission;
-  hit_value.hit_count = 1u;
 
   if (max(max(hit_value.shadow_transmission.x, hit_value.shadow_transmission.y), hit_value.shadow_transmission.z) <=
       EE_CAMERA_MIN_SHADOW_TRANSMISSION) {

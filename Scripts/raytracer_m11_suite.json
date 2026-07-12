@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "validation_mode": "compact",
+  "repetitions": 1,
+  "samples_per_frame": 4,
+  "profiles": {
+    "pilot": {
+      "width": 640,
+      "height": 360,
+      "candidate_spp": [16, 64],
+      "truth_spp": 1024
+    },
+    "measure": {
+      "width": 1280,
+      "height": 720,
+      "candidate_spp": [512],
+      "truth_spp": 2048
+    },
+    "canonical": {
+      "width": 2560,
+      "height": 1440,
+      "candidate_spp": [2048],
+      "truth_spp": 2048
+    }
+  },
+  "quality": {
+    "metric": "relative_l2_error",
+    "pilot_camera": "overview",
+    "threshold_margin": 1.1,
+    "truth_convergence_fraction": 0.5,
+    "cache_pair_output_policy": "diagnostic",
+    "cache_pair_investigation_relative_l2_error": 0.02
+  },
+  "order_seed": 6132026,
+  "capture_renderers": ["evo"],
+  "variants": [
+    {
+      "id": "specialized",
+      "evo": "auto",
+      "reference_optimal": 1
+    }
+  ],
+  "cache_states": ["cold"],
+  "frozen_reference": {
+    "root": "out/raytracer-m6-reference-baseline",
+    "provenance_sha256": "1f771d3354bb5ef24fe31f32fd53f686021cafb67e755b916bdcdcd0968ddc65",
+    "camera": {
+      "id": "overview",
+      "reference_position": [-26.43077278137207, 3.156161069869995, 11.170342445373535],
+      "reference_look_at": [-7.2757098653168555, 2.517369301224199, 16.886592068883395],
+      "evo_position": [0.169453, 0.80237, 14.8766],
+      "evo_look_at": [0.169453, -0.27857930944, -5.0941673788415995]
+    },
+    "records": [
+      {
+        "technique": "rtx",
+        "path": "measure/measure/measure--measure--cross-renderer--bistro--overview--reference--rtx--specialized--cold--r04--1280x720--512spp.record.json",
+        "sha256": "83570ca6a3a73fd6ef767d0b84ec33d2a418cbb0dcee9fc9b3d6c49dc9400c1d"
+      },
+      {
+        "technique": "rq",
+        "path": "measure/measure/measure--measure--cross-renderer--bistro--overview--reference--rq--specialized--cold--r03--1280x720--512spp.record.json",
+        "sha256": "7e6b614af2aae6829062194924b82bcb1392591fdb4f1712d85aefd1f6655d2c"
+      }
+    ]
+  },
+  "cross_renderer": {
+    "scene": "bistro",
+    "techniques": ["rtx", "rq", "query-only"],
+    "cameras": [
+      {
+        "id": "overview",
+        "reference_position": [-26.43077278137207, 3.156161069869995, 11.170342445373535],
+        "reference_look_at": [-7.2757098653168555, 2.517369301224199, 16.886592068883395],
+        "evo_position": [0.169453, 0.80237, 14.8766],
+        "evo_look_at": [0.169453, -0.27857930944, -5.0941673788415995]
+      }
+    ]
+  },
+  "evo_only": [],
+  "m11_acceptance": {
+    "schema": 1,
+    "approved_m6": {
+      "report": "out/raytracer-m6/report.json",
+      "report_sha256": "4794d83ec764c2477e598ce66e4ed3d6bf89c214fe7d00e62f74029739a924a2",
+      "gpu": {
+        "vendor_id": 4318,
+        "device_id": 12036,
+        "driver_version": 2496774144
+      },
+      "lanes": {
+        "rtx": {
+          "wall_throughput_msamples_per_second": 44.94634221074525,
+          "gpu_median_ms": 66.08496,
+          "accumulation_wall_seconds": 10.4162603,
+          "queue_submit_median_ms": 0.1322
+        },
+        "rq": {
+          "wall_throughput_msamples_per_second": 48.07002967855063,
+          "gpu_median_ms": 62.986496,
+          "accumulation_wall_seconds": 9.7393907,
+          "queue_submit_median_ms": 0.1187
+        },
+        "query-only": {
+          "wall_throughput_msamples_per_second": 47.99376212964939,
+          "gpu_median_ms": 61.932576,
+          "accumulation_wall_seconds": 9.754867699999998,
+          "queue_submit_median_ms": 0.1297
+        }
+      }
+    },
+    "expected": {
+      "measured_frames": 127,
+      "measured_spp": 508,
+      "active_feature_mask": 8193,
+      "rtx_variant_key": "rtx:0x2001",
+      "rq_variant_key": "rq:0x2001",
+      "camera_pipeline_recursion_depth": 1
+    },
+    "targets": {
+      "rtx": {
+        "minimum_wall_throughput_msamples_per_second": 49.5,
+        "maximum_gpu_median_ms": 60.0,
+        "maximum_accumulation_wall_seconds": 9.5
+      },
+      "rq": {
+        "minimum_wall_throughput_msamples_per_second": 53.0,
+        "maximum_gpu_median_ms": 57.5,
+        "maximum_accumulation_wall_seconds": 8.9
+      },
+      "query-only": {
+        "minimum_wall_throughput_msamples_per_second": 45.0
+      },
+      "maximum_queue_submit_median_ms": 0.15,
+      "maximum_rtx_rq_relative_l2_error": 0.01,
+      "require_rq_query_only_exact": true
+    }
+  }
+}

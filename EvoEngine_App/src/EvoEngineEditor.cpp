@@ -1431,6 +1431,23 @@ void CaptureDemoPreview(
                              {"shader_execution_reordering", capabilities.support_shader_execution_reordering}};
   metrics["query_only"] =
       resolved_render_mode == Camera::CameraRenderMode::RayQuery && !capabilities.support_ray_tracing;
+  metrics["active_ray_backend"] = nullptr;
+  if (resolved_render_mode == Camera::CameraRenderMode::RayTracing) {
+    metrics["active_ray_backend"] = "ray-tracing-pipeline";
+  } else if (resolved_render_mode == Camera::CameraRenderMode::RayQuery) {
+    metrics["active_ray_backend"] = "ray-query-compute";
+  }
+  metrics["ray_pipeline_max_recursion_depth"] = nullptr;
+  metrics["device_ray_tracing_max_recursion_depth"] = nullptr;
+  if (capabilities.support_ray_tracing) {
+    metrics["device_ray_tracing_max_recursion_depth"] =
+        Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext.maxRayRecursionDepth;
+    if (resolved_render_mode == Camera::CameraRenderMode::RayTracing) {
+      if (const auto recursion_depth = render_layer->GetRayTracingCameraMaxRecursionDepth()) {
+        metrics["ray_pipeline_max_recursion_depth"] = *recursion_depth;
+      }
+    }
+  }
   metrics["ray_shader_variant"] = nullptr;
   if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery

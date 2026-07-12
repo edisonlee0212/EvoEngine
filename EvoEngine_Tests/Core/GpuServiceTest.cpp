@@ -378,10 +378,13 @@ TEST(GpuService, M10CameraRayTransportShadersCompile) {
 
   Shader raygen;
   Shader any_hit;
+  Shader closest_hit;
   Shader miss;
   Shader ray_query;
   EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.rgen"));
   EXPECT_TRUE(any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/Camera.rahit"));
+  EXPECT_TRUE(
+      closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.rchit"));
   EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.rmiss"));
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.comp"));
 }

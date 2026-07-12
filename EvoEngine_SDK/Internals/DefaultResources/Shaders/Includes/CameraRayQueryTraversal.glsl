@@ -1,38 +1,8 @@
 #ifndef EE_CAMERA_RAY_QUERY_TRAVERSAL_GLSL
 #define EE_CAMERA_RAY_QUERY_TRAVERSAL_GLSL
 
-const uint EE_CAMERA_RAY_PAYLOAD_MISS = 2u;
-
-vec3 EE_CAMERA_RAY_QUERY_SKY_RADIANCE(const vec3 ray_direction) {
-  const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
-  if (camera.use_clear_color == 1) {
-    return max(camera.clear_color.xyz, vec3(0.0f)) * max(camera.clear_color.w, 0.0f);
-  }
-  return EE_CAMERA_SAMPLE_CUBEMAP_RADIANCE(camera.skybox_tex_index, ray_direction, 0.0f) *
-         max(camera.clear_color.w, 0.0f);
-}
-
-float EE_CAMERA_RAY_QUERY_ENVIRONMENT_PDF(const vec3 ray_direction) {
-  if (EE_ENVIRONMENT.light_intensity <= 0.0f) {
-    return 0.0f;
-  }
-  if (EE_ENVIRONMENT.background_color.w != 1.0f) {
-    return EE_CAMERA_ENVIRONMENT_MAP_PDF(normalize(ray_direction));
-  }
-  return 1.0f / (4.0f * EE_CAMERA_PI);
-}
-
-void EE_CAMERA_RAY_QUERY_APPLY_MISS(const vec3 ray_direction) {
-  const vec3 direction = normalize(ray_direction);
+void EE_CAMERA_RAY_QUERY_APPLY_MISS() {
   hit_value.type = EE_CAMERA_RAY_PAYLOAD_MISS;
-  hit_value.hit_count = 0u;
-  hit_value.hit_t = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
-  hit_value.position = vec3(0.0f);
-  hit_value.normal = -direction;
-  hit_value.geometric_normal = -direction;
-  hit_value.environment_radiance = EE_CAMERA_PATH_ENVIRONMENT_RADIANCE(direction);
-  hit_value.environment_pdf = EE_CAMERA_RAY_QUERY_ENVIRONMENT_PDF(direction);
-  hit_value.color = EE_CAMERA_RAY_QUERY_SKY_RADIANCE(direction);
 }
 
 vec3 EE_CAMERA_RAY_QUERY_WORLD_NORMAL(const mat4 model, const vec3 object_normal, const vec3 fallback) {
@@ -40,55 +10,16 @@ vec3 EE_CAMERA_RAY_QUERY_WORLD_NORMAL(const mat4 model, const vec3 object_normal
   return EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal, fallback);
 }
 
-void EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(const rayQueryEXT ray_query, const vec3 ray_direction) {
+void EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(const rayQueryEXT ray_query) {
   const int instance_index = rayQueryGetIntersectionInstanceCustomIndexEXT(ray_query, true);
-  const Instance instance = EE_INSTANCES[instance_index];
-  const uint material_index = uint(instance.material_index);
   const int primitive_id = rayQueryGetIntersectionPrimitiveIndexEXT(ray_query, true);
-  const int triangle_offset = instance.triangle_offset + primitive_id;
-
-  const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
-  const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
-  const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
-
   const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(ray_query, true);
-  const vec3 barycentrics = vec3(1.0f - bary.x - bary.y, bary.x, bary.y);
-  const vec3 object_position = v0.position * barycentrics.x + v1.position * barycentrics.y +
-                               v2.position * barycentrics.z;
-  const vec3 object_shading_normal = EE_CAMERA_SAFE_NORMALIZE(
-      v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z,
-      vec3(0.0f, 1.0f, 0.0f));
-  const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
-                                                                      v2.position - v0.position),
-                                                                object_shading_normal);
-  const vec3 world_position = vec3(instance.model * vec4(object_position, 1.0f));
-  vec3 world_geometric_normal = EE_CAMERA_RAY_QUERY_WORLD_NORMAL(instance.model, object_geometric_normal,
-                                                                 vec3(0.0f, 1.0f, 0.0f));
-  vec3 world_shading_normal = EE_CAMERA_RAY_QUERY_WORLD_NORMAL(instance.model, object_shading_normal,
-                                                               world_geometric_normal);
-  const bool front_face = dot(world_geometric_normal, ray_direction) < 0.0f;
-  if (!front_face) {
-    world_geometric_normal = -world_geometric_normal;
-    world_shading_normal = -world_shading_normal;
-  }
-  if (dot(world_shading_normal, world_geometric_normal) < 0.0f) {
-    world_shading_normal = -world_shading_normal;
-  }
 
   hit_value.type = EE_CAMERA_RAY_PAYLOAD_SURFACE;
-  hit_value.hit_count = 1u;
   hit_value.hit_t = rayQueryGetIntersectionTEXT(ray_query, true);
-  hit_value.position = world_position;
-  hit_value.normal = world_shading_normal;
-  hit_value.geometric_normal = world_geometric_normal;
-  hit_value.initial_position = world_position;
-  hit_value.initial_normal = world_shading_normal;
   hit_value.instance_index = uint(instance_index);
   hit_value.primitive_id = uint(primitive_id);
-  hit_value.material_index = material_index;
   hit_value.barycentrics = bary;
-  hit_value.environment_radiance = vec3(0.0f);
-  hit_value.environment_pdf = 0.0f;
 }
 
 bool EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, const vec3 ray_direction,
@@ -141,9 +72,9 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
   }
 
   if (rayQueryGetIntersectionTypeEXT(ray_query, true) == gl_RayQueryCommittedIntersectionTriangleEXT) {
-    EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(ray_query, direction);
+    EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(ray_query);
   } else {
-    EE_CAMERA_RAY_QUERY_APPLY_MISS(direction);
+    EE_CAMERA_RAY_QUERY_APPLY_MISS();
   }
   hit_value.seed = seed;
 }

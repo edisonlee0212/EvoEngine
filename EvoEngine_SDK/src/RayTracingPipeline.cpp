@@ -12,6 +12,18 @@ RayTracingPipeline::~RayTracingPipeline() {
   }
 }
 
+void RayTracingPipeline::SetMaxRecursionDepth(const uint32_t depth) {
+  max_recursion_depth_ = depth;
+}
+
+uint32_t RayTracingPipeline::GetMaxRecursionDepth() const {
+  return max_recursion_depth_;
+}
+
+bool RayTracingPipeline::IsRecursionDepthSupported(const uint32_t requested_depth, const uint32_t device_limit) {
+  return requested_depth != 0 && requested_depth <= device_limit;
+}
+
 void RayTracingPipeline::Initialize() {
   if (!Platform::Initialized())
     return;
@@ -145,7 +157,14 @@ void RayTracingPipeline::Initialize() {
   raytracing_pipeline_create_info.groupCount = static_cast<uint32_t>(shader_groups.size());
   raytracing_pipeline_create_info.pGroups = shader_groups.data();
 
-  raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = 8;
+  const auto& ray_tracing_pipeline_properties = Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext;
+  if (!IsRecursionDepthSupported(max_recursion_depth_, ray_tracing_pipeline_properties.maxRayRecursionDepth)) {
+    EVOENGINE_ERROR("Failed to build ray tracing pipeline: requested recursion depth " +
+                    std::to_string(max_recursion_depth_) + " is outside the selected device limit [1, " +
+                    std::to_string(ray_tracing_pipeline_properties.maxRayRecursionDepth) + "].");
+    return;
+  }
+  raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = max_recursion_depth_;
   try {
     Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
                                                      &raytracing_pipeline_create_info, nullptr,
@@ -159,7 +178,6 @@ void RayTracingPipeline::Initialize() {
     return value + alignment - 1 & ~(alignment - 1);
   };
 
-  const auto& ray_tracing_pipeline_properties = Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext;
   const uint32_t handle_size = ray_tracing_pipeline_properties.shaderGroupHandleSize;
   handle_size_aligned_ = aligned_size(ray_tracing_pipeline_properties.shaderGroupHandleSize,
                                       ray_tracing_pipeline_properties.shaderGroupHandleAlignment);

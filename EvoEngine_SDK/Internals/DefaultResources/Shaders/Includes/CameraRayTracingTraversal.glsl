@@ -6,19 +6,17 @@ vec3 EE_CAMERA_SHADOW_TRANSMISSION(const vec3 origin, const vec3 direction, cons
   if (max_distance <= EE_CAMERA_RAY_EPSILON) {
     return vec3(1.0f);
   }
-  const CameraRayTracingPayload path_payload = hit_value;
   hit_value.type = EE_CAMERA_RAY_PAYLOAD_SHADOW;
   hit_value.seed = seed;
-  hit_value.hit_count = 0u;
   hit_value.shadow_transmission = vec3(1.0f);
   hit_value.shadow_previous_hit_t = 0.0f;
   hit_value.shadow_is_inside = initial_inside ? 1u : 0u;
-  traceRayEXT(EE_TLAS, 0, EE_CAMERA_RAY_MASK_SHADOW, 0, 0, 0, origin, EE_CAMERA_RAY_EPSILON, direction, max_distance,
-              0);
-  const vec3 shadow_transmission = max(hit_value.shadow_transmission, vec3(0.0f));
+  traceRayEXT(EE_TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+              EE_CAMERA_RAY_MASK_SHADOW, 0, 0, 0, origin, EE_CAMERA_RAY_EPSILON, direction, max_distance, 0);
+  const vec3 shadow_transmission = hit_value.type == EE_CAMERA_RAY_PAYLOAD_MISS
+                                       ? max(hit_value.shadow_transmission, vec3(0.0f))
+                                       : vec3(0.0f);
   seed = hit_value.seed;
-  hit_value = path_payload;
-  hit_value.seed = seed;
   return max(max(shadow_transmission.x, shadow_transmission.y), shadow_transmission.z) <=
                  EE_CAMERA_MIN_SHADOW_TRANSMISSION
              ? vec3(0.0f)

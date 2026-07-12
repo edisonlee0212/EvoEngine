@@ -40,6 +40,8 @@ class RayTracingPipeline final : public IGraphicsResource {
    */
   uint32_t handle_size_aligned_ = 0;
 
+  uint32_t max_recursion_depth_ = 8;
+
  public:
   /**
    * @brief Destructor for the RayTracingPipeline class.
@@ -65,6 +67,22 @@ class RayTracingPipeline final : public IGraphicsResource {
   std::shared_ptr<Shader> any_hit_shader;       ///< Any-hit shader.
   std::shared_ptr<Shader> intersection_shader;  ///< Intersection shader.
   std::shared_ptr<Shader> callable_shader;      ///< Callable shader.
+
+  /**
+   * @brief Sets the maximum ray recursion depth requested during pipeline creation.
+   * @param depth A non-zero depth supported by the selected physical device.
+   */
+  void SetMaxRecursionDepth(uint32_t depth);
+
+  /**
+   * @brief Returns the requested maximum ray recursion depth.
+   */
+  [[nodiscard]] uint32_t GetMaxRecursionDepth() const;
+
+  /**
+   * @brief Checks a requested recursion depth against a physical-device limit.
+   */
+  [[nodiscard]] static bool IsRecursionDepthSupported(uint32_t requested_depth, uint32_t device_limit);
 
   /**
    * @brief Initializes the RayTracingPipeline.
