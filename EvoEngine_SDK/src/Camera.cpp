@@ -8,6 +8,7 @@
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
+#include "RenderPasses/RenderPassUtilities.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
@@ -24,6 +25,34 @@ struct CameraJitterState {
   bool taa_enabled = false;
 };
 std::unordered_map<uint64_t, CameraJitterState> camera_jitter_states;
+
+bool SameExtent(const VkExtent3D left, const VkExtent3D right) {
+  return left.width == right.width && left.height == right.height && left.depth == right.depth;
+}
+
+std::shared_ptr<Image> CreateRayCameraHistoryImage(const VkExtent3D extent) {
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.extent = extent;
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = Platform::Constants::render_texture_color;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  return std::make_shared<Image>(image_info);
+}
+
+bool HasRayCameraHistory(const RayCameraHistoryResources& history) {
+  return history.radiance_image && history.radiance_view && history.convergence_image && history.convergence_view;
+}
+
+uint64_t RayCameraHistoryByteSize(const VkExtent3D extent) {
+  return static_cast<uint64_t>(extent.width) * extent.height * extent.depth * sizeof(glm::vec4) * 2u;
+}
 
 float Halton(uint32_t index, const uint32_t base) {
   float result = 0.0f;
@@ -558,6 +587,7 @@ void Camera::Resize(const glm::uvec2& size) {
     return;
   if (size_ == size)
     return;
+  ReleaseRayCameraHistory();
   size_ = size;
   ResetFrameCount();
   if (render_texture_) {
@@ -567,6 +597,9 @@ void Camera::Resize(const glm::uvec2& size) {
 }
 
 void Camera::OnCreate() {
+  ray_camera_history_ = {};
+  ray_camera_history_counters_ = {};
+  ray_camera_history_owner_alive_ = true;
   size_ = glm::uvec2(1, 1);
   frame_count_ = 0;
   camera_settings = {};
@@ -732,6 +765,11 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
 }
 
 void Camera::OnDestroy() {
+  ray_camera_history_owner_alive_ = false;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    render_layer->ForgetRayCameraHistoryCamera(GetHandle().GetValue(), this);
+  }
+  ReleaseRayCameraHistory();
   post_processing_stack_ref.Clear();
   skybox.Clear();
 }
@@ -747,6 +785,27 @@ const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
 
 const std::shared_ptr<Image>& Camera::GetGBufferUtilityImage() const {
   return g_buffer_utility_;
+}
+
+RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
+  auto stats = ray_camera_history_counters_;
+  const auto& history = ray_camera_history_;
+  if (HasRayCameraHistory(history)) {
+    ++stats.live_history_count;
+    if (history.technique == RayCameraHistoryTechnique::RayTracing) {
+      ++stats.live_ray_tracing_history_count;
+    } else {
+      ++stats.live_ray_query_history_count;
+    }
+    stats.valid_history_count += history.valid ? 1u : 0u;
+    stats.radiance_image_count += history.radiance_image ? 1u : 0u;
+    stats.convergence_image_count += history.convergence_image ? 1u : 0u;
+    stats.radiance_view_count += history.radiance_view ? 1u : 0u;
+    stats.convergence_view_count += history.convergence_view ? 1u : 0u;
+    stats.live_byte_size += RayCameraHistoryByteSize(history.extent);
+  }
+  stats.live_camera_count = stats.live_history_count == 0 ? 0u : 1u;
+  return stats;
 }
 
 ImTextureID Camera::GetGBufferBaseColorAoImTextureId() const {
@@ -779,8 +838,71 @@ void Camera::ResetRenderState() {
 void Camera::ResetFrameCount() {
   frame_count_ = 0;
   ++temporal_history_version_;
+  InvalidateRayCameraHistory();
   const auto camera_handle = GetHandle().GetValue();
   previous_camera_projection_views.erase(camera_handle);
   previous_camera_unjittered_projection_views.erase(camera_handle);
   camera_jitter_states.erase(camera_handle);
+}
+
+void Camera::InvalidateRayCameraHistory() {
+  if (HasRayCameraHistory(ray_camera_history_)) {
+    ray_camera_history_.temporal_history_version = temporal_history_version_;
+    ray_camera_history_.frame_id = 0;
+    ray_camera_history_.valid = false;
+    ++ray_camera_history_counters_.invalidation_count;
+  }
+}
+
+RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
+    const RayCameraHistoryTechnique technique, const uint64_t scene_handle, const VkExtent3D extent,
+    const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory) {
+  auto& history = ray_camera_history_;
+  if (!HasRayCameraHistory(history) || !SameExtent(history.extent, extent)) {
+    if (HasRayCameraHistory(history)) {
+      ++ray_camera_history_counters_.retirement_count;
+    }
+    history = resource_factory ? resource_factory(extent) : RayCameraHistoryResources{};
+    history.extent = extent;
+    if (!resource_factory) {
+      history.radiance_image = CreateRayCameraHistoryImage(extent);
+      history.radiance_view = CreateGraphImageMipView(history.radiance_image, 0);
+      history.convergence_image = CreateRayCameraHistoryImage(extent);
+      history.convergence_view = CreateGraphImageMipView(history.convergence_image, 0);
+    }
+    history.technique = technique;
+    history.scene_handle = scene_handle;
+    history.temporal_history_version = temporal_history_version_;
+    history.frame_id = 0;
+    history.valid = false;
+    ++ray_camera_history_counters_.creation_count;
+  } else {
+    ++ray_camera_history_counters_.reuse_count;
+    const bool technique_changed = history.technique != technique;
+    if (technique_changed || history.scene_handle != scene_handle ||
+        history.temporal_history_version != temporal_history_version_) {
+      if (technique_changed) {
+        frame_count_ = 0;
+      }
+      history.technique = technique;
+      history.scene_handle = scene_handle;
+      history.temporal_history_version = temporal_history_version_;
+      history.frame_id = 0;
+      history.valid = false;
+      ++ray_camera_history_counters_.invalidation_count;
+    }
+  }
+  const auto stats = GetRayCameraHistoryStats();
+  ray_camera_history_counters_.peak_live_history_count =
+      std::max(ray_camera_history_counters_.peak_live_history_count, stats.live_history_count);
+  ray_camera_history_counters_.peak_live_byte_size =
+      std::max(ray_camera_history_counters_.peak_live_byte_size, stats.live_byte_size);
+  return history;
+}
+
+void Camera::ReleaseRayCameraHistory() {
+  if (HasRayCameraHistory(ray_camera_history_)) {
+    ++ray_camera_history_counters_.retirement_count;
+  }
+  ray_camera_history_ = {};
 }

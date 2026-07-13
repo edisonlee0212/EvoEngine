@@ -8,6 +8,7 @@ class Camera;
 class ComputePipeline;
 class DescriptorSet;
 class DescriptorSetLayout;
+struct RayCameraHistoryResources;
 class RayTracingPipeline;
 
 class RayTracingCameraPass final {
@@ -20,10 +21,10 @@ class RayTracingCameraPass final {
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> ray_tracing_descriptor_set;
     int camera_index = -1;
-    uint32_t frame_id = 0;
     RecordCommands record_commands;
     std::shared_ptr<DescriptorSetLayout> output_descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
+    RayCameraHistoryResources* history_resources = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
@@ -40,10 +41,10 @@ class RayQueryCameraPass final {
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> ray_tracing_descriptor_set;
     int camera_index = -1;
-    uint32_t frame_id = 0;
     RecordCommands record_commands;
     std::shared_ptr<DescriptorSetLayout> output_descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
+    RayCameraHistoryResources* history_resources = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();

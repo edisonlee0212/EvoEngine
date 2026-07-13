@@ -1809,6 +1809,10 @@ void RenderLayer::RegisterCameraRenderPass(
 }
 
 void RenderLayer::OnCreate() {
+  ray_camera_history_cameras_.clear();
+  retired_ray_camera_history_stats_ = {};
+  peak_live_ray_camera_history_count_ = 0;
+  peak_live_ray_camera_history_byte_size_ = 0;
   enable_inspection = false;
   if (!ddgi_atlas_sampler_) {
     ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
@@ -2850,6 +2854,7 @@ void RenderLayer::ClearAllEditorCameras() const {
     for (const auto& i : cameras) {
       if (i.second->prev_global_transform_ != i.first.value) {
         i.second->frame_count_ = 0;
+        i.second->InvalidateRayCameraHistory();
         i.second->prev_global_transform_ = i.first.value;
       }
       if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
@@ -2933,6 +2938,7 @@ void RenderLayer::ClearAllCameras() const {
     for (const auto& i : cameras) {
       if (i.second->prev_global_transform_ != i.first.value) {
         i.second->frame_count_ = 0;
+        i.second->InvalidateRayCameraHistory();
         i.second->prev_global_transform_ = i.first.value;
       }
       if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
@@ -3548,6 +3554,7 @@ void RenderLayer::RenderAll() {
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const auto& ddgi_settings = scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
   auto& platform = Platform::GetInstance();
+  PruneRayCameraHistories(current_render_instances);
   render_graph_transient_resource_stores_.clear();
   if (!ddgi_fallback_probe_state_buffer_) {
     ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer();
@@ -3945,6 +3952,34 @@ RayCameraShaderVariantStats RenderLayer::GetRayCameraShaderVariantStats(
     const RayCameraShaderTechnique technique) const {
   return ray_camera_shader_variant_cache_ ? ray_camera_shader_variant_cache_->GetStats(technique)
                                           : RayCameraShaderVariantStats{};
+}
+
+RayCameraHistoryStats RenderLayer::GetRayCameraHistoryStats() const {
+  auto result = retired_ray_camera_history_stats_;
+  const auto append = [&](const RayCameraHistoryStats& stats) {
+    result.live_camera_count += stats.live_camera_count;
+    result.live_history_count += stats.live_history_count;
+    result.live_ray_tracing_history_count += stats.live_ray_tracing_history_count;
+    result.live_ray_query_history_count += stats.live_ray_query_history_count;
+    result.valid_history_count += stats.valid_history_count;
+    result.radiance_image_count += stats.radiance_image_count;
+    result.convergence_image_count += stats.convergence_image_count;
+    result.radiance_view_count += stats.radiance_view_count;
+    result.convergence_view_count += stats.convergence_view_count;
+    result.live_byte_size += stats.live_byte_size;
+    result.creation_count += stats.creation_count;
+    result.reuse_count += stats.reuse_count;
+    result.invalidation_count += stats.invalidation_count;
+    result.retirement_count += stats.retirement_count;
+  };
+  for (const auto& [handle, camera] : ray_camera_history_cameras_) {
+    if (const auto locked_camera = camera.lock()) {
+      append(locked_camera->GetRayCameraHistoryStats());
+    }
+  }
+  result.peak_live_history_count = peak_live_ray_camera_history_count_;
+  result.peak_live_byte_size = peak_live_ray_camera_history_byte_size_;
+  return result;
 }
 
 bool RenderLayer::IsRayCameraShaderVariantReady(const RayCameraShaderTechnique technique) const {
@@ -4387,12 +4422,14 @@ bool RenderLayer::UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scen
     for (const auto& camera_entry : current_render_instances->cameras) {
       if (const auto& camera = camera_entry.second) {
         camera->frame_count_ = 0;
+        camera->InvalidateRayCameraHistory();
       }
     }
   } else {
     for (const auto& camera_entry : current_render_instances->cameras) {
       if (const auto& camera = camera_entry.second; camera && camera_info_changed(camera)) {
         camera->frame_count_ = 0;
+        camera->InvalidateRayCameraHistory();
       }
     }
   }
@@ -4893,6 +4930,13 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                                            const GlobalTransform& camera_global_transform,
                                            const std::shared_ptr<Camera>& camera) const {
   const ProfilerScope profiler_scope("RenderLayer::RenderToCameraRayTracing", "Render");
+  if (!camera || !camera->ray_camera_history_owner_alive_) {
+    return;
+  }
+  const auto render_texture = camera->GetRenderTexture();
+  if (!render_texture) {
+    return;
+  }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
@@ -4913,6 +4957,12 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       ray_camera_shader_variant_cache_->RecordFallbackFrame(use_ray_query ? RayCameraShaderTechnique::RayQuery
                                                                           : RayCameraShaderTechnique::RayTracing);
     }
+    const auto camera_handle = camera->GetHandle().GetValue();
+    ray_camera_history_cameras_[camera_handle] = camera;
+    auto& ray_camera_history = camera->AcquireRayCameraHistory(
+        use_ray_query ? RayCameraHistoryTechnique::RayQuery : RayCameraHistoryTechnique::RayTracing,
+        scene ? scene->GetHandle().GetValue() : 0u, render_texture->GetExtent());
+    UpdateRayCameraHistoryPeaks();
     const char* ray_camera_pass_name =
         use_ray_query ? RenderPassNames::ray_query_camera : RenderPassNames::ray_tracing_camera;
     VolumetricCloudSettings volumetric_cloud_settings{};
@@ -4944,16 +4994,16 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
           RayQueryCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
             RayQueryCameraPass::Execute(
                 context, {camera, ray_query_pipeline, per_frame_descriptor_sets_[current_frame_index],
-                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
-                          record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
+                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                          ray_tracing_camera_output_layout_, active_camera_transient_resources, &ray_camera_history});
           });
     } else {
       camera_render_graph.AddPass(
           RayTracingCameraPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
             RayTracingCameraPass::Execute(
                 context, {camera, ray_tracing_pipeline, per_frame_descriptor_sets_[current_frame_index],
-                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, camera->frame_count_,
-                          record_commands, ray_tracing_camera_output_layout_, active_camera_transient_resources});
+                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                          ray_tracing_camera_output_layout_, active_camera_transient_resources, &ray_camera_history});
           });
     }
     const char* post_ray_tracing_dependency = ray_camera_pass_name;
@@ -5041,6 +5091,78 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
+  render_graph_transient_resource_stores_.clear();
+  ClearRayCameraHistories();
+}
+
+void RenderLayer::PruneRayCameraHistories(const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
+  std::unordered_map<uint64_t, const Camera*> active_cameras;
+  if (render_instances) {
+    active_cameras.reserve(render_instances->cameras.size());
+    for (const auto& [transform, camera] : render_instances->cameras) {
+      if (camera) {
+        active_cameras[camera->GetHandle().GetValue()] = camera.get();
+      }
+    }
+  }
+  for (auto iterator = ray_camera_history_cameras_.begin(); iterator != ray_camera_history_cameras_.end();) {
+    const auto camera = iterator->second.lock();
+    const auto active_search = active_cameras.find(iterator->first);
+    if (!camera || active_search == active_cameras.end() || active_search->second != camera.get()) {
+      if (camera) {
+        ArchiveRayCameraHistory(camera);
+      }
+      iterator = ray_camera_history_cameras_.erase(iterator);
+    } else {
+      ++iterator;
+    }
+  }
+}
+
+void RenderLayer::ForgetRayCameraHistoryCamera(const uint64_t camera_handle, const Camera* camera) const {
+  if (const auto search = ray_camera_history_cameras_.find(camera_handle);
+      search != ray_camera_history_cameras_.end()) {
+    const auto locked_camera = search->second.lock();
+    if (!locked_camera) {
+      ray_camera_history_cameras_.erase(search);
+    } else if (locked_camera.get() == camera) {
+      ArchiveRayCameraHistory(locked_camera);
+      ray_camera_history_cameras_.erase(search);
+    }
+  }
+}
+
+void RenderLayer::ArchiveRayCameraHistory(const std::shared_ptr<Camera>& camera) const {
+  camera->ReleaseRayCameraHistory();
+  const auto stats = camera->GetRayCameraHistoryStats();
+  retired_ray_camera_history_stats_.creation_count += stats.creation_count;
+  retired_ray_camera_history_stats_.reuse_count += stats.reuse_count;
+  retired_ray_camera_history_stats_.invalidation_count += stats.invalidation_count;
+  retired_ray_camera_history_stats_.retirement_count += stats.retirement_count;
+  camera->ray_camera_history_counters_ = {};
+}
+
+void RenderLayer::UpdateRayCameraHistoryPeaks() const {
+  uint64_t live_history_count = 0;
+  uint64_t live_byte_size = 0;
+  for (const auto& [handle, camera] : ray_camera_history_cameras_) {
+    if (const auto locked_camera = camera.lock()) {
+      const auto stats = locked_camera->GetRayCameraHistoryStats();
+      live_history_count += stats.live_history_count;
+      live_byte_size += stats.live_byte_size;
+    }
+  }
+  peak_live_ray_camera_history_count_ = std::max(peak_live_ray_camera_history_count_, live_history_count);
+  peak_live_ray_camera_history_byte_size_ = std::max(peak_live_ray_camera_history_byte_size_, live_byte_size);
+}
+
+void RenderLayer::ClearRayCameraHistories() const {
+  for (const auto& [handle, camera] : ray_camera_history_cameras_) {
+    if (const auto locked_camera = camera.lock()) {
+      ArchiveRayCameraHistory(locked_camera);
+    }
+  }
+  ray_camera_history_cameras_.clear();
 }
 
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,

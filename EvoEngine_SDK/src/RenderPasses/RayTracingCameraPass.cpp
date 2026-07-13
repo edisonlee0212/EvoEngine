@@ -10,60 +10,8 @@
 #include "RenderTexture.hpp"
 
 #include <algorithm>
-#include <unordered_map>
 
 using namespace evo_engine;
-
-namespace {
-struct RayTracingCameraHistoryResources {
-  VkExtent3D extent{};
-  std::shared_ptr<Image> radiance_image;
-  std::shared_ptr<ImageView> radiance_view;
-  std::shared_ptr<Image> convergence_image;
-  std::shared_ptr<ImageView> convergence_view;
-  bool valid = false;
-};
-
-std::shared_ptr<Image> CreateRayTracingCameraHistoryImage(const VkExtent3D extent) {
-  VkImageCreateInfo image_info{};
-  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-  image_info.imageType = VK_IMAGE_TYPE_2D;
-  image_info.extent = extent;
-  image_info.mipLevels = 1;
-  image_info.arrayLayers = 1;
-  image_info.format = Platform::Constants::render_texture_color;
-  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT;
-  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  return std::make_shared<Image>(image_info);
-}
-
-uint64_t MakeRayCameraHistoryKey(const uint64_t camera_handle, const uint32_t technique_index) {
-  return (camera_handle << 1u) ^ static_cast<uint64_t>(technique_index & 1u);
-}
-
-RayTracingCameraHistoryResources& GetRayTracingCameraHistoryResources(const uint64_t camera_handle,
-                                                                      const VkExtent3D extent,
-                                                                      const uint32_t technique_index) {
-  static std::unordered_map<uint64_t, RayTracingCameraHistoryResources> history_resources;
-  auto& resources = history_resources[MakeRayCameraHistoryKey(camera_handle, technique_index)];
-  if (resources.extent.width == extent.width && resources.extent.height == extent.height &&
-      resources.extent.depth == extent.depth && resources.radiance_image && resources.radiance_view &&
-      resources.convergence_image && resources.convergence_view) {
-    return resources;
-  }
-
-  resources = {};
-  resources.extent = extent;
-  resources.radiance_image = CreateRayTracingCameraHistoryImage(extent);
-  resources.radiance_view = CreateGraphImageMipView(resources.radiance_image, 0);
-  resources.convergence_image = CreateRayTracingCameraHistoryImage(extent);
-  resources.convergence_view = CreateGraphImageMipView(resources.convergence_image, 0);
-  return resources;
-}
-}  // namespace
 
 RenderPassDescriptor RayTracingCameraPass::CreateDescriptor() {
   return {
@@ -101,11 +49,10 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
     if (!render_texture || !parameters.pipeline || !parameters.pipeline->Initialized() ||
         !parameters.per_frame_descriptor_set || !parameters.ray_tracing_descriptor_set ||
-        !parameters.output_descriptor_set_layout || !parameters.transient_resources) {
+        !parameters.output_descriptor_set_layout || !parameters.transient_resources || !parameters.history_resources) {
       return;
     }
-    auto& history_resources =
-        GetRayTracingCameraHistoryResources(parameters.camera->GetHandle().GetValue(), render_texture->GetExtent(), 0u);
+    auto& history_resources = *parameters.history_resources;
     if (!history_resources.radiance_image || !history_resources.radiance_view || !history_resources.convergence_image ||
         !history_resources.convergence_view) {
       return;
@@ -124,6 +71,8 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
       return;
     }
     parameters.transient_resources->RetainImageView(hit_distance_view);
+    parameters.transient_resources->RetainImageView(history_resources.radiance_view);
+    parameters.transient_resources->RetainImageView(history_resources.convergence_view);
     history_resources.radiance_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     history_resources.convergence_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     const auto output_descriptor_set = std::make_shared<DescriptorSet>(parameters.output_descriptor_set_layout);
@@ -146,7 +95,7 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
-    push_constant.frame_id = history_resources.valid ? parameters.frame_id : 0u;
+    push_constant.frame_id = history_resources.valid ? history_resources.frame_id : 0u;
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
     push_constant.shader_execution_reordering = Camera::ResolveShaderExecutionReorderingEnabled(
@@ -159,6 +108,7 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
                                1);
     Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
     history_resources.valid = true;
+    ++history_resources.frame_id;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     Platform::EverythingBarrier(vk_command_buffer);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
@@ -173,11 +123,10 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
     if (!render_texture || !parameters.pipeline || !parameters.pipeline->Initialized() ||
         !parameters.per_frame_descriptor_set || !parameters.ray_tracing_descriptor_set ||
-        !parameters.output_descriptor_set_layout || !parameters.transient_resources) {
+        !parameters.output_descriptor_set_layout || !parameters.transient_resources || !parameters.history_resources) {
       return;
     }
-    auto& history_resources =
-        GetRayTracingCameraHistoryResources(parameters.camera->GetHandle().GetValue(), render_texture->GetExtent(), 1u);
+    auto& history_resources = *parameters.history_resources;
     if (!history_resources.radiance_image || !history_resources.radiance_view || !history_resources.convergence_image ||
         !history_resources.convergence_view) {
       return;
@@ -196,6 +145,8 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
       return;
     }
     parameters.transient_resources->RetainImageView(hit_distance_view);
+    parameters.transient_resources->RetainImageView(history_resources.radiance_view);
+    parameters.transient_resources->RetainImageView(history_resources.convergence_view);
     history_resources.radiance_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     history_resources.convergence_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     const auto output_descriptor_set = std::make_shared<DescriptorSet>(parameters.output_descriptor_set_layout);
@@ -218,7 +169,7 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
-    push_constant.frame_id = history_resources.valid ? parameters.frame_id : 0u;
+    push_constant.frame_id = history_resources.valid ? history_resources.frame_id : 0u;
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -227,6 +178,7 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
                                   Platform::DivUp(render_texture->GetExtent().height, 8), 1);
     Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
     history_resources.valid = true;
+    ++history_resources.frame_id;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     Platform::EverythingBarrier(vk_command_buffer);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);

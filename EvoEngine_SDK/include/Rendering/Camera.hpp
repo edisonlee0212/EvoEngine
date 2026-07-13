@@ -1,5 +1,6 @@
 
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 #include "Bound.hpp"
@@ -9,6 +10,40 @@
 #include "Transform.hpp"
 
 namespace evo_engine {
+
+enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
+
+struct RayCameraHistoryResources {
+  VkExtent3D extent{};
+  std::shared_ptr<Image> radiance_image;
+  std::shared_ptr<ImageView> radiance_view;
+  std::shared_ptr<Image> convergence_image;
+  std::shared_ptr<ImageView> convergence_view;
+  RayCameraHistoryTechnique technique = RayCameraHistoryTechnique::RayTracing;
+  uint64_t scene_handle = 0;
+  uint32_t temporal_history_version = 0;
+  uint32_t frame_id = 0;
+  bool valid = false;
+};
+
+struct RayCameraHistoryStats {
+  uint64_t live_camera_count = 0;
+  uint64_t live_history_count = 0;
+  uint64_t live_ray_tracing_history_count = 0;
+  uint64_t live_ray_query_history_count = 0;
+  uint64_t valid_history_count = 0;
+  uint64_t radiance_image_count = 0;
+  uint64_t convergence_image_count = 0;
+  uint64_t radiance_view_count = 0;
+  uint64_t convergence_view_count = 0;
+  uint64_t live_byte_size = 0;
+  uint64_t peak_live_history_count = 0;
+  uint64_t peak_live_byte_size = 0;
+  uint64_t creation_count = 0;
+  uint64_t reuse_count = 0;
+  uint64_t invalidation_count = 0;
+  uint64_t retirement_count = 0;
+};
 
 /**
  * @brief Represents the camera information block with matrices and settings used for rendering.
@@ -254,6 +289,7 @@ class Camera final : public IPrivateComponent {
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
+  [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
   [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;
@@ -265,8 +301,9 @@ class Camera final : public IPrivateComponent {
   void ResetFrameCount();
 
  private:
-  friend class Platform;          ///< Grants access to the Platform class.
-  friend class RenderLayer;       ///< Grants access to the RenderLayer class.
+  friend class Platform;     ///< Grants access to the Platform class.
+  friend class RenderLayer;  ///< Grants access to the RenderLayer class.
+  friend class RayCameraHistoryTestAccess;
   friend struct CameraInfoBlock;  ///< Grants access to the CameraInfoBlock struct.
 
   std::shared_ptr<RenderTexture> render_texture_;  ///< The render texture used by the camera.
@@ -290,6 +327,9 @@ class Camera final : public IPrivateComponent {
 
   uint32_t frame_count_ = 0;               ///< Frame count used for tracking rendering updates.
   uint32_t temporal_history_version_ = 0;  ///< Version incremented by explicit camera history resets.
+  RayCameraHistoryResources ray_camera_history_{};
+  RayCameraHistoryStats ray_camera_history_counters_{};
+  bool ray_camera_history_owner_alive_ = false;
 
   glm::mat4 prev_global_transform_{};
   bool rendered_ = false;               ///< Indicates whether the camera has rendered.
@@ -301,6 +341,11 @@ class Camera final : public IPrivateComponent {
    * @brief Updates the deferred shading GBuffer resources.
    */
   void UpdateGBuffer();
+  RayCameraHistoryResources& AcquireRayCameraHistory(
+      RayCameraHistoryTechnique technique, uint64_t scene_handle, VkExtent3D extent,
+      const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory = {});
+  void InvalidateRayCameraHistory();
+  void ReleaseRayCameraHistory();
 };
 
 }  // namespace evo_engine

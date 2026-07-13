@@ -11,6 +11,7 @@
 #include "Utilities.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -20,6 +21,16 @@
 using namespace evo_engine;
 
 namespace {
+std::atomic<uint64_t> live_descriptor_set_count = 0;
+std::atomic<uint64_t> peak_live_descriptor_set_count = 0;
+std::atomic<uint64_t> descriptor_set_creation_count = 0;
+
+void UpdatePeak(std::atomic<uint64_t>& peak, const uint64_t value) {
+  auto current = peak.load(std::memory_order_relaxed);
+  while (current < value && !peak.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
+  }
+}
+
 constexpr uint32_t kDdgiRayMaskGeometry = 0x01u;
 constexpr uint32_t kDdgiRayMaskShadow = 0x02u;
 constexpr VkBuildAccelerationStructureFlagsKHR kTlasBuildFlags =
@@ -1677,14 +1688,21 @@ const VkDescriptorSet& DescriptorSet::GetVkDescriptorSet() const {
   return descriptor_set_;
 }
 
+DescriptorSet::LifetimeStats DescriptorSet::GetLifetimeStats() {
+  return {live_descriptor_set_count.load(std::memory_order_relaxed),
+          peak_live_descriptor_set_count.load(std::memory_order_relaxed),
+          descriptor_set_creation_count.load(std::memory_order_relaxed)};
+}
+
 DescriptorSet::~DescriptorSet() {
-  if (!Platform::Initialized())
+  if (descriptor_set_ == VK_NULL_HANDLE)
     return;
-  if (descriptor_set_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
+  live_descriptor_set_count.fetch_sub(1, std::memory_order_relaxed);
+  if (Platform::Initialized() && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     Platform::CheckVk(vkFreeDescriptorSets(Platform::GetVkDevice(),
                                            Platform::GetDescriptorPool()->GetVkDescriptorPool(), 1, &descriptor_set_));
-    descriptor_set_ = VK_NULL_HANDLE;
   }
+  descriptor_set_ = VK_NULL_HANDLE;
 }
 
 DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_layout) {
@@ -1701,6 +1719,9 @@ DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_
     throw std::runtime_error("failed to allocate descriptor sets!");
   }
   descriptor_set_layout_ = target_layout;
+  const auto live_count = live_descriptor_set_count.fetch_add(1, std::memory_order_relaxed) + 1u;
+  descriptor_set_creation_count.fetch_add(1, std::memory_order_relaxed);
+  UpdatePeak(peak_live_descriptor_set_count, live_count);
 }
 
 void DescriptorSet::UpdateImageDescriptorBinding(const uint32_t binding_index, const VkDescriptorImageInfo& image_info,

@@ -16,6 +16,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <unordered_map>
 
 namespace evo_engine {
 struct ApplicationInitializationSettings;
@@ -213,6 +214,7 @@ class RenderLayer final : public ILayer {
 
   [[nodiscard]] RayCameraShaderVariantStats GetRayCameraShaderVariantStats(RayCameraShaderTechnique technique) const;
   [[nodiscard]] bool IsRayCameraShaderVariantReady(RayCameraShaderTechnique technique) const;
+  [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
 
   [[nodiscard]] DdgiSettings& GetDdgiSettings();
   [[nodiscard]] const DdgiSettings& GetDdgiSettings() const;
@@ -430,6 +432,10 @@ class RenderLayer final : public ILayer {
   std::vector<FrameRenderPassExternalFunction> frame_render_pass_external_functions;
   std::vector<CameraRenderPassExternalFunction> camera_render_pass_external_functions;
   mutable std::vector<RenderGraphTransientResourceStore> render_graph_transient_resource_stores_;
+  mutable std::unordered_map<uint64_t, std::weak_ptr<Camera>> ray_camera_history_cameras_;
+  mutable RayCameraHistoryStats retired_ray_camera_history_stats_{};
+  mutable uint64_t peak_live_ray_camera_history_count_ = 0;
+  mutable uint64_t peak_live_ray_camera_history_byte_size_ = 0;
   mutable std::shared_ptr<Buffer> ddgi_probe_metadata_buffer_;
   mutable std::shared_ptr<Buffer> ddgi_probe_state_buffer_;
   mutable std::shared_ptr<Buffer> ddgi_fallback_probe_state_buffer_;
@@ -454,6 +460,7 @@ class RenderLayer final : public ILayer {
   friend class Platform;
   friend class Resources;
   friend class Camera;
+  friend class RayCameraHistoryTestAccess;
   friend class GraphicsPipeline;
   friend class EditorLayer;
   friend class Material;
@@ -604,6 +611,11 @@ class RenderLayer final : public ILayer {
    */
   void RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
                                 const std::shared_ptr<Camera>& camera) const;
+  void PruneRayCameraHistories(const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
+  void ForgetRayCameraHistoryCamera(uint64_t camera_handle, const Camera* camera) const;
+  void ArchiveRayCameraHistory(const std::shared_ptr<Camera>& camera) const;
+  void UpdateRayCameraHistoryPeaks() const;
+  void ClearRayCameraHistories() const;
 
   /**
    * \brief Called before updating this render layer.

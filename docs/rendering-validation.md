@@ -870,6 +870,37 @@ and every other original gate; it does not rewrite the failed ledger or launch a
 python Scripts\validate_raytracer_m14.py --analyze-existing --output-dir out\raytracer-m14
 ```
 
+### M15 Ray-Camera History Lifetime
+
+Each `Camera` owns one progressive-history slot containing one RGBA32F radiance image and one RGBA32F convergence image,
+for 32 bytes per output pixel. Switching between the RT-pipeline and RayQuery techniques always resets that shared slot's
+accumulation before the new technique renders. Camera resize retires the allocation; scene/history invalidation and camera
+deletion reset or retire only the affected camera state. `RenderLayer` keeps weak active-camera metadata, prunes histories
+for cameras no longer in the current render set, retains submitted image views through the frame transient-resource store,
+and clears registered histories only after draining GPU resource work during shutdown.
+
+Capture JSON exposes `ray_camera_history` plus descriptor-set and ray-tracing pipeline/SBT counters under
+`resource_lifetime`. M15 uses two 1280x720, 64-SPP pre-commit lanes: ordinary RTX and forced query-only. The validator
+requires one correctly typed live camera history at the exact 32-byte-per-pixel bound, stable live history and
+pipeline/SBT counts after the timing warmup, bounded descriptor-set residency, no capture-window history or pipeline/SBT
+creation, and zero RT-pipeline/SBT resources in forced query-only mode. Camera churn, technique switching, resize,
+submitted-view retention, and shutdown ordering are no-renderer tests. No reference process is launched. With the
+rejected wrapper attempt documented below, the post-commit 2560x1440, 2048-SPP Bistro delivery is the fourth and final
+M15 renderer launch.
+
+The accepted M15 run preserved one rejected initial wrapper attempt under
+`out/raytracer-m15/rtx-attempt1-no-capture`: invoking the Windows GUI executable directly from PowerShell returned before
+capture and allowed the project-reset cleanup to race it, leaving an empty log and no image or metrics. The established
+subprocess harness then completed the RTX and forced query-only lanes. Count the rejected process conservatively, making
+the post-commit delivery the fourth and final launch within the milestone ceiling; do not add an ordinary RayQuery or
+reference run.
+
+```bat
+python Scripts\validate_raytracer_m15.py --self-test
+out\build\vs2026-x64-tests\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="RayCameraHistory.*:CameraRenderTechnique.*:RayCameraShaderVariantCache.*"
+python Scripts\validate_raytracer_m15.py --rtx-metrics out\raytracer-m15\rtx\metrics.json --query-only-metrics out\raytracer-m15\query-only\metrics.json --output out\raytracer-m15\validation.json
+```
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

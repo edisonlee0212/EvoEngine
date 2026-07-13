@@ -34,6 +34,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/VulkanPipelineCacheTest.cpp
 	Core/RayCameraShaderVariantCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
+	Core/RayCameraHistoryTest.cpp
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
 	Core/GpuServiceTest.cpp

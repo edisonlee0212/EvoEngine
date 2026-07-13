@@ -44,8 +44,23 @@ class RayTracingPipeline final : public IGraphicsResource {
   uint32_t handle_size_aligned_ = 0;
 
   uint32_t max_recursion_depth_ = 8;
+  bool lifetime_pipeline_tracked_ = false;
+  uint32_t lifetime_shader_binding_table_count_ = 0;
+
+  void ReleaseResources();
 
  public:
+  struct LifetimeStats {
+    uint64_t live_pipeline_count = 0;
+    uint64_t peak_live_pipeline_count = 0;
+    uint64_t pipeline_creation_count = 0;
+    uint64_t live_shader_binding_table_count = 0;
+    uint64_t peak_live_shader_binding_table_count = 0;
+    uint64_t shader_binding_table_creation_count = 0;
+  };
+
+  [[nodiscard]] static LifetimeStats GetLifetimeStats();
+
   /**
    * @brief Destructor for the RayTracingPipeline class.
    */

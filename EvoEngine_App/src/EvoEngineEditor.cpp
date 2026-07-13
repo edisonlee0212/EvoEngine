@@ -1040,6 +1040,40 @@ nlohmann::ordered_json GpuMemorySnapshotJson(const GpuMemorySnapshot& snapshot) 
           {"heaps", std::move(heaps)}};
 }
 
+nlohmann::ordered_json RayCameraHistoryStatsJson(const RayCameraHistoryStats& stats) {
+  return {{"live_camera_count", stats.live_camera_count},
+          {"live_history_count", stats.live_history_count},
+          {"live_ray_tracing_history_count", stats.live_ray_tracing_history_count},
+          {"live_ray_query_history_count", stats.live_ray_query_history_count},
+          {"valid_history_count", stats.valid_history_count},
+          {"radiance_image_count", stats.radiance_image_count},
+          {"convergence_image_count", stats.convergence_image_count},
+          {"radiance_view_count", stats.radiance_view_count},
+          {"convergence_view_count", stats.convergence_view_count},
+          {"live_byte_size", stats.live_byte_size},
+          {"peak_live_history_count", stats.peak_live_history_count},
+          {"peak_live_byte_size", stats.peak_live_byte_size},
+          {"creation_count", stats.creation_count},
+          {"reuse_count", stats.reuse_count},
+          {"invalidation_count", stats.invalidation_count},
+          {"retirement_count", stats.retirement_count}};
+}
+
+nlohmann::ordered_json DescriptorSetLifetimeStatsJson(const DescriptorSet::LifetimeStats& stats) {
+  return {{"live_count", stats.live_count},
+          {"peak_live_count", stats.peak_live_count},
+          {"creation_count", stats.creation_count}};
+}
+
+nlohmann::ordered_json RayTracingPipelineLifetimeStatsJson(const RayTracingPipeline::LifetimeStats& stats) {
+  return {{"live_pipeline_count", stats.live_pipeline_count},
+          {"peak_live_pipeline_count", stats.peak_live_pipeline_count},
+          {"pipeline_creation_count", stats.pipeline_creation_count},
+          {"live_shader_binding_table_count", stats.live_shader_binding_table_count},
+          {"peak_live_shader_binding_table_count", stats.peak_live_shader_binding_table_count},
+          {"shader_binding_table_creation_count", stats.shader_binding_table_creation_count}};
+}
+
 void CaptureDemoPreview(
     const std::filesystem::path& output_path, const std::optional<std::filesystem::path>& metrics_path, const int width,
     const int height, const size_t warmup_frames, const size_t timing_warmup_frames,
@@ -1327,6 +1361,23 @@ void CaptureDemoPreview(
   const auto startup_gpu_memory = Platform::GetGpuMemorySnapshot();
   auto peak_gpu_memory = startup_gpu_memory;
   auto final_gpu_memory = startup_gpu_memory;
+  const auto startup_ray_camera_history = render_layer->GetRayCameraHistoryStats();
+  auto measurement_ray_camera_history = startup_ray_camera_history;
+  auto final_ray_camera_history = startup_ray_camera_history;
+  uint64_t minimum_live_ray_camera_histories = startup_ray_camera_history.live_history_count;
+  uint64_t maximum_live_ray_camera_histories = startup_ray_camera_history.live_history_count;
+  const auto startup_descriptor_sets = DescriptorSet::GetLifetimeStats();
+  auto measurement_descriptor_sets = startup_descriptor_sets;
+  auto final_descriptor_sets = startup_descriptor_sets;
+  uint64_t minimum_live_descriptor_sets = startup_descriptor_sets.live_count;
+  uint64_t maximum_live_descriptor_sets = startup_descriptor_sets.live_count;
+  const auto startup_ray_tracing_pipelines = RayTracingPipeline::GetLifetimeStats();
+  auto measurement_ray_tracing_pipelines = startup_ray_tracing_pipelines;
+  auto final_ray_tracing_pipelines = startup_ray_tracing_pipelines;
+  uint64_t minimum_live_ray_tracing_pipelines = startup_ray_tracing_pipelines.live_pipeline_count;
+  uint64_t maximum_live_ray_tracing_pipelines = startup_ray_tracing_pipelines.live_pipeline_count;
+  uint64_t minimum_live_shader_binding_tables = startup_ray_tracing_pipelines.live_shader_binding_table_count;
+  uint64_t maximum_live_shader_binding_tables = startup_ray_tracing_pipelines.live_shader_binding_table_count;
   double memory_telemetry_seconds = 0.0;
   Platform::SetGpuTimestampCaptureEnabled(true);
   auto measurement_start_time = std::chrono::steady_clock::now();
@@ -1345,12 +1396,40 @@ void CaptureDemoPreview(
     const auto memory_telemetry_start = std::chrono::steady_clock::now();
     final_gpu_memory = Platform::GetGpuMemorySnapshot();
     peak_gpu_memory = MaxGpuMemorySnapshot(peak_gpu_memory, final_gpu_memory);
+    final_ray_camera_history = render_layer->GetRayCameraHistoryStats();
+    minimum_live_ray_camera_histories =
+        std::min(minimum_live_ray_camera_histories, final_ray_camera_history.live_history_count);
+    maximum_live_ray_camera_histories =
+        std::max(maximum_live_ray_camera_histories, final_ray_camera_history.live_history_count);
+    final_descriptor_sets = DescriptorSet::GetLifetimeStats();
+    minimum_live_descriptor_sets = std::min(minimum_live_descriptor_sets, final_descriptor_sets.live_count);
+    maximum_live_descriptor_sets = std::max(maximum_live_descriptor_sets, final_descriptor_sets.live_count);
+    final_ray_tracing_pipelines = RayTracingPipeline::GetLifetimeStats();
+    minimum_live_ray_tracing_pipelines =
+        std::min(minimum_live_ray_tracing_pipelines, final_ray_tracing_pipelines.live_pipeline_count);
+    maximum_live_ray_tracing_pipelines =
+        std::max(maximum_live_ray_tracing_pipelines, final_ray_tracing_pipelines.live_pipeline_count);
+    minimum_live_shader_binding_tables =
+        std::min(minimum_live_shader_binding_tables, final_ray_tracing_pipelines.live_shader_binding_table_count);
+    maximum_live_shader_binding_tables =
+        std::max(maximum_live_shader_binding_tables, final_ray_tracing_pipelines.live_shader_binding_table_count);
     memory_telemetry_seconds +=
         std::chrono::duration<double>(std::chrono::steady_clock::now() - memory_telemetry_start).count();
     ++capture_frame_count;
     if (capture_frame_count == std::min(timing_warmup_frames, warmup_frames)) {
       Platform::ResetGpuTimestampStats();
       capture_tlas_upload_baseline = render_layer->GetTlasUploadTelemetry();
+      measurement_ray_camera_history = final_ray_camera_history;
+      minimum_live_ray_camera_histories = final_ray_camera_history.live_history_count;
+      maximum_live_ray_camera_histories = final_ray_camera_history.live_history_count;
+      measurement_descriptor_sets = final_descriptor_sets;
+      minimum_live_descriptor_sets = final_descriptor_sets.live_count;
+      maximum_live_descriptor_sets = final_descriptor_sets.live_count;
+      measurement_ray_tracing_pipelines = final_ray_tracing_pipelines;
+      minimum_live_ray_tracing_pipelines = final_ray_tracing_pipelines.live_pipeline_count;
+      maximum_live_ray_tracing_pipelines = final_ray_tracing_pipelines.live_pipeline_count;
+      minimum_live_shader_binding_tables = final_ray_tracing_pipelines.live_shader_binding_table_count;
+      maximum_live_shader_binding_tables = final_ray_tracing_pipelines.live_shader_binding_table_count;
       memory_telemetry_seconds = 0.0;
       measurement_start_time = std::chrono::steady_clock::now();
     }
@@ -1595,6 +1674,40 @@ void CaptureDemoPreview(
       {"transient_scope", "builder scratch plus live original and compacted static BLAS allocations"},
       {"wall_milliseconds", blas_builder.wall_milliseconds},
       {"passes", std::move(blas_passes)}};
+  metrics["ray_camera_history"] = {
+      {"ownership", "camera-owned-single-slot"},
+      {"maximum_histories_per_camera", 1},
+      {"bytes_per_pixel_per_history", sizeof(glm::vec4) * 2u},
+      {"startup", RayCameraHistoryStatsJson(startup_ray_camera_history)},
+      {"measurement_baseline", RayCameraHistoryStatsJson(measurement_ray_camera_history)},
+      {"final", RayCameraHistoryStatsJson(final_ray_camera_history)},
+      {"capture_minimum_live_history_count", minimum_live_ray_camera_histories},
+      {"capture_maximum_live_history_count", maximum_live_ray_camera_histories},
+      {"capture_creation_count",
+       final_ray_camera_history.creation_count >= measurement_ray_camera_history.creation_count
+           ? final_ray_camera_history.creation_count - measurement_ray_camera_history.creation_count
+           : 0u}};
+  metrics["resource_lifetime"] = {
+      {"descriptor_sets",
+       {{"startup", DescriptorSetLifetimeStatsJson(startup_descriptor_sets)},
+        {"measurement_baseline", DescriptorSetLifetimeStatsJson(measurement_descriptor_sets)},
+        {"final", DescriptorSetLifetimeStatsJson(final_descriptor_sets)},
+        {"capture_minimum_live_count", minimum_live_descriptor_sets},
+        {"capture_maximum_live_count", maximum_live_descriptor_sets},
+        {"capture_creation_count", final_descriptor_sets.creation_count - measurement_descriptor_sets.creation_count}}},
+      {"ray_tracing_pipelines",
+       {{"startup", RayTracingPipelineLifetimeStatsJson(startup_ray_tracing_pipelines)},
+        {"measurement_baseline", RayTracingPipelineLifetimeStatsJson(measurement_ray_tracing_pipelines)},
+        {"final", RayTracingPipelineLifetimeStatsJson(final_ray_tracing_pipelines)},
+        {"capture_minimum_live_pipeline_count", minimum_live_ray_tracing_pipelines},
+        {"capture_maximum_live_pipeline_count", maximum_live_ray_tracing_pipelines},
+        {"capture_minimum_live_shader_binding_table_count", minimum_live_shader_binding_tables},
+        {"capture_maximum_live_shader_binding_table_count", maximum_live_shader_binding_tables},
+        {"capture_pipeline_creation_count", final_ray_tracing_pipelines.pipeline_creation_count -
+                                                measurement_ray_tracing_pipelines.pipeline_creation_count},
+        {"capture_shader_binding_table_creation_count",
+         final_ray_tracing_pipelines.shader_binding_table_creation_count -
+             measurement_ray_tracing_pipelines.shader_binding_table_creation_count}}}};
   metrics["gpu_memory"] = {{"scope", "startup-ready plus capture-window samples; pre-ready transient peaks excluded"},
                            {"startup_ready", GpuMemorySnapshotJson(startup_gpu_memory)},
                            {"peak", GpuMemorySnapshotJson(peak_gpu_memory)},

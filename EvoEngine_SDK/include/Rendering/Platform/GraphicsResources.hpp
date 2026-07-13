@@ -1255,6 +1255,14 @@ class DescriptorSet final : public IGraphicsResource {
   VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;            /**< Vulkan descriptor set handle. */
 
  public:
+  struct LifetimeStats {
+    uint64_t live_count = 0;
+    uint64_t peak_live_count = 0;
+    uint64_t creation_count = 0;
+  };
+
+  [[nodiscard]] static LifetimeStats GetLifetimeStats();
+
   /**
    * @brief Retrieves the Vulkan descriptor set handle.
    * @return Vulkan descriptor set handle.

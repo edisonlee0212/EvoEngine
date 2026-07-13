@@ -3,12 +3,55 @@
 #include "Console.hpp"
 #include "Platform.hpp"
 #include "Shader.hpp"
+
+#include <atomic>
+
 using namespace evo_engine;
 
+namespace {
+std::atomic<uint64_t> live_ray_tracing_pipeline_count = 0;
+std::atomic<uint64_t> peak_live_ray_tracing_pipeline_count = 0;
+std::atomic<uint64_t> ray_tracing_pipeline_creation_count = 0;
+std::atomic<uint64_t> live_shader_binding_table_count = 0;
+std::atomic<uint64_t> peak_live_shader_binding_table_count = 0;
+std::atomic<uint64_t> shader_binding_table_creation_count = 0;
+
+void UpdatePeak(std::atomic<uint64_t>& peak, const uint64_t value) {
+  auto current = peak.load(std::memory_order_relaxed);
+  while (current < value && !peak.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
+  }
+}
+}  // namespace
+
 RayTracingPipeline::~RayTracingPipeline() {
+  ReleaseResources();
+}
+
+RayTracingPipeline::LifetimeStats RayTracingPipeline::GetLifetimeStats() {
+  return {live_ray_tracing_pipeline_count.load(std::memory_order_relaxed),
+          peak_live_ray_tracing_pipeline_count.load(std::memory_order_relaxed),
+          ray_tracing_pipeline_creation_count.load(std::memory_order_relaxed),
+          live_shader_binding_table_count.load(std::memory_order_relaxed),
+          peak_live_shader_binding_table_count.load(std::memory_order_relaxed),
+          shader_binding_table_creation_count.load(std::memory_order_relaxed)};
+}
+
+void RayTracingPipeline::ReleaseResources() {
   if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
-    vk_ray_tracing_pipeline_ = nullptr;
+  }
+  vk_ray_tracing_pipeline_ = VK_NULL_HANDLE;
+  raygen_shader_binding_table_.reset();
+  miss_shader_binding_table_.reset();
+  closest_hit_shader_binding_table_.reset();
+  pipeline_layout_.reset();
+  if (lifetime_pipeline_tracked_) {
+    live_ray_tracing_pipeline_count.fetch_sub(1, std::memory_order_relaxed);
+    lifetime_pipeline_tracked_ = false;
+  }
+  if (lifetime_shader_binding_table_count_ != 0) {
+    live_shader_binding_table_count.fetch_sub(lifetime_shader_binding_table_count_, std::memory_order_relaxed);
+    lifetime_shader_binding_table_count_ = 0;
   }
 }
 
@@ -28,10 +71,7 @@ void RayTracingPipeline::Initialize() {
   creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
-  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
-    vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
-    vk_ray_tracing_pipeline_ = nullptr;
-  }
+  ReleaseResources();
 
   std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
   std::vector<VkRayTracingShaderGroupCreateInfoKHR> shader_groups{};
@@ -182,6 +222,10 @@ void RayTracingPipeline::Initialize() {
     vk_ray_tracing_pipeline_ = nullptr;
     return;
   }
+  lifetime_pipeline_tracked_ = true;
+  const auto live_pipeline_count = live_ray_tracing_pipeline_count.fetch_add(1, std::memory_order_relaxed) + 1u;
+  ray_tracing_pipeline_creation_count.fetch_add(1, std::memory_order_relaxed);
+  UpdatePeak(peak_live_ray_tracing_pipeline_count, live_pipeline_count);
   const auto aligned_size = [&](const uint32_t value, const uint32_t alignment) {
     return value + alignment - 1 & ~(alignment - 1);
   };
@@ -203,9 +247,19 @@ void RayTracingPipeline::Initialize() {
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
   // Create binding table buffers for each shader type
-  raygen_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  miss_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  closest_hit_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  auto raygen_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  auto miss_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  auto closest_hit_shader_binding_table =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  raygen_shader_binding_table_ = std::move(raygen_shader_binding_table);
+  miss_shader_binding_table_ = std::move(miss_shader_binding_table);
+  closest_hit_shader_binding_table_ = std::move(closest_hit_shader_binding_table);
+  lifetime_shader_binding_table_count_ = 3;
+  const auto live_sbt_count =
+      live_shader_binding_table_count.fetch_add(lifetime_shader_binding_table_count_, std::memory_order_relaxed) +
+      lifetime_shader_binding_table_count_;
+  shader_binding_table_creation_count.fetch_add(lifetime_shader_binding_table_count_, std::memory_order_relaxed);
+  UpdatePeak(peak_live_shader_binding_table_count, live_sbt_count);
 
   // Copy the pipeline's shader handles into a host buffer
   std::vector<uint8_t> shader_handle_storage(sbt_size);
@@ -214,8 +268,7 @@ void RayTracingPipeline::Initialize() {
                                                            group_count, sbt_size, shader_handle_storage.data()));
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to create ray tracing shader group handles: ") + error.what());
-    vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
-    vk_ray_tracing_pipeline_ = nullptr;
+    ReleaseResources();
     return;
   }
   // Copy the shader handles from the host buffer to the binding tables
