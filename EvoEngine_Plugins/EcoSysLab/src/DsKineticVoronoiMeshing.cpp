@@ -213,8 +213,9 @@ struct StrandCrossSectionGuidePoint {
 
 namespace {
 
-/// Profile-plane to model-space transform for an internode, matching @ref StrandModel::ApplyProfile and kinDS local (x, 0, y).
-glm::dmat4 BuildInternodeProfileTransform(const StrandModelSkeleton& skeleton, SkeletonNodeHandle node_handle) {
+/// Profile-plane to model-space transform for an internode cross-section at a given origin.
+glm::dmat4 BuildInternodeProfileTransformAtOrigin(const StrandModelSkeleton& skeleton, SkeletonNodeHandle node_handle,
+                                                    const glm::dvec3& origin) {
   if (node_handle < 0 || node_handle >= static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
     return glm::dmat4(1.0);
   }
@@ -227,7 +228,6 @@ glm::dmat4 BuildInternodeProfileTransform(const StrandModelSkeleton& skeleton, S
   const glm::dvec3 up(up_f);
   const glm::dvec3 front(front_f);
   const double radius = node.data.strand_radius;
-  const glm::dvec3 origin(node.info.GetGlobalEndPosition());
 
   glm::dmat4 transform(1.0);
   transform[0] = glm::dvec4(left * radius, 0.0);
@@ -235,6 +235,26 @@ glm::dmat4 BuildInternodeProfileTransform(const StrandModelSkeleton& skeleton, S
   transform[2] = glm::dvec4(up * radius, 0.0);
   transform[3] = glm::dvec4(origin, 1.0);
   return transform;
+}
+
+/// Distal internode cross-section (segment ends), matching @ref StrandModel::ApplyProfile strand segment ends.
+glm::dmat4 BuildInternodeProfileTransformAtEnd(const StrandModelSkeleton& skeleton, SkeletonNodeHandle node_handle) {
+  if (node_handle < 0 || node_handle >= static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
+    return glm::dmat4(1.0);
+  }
+
+  const auto& node = skeleton.PeekNode(node_handle);
+  return BuildInternodeProfileTransformAtOrigin(skeleton, node_handle, glm::dvec3(node.info.GetGlobalEndPosition()));
+}
+
+/// Proximal internode cross-section (strand roots), matching @ref StrandModel::ApplyProfile for the first segment.
+glm::dmat4 BuildInternodeProfileTransformAtStart(const StrandModelSkeleton& skeleton, SkeletonNodeHandle node_handle) {
+  if (node_handle < 0 || node_handle >= static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
+    return glm::dmat4(1.0);
+  }
+
+  const auto& node = skeleton.PeekNode(node_handle);
+  return BuildInternodeProfileTransformAtOrigin(skeleton, node_handle, glm::dvec3(node.info.global_position));
 }
 
 glm::dmat4 MixAffineTransforms(const glm::dmat4& lower, const glm::dmat4& upper, double fraction) {
@@ -266,34 +286,31 @@ glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(
     ++internode_run_end;
   }
 
-  const glm::dmat4 current_internode_transform = BuildInternodeProfileTransform(skeleton, current_internode);
+  const glm::dmat4 current_internode_end_transform = BuildInternodeProfileTransformAtEnd(skeleton, current_internode);
 
-  SkeletonNodeHandle previous_internode = -1;
-  if (internode_run_start > 0) {
-    previous_internode = guide_points[internode_run_start - 1].node_handle;
-  } else if (current_internode >= 0 &&
-             current_internode < static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
-    previous_internode = skeleton.PeekNode(current_internode).GetParentHandle();
-  }
-
-  if (previous_internode < 0) {
-    return current_internode_transform;
-  }
-
-  const glm::dmat4 previous_internode_transform = BuildInternodeProfileTransform(skeleton, previous_internode);
-
-  // Cross-section h uses guide_points[h], which lies at the end of uniform segment h-1 (or strand start at h=0).
-  // The internode transition begins one step earlier: guide[internode_run_start - 1] marks the junction with the
-  // previous internode, while guide[internode_run_start..internode_run_end] share the current internode handle.
-  const double start_distance = internode_run_start > 0 ? guide_points[internode_run_start - 1].root_distance
-                                                        : guide_points[0].root_distance;
   const double end_distance = guide_points[internode_run_end].root_distance;
+
+  glm::dmat4 lower_transform;
+  glm::dmat4 upper_transform = current_internode_end_transform;
+  double start_distance = 0.0;
+
+  if (internode_run_start == 0) {
+    // Strand roots are placed at the internode base (global_position), not at the parent's distal end.
+    // See StrandModel::ApplyProfile when prev_segment_handle == -1.
+    lower_transform = BuildInternodeProfileTransformAtStart(skeleton, current_internode);
+    start_distance = guide_points[0].root_distance;
+  } else {
+    const SkeletonNodeHandle previous_internode = guide_points[internode_run_start - 1].node_handle;
+    lower_transform = BuildInternodeProfileTransformAtEnd(skeleton, previous_internode);
+    start_distance = guide_points[internode_run_start - 1].root_distance;
+  }
+
   if (end_distance <= start_distance + glm::epsilon<double>()) {
-    return current_internode_transform;
+    return current_internode_end_transform;
   }
 
   const double fraction = (guide_points[clamped_height].root_distance - start_distance) / (end_distance - start_distance);
-  return MixAffineTransforms(previous_internode_transform, current_internode_transform, fraction);
+  return MixAffineTransforms(lower_transform, upper_transform, fraction);
 }
 
 // Legacy affine-fit helpers (retained for comparison; no longer used in InitData).
