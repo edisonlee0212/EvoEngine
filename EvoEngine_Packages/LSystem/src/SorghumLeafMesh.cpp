@@ -39,8 +39,7 @@ glm::vec3 SafeNormalize(const glm::vec3& v, const glm::vec3& fallback) {
 
 float ResolveBladeOpeningAngleDeg(const float raw_curling_value) {
   float opening_angle_deg = raw_curling_value;
-  if (std::isfinite(opening_angle_deg) &&
-      opening_angle_deg >= 0.0f &&
+  if (std::isfinite(opening_angle_deg) && opening_angle_deg >= 0.0f &&
       opening_angle_deg <= kLegacyNormalizedCurlingThreshold) {
     opening_angle_deg *= kLegacyNormalizedCurlingToDegrees;
   }
@@ -49,9 +48,7 @@ float ResolveBladeOpeningAngleDeg(const float raw_curling_value) {
   return std::clamp(opening_angle_deg, kMinBladeOpeningAngleDeg, kMaxBladeOpeningAngleDeg);
 }
 
-[[maybe_unused]] void NormalizeBladeStageRatios(float& stage1,
-                                                float& stage2,
-                                                float& stage3) {
+[[maybe_unused]] void NormalizeBladeStageRatios(float& stage1, float& stage2, float& stage3) {
   stage1 = std::max(0.0f, stage1);
   stage2 = std::max(0.0f, stage2);
   stage3 = std::max(0.0f, stage3);
@@ -67,8 +64,7 @@ float ResolveBladeOpeningAngleDeg(const float raw_curling_value) {
   stage3 /= total;
 }
 
-[[maybe_unused]] float EvaluateBladeStageWidthScale(const float x,
-                                                    const SampledSorghumParams& params) {
+[[maybe_unused]] float EvaluateBladeStageWidthScale(const float x, const SampledSorghumParams& params) {
   float stage1_span = params.leaf_blade_stage1_length_ratio;
   float stage2_span = params.leaf_blade_stage2_length_ratio;
   float stage3_span = params.leaf_blade_stage3_length_ratio;
@@ -91,11 +87,8 @@ float ResolveBladeOpeningAngleDeg(const float raw_curling_value) {
   return glm::mix(stage12, stage3_width, t23);
 }
 
-float EvaluateStageWidthRatio(const evo_engine::PlottedDistribution<float>& profile,
-                              const float u,
-                              const float end_ratio,
-                              const float node_random,
-                              const uint32_t salt) {
+float EvaluateStageWidthRatio(const evo_engine::PlottedDistribution<float>& profile, const float u,
+                              const float end_ratio, const float node_random, const uint32_t salt) {
   const float clamped_u = std::clamp(u, 0.0f, 1.0f);
   if (clamped_u <= 0.0f) {
     return 1.0f;
@@ -104,27 +97,12 @@ float EvaluateStageWidthRatio(const evo_engine::PlottedDistribution<float>& prof
     return std::max(0.01f, end_ratio);
   }
 
-  const float p0 = EvaluatePlottedDeterministic(
-      profile,
-      0.0f,
-      node_random,
-      salt,
-      -std::numeric_limits<float>::max(),
-      std::numeric_limits<float>::max());
-  const float p1 = EvaluatePlottedDeterministic(
-      profile,
-      1.0f,
-      node_random,
-      salt,
-      -std::numeric_limits<float>::max(),
-      std::numeric_limits<float>::max());
-  const float pu = EvaluatePlottedDeterministic(
-      profile,
-      clamped_u,
-      node_random,
-      salt,
-      -std::numeric_limits<float>::max(),
-      std::numeric_limits<float>::max());
+  const float p0 = EvaluatePlottedDeterministic(profile, 0.0f, node_random, salt, -std::numeric_limits<float>::max(),
+                                                std::numeric_limits<float>::max());
+  const float p1 = EvaluatePlottedDeterministic(profile, 1.0f, node_random, salt, -std::numeric_limits<float>::max(),
+                                                std::numeric_limits<float>::max());
+  const float pu = EvaluatePlottedDeterministic(profile, clamped_u, node_random, salt,
+                                                -std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
 
   const float denominator = p1 - p0;
   if (std::abs(denominator) <= 1.0e-6f) {
@@ -136,12 +114,28 @@ float EvaluateStageWidthRatio(const evo_engine::PlottedDistribution<float>& prof
   return std::max(0.01f, a * pu + b);
 }
 
+float EvaluateNormalizedWidthProfile(const evo_engine::PlottedDistribution<float>& profile, const float u,
+                                     const float node_random, const uint32_t salt) {
+  float maximum = 0.0f;
+  for (int i = 0; i <= 32; ++i) {
+    maximum = std::max(maximum, EvaluatePlottedDeterministic(profile, static_cast<float>(i) / 32.0f, node_random, salt,
+                                                             0.0f, std::numeric_limits<float>::infinity()));
+  }
+  if (maximum <= 1.0e-6f)
+    return 0.0f;
+  return std::clamp(EvaluatePlottedDeterministic(profile, std::clamp(u, 0.0f, 1.0f), node_random, salt, 0.0f,
+                                                 std::numeric_limits<float>::infinity()) /
+                        maximum,
+                    0.0f, 1.0f);
+}
+
 float ResolveVerticalSubdivision(const SorghumLeafMeshSettings& settings) {
   return std::max(0.0001f, settings.vertical_subdivision_length);
 }
 
 float ComputePolylineLength(const std::vector<StemContext::Segment>& segments) {
-  if (segments.size() < 2) return 0.0f;
+  if (segments.size() < 2)
+    return 0.0f;
   float length = 0.0f;
   for (size_t i = 1; i < segments.size(); ++i) {
     length += glm::distance(segments[i - 1].position, segments[i].position);
@@ -150,18 +144,11 @@ float ComputePolylineLength(const std::vector<StemContext::Segment>& segments) {
 }
 
 SorghumSplineSegment ToSplineSegment(const StemContext::Segment& s) {
-  return SorghumSplineSegment(
-      s.position,
-      s.up,
-      s.front,
-      s.radius,
-      s.theta,
-      s.left_height_offset,
-      s.right_height_offset);
+  return SorghumSplineSegment(s.position, s.up, s.front, s.radius, s.theta, s.left_height_offset,
+                              s.right_height_offset);
 }
 
-SorghumSplineSegment SampleStemAtNormalizedArc(const StemContext& stem_ctx,
-                                               const float s_norm) {
+SorghumSplineSegment SampleStemAtNormalizedArc(const StemContext& stem_ctx, const float s_norm) {
   if (stem_ctx.segments.empty()) {
     return SorghumSplineSegment();
   }
@@ -199,10 +186,8 @@ SorghumSplineSegment SampleStemAtNormalizedArc(const StemContext& stem_ctx,
   return ToSplineSegment(stem_ctx.segments.back());
 }
 
-float ComputeLeafTropismBendDeg(const SorghumLeaf& leaf,
-                                const SampledSorghumParams& params,
-                                const glm::vec3& current_direction,
-                                const glm::vec3& bend_axis) {
+float ComputeLeafTropismBendDeg(const SorghumLeaf& leaf, const SampledSorghumParams& params,
+                                const glm::vec3& current_direction, const glm::vec3& bend_axis) {
   if (params.tropisms.empty()) {
     return 0.0f;
   }
@@ -216,17 +201,11 @@ float ComputeLeafTropismBendDeg(const SorghumLeaf& leaf,
       continue;
     }
 
-    const glm::vec3 target_direction = SafeNormalize(
-        tropism.direction,
-        glm::vec3(0.0f, -1.0f, 0.0f));
+    const glm::vec3 target_direction = SafeNormalize(tropism.direction, glm::vec3(0.0f, -1.0f, 0.0f));
 
-    const float order_response = EvaluatePlottedDeterministic(
-        tropism.order_response,
-        order_t,
-        leaf.node_random,
-        kLeafMeshTropismOrderSalt + static_cast<uint32_t>(i) * 0x9E3779B9u,
-        -2.0f,
-        2.0f);
+    const float order_response =
+        EvaluatePlottedDeterministic(tropism.order_response, order_t, leaf.node_random,
+                                     kLeafMeshTropismOrderSalt + static_cast<uint32_t>(i) * 0x9E3779B9u, -2.0f, 2.0f);
     if (std::abs(order_response) <= 1.0e-6f) {
       continue;
     }
@@ -237,8 +216,7 @@ float ComputeLeafTropismBendDeg(const SorghumLeaf& leaf,
 
     const float strength_alpha = std::clamp(std::abs(tropism.strength) / 5.0f, 0.0f, 1.0f);
     const float strength_sign = (tropism.strength >= 0.0f) ? 1.0f : -1.0f;
-    accumulated_bend_deg +=
-        signed_turn_deg * strength_alpha * strength_sign * order_response * 0.35f;
+    accumulated_bend_deg += signed_turn_deg * strength_alpha * strength_sign * order_response * 0.35f;
   }
 
   return std::clamp(accumulated_bend_deg, -45.0f, 45.0f);
@@ -256,18 +234,22 @@ glm::vec3 HashLeafBaseColor(const uint32_t id) {
   const float t = v * (1.0f - s * (1.0f - f));
 
   switch (sector % 6) {
-    case 0: return glm::vec3(v, t, p);
-    case 1: return glm::vec3(q, v, p);
-    case 2: return glm::vec3(p, v, t);
-    case 3: return glm::vec3(p, q, v);
-    case 4: return glm::vec3(t, p, v);
-    default: return glm::vec3(v, p, q);
+    case 0:
+      return glm::vec3(v, t, p);
+    case 1:
+      return glm::vec3(q, v, p);
+    case 2:
+      return glm::vec3(p, v, t);
+    case 3:
+      return glm::vec3(p, q, v);
+    case 4:
+      return glm::vec3(t, p, v);
+    default:
+      return glm::vec3(v, p, q);
   }
 }
 
-int ComputeLeafStageId(const float arc_length,
-                       const float sheath_length,
-                       const float neck_length) {
+int ComputeLeafStageId(const float arc_length, const float sheath_length, const float neck_length) {
   if (arc_length <= sheath_length) {
     return 0;
   }
@@ -289,12 +271,8 @@ float ComputeLeafStageShade(const int stage_id) {
 
 }  // namespace
 
-SorghumSplineSegment::SorghumSplineSegment(const glm::vec3& position,
-                                           const glm::vec3& up,
-                                           const glm::vec3& front,
-                                           const float radius,
-                                           const float theta,
-                                           const float left_height_offset,
+SorghumSplineSegment::SorghumSplineSegment(const glm::vec3& position, const glm::vec3& up, const glm::vec3& front,
+                                           const float radius, const float theta, const float left_height_offset,
                                            const float right_height_offset) {
   this->position = position;
   this->up = up;
@@ -332,7 +310,8 @@ glm::vec3 SorghumSplineSegment::GetNormal(const float angle_deg) const {
 void SorghumSpline::SubdivideByDistance(const float subdivision_distance,
                                         std::vector<SorghumSplineSegment>& subdivided_segments) const {
   subdivided_segments.clear();
-  if (segments.empty()) return;
+  if (segments.empty())
+    return;
   if (segments.size() == 1) {
     subdivided_segments.emplace_back(segments.front());
     return;
@@ -369,10 +348,7 @@ void SorghumSpline::SubdivideByDistance(const float subdivision_distance,
   }
 }
 
-void SorghumSpline::GetPositionControlPoints(const uint32_t segment_index,
-                                             glm::vec3& p0,
-                                             glm::vec3& p1,
-                                             glm::vec3& p2,
+void SorghumSpline::GetPositionControlPoints(const uint32_t segment_index, glm::vec3& p0, glm::vec3& p1, glm::vec3& p2,
                                              glm::vec3& p3) const {
   p1 = segments[segment_index].position;
   p2 = segments[segment_index + 1].position;
@@ -388,18 +364,18 @@ void SorghumSpline::GetPositionControlPoints(const uint32_t segment_index,
   }
 }
 
-float SorghumSpline::GetSegmentArcLength(const uint32_t segment_index,
-                                         const float t_start,
-                                         const float t_end,
+float SorghumSpline::GetSegmentArcLength(const uint32_t segment_index, const float t_start, const float t_end,
                                          const float tolerance) const {
-  if (segment_index >= segments.size() - 1) return 0.0f;
+  if (segment_index >= segments.size() - 1)
+    return 0.0f;
   glm::vec3 p[4];
   GetPositionControlPoints(segment_index, p[0], p[1], p[2], p[3]);
   return evo_engine::Strands::CalculateLengthAdaptive(p[0], p[1], p[2], p[3], t_start, t_end, tolerance);
 }
 
 float SorghumSpline::GetArcLength(const float tolerance) const {
-  if (segments.size() < 2) return 0.0f;
+  if (segments.size() < 2)
+    return 0.0f;
   float sum = 0.0f;
   for (uint32_t i = 0; i + 1 < segments.size(); i++) {
     sum += GetSegmentArcLength(i, 0.0f, 1.0f, tolerance);
@@ -493,9 +469,10 @@ SorghumSplineSegment SorghumSpline::InterpolateSegment(const uint32_t segment_in
 }
 
 std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedSizeSegments(const size_t segment_count,
-                                                                           const float tolerance) const {
+                                                                          const float tolerance) const {
   std::vector<SorghumSplineSegment> out;
-  if (segments.empty() || segment_count == 0) return out;
+  if (segments.empty() || segment_count == 0)
+    return out;
 
   if (segments.size() == 1) {
     out.assign(segment_count, segments.front());
@@ -550,15 +527,11 @@ std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedSizeSegments(const 
       continue;
     }
 
-    const float local_target_arc = std::clamp(
-        target_arc_length - consumed_arc_length,
-        0.0f,
-        current_span_length);
+    const float local_target_arc = std::clamp(target_arc_length - consumed_arc_length, 0.0f, current_span_length);
 
     glm::vec3 p[4];
     GetPositionControlPoints(current_span, p[0], p[1], p[2], p[3]);
-    float t = evo_engine::Strands::FindTAdaptive(
-        p[0], p[1], p[2], p[3], 0.0f, local_target_arc, safe_tolerance);
+    float t = evo_engine::Strands::FindTAdaptive(p[0], p[1], p[2], p[3], 0.0f, local_target_arc, safe_tolerance);
     t = std::clamp(t, 0.0f, 1.0f);
     out.emplace_back(InterpolateSegment(current_span, t));
   }
@@ -574,9 +547,10 @@ std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedSizeSegments(const 
 }
 
 std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedLengthSegments(const float segment_length,
-                                                                             const float tolerance) const {
+                                                                            const float tolerance) const {
   std::vector<SorghumSplineSegment> out;
-  if (segments.size() < 2) return out;
+  if (segments.size() < 2)
+    return out;
 
   float t = 0.0f;
   float remaining_length = std::max(0.0001f, segment_length);
@@ -585,15 +559,13 @@ std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedLengthSegments(cons
     glm::vec3 p[4];
     GetPositionControlPoints(segment_index, p[0], p[1], p[2], p[3]);
     while (true) {
-      const float t_next = evo_engine::Strands::FindTAdaptive(
-          p[0], p[1], p[2], p[3], t, remaining_length, tolerance);
+      const float t_next = evo_engine::Strands::FindTAdaptive(p[0], p[1], p[2], p[3], t, remaining_length, tolerance);
       if (t_next != 1.0f) {
         t = t_next;
         remaining_length = segment_length;
         out.emplace_back(InterpolateSegment(segment_index, t));
       } else {
-        remaining_length -= evo_engine::Strands::CalculateLengthAdaptive(
-            p[0], p[1], p[2], p[3], t, 1.0f, tolerance);
+        remaining_length -= evo_engine::Strands::CalculateLengthAdaptive(p[0], p[1], p[2], p[3], t, 1.0f, tolerance);
         t = 0.0f;
         break;
       }
@@ -609,7 +581,8 @@ std::vector<SorghumSplineSegment> SorghumSpline::RebuildFixedLengthSegments(cons
 std::vector<SorghumSplineSegment> SorghumSpline::GetStemPart() const {
   std::vector<SorghumSplineSegment> out;
   for (const auto& seg : segments) {
-    if (seg.theta >= 90.0f) break;
+    if (seg.theta >= 90.0f)
+      break;
     out.emplace_back(seg);
   }
   return out;
@@ -626,14 +599,14 @@ std::vector<SorghumSplineSegment> SorghumSpline::GetLeafPart() const {
   return out;
 }
 
-void l_system_package::BuildLeafSplineFromState(const SorghumLeaf& leaf,
-                                               const StemContext& stem_ctx,
-                                               const SampledSorghumParams& params,
-                                               const SorghumLeafMeshSettings& settings,
-                                               SorghumSpline& out_spline) {
+void l_system_package::BuildLeafSplineFromState(const SorghumLeaf& leaf, const StemContext& stem_ctx,
+                                                const SampledSorghumParams& params,
+                                                const SorghumLeafMeshSettings& settings, SorghumSpline& out_spline) {
   out_spline.segments.clear();
-  if (!leaf.alive) return;
-  if (stem_ctx.segments.empty()) return;
+  if (!leaf.alive)
+    return;
+  if (stem_ctx.segments.empty())
+    return;
 
   const float vertical_step = ResolveVerticalSubdivision(settings);
   const SorghumSplineSegment anchor = SampleStemAtNormalizedArc(stem_ctx, leaf.s_along_parent_norm);
@@ -641,200 +614,145 @@ void l_system_package::BuildLeafSplineFromState(const SorghumLeaf& leaf,
 
   float stem_length = ComputePolylineLength(stem_ctx.segments);
   if (stem_length <= 1.0e-6f) {
-    stem_length = std::max(vertical_step, glm::distance(stem_ctx.segments.front().position,
-                                                        stem_ctx.segments.back().position));
+    stem_length =
+        std::max(vertical_step, glm::distance(stem_ctx.segments.front().position, stem_ctx.segments.back().position));
   }
   stem_length = std::max(stem_length, vertical_step);
 
-  glm::vec3 stem_direction = SafeNormalize(anchor.front,
-      SafeNormalize(stem_ctx.segments.back().position - stem_base, glm::vec3(0.0f, 1.0f, 0.0f)));
+  glm::vec3 stem_direction = SafeNormalize(
+      anchor.front, SafeNormalize(stem_ctx.segments.back().position - stem_base, glm::vec3(0.0f, 1.0f, 0.0f)));
   glm::vec3 stem_up = SafeNormalize(anchor.up, glm::vec3(0.0f, 0.0f, 1.0f));
   glm::vec3 base_left = SafeNormalize(glm::cross(stem_up, stem_direction), glm::vec3(1.0f, 0.0f, 0.0f));
 
-  glm::vec3 leaf_left = SafeNormalize(
-      glm::rotate(base_left, glm::radians(leaf.roll_angle_deg), stem_direction), base_left);
+  glm::vec3 leaf_left =
+      SafeNormalize(glm::rotate(base_left, glm::radians(leaf.roll_angle_deg), stem_direction), base_left);
   glm::vec3 leaf_up = SafeNormalize(glm::cross(stem_direction, leaf_left), stem_up);
-  glm::vec3 stem_offset = std::max(0.0005f, anchor.radius) * -leaf_up;
 
-  glm::vec3 direction = SafeNormalize(
-      glm::rotate(stem_direction, glm::radians(leaf.insertion_angle_deg), leaf_left), stem_direction);
+  glm::vec3 direction =
+      SafeNormalize(glm::rotate(stem_direction, glm::radians(leaf.insertion_angle_deg), leaf_left), stem_direction);
 
   const float starting_point = std::clamp(leaf.s_along_parent_norm, 0.0f, 1.0f);
   const float stem_width = std::max(0.0005f, anchor.radius);
   const float stem_anchor_distance = starting_point * stem_length;
-  const float clamped_sheath_length = std::clamp(
-      std::max(0.0f, leaf.sheath_length),
-      0.0f,
-      stem_anchor_distance);
+  const float clamped_sheath_length = std::clamp(std::max(0.0f, leaf.sheath_length), 0.0f, stem_anchor_distance);
   const float sheath_start_ratio =
       (stem_anchor_distance > 1.0e-6f)
           ? std::clamp((stem_anchor_distance - clamped_sheath_length) / stem_length, 0.0f, starting_point)
           : starting_point;
   const float sheath_span_ratio = std::max(0.0f, starting_point - sheath_start_ratio);
 
-        const float neck_length = std::max(0.0f, leaf.neck_length);
-        const float blade_length = std::max(vertical_step, leaf.blade_length);
-        const float target_neck_length = std::max(neck_length, leaf.target_neck_length);
-        const float target_blade_length = std::max(blade_length, leaf.target_blade_length);
-        const float total_distal_length = std::max(vertical_step, neck_length + blade_length);
-        const float target_distal_length = std::max(vertical_step, target_neck_length + target_blade_length);
+  const float neck_length = std::max(0.0f, leaf.neck_length);
+  const float blade_length = std::max(vertical_step, leaf.blade_length);
+  const float target_neck_length = std::max(neck_length, leaf.target_neck_length);
+  const float target_blade_length = std::max(blade_length, leaf.target_blade_length);
+  const float total_distal_length = std::max(vertical_step, neck_length + blade_length);
+  const float target_distal_length = std::max(vertical_step, target_neck_length + target_blade_length);
 
-        const float sheath_start_width = stem_width;
-        const float sheath_end_width = std::max(
-          0.0005f,
-          sheath_start_width * std::max(0.05f, leaf.sheath_end_width_ratio));
-        const float neck_start_width = sheath_end_width;
-        const float neck_end_width = std::max(
-          0.0005f,
-          neck_start_width * std::max(0.05f, leaf.neck_end_width_ratio));
-        const float blade_start_width = neck_end_width;
+  const float sheath_radius_ratio = std::max(1.0f, params.leaf_sheath_radius_ratio);
+  const float sheath_start_width = stem_width * sheath_radius_ratio;
+  const float blade_max_half_width = std::max(0.00025f, leaf.blade_max_width * 0.5f);
+  const float blade_start_width = std::max(
+      0.00025f, blade_max_half_width * EvaluateNormalizedWidthProfile(params.width_along_leaf, 0.0f, leaf.node_random,
+                                                                      kLeafMeshWidthProfileSalt));
+  const float neck_start_width = sheath_start_width;
+  const float neck_end_width = blade_start_width;
+  const glm::vec3 stem_offset = sheath_start_width * -leaf_up;
 
   if (sheath_span_ratio > 0.0f) {
-        const int sheath_node_count = std::max(
-        2,
-        static_cast<int>(std::ceil(stem_length * sheath_span_ratio / vertical_step)) + 1);
-        for (int i = 0; i < sheath_node_count; i++) {
-          const float stage_u = static_cast<float>(i) /
-                    static_cast<float>(std::max(1, sheath_node_count - 1));
-          const float current_root_to_sheath_point = glm::mix(sheath_start_ratio, starting_point, stage_u);
-          const float sheath_ratio = EvaluateStageWidthRatio(
-            params.width_along_sheath,
-            stage_u,
-            std::max(0.05f, leaf.sheath_end_width_ratio),
-            leaf.node_random,
-            kLeafMeshSheathWidthProfileSalt);
-          const float sheath_width = std::max(0.0005f, sheath_start_width * sheath_ratio);
-      const glm::vec3 up = SafeNormalize(glm::cross(stem_direction, leaf_left), leaf_up);
-      out_spline.segments.emplace_back(
-          stem_base + stem_direction * current_root_to_sheath_point * stem_length + stem_offset,
-          up,
-          stem_direction,
-          sheath_width,
-          180.0f,
-          0.0f,
-          0.0f);
+    const int sheath_node_count =
+        std::max(2, static_cast<int>(std::ceil(stem_length * sheath_span_ratio / vertical_step)) + 1);
+    for (int i = 0; i < sheath_node_count; i++) {
+      const float stage_u = static_cast<float>(i) / static_cast<float>(std::max(1, sheath_node_count - 1));
+      const float current_root_to_sheath_point = glm::mix(sheath_start_ratio, starting_point, stage_u);
+      const auto local_stem = SampleStemAtNormalizedArc(stem_ctx, current_root_to_sheath_point);
+      const glm::vec3 local_front = SafeNormalize(local_stem.front, stem_direction);
+      const glm::vec3 local_base_left = SafeNormalize(glm::cross(local_stem.up, local_front), base_left);
+      const glm::vec3 local_left =
+          SafeNormalize(glm::rotate(local_base_left, glm::radians(leaf.roll_angle_deg), local_front), leaf_left);
+      const glm::vec3 local_up = SafeNormalize(glm::cross(local_front, local_left), leaf_up);
+      const float sheath_width = std::max(local_stem.radius, local_stem.radius * sheath_radius_ratio);
+      out_spline.segments.emplace_back(local_stem.position - sheath_width * local_up, local_up, local_front,
+                                       sheath_width, std::clamp(params.leaf_sheath_wrap_angle * 0.5f, 90.0f, 270.0f),
+                                       0.0f, 0.0f);
     }
   }
 
-  const int distal_node_count = std::max(
-      2,
-      static_cast<int>(std::ceil(target_distal_length / vertical_step)));
+  const int distal_node_count = std::max(2, static_cast<int>(std::ceil(target_distal_length / vertical_step)));
 
-  glm::vec2 current_period(0.0f, 0.0f);
   glm::vec3 node_position = anchor.position + stem_offset;
   float previous_travel_distance = 0.0f;
   const int distal_start_index = out_spline.segments.empty() ? 0 : 1;
   const float safe_total_distal_length = std::max(1.0e-6f, total_distal_length);
-  const auto emit_distal_sample = [&](const float factor,
-                                      const float travel_distance,
-                                      const float step_length) {
+  const auto emit_distal_sample = [&](const float factor, const float travel_distance, const float step_length) {
     const float clamped_factor = std::clamp(factor, 0.0f, 1.0f);
 
-    const float bend_profile = EvaluatePlottedDeterministic(
-      params.leaf_bending_development_curve,
-      clamped_factor,
-      leaf.node_random,
-      kLeafMeshBendingSalt,
-      0.0f,
-      1.0f);
-    const float senescence_bend_bias_deg =
-      18.0f * std::clamp(leaf.senescence_phase, 0.0f, 1.0f) * clamped_factor;
+    const float bend_profile = EvaluatePlottedDeterministic(params.bending_along_leaf, clamped_factor, leaf.node_random,
+                                                            kLeafMeshBendingSalt, 0.0f, 1.0f);
+    const float senescence_bend_bias_deg = 18.0f * std::clamp(leaf.senescence_phase, 0.0f, 1.0f) * clamped_factor;
     float rotate_angle = leaf.bending * bend_profile + senescence_bend_bias_deg;
     // Tropism bend is evaluated from the provisional direction so global droop entries can influence leaves.
-    const glm::vec3 provisional_direction = SafeNormalize(
-      glm::rotate(direction, glm::radians(rotate_angle), leaf_left), direction);
-    const float tropism_bend_deg = ComputeLeafTropismBendDeg(
-      leaf,
-      params,
-      provisional_direction,
-      leaf_left);
+    const glm::vec3 provisional_direction =
+        SafeNormalize(glm::rotate(direction, glm::radians(rotate_angle), leaf_left), direction);
+    const float tropism_bend_deg = ComputeLeafTropismBendDeg(leaf, params, provisional_direction, leaf_left);
     rotate_angle += tropism_bend_deg * clamped_factor;
-    const glm::vec3 current_direction = SafeNormalize(
-        glm::rotate(direction, glm::radians(rotate_angle), leaf_left), direction);
+    const glm::vec3 current_direction =
+        SafeNormalize(glm::rotate(direction, glm::radians(rotate_angle), leaf_left), direction);
     node_position += current_direction * std::max(0.0f, step_length);
 
     const float expand_profile = EvaluatePlottedDeterministic(
-      params.curling_along_leaf,
-      clamped_factor,
-      leaf.node_random,
-      kLeafMeshCurlingProfileSalt,
-      0.0f,
-      1.0f);
+        params.curling_along_leaf, clamped_factor, leaf.node_random, kLeafMeshCurlingProfileSalt, 0.0f, 1.0f);
     const float opening_angle_deg = ResolveBladeOpeningAngleDeg(leaf.curling);
-    const float profiled_opening_angle_deg = std::clamp(
-        opening_angle_deg * expand_profile,
-        kMinBladeOpeningAngleDeg,
-        kMaxBladeOpeningAngleDeg);
+    const float profiled_opening_angle_deg =
+        std::clamp(opening_angle_deg * expand_profile, kMinBladeOpeningAngleDeg, kMaxBladeOpeningAngleDeg);
 
-    const float collar_factor =
-      (neck_length > 1.0e-6f)
-        ? std::clamp(travel_distance / neck_length, 0.0f, 1.0f)
-        : 1.0f;
-
-    const float waviness_profile = EvaluatePlottedDeterministic(
-      params.waviness_along_leaf,
-      clamped_factor,
-      leaf.node_random,
-      kLeafMeshWavinessProfileSalt,
-      0.0f,
-      std::numeric_limits<float>::infinity());
-    const float waviness = leaf.waviness * waviness_profile;
-    const float waviness_frequency = std::max(0.0f, leaf.waviness_frequency);
-    current_period += glm::vec2(waviness_frequency, waviness_frequency);
+    const float collar_factor = (neck_length > 1.0e-6f) ? std::clamp(travel_distance / neck_length, 0.0f, 1.0f) : 1.0f;
 
     const bool within_neck_stage = neck_length > 1.0e-6f && travel_distance <= neck_length + 1.0e-6f;
-    const evo_engine::PlottedDistribution<float>* width_profile = &params.width_along_leaf;
-    float stage_start_width = blade_start_width;
-    float stage_end_ratio = std::max(0.05f, leaf.blade_end_width_ratio);
-    uint32_t width_salt = kLeafMeshWidthProfileSalt;
     float stage_u = 1.0f;
 
     if (within_neck_stage) {
-      width_profile = &params.width_along_neck;
-      stage_start_width = neck_start_width;
-      stage_end_ratio = std::max(0.05f, leaf.neck_end_width_ratio);
-      width_salt = kLeafMeshNeckWidthProfileSalt;
       stage_u = std::clamp(travel_distance / std::max(1.0e-6f, neck_length), 0.0f, 1.0f);
     } else {
-      const float blade_distance = (neck_length > 1.0e-6f)
-          ? std::max(0.0f, travel_distance - neck_length)
-          : travel_distance;
+      const float blade_distance =
+          (neck_length > 1.0e-6f) ? std::max(0.0f, travel_distance - neck_length) : travel_distance;
       stage_u = std::clamp(blade_distance / std::max(vertical_step, blade_length), 0.0f, 1.0f);
     }
 
-    const float stage_ratio = EvaluateStageWidthRatio(
-        *width_profile,
-        stage_u,
-        stage_end_ratio,
-        leaf.node_random,
-        width_salt);
-    const float width = std::max(0.0005f, stage_start_width * stage_ratio);
-    const float angle = 90.0f -
-        (90.0f - profiled_opening_angle_deg) * glm::pow(collar_factor, 2.0f);
+    const float waviness_profile =
+        within_neck_stage
+            ? 0.0f
+            : EvaluatePlottedDeterministic(params.waviness_along_leaf, stage_u, leaf.node_random,
+                                           kLeafMeshWavinessProfileSalt, 0.0f, std::numeric_limits<float>::infinity());
+    const float waviness = leaf.waviness * waviness_profile;
+    const float waviness_frequency = std::max(0.0f, leaf.waviness_frequency);
+    const float phase = leaf.node_random * glm::two_pi<float>();
+    const float wave_phase = glm::two_pi<float>() * waviness_frequency * stage_u + phase;
+
+    const float width =
+        within_neck_stage
+            ? std::max(0.00025f,
+                       neck_start_width * EvaluateStageWidthRatio(params.width_along_neck, stage_u,
+                                                                  neck_end_width / std::max(0.00025f, neck_start_width),
+                                                                  leaf.node_random, kLeafMeshNeckWidthProfileSalt))
+            : std::max(0.00025f, blade_max_half_width * EvaluateNormalizedWidthProfile(params.width_along_leaf, stage_u,
+                                                                                       leaf.node_random,
+                                                                                       kLeafMeshWidthProfileSalt));
+    const float angle = 90.0f - (90.0f - profiled_opening_angle_deg) * glm::pow(collar_factor, 2.0f);
 
     const glm::vec3 up = SafeNormalize(glm::cross(current_direction, leaf_left), leaf_up);
-    out_spline.segments.emplace_back(
-        node_position,
-        up,
-        current_direction,
-        width,
-        angle,
-        waviness * glm::simplex(glm::vec2(current_period.x, 0.0f)),
-        waviness * glm::simplex(glm::vec2(0.0f, current_period.y)));
+    out_spline.segments.emplace_back(node_position, up, current_direction, width, angle,
+                                     waviness * std::sin(wave_phase), waviness * std::sin(wave_phase + 0.65f));
   };
 
   for (int i = distal_start_index; i <= distal_node_count; i++) {
-    const float factor = static_cast<float>(i) /
-                         static_cast<float>(std::max(1, distal_node_count));
+    const float factor = static_cast<float>(i) / static_cast<float>(std::max(1, distal_node_count));
     const float travel_distance = factor * total_distal_length;
     const float previous_distance = previous_travel_distance;
 
     // Emit an explicit neck->blade boundary sample so junction width matches
     // neck_end_width_ratio even when discretization skips exactly at neck_length.
     const bool crosses_neck_boundary =
-        neck_length > 1.0e-6f &&
-        previous_distance + 1.0e-6f < neck_length &&
-        travel_distance > neck_length + 1.0e-6f;
+        neck_length > 1.0e-6f && previous_distance + 1.0e-6f < neck_length && travel_distance > neck_length + 1.0e-6f;
     if (crosses_neck_boundary) {
       const float neck_boundary_factor = std::clamp(neck_length / safe_total_distal_length, 0.0f, 1.0f);
       const float neck_boundary_step = std::max(0.0f, neck_length - previous_travel_distance);
@@ -848,32 +766,31 @@ void l_system_package::BuildLeafSplineFromState(const SorghumLeaf& leaf,
   }
 }
 
-void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
-                                            const SorghumLeaf& leaf,
-                                            const SampledSorghumParams& /*params*/,
-                                            const SorghumLeafMeshSettings& settings,
-                                            std::vector<evo_engine::Vertex>& vertices,
-                                            std::vector<glm::uvec3>& triangles,
-                                            const bool current_bottom_face,
-                                            const uint32_t leaf_index,
-                                            const SorghumLeafAtlasLayout& raw_atlas_layout) {
-  if (!leaf.alive) return;
-  if (spline.segments.empty()) return;
+void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline, const SorghumLeaf& leaf,
+                                             const SampledSorghumParams& /*params*/,
+                                             const SorghumLeafMeshSettings& settings,
+                                             std::vector<evo_engine::Vertex>& vertices,
+                                             std::vector<glm::uvec3>& triangles, const bool current_bottom_face,
+                                             const uint32_t leaf_index,
+                                             const SorghumLeafAtlasLayout& raw_atlas_layout) {
+  if (!leaf.alive)
+    return;
+  if (spline.segments.empty())
+    return;
   const auto atlas_layout = NormalizeSorghumLeafAtlasLayout(raw_atlas_layout);
 
   const float vertical_step = ResolveVerticalSubdivision(settings);
   const float target_total_length = std::max(
-      vertical_step,
-      leaf.target_blade_length + (settings.enable_leaf_sheath ? leaf.target_sheath_length : 0.0f));
-  const size_t stable_segment_count = static_cast<size_t>(std::max(
-      4,
-      static_cast<int>(std::ceil(target_total_length / vertical_step))));
+      vertical_step, leaf.target_blade_length + (settings.enable_leaf_sheath ? leaf.target_sheath_length : 0.0f));
+  const size_t stable_segment_count =
+      static_cast<size_t>(std::max(4, static_cast<int>(std::ceil(target_total_length / vertical_step))));
 
   SorghumSpline temp_spline;
   temp_spline.segments = spline.RebuildFixedSizeSegments(stable_segment_count);
 
   const auto& full_segments = temp_spline.segments;
-  if (full_segments.empty()) return;
+  if (full_segments.empty())
+    return;
 
   size_t visible_start_index = 0;
   if (!settings.enable_leaf_sheath) {
@@ -881,12 +798,13 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
       visible_start_index++;
     }
   }
-  if (visible_start_index >= full_segments.size()) return;
+  if (visible_start_index >= full_segments.size())
+    return;
 
-  std::vector<SorghumSplineSegment> segments(
-      full_segments.begin() + static_cast<std::ptrdiff_t>(visible_start_index),
-      full_segments.end());
-  if (segments.empty()) return;
+  std::vector<SorghumSplineSegment> segments(full_segments.begin() + static_cast<std::ptrdiff_t>(visible_start_index),
+                                             full_segments.end());
+  if (segments.empty())
+    return;
 
   evo_engine::Vertex archetype{};
 
@@ -903,8 +821,7 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
 
   std::vector<float> full_row_arcs(full_segments.size(), 0.0f);
   for (size_t i = 1; i < full_segments.size(); i++) {
-    full_row_arcs[i] =
-        full_row_arcs[i - 1] + glm::distance(full_segments[i - 1].position, full_segments[i].position);
+    full_row_arcs[i] = full_row_arcs[i - 1] + glm::distance(full_segments[i - 1].position, full_segments[i].position);
   }
 
   const float full_total_arc = full_row_arcs.back();
@@ -913,8 +830,7 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
     first_distal_index++;
   }
 
-  const float effective_sheath_length =
-      first_distal_index > 0 ? full_row_arcs[first_distal_index - 1] : 0.0f;
+  const float effective_sheath_length = first_distal_index > 0 ? full_row_arcs[first_distal_index - 1] : 0.0f;
   const float effective_distal_length = std::max(0.0f, full_total_arc - effective_sheath_length);
 
   const float neck_length = std::max(0.0f, leaf.neck_length);
@@ -926,19 +842,14 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
 
   std::vector<float> local_row_arcs(segment_size, 0.0f);
   for (int i = 1; i < segment_size; i++) {
-    local_row_arcs[i] =
-        local_row_arcs[i - 1] + glm::distance(segments[i - 1].position, segments[i].position);
+    local_row_arcs[i] = local_row_arcs[i - 1] + glm::distance(segments[i - 1].position, segments[i].position);
   }
   const float visible_arc_offset = full_row_arcs[visible_start_index];
 
-  const auto emit_segment_strip = [&](const unsigned int row_a_start,
-                                      const unsigned int row_b_start) {
-    const auto emit_triangle = [&](const unsigned int i0,
-                                   const unsigned int i1,
-                                   const unsigned int i2) {
-      const glm::vec3 face_normal = glm::cross(
-          vertices[i1].position - vertices[i0].position,
-          vertices[i2].position - vertices[i0].position);
+  const auto emit_segment_strip = [&](const unsigned int row_a_start, const unsigned int row_b_start) {
+    const auto emit_triangle = [&](const unsigned int i0, const unsigned int i1, const unsigned int i2) {
+      const glm::vec3 face_normal =
+          glm::cross(vertices[i1].position - vertices[i0].position, vertices[i2].position - vertices[i0].position);
       const glm::vec3 vertex_normal = vertices[i0].normal + vertices[i1].normal + vertices[i2].normal;
       if (glm::dot(face_normal, vertex_normal) < 0.0f) {
         triangles.emplace_back(i0, i2, i1);
@@ -958,33 +869,55 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
     }
   };
 
-  const auto emit_segment_row = [&](const SorghumSplineSegment& segment,
-                                    const int row_index,
-                                    const glm::vec4& row_color,
-                                    const float row_v) -> unsigned int {
+  const auto emit_segment_row = [&](const SorghumSplineSegment& segment, const int row_index,
+                                    const glm::vec4& row_color, const float row_v) -> unsigned int {
     const unsigned int row_start = static_cast<unsigned int>(vertices.size());
     const float angle_step = segment.theta / static_cast<float>(horizontal_step);
+    const float absolute_arc = visible_arc_offset + local_row_arcs[static_cast<size_t>(row_index)];
+    float region_thickness = leaf.blade_thickness;
+    if (absolute_arc <= effective_sheath_length) {
+      region_thickness = leaf.sheath_thickness;
+    } else if (absolute_arc < effective_sheath_length + effective_neck_length && effective_neck_length > 1.0e-6f) {
+      const float neck_u = std::clamp((absolute_arc - effective_sheath_length) / effective_neck_length, 0.0f, 1.0f);
+      region_thickness =
+          glm::mix(leaf.sheath_thickness, leaf.blade_thickness, neck_u * neck_u * (3.0f - 2.0f * neck_u));
+    }
+    if (region_thickness <= 0.0f)
+      region_thickness = settings.leaf_thickness;
     archetype.color = row_color;
     for (int j = 0; j < verts_count; j++) {
-      const float angle =
-          (static_cast<float>(j) - static_cast<float>(horizontal_step)) * angle_step;
+      const float angle = (static_cast<float>(j) - static_cast<float>(horizontal_step)) * angle_step;
       glm::vec3 position = segment.GetLeafPoint(angle);
       glm::vec3 normal = segment.GetNormal(angle);
       if (row_index != 0 && j != 0 && j != verts_count - 1) {
-        position -= normal * settings.leaf_thickness;
+        position += normal * region_thickness * (current_bottom_face ? -0.5f : 0.5f);
       }
 
       archetype.position = position;
       archetype.normal = current_bottom_face ? -normal : normal;
       archetype.tangent = SafeNormalize(glm::cross(normal, segment.front), glm::vec3(1.0f, 0.0f, 0.0f));
-      archetype.tex_coord = RemapSorghumLeafAtlasUv(glm::vec2(j * x_step, row_v), atlas_layout);
+      float local_u = j * x_step;
+      if (atlas_layout.semantic_quadrants) {
+        const bool right_quadrant = current_bottom_face;
+        local_u = (right_quadrant ? 0.5f : 0.0f) + local_u * 0.5f;
+      }
+      archetype.tex_coord = RemapSorghumLeafAtlasUv(glm::vec2(local_u, row_v), atlas_layout);
       vertices.push_back(archetype);
     }
     return row_start;
   };
 
-  const auto compute_atlas_v = [&](const float global_segment_arc,
-                                   const int stage_id) {
+  const auto compute_atlas_v = [&](const float global_segment_arc, const int stage_id) {
+    if (atlas_layout.semantic_quadrants) {
+      if (stage_id < 2) {
+        const float proximal_length = std::max(1.0e-6f, effective_sheath_length + effective_neck_length);
+        const float t = std::clamp(global_segment_arc / proximal_length, 0.0f, 1.0f);
+        return 0.01f + 0.48f * t;
+      }
+      const float t = std::clamp(
+          (global_segment_arc - effective_sheath_length - effective_neck_length) / effective_blade_length, 0.0f, 1.0f);
+      return 0.51f + 0.48f * t;
+    }
     if (atlas_layout.distal_region_uses_top_half) {
       if (stage_id == 0) {
         const float t = effective_sheath_length > 1.0e-6f
@@ -992,11 +925,10 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
                             : 0.0f;
         return 0.02f + 0.46f * t;
       }
-      const float t = effective_distal_length > 1.0e-6f
-                          ? std::clamp((global_segment_arc - effective_sheath_length) / effective_distal_length,
-                                       0.0f,
-                                       1.0f)
-                          : 0.0f;
+      const float t =
+          effective_distal_length > 1.0e-6f
+              ? std::clamp((global_segment_arc - effective_sheath_length) / effective_distal_length, 0.0f, 1.0f)
+              : 0.0f;
       return 0.5f + 0.49f * t;
     }
     if (stage_id == 0) {
@@ -1006,17 +938,14 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
       return 0.02f + 0.21f * t;
     }
     if (stage_id == 1) {
-      const float t = effective_neck_length > 1.0e-6f
-                          ? std::clamp((global_segment_arc - effective_sheath_length) / effective_neck_length,
-                                       0.0f,
-                                       1.0f)
-                          : 0.0f;
+      const float t =
+          effective_neck_length > 1.0e-6f
+              ? std::clamp((global_segment_arc - effective_sheath_length) / effective_neck_length, 0.0f, 1.0f)
+              : 0.0f;
       return 0.27f + 0.21f * t;
     }
     const float t = std::clamp(
-        (global_segment_arc - effective_sheath_length - effective_neck_length) / effective_blade_length,
-        0.0f,
-        1.0f);
+        (global_segment_arc - effective_sheath_length - effective_neck_length) / effective_blade_length, 0.0f, 1.0f);
     return 0.5f + 0.49f * t;
   };
 
@@ -1027,13 +956,9 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
     auto& segment = segments[i];
 
     const float global_segment_arc = visible_arc_offset + local_row_arcs[i];
-    const int stage_id = ComputeLeafStageId(
-      global_segment_arc,
-      effective_sheath_length,
-      effective_neck_length);
-    const glm::vec4 current_stage_color = glm::vec4(
-        senescence_tinted_node_color * ComputeLeafStageShade(stage_id),
-        1.0f);
+    const int stage_id = ComputeLeafStageId(global_segment_arc, effective_sheath_length, effective_neck_length);
+    const glm::vec4 current_stage_color =
+        glm::vec4(senescence_tinted_node_color * ComputeLeafStageShade(stage_id), 1.0f);
     const float current_atlas_v = compute_atlas_v(global_segment_arc, stage_id);
 
     if (i == 0) {
@@ -1043,9 +968,8 @@ void l_system_package::GenerateBladeGeometry(const SorghumSpline& spline,
     }
 
     if (stage_id != previous_stage_id) {
-      const glm::vec4 previous_stage_color = glm::vec4(
-          senescence_tinted_node_color * ComputeLeafStageShade(previous_stage_id),
-          1.0f);
+      const glm::vec4 previous_stage_color =
+          glm::vec4(senescence_tinted_node_color * ComputeLeafStageShade(previous_stage_id), 1.0f);
       const float previous_atlas_v = compute_atlas_v(global_segment_arc, previous_stage_id);
       const unsigned int boundary_previous_color_row =
           emit_segment_row(segment, i, previous_stage_color, previous_atlas_v);

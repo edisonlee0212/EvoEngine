@@ -18,6 +18,9 @@ CudaModule provides CUDA and OptiX-based acceleration for specialized rendering,
 - CUDA buffer and math utilities.
 - Camera rendering PTX.
 - Illumination estimation PTX.
+- Camera-rendering Nishita skydome lighting with independently controlled direct-sun intensity, color, and Blender-style
+  angular diameter; set the diameter to `0` for hard shadows. Illumination-estimation kernels retain their existing energy
+  model.
 - Point cloud scanning PTX.
 - Vulkan/CUDA interop support.
 - Ray tracer layer and camera abstractions.

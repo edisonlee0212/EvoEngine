@@ -11,7 +11,7 @@
 
 #include <optix_device.h>
 #ifdef __CUDACC__
-#include <texture_indirect_functions.h>
+#  include <texture_indirect_functions.h>
 #endif
 
 #include <fstream>
@@ -22,6 +22,7 @@
 #include <CUDAModule.hpp>
 #include <Optix7.hpp>
 #include <RayDataDefinations.hpp>
+#include <SunLightSampling.hpp>
 
 namespace evo_engine {
 typedef LinearCongruenceGenerator<16> Random;
@@ -133,6 +134,39 @@ static __forceinline__ __device__ glm::vec3 RandomSampleHemisphere(Random &rando
   const auto tangentSpaceDir = glm::vec3(glm::cos(phi) * sinTheta, glm::sin(phi) * sinTheta, cosTheta);
   // Transform direction to world space
   return GetTangentSpace(normal) * tangentSpaceDir;
+}
+
+static __forceinline__ __device__ glm::vec3 SampleSunDirection(Random &random, const glm::vec3 &sun_direction,
+                                                               const float angular_diameter_radians) {
+  return SampleSunDirection(sun_direction, angular_diameter_radians, random(), random());
+}
+
+static __forceinline__ __device__ bool TraceVisibility(const OptixTraversableHandle traversable,
+                                                       const glm::vec3 &origin, const glm::vec3 &direction) {
+  unsigned visible = 0;
+  optixTrace(traversable, make_float3(origin.x, origin.y, origin.z), make_float3(direction.x, direction.y, direction.z),
+             1e-3f, 1e20f, 0.0f, static_cast<OptixVisibilityMask>(255),
+             OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+             static_cast<int>(RayType::Shadow), static_cast<int>(RayType::RayTypeCount),
+             static_cast<int>(RayType::Shadow), visible);
+  return visible != 0;
+}
+
+static __forceinline__ __device__ void ShadowMissFunc() {
+  optixSetPayload_0(1);
+}
+
+static __forceinline__ __device__ void ShadowAnyHitFunc() {
+  const auto &sbt_data = *(const SBT *)optixGetSbtDataPointer();
+  if (sbt_data.material_type != MaterialType::Default) {
+    return;
+  }
+  const float3 direction = optixGetWorldRayDirection();
+  glm::vec3 ray_direction(direction.x, direction.y, direction.z);
+  const auto hit_info = sbt_data.GetHitInfo(ray_direction);
+  if (static_cast<SurfaceMaterial *>(sbt_data.material)->GetAlbedo(hit_info.tex_coord).w <= 0.5f) {
+    optixIgnoreIntersection();
+  }
 }
 
 static __forceinline__ __device__ glm::vec3 RandomSampleSphere(Random &random) {

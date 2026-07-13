@@ -4,6 +4,18 @@
 #include "BSSDF.cuh"
 #include "Environment.cuh"
 namespace evo_engine {
+static __forceinline__ __device__ bool TraceSkydomeSun(const EnvironmentProperties &environment, Random &random,
+                                                       const OptixTraversableHandle traversable,
+                                                       const glm::vec3 &position, const glm::vec3 &normal,
+                                                       glm::vec3 &direction, float &n_dot_l) {
+  if (environment.environmental_lighting_type != EnvironmentalLightingType::Skydome ||
+      environment.sun_intensity <= 0.0f)
+    return false;
+  direction = SampleSunDirection(random, environment.sun_direction, environment.sun_angular_diameter_radians);
+  n_dot_l = glm::dot(normal, direction);
+  return n_dot_l > 0.0f && TraceVisibility(traversable, position + normal * 1e-3f, direction);
+}
+
 static __forceinline__ __device__ void AnyHitFunc() {
   const float3 rayDirectionInternal = optixGetWorldRayDirection();
   glm::vec3 rayDirection = glm::vec3(rayDirectionInternal.x, rayDirectionInternal.y, rayDirectionInternal.z);
@@ -22,7 +34,8 @@ static __forceinline__ __device__ void AnyHitFunc() {
 }
 
 static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties &rayTracerProperties,
-                                                      OptixTraversableHandle optixTraversableHandle) {
+                                                      OptixTraversableHandle optixTraversableHandle,
+                                                      const bool enableSkydomeSun = false) {
   const float3 rayDirectionInternal = optixGetWorldRayDirection();
   glm::vec3 rayDirection = glm::vec3(rayDirectionInternal.x, rayDirectionInternal.y, rayDirectionInternal.z);
 #pragma region Retrive information
@@ -77,56 +90,66 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
             u0, u1);
         energy += perRayData.energy * NdotL * albedoColor;
       }
-    } else if (perRayData.hit_count <= rayTracerProperties.ray_properties.bounces) {
-      bool needSample = false;
-      if (hitCount <= 1 && material->material_properties.subsurface_factor > 0.0f &&
-          material->material_properties.subsurface_radius.x > 0.0f) {
-        float3 incidentRayOrigin;
-        float3 newRayDirectionInternal;
-        glm::vec3 outNormal;
-        needSample = BSSRDF(metallic, perRayData.random, material->material_properties.subsurface_radius.x,
-                            sbtData.handle, optixTraversableHandle, hit_info.position, rayDirection, hit_info.normal,
-                            incidentRayOrigin, newRayDirectionInternal, outNormal);
-        if (needSample) {
-          optixTrace(optixTraversableHandle, incidentRayOrigin, newRayDirectionInternal,
-                     1e-3f,  // tmin
-                     1e20f,  // tmax
-                     0.0f,   // rayTime
-                     static_cast<OptixVisibilityMask>(255), OPTIX_RAY_FLAG_NONE,
-                     static_cast<int>(RayType::Radiance),      // SBT offset
-                     static_cast<int>(RayType::RayTypeCount),  // SBT stride
-                     static_cast<int>(RayType::Radiance),      // missSBTIndex
-                     u0, u1);
-          energy +=
-              material->material_properties.subsurface_factor * material->material_properties.subsurface_color *
-              glm::clamp(glm::abs(glm::dot(outNormal, glm::vec3(newRayDirectionInternal.x, newRayDirectionInternal.y,
-                                                                newRayDirectionInternal.z))) *
-                                 roughness +
-                             (1.0f - roughness) * f,
-                         0.0f, 1.0f) *
-              perRayData.energy;
+    } else {
+      if (enableSkydomeSun && environment.environmental_lighting_type == EnvironmentalLightingType::Skydome) {
+        glm::vec3 sun_direction;
+        float n_dot_l;
+        if (TraceSkydomeSun(environment, perRayData.random, optixTraversableHandle, hit_info.position, hit_info.normal,
+                            sun_direction, n_dot_l)) {
+          energy += environment.sun_color * environment.sun_intensity * n_dot_l * albedoColor;
         }
       }
-      float3 newRayDirectionInternal;
-      BRDF(metallic, perRayData.random, rayDirection, hit_info.normal, newRayDirectionInternal);
-      optixTrace(optixTraversableHandle, make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z),
-                 newRayDirectionInternal,
-                 1e-3f,  // tmin
-                 1e20f,  // tmax
-                 0.0f,   // rayTime
-                 static_cast<OptixVisibilityMask>(255), OPTIX_RAY_FLAG_NONE,
-                 static_cast<int>(RayType::Radiance),      // SBT offset
-                 static_cast<int>(RayType::RayTypeCount),  // SBT stride
-                 static_cast<int>(RayType::Radiance),      // missSBTIndex
-                 u0, u1);
-      energy +=
-          (1.0f - material->material_properties.subsurface_factor) * albedoColor *
-          glm::clamp(glm::abs(glm::dot(hit_info.normal, glm::vec3(newRayDirectionInternal.x, newRayDirectionInternal.y,
+      if (perRayData.hit_count <= rayTracerProperties.ray_properties.bounces) {
+        bool needSample = false;
+        if (hitCount <= 1 && material->material_properties.subsurface_factor > 0.0f &&
+            material->material_properties.subsurface_radius.x > 0.0f) {
+          float3 incidentRayOrigin;
+          float3 newRayDirectionInternal;
+          glm::vec3 outNormal;
+          needSample = BSSRDF(metallic, perRayData.random, material->material_properties.subsurface_radius.x,
+                              sbtData.handle, optixTraversableHandle, hit_info.position, rayDirection, hit_info.normal,
+                              incidentRayOrigin, newRayDirectionInternal, outNormal);
+          if (needSample) {
+            optixTrace(optixTraversableHandle, incidentRayOrigin, newRayDirectionInternal,
+                       1e-3f,  // tmin
+                       1e20f,  // tmax
+                       0.0f,   // rayTime
+                       static_cast<OptixVisibilityMask>(255), OPTIX_RAY_FLAG_NONE,
+                       static_cast<int>(RayType::Radiance),      // SBT offset
+                       static_cast<int>(RayType::RayTypeCount),  // SBT stride
+                       static_cast<int>(RayType::Radiance),      // missSBTIndex
+                       u0, u1);
+            energy +=
+                material->material_properties.subsurface_factor * material->material_properties.subsurface_color *
+                glm::clamp(glm::abs(glm::dot(outNormal, glm::vec3(newRayDirectionInternal.x, newRayDirectionInternal.y,
                                                                   newRayDirectionInternal.z))) *
-                             roughness +
-                         (1.0f - roughness) * f,
-                     0.0f, 1.0f) *
-          perRayData.energy;
+                                   roughness +
+                               (1.0f - roughness) * f,
+                           0.0f, 1.0f) *
+                perRayData.energy;
+          }
+        }
+        float3 newRayDirectionInternal;
+        BRDF(metallic, perRayData.random, rayDirection, hit_info.normal, newRayDirectionInternal);
+        optixTrace(optixTraversableHandle, make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z),
+                   newRayDirectionInternal,
+                   1e-3f,  // tmin
+                   1e20f,  // tmax
+                   0.0f,   // rayTime
+                   static_cast<OptixVisibilityMask>(255), OPTIX_RAY_FLAG_NONE,
+                   static_cast<int>(RayType::Radiance),      // SBT offset
+                   static_cast<int>(RayType::RayTypeCount),  // SBT stride
+                   static_cast<int>(RayType::Radiance),      // missSBTIndex
+                   u0, u1);
+        energy += (1.0f - material->material_properties.subsurface_factor) * albedoColor *
+                  glm::clamp(
+                      glm::abs(glm::dot(hit_info.normal, glm::vec3(newRayDirectionInternal.x, newRayDirectionInternal.y,
+                                                                   newRayDirectionInternal.z))) *
+                              roughness +
+                          (1.0f - roughness) * f,
+                      0.0f, 1.0f) *
+                  perRayData.energy;
+      }
     }
     if (hitCount == 1) {
       perRayData.normal = hit_info.normal;
@@ -168,6 +191,17 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
           energy += perRayData.energy * NdotL * btfColor;
         }
       } else {
+        if (enableSkydomeSun && environment.environmental_lighting_type == EnvironmentalLightingType::Skydome) {
+          glm::vec3 sun_direction;
+          float n_dot_l;
+          if (TraceSkydomeSun(environment, perRayData.random, optixTraversableHandle, hit_info.position,
+                              hit_info.normal, sun_direction, n_dot_l)) {
+            static_cast<SurfaceCompressedBtf *>(sbtData.material)
+                ->GetValue(hit_info.tex_coord, rayDirection, sun_direction, hit_info.normal, hit_info.tangent,
+                           btfColor);
+            energy += environment.sun_color * environment.sun_intensity * n_dot_l * btfColor;
+          }
+        }
         glm::vec3 newRayDirection = RandomSampleHemisphere(perRayData.random, reflected, 0.0f);
         static_cast<SurfaceCompressedBtf *>(sbtData.material)
             ->GetValue(hit_info.tex_coord, rayDirection, newRayDirection, hit_info.normal, hit_info.tangent, btfColor);

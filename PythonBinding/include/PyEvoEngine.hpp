@@ -1,6 +1,6 @@
 #pragma once
-//#include "AnimationPlayer.hpp"
-//#include "Application.hpp"
+// #include "AnimationPlayer.hpp"
+// #include "Application.hpp"
 #include "ClassRegistry.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
@@ -8,11 +8,11 @@
 #include "PlayerController.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
-//#include "ProjectManager.hpp"
-//#include "RenderLayer.hpp"
-//#include "Scene.hpp"
-//#include "Times.hpp"
-//#include "WindowLayer.hpp"
+// #include "ProjectManager.hpp"
+// #include "RenderLayer.hpp"
+// #include "Scene.hpp"
+// #include "Times.hpp"
+// #include "WindowLayer.hpp"
 #include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 #include "pybind11/stl/filesystem.h"
@@ -136,6 +136,12 @@ class PyEvoEngine {
    */
   static bool CaptureCurrentScene(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
                                   int warmup_frames = 1);
+  /**
+   * @brief Position the active scene's main camera and aim it at a world-space target.
+   * @return True when the camera pose was updated.
+   */
+  static bool SetMainCameraLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up,
+                                  float fov_degrees = 50.0f);
   /**
    * @brief Start application with a project.
    * @param project_path The path to the target project to load.

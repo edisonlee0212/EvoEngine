@@ -5,36 +5,40 @@
 #  include "DatasetGenerationSerializationAdapters.hpp"
 #endif
 
+#include "AssetManager.hpp"
 #include "BtfMeshRenderer.hpp"
 #include "GeometryStorage.hpp"
-#include "LSystemSerializationAdapters.hpp"
 #include "LSystemRuleHelpers.hpp"
+#include "LSystemSerializationAdapters.hpp"
+#include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
-#include "Particles.hpp"
 #include "PARSensorGroup.hpp"
+#include "Particles.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RayTracerCamera.hpp"
+#include "SorghumCoordinates.hpp"
 #include "SorghumLS.hpp"
 #include "SorghumLSDescriptor.hpp"
-#include "SorghumCoordinates.hpp"
+#include "SorghumLeafMesh.hpp"
 #include "TextureStorage.hpp"
 #include "TransformGraph.hpp"
 #include "TriangleIlluminationEstimator.hpp"
-#include "AssetManager.hpp"
 #ifdef CUDA_MODULE_SERVICE
+#  include "OptiXRayTracer.hpp"
 #  include "RayTracerLayer.hpp"
 #endif
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <limits>
 #include <random>
-#include <sstream>
+#include <set>
 
 #ifdef DIGITAL_AGRICULTURE_PACKAGE
 
@@ -61,17 +65,22 @@ void RegisterSerializationHandler(const std::string& type_name) {
 struct ParbarPanel {
   const char* cultivar;
   const char* root;
-  const char* model;
+  const char* mesh_entity_name;
   const char* sensor_bar_level;
 };
 
-constexpr ParbarPanel kParbarPanels[] = {{"Pawaga", "PARBAR_Pawaga", "model.002", "top"},
-                                         {"BTX", "PARBAR_BTX", "model.002", "top"},
-                                         {"Pawaga", "PARBAR_Pawaga", "model.001", "middle"},
-                                         {"BTX", "PARBAR_BTX", "model.001", "middle"},
-                                         {"Pawaga", "PARBAR_Pawaga", "model", "bottom"},
-                                         {"BTX", "PARBAR_BTX", "model", "bottom"}};
+constexpr ParbarPanel kParbarPanels[] = {{"Pawaga", "PARBAR_Pawaga", "PARBAR_Pawaga_TopSensorBarMesh", "top"},
+                                         {"BTX", "PARBAR_BTX", "PARBAR_BTX_TopSensorBarMesh", "top"},
+                                         {"Pawaga", "PARBAR_Pawaga", "PARBAR_Pawaga_MiddleSensorBarMesh", "middle"},
+                                         {"BTX", "PARBAR_BTX", "PARBAR_BTX_MiddleSensorBarMesh", "middle"},
+                                         {"Pawaga", "PARBAR_Pawaga", "PARBAR_Pawaga_BottomSensorBarMesh", "bottom"},
+                                         {"BTX", "PARBAR_BTX", "PARBAR_BTX_BottomSensorBarMesh", "bottom"}};
 constexpr size_t kParbarPanelCount = sizeof(kParbarPanels) / sizeof(kParbarPanels[0]);
+const std::filesystem::path kIlluminationSoilDescriptorPath = "ManualAssets/Soil/bigSoil.soil";
+const std::filesystem::path kIlluminationGroundMeshPath = "ManualAssets/Context/Mesh_7895692069869720144.evemesh";
+const std::filesystem::path kIlluminationSoilMaterialPath = "ManualAssets/Soil/PBR/soil_PBRV2.evematerial";
+const std::filesystem::path kBtxReferenceDescriptorPath = "ManualAssets/Descriptors/BTX.sorghumls";
+const std::filesystem::path kPawagaReferenceDescriptorPath = "ManualAssets/Descriptors/Pawaga.sorghumls";
 
 struct TopFaceTriangle {
   glm::vec3 p0 = glm::vec3(0.0f);
@@ -99,6 +108,8 @@ struct GreenTissueStats {
   float stem_area = 0.0f;
   float min_y = std::numeric_limits<float>::max();
   float max_y = std::numeric_limits<float>::lowest();
+  glm::vec3 min_position = glm::vec3(std::numeric_limits<float>::max());
+  glm::vec3 max_position = glm::vec3(std::numeric_limits<float>::lowest());
   bool has_geometry = false;
 
   [[nodiscard]] uint32_t TriangleCount() const {
@@ -116,14 +127,6 @@ struct ParbarPanelHeightMetadata {
   float average_root_y = 0.0f;
   float top_elevation = 0.0f;
   float height_fraction = 0.0f;
-};
-
-struct PlantClusterMember {
-  Entity plant;
-  std::string base_plant_name;
-  uint32_t cluster_index = 0;
-  uint32_t cluster_size = 1;
-  glm::vec3 cluster_offset = glm::vec3(0.0f);
 };
 
 Entity FindEntityByName(const std::shared_ptr<Scene>& scene, const std::string& name) {
@@ -158,7 +161,10 @@ std::vector<Entity> CollectDescendants(const std::shared_ptr<Scene>& scene, cons
 }
 
 Entity FindParbarMeshEntity(const std::shared_ptr<Scene>& scene, const ParbarPanel& panel) {
-  const Entity root = FindEntityByName(scene, panel.root);
+  Entity root = FindEntityByName(scene, panel.root);
+  if (scene && !scene->IsEntityValid(root)) {
+    root = FindEntityByName(scene, std::string(panel.root) + "_SensorRig");
+  }
   if (!scene || !scene->IsEntityValid(root)) {
     EVOENGINE_ERROR("Missing PARBAR root: " + std::string(panel.root))
     return {};
@@ -166,7 +172,7 @@ Entity FindParbarMeshEntity(const std::shared_ptr<Scene>& scene, const ParbarPan
   auto candidates = CollectDescendants(scene, root);
   candidates.insert(candidates.begin(), root);
   for (const auto& entity : candidates) {
-    if (scene->GetEntityName(entity) != panel.model || !scene->HasPrivateComponent<MeshRenderer>(entity)) {
+    if (scene->GetEntityName(entity) != panel.mesh_entity_name || !scene->HasPrivateComponent<MeshRenderer>(entity)) {
       continue;
     }
     const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
@@ -174,7 +180,7 @@ Entity FindParbarMeshEntity(const std::shared_ptr<Scene>& scene, const ParbarPan
       return entity;
     }
   }
-  EVOENGINE_ERROR("Missing PARBAR mesh: " + std::string(panel.root) + "/" + std::string(panel.model))
+  EVOENGINE_ERROR("Missing PARBAR mesh: " + std::string(panel.root) + "/" + std::string(panel.mesh_entity_name))
   return {};
 }
 
@@ -204,69 +210,27 @@ std::string CultivarFromPlantName(const std::string& name) {
   return {};
 }
 
+bool MatchesCultivarFilter(const std::string& cultivar, const std::string& filter) {
+  return filter.empty() || NameContains(cultivar, filter);
+}
+
+std::shared_ptr<SorghumLSDescriptor> ReferenceDescriptorForCultivar(const std::string& cultivar) {
+  const auto path = cultivar == "BTX"      ? kBtxReferenceDescriptorPath
+                    : cultivar == "Pawaga" ? kPawagaReferenceDescriptorPath
+                                           : std::filesystem::path{};
+  return path.empty() ? nullptr
+                      : std::dynamic_pointer_cast<SorghumLSDescriptor>(ProjectManager::GetOrCreateAsset(path));
+}
+
 std::string BasePlantNameFromClusterName(const std::string& name) {
   const std::string marker = "_cluster_";
   const size_t marker_position = name.find(marker);
   return marker_position == std::string::npos ? name : name.substr(0, marker_position);
 }
 
-bool IsClusterPlantName(const std::string& name) {
-  return name.find("_cluster_") != std::string::npos;
-}
-
-uint32_t StableHash32(const std::string& value) {
-  uint32_t hash = 2166136261u;
-  for (const unsigned char c : value) {
-    hash ^= c;
-    hash *= 16777619u;
-  }
-  return hash;
-}
-
-uint32_t MixHash32(uint32_t value) {
-  value ^= value >> 16u;
-  value *= 0x7feb352du;
-  value ^= value >> 15u;
-  value *= 0x846ca68bu;
-  value ^= value >> 16u;
-  return value;
-}
-
-float HashUnitFloat(const uint32_t value) {
-  return static_cast<float>(value & 0x00ffffffu) / static_cast<float>(0x01000000u);
-}
-
-uint32_t ClusterSizeForPlant(const std::string& cultivar, const std::string& base_plant_name,
-                             const int cluster_min_count, const int cluster_max_count) {
-  const uint32_t min_count = static_cast<uint32_t>(std::max(1, cluster_min_count));
-  const uint32_t max_count = static_cast<uint32_t>(std::max(static_cast<int>(min_count), cluster_max_count));
-  const uint32_t range = max_count - min_count + 1u;
-  return min_count + StableHash32(cultivar + "|" + base_plant_name + "|cluster_size") % range;
-}
-
-glm::vec3 ClusterOffsetForMember(const std::string& cultivar, const std::string& base_plant_name,
-                                 const uint32_t cluster_index, const uint32_t cluster_size,
-                                 const float cluster_radius_m) {
-  if (cluster_index == 0 || cluster_radius_m <= 0.0f) {
-    return glm::vec3(0.0f);
-  }
-  constexpr float kTwoPi = 6.28318530717958647692f;
-  const float spread_count = static_cast<float>(std::max(1u, cluster_size - 1u));
-  const uint32_t base_hash = StableHash32(cultivar + "|" + base_plant_name + "|cluster_angle");
-  const uint32_t radius_hash = StableHash32(cultivar + "|" + base_plant_name + "|" +
-                                            std::to_string(cluster_index) + "|cluster_radius");
-  const float angle = kTwoPi * (HashUnitFloat(base_hash) + static_cast<float>(cluster_index - 1u) / spread_count);
-  const float radius = cluster_radius_m * (0.4f + 0.6f * HashUnitFloat(radius_hash));
-  return glm::vec3(std::cos(angle) * radius, 0.0f, std::sin(angle) * radius);
-}
-
-uint32_t ClusterSeedForMember(const uint32_t base_seed, const std::string& cultivar,
-                              const std::string& base_plant_name, const uint32_t cluster_index) {
-  if (cluster_index == 0) {
-    return base_seed;
-  }
-  return MixHash32(base_seed ^ StableHash32(cultivar + "|" + base_plant_name + "|" +
-                                            std::to_string(cluster_index) + "|cluster_seed"));
+bool IsSorghumPlantingMarkerName(const std::string& name) {
+  return !CultivarFromPlantName(name).empty() && name.find("_LSystem_") != std::string::npos &&
+         name.find("_cluster_") == std::string::npos;
 }
 
 glm::vec3 SafeNormalize(const glm::vec3& value, const glm::vec3& fallback) {
@@ -280,12 +244,14 @@ glm::vec3 ClosestPointOnTriangle(const glm::vec3& point, const glm::vec3& a, con
   const glm::vec3 ap = point - a;
   const float d1 = glm::dot(ab, ap);
   const float d2 = glm::dot(ac, ap);
-  if (d1 <= 0.0f && d2 <= 0.0f) return a;
+  if (d1 <= 0.0f && d2 <= 0.0f)
+    return a;
 
   const glm::vec3 bp = point - b;
   const float d3 = glm::dot(ab, bp);
   const float d4 = glm::dot(ac, bp);
-  if (d3 >= 0.0f && d4 <= d3) return b;
+  if (d3 >= 0.0f && d4 <= d3)
+    return b;
 
   const float vc = d1 * d4 - d3 * d2;
   if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
@@ -295,7 +261,8 @@ glm::vec3 ClosestPointOnTriangle(const glm::vec3& point, const glm::vec3& a, con
   const glm::vec3 cp = point - c;
   const float d5 = glm::dot(ab, cp);
   const float d6 = glm::dot(ac, cp);
-  if (d6 >= 0.0f && d5 <= d6) return c;
+  if (d6 >= 0.0f && d5 <= d6)
+    return c;
 
   const float vb = d5 * d2 - d1 * d6;
   if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
@@ -367,7 +334,7 @@ bool AppendParbarPanelSamplers(const std::shared_ptr<Scene>& scene, const Parbar
   const Entity entity = FindParbarMeshEntity(scene, panel);
   const auto top_triangles = CollectTopFaceTriangles(scene, entity);
   if (top_triangles.empty()) {
-    EVOENGINE_ERROR("No upward top-face triangles found for " + std::string(panel.root) + "/" + panel.model)
+    EVOENGINE_ERROR("No upward top-face triangles found for " + std::string(panel.root) + "/" + panel.mesh_entity_name)
     return false;
   }
 
@@ -582,6 +549,8 @@ Entity FindSorghumLsInternodeEntity(const std::shared_ptr<Scene>& scene, const E
 void IncludeHeightPoint(GreenTissueStats& stats, const glm::vec3& point) {
   stats.min_y = std::min(stats.min_y, point.y);
   stats.max_y = std::max(stats.max_y, point.y);
+  stats.min_position = glm::min(stats.min_position, point);
+  stats.max_position = glm::max(stats.max_position, point);
   stats.has_geometry = true;
 }
 
@@ -609,8 +578,7 @@ float SamplerSurfaceArea(const IlluminationSampler<glm::vec3>& sampler) {
 }
 
 bool AppendLeafTriangleSamplers(const std::shared_ptr<Scene>& scene, const Entity& leaf_entity,
-                                const int max_triangle_count,
-                                std::vector<IlluminationSampler<glm::vec3>>& samplers,
+                                const int max_triangle_count, std::vector<IlluminationSampler<glm::vec3>>& samplers,
                                 GreenTissueStats& stats) {
   if (!scene || !scene->IsEntityValid(leaf_entity)) {
     return false;
@@ -627,9 +595,9 @@ bool AppendLeafTriangleSamplers(const std::shared_ptr<Scene>& scene, const Entit
   const auto& triangles = mesh->UnsafeGetTriangles();
   auto& vertices = mesh->UnsafeGetVertices();
   const size_t triangle_count = triangles.size();
-  const size_t sampler_count =
-      max_triangle_count <= 0 ? triangle_count
-                              : std::min(static_cast<size_t>(std::max(1, max_triangle_count)), triangle_count);
+  const size_t sampler_count = max_triangle_count <= 0
+                                   ? triangle_count
+                                   : std::min(static_cast<size_t>(std::max(1, max_triangle_count)), triangle_count);
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(leaf_entity);
   for (const auto& vertex : vertices) {
     IncludeHeightPoint(stats, global_transform.TransformPoint(vertex.position));
@@ -662,8 +630,7 @@ bool AppendLeafTriangleSamplers(const std::shared_ptr<Scene>& scene, const Entit
 
 bool AppendInternodeTriangleSamplers(const std::shared_ptr<Scene>& scene, const Entity& internode_entity,
                                      const int max_triangle_count,
-                                     std::vector<IlluminationSampler<glm::vec3>>& samplers,
-                                     GreenTissueStats& stats) {
+                                     std::vector<IlluminationSampler<glm::vec3>>& samplers, GreenTissueStats& stats) {
   if (!scene || !scene->IsEntityValid(internode_entity)) {
     return false;
   }
@@ -686,9 +653,9 @@ bool AppendInternodeTriangleSamplers(const std::shared_ptr<Scene>& scene, const 
   const auto entity_transform = scene->GetDataComponent<GlobalTransform>(internode_entity).value;
   const size_t triangle_count = triangles.size();
   const size_t candidate_count = instances.size() * triangle_count;
-  const size_t sampler_count =
-      max_triangle_count <= 0 ? candidate_count
-                              : std::min(static_cast<size_t>(std::max(1, max_triangle_count)), candidate_count);
+  const size_t sampler_count = max_triangle_count <= 0
+                                   ? candidate_count
+                                   : std::min(static_cast<size_t>(std::max(1, max_triangle_count)), candidate_count);
 
   for (const auto& instance : instances) {
     const glm::mat4 transform = entity_transform * instance.instance_matrix.value;
@@ -821,18 +788,6 @@ size_t MoveMiddleParbarPanelsToPlantHeightFraction(const std::shared_ptr<Scene>&
   return moved_count;
 }
 
-std::string SanitizeAssetStem(std::string value) {
-  for (auto& c : value) {
-    if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_') {
-      c = '_';
-    }
-  }
-  if (value.empty()) {
-    return "unnamed";
-  }
-  return value;
-}
-
 std::filesystem::path WithExtension(std::filesystem::path path, const std::string& extension) {
   if (path.extension() != extension) {
     path.replace_extension(extension);
@@ -850,25 +805,37 @@ void ScalePlot(evo_engine::Plot2D<float>& plot, const float scale) {
   plot.max_value *= scale;
 }
 
-void ScaleLengthDistribution(evo_engine::PlottedDistribution<float>& distribution, const float scale) {
-  ScalePlot(distribution.mean, scale);
-  ScalePlot(distribution.deviation, std::abs(scale));
+bool IsProjectAssetPath(const std::filesystem::path& path) {
+  return !path.empty() && path.is_relative() && path.string().find("..") == std::string::npos;
 }
 
-void ScaleSorghumLengthDistributions(SorghumLSDescriptor& descriptor, const float scale) {
-  ScaleLengthDistribution(descriptor.internode_length, scale);
-  ScaleLengthDistribution(descriptor.leaf_blade_length, scale);
-  ScaleLengthDistribution(descriptor.leaf_sheath_length, scale);
-  ScaleLengthDistribution(descriptor.leaf_neck_length, scale);
+void ScaleLengthDistribution(evo_engine::PlottedDistribution<float>& distribution, const float mean_scale,
+                             const float deviation_scale) {
+  ScalePlot(distribution.mean, mean_scale);
+  ScalePlot(distribution.deviation, std::abs(deviation_scale));
 }
 
-void ConfigureDateDescriptor(SorghumLSDescriptor& descriptor, const float leaf_modules_mean,
-                             const float leaf_modules_deviation, const float length_scale) {
+void ConfigureCalibratedDescriptor(SorghumLSDescriptor& descriptor, const float leaf_modules_mean,
+                                   const float leaf_modules_deviation, const float length_mean_scale,
+                                   const float length_deviation_scale, const float leaf_width_scale,
+                                   const float main_culm_diameter_m, const float tiller_leaf_count_ratio,
+                                   const float tiller_height_ratio) {
   descriptor.total_phytomer_count.mean = std::max(1.0f, leaf_modules_mean);
   descriptor.total_phytomer_count.deviation = std::max(0.0f, leaf_modules_deviation);
-  descriptor.tiller_count.mean = 0.0f;
-  descriptor.tiller_count.deviation = 0.0f;
-  ScaleSorghumLengthDistributions(descriptor, length_scale);
+  ScaleLengthDistribution(descriptor.internode_length, std::max(0.0f, length_mean_scale), length_deviation_scale);
+  ScaleLengthDistribution(descriptor.leaf_blade_length, std::max(0.0f, length_mean_scale), length_deviation_scale);
+  ScaleLengthDistribution(descriptor.leaf_sheath_length, std::max(0.0f, length_mean_scale), length_deviation_scale);
+  ScaleLengthDistribution(descriptor.leaf_neck_length, std::max(0.0f, length_mean_scale), length_deviation_scale);
+  descriptor.leaf_width_scale = std::clamp(leaf_width_scale, 0.05f, 3.0f);
+  if (main_culm_diameter_m > 0.0f) {
+    descriptor.internode_thickness.mean.min_value = main_culm_diameter_m;
+    descriptor.internode_thickness.mean.max_value = main_culm_diameter_m;
+    descriptor.internode_thickness.deviation.min_value = 0.0f;
+    descriptor.internode_thickness.deviation.max_value = 0.0f;
+  }
+  descriptor.tiller_model_version = 3u;
+  descriptor.tiller_leaf_count_ratio.mean = std::clamp(tiller_leaf_count_ratio, 0.5f, 1.1f);
+  descriptor.tiller_height_ratio.mean = std::clamp(tiller_height_ratio, 0.5f, 1.1f);
 }
 
 std::shared_ptr<SorghumLSDescriptor> CloneDescriptorTemporary(const SorghumLSDescriptor& source) {
@@ -885,15 +852,39 @@ std::shared_ptr<SorghumLSDescriptor> CloneDescriptorTemporary(const SorghumLSDes
   return clone;
 }
 
-std::shared_ptr<SorghumLSDescriptor> CloneConfiguredDescriptorTemporary(const SorghumLSDescriptor& source,
-                                                                       const float leaf_modules_mean,
-                                                                       const float leaf_modules_deviation,
-                                                                       const float length_scale) {
-  auto clone = CloneDescriptorTemporary(source);
+std::shared_ptr<SorghumLSDescriptor> LoadSorghumLsDescriptorAsset(const std::filesystem::path& path) {
+  const auto descriptor_path = WithExtension(path, ".sorghumls");
+  if (!IsProjectAssetPath(descriptor_path)) {
+    return {};
+  }
+  const auto absolute_path = ProjectManager::GetAssetsFolderPath() / descriptor_path;
+  if (!std::filesystem::exists(absolute_path)) {
+    return {};
+  }
+  return std::dynamic_pointer_cast<SorghumLSDescriptor>(ProjectManager::GetOrCreateAsset(descriptor_path));
+}
+
+std::shared_ptr<SorghumLSDescriptor> CreateCalibratedDescriptorTemporary(
+    const std::filesystem::path& base_path, const float leaf_modules_mean, const float leaf_modules_deviation,
+    const float length_mean_scale, const float length_deviation_scale, const float leaf_width_scale,
+    const float main_culm_diameter_m, const float tiller_leaf_count_ratio, const float tiller_height_ratio,
+    const bool disable_tillers) {
+  const auto source = LoadSorghumLsDescriptorAsset(base_path);
+  if (!source) {
+    return {};
+  }
+  auto clone = CloneDescriptorTemporary(*source);
   if (!clone) {
     return {};
   }
-  ConfigureDateDescriptor(*clone, leaf_modules_mean, leaf_modules_deviation, length_scale);
+  ConfigureCalibratedDescriptor(*clone, leaf_modules_mean, leaf_modules_deviation, length_mean_scale,
+                                length_deviation_scale, leaf_width_scale, main_culm_diameter_m, tiller_leaf_count_ratio,
+                                tiller_height_ratio);
+  if (disable_tillers) {
+    clone->tiller_count = {0.0f, 0.0f};
+    clone->tiller_count_min = 0;
+    clone->tiller_count_max = 0;
+  }
   return clone;
 }
 
@@ -904,258 +895,159 @@ bool SaveDescriptorAsset(const std::shared_ptr<SorghumLSDescriptor>& descriptor,
   return descriptor->SetPathAndSave(WithExtension(path, ".sorghumls"));
 }
 
-std::vector<Entity> CollectSorghumLsPlants(const std::shared_ptr<Scene>& scene, const std::string& cultivar) {
-  std::vector<Entity> plants;
-  if (!scene) {
-    return plants;
-  }
-  const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>();
-  if (!sorghum_entities_ptr) {
-    return plants;
-  }
-  for (const auto& plant : *sorghum_entities_ptr) {
-    if (!scene->IsEntityValid(plant) || CultivarFromPlantName(scene->GetEntityName(plant)) != cultivar) {
-      continue;
-    }
-    plants.emplace_back(plant);
-  }
-  std::sort(plants.begin(), plants.end(), [&](const Entity& a, const Entity& b) {
-    return scene->GetEntityName(a) < scene->GetEntityName(b);
-  });
-  return plants;
-}
+struct SorghumArchitectureStats {
+  uint32_t main_culm_leaf_count = 0;
+  uint32_t tiller_leaf_count = 0;
+  uint32_t primary_tiller_count = 0;
+  std::vector<LSystemAxisPhenotypeRecord> axes;
+};
 
-std::vector<Entity> CollectBaseSorghumLsPlants(const std::shared_ptr<Scene>& scene, const std::string& cultivar) {
-  std::vector<Entity> plants;
-  for (const auto& plant : CollectSorghumLsPlants(scene, cultivar)) {
-    if (!IsClusterPlantName(scene->GetEntityName(plant))) {
-      plants.emplace_back(plant);
-    }
-  }
-  return plants;
-}
-
-std::shared_ptr<SorghumLSDescriptor> FindFirstDescriptorForCultivar(const std::shared_ptr<Scene>& scene,
-                                                                    const std::string& cultivar) {
-  for (const auto& plant : CollectBaseSorghumLsPlants(scene, cultivar)) {
-    const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(plant).lock();
-    if (!sorghum) {
-      continue;
-    }
-    if (const auto descriptor = sorghum->descriptor_ref.Get<SorghumLSDescriptor>()) {
-      return descriptor;
+SorghumArchitectureStats MeasureSorghumArchitecture(const SorghumLS& sorghum) {
+  SorghumArchitectureStats stats;
+  struct AxisAccumulator {
+    int origin_rank = 0;
+    uint32_t leaf_count = 0;
+    uint32_t internode_count = 0;
+    float tip_height_m = 0.0f;
+  };
+  std::map<int, AxisAccumulator> axes;
+  float root_height = 0.0f;
+  for (const auto handle : sorghum.growth_model.graph.PeekSortedNodeList()) {
+    const auto& node = sorghum.growth_model.graph.PeekNode(handle);
+    if (node.data.Is<SorghumRoot>()) {
+      root_height = node.info.global_position.y;
+    } else if (node.data.Is<SorghumInternode>()) {
+      const auto& internode = node.data.Get<SorghumInternode>();
+      auto& axis = axes[internode.axis_id];
+      axis.origin_rank = internode.origin_rank;
+      axis.internode_count++;
+      axis.tip_height_m = std::max(axis.tip_height_m, node.info.GetGlobalEndPosition().y - root_height);
+    } else if (node.data.Is<SorghumLeaf>()) {
+      const auto& leaf = node.data.Get<SorghumLeaf>();
+      auto& axis = axes[leaf.axis_id];
+      axis.origin_rank = leaf.origin_rank;
+      axis.leaf_count++;
     }
   }
-  return {};
-}
-
-PlantClusterMember MakeClusterMemberRecord(const Entity& plant, const std::string& base_plant_name,
-                                           const uint32_t cluster_index, const uint32_t cluster_size,
-                                           const glm::vec3& cluster_offset) {
-  PlantClusterMember member;
-  member.plant = plant;
-  member.base_plant_name = base_plant_name;
-  member.cluster_index = cluster_index;
-  member.cluster_size = cluster_size;
-  member.cluster_offset = cluster_offset;
-  return member;
-}
-
-Entity CreateOrUpdateClusterEntity(const std::shared_ptr<Scene>& scene, const Entity& base_plant,
-                                   const std::string& cultivar, const std::string& base_plant_name,
-                                   const uint32_t cluster_index, const uint32_t cluster_size,
-                                   const float cluster_radius_m) {
-  if (!scene || !scene->IsEntityValid(base_plant)) {
-    return {};
-  }
-  if (cluster_index == 0) {
-    return base_plant;
-  }
-
-  const std::string cluster_name = base_plant_name + "_cluster_" + std::to_string(cluster_index);
-  Entity cluster_plant = FindEntityByName(scene, cluster_name);
-  if (!scene->IsEntityValid(cluster_plant)) {
-    cluster_plant = scene->CreateEntity(cluster_name);
-  }
-
-  const auto base_sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(base_plant).lock();
-  const auto cluster_sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(cluster_plant).lock();
-  if (base_sorghum && cluster_sorghum) {
-    cluster_sorghum->descriptor_ref = base_sorghum->descriptor_ref;
-    cluster_sorghum->seed = ClusterSeedForMember(base_sorghum->seed, cultivar, base_plant_name, cluster_index);
-    cluster_sorghum->target_gdd = base_sorghum->target_gdd;
-    cluster_sorghum->leaf_mesh_settings = base_sorghum->leaf_mesh_settings;
-    cluster_sorghum->leaf_bottom_face = base_sorghum->leaf_bottom_face;
-  }
-
-  auto transform = scene->GetDataComponent<Transform>(base_plant);
-  transform.SetPosition(transform.GetPosition() +
-                        ClusterOffsetForMember(cultivar, base_plant_name, cluster_index, cluster_size,
-                                               cluster_radius_m));
-  scene->SetDataComponent(cluster_plant, transform);
-  const Entity parent = scene->GetParent(base_plant);
-  if (parent.GetIndex() != 0 && scene->IsEntityValid(parent)) {
-    scene->SetParent(cluster_plant, parent, false);
-  }
-  return cluster_plant;
-}
-
-std::vector<PlantClusterMember> BuildClusterMembersForCultivar(const std::shared_ptr<Scene>& scene,
-                                                               const std::vector<Entity>& base_plants,
-                                                               const std::string& cultivar,
-                                                               const int cluster_min_count,
-                                                               const int cluster_max_count,
-                                                               const float cluster_radius_m) {
-  std::vector<PlantClusterMember> members;
-  for (const auto& base_plant : base_plants) {
-    if (!scene || !scene->IsEntityValid(base_plant)) {
-      continue;
-    }
-    const std::string base_plant_name = scene->GetEntityName(base_plant);
-    const uint32_t cluster_size = ClusterSizeForPlant(cultivar, base_plant_name, cluster_min_count, cluster_max_count);
-    members.emplace_back(MakeClusterMemberRecord(base_plant, base_plant_name, 0u, cluster_size, glm::vec3(0.0f)));
-    for (uint32_t cluster_index = 1u; cluster_index < cluster_size; ++cluster_index) {
-      const Entity cluster_plant =
-          CreateOrUpdateClusterEntity(scene, base_plant, cultivar, base_plant_name, cluster_index, cluster_size,
-                                      std::max(0.0f, cluster_radius_m));
-      if (scene->IsEntityValid(cluster_plant)) {
-        members.emplace_back(MakeClusterMemberRecord(
-            cluster_plant, base_plant_name, cluster_index, cluster_size,
-            ClusterOffsetForMember(cultivar, base_plant_name, cluster_index, cluster_size, cluster_radius_m)));
-      }
-    }
-  }
-  if (!members.empty()) {
-    TransformGraph::CalculateTransformGraphs(scene);
-  }
-  std::sort(members.begin(), members.end(), [&](const PlantClusterMember& a, const PlantClusterMember& b) {
-    if (a.base_plant_name != b.base_plant_name) {
-      return a.base_plant_name < b.base_plant_name;
-    }
-    return a.cluster_index < b.cluster_index;
-  });
-  return members;
-}
-
-float RegenerateAndMeasurePlant(const std::shared_ptr<Scene>& scene, const Entity& plant,
-                                const std::shared_ptr<SorghumLSDescriptor>& descriptor) {
-  if (!scene || !scene->IsEntityValid(plant) || !descriptor) {
-    return 0.0f;
-  }
-  const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(plant).lock();
-  if (!sorghum) {
-    return 0.0f;
-  }
-  sorghum->descriptor_ref = descriptor;
-  sorghum->target_gdd = SampleTargetGddForDescriptorSeed(*descriptor, sorghum->seed);
-  sorghum->GenerateGeometryEntities(true);
-  TransformGraph::CalculateTransformGraphs(scene);
-  const auto transform = scene->GetDataComponent<GlobalTransform>(plant);
-  const auto stats = MeasureGreenPlantGeometry(scene, plant);
-  return stats.has_geometry ? std::max(0.0f, stats.max_y - transform.GetPosition().y) : 0.0f;
-}
-
-float AverageGeneratedHeightForDescriptor(const std::shared_ptr<Scene>& scene,
-                                          const std::shared_ptr<SorghumLSDescriptor>& descriptor,
-                                          const int sample_count, const uint32_t seed_base) {
-  if (!scene || !descriptor || sample_count <= 0) {
-    return 0.0f;
-  }
-  const Entity sample_entity = scene->CreateEntity("__HeightFitSample");
-  const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(sample_entity).lock();
-  if (!sorghum) {
-    scene->DeleteEntity(sample_entity);
-    return 0.0f;
-  }
-  sorghum->descriptor_ref = descriptor;
-  float height_sum = 0.0f;
-  int measured_count = 0;
-  for (int i = 0; i < sample_count; ++i) {
-    sorghum->seed = seed_base + static_cast<uint32_t>(i);
-    sorghum->target_gdd = SampleTargetGddForDescriptorSeed(*descriptor, sorghum->seed);
-    sorghum->GenerateGeometryEntities(true);
-    TransformGraph::CalculateTransformGraphs(scene);
-    const auto stats = MeasureGreenPlantGeometry(scene, sample_entity);
-    if (stats.has_geometry) {
-      height_sum += std::max(0.0f, stats.max_y);
-      measured_count++;
-    }
-  }
-  scene->DeleteEntity(sample_entity);
-  TransformGraph::CalculateTransformGraphs(scene);
-  return measured_count > 0 ? height_sum / static_cast<float>(measured_count) : 0.0f;
-}
-
-float AverageGeneratedHeightForPlants(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& plants,
-                                      const std::shared_ptr<SorghumLSDescriptor>& descriptor) {
-  float height_sum = 0.0f;
-  int measured_count = 0;
-  for (const auto& plant : plants) {
-    const float height = RegenerateAndMeasurePlant(scene, plant, descriptor);
-    if (height > 0.0f) {
-      height_sum += height;
-      measured_count++;
-    }
-  }
-  return measured_count > 0 ? height_sum / static_cast<float>(measured_count) : 0.0f;
-}
-
-float OptimizeDateDescriptorScale(const std::shared_ptr<Scene>& scene, const SorghumLSDescriptor& source,
-                                  const std::string& cultivar, const float target_height_m,
-                                  const float leaf_modules_mean, const float leaf_modules_deviation,
-                                  const int optimizer_sample_count) {
-  const int sample_count = std::max(1, optimizer_sample_count);
-  const uint32_t seed_base = 0x726f6f74u ^ static_cast<uint32_t>(std::hash<std::string>{}(cultivar));
-  float best_scale = 1.0f;
-  float best_error = std::numeric_limits<float>::max();
-  float scale = 1.0f;
-  for (int iteration = 0; iteration < 6; ++iteration) {
-    scale = std::clamp(scale, 0.05f, 8.0f);
-    const auto descriptor = CloneConfiguredDescriptorTemporary(source, leaf_modules_mean, leaf_modules_deviation, scale);
-    const float average_height = AverageGeneratedHeightForDescriptor(scene, descriptor, sample_count, seed_base);
-    if (average_height > 0.0f) {
-      const float error = std::abs(average_height - target_height_m);
-      if (error < best_error) {
-        best_error = error;
-        best_scale = scale;
-      }
-      scale *= target_height_m / average_height;
+  const auto main = axes.find(0);
+  const float main_height = main == axes.end() ? 0.0f : main->second.tip_height_m;
+  const uint32_t main_leaves = main == axes.end() ? 0u : main->second.leaf_count;
+  for (const auto& [axis_id, axis] : axes) {
+    LSystemAxisPhenotypeRecord record;
+    record.axis_id = axis_id;
+    record.origin_rank = axis.origin_rank;
+    record.leaf_count = axis.leaf_count;
+    record.internode_count = axis.internode_count;
+    record.culm_tip_height_m = axis.tip_height_m;
+    record.leaf_ratio_to_main =
+        axis_id == 0 || main_leaves == 0 ? 1.0f : static_cast<float>(axis.leaf_count) / static_cast<float>(main_leaves);
+    record.height_ratio_to_main = axis_id == 0 || main_height <= 1.0e-6f ? 1.0f : axis.tip_height_m / main_height;
+    stats.axes.emplace_back(record);
+    if (axis_id == 0) {
+      stats.main_culm_leaf_count = axis.leaf_count;
     } else {
-      scale *= 1.25f;
+      stats.tiller_leaf_count += axis.leaf_count;
+      stats.primary_tiller_count++;
     }
   }
-  return best_scale;
+  return stats;
 }
 
-void RefineDescriptorScaleToScenePlants(const std::shared_ptr<Scene>& scene,
-                                        const std::shared_ptr<SorghumLSDescriptor>& descriptor,
-                                        const std::vector<Entity>& plants, const float target_height_m,
-                                        float& length_scale) {
-  for (int iteration = 0; iteration < 3; ++iteration) {
-    const float average_height = AverageGeneratedHeightForPlants(scene, plants, descriptor);
-    if (average_height <= 1e-6f) {
-      return;
+bool BuildCalibrationStemContext(const SorghumGraph& graph, const LNodeHandle leaf_handle, StemContext& stem_context) {
+  stem_context.segments.clear();
+  if (leaf_handle < 0)
+    return false;
+  const auto& leaf_node = graph.PeekNode(leaf_handle);
+  if (!leaf_node.data.Is<SorghumLeaf>())
+    return false;
+  const int leaf_order = leaf_node.data.Get<SorghumLeaf>().order;
+  std::vector<LNodeHandle> chain;
+  auto cursor = leaf_node.GetParentHandle();
+  while (cursor >= 0) {
+    const auto& node = graph.PeekNode(cursor);
+    if (node.data.Is<SorghumInternode>() && node.data.Get<SorghumInternode>().order == leaf_order) {
+      chain.push_back(cursor);
     }
-    const float tolerance = std::max(0.001f, target_height_m * 0.01f);
-    if (std::abs(average_height - target_height_m) <= tolerance) {
-      return;
-    }
-    const float correction = std::clamp(target_height_m / average_height, 0.5f, 2.0f);
-    ScaleSorghumLengthDistributions(*descriptor, correction);
-    length_scale *= correction;
+    cursor = node.GetParentHandle();
   }
+  std::reverse(chain.begin(), chain.end());
+  for (const auto handle : chain) {
+    const auto& node = graph.PeekNode(handle);
+    const auto& internode = node.data.Get<SorghumInternode>();
+    StemContext::Segment segment;
+    segment.position = node.info.global_position;
+    segment.front = glm::normalize(node.info.global_rotation * glm::vec3(0, 0, -1));
+    segment.up = glm::normalize(node.info.global_rotation * glm::vec3(0, 1, 0));
+    segment.radius = std::max(0.0002f, internode.thickness * 0.5f);
+    segment.theta = 180.0f;
+    stem_context.segments.push_back(segment);
+  }
+  if (chain.empty())
+    return false;
+  const auto& last = graph.PeekNode(chain.back());
+  auto tip = stem_context.segments.back();
+  tip.position = last.info.GetGlobalEndPosition();
+  stem_context.segments.push_back(tip);
+  return true;
 }
 
-std::map<std::string, float> MiddleParbarTopElevationsByCultivar(const std::shared_ptr<Scene>& scene) {
-  std::map<std::string, float> elevations;
-  for (const auto& panel : kParbarPanels) {
-    if (!IsMiddleParbarPanel(panel)) {
-      continue;
+float MeasureCalibrationPlantHeight(const SorghumLS& sorghum) {
+  float maximum_y = 0.0f;
+  StemContext stem_context;
+  l_system_package::SorghumSpline spline;
+  for (const auto handle : sorghum.growth_model.graph.PeekSortedNodeList()) {
+    const auto& node = sorghum.growth_model.graph.PeekNode(handle);
+    if (node.data.Is<SorghumInternode>()) {
+      maximum_y = std::max({maximum_y, node.info.global_position.y, node.info.GetGlobalEndPosition().y});
+    } else if (node.data.Is<SorghumLeaf>() && node.data.Get<SorghumLeaf>().alive &&
+               BuildCalibrationStemContext(sorghum.growth_model.graph, handle, stem_context)) {
+      BuildLeafSplineFromState(node.data.Get<SorghumLeaf>(), stem_context, sorghum.growth_model.sampled,
+                               sorghum.leaf_mesh_settings, spline);
+      const int horizontal_steps = std::max(2, sorghum.leaf_mesh_settings.horizontal_subdivision_step) * 2;
+      for (const auto& segment : spline.segments) {
+        for (int i = 0; i <= horizontal_steps; ++i) {
+          const float angle =
+              glm::mix(-segment.theta, segment.theta, static_cast<float>(i) / static_cast<float>(horizontal_steps));
+          maximum_y = std::max(maximum_y, segment.GetLeafPoint(angle).y);
+        }
+      }
     }
-    const auto metadata = GetParbarPanelHeightMetadata(scene, panel, 2.0f / 3.0f);
-    elevations[panel.cultivar] = metadata.top_elevation;
   }
-  return elevations;
+  return maximum_y;
+}
+
+LSystemDescriptorPhenotypeRecord MeasureDescriptorSample(const std::shared_ptr<Scene>& scene, const Entity& plant,
+                                                         const std::shared_ptr<SorghumLS>& sorghum,
+                                                         const std::shared_ptr<SorghumLSDescriptor>& descriptor,
+                                                         const uint32_t seed) {
+  LSystemDescriptorPhenotypeRecord record;
+  record.seed = seed;
+  if (!scene || !scene->IsEntityValid(plant) || !sorghum || !descriptor) {
+    return record;
+  }
+  sorghum->descriptor_ref = descriptor;
+  sorghum->seed = seed;
+  sorghum->target_gdd = SampleTargetGddForDescriptorSeed(*descriptor, seed);
+  sorghum->growth_model.Initialize(*descriptor, seed);
+  sorghum->growth_model.GrowToGDD(sorghum->target_gdd, 0u);
+  sorghum->growth_model.FinalizeSnapshotMorphology();
+
+  for (const auto handle : sorghum->growth_model.graph.PeekSortedNodeList()) {
+    const auto& node = sorghum->growth_model.graph.PeekNode(handle);
+    if (node.data.Is<SorghumLeaf>()) {
+      ++record.leaf_count;
+      if (node.data.Get<SorghumLeaf>().alive)
+        ++record.live_leaf_count;
+    }
+  }
+  const auto architecture = MeasureSorghumArchitecture(*sorghum);
+  record.main_culm_leaf_count = architecture.main_culm_leaf_count;
+  record.tiller_leaf_count = architecture.tiller_leaf_count;
+  record.primary_tiller_count = architecture.primary_tiller_count;
+  record.axes = architecture.axes;
+  record.height_m = MeasureCalibrationPlantHeight(*sorghum);
+  record.has_geometry = true;
+  return record;
 }
 
 }  // namespace
@@ -1214,7 +1106,6 @@ void PyDigitalAgriculture::ApplySorghumGrid(const Handle& sorghum_field_handle, 
   DatasetGenerator::ApplySorghumGrid(sorghum_field, sorghum_generator, sorghum_grid);
 }
 
-
 void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   PyEvoEngine::Initialize(m);
   m.def("RegisterClasses", &RegisterClasses);
@@ -1236,38 +1127,59 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   m.def("IlluminationEstimationOnSorghum", &IlluminationEstimationOnSorghum);
   m.def("CheckTriangleEstimator", &CheckTriangleEstimator);
   m.def("GetAllIlluminationEstimationResultsOnSorghum", &GetAllIlluminationEstimationResultsOnSorghum);
-  m.def("InstantiateSorghumField", &InstantiateSorghumField, 
-      py::arg("sorghum_field_handle"),
-      py::arg("sorghum_coordinates"), 
-      py::arg("seed"), 
-      py::arg("index") = 200, 
-      py::arg("radius") = 2000.0f);
+  m.def("InstantiateSorghumField", &InstantiateSorghumField, py::arg("sorghum_field_handle"),
+        py::arg("sorghum_coordinates"), py::arg("seed"), py::arg("index") = 200, py::arg("radius") = 2000.0f);
   m.def("SetIlluminationSamples", &SetIlluminationSamples);
   m.def("RunLSystemSorghumProject", &RunLSystemSorghumProject, py::arg("project_path"),
-        py::arg("runtime_package_path") = std::filesystem::path{}, py::arg("start_scene_path") = std::filesystem::path{},
-        py::arg("load_project_assets") = false);
+        py::arg("runtime_package_path") = std::filesystem::path{},
+        py::arg("start_scene_path") = std::filesystem::path{}, py::arg("load_project_assets") = false);
   m.def("WaitForProjectIdle", &WaitForProjectIdle, py::arg("max_frames") = 30000);
   m.def("LoopFrames", &LoopFrames, py::arg("frames"));
-  m.def("GrowSorghumLsPlantsToAdulthood", &GrowSorghumLsPlantsToAdulthood);
+  m.def("EnsureIlluminationSoilContext", &EnsureIlluminationSoilContext);
+  m.def("ValidateIlluminationContext", &ValidateIlluminationContext);
+  m.def("ConfigureSceneReviewLighting", &ConfigureSceneReviewLighting, py::arg("ambient_light_intensity") = 1.25f,
+        py::arg("directional_light_brightness") = 1.0f, py::arg("cast_shadows") = false);
+  m.def("ConfigureRayTracerSkydome", &ConfigureRayTracerSkydome,
+        py::arg("sun_angles_degrees") = glm::vec3(55.0f, 30.0f, 0.0f),
+        py::arg("sun_angular_diameter_radians") = EnvironmentProperties::kPhysicalSunAngularDiameterRadians,
+        py::arg("sun_intensity") = 1.0f, py::arg("sun_color") = glm::vec3(1.0f), py::arg("skylight_intensity") = 1.0f,
+        py::arg("ambient_light_intensity") = 0.1f, py::arg("gamma") = 2.2f);
+  m.def("CaptureCurrentSceneRayTraced", &CaptureCurrentSceneRayTraced, py::arg("resolution_x"), py::arg("resolution_y"),
+        py::arg("output_path"), py::arg("samples") = 64, py::arg("bounces") = 4, py::arg("gamma") = 2.2f);
+  m.def("GrowSorghumLsPlantsToAdulthood", &GrowSorghumLsPlantsToAdulthood, py::arg("seed_base") = -1,
+        py::arg("cultivar_filter") = "");
   m.def("SetSorghumLsLeafThickness", &SetSorghumLsLeafThickness, py::arg("leaf_thickness_m"),
         py::arg("regenerate_geometry") = true);
-  m.def("SetSorghumLsGridSpacing", &SetSorghumLsGridSpacing, py::arg("spacing_x"), py::arg("spacing_z"));
+  m.def("SetSorghumLsLeafWidthScale", &SetSorghumLsLeafWidthScale, py::arg("leaf_width_scale"),
+        py::arg("regenerate_geometry") = true);
+  m.def("SetSorghumLsCultivarDescriptors", &SetSorghumLsCultivarDescriptors, py::arg("btx_descriptor_path"),
+        py::arg("pawaga_descriptor_path"), py::arg("regenerate_geometry") = true, py::arg("seed_base") = -1);
+  m.def("SetSorghumLsGridSpacing", &SetSorghumLsGridSpacing, py::arg("spacing_x"), py::arg("spacing_z"),
+        py::arg("cultivar_filter") = "");
+  m.def("RemoveSorghumLsPseudoTillerPlants", &RemoveSorghumLsPseudoTillerPlants);
+  m.def("ConvertSorghumLsPlantsToPlantingMarkers", &ConvertSorghumLsPlantsToPlantingMarkers);
+  m.def("InstantiateSorghumLsPlantsFromPlantingMarkers", &InstantiateSorghumLsPlantsFromPlantingMarkers);
+  m.def("GetSorghumLsPlantSceneMetadata", &GetSorghumLsPlantSceneMetadata, py::arg("measure_geometry") = true);
   m.def("MoveParbarMiddlePanelsToPlantHeightFraction", &MoveParbarMiddlePanelsToPlantHeightFraction,
         py::arg("height_fraction") = 2.0f / 3.0f);
   m.def("CreateParbarTopFaceSensorGroup", &CreateParbarTopFaceSensorGroup, py::arg("samples_per_panel") = 100);
   m.def("EstimatePARSensors", &EstimatePARSensors, py::arg("sensor_group_handle"), py::arg("samples") = 64,
         py::arg("bounces") = 4, py::arg("push_normal_distance") = 0.001f, py::arg("seed") = 0);
-  m.def("GetParbarTopFaceSensorResults", &GetParbarTopFaceSensorResults,
-        py::arg("sensor_group_handle"), py::arg("samples_per_panel") = 100);
+  m.def("GetParbarTopFaceSensorResults", &GetParbarTopFaceSensorResults, py::arg("sensor_group_handle"),
+        py::arg("samples_per_panel") = 100);
   m.def("EstimateSorghumLsGridIllumination", &EstimateSorghumLsGridIllumination, py::arg("samples") = 64,
-        py::arg("bounces") = 4, py::arg("max_triangles_per_plant") = 0,
-        py::arg("push_normal_distance") = 0.001f, py::arg("seed") = 0);
-  m.def("FitSorghumLsDateHeightScene", &FitSorghumLsDateHeightScene, py::arg("date"),
-        py::arg("target_heights_m"), py::arg("leaf_modules_mean"), py::arg("leaf_modules_deviation"),
-        py::arg("descriptor_folder"), py::arg("scene_asset_path"), py::arg("optimizer_sample_count") = 240,
-        py::arg("tolerance_m") = 0.005f, py::arg("max_fit_iterations") = 6,
-        py::arg("leaf_thickness_m") = 0.001f, py::arg("cluster_min_count") = 1,
-        py::arg("cluster_max_count") = 1, py::arg("cluster_radius_m") = 0.0f);
+        py::arg("bounces") = 4, py::arg("max_triangles_per_plant") = 0, py::arg("push_normal_distance") = 0.001f,
+        py::arg("seed") = 0, py::arg("cultivar_filter") = "");
+  m.def("SampleSorghumLsDescriptorPhenotypes", &SampleSorghumLsDescriptorPhenotypes, py::arg("base_descriptor_path"),
+        py::arg("leaf_modules_mean"), py::arg("leaf_modules_deviation"), py::arg("length_mean_scale"),
+        py::arg("length_deviation_scale"), py::arg("sample_count") = 1000, py::arg("seed_base") = 0,
+        py::arg("leaf_width_scale") = 1.0f, py::arg("main_culm_diameter_m") = 0.0f,
+        py::arg("tiller_leaf_count_ratio") = 0.90f, py::arg("tiller_height_ratio") = 0.90f);
+  m.def("SaveCalibratedSorghumLsDescriptor", &SaveCalibratedSorghumLsDescriptor, py::arg("base_descriptor_path"),
+        py::arg("output_descriptor_path"), py::arg("leaf_modules_mean"), py::arg("leaf_modules_deviation"),
+        py::arg("length_mean_scale"), py::arg("length_deviation_scale"), py::arg("leaf_width_scale") = 1.0f,
+        py::arg("main_culm_diameter_m") = 0.0f, py::arg("tiller_leaf_count_ratio") = 0.90f,
+        py::arg("tiller_height_ratio") = 0.90f);
   m.def("SaveActiveSceneAsProjectAsset", &SaveActiveSceneAsProjectAsset, py::arg("scene_asset_path"));
   m.def("CreateEntityFromPrefab", &CreateEntityFromPrefab);
 
@@ -1313,29 +1225,50 @@ void PyDigitalAgriculture::Initialize(pybind11::module& m) {
       .def_readonly("shadow_loss", &LSystemGridIlluminationRecord::shadow_loss)
       .def_readonly("normalized", &LSystemGridIlluminationRecord::normalized);
 
-  py::class_<LSystemPlantHeightFitRecord>(m, "LSystemPlantHeightFitRecord")
-      .def_readonly("date", &LSystemPlantHeightFitRecord::date)
-      .def_readonly("cultivar", &LSystemPlantHeightFitRecord::cultivar)
-      .def_readonly("plant_name", &LSystemPlantHeightFitRecord::plant_name)
-      .def_readonly("base_plant_name", &LSystemPlantHeightFitRecord::base_plant_name)
-      .def_readonly("scene_asset_path", &LSystemPlantHeightFitRecord::scene_asset_path)
-      .def_readonly("descriptor_asset_path", &LSystemPlantHeightFitRecord::descriptor_asset_path)
-      .def_readonly("cluster_index", &LSystemPlantHeightFitRecord::cluster_index)
-      .def_readonly("cluster_size", &LSystemPlantHeightFitRecord::cluster_size)
-      .def_readonly("cluster_offset_x_m", &LSystemPlantHeightFitRecord::cluster_offset_x_m)
-      .def_readonly("cluster_offset_z_m", &LSystemPlantHeightFitRecord::cluster_offset_z_m)
-      .def_readonly("cluster_offset_radius_m", &LSystemPlantHeightFitRecord::cluster_offset_radius_m)
-      .def_readonly("clump_mean_height_m", &LSystemPlantHeightFitRecord::clump_mean_height_m)
-      .def_readonly("target_height_m", &LSystemPlantHeightFitRecord::target_height_m)
-      .def_readonly("pre_fit_height_m", &LSystemPlantHeightFitRecord::pre_fit_height_m)
-      .def_readonly("final_height_m", &LSystemPlantHeightFitRecord::final_height_m)
-      .def_readonly("optimized_descriptor_scale", &LSystemPlantHeightFitRecord::optimized_descriptor_scale)
-      .def_readonly("per_plant_scale", &LSystemPlantHeightFitRecord::per_plant_scale)
-      .def_readonly("leaf_modules_mean", &LSystemPlantHeightFitRecord::leaf_modules_mean)
-      .def_readonly("leaf_modules_deviation", &LSystemPlantHeightFitRecord::leaf_modules_deviation)
-      .def_readonly("leaf_thickness_m", &LSystemPlantHeightFitRecord::leaf_thickness_m)
-      .def_readonly("leaf_count", &LSystemPlantHeightFitRecord::leaf_count)
-      .def_readonly("middle_parbar_top_elevation_m", &LSystemPlantHeightFitRecord::middle_parbar_top_elevation_m);
+  py::class_<LSystemAxisPhenotypeRecord>(m, "LSystemAxisPhenotypeRecord")
+      .def_readonly("axis_id", &LSystemAxisPhenotypeRecord::axis_id)
+      .def_readonly("origin_rank", &LSystemAxisPhenotypeRecord::origin_rank)
+      .def_readonly("leaf_count", &LSystemAxisPhenotypeRecord::leaf_count)
+      .def_readonly("internode_count", &LSystemAxisPhenotypeRecord::internode_count)
+      .def_readonly("culm_tip_height_m", &LSystemAxisPhenotypeRecord::culm_tip_height_m)
+      .def_readonly("leaf_ratio_to_main", &LSystemAxisPhenotypeRecord::leaf_ratio_to_main)
+      .def_readonly("height_ratio_to_main", &LSystemAxisPhenotypeRecord::height_ratio_to_main);
+
+  py::class_<LSystemDescriptorPhenotypeRecord>(m, "LSystemDescriptorPhenotypeRecord")
+      .def_readonly("seed", &LSystemDescriptorPhenotypeRecord::seed)
+      .def_readonly("leaf_count", &LSystemDescriptorPhenotypeRecord::leaf_count)
+      .def_readonly("live_leaf_count", &LSystemDescriptorPhenotypeRecord::live_leaf_count)
+      .def_readonly("main_culm_leaf_count", &LSystemDescriptorPhenotypeRecord::main_culm_leaf_count)
+      .def_readonly("tiller_leaf_count", &LSystemDescriptorPhenotypeRecord::tiller_leaf_count)
+      .def_readonly("primary_tiller_count", &LSystemDescriptorPhenotypeRecord::primary_tiller_count)
+      .def_readonly("triangle_count", &LSystemDescriptorPhenotypeRecord::triangle_count)
+      .def_readonly("leaf_triangle_count", &LSystemDescriptorPhenotypeRecord::leaf_triangle_count)
+      .def_readonly("stem_triangle_count", &LSystemDescriptorPhenotypeRecord::stem_triangle_count)
+      .def_readonly("height_m", &LSystemDescriptorPhenotypeRecord::height_m)
+      .def_readonly("area", &LSystemDescriptorPhenotypeRecord::area)
+      .def_readonly("leaf_area", &LSystemDescriptorPhenotypeRecord::leaf_area)
+      .def_readonly("stem_area", &LSystemDescriptorPhenotypeRecord::stem_area)
+      .def_readonly("has_geometry", &LSystemDescriptorPhenotypeRecord::has_geometry)
+      .def_readonly("axes", &LSystemDescriptorPhenotypeRecord::axes);
+
+  py::class_<LSystemPlantSceneMetadataRecord>(m, "LSystemPlantSceneMetadataRecord")
+      .def_readonly("name", &LSystemPlantSceneMetadataRecord::name)
+      .def_readonly("cultivar", &LSystemPlantSceneMetadataRecord::cultivar)
+      .def_readonly("local_position", &LSystemPlantSceneMetadataRecord::local_position)
+      .def_readonly("global_position", &LSystemPlantSceneMetadataRecord::global_position)
+      .def_readonly("geometry_min_position", &LSystemPlantSceneMetadataRecord::geometry_min_position)
+      .def_readonly("geometry_max_position", &LSystemPlantSceneMetadataRecord::geometry_max_position)
+      .def_readonly("leaf_count", &LSystemPlantSceneMetadataRecord::leaf_count)
+      .def_readonly("main_culm_leaf_count", &LSystemPlantSceneMetadataRecord::main_culm_leaf_count)
+      .def_readonly("tiller_leaf_count", &LSystemPlantSceneMetadataRecord::tiller_leaf_count)
+      .def_readonly("primary_tiller_count", &LSystemPlantSceneMetadataRecord::primary_tiller_count)
+      .def_readonly("leaf_width_scale", &LSystemPlantSceneMetadataRecord::leaf_width_scale)
+      .def_readonly("leaf_thickness_m", &LSystemPlantSceneMetadataRecord::leaf_thickness_m)
+      .def_readonly("plant_height_m", &LSystemPlantSceneMetadataRecord::plant_height_m)
+      .def_readonly("leaf_area_m2", &LSystemPlantSceneMetadataRecord::leaf_area_m2)
+      .def_readonly("middle_parbar_top_elevation_m", &LSystemPlantSceneMetadataRecord::middle_parbar_top_elevation_m)
+      .def_readonly("has_geometry", &LSystemPlantSceneMetadataRecord::has_geometry)
+      .def_readonly("axes", &LSystemPlantSceneMetadataRecord::axes);
 
   py::class_<SorghumMeshGeneratorSettings>(m, "SorghumMeshGeneratorSettings")
       .def(py::init<>())
@@ -1411,13 +1344,12 @@ void PyDigitalAgriculture::SetCBTFGroup(const Handle& cbtf_group_handle) {
 
 bool PyDigitalAgriculture::CheckBTFComponentsExist() {
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  EVOENGINE_LOG("!scene " << !scene )
+  EVOENGINE_LOG("!scene " << !scene)
   const auto owners = scene->GetPrivateComponentOwnersList<BtfMeshRenderer>();
 
   EVOENGINE_LOG("btf material count: " << owners.size())
 
   return !owners.empty();
-
 }
 
 void PyDigitalAgriculture::SetSkyDome() {
@@ -1426,10 +1358,8 @@ void PyDigitalAgriculture::SetSkyDome() {
 
   EVOENGINE_LOG("sky info: " << ray_tracer_layer->environment_properties.sun_direction.x << ","
                              << ray_tracer_layer->environment_properties.sun_direction.y << ","
-                             << ray_tracer_layer->environment_properties.sun_direction.z )
-
+                             << ray_tracer_layer->environment_properties.sun_direction.z)
 }
-
 
 void PyDigitalAgriculture::PushRayTracerLayer() {
   ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
@@ -1443,16 +1373,11 @@ void PyDigitalAgriculture::SetSunDirection(glm::vec3 angles) {
 }
 
 void PyDigitalAgriculture::IlluminationEstimationOnSorghum() {
-
   auto scene = ApplicationContext::Get().GetActiveScene();
   auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
 
   sorghum_layer->CalculateIllumination();
-
 }
-
-
-
 
 void PyDigitalAgriculture::CheckTriangleEstimator(const Entity& sorghum_entity) {
   auto scene = ApplicationContext::Get().GetActiveScene();
@@ -1460,12 +1385,13 @@ void PyDigitalAgriculture::CheckTriangleEstimator(const Entity& sorghum_entity) 
       scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock();
 
   triangle_illumination_estimator->PrepareLightProbeGroup();
-  EVOENGINE_LOG("triangle illumination estimator total light probes: " << triangle_illumination_estimator->GetLightProbeGroup().light_probes.size())
+  EVOENGINE_LOG("triangle illumination estimator total light probes: "
+                << triangle_illumination_estimator->GetLightProbeGroup().light_probes.size())
 }
 
 Entity PyDigitalAgriculture::InstantiateSorghumField(const Handle& sorghum_field_handle,
-    const Handle& sorghum_coordinates, const int seed, const int index, const float radius) {
-
+                                                     const Handle& sorghum_coordinates, const int seed, const int index,
+                                                     const float radius) {
   const auto field_asset = PyEvoEngine::GetAsset(sorghum_field_handle);
   if (field_asset->GetTypeName() != "SorghumField") {
     EVOENGINE_ERROR("Instantiate SorghumField failed: invalid asset type!")
@@ -1478,7 +1404,6 @@ Entity PyDigitalAgriculture::InstantiateSorghumField(const Handle& sorghum_field
   const auto coordinates = std::dynamic_pointer_cast<SorghumCoordinates>(coordinates_data);
   glm::dvec2 offset;
 
-  
   coordinates->Apply(sorghum_field, offset, index, radius);
 
   EVOENGINE_LOG("Instantiate SorghumField:" << sorghum_field->matrices.size())
@@ -1496,11 +1421,11 @@ Entity PyDigitalAgriculture::InstantiateSorghumField(const Handle& sorghum_field
 std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEstimationResultsOnSorghum() {
   auto scene = ApplicationContext::Get().GetActiveScene();
   auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
-    const std::vector<Entity>* sorghum_entities =
-        scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
+  const std::vector<Entity>* sorghum_entities =
+      scene->UnsafeGetPrivateComponentOwnersList<TriangleIlluminationEstimator>();
   std::vector<std::vector<glm::vec3>> results;
 
-  // todo: maybe need to bind the result to a specific sorghum 
+  // todo: maybe need to bind the result to a specific sorghum
 
   for (const auto& sorghum : *sorghum_entities) {
     auto triangle_illumination_estimator =
@@ -1520,7 +1445,6 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
     result.emplace_back(triangle_illumination_estimator->average_flux);
 
     results.emplace_back(result);
-
   }
   return results;
 }
@@ -1530,22 +1454,19 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
 // given the sorghum field prepare the PARSensor group according to the sorghums / bounding boxes
 Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
   auto sensor_group_handle = PyEvoEngine::CreateRuntimeAsset("PARSensorGroup");
-  
+
   auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
   const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
 
   auto& samplers = sensors->samplers;
 
-
   auto scene = ApplicationContext::Get().GetActiveScene();
-  const std::vector<Entity>* leaf_mesh_list =
-      scene->UnsafeGetPrivateComponentOwnersList<BtfMeshRenderer>();
+  const std::vector<Entity>* leaf_mesh_list = scene->UnsafeGetPrivateComponentOwnersList<BtfMeshRenderer>();
 
   EVOENGINE_LOG("btfMeshRenderer count : " << leaf_mesh_list->size())
 
   Bound overall_bound;
   for (const auto& btf_mesh_renderer_entity : *leaf_mesh_list) {
-
     const auto transform = scene->GetDataComponent<GlobalTransform>(btf_mesh_renderer_entity).value;
     auto btf_mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(btf_mesh_renderer_entity).lock();
     auto bound = btf_mesh_renderer->mesh.Get<Mesh>()->GetBound();
@@ -1557,7 +1478,6 @@ Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
 
     overall_bound.min = glm::min(overall_bound.min, wmin);
     overall_bound.max = glm::max(overall_bound.max, wmax);
- 
   }
 
   // directly clean offset caused by float numbers
@@ -1566,7 +1486,6 @@ Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
   EVOENGINE_LOG("overall_bound: " << overall_bound.min.x << "," << overall_bound.min.y << "," << overall_bound.min.z
                                   << ";" << overall_bound.max.x << "," << overall_bound.max.y << ","
                                   << overall_bound.max.z)
-
 
   // not to include boundaries of the bounding box
   float step = 0.8f;
@@ -1598,7 +1517,6 @@ Handle PyDigitalAgriculture::SetPARSensors(const Entity& sorghum_field) {
 }
 
 void PyDigitalAgriculture::IlluminationEstimationOnSensors(const Handle& sensor_group_handle) {
-
   const auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
 
   const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
@@ -1620,8 +1538,6 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
   // todo: maybe need to bind the result to a specific sorghum
 
   for (const auto& sampler : samplers) {
-
-
     std::vector<glm::vec3> result;
     // sampler position (3 vertices are at the same position for now)
     result.emplace_back(sampler.v_0.position);
@@ -1632,11 +1548,9 @@ std::vector<std::vector<glm::vec3>> PyDigitalAgriculture::GetAllIlluminationEsti
     // energy dominant direction
     result.emplace_back(sampler.direction);
 
-
     results.emplace_back(result);
   }
   return results;
-
 }
 
 void PyDigitalAgriculture::SetIlluminationSamples(int samples, int bounces) {
@@ -1658,11 +1572,11 @@ bool PyDigitalAgriculture::RunLSystemSorghumProject(const std::filesystem::path&
   if (!ApplicationContext::Get().GetLayer<RenderLayer>()) {
     ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   }
-#ifdef CUDA_MODULE_SERVICE
+#  ifdef CUDA_MODULE_SERVICE
   if (!ApplicationContext::Get().GetLayer<RayTracerLayer>()) {
     ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
   }
-#endif
+#  endif
 
   const bool has_start_scene_override = !start_scene_path.empty() && start_scene_path != ".";
   ApplicationInitializationSettings application_info{};
@@ -1691,11 +1605,11 @@ bool PyDigitalAgriculture::RunLSystemSorghumProject(const std::filesystem::path&
     application.Attach(scene);
     TransformGraph::CalculateTransformGraphs(scene);
   }
-#ifdef CUDA_MODULE_SERVICE
+#  ifdef CUDA_MODULE_SERVICE
   if (const auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>()) {
     ray_tracer_layer->environment_properties.environmental_lighting_type = EnvironmentalLightingType::Skydome;
   }
-#endif
+#  endif
   return true;
 }
 
@@ -1726,29 +1640,217 @@ void PyDigitalAgriculture::LoopFrames(const int frames) {
   }
 }
 
-size_t PyDigitalAgriculture::GrowSorghumLsPlantsToAdulthood() {
+bool PyDigitalAgriculture::EnsureIlluminationSoilContext() {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    EVOENGINE_ERROR("EnsureIlluminationSoilContext failed: no active scene")
+    return false;
+  }
+
+  const auto soil_descriptor = ProjectManager::GetOrCreateAsset(kIlluminationSoilDescriptorPath);
+  const auto ground_mesh =
+      std::dynamic_pointer_cast<Mesh>(ProjectManager::GetOrCreateAsset(kIlluminationGroundMeshPath));
+  const auto soil_material =
+      std::dynamic_pointer_cast<Material>(ProjectManager::GetOrCreateAsset(kIlluminationSoilMaterialPath));
+  if (!soil_descriptor || !ground_mesh || !soil_material) {
+    EVOENGINE_ERROR("EnsureIlluminationSoilContext failed: could not resolve hardcoded soil assets")
+    return false;
+  }
+
+  Entity soil_entity = FindEntityByName(scene, "bigSoil *");
+  if (!scene->IsEntityValid(soil_entity)) {
+    soil_entity = scene->CreateEntity("bigSoil *");
+  }
+  scene->SetEnable(soil_entity, true);
+  scene->SetEntitySerializable(soil_entity, true);
+  const auto soil = scene->GetOrSetPrivateComponent<Soil>(soil_entity).lock();
+  if (!soil) {
+    EVOENGINE_ERROR("EnsureIlluminationSoilContext failed: could not create Soil component")
+    return false;
+  }
+  soil->soil_descriptor_ref = soil_descriptor;
+
+  Entity ground_entity = {};
+  for (const auto& child : scene->GetChildren(soil_entity)) {
+    if (scene->IsEntityValid(child) && scene->GetEntityName(child) == "Ground Mesh" &&
+        scene->HasPrivateComponent<MeshRenderer>(child)) {
+      ground_entity = child;
+      break;
+    }
+  }
+  if (!scene->IsEntityValid(ground_entity)) {
+    ground_entity = FindEntityByName(scene, "Ground Mesh");
+  }
+  if (!scene->IsEntityValid(ground_entity)) {
+    ground_entity = scene->CreateEntity("Ground Mesh");
+  }
+  scene->SetParent(ground_entity, soil_entity, true);
+  scene->SetEnable(ground_entity, true);
+  scene->SetEntitySerializable(ground_entity, true);
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground_entity).lock();
+  if (!renderer) {
+    EVOENGINE_ERROR("EnsureIlluminationSoilContext failed: could not create Ground Mesh renderer")
+    return false;
+  }
+  renderer->cast_shadow = true;
+  renderer->mesh = ground_mesh;
+  renderer->material = soil_material;
+  ground_mesh->ray_tracing_acceleration_enabled = true;
+  TransformGraph::CalculateTransformGraphs(scene);
+  return true;
+}
+
+bool PyDigitalAgriculture::ValidateIlluminationContext() {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    EVOENGINE_ERROR("ValidateIlluminationContext failed: no active scene")
+    return false;
+  }
+  const Entity ground_entity = FindEntityByName(scene, "Ground Mesh");
+  if (!scene->IsEntityValid(ground_entity) || !scene->IsEntityEnabled(ground_entity) ||
+      !scene->HasPrivateComponent<MeshRenderer>(ground_entity)) {
+    EVOENGINE_ERROR("ValidateIlluminationContext failed: missing enabled Ground Mesh MeshRenderer")
+    return false;
+  }
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground_entity).lock();
+  const auto mesh = renderer ? renderer->mesh.Get<Mesh>() : nullptr;
+  const auto material = renderer ? renderer->material.Get<Material>() : nullptr;
+  if (!mesh || mesh->UnsafeGetVertices().empty() || !material) {
+    EVOENGINE_ERROR("ValidateIlluminationContext failed: Ground Mesh has unresolved mesh or material")
+    return false;
+  }
+  if (!material->GetAlbedoTexture() || !material->GetNormalTexture() || !material->GetRoughnessTexture()) {
+    EVOENGINE_ERROR("ValidateIlluminationContext failed: PBR soil material is missing CUDA-supported textures")
+    return false;
+  }
+  return true;
+}
+
+size_t PyDigitalAgriculture::ConfigureSceneReviewLighting(const float ambient_light_intensity,
+                                                          const float directional_light_brightness,
+                                                          const bool cast_shadows) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return 0;
+  }
+  scene->environment.ambient_light_intensity = std::max(0.0f, ambient_light_intensity);
+
+  size_t light_count = 0;
+  if (const auto* light_entities = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>()) {
+    for (const auto& entity : *light_entities) {
+      if (const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(entity).lock()) {
+        light->diffuse_brightness = std::max(0.0f, directional_light_brightness);
+        light->cast_shadow = cast_shadows;
+        light_count++;
+      }
+    }
+  }
+  return light_count;
+}
+
+bool PyDigitalAgriculture::ConfigureRayTracerSkydome(const glm::vec3 sun_angles_degrees,
+                                                     const float sun_angular_diameter_radians,
+                                                     const float sun_intensity, const glm::vec3 sun_color,
+                                                     const float skylight_intensity,
+                                                     const float ambient_light_intensity, const float gamma) {
+#  ifdef CUDA_MODULE_SERVICE
+  const auto layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
+  if (!layer || !std::isfinite(sun_angular_diameter_radians) || !std::isfinite(sun_intensity) ||
+      !std::isfinite(skylight_intensity) || !std::isfinite(ambient_light_intensity) || !std::isfinite(gamma)) {
+    return false;
+  }
+  auto& environment = layer->environment_properties;
+  environment.environmental_lighting_type = EnvironmentalLightingType::Skydome;
+  environment.sun_direction = glm::quat(glm::radians(sun_angles_degrees)) * glm::vec3(0.0f, 0.0f, -1.0f);
+  environment.sun_angular_diameter_radians = glm::clamp(sun_angular_diameter_radians, 0.0f, glm::pi<float>());
+  environment.sun_intensity = std::max(0.0f, sun_intensity);
+  environment.sun_color = glm::max(sun_color, glm::vec3(0.0f));
+  environment.skylight_intensity = std::max(0.0f, skylight_intensity);
+  environment.ambient_light_intensity = std::max(0.0f, ambient_light_intensity);
+  environment.gamma = std::max(0.01f, gamma);
+  return true;
+#  else
+  return false;
+#  endif
+}
+
+bool PyDigitalAgriculture::CaptureCurrentSceneRayTraced(const int resolution_x, const int resolution_y,
+                                                        const std::filesystem::path& output_path, const int samples,
+                                                        const int bounces, const float gamma) {
+#  ifdef CUDA_MODULE_SERVICE
+  if (resolution_x <= 0 || resolution_y <= 0 || samples <= 0 || bounces < 0 || gamma <= 0.0f) {
+    return false;
+  }
+  auto& application = ApplicationContext::Get();
+  const auto scene = application.GetActiveScene();
+  const auto layer = application.GetLayer<RayTracerLayer>();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!scene || !layer || !main_camera || CudaModule::GetRayTracer()->instances.empty()) {
+    return false;
+  }
+
+  Entity camera_entity = FindEntityByName(scene, "__PythonRayTracerCaptureCamera");
+  if (!scene->IsEntityValid(camera_entity)) {
+    camera_entity = scene->CreateEntity("__PythonRayTracerCaptureCamera");
+  }
+  scene->SetDataComponent(camera_entity, scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner()));
+  const auto camera = scene->GetOrSetPrivateComponent<RayTracerCamera>(camera_entity).lock();
+  camera->allow_auto_resize = false;
+  camera->frame_size = glm::uvec2(resolution_x, resolution_y);
+  camera->ApplyCameraSettings(main_camera->camera_settings);
+  camera->ray_properties.samples = samples;
+  camera->ray_properties.bounces = bounces;
+  camera->SetGamma(gamma);
+  camera->Render(camera->ray_properties, layer->environment_properties);
+
+  if (const auto parent = output_path.parent_path(); !parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+  camera->render_texture->StoreToPng(output_path);
+  return std::filesystem::exists(output_path) && std::filesystem::file_size(output_path) > 0;
+#  else
+  return false;
+#  endif
+}
+
+size_t PyDigitalAgriculture::GrowSorghumLsPlantsToAdulthood(const int seed_base, const std::string& cultivar_filter) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     return 0;
   }
 
   size_t plant_count = 0;
+  uint32_t reseed_index = 0;
   if (const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
     const std::vector<Entity> sorghum_entities = *sorghum_entities_ptr;
     for (const auto& entity : sorghum_entities) {
       if (!scene->IsEntityValid(entity)) {
         continue;
       }
+      if (!MatchesCultivarFilter(CultivarFromPlantName(scene->GetEntityName(entity)), cultivar_filter)) {
+        continue;
+      }
       const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
       if (!sorghum) {
         continue;
       }
-      if (const auto descriptor = sorghum->descriptor_ref.Get<SorghumLSDescriptor>()) {
+      if (seed_base >= 0) {
+        sorghum->seed = static_cast<uint32_t>(seed_base) + reseed_index;
+      }
+      auto descriptor = sorghum->descriptor_ref.Get<SorghumLSDescriptor>();
+      if (!descriptor) {
+        descriptor = ReferenceDescriptorForCultivar(CultivarFromPlantName(scene->GetEntityName(entity)));
+        if (descriptor) {
+          sorghum->descriptor_ref = descriptor;
+        }
+      }
+      if (descriptor) {
         std::mt19937 rng(sorghum->seed);
         sorghum->target_gdd = std::max(0.0f, SampleDistribution(descriptor->target_gdd, rng));
       }
       sorghum->GenerateGeometryEntities(true);
       plant_count++;
+      reseed_index++;
     }
   }
   if (plant_count > 0) {
@@ -1788,7 +1890,91 @@ size_t PyDigitalAgriculture::SetSorghumLsLeafThickness(const float leaf_thicknes
   return plant_count;
 }
 
-size_t PyDigitalAgriculture::SetSorghumLsGridSpacing(const float spacing_x, const float spacing_z) {
+size_t PyDigitalAgriculture::SetSorghumLsLeafWidthScale(const float leaf_width_scale, const bool regenerate_geometry) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return 0;
+  }
+
+  size_t plant_count = 0;
+  const float scale = std::max(0.0f, leaf_width_scale);
+  if (const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    const std::vector<Entity> sorghum_entities = *sorghum_entities_ptr;
+    for (const auto& entity : sorghum_entities) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+      if (!sorghum) {
+        continue;
+      }
+      sorghum->leaf_mesh_settings.leaf_width_scale = scale;
+      if (regenerate_geometry) {
+        sorghum->GenerateGeometryEntities(true);
+      }
+      plant_count++;
+    }
+  }
+  if (plant_count > 0 && regenerate_geometry) {
+    TransformGraph::CalculateTransformGraphs(scene);
+  }
+  return plant_count;
+}
+
+size_t PyDigitalAgriculture::SetSorghumLsCultivarDescriptors(const std::filesystem::path& btx_descriptor_path,
+                                                             const std::filesystem::path& pawaga_descriptor_path,
+                                                             const bool regenerate_geometry, const int seed_base) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return 0;
+  }
+  const auto btx_descriptor =
+      std::dynamic_pointer_cast<SorghumLSDescriptor>(ProjectManager::GetOrCreateAsset(btx_descriptor_path));
+  const auto pawaga_descriptor =
+      std::dynamic_pointer_cast<SorghumLSDescriptor>(ProjectManager::GetOrCreateAsset(pawaga_descriptor_path));
+  if (!btx_descriptor || !pawaga_descriptor) {
+    EVOENGINE_ERROR("SetSorghumLsCultivarDescriptors failed: missing calibrated descriptor asset")
+    return 0;
+  }
+
+  size_t plant_count = 0;
+  uint32_t reseed_index = 0;
+  if (const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    const std::vector<Entity> sorghum_entities = *sorghum_entities_ptr;
+    for (const auto& entity : sorghum_entities) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      const std::string cultivar = CultivarFromPlantName(scene->GetEntityName(entity));
+      const auto descriptor = cultivar == "BTX" ? btx_descriptor : cultivar == "Pawaga" ? pawaga_descriptor : nullptr;
+      if (!descriptor) {
+        continue;
+      }
+      const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+      if (!sorghum) {
+        continue;
+      }
+      sorghum->descriptor_ref = descriptor;
+      if (seed_base >= 0) {
+        sorghum->seed = static_cast<uint32_t>(seed_base) + reseed_index;
+      }
+      if (regenerate_geometry) {
+        std::mt19937 rng(sorghum->seed);
+        sorghum->target_gdd = std::max(0.0f, SampleDistribution(descriptor->target_gdd, rng));
+        sorghum->GenerateGeometryEntities(true);
+      }
+      plant_count++;
+      reseed_index++;
+    }
+  }
+  if (plant_count > 0 && regenerate_geometry) {
+    TransformGraph::CalculateTransformGraphs(scene);
+  }
+  return plant_count;
+}
+
+size_t PyDigitalAgriculture::SetSorghumLsGridSpacing(const float spacing_x, const float spacing_z,
+                                                     const std::string& cultivar_filter) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     return 0;
@@ -1810,6 +1996,10 @@ size_t PyDigitalAgriculture::SetSorghumLsGridSpacing(const float spacing_x, cons
     LSystemTriangleTarget target;
     target.plant = plant;
     target.name = scene->GetEntityName(plant);
+    target.cultivar = CultivarFromPlantName(target.name);
+    if (!MatchesCultivarFilter(target.cultivar, cultivar_filter)) {
+      continue;
+    }
     if (!TryParseGridCoordinate(target.name, target.row, target.column)) {
       continue;
     }
@@ -1837,6 +2027,144 @@ size_t PyDigitalAgriculture::SetSorghumLsGridSpacing(const float spacing_x, cons
   }
   TransformGraph::CalculateTransformGraphs(scene);
   return targets.size();
+}
+
+size_t PyDigitalAgriculture::RemoveSorghumLsPseudoTillerPlants() {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return 0;
+  }
+  const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>();
+  if (!sorghum_entities_ptr) {
+    return 0;
+  }
+  std::vector<Entity> pseudo_tillers;
+  for (const auto& plant : *sorghum_entities_ptr) {
+    if (scene->IsEntityValid(plant) && scene->GetEntityName(plant).find("_cluster_") != std::string::npos) {
+      pseudo_tillers.emplace_back(plant);
+    }
+  }
+  for (const auto& plant : pseudo_tillers) {
+    scene->DeleteEntity(plant);
+  }
+  if (!pseudo_tillers.empty()) {
+    TransformGraph::CalculateTransformGraphs(scene, false);
+  }
+  return pseudo_tillers.size();
+}
+
+size_t PyDigitalAgriculture::ConvertSorghumLsPlantsToPlantingMarkers() {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return 0;
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    const std::vector<Entity> plants = *owners;
+    for (const auto& plant : plants) {
+      if (!scene->IsEntityValid(plant)) {
+        continue;
+      }
+      if (scene->GetEntityName(plant).find("_cluster_") != std::string::npos) {
+        scene->DeleteEntity(plant);
+        continue;
+      }
+      if (const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(plant).lock()) {
+        sorghum->ClearGeometryEntities();
+      }
+      scene->RemovePrivateComponent<SorghumLS>(plant);
+    }
+  }
+  size_t marker_count = 0;
+  for (const auto& entity : scene->UnsafeGetAllEntities()) {
+    marker_count += scene->IsEntityValid(entity) && IsSorghumPlantingMarkerName(scene->GetEntityName(entity));
+  }
+  TransformGraph::CalculateTransformGraphs(scene, false);
+  return marker_count;
+}
+
+size_t PyDigitalAgriculture::InstantiateSorghumLsPlantsFromPlantingMarkers() {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return 0;
+  }
+  size_t plant_count = 0;
+  for (const auto& entity : scene->UnsafeGetAllEntities()) {
+    if (!scene->IsEntityValid(entity) || !IsSorghumPlantingMarkerName(scene->GetEntityName(entity))) {
+      continue;
+    }
+    scene->GetOrSetPrivateComponent<SorghumLS>(entity);
+    ++plant_count;
+  }
+  return plant_count;
+}
+
+std::vector<LSystemPlantSceneMetadataRecord> PyDigitalAgriculture::GetSorghumLsPlantSceneMetadata(
+    const bool measure_geometry) {
+  std::vector<LSystemPlantSceneMetadataRecord> records;
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene) {
+    return records;
+  }
+  const auto* sorghum_entities_ptr = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>();
+  if (!sorghum_entities_ptr) {
+    return records;
+  }
+
+  std::map<std::string, float> middle_panel_elevations;
+  if (measure_geometry) {
+    for (const auto& panel : kParbarPanels) {
+      if (IsMiddleParbarPanel(panel)) {
+        middle_panel_elevations[panel.cultivar] =
+            TopFaceElevation(CollectTopFaceTriangles(scene, FindParbarMeshEntity(scene, panel)));
+      }
+    }
+  }
+
+  records.reserve(sorghum_entities_ptr->size());
+  for (const auto& plant : *sorghum_entities_ptr) {
+    if (!scene->IsEntityValid(plant)) {
+      continue;
+    }
+    LSystemPlantSceneMetadataRecord record;
+    record.name = scene->GetEntityName(plant);
+    record.cultivar = CultivarFromPlantName(record.name);
+    record.local_position = scene->GetDataComponent<Transform>(plant).GetPosition();
+    record.global_position = scene->GetDataComponent<GlobalTransform>(plant).GetPosition();
+    if (const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(plant).lock()) {
+      record.leaf_count = sorghum->last_leaf_count;
+      const auto architecture = MeasureSorghumArchitecture(*sorghum);
+      record.main_culm_leaf_count = architecture.main_culm_leaf_count;
+      record.tiller_leaf_count = architecture.tiller_leaf_count;
+      record.primary_tiller_count = architecture.primary_tiller_count;
+      record.axes = architecture.axes;
+      record.leaf_width_scale = sorghum->leaf_mesh_settings.leaf_width_scale;
+      float blade_thickness_sum = 0.0f;
+      int blade_thickness_count = 0;
+      for (const auto handle : sorghum->growth_model.graph.PeekSortedNodeList()) {
+        const auto& node = sorghum->growth_model.graph.PeekNode(handle);
+        if (node.data.Is<SorghumLeaf>() && node.data.Get<SorghumLeaf>().order == 0) {
+          blade_thickness_sum += node.data.Get<SorghumLeaf>().target_blade_thickness;
+          ++blade_thickness_count;
+        }
+      }
+      record.leaf_thickness_m =
+          blade_thickness_count > 0 ? blade_thickness_sum / static_cast<float>(blade_thickness_count) : 0.0f;
+    }
+    if (measure_geometry) {
+      const auto stats = MeasureGreenPlantGeometry(scene, plant);
+      const auto root_position = scene->GetDataComponent<GlobalTransform>(plant).GetPosition();
+      record.has_geometry = stats.has_geometry;
+      record.plant_height_m = stats.has_geometry ? std::max(0.0f, stats.max_y - root_position.y) : 0.0f;
+      record.leaf_area_m2 = stats.leaf_area;
+      record.geometry_min_position = stats.has_geometry ? stats.min_position : root_position;
+      record.geometry_max_position = stats.has_geometry ? stats.max_position : root_position;
+      if (const auto panel = middle_panel_elevations.find(record.cultivar); panel != middle_panel_elevations.end()) {
+        record.middle_parbar_top_elevation_m = panel->second;
+      }
+    }
+    records.emplace_back(record);
+  }
+  return records;
 }
 
 size_t PyDigitalAgriculture::MoveParbarMiddlePanelsToPlantHeightFraction(const float height_fraction) {
@@ -1876,8 +2204,8 @@ void PyDigitalAgriculture::EstimatePARSensors(const Handle& sensor_group_handle,
   sensors->CalculateIllumination(ray_properties, seed, push_normal_distance);
 }
 
-std::vector<ParbarProbeRecord> PyDigitalAgriculture::GetParbarTopFaceSensorResults(
-    const Handle& sensor_group_handle, const uint32_t samples_per_panel) {
+std::vector<ParbarProbeRecord> PyDigitalAgriculture::GetParbarTopFaceSensorResults(const Handle& sensor_group_handle,
+                                                                                   const uint32_t samples_per_panel) {
   const auto sensor_group_asset = PyEvoEngine::GetAsset(sensor_group_handle);
   const auto sensors = std::dynamic_pointer_cast<PARSensorGroup>(sensor_group_asset);
   std::vector<ParbarProbeRecord> records;
@@ -1909,10 +2237,10 @@ std::vector<ParbarProbeRecord> PyDigitalAgriculture::GetParbarTopFaceSensorResul
     const float scalar = IlluminationScalar(sampler.energy);
     ParbarProbeRecord record;
     record.cultivar = panel.cultivar;
-    record.model = panel.model;
+    record.model = panel.mesh_entity_name;
     record.sensor_bar_level = panel.sensor_bar_level;
-    record.height_rule = IsMiddleParbarPanel(panel) ? "two_thirds_average_represented_plant_height"
-                                                    : "fixed_scene_position";
+    record.height_rule =
+        IsMiddleParbarPanel(panel) ? "two_thirds_average_represented_plant_height" : "fixed_scene_position";
     record.row = static_cast<uint32_t>(panel_index);
     record.column = static_cast<uint32_t>(index % panel_size);
     record.represented_plant_count = metadata.represented_plant_count;
@@ -1933,7 +2261,7 @@ std::vector<ParbarProbeRecord> PyDigitalAgriculture::GetParbarTopFaceSensorResul
 
 std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghumLsGridIllumination(
     const int samples, const int bounces, const int max_triangles_per_plant, const float push_normal_distance,
-    const int seed) {
+    const int seed, const std::string& cultivar_filter) {
   std::vector<LSystemGridIlluminationRecord> records;
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
@@ -1953,9 +2281,16 @@ std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghum
   }
 
   bool generated_geometry = false;
+  std::vector<Entity> all_sorghum_plants;
   std::vector<LSystemTriangleTarget> targets;
   for (const auto& plant : *sorghum_entities_ptr) {
     if (!scene->IsEntityValid(plant)) {
+      continue;
+    }
+    all_sorghum_plants.emplace_back(plant);
+    const std::string plant_name = scene->GetEntityName(plant);
+    const std::string cultivar = CultivarFromPlantName(plant_name);
+    if (!MatchesCultivarFilter(cultivar, cultivar_filter)) {
       continue;
     }
     Entity leaf_entity = FindSorghumLsLeafMeshEntity(scene, plant);
@@ -1974,8 +2309,8 @@ std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghum
     target.plant = plant;
     target.leaf_entity = leaf_entity;
     target.internode_entity = FindSorghumLsInternodeEntity(scene, plant);
-    target.name = scene->GetEntityName(plant);
-    target.cultivar = CultivarFromPlantName(target.name);
+    target.name = plant_name;
+    target.cultivar = cultivar;
     TryParseGridCoordinate(target.name, target.row, target.column);
     targets.emplace_back(target);
   }
@@ -1994,10 +2329,11 @@ std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghum
   ray_properties.bounces = std::max(1, bounces);
 
   std::vector<bool> original_enabled_states;
-  original_enabled_states.reserve(targets.size());
-  for (const auto& target : targets) {
-    original_enabled_states.emplace_back(scene->IsEntityEnabled(target.plant));
-    scene->SetEnable(target.plant, true);
+  original_enabled_states.reserve(all_sorghum_plants.size());
+  for (const auto& plant : all_sorghum_plants) {
+    original_enabled_states.emplace_back(scene->IsEntityEnabled(plant));
+    const std::string cultivar = CultivarFromPlantName(scene->GetEntityName(plant));
+    scene->SetEnable(plant, MatchesCultivarFilter(cultivar, cultivar_filter));
   }
 
   ray_tracer_layer->UpdateScene(scene);
@@ -2039,8 +2375,8 @@ std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghum
 
   if (records.empty()) {
     EVOENGINE_ERROR("EstimateSorghumLsGridIllumination failed: no leaf triangles were sampled")
-    for (size_t i = 0; i < targets.size(); i++) {
-      scene->SetEnable(targets[i].plant, original_enabled_states[i]);
+    for (size_t i = 0; i < all_sorghum_plants.size(); i++) {
+      scene->SetEnable(all_sorghum_plants[i], original_enabled_states[i]);
     }
     ray_tracer_layer->UpdateScene(scene);
     return records;
@@ -2048,8 +2384,8 @@ std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghum
 
   for (size_t target_index = 0; target_index < sampled_targets.size(); target_index++) {
     const auto& target = sampled_targets[target_index];
-    for (const auto& other : targets) {
-      scene->SetEnable(other.plant, other.plant == target.plant);
+    for (const auto& other : all_sorghum_plants) {
+      scene->SetEnable(other, other == target.plant);
     }
     ray_tracer_layer->UpdateScene(scene);
 
@@ -2073,8 +2409,8 @@ std::vector<LSystemGridIlluminationRecord> PyDigitalAgriculture::EstimateSorghum
     record.shadow_loss = 1.0f - record.normalized;
   }
 
-  for (size_t i = 0; i < targets.size(); i++) {
-    scene->SetEnable(targets[i].plant, original_enabled_states[i]);
+  for (size_t i = 0; i < all_sorghum_plants.size(); i++) {
+    scene->SetEnable(all_sorghum_plants[i], original_enabled_states[i]);
   }
   ray_tracer_layer->UpdateScene(scene);
 
@@ -2109,159 +2445,71 @@ bool PyDigitalAgriculture::SaveActiveSceneAsProjectAsset(const std::filesystem::
   return scene_clone->SetPathAndSave(WithExtension(scene_asset_path, ".evescene"));
 }
 
-std::vector<LSystemPlantHeightFitRecord> PyDigitalAgriculture::FitSorghumLsDateHeightScene(
-    const std::string& date, const std::map<std::string, float>& target_heights_m,
-    const float leaf_modules_mean, const float leaf_modules_deviation,
-    const std::filesystem::path& descriptor_folder, const std::filesystem::path& scene_asset_path,
-    const int optimizer_sample_count, const float tolerance_m, const int max_fit_iterations,
-    const float leaf_thickness_m, const int cluster_min_count, const int cluster_max_count,
-    const float cluster_radius_m) {
-  std::vector<LSystemPlantHeightFitRecord> records;
+std::vector<LSystemDescriptorPhenotypeRecord> PyDigitalAgriculture::SampleSorghumLsDescriptorPhenotypes(
+    const std::filesystem::path& base_descriptor_path, const float leaf_modules_mean,
+    const float leaf_modules_deviation, const float length_mean_scale, const float length_deviation_scale,
+    const int sample_count, const int seed_base, const float leaf_width_scale, const float main_culm_diameter_m,
+    const float tiller_leaf_count_ratio, const float tiller_height_ratio) {
+  std::vector<LSystemDescriptorPhenotypeRecord> records;
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
-    EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: no active scene")
+    EVOENGINE_ERROR("SampleSorghumLsDescriptorPhenotypes failed: no active scene")
     return records;
   }
-  if (descriptor_folder.empty() || descriptor_folder.is_absolute() || scene_asset_path.empty() ||
-      scene_asset_path.is_absolute()) {
-    EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: output paths must be relative to project assets")
+  const auto descriptor = CreateCalibratedDescriptorTemporary(
+      base_descriptor_path, leaf_modules_mean, leaf_modules_deviation, length_mean_scale, length_deviation_scale,
+      leaf_width_scale, main_culm_diameter_m, tiller_leaf_count_ratio, tiller_height_ratio, false);
+  if (!descriptor) {
+    EVOENGINE_ERROR("SampleSorghumLsDescriptorPhenotypes failed: could not load descriptor " +
+                    WithExtension(base_descriptor_path, ".sorghumls").string())
     return records;
   }
 
-  std::map<std::string, std::shared_ptr<SorghumLSDescriptor>> optimized_descriptors;
-  std::map<std::string, float> optimized_scales;
-  std::map<std::string, std::vector<Entity>> base_plants_by_cultivar;
-  const std::string safe_date = SanitizeAssetStem(date);
-  for (const auto& [cultivar, target_height] : target_heights_m) {
-    auto base_plants = CollectBaseSorghumLsPlants(scene, cultivar);
-    if (base_plants.empty()) {
-      EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: missing base plants for " + cultivar)
-      continue;
-    }
-    base_plants_by_cultivar[cultivar] = base_plants;
-    const auto source_descriptor = FindFirstDescriptorForCultivar(scene, cultivar);
-    if (!source_descriptor) {
-      EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: missing descriptor for " + cultivar)
-      continue;
-    }
-    float optimized_scale = OptimizeDateDescriptorScale(scene, *source_descriptor, cultivar, target_height,
-                                                        leaf_modules_mean, leaf_modules_deviation,
-                                                        optimizer_sample_count);
-    auto optimized_descriptor = CloneConfiguredDescriptorTemporary(*source_descriptor, leaf_modules_mean,
-                                                                   leaf_modules_deviation, optimized_scale);
-    RefineDescriptorScaleToScenePlants(scene, optimized_descriptor, base_plants, target_height, optimized_scale);
-    const auto optimized_path = descriptor_folder / "optimized" /
-                                (SanitizeAssetStem(cultivar + "_" + safe_date + "_optimized") + ".sorghumls");
-    if (!SaveDescriptorAsset(optimized_descriptor, optimized_path)) {
-      EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: could not save " + optimized_path.string())
-      continue;
-    }
-    optimized_descriptors[cultivar] = optimized_descriptor;
-    optimized_scales[cultivar] = optimized_scale;
+  const int clamped_sample_count = std::max(0, sample_count);
+  records.reserve(static_cast<size_t>(clamped_sample_count));
+  const Entity sample_entity = scene->CreateEntity("__DescriptorCalibrationSample");
+  const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(sample_entity).lock();
+  if (!sorghum) {
+    scene->DeleteEntity(sample_entity);
+    EVOENGINE_ERROR("SampleSorghumLsDescriptorPhenotypes failed: could not create sample plant")
+    return records;
   }
-
-  for (const auto& [cultivar, target_height] : target_heights_m) {
-    const auto descriptor_search = optimized_descriptors.find(cultivar);
-    if (descriptor_search == optimized_descriptors.end() || !descriptor_search->second) {
-      continue;
-    }
-    const auto optimized_descriptor = descriptor_search->second;
-    const float optimized_scale = optimized_scales[cultivar];
-    const auto base_plants_search = base_plants_by_cultivar.find(cultivar);
-    if (base_plants_search == base_plants_by_cultivar.end()) {
-      continue;
-    }
-    const auto cluster_members = BuildClusterMembersForCultivar(scene, base_plants_search->second, cultivar,
-                                                                cluster_min_count, cluster_max_count,
-                                                                cluster_radius_m);
-    for (const auto& member : cluster_members) {
-      const Entity plant = member.plant;
-      const std::string plant_name = scene->GetEntityName(plant);
-      float pre_fit_height = RegenerateAndMeasurePlant(scene, plant, optimized_descriptor);
-      float final_height = pre_fit_height;
-      float per_plant_scale = 1.0f;
-      auto plant_descriptor = CloneDescriptorTemporary(*optimized_descriptor);
-      for (int iteration = 0; iteration < std::max(1, max_fit_iterations); ++iteration) {
-        if (final_height <= 1e-6f) {
-          break;
-        }
-        const float correction = std::clamp(target_height / final_height, 0.2f, 5.0f);
-        per_plant_scale *= correction;
-        plant_descriptor = CloneDescriptorTemporary(*optimized_descriptor);
-        if (!plant_descriptor) {
-          break;
-        }
-        ScaleSorghumLengthDistributions(*plant_descriptor, per_plant_scale);
-        final_height = RegenerateAndMeasurePlant(scene, plant, plant_descriptor);
-        if (std::abs(final_height - target_height) <= std::max(0.0f, tolerance_m)) {
-          break;
-        }
-      }
-
-      const auto descriptor_path = descriptor_folder / "plants" / SanitizeAssetStem(cultivar) /
-                                   (SanitizeAssetStem(plant_name) + ".sorghumls");
-      if (!SaveDescriptorAsset(plant_descriptor, descriptor_path)) {
-        EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: could not save " + descriptor_path.string())
-        continue;
-      }
-      const auto sorghum = scene->GetOrSetPrivateComponent<SorghumLS>(plant).lock();
-      if (sorghum) {
-        sorghum->descriptor_ref = plant_descriptor;
-      }
-
-      LSystemPlantHeightFitRecord record;
-      record.date = date;
-      record.cultivar = cultivar;
-      record.plant_name = plant_name;
-      record.base_plant_name = member.base_plant_name;
-      record.scene_asset_path = WithExtension(scene_asset_path, ".evescene").generic_string();
-      record.descriptor_asset_path = WithExtension(descriptor_path, ".sorghumls").generic_string();
-      record.cluster_index = member.cluster_index;
-      record.cluster_size = member.cluster_size;
-      record.cluster_offset_x_m = member.cluster_offset.x;
-      record.cluster_offset_z_m = member.cluster_offset.z;
-      record.cluster_offset_radius_m = glm::length(glm::vec2(member.cluster_offset.x, member.cluster_offset.z));
-      record.target_height_m = target_height;
-      record.pre_fit_height_m = pre_fit_height;
-      record.final_height_m = final_height;
-      record.optimized_descriptor_scale = optimized_scale;
-      record.per_plant_scale = per_plant_scale;
-      record.leaf_modules_mean = std::max(1.0f, leaf_modules_mean);
-      record.leaf_modules_deviation = std::max(0.0f, leaf_modules_deviation);
-      record.leaf_thickness_m = std::max(0.0f, leaf_thickness_m);
-      record.leaf_count = sorghum ? sorghum->last_leaf_count : 0u;
-      records.emplace_back(record);
-    }
+  for (int i = 0; i < clamped_sample_count; ++i) {
+    const uint32_t seed = static_cast<uint32_t>(std::max(0, seed_base)) + static_cast<uint32_t>(i);
+    records.emplace_back(MeasureDescriptorSample(scene, sample_entity, sorghum, descriptor, seed));
   }
-
-  PyDigitalAgriculture::SetSorghumLsLeafThickness(std::max(0.0f, leaf_thickness_m), true);
-  MoveMiddleParbarPanelsToPlantHeightFraction(scene, 2.0f / 3.0f);
-  const auto top_elevations = MiddleParbarTopElevationsByCultivar(scene);
-  std::map<std::string, std::pair<float, uint32_t>> clump_heights;
-  for (const auto& record : records) {
-    auto& clump = clump_heights[record.cultivar + "|" + record.base_plant_name];
-    clump.first += record.final_height_m;
-    clump.second++;
-  }
-  for (auto& record : records) {
-    if (const auto clump_search = clump_heights.find(record.cultivar + "|" + record.base_plant_name);
-        clump_search != clump_heights.end() && clump_search->second.second > 0u) {
-      record.clump_mean_height_m = clump_search->second.first / static_cast<float>(clump_search->second.second);
-    }
-    if (const auto search = top_elevations.find(record.cultivar); search != top_elevations.end()) {
-      record.middle_parbar_top_elevation_m = search->second;
-    }
-  }
-
-  if (!SaveActiveSceneAsProjectAsset(scene_asset_path)) {
-    EVOENGINE_ERROR("FitSorghumLsDateHeightScene failed: scene save failed")
-  }
+  scene->DeleteEntity(sample_entity);
+  TransformGraph::CalculateTransformGraphs(scene);
   return records;
 }
 
+bool PyDigitalAgriculture::SaveCalibratedSorghumLsDescriptor(
+    const std::filesystem::path& base_descriptor_path, const std::filesystem::path& output_descriptor_path,
+    const float leaf_modules_mean, const float leaf_modules_deviation, const float length_mean_scale,
+    const float length_deviation_scale, const float leaf_width_scale, const float main_culm_diameter_m,
+    const float tiller_leaf_count_ratio, const float tiller_height_ratio) {
+  if (!IsProjectAssetPath(output_descriptor_path)) {
+    EVOENGINE_ERROR("SaveCalibratedSorghumLsDescriptor failed: output path must be relative to project assets")
+    return false;
+  }
+  const auto descriptor = CreateCalibratedDescriptorTemporary(
+      base_descriptor_path, leaf_modules_mean, leaf_modules_deviation, length_mean_scale, length_deviation_scale,
+      leaf_width_scale, main_culm_diameter_m, tiller_leaf_count_ratio, tiller_height_ratio, false);
+  if (!descriptor) {
+    EVOENGINE_ERROR("SaveCalibratedSorghumLsDescriptor failed: could not load descriptor " +
+                    WithExtension(base_descriptor_path, ".sorghumls").string())
+    return false;
+  }
+  if (!SaveDescriptorAsset(descriptor, output_descriptor_path)) {
+    EVOENGINE_ERROR("SaveCalibratedSorghumLsDescriptor failed: could not save " +
+                    WithExtension(output_descriptor_path, ".sorghumls").string())
+    return false;
+  }
+  return true;
+}
+
 Entity PyDigitalAgriculture::CreateEntityFromPrefab(const Handle& prefab_handle, const glm::vec3& position,
-                                                    const glm::vec3& euler_rotation,
-                              const glm::vec3& scale) {
+                                                    const glm::vec3& euler_rotation, const glm::vec3& scale) {
   const auto asset = PyEvoEngine::GetAsset(prefab_handle);
   if (asset->GetTypeName() != "Prefab") {
     EVOENGINE_ERROR("CreateEntityFromPrefab failed: invalid asset type!")
@@ -2272,10 +2520,8 @@ Entity PyDigitalAgriculture::CreateEntityFromPrefab(const Handle& prefab_handle,
   auto transform = scene->GetDataComponent<Transform>(entity);
   transform.SetValue(position, euler_rotation, scale);
   scene->SetDataComponent(entity, transform);
-  
 
   return entity;
 }
-
 
 #endif

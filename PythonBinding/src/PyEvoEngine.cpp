@@ -3,6 +3,7 @@
 #include "ImGuiLayer.hpp"
 #include "RenderLayer.hpp"
 #include "TextureStorage.hpp"
+#include "TransformGraph.hpp"
 #include "WindowLayer.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
@@ -103,6 +104,36 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
     EVOENGINE_ERROR("Failed to export image to " + output_path.string())
   }
   return success;
+}
+
+bool PyEvoEngine::SetMainCameraLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up,
+                                      const float fov_degrees) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!scene || !camera) {
+    EVOENGINE_ERROR("SetMainCameraLookAt failed: no active main camera")
+    return false;
+  }
+
+  const glm::vec3 direction = target - position;
+  if (glm::length(direction) <= 1e-6f || glm::length(up) <= 1e-6f) {
+    EVOENGINE_ERROR("SetMainCameraLookAt failed: degenerate direction or up vector")
+    return false;
+  }
+  const glm::vec3 front = glm::normalize(direction);
+  const glm::vec3 right = glm::cross(front, glm::normalize(up));
+  if (glm::length(right) <= 1e-6f) {
+    EVOENGINE_ERROR("SetMainCameraLookAt failed: direction and up vector are parallel")
+    return false;
+  }
+
+  auto transform = scene->GetDataComponent<GlobalTransform>(camera->GetOwner());
+  transform.SetValue(position, glm::quatLookAt(front, glm::normalize(glm::cross(glm::normalize(right), front))),
+                     glm::vec3(1.0f));
+  scene->SetDataComponent(camera->GetOwner(), transform);
+  camera->camera_settings.fov = std::clamp(fov_degrees, 1.0f, 179.0f) * 2.0f;
+  TransformGraph::CalculateTransformGraphs(scene, false);
+  return true;
 }
 
 Handle PyEvoEngine::CreateRuntimeAsset(const std::string& asset_type) {
@@ -228,6 +259,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         py::arg("clear_generated_project_files") = true);
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
         py::arg("output_path"), py::arg("warmup_frames") = 1);
+  m.def("SetMainCameraLookAt", &SetMainCameraLookAt, py::arg("position"), py::arg("target"), py::arg("up"),
+        py::arg("fov_degrees") = 50.0f);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);

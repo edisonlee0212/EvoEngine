@@ -26,6 +26,7 @@ add_executable(EvoEngine_Tests
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
 	Core/LSystemLeafAtlasUvTest.cpp
+	Core/SunLightSamplingTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
 	)
@@ -40,6 +41,7 @@ target_include_directories(EvoEngine_Tests
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/include
+	${CMAKE_SOURCE_DIR}/EvoEngine_Services/CudaModule/include/RayTracer
 	${3RDPARTY_DIR}/stb/stb
 	)
 target_compile_definitions(EvoEngine_Tests
@@ -117,6 +119,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER LSystemLeafAtlasUv.*
 	PROPERTIES LABELS "core,lsystem,geometry"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER SunLightSampling.*
+	PROPERTIES LABELS "render,cuda"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

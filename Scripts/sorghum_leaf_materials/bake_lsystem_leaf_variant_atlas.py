@@ -17,8 +17,8 @@ from bake_sorghum_leaf_atlas import ensure_evefilemeta, read_png_rgba, write_png
 
 DEFAULT_INPUT_DIR = Path("out/generated_assets/SorghumLeafMaterials/ImageTestLeafVariants/source")
 DEFAULT_SHEATH_SOURCE = Path(
-    "Resources/DigitalAgricultureProject/Assets/SorghumLeafMaterials/GeminiLeaf01/atlas/"
-    "sorghum_leaf_stem_atlas_albedo.png"
+    "Resources/DigitalAgricultureProject/Assets/GeneratedAssets/Materials/SorghumLeaves/LeafAtlas/atlas/"
+    "sorghum_lsystem_leaf_variants_albedo.png"
 )
 IMAGE_EXTENSIONS = {".png"}
 

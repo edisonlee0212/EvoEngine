@@ -1,5 +1,6 @@
 #include "BSDF.cuh"
 #include "BSSDF.cuh"
+#include "RayFunctions.cuh"
 #include "SpectralRayFunctions.cuh"
 
 namespace evo_engine {
@@ -7,8 +8,7 @@ extern "C" __constant__ CameraSpectralLaunchParams cameraSpectralLaunchParams;
 
 static __forceinline__ __device__ void CameraSpectralAnyHitFunc() {
   const float3 ray_direction_internal = optixGetWorldRayDirection();
-  glm::vec3 ray_direction =
-      glm::vec3(ray_direction_internal.x, ray_direction_internal.y, ray_direction_internal.z);
+  glm::vec3 ray_direction = glm::vec3(ray_direction_internal.x, ray_direction_internal.y, ray_direction_internal.z);
   const auto &sbt_data = *(const SBT *)optixGetSbtDataPointer();
   const auto hit_info = sbt_data.GetHitInfo(ray_direction);
   switch (sbt_data.material_type) {
@@ -23,8 +23,7 @@ static __forceinline__ __device__ void CameraSpectralAnyHitFunc() {
 
 static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
   const float3 ray_direction_internal = optixGetWorldRayDirection();
-  glm::vec3 ray_direction =
-      glm::vec3(ray_direction_internal.x, ray_direction_internal.y, ray_direction_internal.z);
+  glm::vec3 ray_direction = glm::vec3(ray_direction_internal.x, ray_direction_internal.y, ray_direction_internal.z);
   const auto &sbt_data = *(const SBT *)optixGetSbtDataPointer();
   auto hit_info = sbt_data.GetHitInfo(ray_direction);
   auto &per_ray_data = *GetRayDataPointer<PerRayData<glm::vec3>>();
@@ -50,6 +49,14 @@ static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
     float f = 1.0f;
     if (metallic >= 0.0f)
       f = (metallic + 2.0f) / (metallic + 1.0f);
+    if (environment.environmental_lighting_type == EnvironmentalLightingType::Skydome) {
+      glm::vec3 sun_direction;
+      float n_dot_l;
+      if (TraceSkydomeSun(environment, per_ray_data.random, cameraSpectralLaunchParams.traversable, hit_info.position,
+                          hit_info.normal, sun_direction, n_dot_l)) {
+        energy += environment.sun_color * environment.sun_intensity * n_dot_l * albedo_color;
+      }
+    }
     if (environment.environmental_lighting_type == EnvironmentalLightingType::SingleLightSource) {
       const glm::vec3 new_ray_direction =
           RandomSampleHemisphere(per_ray_data.random, environment.sun_direction, 1.0f - environment.light_size);
@@ -58,14 +65,14 @@ static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
       if (n_dot_l > 0.0f) {
         PackRayDataPointer(&per_ray_data, u0, u1);
         per_ray_data.energy = glm::vec3(0.0f);
-        optixTrace(cameraSpectralLaunchParams.traversable,
-                   make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z),
-                   make_float3(new_ray_direction.x, new_ray_direction.y, new_ray_direction.z), 1e-3f, 1e20f, 0.0f,
-                   static_cast<OptixVisibilityMask>(255),
-                   OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                       OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
-                   static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
-                   static_cast<int>(RayType::Radiance), u0, u1);
+        optixTrace(
+            cameraSpectralLaunchParams.traversable,
+            make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z),
+            make_float3(new_ray_direction.x, new_ray_direction.y, new_ray_direction.z), 1e-3f, 1e20f, 0.0f,
+            static_cast<OptixVisibilityMask>(255),
+            OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+            static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
+            static_cast<int>(RayType::Radiance), u0, u1);
         energy += per_ray_data.energy * n_dot_l * albedo_color;
       }
     } else if (per_ray_data.hit_count <= cameraSpectralLaunchParams.ray_tracer_properties.ray_properties.bounces) {
@@ -85,30 +92,30 @@ static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
                      static_cast<int>(RayType::Radiance), u0, u1);
           energy +=
               material->material_properties.subsurface_factor * material->material_properties.subsurface_color *
-              glm::clamp(glm::abs(glm::dot(out_normal, glm::vec3(new_ray_direction_internal.x,
-                                                                 new_ray_direction_internal.y,
-                                                                 new_ray_direction_internal.z))) *
-                                 roughness +
-                             (1.0f - roughness) * f,
-                         0.0f, 1.0f) *
+              glm::clamp(
+                  glm::abs(glm::dot(out_normal, glm::vec3(new_ray_direction_internal.x, new_ray_direction_internal.y,
+                                                          new_ray_direction_internal.z))) *
+                          roughness +
+                      (1.0f - roughness) * f,
+                  0.0f, 1.0f) *
               per_ray_data.energy;
         }
       }
       float3 new_ray_direction_internal;
       BRDF(metallic, per_ray_data.random, ray_direction, hit_info.normal, new_ray_direction_internal);
       optixTrace(cameraSpectralLaunchParams.traversable,
-                 make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z),
-                 new_ray_direction_internal, 1e-3f, 1e20f, 0.0f, static_cast<OptixVisibilityMask>(255),
-                 OPTIX_RAY_FLAG_NONE, static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
+                 make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z), new_ray_direction_internal,
+                 1e-3f, 1e20f, 0.0f, static_cast<OptixVisibilityMask>(255), OPTIX_RAY_FLAG_NONE,
+                 static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
                  static_cast<int>(RayType::Radiance), u0, u1);
       energy +=
           (1.0f - material->material_properties.subsurface_factor) * albedo_color *
-          glm::clamp(glm::abs(glm::dot(hit_info.normal, glm::vec3(new_ray_direction_internal.x,
-                                                                  new_ray_direction_internal.y,
-                                                                  new_ray_direction_internal.z))) *
-                             roughness +
-                         (1.0f - roughness) * f,
-                     0.0f, 1.0f) *
+          glm::clamp(
+              glm::abs(glm::dot(hit_info.normal, glm::vec3(new_ray_direction_internal.x, new_ray_direction_internal.y,
+                                                           new_ray_direction_internal.z))) *
+                      roughness +
+                  (1.0f - roughness) * f,
+              0.0f, 1.0f) *
           per_ray_data.energy;
     }
     if (hit_count == 1) {
@@ -121,6 +128,17 @@ static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
     glm::vec3 btf_color;
     if (per_ray_data.hit_count <= cameraSpectralLaunchParams.ray_tracer_properties.ray_properties.bounces) {
       const glm::vec3 reflected = Reflect(ray_direction, hit_info.normal);
+      if (environment.environmental_lighting_type == EnvironmentalLightingType::Skydome) {
+        glm::vec3 sun_direction;
+        float n_dot_l;
+        if (TraceSkydomeSun(environment, per_ray_data.random, cameraSpectralLaunchParams.traversable, hit_info.position,
+                            hit_info.normal, sun_direction, n_dot_l)) {
+          static_cast<SurfaceCompressedBtf *>(sbt_data.material)
+              ->GetValue(hit_info.tex_coord, ray_direction, sun_direction, hit_info.normal, hit_info.tangent,
+                         btf_color);
+          energy += environment.sun_color * environment.sun_intensity * n_dot_l * btf_color;
+        }
+      }
       if (environment.environmental_lighting_type == EnvironmentalLightingType::SingleLightSource) {
         const glm::vec3 new_ray_direction =
             RandomSampleHemisphere(per_ray_data.random, environment.sun_direction, 1.0f - environment.light_size);
@@ -131,13 +149,13 @@ static __forceinline__ __device__ void CameraSpectralClosestHitFunc() {
         const float n_dot_l = glm::dot(hit_info.normal, new_ray_direction);
         if (n_dot_l > 0.0f) {
           auto origin = hit_info.position + hit_info.normal * 1e-3f;
-          optixTrace(cameraSpectralLaunchParams.traversable, make_float3(origin.x, origin.y, origin.z),
-                     make_float3(new_ray_direction.x, new_ray_direction.y, new_ray_direction.z), 1e-3f, 1e20f, 0.0f,
-                     static_cast<OptixVisibilityMask>(255),
-                     OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                         OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
-                     static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
-                     static_cast<int>(RayType::Radiance), u0, u1);
+          optixTrace(
+              cameraSpectralLaunchParams.traversable, make_float3(origin.x, origin.y, origin.z),
+              make_float3(new_ray_direction.x, new_ray_direction.y, new_ray_direction.z), 1e-3f, 1e20f, 0.0f,
+              static_cast<OptixVisibilityMask>(255),
+              OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+              static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
+              static_cast<int>(RayType::Radiance), u0, u1);
           energy += per_ray_data.energy * n_dot_l * btf_color;
         }
       } else {
@@ -175,6 +193,9 @@ extern "C" __global__ void __closesthit__CS_R() {
 extern "C" __global__ void __closesthit__CS_SS() {
   SSHit();
 }
+extern "C" __global__ void __closesthit__CS_S() {
+  optixSetPayload_0(0);
+}
 #pragma endregion
 #pragma region Any hit functions
 
@@ -185,12 +206,18 @@ extern "C" __global__ void __anyhit__CS_R() {
 extern "C" __global__ void __anyhit__CS_SS() {
   SSAnyHit();
 }
+extern "C" __global__ void __anyhit__CS_S() {
+  ShadowAnyHitFunc();
+}
 #pragma endregion
 #pragma region Miss functions
 extern "C" __global__ void __miss__CS_R() {
   CameraSpectralMissFunc();
 }
 extern "C" __global__ void __miss__CS_SS() {
+}
+extern "C" __global__ void __miss__CS_S() {
+  ShadowMissFunc();
 }
 #pragma endregion
 #pragma region Main ray generation
@@ -221,10 +248,10 @@ extern "C" __global__ void __raygen__CS() {
   for (int sampleID = 0; sampleID < samples; sampleID++) {
     glm::vec2 screen =
         glm::vec2((ix + camera_ray_data.random() - halfX) / halfX, (iy + camera_ray_data.random() - halfY) / halfY);
-    glm::vec4 start =
-        cameraSpectralLaunchParams.camera_properties.inverse_projection_view * glm::vec4(screen.x, screen.y, -1.0f, 1.0f);
-    glm::vec4 end =
-        cameraSpectralLaunchParams.camera_properties.inverse_projection_view * glm::vec4(screen.x, screen.y, 1.0f, 1.0f);
+    glm::vec4 start = cameraSpectralLaunchParams.camera_properties.inverse_projection_view *
+                      glm::vec4(screen.x, screen.y, -1.0f, 1.0f);
+    glm::vec4 end = cameraSpectralLaunchParams.camera_properties.inverse_projection_view *
+                    glm::vec4(screen.x, screen.y, 1.0f, 1.0f);
     start /= start.w;
     end /= end.w;
     glm::vec3 rayStart = start;
@@ -244,12 +271,8 @@ extern "C" __global__ void __raygen__CS() {
                0.f,    // tmin
                1e20f,  // tmax
                0.0f,   // rayTime
-               static_cast<OptixVisibilityMask>(255),
-               OPTIX_RAY_FLAG_NONE,
-               static_cast<int>(RayType::Radiance),
-               static_cast<int>(RayType::RayTypeCount),
-               static_cast<int>(RayType::Radiance),
-               u0, u1);
+               static_cast<OptixVisibilityMask>(255), OPTIX_RAY_FLAG_NONE, static_cast<int>(RayType::Radiance),
+               static_cast<int>(RayType::RayTypeCount), static_cast<int>(RayType::Radiance), u0, u1);
     if (camera_ray_data.hit_count > 0) {
       pixel_color += glm::vec4(camera_ray_data.energy, 1.0f);
     } else {
@@ -288,7 +311,8 @@ extern "C" __global__ void __raygen__CS() {
                                                 glm::vec3(cameraSpectralLaunchParams.camera_properties.gamma)),
                                        prev_gamma_corrected_color.a);
       float count = static_cast<float>(cameraSpectralLaunchParams.camera_properties.target_frame.frame_id + 1);
-      pixel_color += static_cast<float>(cameraSpectralLaunchParams.camera_properties.target_frame.frame_id) * prev_color;
+      pixel_color +=
+          static_cast<float>(cameraSpectralLaunchParams.camera_properties.target_frame.frame_id) * prev_color;
       pixel_color /= count;
     }
   }

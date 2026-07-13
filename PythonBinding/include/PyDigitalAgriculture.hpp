@@ -2,13 +2,14 @@
 
 #ifdef DIGITAL_AGRICULTURE_PACKAGE
 
-//#  include "AnimationPlayer.hpp"
-//#  include "Application.hpp"
-//#  include "ClassRegistry.hpp"
-//#  include "Climate.hpp"
-//#  include "EditorLayer.hpp"
-//#  include "HeightField.hpp"
-//#  include "MeshRenderer.hpp"
+// #  include "AnimationPlayer.hpp"
+// #  include "Application.hpp"
+// #  include "ClassRegistry.hpp"
+// #  include "Climate.hpp"
+// #  include "EditorLayer.hpp"
+// #  include "HeightField.hpp"
+// #  include "MeshRenderer.hpp"
+#  include <map>
 #  include "EditorLayer.hpp"
 #  include "IPrivateComponent.hpp"
 #  include "ObjectRotator.hpp"
@@ -29,7 +30,6 @@
 #  include "pybind11/pybind11.h"
 #  include "pybind11/stl.h"
 #  include "pybind11/stl/filesystem.h"
-#  include <map>
 
 #  if DATASET_GENERATION_PACKAGE
 #    include <SorghumPointCloudScanner.hpp>
@@ -90,29 +90,52 @@ struct LSystemGridIlluminationRecord {
   float normalized = 0.0f;
 };
 
-struct LSystemPlantHeightFitRecord {
-  std::string date;
-  std::string cultivar;
-  std::string plant_name;
-  std::string base_plant_name;
-  std::string scene_asset_path;
-  std::string descriptor_asset_path;
-  uint32_t cluster_index = 0;
-  uint32_t cluster_size = 1;
-  float cluster_offset_x_m = 0.0f;
-  float cluster_offset_z_m = 0.0f;
-  float cluster_offset_radius_m = 0.0f;
-  float clump_mean_height_m = 0.0f;
-  float target_height_m = 0.0f;
-  float pre_fit_height_m = 0.0f;
-  float final_height_m = 0.0f;
-  float optimized_descriptor_scale = 1.0f;
-  float per_plant_scale = 1.0f;
-  float leaf_modules_mean = 0.0f;
-  float leaf_modules_deviation = 0.0f;
-  float leaf_thickness_m = 0.001f;
+struct LSystemAxisPhenotypeRecord {
+  int axis_id = 0;
+  int origin_rank = 0;
   uint32_t leaf_count = 0;
+  uint32_t internode_count = 0;
+  float culm_tip_height_m = 0.0f;
+  float leaf_ratio_to_main = 1.0f;
+  float height_ratio_to_main = 1.0f;
+};
+
+struct LSystemDescriptorPhenotypeRecord {
+  uint32_t seed = 0;
+  uint32_t leaf_count = 0;
+  uint32_t live_leaf_count = 0;
+  uint32_t main_culm_leaf_count = 0;
+  uint32_t tiller_leaf_count = 0;
+  uint32_t primary_tiller_count = 0;
+  uint32_t triangle_count = 0;
+  uint32_t leaf_triangle_count = 0;
+  uint32_t stem_triangle_count = 0;
+  float height_m = 0.0f;
+  float area = 0.0f;
+  float leaf_area = 0.0f;
+  float stem_area = 0.0f;
+  bool has_geometry = false;
+  std::vector<LSystemAxisPhenotypeRecord> axes;
+};
+
+struct LSystemPlantSceneMetadataRecord {
+  std::string name;
+  std::string cultivar;
+  glm::vec3 local_position = glm::vec3(0.0f);
+  glm::vec3 global_position = glm::vec3(0.0f);
+  glm::vec3 geometry_min_position = glm::vec3(0.0f);
+  glm::vec3 geometry_max_position = glm::vec3(0.0f);
+  uint32_t leaf_count = 0;
+  uint32_t main_culm_leaf_count = 0;
+  uint32_t tiller_leaf_count = 0;
+  uint32_t primary_tiller_count = 0;
+  float leaf_width_scale = 1.0f;
+  float leaf_thickness_m = 0.001f;
+  float plant_height_m = 0.0f;
+  float leaf_area_m2 = 0.0f;
   float middle_parbar_top_elevation_m = 0.0f;
+  bool has_geometry = false;
+  std::vector<LSystemAxisPhenotypeRecord> axes;
 };
 
 class PyDigitalAgriculture {
@@ -152,7 +175,7 @@ class PyDigitalAgriculture {
   static void CheckTriangleEstimator(const Entity& sorghum_entity);
 
   static Entity InstantiateSorghumField(const Handle& sorghum_field_handle, const Handle& sorghum_coordinates,
-                                       const int seed, const int index=200, const float radius=2000.0f);
+                                        const int seed, const int index = 200, const float radius = 2000.0f);
 
   static std::vector<std::vector<glm::vec3>> GetAllIlluminationEstimationResultsOnSorghum();
 
@@ -174,11 +197,40 @@ class PyDigitalAgriculture {
 
   static void LoopFrames(int frames);
 
-  static size_t GrowSorghumLsPlantsToAdulthood();
+  static bool EnsureIlluminationSoilContext();
+
+  static bool ValidateIlluminationContext();
+
+  static size_t ConfigureSceneReviewLighting(float ambient_light_intensity = 1.25f,
+                                             float directional_light_brightness = 1.0f, bool cast_shadows = false);
+
+  static bool ConfigureRayTracerSkydome(glm::vec3 sun_angles_degrees = glm::vec3(55.0f, 30.0f, 0.0f),
+                                        float sun_angular_diameter_radians = 0.00918043f, float sun_intensity = 1.0f,
+                                        glm::vec3 sun_color = glm::vec3(1.0f), float skylight_intensity = 1.0f,
+                                        float ambient_light_intensity = 0.1f, float gamma = 2.2f);
+
+  static bool CaptureCurrentSceneRayTraced(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
+                                           int samples = 64, int bounces = 4, float gamma = 2.2f);
+
+  static size_t GrowSorghumLsPlantsToAdulthood(int seed_base = -1, const std::string& cultivar_filter = "");
 
   static size_t SetSorghumLsLeafThickness(float leaf_thickness_m, bool regenerate_geometry = true);
 
-  static size_t SetSorghumLsGridSpacing(float spacing_x, float spacing_z);
+  static size_t SetSorghumLsLeafWidthScale(float leaf_width_scale, bool regenerate_geometry = true);
+
+  static size_t SetSorghumLsCultivarDescriptors(const std::filesystem::path& btx_descriptor_path,
+                                                const std::filesystem::path& pawaga_descriptor_path,
+                                                bool regenerate_geometry = true, int seed_base = -1);
+
+  static size_t SetSorghumLsGridSpacing(float spacing_x, float spacing_z, const std::string& cultivar_filter = "");
+
+  static size_t RemoveSorghumLsPseudoTillerPlants();
+
+  static size_t ConvertSorghumLsPlantsToPlantingMarkers();
+
+  static size_t InstantiateSorghumLsPlantsFromPlantingMarkers();
+
+  static std::vector<LSystemPlantSceneMetadataRecord> GetSorghumLsPlantSceneMetadata(bool measure_geometry = true);
 
   static size_t MoveParbarMiddlePanelsToPlantHeightFraction(float height_fraction = 2.0f / 3.0f);
 
@@ -191,15 +243,22 @@ class PyDigitalAgriculture {
                                                                       uint32_t samples_per_panel = 100);
 
   static std::vector<LSystemGridIlluminationRecord> EstimateSorghumLsGridIllumination(
-      int samples = 64, int bounces = 4, int max_triangles_per_plant = 0,
-      float push_normal_distance = 0.001f, int seed = 0);
+      int samples = 64, int bounces = 4, int max_triangles_per_plant = 0, float push_normal_distance = 0.001f,
+      int seed = 0, const std::string& cultivar_filter = "");
 
-  static std::vector<LSystemPlantHeightFitRecord> FitSorghumLsDateHeightScene(
-      const std::string& date, const std::map<std::string, float>& target_heights_m,
-      float leaf_modules_mean, float leaf_modules_deviation, const std::filesystem::path& descriptor_folder,
-      const std::filesystem::path& scene_asset_path, int optimizer_sample_count = 240,
-      float tolerance_m = 0.005f, int max_fit_iterations = 6, float leaf_thickness_m = 0.001f,
-      int cluster_min_count = 1, int cluster_max_count = 1, float cluster_radius_m = 0.0f);
+  static std::vector<LSystemDescriptorPhenotypeRecord> SampleSorghumLsDescriptorPhenotypes(
+      const std::filesystem::path& base_descriptor_path, float leaf_modules_mean, float leaf_modules_deviation,
+      float length_mean_scale, float length_deviation_scale, int sample_count = 1000, int seed_base = 0,
+      float leaf_width_scale = 1.0f, float main_culm_diameter_m = 0.0f, float tiller_leaf_count_ratio = 0.90f,
+      float tiller_height_ratio = 0.90f);
+
+  static bool SaveCalibratedSorghumLsDescriptor(const std::filesystem::path& base_descriptor_path,
+                                                const std::filesystem::path& output_descriptor_path,
+                                                float leaf_modules_mean, float leaf_modules_deviation,
+                                                float length_mean_scale, float length_deviation_scale,
+                                                float leaf_width_scale = 1.0f, float main_culm_diameter_m = 0.0f,
+                                                float tiller_leaf_count_ratio = 0.90f,
+                                                float tiller_height_ratio = 0.90f);
 
   static bool SaveActiveSceneAsProjectAsset(const std::filesystem::path& scene_asset_path);
 
@@ -207,6 +266,6 @@ class PyDigitalAgriculture {
                                        const glm::vec3& euler_rotation, const glm::vec3& scale);
 };
 
-}  // namespace py_digital_agriculture_plugin
+}  // namespace py_digital_agriculture_package
 
 #endif

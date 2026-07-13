@@ -26,7 +26,7 @@ PANEL_ORDER = (
     ("BTX", "middle", "BTX middle"),
     ("BTX", "bottom", "BTX bottom"),
 )
-VALUE_COLUMN = "illumination_total_simulated"
+VALUE_COLUMN = "illumination_total_simulated_mean"
 
 
 def repo_root_from_script() -> Path:
@@ -113,10 +113,10 @@ def render_all(args: argparse.Namespace) -> tuple[int, Path]:
     handoff_dir = args.handoff_dir.resolve()
     output_dir = args.output_dir.resolve()
     parbar_output_dir = output_dir / "4x10_parbar_probe_heatmaps"
-    rows = read_csv(handoff_dir / "all_parbar_sensors_long.csv")
+    rows = read_csv(handoff_dir / "all_parbar_sensors_summary.csv")
     values = [float(row[VALUE_COLUMN]) for row in rows]
     if not values:
-        raise ValueError("all_parbar_sensors_long.csv has no rows")
+        raise ValueError("all_parbar_sensors_summary.csv has no rows")
 
     cmap = green_red_cmap()
     manifest: list[dict[str, object]] = []
@@ -140,7 +140,7 @@ def render_all(args: argparse.Namespace) -> tuple[int, Path]:
 
 def build_parser() -> argparse.ArgumentParser:
     repo_root = repo_root_from_script()
-    handoff_dir = repo_root / "out" / "handoff" / "date_height_parbar_illumination"
+    handoff_dir = repo_root / "out" / "handoff" / "sorghum_4x10_parbar_sensor_illumination_handoff"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--handoff-dir", default=handoff_dir, type=Path)
     parser.add_argument("--output-dir", default=handoff_dir / "labeled_pngs", type=Path)

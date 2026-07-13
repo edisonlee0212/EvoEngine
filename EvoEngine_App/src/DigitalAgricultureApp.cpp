@@ -1,9 +1,9 @@
 // PlantFactory.cpp : This file contains the 'main' function. Program execution
 // begins and ends there.
 //
+#include <Application.hpp>
 #include "RenderLayer.hpp"
 #include "WindowLayer.hpp"
-#include <Application.hpp>
 
 #include "AssetManager.hpp"
 #include "Camera.hpp"
@@ -25,14 +25,14 @@
 #include "Scene.hpp"
 #include "SorghumLS.hpp"
 #include "SorghumLSDescriptor.hpp"
-#include "Times.hpp"
 #include "Texture2D.hpp"
+#include "Times.hpp"
 #include "TransformGraph.hpp"
 
 #include "ProjectManager.hpp"
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -111,7 +111,8 @@ void ConfigureRuntimePackageDllSearchPath(const char* executable_path) {
 #endif
 }
 
-std::shared_ptr<Scene> LoadRtSceneOverride(Application& application, const std::filesystem::path& assets_relative_path) {
+std::shared_ptr<Scene> LoadRtSceneOverride(Application& application,
+                                           const std::filesystem::path& assets_relative_path) {
   if (assets_relative_path.empty()) {
     return application.GetActiveScene();
   }
@@ -275,10 +276,8 @@ bool BlenderExportIsFiniteMat4(const glm::mat4& value) {
   return true;
 }
 
-uint32_t AppendParticleRendererToWorldMesh(const std::shared_ptr<Scene>& scene,
-                                           const Entity& entity,
-                                           std::vector<Vertex>& out_vertices,
-                                           std::vector<glm::uvec3>& out_triangles) {
+uint32_t AppendParticleRendererToWorldMesh(const std::shared_ptr<Scene>& scene, const Entity& entity,
+                                           std::vector<Vertex>& out_vertices, std::vector<glm::uvec3>& out_triangles) {
   if (!scene || !scene->IsEntityValid(entity) || !scene->HasPrivateComponent<Particles>(entity)) {
     return 0;
   }
@@ -330,8 +329,7 @@ uint32_t AppendParticleRendererToWorldMesh(const std::shared_ptr<Scene>& scene,
       out_vertices.emplace_back(vertex);
     }
     for (const auto& source_triangle : source_triangles) {
-      out_triangles.emplace_back(vertex_offset + source_triangle.x,
-                                 vertex_offset + source_triangle.y,
+      out_triangles.emplace_back(vertex_offset + source_triangle.x, vertex_offset + source_triangle.y,
                                  vertex_offset + source_triangle.z);
     }
     baked_instances++;
@@ -430,10 +428,10 @@ std::string EscapeJsonString(const std::string& value) {
 bool CopyLeafVariantHeightTextureForBlenderExport(const std::filesystem::path& output_path,
                                                   std::filesystem::path& copied_path) {
   const std::array<std::filesystem::path, 3> candidates = {
-      ProjectManager::GetAssetsFolderPath() / "SorghumLeafMaterials" / "ImageTestLeafVariants" / "atlas" /
+      ProjectManager::GetAssetsFolderPath() / "ManualAssets" / "Materials" / "SorghumLeaves" / "LeafAtlas" / "atlas" /
           "sorghum_lsystem_leaf_variants_height.png",
-      std::filesystem::current_path() / "Resources" / "DigitalAgricultureProject" / "Assets" /
-          "SorghumLeafMaterials" / "ImageTestLeafVariants" / "atlas" / "sorghum_lsystem_leaf_variants_height.png",
+      std::filesystem::current_path() / "Resources" / "DigitalAgricultureProject" / "Assets" / "ManualAssets" /
+          "Materials" / "SorghumLeaves" / "LeafAtlas" / "atlas" / "sorghum_lsystem_leaf_variants_height.png",
       std::filesystem::current_path() / "Resources" / "LSystemProject" / "Assets" / "SorghumLeafMaterials" /
           "ImageTestLeafVariants" / "atlas" / "sorghum_lsystem_leaf_variants_height.png"};
 
@@ -452,12 +450,9 @@ bool CopyLeafVariantHeightTextureForBlenderExport(const std::filesystem::path& o
   return false;
 }
 
-void WriteBlenderExportManifest(const std::filesystem::path& output_path,
-                                const std::shared_ptr<Scene>& scene,
-                                const std::filesystem::path& source_scene_path,
-                                const std::string& growth_mode,
-                                const size_t root_entity_count,
-                                const SorghumLsGrowthStats& growth_stats,
+void WriteBlenderExportManifest(const std::filesystem::path& output_path, const std::shared_ptr<Scene>& scene,
+                                const std::filesystem::path& source_scene_path, const std::string& growth_mode,
+                                const size_t root_entity_count, const SorghumLsGrowthStats& growth_stats,
                                 const ParbarRestoreStats& parbar_stats,
                                 const ParticleRendererBakeStats& particle_bake_stats,
                                 const BlenderExportStats& export_stats,
@@ -517,19 +512,18 @@ struct ParbarPartSpec {
 };
 
 glm::mat4 MatrixFromColumnMajor(const std::array<float, 16>& values) {
-  return {values[0],  values[1],  values[2],  values[3],  values[4],  values[5],  values[6],  values[7],
-          values[8],  values[9],  values[10], values[11], values[12], values[13], values[14], values[15]};
+  return {values[0], values[1], values[2],  values[3],  values[4],  values[5],  values[6],  values[7],
+          values[8], values[9], values[10], values[11], values[12], values[13], values[14], values[15]};
 }
 
 const std::array<float, 16>& IdentityMatrixValues() {
   static constexpr std::array<float, 16> kIdentity = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-                                                     0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
+                                                      0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f};
   return kIdentity;
 }
 
 std::array<float, 16> SectionMatrix(const float x, const float y, const float z) {
-  return {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -0.0f, 1.0f, 0.0f,
-          0.0f, -1.0f, -0.0f, 0.0f, x,    y,     z,    1.0f};
+  return {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -0.0f, 1.0f, 0.0f, 0.0f, -1.0f, -0.0f, 0.0f, x, y, z, 1.0f};
 }
 
 std::array<float, 16> CouplerMatrix(const float x, const float y, const float z) {
@@ -543,18 +537,16 @@ std::array<float, 16> ModelMatrix(const float x, const float y, const float z) {
 }
 
 const std::array<float, 16>& BtxTiltedModelMatrix() {
-  static constexpr std::array<float, 16> kMatrix = {1.882630f, 0.0f,       0.047753f,  0.0f,
-                                                    -0.076214f, -0.082945f, 3.004698f, 0.0f,
-                                                    0.001813f,  -2.590958f, -0.071478f, 0.0f,
-                                                    -0.044758f, 3.550811f,  0.038350f, 1.0f};
+  static constexpr std::array<float, 16> kMatrix = {
+      1.882630f, 0.0f,       0.047753f,  0.0f, -0.076214f, -0.082945f, 3.004698f, 0.0f,
+      0.001813f, -2.590958f, -0.071478f, 0.0f, -0.044758f, 3.550811f,  0.038350f, 1.0f};
   return kMatrix;
 }
 
 const std::array<float, 16>& PawagaTiltedModelMatrix() {
-  static constexpr std::array<float, 16> kMatrix = {1.870955f, 0.0f,       -0.214723f, 0.0f,
-                                                    0.342700f, -0.082945f, 2.986064f,  0.0f,
-                                                    -0.008152f, -2.590958f, -0.071034f, 0.0f,
-                                                    -0.044758f, 3.550811f,  0.038350f,  1.0f};
+  static constexpr std::array<float, 16> kMatrix = {
+      1.870955f,  0.0f,       -0.214723f, 0.0f, 0.342700f,  -0.082945f, 2.986064f, 0.0f,
+      -0.008152f, -2.590958f, -0.071034f, 0.0f, -0.044758f, 3.550811f,  0.038350f, 1.0f};
   return kMatrix;
 }
 
@@ -571,9 +563,8 @@ const std::array<float, 16>& PawagaPanelWrapperMatrix() {
 }
 
 const std::array<float, 16>& PanelMeshMatrix() {
-  static constexpr std::array<float, 16> kMatrix = {0.254339f, 0.0f,      -0.769120f, 0.0f,
-                                                    0.0f,      0.810083f, 0.0f,       0.0f,
-                                                    0.769120f, 0.0f,      0.254339f,  0.0f,
+  static constexpr std::array<float, 16> kMatrix = {0.254339f, 0.0f,      -0.769120f, 0.0f, 0.0f,      0.810083f,
+                                                    0.0f,      0.0f,      0.769120f,  0.0f, 0.254339f, 0.0f,
                                                     0.171909f, 4.140316f, -0.801582f, 1.0f};
   return kMatrix;
 }
@@ -584,34 +575,34 @@ std::vector<ParbarPartSpec> BuildParbarPartSpecs(const bool pawaga) {
   specs.reserve(17);
   specs.push_back({"modular_metal_gutter_section", "modular_metal_gutter_section", ParbarTemplateKind::Section,
                    identity, SectionMatrix(0.326437f, 0.008259f, 0.169506f)});
-  specs.push_back({"modular_metal_gutter_section.001", "modular_metal_gutter_section.001",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.326437f, 1.008806f, 0.169506f)});
-  specs.push_back({"modular_metal_gutter_section.002", "modular_metal_gutter_section.002",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.326437f, 1.989414f, 0.169506f)});
-  specs.push_back({"modular_metal_gutter_section.003", "modular_metal_gutter_section.003",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.326437f, 2.965054f, 0.169506f)});
-  specs.push_back({"modular_metal_gutter_section.004", "modular_metal_gutter_section.004",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.326437f, 3.953114f, 0.169506f)});
-  specs.push_back({"modular_metal_gutter_section.005", "modular_metal_gutter_section.005",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.350609f, -0.070498f, 2.795782f)});
-  specs.push_back({"modular_metal_gutter_section.006", "modular_metal_gutter_section.006",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.350609f, 0.851299f, 2.795782f)});
-  specs.push_back({"modular_metal_gutter_section.007", "modular_metal_gutter_section.007",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.350609f, 1.274331f, 2.795782f)});
-  specs.push_back({"modular_metal_gutter_section.008", "modular_metal_gutter_section.008",
-                   ParbarTemplateKind::Section, identity, SectionMatrix(0.319989f, 0.044320f, 6.039947f)});
+  specs.push_back({"modular_metal_gutter_section.001", "modular_metal_gutter_section.001", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.326437f, 1.008806f, 0.169506f)});
+  specs.push_back({"modular_metal_gutter_section.002", "modular_metal_gutter_section.002", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.326437f, 1.989414f, 0.169506f)});
+  specs.push_back({"modular_metal_gutter_section.003", "modular_metal_gutter_section.003", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.326437f, 2.965054f, 0.169506f)});
+  specs.push_back({"modular_metal_gutter_section.004", "modular_metal_gutter_section.004", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.326437f, 3.953114f, 0.169506f)});
+  specs.push_back({"modular_metal_gutter_section.005", "modular_metal_gutter_section.005", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.350609f, -0.070498f, 2.795782f)});
+  specs.push_back({"modular_metal_gutter_section.006", "modular_metal_gutter_section.006", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.350609f, 0.851299f, 2.795782f)});
+  specs.push_back({"modular_metal_gutter_section.007", "modular_metal_gutter_section.007", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.350609f, 1.274331f, 2.795782f)});
+  specs.push_back({"modular_metal_gutter_section.008", "modular_metal_gutter_section.008", ParbarTemplateKind::Section,
+                   identity, SectionMatrix(0.319989f, 0.044320f, 6.039947f)});
   specs.push_back({"modular_metal_gutter_coupler", "modular_metal_gutter_coupler", ParbarTemplateKind::Coupler,
                    identity, CouplerMatrix(-0.030037f, 3.568088f, -0.022308f)});
-  specs.push_back({"modular_metal_gutter_coupler.001", "modular_metal_gutter_coupler.001",
-                   ParbarTemplateKind::Coupler, identity, CouplerMatrix(-0.030733f, 4.189209f, -0.050174f)});
-  specs.push_back({"modular_metal_gutter_coupler.002", "modular_metal_gutter_coupler.002",
-                   ParbarTemplateKind::Coupler, identity, CouplerMatrix(-0.005865f, 1.747144f, 2.603969f)});
-  specs.push_back({"modular_metal_gutter_coupler.003", "modular_metal_gutter_coupler.003",
-                   ParbarTemplateKind::Coupler, identity, CouplerMatrix(-0.036485f, 0.479896f, 5.848134f)});
-  specs.push_back({"model", "model", ParbarTemplateKind::Model, identity,
-                   ModelMatrix(-0.051207f, 0.464388f, 5.908792f)});
-  specs.push_back({"model.001", "model.001", ParbarTemplateKind::Model, identity,
-                   ModelMatrix(-0.020587f, 1.730051f, 2.664627f)});
+  specs.push_back({"modular_metal_gutter_coupler.001", "modular_metal_gutter_coupler.001", ParbarTemplateKind::Coupler,
+                   identity, CouplerMatrix(-0.030733f, 4.189209f, -0.050174f)});
+  specs.push_back({"modular_metal_gutter_coupler.002", "modular_metal_gutter_coupler.002", ParbarTemplateKind::Coupler,
+                   identity, CouplerMatrix(-0.005865f, 1.747144f, 2.603969f)});
+  specs.push_back({"modular_metal_gutter_coupler.003", "modular_metal_gutter_coupler.003", ParbarTemplateKind::Coupler,
+                   identity, CouplerMatrix(-0.036485f, 0.479896f, 5.848134f)});
+  specs.push_back(
+      {"model", "model", ParbarTemplateKind::Model, identity, ModelMatrix(-0.051207f, 0.464388f, 5.908792f)});
+  specs.push_back(
+      {"model.001", "model.001", ParbarTemplateKind::Model, identity, ModelMatrix(-0.020587f, 1.730051f, 2.664627f)});
   specs.push_back({"model.002", "model.002", ParbarTemplateKind::Model, identity,
                    pawaga ? PawagaTiltedModelMatrix() : BtxTiltedModelMatrix()});
   specs.push_back({"model.003", "model.003", ParbarTemplateKind::Panel,
@@ -685,8 +676,7 @@ void MaybeCaptureParbarTemplate(const std::shared_ptr<Scene>& scene, const Entit
   }
 }
 
-const ParbarRendererTemplate& SelectParbarTemplate(const ParbarPartSpec& spec,
-                                                   const ParbarRendererTemplate& section,
+const ParbarRendererTemplate& SelectParbarTemplate(const ParbarPartSpec& spec, const ParbarRendererTemplate& section,
                                                    const ParbarRendererTemplate& coupler,
                                                    const ParbarRendererTemplate& model,
                                                    const ParbarRendererTemplate& panel) {
@@ -972,15 +962,8 @@ int RunLSystemBlenderExportBatch(Application& application, const DigitalAgricult
   std::filesystem::path leaf_height_texture_path;
   const bool leaf_height_texture_copied =
       CopyLeafVariantHeightTextureForBlenderExport(command_line.blender_output, leaf_height_texture_path);
-  WriteBlenderExportManifest(command_line.blender_output,
-                             scene,
-                             command_line.rt_scene_path,
-                             growth_mode,
-                             root_entities.size(),
-                             growth_stats,
-                             parbar_stats,
-                             particle_bake_stats,
-                             export_stats,
+  WriteBlenderExportManifest(command_line.blender_output, scene, command_line.rt_scene_path, growth_mode,
+                             root_entities.size(), growth_stats, parbar_stats, particle_bake_stats, export_stats,
                              leaf_height_texture_path);
 
   const auto report_path =
@@ -1016,14 +999,12 @@ int RunLSystemBlenderExportBatch(Application& application, const DigitalAgricult
 
   application.End();
   std::cout << "EVOENGINE_LSYSTEM_BLENDER_EXPORT_RESULT passed output=\"" << command_line.blender_output.string()
-            << "\" growth_mode=" << growth_mode
-            << " sorghum_ls=" << growth_stats.plants << " leaves=" << growth_stats.leaves
-            << " mesh_renderers=" << export_stats.mesh_renderers << " vertices=" << export_stats.vertices
-            << " triangles=" << export_stats.triangles << " materials=" << export_stats.materials
-            << " textured_materials=" << export_stats.textured_materials
+            << "\" growth_mode=" << growth_mode << " sorghum_ls=" << growth_stats.plants
+            << " leaves=" << growth_stats.leaves << " mesh_renderers=" << export_stats.mesh_renderers
+            << " vertices=" << export_stats.vertices << " triangles=" << export_stats.triangles
+            << " materials=" << export_stats.materials << " textured_materials=" << export_stats.textured_materials
             << " baked_particle_mesh_renderers=" << particle_bake_stats.baked_mesh_renderers
-            << " baked_particle_instances=" << particle_bake_stats.instances
-            << " parbar_roots=" << parbar_stats.roots
+            << " baked_particle_instances=" << particle_bake_stats.instances << " parbar_roots=" << parbar_stats.roots
             << " parbar_mesh_renderers=" << parbar_stats.mesh_renderers << std::endl;
   return 0;
 }
@@ -1070,15 +1051,14 @@ int main(const int argc, char** argv) {
       }
     }
     const auto project_path_text = command_line.project_path.string();
-    const bool explicit_lsystem_project =
-        project_path_text.find("LSystemProject") != std::string::npos ||
-        project_path_text.find("LSystemProjectAssets") != std::string::npos;
+    const bool explicit_lsystem_project = project_path_text.find("LSystemProject") != std::string::npos ||
+                                          project_path_text.find("LSystemProjectAssets") != std::string::npos;
     const bool uses_lsystem_project = command_line.export_lsystem_blender_scene || explicit_lsystem_project;
     const auto selected_project_path =
         !command_line.project_path.empty()
             ? command_line.project_path
             : std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" /
-                                        (uses_lsystem_project ? "test_lsystem_sorghum.eveproj" : "test.eveproj"));
+                                        "test_lsystem_sorghum.eveproj");
 
     ConfigureRuntimePackageDllSearchPath(argc > 0 ? argv[0] : nullptr);
     EngineSetup();
@@ -1113,9 +1093,9 @@ int main(const int argc, char** argv) {
     application_configs.project_path = selected_project_path;
     application_configs.enable_runtime_packages = true;
     application_configs.use_custom_title_bar = true;
-    application_configs.startup_runtime_packages =
-        uses_lsystem_project ? std::vector<std::string>{"LSystem", "DigitalAgriculture"}
-                             : std::vector<std::string>{"DigitalAgriculture", "LSystem"};
+    application_configs.startup_runtime_packages = uses_lsystem_project
+                                                       ? std::vector<std::string>{"LSystem", "DigitalAgriculture"}
+                                                       : std::vector<std::string>{"DigitalAgriculture", "LSystem"};
     if (batch_scene_load) {
       application_configs.hide_console_window = false;
       application_configs.redirect_standard_streams_to_console = false;

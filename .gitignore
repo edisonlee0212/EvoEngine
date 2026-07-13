@@ -76,6 +76,7 @@ out/
 
 # Generated files
 .idea/**/contentModel.xml
+/ShaderBinaries/
 
 # Sensitive or high-churn files
 .idea/**/dataSources/

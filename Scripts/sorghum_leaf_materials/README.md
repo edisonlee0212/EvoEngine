@@ -53,6 +53,18 @@ Example:
 ```powershell
 & 'C:\Program Files\Blender Foundation\Blender 5.0\5.0\python\bin\python.exe' `
   'Scripts\sorghum_leaf_materials\apply_sorghum_leaf_atlas_to_scene.py' `
-  --scene 'Resources\DigitalAgricultureProject\Assets\2026-07-01_Sorghum\2026-06-04_Sorghum_LSystem.evescene' `
-  --atlas-dir 'Resources\DigitalAgricultureProject\Assets\SorghumLeafMaterials\GeminiLeaf01\atlas'
+  --scene 'Resources\DigitalAgricultureProject\Assets\ManualAssets\Scenes\Sorghum_4x10_PARBAR.evescene' `
+  --atlas-dir 'Resources\DigitalAgricultureProject\Assets\GeneratedAssets\Materials\SorghumLeaves\LeafAtlas\atlas'
+```
+
+## Bake Sheath Material
+
+`bake_sorghum_sheath_material.py` extracts every lower-half sheath region from the promoted 3x3 leaf atlas and
+combines all nine with periodic multiband weights. It writes date-free albedo, normal, roughness, metallic, and AO
+maps for the continuous L-system culm mesh.
+
+```powershell
+python 'Scripts\sorghum_leaf_materials\bake_sorghum_sheath_material.py' `
+  --atlas-dir 'Resources\DigitalAgricultureProject\Assets\GeneratedAssets\Materials\SorghumLeaves\LeafAtlas\atlas' `
+  --out-dir 'Resources\DigitalAgricultureProject\Assets\GeneratedAssets\Materials\SorghumSheath'
 ```

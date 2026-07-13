@@ -13,6 +13,14 @@ git clone --recursive https://github.com/edisonlee0212/EvoEngine.git
 cd EvoEngine
 ```
 
+This sorghum 261 branch keeps the 261 resource bundle in the `Resources/DigitalAgricultureProject` submodule, backed by `Penanito/EvoEngine_SorghumProject`. Install Git LFS before cloning when possible, then pull submodule LFS assets:
+
+```bash
+git submodule foreach --recursive git lfs pull
+```
+
+Run this again if any resource assets appear as small LFS pointer files.
+
 If the repository was cloned without submodules:
 
 ```bash

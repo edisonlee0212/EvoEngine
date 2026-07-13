@@ -1,13 +1,15 @@
 #pragma once
 
+#include <AssetRef.hpp>
+#include <Entity.hpp>
+#include <IAsset.hpp>
+#include <Plot2D.hpp>
+#include <array>
+#include <cstdint>
+#include <random>
 #include "ILSystemExplorableDescriptor.hpp"
 #include "ParamSpaceExplorer.hpp"
 #include "SorghumRules.hpp"
-#include <AssetRef.hpp>
-#include <IAsset.hpp>
-#include <Plot2D.hpp>
-#include <cstdint>
-#include <random>
 
 namespace l_system_package {
 
@@ -38,7 +40,10 @@ class SorghumLSDescriptor : public evo_engine::IAsset, public ILSystemExplorable
 
   // ===== Leaf morphology (rank-indexed) =====
   evo_engine::PlottedDistribution<float> leaf_blade_length;
-  evo_engine::PlottedDistribution<float> leaf_blade_max_width;  ///< [deprecated] legacy absolute blade width
+  evo_engine::PlottedDistribution<float> leaf_blade_max_width;   ///< Mature full blade width (m).
+  evo_engine::PlottedDistribution<float> leaf_blade_thickness;   ///< Mature blade thickness (m).
+  evo_engine::PlottedDistribution<float> leaf_sheath_thickness;  ///< Mature sheath wall thickness (m).
+  float leaf_width_scale = 1.0f;  ///< Legacy migration multiplier; v4 blade widths are absolute.
   evo_engine::PlottedDistribution<float> leaf_sheath_length;
   evo_engine::PlottedDistribution<float> leaf_neck_length;
   evo_engine::PlottedDistribution<float> leaf_sheath_end_width_ratio;
@@ -50,24 +55,40 @@ class SorghumLSDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   evo_engine::PlottedDistribution<float> leaf_bending;
   evo_engine::PlottedDistribution<float> leaf_waviness;
   evo_engine::SingleDistribution<float> leaf_waviness_frequency{8.0f};
-  evo_engine::SingleDistribution<float> leaf_sheath_radius_ratio{1.05f};  ///< [deprecated]
+  evo_engine::SingleDistribution<float> leaf_sheath_radius_ratio{1.05f};
+  evo_engine::SingleDistribution<float> leaf_sheath_wrap_angle{390.0f};         ///< Total wrap including overlap (deg).
   evo_engine::SingleDistribution<float> leaf_blade_stage1_length_ratio{0.33f};  ///< [deprecated]
   evo_engine::SingleDistribution<float> leaf_blade_stage2_length_ratio{0.34f};  ///< [deprecated]
   evo_engine::SingleDistribution<float> leaf_blade_stage3_length_ratio{0.33f};  ///< [deprecated]
-  evo_engine::SingleDistribution<float> leaf_blade_stage1_width_scale{0.85f};  ///< [deprecated]
-  evo_engine::SingleDistribution<float> leaf_blade_stage2_width_scale{1.0f};   ///< [deprecated]
-  evo_engine::SingleDistribution<float> leaf_blade_stage3_width_scale{0.4f};   ///< [deprecated]
+  evo_engine::SingleDistribution<float> leaf_blade_stage1_width_scale{0.85f};   ///< [deprecated]
+  evo_engine::SingleDistribution<float> leaf_blade_stage2_width_scale{1.0f};    ///< [deprecated]
+  evo_engine::SingleDistribution<float> leaf_blade_stage3_width_scale{0.4f};    ///< [deprecated]
 
   // ===== Leaf lifecycle (chronological, mirrors ScotsPine) =====
   evo_engine::SingleDistribution<float> leaf_lifespan_years{2.5f};
   evo_engine::SingleDistribution<float> leaf_wilting_years{0.5f};
 
   // ===== Tillering =====
-  evo_engine::SingleDistribution<float> tiller_count{3.0f};
+  uint32_t tiller_model_version = 4u;
+  evo_engine::SingleDistribution<float> tiller_count{4.0f, 1.0f};
+  int tiller_count_min = 3;
+  int tiller_count_max = 5;
+  std::array<int, 6> tiller_origin_rank_order{3, 4, 2, 1, 5, 6};
+  std::array<int, 6> tiller_emergence_main_leaf_stages{5, 5, 6, 7, 8, 9};
+  evo_engine::SingleDistribution<float> tiller_insertion_angle{35.0f, 5.0f};
+  evo_engine::SingleDistribution<float> tiller_final_lean_angle{15.0f, 5.0f};
+  evo_engine::SingleDistribution<float> tiller_azimuth_jitter{0.0f, 10.0f};
+  float tiller_recovery_axis_fraction = 1.0f;
+  evo_engine::SingleDistribution<float> tiller_leaf_count_ratio{0.90f, 0.03f};
+  evo_engine::SingleDistribution<float> tiller_height_ratio{0.90f, 0.03f};
+  evo_engine::PlottedDistribution<float> tiller_leaf_area_ratio_by_origin;
+  evo_engine::SingleDistribution<float> tiller_thickness_ratio{0.80f, 0.05f};
+  evo_engine::SingleDistribution<float> tiller_max_axis_length_ratio{1.10f};
+
+  // Legacy v1 controls are load-only migration inputs. They are intentionally
+  // ignored by the v4 crown-tiller grammar.
   evo_engine::PlottedDistribution<float> tiller_initiation_delay_gdd;
-  evo_engine::SingleDistribution<float> tiller_insertion_angle{30.0f};
   evo_engine::SingleDistribution<float> tiller_phytomer_count_scale{0.7f};
-  evo_engine::SingleDistribution<float> tiller_thickness_ratio{0.6f};
 
   // ===== Thermal block =====
   evo_engine::SingleDistribution<float> target_gdd{1500.0f};
@@ -95,6 +116,7 @@ class SorghumLSDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   evo_engine::PlottedDistribution<float> width_along_sheath;
   evo_engine::PlottedDistribution<float> width_along_neck;
   evo_engine::PlottedDistribution<float> width_along_leaf;
+  evo_engine::PlottedDistribution<float> bending_along_leaf;
   evo_engine::PlottedDistribution<float> curling_along_leaf;
   evo_engine::PlottedDistribution<float> waviness_along_leaf;
 
@@ -112,6 +134,25 @@ class SorghumLSDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   uint32_t leaf_atlas_variant_count = 1u;
   float leaf_atlas_tile_uv_inset = 0.001f;
   bool leaf_atlas_distal_region_uses_top_half = false;
+  bool leaf_atlas_semantic_quadrants = false;
+  glm::vec3 leaf_material_albedo_color{0.26f, 0.52f, 0.18f};
+  float leaf_material_roughness = 0.72f;
+  float leaf_material_metallic = 0.0f;
+  float leaf_material_specular = 0.45f;
+
+  // ===== Stem/sheath-support material =====
+  evo_engine::AssetRef stem_albedo_texture;
+  evo_engine::AssetRef stem_normal_texture;
+  evo_engine::AssetRef stem_roughness_texture;
+  evo_engine::AssetRef stem_metallic_texture;
+  evo_engine::AssetRef stem_ao_texture;
+  glm::vec3 stem_material_albedo_color{0.30f, 0.58f, 0.22f};
+  float stem_material_roughness = 0.74f;
+  float stem_material_metallic = 0.0f;
+  float stem_material_specular = 0.4f;
+  uint32_t culm_radial_segments = 24u;
+  float culm_node_radius_scale = 1.08f;
+  float culm_texture_repeat_m = 0.25f;
 
   // -- Sampling + instantiation --
   SampledSorghumParams Sample(std::mt19937& rng) const;

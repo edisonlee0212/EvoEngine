@@ -18,7 +18,7 @@ import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 
 
-PLANT_VALUE = "total_simulated_light_interception_proxy"
+PLANT_VALUE = "total_simulated_light_interception_proxy_mean"
 
 
 def repo_root_from_script() -> Path:
@@ -145,7 +145,7 @@ def render_all(args: argparse.Namespace) -> tuple[int, Path]:
     cmap = green_red_cmap()
     manifest: list[dict[str, object]] = []
 
-    plant_rows = read_csv(handoff_dir / "10x10_inter_shadow_plants_long.csv")
+    plant_rows = read_csv(handoff_dir / "10x10_inter_shadow_plants_summary.csv")
     plant_grids = plant_retention_grids(plant_rows)
     for cultivar, spacing in sorted(plant_grids, key=lambda item: (item[0], -item[1])):
         output_path = plant_output_dir / f"10x10_{slug(cultivar)}_spacing_{slug(f'{spacing:.1f}m')}.png"
@@ -167,7 +167,7 @@ def render_all(args: argparse.Namespace) -> tuple[int, Path]:
 
 def build_parser() -> argparse.ArgumentParser:
     repo_root = repo_root_from_script()
-    handoff_dir = repo_root / "out" / "handoff" / "illumination_csv_handoff_2026-06-30"
+    handoff_dir = repo_root / "out" / "handoff" / "sorghum_10x10_grid_illumination_handoff_2026-07-09"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--handoff-dir", default=handoff_dir, type=Path)
     parser.add_argument("--output-dir", default=handoff_dir / "labeled_pngs", type=Path)

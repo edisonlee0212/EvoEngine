@@ -114,6 +114,17 @@ function(register_evoengine_app app_name default_enable)
 					DigitalAgriculturePackage
 					LSystemPackage
 					)
+				if (MSVC AND WIN32)
+					target_link_libraries(${app_name}
+						PRIVATE
+						delayimp
+						)
+					target_link_options(${app_name}
+						PRIVATE
+						/DELAYLOAD:DigitalAgriculturePackage.dll
+						/DELAYLOAD:LSystemPackage.dll
+						)
+				endif()
 			endif()
 			if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
 				add_dependencies(${app_name} ${EvoEngine_RuntimePackages})

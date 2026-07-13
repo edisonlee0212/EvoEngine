@@ -4,11 +4,14 @@ namespace evo_engine {
 extern "C" __constant__ CameraRenderingLaunchParams cameraRenderingLaunchParams;
 #pragma region Closest hit functions
 extern "C" __global__ void __closesthit__CR_R() {
-  ClosestHitFunc(cameraRenderingLaunchParams.ray_tracer_properties, cameraRenderingLaunchParams.traversable);
+  ClosestHitFunc(cameraRenderingLaunchParams.ray_tracer_properties, cameraRenderingLaunchParams.traversable, true);
 }
 
 extern "C" __global__ void __closesthit__CR_SS() {
   SSHit();
+}
+extern "C" __global__ void __closesthit__CR_S() {
+  optixSetPayload_0(0);
 }
 #pragma endregion
 #pragma region Any hit functions
@@ -20,12 +23,18 @@ extern "C" __global__ void __anyhit__CR_R() {
 extern "C" __global__ void __anyhit__CR_SS() {
   SSAnyHit();
 }
+extern "C" __global__ void __anyhit__CR_S() {
+  ShadowAnyHitFunc();
+}
 #pragma endregion
 #pragma region Miss functions
 extern "C" __global__ void __miss__CR_R() {
   MissFunc(cameraRenderingLaunchParams.ray_tracer_properties);
 }
 extern "C" __global__ void __miss__CR_SS() {
+}
+extern "C" __global__ void __miss__CR_S() {
+  ShadowMissFunc();
 }
 #pragma endregion
 #pragma region Main ray generation

@@ -20,6 +20,14 @@ git clone --recursive https://github.com/edisonlee0212/EvoEngine.git
 cd EvoEngine
 ```
 
+This sorghum 261 branch uses `Resources/DigitalAgricultureProject` as a Git submodule backed by `Penanito/EvoEngine_SorghumProject`, with large assets stored in Git LFS. Install Git LFS before cloning when possible, then run:
+
+```bash
+git submodule foreach --recursive git lfs pull
+```
+
+Run the same command if any resource assets appear as small LFS pointer files after checkout.
+
 If the repository was cloned without submodules:
 
 ```bash
@@ -110,6 +118,47 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | Sorghum Environment Lighting |
 | --- |
 | ![Sorghum environment lighting](Resources/GitHub/SorghumEnvLighting.png) |
+
+## Sorghum 4x10 RT Realism Review
+
+Install the image/PDF dependencies once, then render the five calibrated 4x10 scenes into a local review package:
+
+```bat
+python -m pip install -r PythonBinding\requirements-mobile-review.txt
+python PythonBinding\sorghum_render_4x10_mobile_review.py --width 3840 --height 2160 --samples 128 --bounces 4
+```
+
+The package is written to `out/realism_review/sorghum_4x10/Iteration_01_RT_PhysicalSun`. Add `--publish-drive` to
+publish the verified iteration under
+`G:\My Drive\Sorghum\4x10_Scene_Review_Latest\Iteration_01_RT_PhysicalSun` without replacing earlier reviews.
+It contains 45 lossless Scene (RT) captures, 45 labeled images, five stage contact sheets, and a PDF review book.
+
+To regenerate all calibrated scenes and publish the review in one operation:
+
+```bat
+python PythonBinding\sorghum_generate_calibrated_field_scenes.py --skip-10x10 --publish-mobile-review
+```
+
+Recalibrate all ten descriptors at the paper-validation sample sizes before scene generation with:
+
+```bat
+python PythonBinding\sorghum_lsystem_calibrate_date_cultivar_descriptors.py --iteration-sample-count 1000 --validation-sample-count 10000 --max-iterations 6 --worker-count 4
+python PythonBinding\sorghum_migrate_fidelity_v4_descriptors.py
+python PythonBinding\sorghum_generate_calibrated_field_scenes.py
+```
+
+The fidelity-v4 descriptors use crown-attached primary tillers, absolute rank-specific blade widths,
+descriptor-owned blade/sheath thickness, stem-fitted overlapping sheaths, subdivision-independent blade-margin
+waviness, the promoted 3x3 leaf atlas, and a continuous textured culm mesh. After the five-stage review is rendered,
+append and publish the mature 10x10 views with:
+
+```bat
+python PythonBinding\sorghum_render_10x10_fidelity_review.py --width 3840 --height 2160 --samples 128 --bounces 4 --publish-drive
+```
+
+Each scene is regrown with deterministic seed `2000000`. All nine views per stage use the OptiX skydome with a
+physical `0.526` degree sun, 128 samples, and four bounces. Temporary review cameras never save changes back to scene
+assets. Measurement dates appear in labels and manifests while generated filenames use `GrowthStage01..05`.
 
 ## Related Publications
 

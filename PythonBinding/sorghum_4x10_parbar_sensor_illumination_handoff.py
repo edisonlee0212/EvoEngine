@@ -11,20 +11,18 @@ import statistics
 import subprocess
 import sys
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from sorghum_asset_layout import DATE_ORDER, GENERATED_DESCRIPTOR_ROOT, GENERATED_REPORT_ROOT, MANUAL_4X10_SCENE, descriptor_path
 
-DATE_ORDER = ("2021-07-01", "2021-07-14", "2021-08-18", "2021-08-30", "2021-09-02")
+
 CULTIVARS = ("BTX", "Pawaga")
 BAR_LEVELS = ("top", "middle", "bottom")
+REFERENCE_4X10_SCENE = MANUAL_4X10_SCENE.as_posix()
 
-SENSOR_COLUMNS = [
-    "date",
-    "cultivar",
-    "source_scene",
-    "sensor_bar_level",
-    "probe_number",
+SENSOR_NUMERIC_COLUMNS = [
     "illumination_total_simulated",
     "probe_position_x_m",
     "probe_position_y_m",
@@ -32,15 +30,32 @@ SENSOR_COLUMNS = [
     "probe_normal_x",
     "probe_normal_y",
     "probe_normal_z",
-    "height_rule",
     "represented_clump_count",
     "average_represented_root_elevation_m",
     "average_represented_plant_height_m",
     "height_fraction_of_average_height",
     "sensor_top_elevation_m",
+]
+
+SENSOR_COLUMNS = [
+    "date",
+    "cultivar",
+    "source_scene",
+    "reference_scene",
+    "calibrated_btx_descriptor",
+    "calibrated_pawaga_descriptor",
+    "sensor_bar_level",
+    "probe_number",
+    "height_rule",
+    "replicate_count",
+] + [f"{column}_{suffix}" for column in SENSOR_NUMERIC_COLUMNS for suffix in ("mean", "std")] + [
     "ray_samples",
     "ray_bounces",
-    "ray_seed",
+    "ray_seed_base",
+    "ray_seed_last",
+    "geometry_seed_base",
+    "geometry_seed_last",
+    "geometry_seed_stride",
     "push_normal_distance_m",
 ]
 
@@ -52,16 +67,31 @@ PLANT_COLUMNS = [
     "cluster_member_number",
     "plants_at_original_position",
     "plant_height_m",
+    "source_final_height_m",
     "target_height_m",
     "height_error_m",
+    "source_height_error_m",
     "leaf_count",
+    "source_leaf_count",
     "target_leaf_modules_mean",
     "target_leaf_modules_stdev",
     "clump_mean_height_m",
+    "source_clump_mean_height_m",
+    "source_leaf_thickness_m",
+    "leaf_thickness_scale",
+    "leaf_thickness_m",
+    "source_leaf_width_scale",
+    "leaf_width_scale",
+    "source_cluster_offset_x_m",
+    "source_cluster_offset_z_m",
+    "source_cluster_offset_radius_m",
     "cluster_offset_x_m",
     "cluster_offset_z_m",
     "cluster_offset_radius_m",
+    "cluster_radius_scale",
+    "cluster_outward_lean_degrees",
     "middle_parbar_top_elevation_m",
+    "source_middle_parbar_top_elevation_m",
     "source_scene",
 ]
 
@@ -86,6 +116,54 @@ CLUMP_COLUMNS = [
     "middle_parbar_top_elevation_m",
     "source_scene",
 ]
+
+
+@dataclass
+class RunningStats:
+    count: int = 0
+    mean: float = 0.0
+    m2: float = 0.0
+
+    def add(self, value: float) -> None:
+        self.count += 1
+        delta = value - self.mean
+        self.mean += delta / self.count
+        self.m2 += delta * (value - self.mean)
+
+    @property
+    def std(self) -> float:
+        return math.sqrt(self.m2 / (self.count - 1)) if self.count > 1 else 0.0
+
+
+@dataclass
+class SummaryAccumulator:
+    base: dict[str, object]
+    stats: dict[str, RunningStats] = field(default_factory=dict)
+
+    def add(self, values: dict[str, float]) -> None:
+        for column, value in values.items():
+            self.stats.setdefault(column, RunningStats()).add(float(value))
+
+    def row(self, args: argparse.Namespace) -> dict[str, object]:
+        output = dict(self.base)
+        output["replicate_count"] = next(iter(self.stats.values())).count if self.stats else 0
+        for column in SENSOR_NUMERIC_COLUMNS:
+            stats = self.stats.get(column, RunningStats())
+            output[f"{column}_mean"] = stats.mean
+            output[f"{column}_std"] = stats.std
+        output.update(
+            {
+                "ray_samples": args.samples,
+                "ray_bounces": args.bounces,
+                "ray_seed_base": args.seed,
+                "ray_seed_last": args.seed + max(0, args.replicates - 1),
+                "geometry_seed_base": args.geometry_seed,
+                "geometry_seed_last": args.geometry_seed + max(0, args.replicates - 1) * args.geometry_seed_stride,
+                "geometry_seed_stride": args.geometry_seed_stride,
+                "push_normal_distance_m": args.push_normal_distance,
+            }
+        )
+        return output
 
 
 def repo_root_from_script() -> Path:
@@ -152,6 +230,22 @@ def tail_text(path: Path, line_count: int = 80) -> str:
     return "\n".join(lines[-line_count:])
 
 
+def collect_default_scene_side_effects(project: Path) -> set[Path]:
+    assets = project.resolve().parent / "Assets"
+    return {path.resolve() for path in assets.glob("New Scene*.evescene*")}
+
+
+def cleanup_new_default_scene_side_effects(project: Path, before: set[Path]) -> None:
+    assets = (project.resolve().parent / "Assets").resolve()
+    for path in sorted(collect_default_scene_side_effects(project) - before):
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(assets)
+        except ValueError:
+            continue
+        resolved.unlink(missing_ok=True)
+
+
 def vec3(value: object) -> tuple[float, float, float]:
     return float(value.x), float(value.y), float(value.z)
 
@@ -165,12 +259,12 @@ def int_value(row: dict[str, str], column: str) -> int:
 
 
 def load_height_manifest(source_root: Path, dates: list[str]) -> list[dict[str, str]]:
-    path = source_root / "height_fit_manifest.csv"
+    path = source_root / "field_manifest.csv"
     if not path.exists():
         raise FileNotFoundError(
             f"height-fit manifest not found: {path}\n"
             "Install the Sorghum L-System resource bundle so "
-            "Resources/DigitalAgricultureProject/Assets/Generated/height_fit_manifest.csv exists, "
+            "Resources/DigitalAgricultureProject/Assets/GeneratedAssets/Reports/field_manifest.csv exists, "
             "or pass --source-root."
         )
     rows = [row for row in read_csv(path) if row["date"] in dates]
@@ -194,6 +288,17 @@ def leaf_thickness_for_date(manifest_rows: list[dict[str, str]], date: str) -> f
     return values.pop()
 
 
+def leaf_width_scale_for_date(manifest_rows: list[dict[str, str]], date: str) -> float:
+    values = {float(row["leaf_width_scale"]) for row in manifest_rows if row["date"] == date}
+    if len(values) != 1:
+        raise ValueError(f"{date} has {len(values)} leaf width scale values in height-fit manifest")
+    return values.pop()
+
+
+def calibrated_descriptor(args: argparse.Namespace, date: str, cultivar: str) -> str:
+    return descriptor_path(args.calibrated_descriptor_root, date, cultivar).as_posix()
+
+
 def plant_rows_from_manifest(rows: list[dict[str, str]]) -> list[dict[str, object]]:
     output: list[dict[str, object]] = []
     for row in rows:
@@ -206,16 +311,33 @@ def plant_rows_from_manifest(rows: list[dict[str, str]]) -> list[dict[str, objec
                 "cluster_member_number": int_value(row, "cluster_index") + 1,
                 "plants_at_original_position": int_value(row, "cluster_size"),
                 "plant_height_m": float_value(row, "final_height_m"),
+                "source_final_height_m": float_value(row, "source_final_height_m"),
                 "target_height_m": float_value(row, "target_height_m"),
                 "height_error_m": float_value(row, "height_error_m"),
+                "source_height_error_m": float_value(row, "source_height_error_m"),
                 "leaf_count": int_value(row, "leaf_count"),
+                "source_leaf_count": int_value(row, "source_leaf_count"),
                 "target_leaf_modules_mean": float_value(row, "leaf_modules_mean"),
                 "target_leaf_modules_stdev": float_value(row, "leaf_modules_deviation"),
                 "clump_mean_height_m": float_value(row, "clump_mean_height_m"),
+                "source_clump_mean_height_m": float_value(row, "source_clump_mean_height_m"),
+                "source_leaf_thickness_m": float_value(row, "source_leaf_thickness_m"),
+                "leaf_thickness_scale": float_value(row, "leaf_thickness_scale"),
+                "leaf_thickness_m": float_value(row, "leaf_thickness_m"),
+                "source_leaf_width_scale": float_value(row, "source_leaf_width_scale"),
+                "leaf_width_scale": float_value(row, "leaf_width_scale"),
+                "source_cluster_offset_x_m": float_value(row, "source_cluster_offset_x_m"),
+                "source_cluster_offset_z_m": float_value(row, "source_cluster_offset_z_m"),
+                "source_cluster_offset_radius_m": float_value(row, "source_cluster_offset_radius_m"),
                 "cluster_offset_x_m": float_value(row, "cluster_offset_x_m"),
                 "cluster_offset_z_m": float_value(row, "cluster_offset_z_m"),
                 "cluster_offset_radius_m": float_value(row, "cluster_offset_radius_m"),
+                "cluster_radius_scale": float_value(row, "cluster_radius_scale"),
+                "cluster_outward_lean_degrees": float_value(row, "cluster_outward_lean_degrees"),
                 "middle_parbar_top_elevation_m": float_value(row, "middle_parbar_top_elevation_m"),
+                "source_middle_parbar_top_elevation_m": float_value(
+                    row, "source_middle_parbar_top_elevation_m"
+                ),
                 "source_scene": row["scene_asset_path"],
             }
         )
@@ -265,6 +387,43 @@ def start_project(evo: object, project: Path, runtime_package_dir: Path, scene_a
         raise RuntimeError(f"failed to start project scene: {scene_asset_path}")
     if not evo.WaitForProjectIdle(max_wait_frames):
         raise RuntimeError(f"project did not become idle after loading {scene_asset_path}")
+    if not evo.EnsureIlluminationSoilContext():
+        raise RuntimeError(f"failed to ensure PBR soil context in scene: {scene_asset_path}")
+    if not evo.ValidateIlluminationContext():
+        raise RuntimeError(f"scene failed illumination context validation: {scene_asset_path}")
+
+
+def sensor_values(record: object) -> dict[str, float]:
+    position = vec3(record.position)
+    normal = vec3(record.normal)
+    return {
+        "illumination_total_simulated": float(record.scalar),
+        "probe_position_x_m": position[0],
+        "probe_position_y_m": position[1],
+        "probe_position_z_m": position[2],
+        "probe_normal_x": normal[0],
+        "probe_normal_y": normal[1],
+        "probe_normal_z": normal[2],
+        "represented_clump_count": float(record.represented_plant_count),
+        "average_represented_root_elevation_m": float(record.average_represented_root_elevation_m),
+        "average_represented_plant_height_m": float(record.average_represented_plant_height_m),
+        "height_fraction_of_average_height": float(record.height_fraction_of_average_height),
+        "sensor_top_elevation_m": float(record.sensor_top_elevation_m),
+    }
+
+
+def sensor_base_row(args: argparse.Namespace, date: str, scene_asset_path: str, record: object) -> dict[str, object]:
+    return {
+        "date": date,
+        "cultivar": record.cultivar,
+        "source_scene": scene_asset_path,
+        "reference_scene": args.reference_scene,
+        "calibrated_btx_descriptor": calibrated_descriptor(args, date, "BTX"),
+        "calibrated_pawaga_descriptor": calibrated_descriptor(args, date, "Pawaga"),
+        "sensor_bar_level": record.sensor_bar_level,
+        "probe_number": int(record.column) + 1,
+        "height_rule": record.height_rule,
+    }
 
 
 def sensor_rows_for_date(
@@ -273,65 +432,73 @@ def sensor_rows_for_date(
     date: str,
     scene_asset_path: str,
     leaf_thickness_m: float,
+    leaf_width_scale: float,
 ) -> list[dict[str, object]]:
-    start_project(evo, args.project, args.runtime_package_dir, scene_asset_path, args.max_wait_frames)
-    regenerated = int(evo.SetSorghumLsLeafThickness(leaf_thickness_m, True))
-    if regenerated != 163:
-        raise RuntimeError(f"{date}: expected 163 regenerated L-System plants, got {regenerated}")
-    evo.LoopFrames(args.after_panel_move_frames)
-    if not evo.WaitForProjectIdle(args.max_wait_frames):
-        raise RuntimeError(f"project did not become idle after regenerating plants for {date}")
-
-    moved = int(evo.MoveParbarMiddlePanelsToPlantHeightFraction(args.middle_panel_height_fraction))
-    if moved != 2:
-        raise RuntimeError(f"{date}: expected 2 moved middle PARBAR panels, got {moved}")
-    evo.LoopFrames(args.after_panel_move_frames)
-    if not evo.WaitForProjectIdle(args.max_wait_frames):
-        raise RuntimeError(f"project did not become idle after moving middle panels for {date}")
-
-    sensors = evo.CreateParbarTopFaceSensorGroup(args.probes_per_panel)
-    evo.EstimatePARSensors(sensors, args.samples, args.bounces, args.push_normal_distance, args.seed)
-    records = evo.GetParbarTopFaceSensorResults(sensors, args.probes_per_panel)
-    expected = len(CULTIVARS) * len(BAR_LEVELS) * args.probes_per_panel
-    if len(records) != expected:
-        raise RuntimeError(f"{date}: expected {expected} PARBAR sensor records, got {len(records)}")
-
-    rows: list[dict[str, object]] = []
-    for record in records:
-        position = vec3(record.position)
-        normal = vec3(record.normal)
-        rows.append(
-            {
-                "date": date,
-                "cultivar": record.cultivar,
-                "source_scene": scene_asset_path,
-                "sensor_bar_level": record.sensor_bar_level,
-                "probe_number": int(record.column) + 1,
-                "illumination_total_simulated": float(record.scalar),
-                "probe_position_x_m": position[0],
-                "probe_position_y_m": position[1],
-                "probe_position_z_m": position[2],
-                "probe_normal_x": normal[0],
-                "probe_normal_y": normal[1],
-                "probe_normal_z": normal[2],
-                "height_rule": record.height_rule,
-                "represented_clump_count": int(record.represented_plant_count),
-                "average_represented_root_elevation_m": float(record.average_represented_root_elevation_m),
-                "average_represented_plant_height_m": float(record.average_represented_plant_height_m),
-                "height_fraction_of_average_height": float(record.height_fraction_of_average_height),
-                "sensor_top_elevation_m": float(record.sensor_top_elevation_m),
-                "ray_samples": args.samples,
-                "ray_bounces": args.bounces,
-                "ray_seed": args.seed,
-                "push_normal_distance_m": args.push_normal_distance,
-            }
-        )
+    project_bytes = args.project.read_bytes()
+    side_effects_before = collect_default_scene_side_effects(args.project)
+    sensors = None
     try:
-        if hasattr(evo, "DeleteRuntimeAsset"):
-            evo.DeleteRuntimeAsset(sensors)
-    except Exception:
-        pass
-    evo.Terminate()
+        start_project(evo, args.project, args.runtime_package_dir, scene_asset_path, args.max_wait_frames)
+        btx_descriptor = calibrated_descriptor(args, date, "BTX")
+        pawaga_descriptor = calibrated_descriptor(args, date, "Pawaga")
+        assigned = int(evo.SetSorghumLsCultivarDescriptors(Path(btx_descriptor), Path(pawaga_descriptor), False, -1))
+        if assigned != 163:
+            raise RuntimeError(f"{date}: expected 163 descriptor-assigned L-System plants, got {assigned}")
+
+        thickness_count = int(evo.SetSorghumLsLeafThickness(leaf_thickness_m, False))
+        if thickness_count != 163:
+            raise RuntimeError(f"{date}: expected 163 thickness-updated L-System plants, got {thickness_count}")
+        width_count = int(evo.SetSorghumLsLeafWidthScale(leaf_width_scale, False))
+        if width_count != 163:
+            raise RuntimeError(f"{date}: expected 163 width-updated L-System plants, got {width_count}")
+
+        base_regenerated = int(evo.GrowSorghumLsPlantsToAdulthood(args.geometry_seed))
+        if base_regenerated != 163:
+            raise RuntimeError(f"{date}: expected 163 base regenerated L-System plants, got {base_regenerated}")
+        evo.LoopFrames(args.after_panel_move_frames)
+        if not evo.WaitForProjectIdle(args.max_wait_frames):
+            raise RuntimeError(f"project did not become idle after base regeneration for {date}")
+
+        moved = int(evo.MoveParbarMiddlePanelsToPlantHeightFraction(args.middle_panel_height_fraction))
+        if moved != 2:
+            raise RuntimeError(f"{date}: expected 2 moved middle PARBAR panels, got {moved}")
+        evo.LoopFrames(args.after_panel_move_frames)
+        if not evo.WaitForProjectIdle(args.max_wait_frames):
+            raise RuntimeError(f"project did not become idle after moving middle panels for {date}")
+
+        sensors = evo.CreateParbarTopFaceSensorGroup(args.probes_per_panel)
+        expected = len(CULTIVARS) * len(BAR_LEVELS) * args.probes_per_panel
+        accumulators: dict[tuple[str, str, int], SummaryAccumulator] = {}
+        for replicate in range(args.replicates):
+            geometry_seed = args.geometry_seed + replicate * args.geometry_seed_stride
+            ray_seed = args.seed + replicate
+            regenerated = int(evo.GrowSorghumLsPlantsToAdulthood(geometry_seed))
+            if regenerated != 163:
+                raise RuntimeError(f"{date}: expected 163 regenerated L-System plants, got {regenerated}")
+            evo.LoopFrames(1)
+            if not evo.WaitForProjectIdle(args.max_wait_frames):
+                raise RuntimeError(f"project did not become idle after replicate {replicate} regeneration for {date}")
+            evo.EstimatePARSensors(sensors, args.samples, args.bounces, args.push_normal_distance, ray_seed)
+            records = evo.GetParbarTopFaceSensorResults(sensors, args.probes_per_panel)
+            if len(records) != expected:
+                raise RuntimeError(f"{date}: expected {expected} PARBAR sensor records, got {len(records)}")
+            for record in records:
+                key = (record.cultivar, record.sensor_bar_level, int(record.column))
+                if key not in accumulators:
+                    accumulators[key] = SummaryAccumulator(sensor_base_row(args, date, scene_asset_path, record))
+                accumulators[key].add(sensor_values(record))
+        rows = [accumulator.row(args) for accumulator in accumulators.values()]
+    finally:
+        try:
+            if sensors is not None and hasattr(evo, "DeleteRuntimeAsset"):
+                evo.DeleteRuntimeAsset(sensors)
+        except Exception:
+            pass
+        try:
+            evo.Terminate()
+        finally:
+            args.project.write_bytes(project_bytes)
+            cleanup_new_default_scene_side_effects(args.project, side_effects_before)
     return sorted(rows, key=lambda row: (row["date"], row["cultivar"], BAR_LEVELS.index(str(row["sensor_bar_level"])), int(row["probe_number"])))
 
 
@@ -351,18 +518,28 @@ def worker_command(args: argparse.Namespace, date: str, sensor_csv: Path) -> lis
         str(args.project),
         "--source-root",
         str(args.source_root),
+        "--calibrated-descriptor-root",
+        str(args.calibrated_descriptor_root),
+        "--reference-scene",
+        args.reference_scene,
         "--output-dir",
         str(args.output_dir),
         "--dates",
         date,
         "--probes-per-panel",
         str(args.probes_per_panel),
+        "--replicates",
+        str(args.replicates),
         "--samples",
         str(args.samples),
         "--bounces",
         str(args.bounces),
         "--seed",
         str(args.seed),
+        "--geometry-seed",
+        str(args.geometry_seed),
+        "--geometry-seed-stride",
+        str(args.geometry_seed_stride),
         "--push-normal-distance",
         str(args.push_normal_distance),
         "--middle-panel-height-fraction",
@@ -403,9 +580,9 @@ def write_split_outputs(output_dir: Path, sensor_rows: list[dict[str, object]], 
         write_csv(output_dir / relative_path, columns, rows)
         index_rows.append({"file": relative_path.as_posix(), "row_count": len(rows), "description": description})
 
-    write_named(Path("all_parbar_sensors_long.csv"), SENSOR_COLUMNS, sensor_rows, "All PARBAR sensor probe rows.")
-    write_named(Path("all_individual_plants_long.csv"), PLANT_COLUMNS, plant_rows, "All fitted individual simulated plant rows.")
-    write_named(Path("all_clumps_long.csv"), CLUMP_COLUMNS, clump_rows, "All original-position clump summary rows.")
+    write_named(Path("all_parbar_sensors_summary.csv"), SENSOR_COLUMNS, sensor_rows, "All replicated PARBAR sensor probe summary rows.")
+    write_named(Path("all_individual_plants_long.csv"), PLANT_COLUMNS, plant_rows, "All fitted individual simulated plant layout/target rows.")
+    write_named(Path("all_clumps_long.csv"), CLUMP_COLUMNS, clump_rows, "All original-position clump layout/target summary rows.")
 
     for date in DATE_ORDER:
         for cultivar in CULTIVARS:
@@ -413,9 +590,9 @@ def write_split_outputs(output_dir: Path, sensor_rows: list[dict[str, object]], 
             plants = [row for row in plant_rows if row["date"] == date and row["cultivar"] == cultivar]
             clumps = [row for row in clump_rows if row["date"] == date and row["cultivar"] == cultivar]
             if sensors:
-                write_named(Path("sensors") / f"{date}_{cultivar}_parbar_sensors.csv", SENSOR_COLUMNS, sensors, f"{date} {cultivar} PARBAR sensor probe rows.")
+                write_named(Path("sensors") / f"{date}_{cultivar}_parbar_sensors_summary.csv", SENSOR_COLUMNS, sensors, f"{date} {cultivar} replicated PARBAR sensor probe summaries.")
             if plants:
-                write_named(Path("plants") / f"{date}_{cultivar}_individual_plants.csv", PLANT_COLUMNS, plants, f"{date} {cultivar} fitted individual simulated plants.")
+                write_named(Path("plants") / f"{date}_{cultivar}_individual_plants.csv", PLANT_COLUMNS, plants, f"{date} {cultivar} fitted individual simulated plant layout rows.")
             if clumps:
                 write_named(Path("clumps") / f"{date}_{cultivar}_clump_summary.csv", CLUMP_COLUMNS, clumps, f"{date} {cultivar} original-position clump summaries.")
     return sorted(index_rows, key=lambda row: str(row["file"]))
@@ -426,9 +603,9 @@ def validate_outputs(sensor_rows: list[dict[str, object]], plant_rows: list[dict
     if len(sensor_rows) != expected_sensor_rows:
         raise ValueError(f"expected {expected_sensor_rows} sensor rows, got {len(sensor_rows)}")
     for row in sensor_rows:
-        value = float(row["illumination_total_simulated"])
+        value = float(row["illumination_total_simulated_mean"])
         if not math.isfinite(value) or value < 0.0:
-            raise ValueError(f"invalid illumination value: {value}")
+            raise ValueError(f"invalid illumination mean value: {value}")
         if row["sensor_bar_level"] not in BAR_LEVELS:
             raise ValueError(f"unexpected sensor bar level: {row['sensor_bar_level']}")
 
@@ -442,85 +619,51 @@ def validate_outputs(sensor_rows: list[dict[str, object]], plant_rows: list[dict
             if len(clumps) != 20:
                 raise ValueError(f"{date} {cultivar}: expected 20 clump rows, got {len(clumps)}")
 
-    forbidden_exact = {"model", "energy", "flux", "red", "green", "blue", "rgb"}
-    forbidden_suffixes = ("_red", "_green", "_blue", "_rgb", "_energy", "_flux")
-    forbidden_prefixes = ("red_", "green_", "blue_", "rgb_", "energy_", "flux_")
-    for columns in (SENSOR_COLUMNS, PLANT_COLUMNS, CLUMP_COLUMNS):
-        bad = [
-            column
-            for column in columns
-            if column.lower() in forbidden_exact
-            or column.lower().endswith(forbidden_suffixes)
-            or column.lower().startswith(forbidden_prefixes)
-        ]
-        if bad:
-            raise ValueError(f"handoff columns contain forbidden raw terms: {bad}")
 
-
-def write_readme(path: Path, args: argparse.Namespace, output_dir: Path, sensor_rows: list[dict[str, object]], plant_rows: list[dict[str, object]], clump_rows: list[dict[str, object]]) -> None:
+def write_readme(path: Path, args: argparse.Namespace, sensor_rows: list[dict[str, object]], plant_rows: list[dict[str, object]], clump_rows: list[dict[str, object]]) -> None:
     text = f"""# Date-Height PARBAR Illumination Handoff
 
-This folder contains simulated PARBAR sensor illumination and plant morphology summaries for five date-specific L-System sorghum scenes.
+This folder contains replicated simulated PARBAR sensor illumination summaries plus plant and clump layout metadata for five date-specific L-System sorghum scenes.
 
 ## Files
 
-- `sensors/`: one CSV per date and cultivar with 300 PARBAR probe rows (`top`, `middle`, and `bottom` sensor bars, 100 probes per bar).
-- `plants/`: one CSV per date and cultivar with one row per simulated plant.
-- `clumps/`: one CSV per date and cultivar with one row per original field position. Each original position is represented by 3-5 simulated L-System plants.
-- `all_parbar_sensors_long.csv`, `all_individual_plants_long.csv`, and `all_clumps_long.csv`: combined versions of the split CSVs.
+- `sensors/`: one CSV per date and cultivar with replicated PARBAR probe summary rows.
+- `plants/`: one CSV per date and cultivar with one row per simulated plant from the source layout manifest.
+- `clumps/`: one CSV per date and cultivar with one row per original field position.
+- `all_parbar_sensors_summary.csv`, `all_individual_plants_long.csv`, and `all_clumps_long.csv`: combined versions of the split CSVs.
 - `handoff_file_index.csv`: file list and row counts.
 
-## How The Scenes Were Fitted
-
-Each scene was generated from L-System sorghum plants and fitted to date-specific empirical height and leaf-count targets. For each date and cultivar, the L-System descriptor was configured with the target leaf-module mean and standard deviation, and tillers were set to zero. A shared length scale was optimized by generating sample plants and minimizing average height error, then refined against the scene's base plants.
-
-Every actual plant, including clustered plants, then received its own saved `.sorghumls` descriptor. Per-plant fitting scaled only these length distributions: `internode_length`, `leaf_blade_length`, `leaf_sheath_length`, and `leaf_neck_length`. Each plant was regenerated and measured against the target height within the configured tolerance where feasible. Leaf counts in these CSVs come from the generated L-System geometry after fitting.
+Plant rows include both authored source and effective leaf-thickness, leaf-width-scale, and cluster-offset values,
+plus the cluster radius scale and outward lean used by the generated scene. Current height, leaf-count, clump-height,
+and middle-PARBAR columns are measured from the deterministic base geometry generated with the configured geometry
+seed; corresponding `source_*` columns retain the prior fitted manifest values.
 
 ## Illumination Values
 
-`illumination_total_simulated` is EvoEngine's direct scalar estimate for a point probe on the top face of a simulated PARBAR sensor bar. These values are simulated relative light estimates, not calibrated physical PAR units.
+`illumination_total_simulated_mean` and `_std` summarize EvoEngine's scalar estimate for point probes on the top face of simulated PARBAR sensor bars. The values are simulated relative light estimates, not calibrated physical PAR units.
 
-Middle PARBAR panels are placed at two-thirds of the average height of the 20 represented clumps for that cultivar/date. Top and bottom PARBAR panels use their scene positions.
+Before tracing rays, each scene is repaired so `Ground Mesh` uses the PBR soil material through a `MeshRenderer`. Each date scene also swaps BTX and Pawaga plants onto the calibrated date/cultivar descriptors, then regenerates plant geometry from deterministic replicate seeds.
 
-## Important Columns
-
-Sensor CSVs:
-- `date`, `cultivar`: empirical date and sorghum cultivar represented by the simulated scene.
-- `sensor_bar_level`: PARBAR panel level (`top`, `middle`, or `bottom`).
-- `probe_number`: 1-100 position along that PARBAR panel.
-- `illumination_total_simulated`: total simulated scalar light estimate for that probe.
-- `probe_position_*_m` and `probe_normal_*`: world-space probe position and top-face normal.
-- `height_rule`: whether the bar used its fixed scene position or the middle-panel height rule.
-- `represented_clump_count`, `average_represented_plant_height_m`, and `sensor_top_elevation_m`: context used for PARBAR placement.
-
-Plant CSVs:
-- `original_position_id`: original field position before clustering.
-- `plant_id`: individual simulated L-System plant.
-- `cluster_member_number` and `plants_at_original_position`: where this plant sits inside its 3-5 plant clump.
-- `plant_height_m`, `target_height_m`, `height_error_m`: fitted simulated height and target comparison.
-- `leaf_count`: generated L-System leaf count after fitting.
-
-Clump CSVs:
-- `original_position_id`: original field position represented by the clump.
-- `plants_at_original_position`: number of simulated plants at that position.
-- `mean_plant_height_m`, `min_plant_height_m`, `max_plant_height_m`: height summary for the clump.
-- `mean_leaf_count`, `min_leaf_count`, `max_leaf_count`: generated leaf-count summary for the clump.
-- `member_plant_ids`: semicolon-separated plant IDs included in the clump.
+Middle PARBAR panels are placed once per date scene at two-thirds of the represented crop height and remain fixed across replicate geometry draws.
 
 ## Run Settings
 
 - Source project: `{args.project}`
+- Reference scene: `{args.reference_scene}`
 - Source generated assets: `{args.source_root}`
+- Calibrated descriptor root: `{args.calibrated_descriptor_root}`
 - Dates: {', '.join(args.dates)}
+- Replicates per summary row: {args.replicates}
 - Probes per sensor bar: {args.probes_per_panel}
 - Ray samples: {args.samples}
 - Ray bounces: {args.bounces}
-- Ray seed: {args.seed}
+- Ray seed range: {args.seed} to {args.seed + max(0, args.replicates - 1)}
+- Geometry seed range: {args.geometry_seed} to {args.geometry_seed + max(0, args.replicates - 1) * args.geometry_seed_stride}
 - Push normal distance: {args.push_normal_distance} m
 
 ## Row Counts
 
-- Sensor rows: {len(sensor_rows)}
+- Sensor summary rows: {len(sensor_rows)}
 - Individual plant rows: {len(plant_rows)}
 - Clump summary rows: {len(clump_rows)}
 """
@@ -536,17 +679,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default="RelWithDebInfo")
     parser.add_argument("--runtime-package-dir", type=Path, default=repo_root / "out" / "build" / "vs2026-x64" / "EvoEngine_App" / "RelWithDebInfo" / "Packages")
     parser.add_argument("--project", type=Path, default=source_project_root / "test_lsystem_sorghum.eveproj")
-    parser.add_argument("--source-root", type=Path, default=source_project_root / "Assets" / "Generated")
-    parser.add_argument("--output-dir", type=Path, default=repo_root / "out" / "handoff" / "date_height_parbar_illumination")
+    parser.add_argument("--source-root", type=Path, default=source_project_root / "Assets" / GENERATED_REPORT_ROOT)
+    parser.add_argument("--calibrated-descriptor-root", type=Path, default=GENERATED_DESCRIPTOR_ROOT)
+    parser.add_argument("--reference-scene", default=REFERENCE_4X10_SCENE)
+    parser.add_argument("--output-dir", type=Path, default=repo_root / "out" / "handoff" / "sorghum_4x10_parbar_sensor_illumination_handoff")
     parser.add_argument("--dates", type=parse_dates, default=list(DATE_ORDER))
     parser.add_argument("--probes-per-panel", type=int, default=100)
+    parser.add_argument("--replicates", type=int, default=10000)
     parser.add_argument("--samples", type=int, default=64)
     parser.add_argument("--bounces", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--geometry-seed", type=int, default=2_000_000)
+    parser.add_argument("--geometry-seed-stride", type=int, default=1000)
     parser.add_argument("--push-normal-distance", type=float, default=0.001)
     parser.add_argument("--middle-panel-height-fraction", type=float, default=2.0 / 3.0)
     parser.add_argument("--max-wait-frames", type=int, default=30000)
     parser.add_argument("--after-panel-move-frames", type=int, default=2)
+    parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--worker-sensor-csv", type=Path, default=None, help=argparse.SUPPRESS)
     return parser
 
@@ -558,9 +707,18 @@ def main() -> None:
     args.runtime_package_dir = args.runtime_package_dir.resolve()
     args.project = args.project.resolve()
     args.source_root = args.source_root.resolve()
-    args.output_dir = unique_output_dir(args.output_dir.resolve())
+    args.output_dir = args.output_dir.resolve() if args.worker_sensor_csv else unique_output_dir(args.output_dir.resolve())
     if args.probes_per_panel <= 0:
         raise ValueError("--probes-per-panel must be positive")
+    if args.replicates <= 0:
+        raise ValueError("--replicates must be positive")
+    if args.geometry_seed_stride <= 0:
+        raise ValueError("--geometry-seed-stride must be positive")
+    if args.smoke:
+        args.dates = args.dates[:1]
+        args.probes_per_panel = min(args.probes_per_panel, 2)
+        args.replicates = min(args.replicates, 2)
+        args.samples = min(args.samples, 1)
 
     manifest_rows = load_height_manifest(args.source_root, args.dates)
     plant_rows = plant_rows_from_manifest(manifest_rows)
@@ -579,6 +737,7 @@ def main() -> None:
                 args.dates[0],
                 source_scene_for_date(manifest_rows, args.dates[0]),
                 leaf_thickness_for_date(manifest_rows, args.dates[0]),
+                leaf_width_scale_for_date(manifest_rows, args.dates[0]),
             )
         finally:
             try:
@@ -604,6 +763,7 @@ def main() -> None:
                 args.dates[0],
                 source_scene_for_date(manifest_rows, args.dates[0]),
                 leaf_thickness_for_date(manifest_rows, args.dates[0]),
+                leaf_width_scale_for_date(manifest_rows, args.dates[0]),
             )
         finally:
             try:
@@ -615,10 +775,10 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     index_rows = write_split_outputs(args.output_dir, sensor_rows, plant_rows, clump_rows)
     write_csv(args.output_dir / "handoff_file_index.csv", ["file", "row_count", "description"], index_rows)
-    write_readme(args.output_dir / "README.md", args, args.output_dir, sensor_rows, plant_rows, clump_rows)
+    write_readme(args.output_dir / "README.md", args, sensor_rows, plant_rows, clump_rows)
 
     print(f"output_dir={args.output_dir}")
-    print(f"sensor_rows={len(sensor_rows)}")
+    print(f"sensor_summary_rows={len(sensor_rows)}")
     print(f"plant_rows={len(plant_rows)}")
     print(f"clump_rows={len(clump_rows)}")
 

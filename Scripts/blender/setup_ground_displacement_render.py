@@ -28,7 +28,7 @@ DEFAULT_RENDER = (
     / "lsystem_sorghum_adult_cycles_ground_displacement.png"
 )
 DEFAULT_SOIL_HEIGHT = (
-    ROOT / "Resources" / "DigitalAgricultureProject" / "Assets" / "2026-06-04_Sorghum" / "soil_PBRv2" / "height.png"
+    ROOT / "Resources" / "DigitalAgricultureProject" / "Assets" / "ManualAssets" / "Soil" / "PBR" / "height.png"
 )
 
 

@@ -1,11 +1,11 @@
 #pragma once
 
+#include <glm/glm.hpp>
+#include <vector>
 #include "GrowthFunction.hpp"
 #include "LSystemGraph.hpp"
 #include "ModuleTypes.hpp"
 #include "SimulationClock.hpp"
-#include <glm/glm.hpp>
-#include <vector>
 
 namespace l_system_package {
 
@@ -18,10 +18,9 @@ namespace l_system_package {
 //         SorghumInternode  +  SorghumLeaf  + (apex passes through).
 //     Phyllotaxis is distichous (180 deg by default, parameterizable so
 //     cultivar drift is exposable).
-//   - At t=0 Initialize() creates one persistent SorghumRoot with the main
-//     SorghumApex and every SorghumTillerBud as sibling children. Each bud
-//     activates after a per-bud `dormancy_gdd_remaining` countdown elapses,
-//     becoming an order-1 Apex.
+//   - Main-culm phytomers create primary tiller buds in their own leaf axils.
+//     A bud activates when the configured number of main-culm leaves has
+//     fully expanded, becoming an order-1 apex at the correct basal node.
 //   - When the main apex's vigor reaches zero it terminates with a
 //     SorghumPanicleBud placeholder so a future panicle grammar can plug
 //     in without symbol-id churn.
@@ -34,7 +33,7 @@ namespace l_system_package {
 //                         (GDD growth -> maturity stamp -> chronological
 //                          senescence -> abscission).
 //   3 SorghumTillerBud  — basal lateral bud; activates into order-1 apex.
-//   4 SorghumPanicleBud — placeholder for future panicle grammar.
+//   4
 // ---------------------------------------------------------------------------
 
 struct SorghumRoot {
@@ -42,18 +41,28 @@ struct SorghumRoot {
 };
 
 struct SorghumApex {
-  int order = 0;                  ///< 0 = main culm, 1 = tiller.
-  int vigor = 0;                  ///< Remaining phytomer emission budget.
-  int phytomer_count = 0;         ///< Phytomers emitted so far on this axis.
-  float phyllotaxis_phase = 0.0f; ///< Azimuth carried across phytomers (deg).
-  float node_random = 0.5f;       ///< Per-node random scalar in [0,1].
-  float age_gdd = 0.0f;           ///< GDD accumulated since last emission.
+  int order = 0;                   ///< 0 = main culm, 1 = tiller.
+  int vigor = 0;                   ///< Remaining phytomer emission budget.
+  int phytomer_count = 0;          ///< Phytomers emitted so far on this axis.
+  float phyllotaxis_phase = 0.0f;  ///< Azimuth carried across phytomers (deg).
+  float node_random = 0.5f;        ///< Per-node random scalar in [0,1].
+  float age_gdd = 0.0f;            ///< GDD accumulated since last emission.
 
   /// Per-apex stamped sample of the descriptor's `plastochron_gdd`. Stamped
   /// once at apex creation so the R-Apex-Phytomer condition predicate and
   /// the produce lambda observe the same value across derivation passes
   /// (parity with PineApex::sampled_plastochron_years rationale).
   float sampled_plastochron_gdd = 50.0f;
+  int axis_id = 0;
+  int origin_rank = 0;
+  int reference_main_phytomer_count = 0;
+  int axis_phytomer_count = 0;
+  float insertion_angle = 0.0f;
+  float final_lean_angle = 0.0f;
+  float leaf_linear_scale = 1.0f;
+  float thickness_ratio = 1.0f;
+  float axis_length_scale = 1.0f;
+  float development_rate_scale = 1.0f;
 };
 
 struct SorghumInternode {
@@ -64,11 +73,15 @@ struct SorghumInternode {
   float branch_angle = 0.0f;      ///< Deflection from parent axis (deg).
   float roll_angle = 0.0f;        ///< Roll about parent axis (deg).
   glm::vec3 bend_axis_local = glm::vec3(1.0f, 0.0f, 0.0f);
-  float curvature = 0.0f;         ///< Local bending (deg).
-  float growth_progress = 0.0f;   ///< 0 = just emerged, 1 = mature.
-  float age_gdd = 0.0f;           ///< Module-local thermal age (GDD).
-  int rank = 0;                   ///< Phytomer rank along host axis.
-  int order = 0;                  ///< Branching order of host axis.
+  float curvature = 0.0f;        ///< Local bending (deg).
+  float growth_progress = 0.0f;  ///< 0 = just emerged, 1 = mature.
+  float age_gdd = 0.0f;          ///< Module-local thermal age (GDD).
+  int rank = 0;                  ///< Phytomer rank along host axis.
+  int order = 0;                 ///< Branching order of host axis.
+  int axis_id = 0;
+  int origin_rank = 0;
+  int axis_phytomer_count = 0;
+  float development_rate_scale = 1.0f;
   float node_random = 0.5f;
   ContinuousGrowthState continuous_growth{};
 };
@@ -92,22 +105,31 @@ struct SorghumInternode {
 // ---------------------------------------------------------------------------
 struct SorghumLeaf {
   // -- Topology / placement --
-  int rank = 0;                       ///< Phytomer rank along parent culm.
-  float s_along_parent_norm = 1.0f;   ///< Fractional anchor on parent internode.
-  float roll_angle_deg = 0.0f;        ///< Sequential phyllotactic azimuth carried by the host apex.
-  int order = 0;                      ///< Branching order of host axis.
+  int rank = 0;                      ///< Phytomer rank along parent culm.
+  float s_along_parent_norm = 1.0f;  ///< Fractional anchor on parent internode.
+  float roll_angle_deg = 0.0f;       ///< Sequential phyllotactic azimuth carried by the host apex.
+  int order = 0;                     ///< Branching order of host axis.
+  int axis_id = 0;
+  int origin_rank = 0;
+  int axis_phytomer_count = 0;
+  float development_rate_scale = 1.0f;
+  float width_scale = 1.0f;
   float node_random = 0.5f;
 
   // -- GDD-driven growth (until maturity) --
   float age_gdd = 0.0f;
   float blade_length = 0.0f;
-  float target_blade_length = 0.0f;       ///< (m)
-  float blade_max_width = 0.0f;           ///< [deprecated] legacy absolute width contract.
-  float target_blade_max_width = 0.0f;    ///< [deprecated] legacy absolute width contract (m).
+  float target_blade_length = 0.0f;     ///< (m)
+  float blade_max_width = 0.0f;         ///< Current full blade width (m).
+  float target_blade_max_width = 0.0f;  ///< Mature full blade width (m).
+  float blade_thickness = 0.0f;
+  float target_blade_thickness = 0.0f;
+  float sheath_thickness = 0.0f;
+  float target_sheath_thickness = 0.0f;
   float sheath_length = 0.0f;
-  float target_sheath_length = 0.0f;      ///< (m)
+  float target_sheath_length = 0.0f;  ///< (m)
   float neck_length = 0.0f;
-  float target_neck_length = 0.0f;        ///< (m)
+  float target_neck_length = 0.0f;  ///< (m)
   float sheath_end_width_ratio = 1.0f;
   float target_sheath_end_width_ratio = 1.0f;
   float neck_end_width_ratio = 1.0f;
@@ -117,14 +139,14 @@ struct SorghumLeaf {
   float insertion_angle_deg = 0.0f;
   float target_insertion_angle_deg = 60.0f;
   float curling = 0.0f;
-  float target_curling = 0.0f;            ///< (deg) per SorghumLeafState
+  float target_curling = 0.0f;  ///< (deg) per SorghumLeafState
   float bending = 0.0f;
-  float target_bending = 0.0f;            ///< (deg)
+  float target_bending = 0.0f;  ///< (deg)
   float waviness = 0.0f;
-  float target_waviness = 0.0f;           ///< amplitude
-  float waviness_frequency = 0.0f;        ///< constant; not interpolated
-  float growth_progress = 0.0f;           ///< 0..1; mirrors PineInternode::growth_progress
-  ContinuousGrowthState continuous_growth{}; ///< thermal maturation state (parity with PineNeedleCluster)
+  float target_waviness = 0.0f;               ///< amplitude
+  float waviness_frequency = 0.0f;            ///< constant; not interpolated
+  float growth_progress = 0.0f;               ///< 0..1; mirrors PineInternode::growth_progress
+  ContinuousGrowthState continuous_growth{};  ///< thermal maturation state (parity with PineNeedleCluster)
 
   // -- Maturity stamp --
   bool maturity_reached = false;
@@ -132,19 +154,26 @@ struct SorghumLeaf {
 
   // -- Chronological senescence (post-maturity, mirrors PineNeedleCluster) --
   int age_years = 0;
-  float lifespan_years = 2.5f;        ///< Sampled at initiation (~2-3y typical).
-  float wilting_years = 0.5f;         ///< Senescence-onset -> fully-wilted window.
-  float senescence_phase = 0.0f;      ///< 0 = green, 1 = fully wilted.
-  bool alive = true;                  ///< False = abscised; mesher skips.
+  float lifespan_years = 2.5f;    ///< Sampled at initiation (~2-3y typical).
+  float wilting_years = 0.5f;     ///< Senescence-onset -> fully-wilted window.
+  float senescence_phase = 0.0f;  ///< 0 = green, 1 = fully wilted.
+  bool alive = true;              ///< False = abscised; mesher skips.
 };
 
 struct SorghumTillerBud {
-  float insertion_angle = 30.0f;          ///< Lateral departure angle (deg).
-  float azimuth_offset = 0.0f;            ///< Roll about basal axis (deg).
-  float dormancy_gdd_remaining = 0.0f;    ///< 0 = activate next step.
-  float initial_dormancy_gdd = 0.0f;      ///< Creation-time dormancy budget.
-  int lateral_phytomer_count = 0;         ///< Vigor seeded into the activated apex.
-  float lateral_thickness_ratio = 0.7f;   ///< Tiller stem thickness vs main culm.
+  float insertion_angle = 30.0f;  ///< Lateral departure angle (deg).
+  float azimuth_offset = 0.0f;    ///< Roll about basal axis (deg).
+  int activation_main_leaf_stage = 5;
+  int axis_id = 1;
+  int origin_rank = 1;
+  int lateral_phytomer_count = 0;  ///< Vigor seeded into the activated apex.
+  int reference_main_phytomer_count = 0;
+  float final_lean_angle = 0.0f;
+  float target_leaf_count_ratio = 0.90f;
+  float target_height_ratio = 0.90f;
+  float leaf_linear_scale = 1.0f;
+  float lateral_thickness_ratio = 0.80f;  ///< Tiller stem thickness vs main culm.
+  float axis_length_scale = 1.0f;
   float node_random = 0.5f;
 };
 
@@ -156,32 +185,22 @@ struct SorghumPanicleBud {
 // Type aliases
 // ---------------------------------------------------------------------------
 
-using SorghumModuleData = ModuleVariant<SorghumApex,
-                                        SorghumInternode,
-                                        SorghumLeaf,
-                                        SorghumTillerBud,
-                                        SorghumPanicleBud,
-                                        SorghumRoot>;
+using SorghumModuleData =
+    ModuleVariant<SorghumApex, SorghumInternode, SorghumLeaf, SorghumTillerBud, SorghumPanicleBud, SorghumRoot>;
 
 struct SorghumSymbol {
-  static constexpr int Apex =
-      ModuleIndex<SorghumApex, SorghumApex, SorghumInternode, SorghumLeaf,
-                  SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value; // 0
-  static constexpr int Internode =
-      ModuleIndex<SorghumInternode, SorghumApex, SorghumInternode, SorghumLeaf,
-                  SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value; // 1
-  static constexpr int Leaf =
-      ModuleIndex<SorghumLeaf, SorghumApex, SorghumInternode, SorghumLeaf,
-                  SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value; // 2
-  static constexpr int TillerBud =
-      ModuleIndex<SorghumTillerBud, SorghumApex, SorghumInternode, SorghumLeaf,
-                  SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value; // 3
-  static constexpr int PanicleBud =
-      ModuleIndex<SorghumPanicleBud, SorghumApex, SorghumInternode, SorghumLeaf,
-                  SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value; // 4
-  static constexpr int Root =
-      ModuleIndex<SorghumRoot, SorghumApex, SorghumInternode, SorghumLeaf,
-                  SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value; // 5
+  static constexpr int Apex = ModuleIndex<SorghumApex, SorghumApex, SorghumInternode, SorghumLeaf, SorghumTillerBud,
+                                          SorghumPanicleBud, SorghumRoot>::value;  // 0
+  static constexpr int Internode = ModuleIndex<SorghumInternode, SorghumApex, SorghumInternode, SorghumLeaf,
+                                               SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value;  // 1
+  static constexpr int Leaf = ModuleIndex<SorghumLeaf, SorghumApex, SorghumInternode, SorghumLeaf, SorghumTillerBud,
+                                          SorghumPanicleBud, SorghumRoot>::value;  // 2
+  static constexpr int TillerBud = ModuleIndex<SorghumTillerBud, SorghumApex, SorghumInternode, SorghumLeaf,
+                                               SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value;  // 3
+  static constexpr int PanicleBud = ModuleIndex<SorghumPanicleBud, SorghumApex, SorghumInternode, SorghumLeaf,
+                                                SorghumTillerBud, SorghumPanicleBud, SorghumRoot>::value;  // 4
+  static constexpr int Root = ModuleIndex<SorghumRoot, SorghumApex, SorghumInternode, SorghumLeaf, SorghumTillerBud,
+                                          SorghumPanicleBud, SorghumRoot>::value;  // 5
 };
 
 // ---------------------------------------------------------------------------
@@ -190,6 +209,8 @@ struct SorghumSymbol {
 
 struct SorghumGraphData {
   int total_derivation_steps = 0;
+  int main_expanded_leaf_count = 0;
+  std::vector<float> main_internode_target_lengths;
   SimulationClock clock{};
 };
 
@@ -199,12 +220,9 @@ using SorghumGraph = LSystemGraph<SorghumGraphData, SorghumFlowData, SorghumModu
 using SorghumNode = LGraphNode<SorghumModuleData>;
 using SorghumFlow = LGraphFlow<SorghumFlowData>;
 
-inline glm::vec3 ComputeSorghumChildGlobalPosition(const SorghumNode& node,
-                                                   const SorghumNode& parent) {
+inline glm::vec3 ComputeSorghumChildGlobalPosition(const SorghumNode& node, const SorghumNode& parent) {
   (void)node;
-  return parent.data.Is<SorghumRoot>()
-      ? parent.info.global_position
-      : parent.info.GetGlobalEndPosition();
+  return parent.data.Is<SorghumRoot>() ? parent.info.global_position : parent.info.GetGlobalEndPosition();
 }
 
 }  // namespace l_system_package

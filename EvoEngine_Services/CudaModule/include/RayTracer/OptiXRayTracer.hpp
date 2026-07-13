@@ -103,12 +103,17 @@ struct CameraProperties {
 enum class EnvironmentalLightingType { Scene, Skydome, SingleLightSource };
 
 struct EnvironmentProperties {
+  static constexpr float kPhysicalSunAngularDiameterRadians = 0.00918043f;
+
   EnvironmentalLightingType environmental_lighting_type = EnvironmentalLightingType::Scene;
   float skylight_intensity = 1.0f;
   float ambient_light_intensity = 0.1f;
   float light_size = 0.0f;
+  float sun_angular_diameter_radians = kPhysicalSunAngularDiameterRadians;
+  float sun_intensity = 1.0f;
   float gamma = 1.0f;
   glm::vec3 sun_direction = glm::vec3(0, 1, 0);
+  glm::vec3 sun_color = glm::vec3(1.0f);
   glm::vec3 color = glm::vec3(1, 1, 1);
   bool use_environmental_map = false;
   cudaTextureObject_t environmental_map = 0;
@@ -125,10 +130,11 @@ struct EnvironmentProperties {
   [[nodiscard]] bool Changed(const EnvironmentProperties& properties) const {
     return properties.environmental_lighting_type != environmental_lighting_type ||
            properties.use_environmental_map != use_environmental_map || properties.light_size != light_size ||
-           properties.ambient_light_intensity != ambient_light_intensity ||
+           properties.sun_angular_diameter_radians != sun_angular_diameter_radians ||
+           properties.sun_intensity != sun_intensity || properties.ambient_light_intensity != ambient_light_intensity ||
            properties.skylight_intensity != skylight_intensity || properties.gamma != gamma ||
-           properties.sun_direction != sun_direction || properties.color != color ||
-           properties.environmental_map != environmental_map ||
+           properties.sun_direction != sun_direction || properties.sun_color != sun_color ||
+           properties.color != color || properties.environmental_map != environmental_map ||
            properties.atmosphere.earth_radius != atmosphere.earth_radius ||
            properties.atmosphere.atmosphere_radius != atmosphere.atmosphere_radius ||
            properties.atmosphere.hr != atmosphere.hr || properties.atmosphere.hm != atmosphere.hm ||
@@ -161,7 +167,7 @@ struct RayTracerProperties {
   void DrawGui();
 };
 
-enum class RayType { Radiance, SpacialSampling, RayTypeCount };
+enum class RayType { Radiance, SpacialSampling, Shadow, RayTypeCount };
 
 struct CameraRenderingLaunchParams {
   CameraProperties camera_properties;
@@ -252,7 +258,6 @@ struct RayTracedMaterial {
   bool remove_flag = true;
 
   void UploadForSbt();
-
 };
 
 enum class CurveMode { Linear, Quadratic, Cubic };
@@ -358,8 +363,8 @@ class OptiXRayTracer {
                             float push_normal_distance);
 
   void EstimateIlluminationSpectral(const size_t& size, const EnvironmentProperties& environment_properties,
-                                    const RayProperties& ray_properties, const CudaBuffer& light_probes,
-                                    unsigned seed, float push_normal_distance);
+                                    const RayProperties& ray_properties, const CudaBuffer& light_probes, unsigned seed,
+                                    float push_normal_distance);
 
   void ScanPointCloud(const size_t& size, const EnvironmentProperties& environment_properties,
                       const CudaBuffer& samples);

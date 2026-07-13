@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_APP = ROOT / "out" / "build" / "vs2026-x64" / "EvoEngine_App" / "RelWithDebInfo" / "DigitalAgricultureApp.exe"
 DEFAULT_PROJECT = ROOT / "Resources" / "DigitalAgricultureProject" / "test_lsystem_sorghum.eveproj"
-DEFAULT_SOURCE_ROOT = DEFAULT_PROJECT.parent / "Assets" / "Generated"
+DEFAULT_SOURCE_ROOT = DEFAULT_PROJECT.parent / "Assets" / "GeneratedAssets" / "Reports"
 DEFAULT_OUTPUT_DIR = ROOT / "out" / "exports" / "lsystem_date_height_fit_blender"
 PREPARE_SCRIPT = ROOT / "Scripts" / "blender" / "prepare_lsystem_cycles_scene.py"
 GROUND_SCRIPT = ROOT / "Scripts" / "blender" / "setup_ground_displacement_render.py"
@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source-root",
         type=Path,
-        help="Generated height-fit Assets/Generated folder. Defaults to Resources/DigitalAgricultureProject/Assets/Generated.",
+        help="Generated report folder. Defaults to Resources/DigitalAgricultureProject/Assets/GeneratedAssets/Reports.",
     )
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
@@ -67,9 +67,9 @@ def selected_dates(raw: str) -> list[str]:
 
 
 def default_source_root() -> Path:
-    if not (DEFAULT_SOURCE_ROOT / "height_fit_manifest.csv").exists():
+    if not (DEFAULT_SOURCE_ROOT / "field_manifest.csv").exists():
         raise FileNotFoundError(
-            f"Height-fit manifest not found: {DEFAULT_SOURCE_ROOT / 'height_fit_manifest.csv'}\n"
+            f"Field manifest not found: {DEFAULT_SOURCE_ROOT / 'field_manifest.csv'}\n"
             "Install the Sorghum L-System resource bundle under Resources/DigitalAgricultureProject "
             "or pass --source-root."
         )
@@ -77,7 +77,7 @@ def default_source_root() -> Path:
 
 
 def scene_manifest_path(args: argparse.Namespace) -> Path:
-    return (args.manifest or args.source_root / "height_fit_manifest.csv").resolve()
+    return (args.manifest or args.source_root / "field_manifest.csv").resolve()
 
 
 def read_date_scenes(path: Path, dates: list[str]) -> list[DateScene]:

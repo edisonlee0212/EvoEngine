@@ -1,20 +1,23 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
 #ifdef min
-#undef min
+#  undef min
 #endif
 #ifdef max
-#undef max
+#  undef max
 #endif
 
 #include <gtest/gtest.h>
 
+#include "DistributionDefaults.hpp"
 #include "GeometryPass.hpp"
 #include "SorghumLeafMesh.hpp"
 #include "SorghumModules.hpp"
 #include "SorghumRules.hpp"
 
 #include <array>
+#include <map>
+#include <set>
 
 using namespace l_system_package;
 
@@ -95,96 +98,209 @@ TEST(LSystemLeafAtlasUv, ThreeByThreeAtlasVariantsAreReachablePerLeaf) {
   }
 }
 
-TEST(LSystemSorghumTillers, RootChildrenStartAtRootAndNonRootChildrenUseParentTip) {
-  SorghumGraph graph(1);
+TEST(LSystemLeafMorphology, SpatialBendingProfileIsIndependentFromTemporalDevelopment) {
+  SampledSorghumParams params;
+  ApplyLinearGrowthCurveDefaultsToAll(params.width_along_sheath, params.width_along_neck, params.width_along_leaf,
+                                      params.curling_along_leaf, params.waviness_along_leaf,
+                                      params.leaf_bending_development_curve, params.bending_along_leaf);
 
-  auto& root = graph.RefNode(0);
-  root.symbol_id = SorghumSymbol::Root;
-  root.data.Set<SorghumRoot>(SorghumRoot{});
-  root.info.length = 0.5f;
+  SorghumLeaf leaf;
+  leaf.blade_length = leaf.target_blade_length = 1.0f;
+  leaf.neck_length = leaf.target_neck_length = 0.0f;
+  leaf.sheath_length = leaf.target_sheath_length = 0.0f;
+  leaf.sheath_end_width_ratio = leaf.target_sheath_end_width_ratio = 1.0f;
+  leaf.neck_end_width_ratio = leaf.target_neck_end_width_ratio = 1.0f;
+  leaf.blade_end_width_ratio = leaf.target_blade_end_width_ratio = 0.05f;
+  leaf.bending = leaf.target_bending = 60.0f;
+  leaf.curling = leaf.target_curling = 89.0f;
+  leaf.insertion_angle_deg = leaf.target_insertion_angle_deg = 0.0f;
+  leaf.node_random = 0.5f;
 
-  SorghumInternode internode;
-  internode.order = 0;
-  internode.rank = 0;
-  internode.length = 0.5f;
+  StemContext stem;
+  stem.segments.emplace_back();
+  SorghumLeafMeshSettings settings;
+  settings.vertical_subdivision_length = 0.05f;
 
-  const auto bud_handle = graph.Extend(0, true);
-  graph.RefNode(bud_handle).symbol_id = SorghumSymbol::TillerBud;
-  graph.RefNode(bud_handle).data.Set<SorghumTillerBud>(SorghumTillerBud{});
+  SorghumSpline first;
+  BuildLeafSplineFromState(leaf, stem, params, settings, first);
+  ASSERT_FALSE(first.segments.empty());
+  const glm::vec3 first_tip = first.segments.back().position;
 
-  const auto activated_apex_handle = graph.Extend(0, true);
-  SorghumApex activated_apex;
-  activated_apex.order = 1;
-  activated_apex.phytomer_count = 0;
-  graph.RefNode(activated_apex_handle).symbol_id = SorghumSymbol::Apex;
-  graph.RefNode(activated_apex_handle).data.Set<SorghumApex>(activated_apex);
+  params.leaf_bending_development_curve.mean.curve.UnsafeGetValues() = {{0.0f, 0.0f}, {1.0f, 0.0f}};
+  SorghumSpline temporal_changed;
+  BuildLeafSplineFromState(leaf, stem, params, settings, temporal_changed);
+  ASSERT_FALSE(temporal_changed.segments.empty());
+  const glm::vec3 temporal_tip = temporal_changed.segments.back().position;
+  EXPECT_NEAR(glm::distance(first_tip, temporal_tip), 0.0f, 1.0e-6f);
 
-  const auto internode_handle = graph.Extend(0, true);
-  graph.RefNode(internode_handle).symbol_id = SorghumSymbol::Internode;
-  graph.RefNode(internode_handle).data.Set<SorghumInternode>(internode);
-  graph.RefNode(internode_handle).info.length = internode.length;
+  params.bending_along_leaf.mean.curve.UnsafeGetValues() = {{0.0f, 0.0f}, {1.0f, 0.0f}};
+  SorghumSpline spatial_changed;
+  BuildLeafSplineFromState(leaf, stem, params, settings, spatial_changed);
+  ASSERT_FALSE(spatial_changed.segments.empty());
+  EXPECT_GT(glm::distance(first_tip, spatial_changed.segments.back().position), 0.1f);
+}
 
-  const auto leaf_handle = graph.Extend(internode_handle, true);
-  graph.RefNode(leaf_handle).symbol_id = SorghumSymbol::Leaf;
-  graph.RefNode(leaf_handle).data.Set<SorghumLeaf>(SorghumLeaf{});
+TEST(LSystemLeafMorphology, AbsoluteBladeWidthIsIndependentOfHostCulmRadius) {
+  SampledSorghumParams params;
+  ApplyLinearGrowthCurveDefaultsToAll(params.width_along_sheath, params.width_along_neck, params.width_along_leaf,
+                                      params.curling_along_leaf, params.waviness_along_leaf, params.bending_along_leaf);
+  params.width_along_leaf.mean.curve.UnsafeGetValues() = {{0.0f, 0.35f}, {0.5f, 1.0f}, {1.0f, 0.0f}};
+  params.leaf_sheath_radius_ratio = 1.05f;
+  params.leaf_sheath_wrap_angle = 390.0f;
 
-  graph.SortLists();
-  GeometryPass::Execute(
-      graph, glm::vec3(0.0f), kDefaultRootRotation,
-      std::function<glm::quat(const SorghumNode&, const SorghumNode&)>(),
-      std::function<glm::vec3(const SorghumNode&, const SorghumNode&)>(
-          ComputeSorghumChildGlobalPosition));
+  SorghumLeaf leaf;
+  leaf.blade_length = leaf.target_blade_length = 1.0f;
+  leaf.blade_max_width = leaf.target_blade_max_width = 0.12f;
+  leaf.neck_length = leaf.target_neck_length = 0.1f;
+  leaf.sheath_length = leaf.target_sheath_length = 0.2f;
+  leaf.curling = leaf.target_curling = 89.0f;
+  leaf.node_random = 0.5f;
 
-  const auto& propagated_root = graph.PeekNode(0);
-  const auto& propagated_internode = graph.PeekNode(internode_handle);
-  const glm::vec3 root_base = propagated_root.info.global_position;
-  const glm::vec3 root_tip = propagated_root.info.GetGlobalEndPosition();
-  const glm::vec3 internode_tip = propagated_internode.info.GetGlobalEndPosition();
-
-  const auto expect_near = [](const glm::vec3& actual, const glm::vec3& expected) {
-    EXPECT_NEAR(actual.x, expected.x, 1.0e-5f);
-    EXPECT_NEAR(actual.y, expected.y, 1.0e-5f);
-    EXPECT_NEAR(actual.z, expected.z, 1.0e-5f);
+  SorghumLeafMeshSettings settings;
+  settings.vertical_subdivision_length = 0.01f;
+  const auto distal_max_radius = [&](const float culm_radius) {
+    StemContext stem;
+    StemContext::Segment base;
+    base.radius = culm_radius;
+    stem.segments.push_back(base);
+    auto tip = base;
+    tip.position = glm::vec3(0.0f, 1.0f, 0.0f);
+    stem.segments.push_back(tip);
+    SorghumSpline spline;
+    BuildLeafSplineFromState(leaf, stem, params, settings, spline);
+    float maximum = 0.0f;
+    for (const auto& segment : spline.segments) {
+      if (segment.theta <= 90.0f)
+        maximum = std::max(maximum, segment.radius);
+    }
+    return maximum;
   };
 
-  EXPECT_EQ(graph.PeekNode(bud_handle).GetParentHandle(), 0);
-  EXPECT_EQ(graph.PeekNode(activated_apex_handle).GetParentHandle(), 0);
-  EXPECT_EQ(graph.PeekNode(internode_handle).GetParentHandle(), 0);
-  EXPECT_EQ(graph.PeekNode(leaf_handle).GetParentHandle(), internode_handle);
-
-  expect_near(graph.PeekNode(bud_handle).info.global_position, root_base);
-  expect_near(graph.PeekNode(activated_apex_handle).info.global_position, root_base);
-  expect_near(graph.PeekNode(internode_handle).info.global_position, root_base);
-  expect_near(graph.PeekNode(leaf_handle).info.global_position, internode_tip);
-  EXPECT_GT(glm::distance(root_tip, root_base), 0.1f);
+  const float narrow_culm_width = distal_max_radius(0.005f);
+  const float wide_culm_width = distal_max_radius(0.015f);
+  EXPECT_NEAR(narrow_culm_width, wide_culm_width, 1.0e-6f);
+  EXPECT_NEAR(narrow_culm_width, 0.06f, 5.0e-4f);
 }
 
-TEST(LSystemSorghumTillers, TillerBudAzimuthsFollowGoldenAnglePhyllotaxis) {
-  EXPECT_NEAR(ComputeSorghumTillerBudAzimuth(0, 10.0f), 10.0f, 1.0e-5f);
-  EXPECT_NEAR(ComputeSorghumTillerBudAzimuth(1, 10.0f), 147.5f, 1.0e-5f);
-  EXPECT_NEAR(ComputeSorghumTillerBudAzimuth(2, 10.0f), 285.0f, 1.0e-5f);
-  EXPECT_NEAR(ComputeSorghumTillerBudAzimuth(3, 10.0f), 62.5f, 1.0e-5f);
+TEST(LSystemSorghumTillers, MatureGraphHasThreeCrownAttachedPrimaryTillers) {
+  SampledSorghumParams params;
+  params.total_phytomer_count = 10;
+  params.phyllotaxis_angle = 180.0f;
+  params.tiller_count = 3;
+  params.tiller_origin_ranks = {3, 4, 2};
+  params.tiller_emergence_main_leaf_stages = {1, 1, 1, 1, 1, 1};
+  params.tiller_leaf_count_ratio = {0.90f, 0.0f};
+  params.tiller_height_ratio = {0.90f, 0.0f};
+  params.plastochron_gdd = 1.0f;
+  params.maturity_gdd = 1.0f;
+  params.gdd_step = 1.0f;
+  ApplyMeanStdPlotDefaultsToAll(params.internode_length, params.internode_thickness, params.leaf_blade_length,
+                                params.leaf_blade_max_width, params.leaf_sheath_length, params.leaf_neck_length,
+                                params.leaf_sheath_end_width_ratio, params.leaf_neck_end_width_ratio,
+                                params.leaf_blade_end_width_ratio, params.leaf_insertion_angle, params.leaf_roll_angle,
+                                params.leaf_curling, params.leaf_bending, params.leaf_waviness,
+                                params.tiller_leaf_area_ratio_by_origin);
+  ApplyLinearGrowthCurveDefaultsToAll(
+      params.internode_elongation_curve, params.internode_thickness_curve, params.leaf_sheath_length_growth_curve,
+      params.leaf_neck_length_growth_curve, params.leaf_blade_growth_curve, params.leaf_sheath_width_growth_curve,
+      params.leaf_neck_width_growth_curve, params.leaf_width_growth_curve, params.leaf_angle_development_curve,
+      params.leaf_curling_development_curve, params.leaf_bending_development_curve, params.bending_along_leaf);
+
+  SorghumGraph graph(1);
+  graph.RefNode(0).symbol_id = SorghumSymbol::Root;
+  graph.RefNode(0).data.Set<SorghumRoot>(SorghumRoot{});
+  const auto apex_handle = graph.Extend(0, false);
+  SorghumApex apex;
+  apex.vigor = params.total_phytomer_count;
+  apex.sampled_plastochron_gdd = 1.0f;
+  apex.age_gdd = 1.0f;
+  apex.reference_main_phytomer_count = params.total_phytomer_count;
+  apex.axis_phytomer_count = params.total_phytomer_count;
+  graph.RefNode(apex_handle).symbol_id = SorghumSymbol::Apex;
+  graph.RefNode(apex_handle).data.Set<SorghumApex>(apex);
+  graph.data.main_expanded_leaf_count = params.total_phytomer_count;
+  graph.SortLists();
+
+  SorghumEngine engine;
+  engine.topology_rules = CreateSorghumTopologyRules(params);
+  engine.growth_rules = CreateSorghumGrowthRules(params);
+  std::mt19937 rng(17u);
+  for (int step = 0; step < 64; ++step) {
+    engine.ApplyGrowthRules(graph, rng);
+    engine.ApplyTopologyRules(graph, rng);
+    graph.SortLists();
+  }
+
+  std::set<int> tiller_axes;
+  std::map<int, int> leaves_per_axis;
+  int main_leaves = 0;
+  for (const auto handle : graph.PeekSortedNodeList()) {
+    const auto& node = graph.PeekNode(handle);
+    if (node.data.Is<SorghumLeaf>()) {
+      const auto& leaf = node.data.Get<SorghumLeaf>();
+      if (leaf.order == 0) {
+        ++main_leaves;
+      } else {
+        ++leaves_per_axis[leaf.axis_id];
+      }
+    }
+    if (!node.data.Is<SorghumInternode>()) {
+      continue;
+    }
+    const auto& internode = node.data.Get<SorghumInternode>();
+    if (internode.order != 1) {
+      continue;
+    }
+    EXPECT_EQ(internode.axis_phytomer_count, 9);
+    EXPECT_EQ(internode.origin_rank, params.tiller_origin_ranks[static_cast<size_t>(internode.axis_id - 1)]);
+    tiller_axes.insert(internode.axis_id);
+    if (internode.rank != 0) {
+      continue;
+    }
+    const auto& parent = graph.PeekNode(node.GetParentHandle());
+    ASSERT_TRUE(parent.data.Is<SorghumRoot>());
+  }
+
+  EXPECT_EQ(main_leaves, 10);
+  EXPECT_EQ(tiller_axes, (std::set<int>{1, 2, 3}));
+  for (const int axis_id : tiller_axes) {
+    EXPECT_EQ(leaves_per_axis[axis_id], ComputeSorghumTillerLeafBudget(10, 0.90f));
+  }
 }
 
-TEST(LSystemSorghumTillers, TillerBranchAnglesRecoverUprightOverTwoRanks) {
+TEST(LSystemSorghumTillers, TillerBranchAnglesRecoverToFinalLeanSmoothly) {
   constexpr float kInsertionAngle = 40.0f;
+  constexpr float kFinalLean = 15.0f;
+  constexpr int kAxisPhytomers = 10;
 
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(0, 5, kInsertionAngle), 40.0f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(1, 5, kInsertionAngle), -20.0f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(2, 5, kInsertionAngle), -20.0f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(3, 5, kInsertionAngle), 0.0f);
+  const float first = ComputeSorghumTillerInternodeBranchAngle(0, kAxisPhytomers, kInsertionAngle, kFinalLean, 1.0f);
+  float recovery_sum = 0.0f;
+  for (int rank = 1; rank < kAxisPhytomers; ++rank) {
+    const float recovery =
+        ComputeSorghumTillerInternodeBranchAngle(rank, kAxisPhytomers, kInsertionAngle, kFinalLean, 1.0f);
+    EXPECT_LT(recovery, 0.0f);
+    recovery_sum += recovery;
+  }
+
+  EXPECT_FLOAT_EQ(first, kInsertionAngle);
+  EXPECT_NEAR(recovery_sum, -(kInsertionAngle - kFinalLean), 1.0e-5f);
+  EXPECT_FLOAT_EQ(
+      ComputeSorghumTillerInternodeBranchAngle(kAxisPhytomers, kAxisPhytomers, kInsertionAngle, kFinalLean, 1.0f),
+      0.0f);
 }
 
-TEST(LSystemSorghumTillers, TwoPhytomerTillersRecoverOnSecondRank) {
-  constexpr float kInsertionAngle = 40.0f;
+TEST(LSystemSorghumTillers, SelectionAndLeafBudgetsUsePeerAxisRatios) {
+  SampledSorghumParams params;
+  params.tiller_origin_ranks = {3, 4, 2, 1};
 
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(0, 2, kInsertionAngle), 40.0f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(1, 2, kInsertionAngle), -40.0f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(2, 2, kInsertionAngle), 0.0f);
-}
-
-TEST(LSystemSorghumTillers, TillerBranchAnglesKeepMinimumDepartureAngle) {
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(0, 4, 10.0f), 25.0f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(1, 4, 10.0f), -12.5f);
-  EXPECT_FLOAT_EQ(ComputeSorghumTillerInternodeBranchAngle(2, 4, 10.0f), -12.5f);
+  EXPECT_EQ(ComputeSorghumTillerSelectionIndex(params, 3), 0);
+  EXPECT_EQ(ComputeSorghumTillerSelectionIndex(params, 4), 1);
+  EXPECT_EQ(ComputeSorghumTillerSelectionIndex(params, 2), 2);
+  EXPECT_EQ(ComputeSorghumTillerSelectionIndex(params, 1), 3);
+  EXPECT_EQ(ComputeSorghumTillerSelectionIndex(params, 5), -1);
+  EXPECT_EQ(ComputeSorghumTillerLeafBudget(18, 0.90f), 16);
+  EXPECT_EQ(ComputeSorghumTillerLeafBudget(10, 0.93f), 9);
+  EXPECT_FLOAT_EQ(ComputeSorghumAxisRankPosition(0, 9), 0.0f);
+  EXPECT_FLOAT_EQ(ComputeSorghumAxisRankPosition(8, 9), 1.0f);
+  EXPECT_NEAR(ComputeSorghumTillerCatchUpPlastochron(50.0f, 9, 16, 1.0f), 28.125f, 1.0e-6f);
 }
