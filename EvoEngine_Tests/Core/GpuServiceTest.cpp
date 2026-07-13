@@ -45,6 +45,47 @@ class PlatformLifecycleTestAccess final {
 }  // namespace evo_engine
 
 namespace {
+TEST(StaticBlasBuilder, PlansDestinationBudgetAndOversizedSingletons) {
+  constexpr VkDeviceSize budget = 512;
+  const auto passes = PlanStaticBlasBuildPasses({{256, 64}, {256, 64}, {1, 64}, {600, 64}, {100, 64}}, 64, budget);
+  ASSERT_EQ(passes.size(), 4u);
+  EXPECT_EQ(passes[0].begin, 0u);
+  EXPECT_EQ(passes[0].count, 2u);
+  EXPECT_EQ(passes[0].destination_size, budget);
+  EXPECT_FALSE(passes[0].oversized_singleton);
+  EXPECT_EQ(passes[1].begin, 2u);
+  EXPECT_EQ(passes[1].count, 1u);
+  EXPECT_EQ(passes[2].begin, 3u);
+  EXPECT_EQ(passes[2].count, 1u);
+  EXPECT_EQ(passes[2].destination_size, 600u);
+  EXPECT_TRUE(passes[2].oversized_singleton);
+  EXPECT_EQ(passes[3].begin, 4u);
+  EXPECT_EQ(passes[3].count, 1u);
+}
+
+TEST(StaticBlasBuilder, SizesSharedScratchAndWavesIndependently) {
+  constexpr VkDeviceSize budget = 512;
+  const auto compact = PlanStaticBlasBuildPasses({{1, 200}, {1, 200}}, 64, budget);
+  ASSERT_EQ(compact.size(), 1u);
+  EXPECT_EQ(compact[0].scratch_size, 512u);
+  EXPECT_EQ(compact[0].scratch_wave_count, 1u);
+
+  const auto waved = PlanStaticBlasBuildPasses({{1, 300}, {1, 300}}, 64, budget);
+  ASSERT_EQ(waved.size(), 1u);
+  EXPECT_EQ(waved[0].scratch_size, budget);
+  EXPECT_EQ(waved[0].scratch_wave_count, 2u);
+
+  const auto oversized = PlanStaticBlasBuildPasses({{1, 700}}, 64, budget);
+  ASSERT_EQ(oversized.size(), 1u);
+  EXPECT_EQ(oversized[0].scratch_size, 704u);
+  EXPECT_EQ(oversized[0].scratch_wave_count, 1u);
+  const auto isolated = PlanStaticBlasBuildPasses({{1, 64}, {1, 700}, {1, 64}}, 64, budget);
+  ASSERT_EQ(isolated.size(), 3u);
+  EXPECT_EQ(isolated[1].count, 1u);
+  EXPECT_GT(isolated[1].scratch_size, budget);
+  EXPECT_THROW(static_cast<void>(PlanStaticBlasBuildPasses({{1, 1}}, 1, 0)), std::invalid_argument);
+}
+
 class TempProject {
  public:
   TempProject() {
@@ -66,7 +107,8 @@ class TempProject {
   std::filesystem::path root_;
 };
 
-ApplicationInitializationSettings TestApplicationSettings(const TempProject& project) {
+ApplicationInitializationSettings TestApplicationSettings(const TempProject& project,
+                                                          const bool use_ray_tracing = false) {
   ApplicationInitializationSettings settings;
   settings.project_path = project.ProjectPath();
   settings.load_default_resources = false;
@@ -74,7 +116,7 @@ ApplicationInitializationSettings TestApplicationSettings(const TempProject& pro
   settings.load_project_start_scene = false;
   settings.enable_runtime_packages = false;
   settings.graphics_settings.use_mesh_shader = false;
-  settings.graphics_settings.use_ray_tracing = false;
+  settings.graphics_settings.use_ray_tracing = use_ray_tracing;
   return settings;
 }
 
@@ -97,14 +139,14 @@ class ScopedJobsRuntime {
 
 class ScopedGpuPlatform {
  public:
-  ScopedGpuPlatform() {
+  explicit ScopedGpuPlatform(const bool use_ray_tracing = false) {
     project_ = std::make_unique<TempProject>();
     application_ = std::make_unique<Application>();
     application_->PushLayer<RenderLayer>("Render Layer");
     Jobs::Initialize(2);
     jobs_initialized_ = true;
     try {
-      PlatformLifecycleTestAccess::Initialize(TestApplicationSettings(*project_));
+      PlatformLifecycleTestAccess::Initialize(TestApplicationSettings(*project_, use_ray_tracing));
       platform_initialized_ = true;
     } catch (...) {
       if (jobs_initialized_) {
@@ -138,6 +180,128 @@ class ScopedGpuPlatform {
   bool platform_initialized_ = false;
 };
 }  // namespace
+
+TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {
+  ScopedGpuPlatform platform(true);
+  if (!Platform::RayAccelerationStructureEnabled()) {
+    GTEST_SKIP() << "Acceleration structures are unavailable on the selected test device.";
+  }
+
+  Mesh mesh;
+  mesh.OnCreate();
+  VertexAttributes attributes{};
+  attributes.normal = true;
+  attributes.tangent = true;
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  vertices[0].normal = vertices[1].normal = vertices[2].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+  vertices[0].tangent = vertices[1].tangent = vertices[2].tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+
+  const auto before = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)});
+  const auto blas = mesh.GetBlas();
+  ASSERT_TRUE(blas);
+  EXPECT_FALSE(blas->IsReady());
+  EXPECT_TRUE(BottomLevelAccelerationStructure::HasPendingStaticBuilds());
+
+  BottomLevelAccelerationStructure::WaitForStaticBuilds();
+  ASSERT_TRUE(blas->IsReady());
+  EXPECT_NE(blas->GetDeviceAddress(), 0u);
+  const auto after = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+  EXPECT_TRUE(after.complete);
+  EXPECT_EQ(after.pending_count, 0u);
+  EXPECT_EQ(after.static_eligible_count, before.static_eligible_count + 1);
+  EXPECT_EQ(after.shared_input_count, before.shared_input_count + 1);
+  EXPECT_EQ(after.cumulative_built_static_count, before.cumulative_built_static_count + 1);
+  EXPECT_GT(after.cumulative_uncompacted_bytes, before.cumulative_uncompacted_bytes);
+  EXPECT_GT(after.cumulative_compacted_bytes, before.cumulative_compacted_bytes);
+  EXPECT_GT(after.eligible_static_uncompacted_bytes, before.eligible_static_uncompacted_bytes);
+  EXPECT_GT(after.eligible_static_compacted_bytes, before.eligible_static_compacted_bytes);
+  EXPECT_GT(after.final_compacted_storage_bytes, before.final_compacted_storage_bytes);
+}
+
+TEST(StaticBlasBuilder, GeometryWaitBarrierCommitsChangesDuringActiveBuild) {
+  ScopedGpuPlatform platform(true);
+  if (!Platform::RayAccelerationStructureEnabled()) {
+    GTEST_SKIP() << "Acceleration structures are unavailable on the selected test device.";
+  }
+
+  Mesh mesh;
+  mesh.OnCreate();
+  VertexAttributes attributes{};
+  attributes.normal = true;
+  attributes.tangent = true;
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  vertices[0].normal = vertices[1].normal = vertices[2].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+  vertices[0].tangent = vertices[1].tangent = vertices[2].tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+  const std::vector<glm::uvec3> triangles = {glm::uvec3(0, 1, 2)};
+
+  mesh.SetVertices(attributes, vertices, triangles);
+  GeometryStorage::WaitForPendingUploads();
+  ASSERT_TRUE(BottomLevelAccelerationStructure::StaticBuildInProgress());
+
+  vertices[0].position.x = 2.0f;
+  mesh.SetVertices(attributes, vertices, triangles);
+  ASSERT_TRUE(GeometryStorage::HasPendingUploads());
+  const auto replacement_blas = mesh.GetBlas();
+  const auto replacement_range = mesh.GetTriangleRange();
+
+  GeometryStorage::WaitForPendingUploads();
+  EXPECT_FALSE(GeometryStorage::HasPendingUploads());
+  EXPECT_EQ(replacement_range->prev_frame_offset, replacement_range->offset);
+  EXPECT_EQ(replacement_range->prev_frame_range, replacement_range->range);
+  EXPECT_EQ(replacement_range->prev_frame_index_count, replacement_range->index_count);
+
+  BottomLevelAccelerationStructure::WaitForStaticBuilds();
+  ASSERT_TRUE(replacement_blas);
+  EXPECT_TRUE(replacement_blas->IsReady());
+}
+
+TEST(StaticBlasBuilder, KeepsBuildHistoryAfterLiveStorageIsReleased) {
+  ScopedGpuPlatform platform(true);
+  if (!Platform::RayAccelerationStructureEnabled()) {
+    GTEST_SKIP() << "Acceleration structures are unavailable on the selected test device.";
+  }
+
+  const auto before = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+  {
+    Mesh mesh;
+    mesh.OnCreate();
+    VertexAttributes attributes{};
+    attributes.normal = true;
+    attributes.tangent = true;
+    std::vector<Vertex> vertices(3);
+    vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
+    vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
+    vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+    vertices[0].normal = vertices[1].normal = vertices[2].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    vertices[0].tangent = vertices[1].tangent = vertices[2].tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+    mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)});
+    BottomLevelAccelerationStructure::WaitForStaticBuilds();
+
+    const auto built = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+    EXPECT_EQ(built.static_eligible_count, before.static_eligible_count + 1);
+    EXPECT_EQ(built.cumulative_built_static_count, before.cumulative_built_static_count + 1);
+    EXPECT_GT(built.cumulative_uncompacted_bytes, before.cumulative_uncompacted_bytes);
+    EXPECT_GT(built.cumulative_compacted_bytes, before.cumulative_compacted_bytes);
+  }
+
+  const auto released = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+  EXPECT_EQ(released.static_eligible_count, before.static_eligible_count);
+  EXPECT_EQ(released.shared_input_count, before.shared_input_count);
+  EXPECT_EQ(released.eligible_static_uncompacted_bytes, before.eligible_static_uncompacted_bytes);
+  EXPECT_EQ(released.eligible_static_compacted_bytes, before.eligible_static_compacted_bytes);
+  EXPECT_EQ(released.final_compacted_storage_bytes, before.final_compacted_storage_bytes);
+  EXPECT_EQ(released.cumulative_built_static_count, before.cumulative_built_static_count + 1);
+  EXPECT_GT(released.cumulative_uncompacted_bytes, before.cumulative_uncompacted_bytes);
+  EXPECT_GT(released.cumulative_compacted_bytes, before.cumulative_compacted_bytes);
+  EXPECT_GT(released.pass_count, before.pass_count);
+}
 
 TEST(GpuService, EnqueuedWorkRunsOnGpuExecutor) {
   ScopedGpuPlatform platform;
@@ -478,6 +642,61 @@ TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {
   EXPECT_NEAR(mip_pixel.a, 1.0f, 0.001f);
 }
 
+TEST(GpuService, Texture2DSharedColorSpaceViewReusesCompressedImage) {
+  ScopedGpuPlatform platform;
+  if (!Platform::GetSelectedPhysicalDevice()->features.textureCompressionBC) {
+    GTEST_SKIP() << "BC texture compression is unavailable on the selected test device.";
+  }
+  Texture2D source;
+  std::vector<std::byte> block(16);
+  const auto upload =
+      source.RefTexture2DStorage().SetCompressedDataAsync(block, glm::uvec2(4), VK_FORMAT_BC7_UNORM_BLOCK);
+  ASSERT_TRUE(upload.Valid());
+  Platform::GetGpuService().Wait(upload);
+  TextureStorage::DeviceSync();
+  const auto version_before_share = TextureStorage::GetVersion();
+
+  Texture2DSamplerSettings sampler;
+  sampler.address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  const auto source_image = source.GetVkImage();
+  const auto source_view = source.GetVkImageView();
+  EXPECT_FALSE(source.ShareGpuImage(source, true, sampler));
+  EXPECT_EQ(source.GetVkImage(), source_image);
+  EXPECT_EQ(source.GetVkImageView(), source_view);
+
+  Texture2D view;
+  ASSERT_TRUE(view.ShareGpuImage(source, true, sampler));
+  EXPECT_GT(TextureStorage::GetVersion(), version_before_share);
+  EXPECT_NE(view.GetVkImageView(), VK_NULL_HANDLE);
+  EXPECT_NE(view.GetVkSampler(), VK_NULL_HANDLE);
+  EXPECT_EQ(view.GetVkImage(), source.GetVkImage());
+  EXPECT_NE(view.GetVkImageView(), source.GetVkImageView());
+  EXPECT_EQ(source.RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_UNORM_BLOCK);
+  EXPECT_EQ(view.RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_TRUE(view.SamplesLinearSrgb());
+  EXPECT_EQ(view.GetSamplerSettings(), sampler);
+
+  const auto shared_image = view.GetVkImage();
+  source.RefTexture2DStorage().Clear();
+  EXPECT_EQ(view.GetVkImage(), shared_image);
+}
+
+TEST(GpuService, Texture2DSharedPredecodedSrgbImagePreservesSamplingSemantics) {
+  ScopedGpuPlatform platform;
+  Texture2D source;
+  source.srgb = true;
+  const auto upload = source.RefTexture2DStorage().SetDataAsync({glm::vec4(0.5f, 0.25f, 0.125f, 1.0f)}, glm::uvec2(1),
+                                                                VK_FORMAT_UNDEFINED, true);
+  ASSERT_TRUE(upload.Valid());
+  Platform::GetGpuService().Wait(upload);
+
+  Texture2D view;
+  ASSERT_TRUE(view.ShareGpuImage(source, true, {}));
+  EXPECT_EQ(view.GetVkImage(), source.GetVkImage());
+  EXPECT_EQ(view.RefTexture2DStorage().GetFormat(), Platform::Constants::texture_2d);
+  EXPECT_TRUE(view.SamplesLinearSrgb());
+}
+
 TEST(GpuService, Texture2DRuntimeUpdateTracksGpuReadiness) {
   ScopedGpuPlatform platform;
 
@@ -617,10 +836,10 @@ TEST(GpuService, GeometryStorageUploadsCompactedMeshTail) {
   ASSERT_EQ(second_mesh->GetTriangleRange()->prev_frame_offset, 1u);
 
   first_mesh.reset();
-  PlatformLifecycleTestAccess::PreUpdate();
-  gpu_service.WaitIdle();
-  PlatformLifecycleTestAccess::PreUpdate();
+  BottomLevelAccelerationStructure::WaitForStaticBuilds();
+  GeometryStorage::WaitForPendingUploads();
 
+  ASSERT_FALSE(GeometryStorage::HasPendingUploads());
   ASSERT_EQ(second_mesh->GetTriangleRange()->prev_frame_offset, 0u);
 
   const auto downloaded_bytes = GeometryStorage::GetVertexBuffer()->DownloadDataAsync(sizeof(VertexDataChunk)).get();

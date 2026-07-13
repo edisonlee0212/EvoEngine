@@ -92,7 +92,7 @@ TEST(RayTracingSkinned, SkinnedMeshBuildsBindPoseFallbackWithSharedConversion) {
   EXPECT_NE(source.find("GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_"),
             std::string::npos);
   EXPECT_NE(source.find("ray_tracing_triangle_range_)"), std::string::npos);
-  EXPECT_NE(source.find("blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles)"),
+  EXPECT_NE(source.find("BottomLevelAccelerationStructure::CreateStatic(ray_tracing_meshlet_range_,"),
             std::string::npos);
 }
 

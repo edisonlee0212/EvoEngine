@@ -769,6 +769,62 @@ RayQuery at `>=53.0 Msample/s`, `<=57.5 ms`, and `<=8.90 s`; forced query-only a
 `<=0.010`, and the fresh device/driver must match the approved M6 baseline. The report includes signed percentage deltas
 from M6 without presenting the archived reference timing as a contemporaneous speedup.
 
+### M12 Static BLAS Construction and Compaction
+
+Static mesh and bind-pose BLASes are queued against committed `GeometryStorage` ranges instead of uploading private
+vertex, index, and transform buffers per mesh. The shared vertex buffer is addressed from its base because packed triangle
+indices are global; each build range supplies the committed triangle byte offset. Updateable skinned-renderer BLASes keep
+their private inputs and persistent update scratch.
+
+The asynchronous builder uses a binary 512 MiB (`536870912` byte) hint independently for aggregate original-AS
+destinations and shared scratch planning. Normal passes cannot exceed either bound; an individually oversized BLAS is an
+isolated forward-progress pass. Scratch slices are aligned and reused in barrier-separated waves. Each pass completes its
+build and compact-size query, submits compact copies, retires the original handles only after copy completion, and then
+continues to the next pass. A static BLAS is published only after compaction, so TLAS construction never observes an
+original handle that will be retired. Geometry uploads defer buffer replacement while this chain is active.
+On Windows, the immediate-submit queue used by the builder has lower Vulkan queue priority than the main render and
+same-family present queues; task priority also keeps its CPU work behind interactive jobs. Queue priorities remain driver
+scheduling hints rather than a preemption guarantee.
+
+External glTF images inside the active project reuse the project-managed `Texture2D` image when the requested glTF color
+space is view-compatible. BC7 and RGBA8 images are created mutable with both UNORM and sRGB view formats; each glTF
+binding retains its own image view and sampler while sharing image allocation and lifetime. Pre-decoded float sRGB
+fallbacks preserve their linear-sampling marker. Unsupported formats, unavailable views, and failed managed loads retain
+the independent import path and continue to the glTF core-image fallback.
+
+Capture JSON reports `blas_builder`, including pass records, shared/private input ownership, scratch and transient peaks,
+eligible uncompacted/compacted bytes, compaction ratio, and compaction-inclusive wall time. `BLAS Build` and
+`BLAS Compact` remain separate startup GPU sections. `Scripts/validate_raytracer_m12.py` reuses the three cold M11 harness
+lanes without launching the reference. Automated capture enables GPU timestamps before default resources create any BLAS,
+so startup timing samples and builder pass history share one domain. Builder pass/timing and `cumulative_*` telemetry are
+process-lifetime totals; eligible counts/bytes and `final_compacted_storage_bytes` describe only live BLAS storage. The
+absolute M6-derived gates require the exact approved vendor, device, and driver. Validation observes three pre-commit
+captures and records the fourth post-commit delivery as planned until it is run. It requires zero capture-window AS work,
+raw startup `BLAS Build` total at most `425 ms`, compacted eligible-static bytes at most 75% of the matching uncompacted set,
+and final device-local allocation at most `6.00e9` bytes. Scratch peak, transient peak, pass count, and builder wall time are
+recorded but have no M12 threshold.
+
+```bat
+python Scripts\validate_raytracer_m12.py --phase self-test
+python Scripts\validate_raytracer_m12.py --phase plan --output-dir out\raytracer-m12
+python Scripts\validate_raytracer_m12.py --phase all --output-dir out\raytracer-m12
+```
+
+The original three-lane report is immutable acceptance evidence even if a later repair resolves one of its failures. For
+the approved texture-residency repair, `Scripts/validate_raytracer_m12_repair.py` creates a separate overlay and permits
+exactly one supplementary cold specialized RTX capture. The repair keeps the original RayQuery/query-only records,
+requires the new RTX image to remain bit-exact, and verifies the common import path through unchanged 390-asset scan and
+338-texture counts plus a project-load dispatch reduction from 390 to 52. It reports RayQuery/query-only post-fix memory
+compliance as an approved shared-resource inference, never as a fresh measurement. This exception raises M12 accounting to
+four pre-commit captures plus the normal post-commit delivery; it does not launch the reference.
+
+```bat
+python Scripts\validate_raytracer_m12_repair.py --phase self-test
+python Scripts\validate_raytracer_m12_repair.py --phase plan
+python Scripts\validate_raytracer_m12_repair.py --phase measure
+python Scripts\validate_raytracer_m12_repair.py --phase analyze
+```
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat

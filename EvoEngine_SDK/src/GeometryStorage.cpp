@@ -131,7 +131,7 @@ bool GeometryStorage::IsPendingUploadCompleted(const PendingGeometryUpload& uplo
 void GeometryStorage::WaitPendingUpload(PendingGeometryUpload& upload) {
   auto* gpu_service = Platform::TryGetGpuService();
   for (const auto& handle : upload.handles) {
-    if (!handle.Valid() || Jobs::IsCompleted(handle)) {
+    if (!handle.Valid()) {
       continue;
     }
     if (gpu_service) {
@@ -261,8 +261,12 @@ void GeometryStorage::UploadData() {
     return;
   }
   CompletePendingUploads();
-  SchedulePendingUploads();
+  BottomLevelAccelerationStructure::ProcessStaticBuilds();
+  if (!BottomLevelAccelerationStructure::StaticBuildInProgress()) {
+    SchedulePendingUploads();
+  }
   CompletePendingUploads();
+  BottomLevelAccelerationStructure::ProcessStaticBuilds();
 
   for (int index = 0; index < particle_info_list_data_list_.size(); index++) {
     if (auto& particle_info_list_data = particle_info_list_data_list_.at(index);
@@ -309,12 +313,20 @@ void GeometryStorage::Initialize() {
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  if (Platform::RayAccelerationStructureEnabled()) {
+    storage_buffer_create_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                                        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+  }
   storage.vertex_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
   storage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   storage.meshlet_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage_buffer_create_info.usage =
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+  if (Platform::RayAccelerationStructureEnabled()) {
+    storage_buffer_create_info.usage |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                                        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+  }
   storage.triangle_buffer_ = std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
 
   storage.require_mesh_data_device_update_ = false;
@@ -374,11 +386,18 @@ void GeometryStorage::WaitForPendingUploads() {
     return;
   }
   storage.CompletePendingUploads();
-  storage.SchedulePendingUploads();
+  BottomLevelAccelerationStructure::ProcessStaticBuilds();
+  if (BottomLevelAccelerationStructure::StaticBuildInProgress() && HasPendingUploads()) {
+    BottomLevelAccelerationStructure::WaitForActiveStaticBuild();
+  }
+  if (!BottomLevelAccelerationStructure::StaticBuildInProgress()) {
+    storage.SchedulePendingUploads();
+  }
   WaitPendingUpload(storage.pending_mesh_upload_);
   WaitPendingUpload(storage.pending_skinned_mesh_upload_);
   WaitPendingUpload(storage.pending_strand_upload_);
   storage.CompletePendingUploads();
+  BottomLevelAccelerationStructure::ProcessStaticBuilds();
 }
 
 const std::shared_ptr<Buffer>& GeometryStorage::GetTriangleBuffer() {
@@ -1094,6 +1113,7 @@ void GeometryStorage::OnDestroy() {
   storage.CompletePendingUpload(storage.pending_skinned_mesh_upload_);
   WaitPendingUpload(storage.pending_strand_upload_);
   storage.CompletePendingUpload(storage.pending_strand_upload_);
+  BottomLevelAccelerationStructure::WaitForStaticBuilds();
   ClearPendingUpload(storage.pending_mesh_upload_);
   ClearPendingUpload(storage.pending_skinned_mesh_upload_);
   ClearPendingUpload(storage.pending_strand_upload_);

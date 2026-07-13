@@ -575,10 +575,28 @@ std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
                 if (!Platform::Initialized() && LowercaseExtension(full_path) == ".dds") {
                   continue;
                 }
-                auto candidate = AssetManager::CreateTemporaryAsset<Texture2D>();
-                candidate->SetSrgbImportOverride(srgb);
-                candidate->SetSamplerSettings(sampler);
-                if (Serialization::LoadAsset(*candidate, full_path)) {
+                std::shared_ptr<Texture2D> candidate;
+                bool shared_project_image = false;
+                if (ProjectManager::IsInAssetsFolder(full_path)) {
+                  try {
+                    const auto source = std::dynamic_pointer_cast<Texture2D>(
+                        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
+                    auto shared_view = AssetManager::CreateTemporaryAsset<Texture2D>();
+                    if (source && shared_view->ShareGpuImage(*source, srgb, sampler)) {
+                      candidate = std::move(shared_view);
+                      shared_project_image = true;
+                    }
+                  } catch (const std::exception& e) {
+                    EVOENGINE_WARNING("Unable to reuse project texture " + full_path.filename().string() + ": " +
+                                      e.what())
+                  }
+                }
+                if (!candidate) {
+                  candidate = AssetManager::CreateTemporaryAsset<Texture2D>();
+                  candidate->SetSrgbImportOverride(srgb);
+                  candidate->SetSamplerSettings(sampler);
+                }
+                if (shared_project_image || Serialization::LoadAsset(*candidate, full_path)) {
                   texture = std::move(candidate);
                   source_needs_y_flip = TexturePathNeedsYFlip(full_path);
                   loaded_textures[full_path.string() + "#gltf-" + std::to_string(texture_index) +

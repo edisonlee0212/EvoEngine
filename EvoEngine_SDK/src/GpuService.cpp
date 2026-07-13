@@ -308,7 +308,11 @@ void GpuService::SubmitImmediateOnGpuThread(const std::function<void(VkCommandBu
 
   VkFence fence = VK_NULL_HANDLE;
   Platform::CheckVk(vkCreateFence(vk_device, &fence_info, nullptr, &fence));
-  const auto submit_result = vkQueueSubmit(Platform::GetImmediateSubmitQueue()->GetVkQueue(), 1, &submit_info, fence);
+  VkResult submit_result;
+  {
+    const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
+    submit_result = vkQueueSubmit(Platform::GetImmediateSubmitQueue()->GetVkQueue(), 1, &submit_info, fence);
+  }
   if (submit_result != VK_SUCCESS) {
     vkDestroyFence(vk_device, fence, nullptr);
     throw std::runtime_error("Failed to submit immediate GPU work! Error code: " + std::to_string(submit_result));

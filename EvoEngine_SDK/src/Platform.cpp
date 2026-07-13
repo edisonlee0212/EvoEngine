@@ -26,6 +26,10 @@
 using namespace evo_engine;
 
 namespace {
+constexpr float kBackgroundQueuePriority = 0.0f;
+constexpr float kInteractiveQueuePriority = 1.0f;
+static_assert(kBackgroundQueuePriority < kInteractiveQueuePriority);
+
 void ResolveFrameSubmissionStates(std::vector<std::weak_ptr<FrameSubmissionState>>& states,
                                   const FrameSubmissionState::Status status) {
   for (const auto& weak_state : states) {
@@ -680,6 +684,7 @@ void Platform::DrainGpuResourceWork() {
     return;
   }
   GeometryStorage::WaitForPendingUploads();
+  BottomLevelAccelerationStructure::WaitForStaticBuilds();
   TextureStorage::DeviceSync();
   if (const auto gpu_service = TryGetGpuService();
       gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
@@ -914,6 +919,11 @@ GpuService& Platform::GetGpuService() {
     throw std::runtime_error("GpuService has not been created.");
   }
   return *gpu_service;
+}
+
+std::mutex& Platform::GetQueueHostMutex() {
+  static std::mutex mutex;
+  return mutex;
 }
 
 GpuService* Platform::TryGetGpuService() {
@@ -1791,29 +1801,29 @@ void Platform::CreateLogicalDevice() {
   if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
     const auto graphics_family = selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-    add_queue_request(graphics_family, 1.f);
-    add_queue_request(graphics_family, 0.f);
+    add_queue_request(graphics_family, kBackgroundQueuePriority);
+    add_queue_request(graphics_family, kInteractiveQueuePriority);
 #else
-    add_queue_request(graphics_family, 0.f);
+    add_queue_request(graphics_family, kInteractiveQueuePriority);
 #endif
   }
   if (selected_physical_device->queue_family_indices.compute_family.has_value() &&
       selected_physical_device->queue_family_indices.compute_family !=
           selected_physical_device->queue_family_indices.graphics_and_compute_family) {
-    add_queue_request(selected_physical_device->queue_family_indices.compute_family.value(), 0.f);
+    add_queue_request(selected_physical_device->queue_family_indices.compute_family.value(), kBackgroundQueuePriority);
   }
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     const auto present_family = selected_physical_device->queue_family_indices.present_family.value();
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
     if (present_family == selected_physical_device->queue_family_indices.graphics_and_compute_family.value()) {
-      add_queue_request(present_family, 0.f);
+      add_queue_request(present_family, kInteractiveQueuePriority);
     } else if (present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
-      add_queue_request(present_family, 0.f);
+      add_queue_request(present_family, kInteractiveQueuePriority);
     }
 #else
     if (present_family != selected_physical_device->queue_family_indices.graphics_and_compute_family.value() &&
         present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
-      add_queue_request(present_family, 0.f);
+      add_queue_request(present_family, kInteractiveQueuePriority);
     }
 #endif
   }

@@ -937,6 +937,33 @@ void Texture2D::SetSrgbImportOverride(const bool value) {
   srgb_import_override_ = value;
 }
 
+bool Texture2D::ShareGpuImage(const Texture2D& source, const bool requested_srgb,
+                              const Texture2DSamplerSettings& sampler_settings) {
+  const auto source_format = source.PeekTexture2DStorage().GetFormat();
+  VkFormat view_format = source_format;
+  if (source_format == VK_FORMAT_BC7_UNORM_BLOCK || source_format == VK_FORMAT_BC7_SRGB_BLOCK) {
+    view_format = requested_srgb ? VK_FORMAT_BC7_SRGB_BLOCK : VK_FORMAT_BC7_UNORM_BLOCK;
+  } else if (source_format == VK_FORMAT_R8G8B8A8_UNORM || source_format == VK_FORMAT_R8G8B8A8_SRGB) {
+    view_format = requested_srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
+  } else if (requested_srgb != source.SamplesLinearSrgb()) {
+    return false;
+  }
+  if (!RefTexture2DStorage().ShareImage(source.PeekTexture2DStorage(), view_format, sampler_settings.CreateInfo())) {
+    return false;
+  }
+  sampler_settings_ = sampler_settings;
+  srgb = requested_srgb;
+  srgb_import_override_ = requested_srgb;
+  srgb_fallback_linear_ = requested_srgb && source.SamplesLinearSrgb() && !RefTexture2DStorage().SamplesLinearSrgb();
+  hdr = source.hdr;
+  red_channel = source.red_channel;
+  green_channel = source.green_channel;
+  blue_channel = source.blue_channel;
+  alpha_channel = source.alpha_channel;
+  local_data_.clear();
+  return true;
+}
+
 bool Texture2D::SamplesLinearSrgb() const {
   return srgb && (srgb_fallback_linear_ || PeekTexture2DStorage().SamplesLinearSrgb());
 }

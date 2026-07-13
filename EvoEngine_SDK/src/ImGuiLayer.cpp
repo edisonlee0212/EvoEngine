@@ -1,5 +1,7 @@
 #include "ImGuiLayer.hpp"
 
+#include "Platform.hpp"
+
 using namespace evo_engine;
 
 void ImGuiLayer::OnDestroy() {
@@ -13,7 +15,10 @@ void ImGuiLayer::OnDestroy() {
 }
 
 void ImGuiLayer::PreUpdate() {
-  ImGui_ImplVulkan_NewFrame();
+  {
+    const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
+    ImGui_ImplVulkan_NewFrame();
+  }
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();
   ImGuizmo::BeginFrame();

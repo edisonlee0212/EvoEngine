@@ -805,6 +805,7 @@ class Platform final {
    * @brief Retrieves the platform-owned GPU service.
    */
   static GpuService& GetGpuService();
+  static std::mutex& GetQueueHostMutex();
 
   /**
    * @brief Returns the platform-owned GPU service when it has been created.

@@ -84,6 +84,8 @@ class Texture2D : public IAsset {
   void SetSamplerSettings(const Texture2DSamplerSettings& settings);
   [[nodiscard]] const Texture2DSamplerSettings& GetSamplerSettings() const;
   void SetSrgbImportOverride(bool value);
+  [[nodiscard]] bool ShareGpuImage(const Texture2D& source, bool srgb,
+                                   const Texture2DSamplerSettings& sampler_settings);
   [[nodiscard]] bool SamplesLinearSrgb() const;
   [[nodiscard]] std::shared_ptr<Image> GetImage() const;
   ImTextureID GetImTextureId() const;

@@ -119,11 +119,12 @@ struct ApplicationInitializationSettings {
   bool window_resizable = true;      /**< Whether the application window can be resized by the user. */
   bool hide_console_window = true;   /**< Whether to hide an owned OS console window on supported platforms. */
   bool redirect_standard_streams_to_console =
-      true;                             /**< Whether C++ stdout/stderr should be mirrored to Evo's console. */
-  bool load_default_resources = true;   /**< Whether to load built-in default rendering resources. */
-  bool load_project_assets = true;      /**< Whether project open should load all discovered project assets. */
-  bool load_project_start_scene = true; /**< Whether project open should load/create and attach a scene. */
-  bool enable_runtime_packages = false; /**< Whether to load runtime packages during initialization. */
+      true;                                  /**< Whether C++ stdout/stderr should be mirrored to Evo's console. */
+  bool load_default_resources = true;        /**< Whether to load built-in default rendering resources. */
+  bool load_project_assets = true;           /**< Whether project open should load all discovered project assets. */
+  bool load_project_start_scene = true;      /**< Whether project open should load/create and attach a scene. */
+  bool enable_gpu_timestamp_capture = false; /**< Whether GPU timing starts before default resources are loaded. */
+  bool enable_runtime_packages = false;      /**< Whether to load runtime packages during initialization. */
   std::vector<std::filesystem::path> package_search_paths; /**< Additional runtime package search paths. */
   std::vector<std::string> startup_runtime_packages;       /**< Runtime packages to load during initialization. */
 

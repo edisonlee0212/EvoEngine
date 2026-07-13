@@ -5,12 +5,31 @@
 #include "RenderLayer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 
 using namespace evo_engine;
 
 namespace {
+std::array<VkFormat, 2> CompatibleViewFormats(const VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_BC7_UNORM_BLOCK:
+    case VK_FORMAT_BC7_SRGB_BLOCK:
+      return {VK_FORMAT_BC7_UNORM_BLOCK, VK_FORMAT_BC7_SRGB_BLOCK};
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB:
+      return {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_SRGB};
+    default:
+      return {format, format};
+  }
+}
+
+bool AreViewFormatsCompatible(const VkFormat image_format, const VkFormat view_format) {
+  const auto formats = CompatibleViewFormats(image_format);
+  return view_format == formats[0] || view_format == formats[1];
+}
+
 void RemoveImGuiTexture(const ImTextureID texture_id) {
   if (texture_id != 0 && ImGui::GetCurrentContext()) {
     ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(texture_id));
@@ -495,7 +514,18 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat f
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
+  const auto compatible_formats = CompatibleViewFormats(format);
+  VkImageFormatListCreateInfo format_list{};
+  if (compatible_formats[0] != compatible_formats[1]) {
+    image_info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    format_list.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
+    format_list.viewFormatCount = static_cast<uint32_t>(compatible_formats.size());
+    format_list.pViewFormats = compatible_formats.data();
+    image_info.pNext = &format_list;
+  }
+
   image = std::make_shared<Image>(image_info);
+  view_format_ = format;
   VkImageViewCreateInfo view_info{};
   view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   view_info.image = image->GetVkImage();
@@ -587,6 +617,7 @@ void Texture2DStorage::Clear() {
   sampler.reset();
   image_view.reset();
   image.reset();
+  view_format_ = VK_FORMAT_UNDEFINED;
   for (const auto& retired : retired_texture_ids_) {
     if (retired.id != 0) {
       RemoveImGuiTexture(retired.id);
@@ -609,6 +640,44 @@ void Texture2DStorage::RetireCurrentResources() {
   retired_resources_.push_back({std::move(image), std::move(image_view), std::move(sampler), im_texture_id,
                                 Platform::GetMaxFramesInFlight() + 1u});
   im_texture_id = 0;
+  view_format_ = VK_FORMAT_UNDEFINED;
+}
+
+bool Texture2DStorage::ShareImage(const Texture2DStorage& source, const VkFormat view_format,
+                                  const VkSamplerCreateInfo& sampler_create_info) {
+  if (this == &source || !Platform::Initialized() || !source.image || source.IsGpuUploadPending() ||
+      source.GetLayout() != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ||
+      !AreViewFormatsCompatible(source.image->GetFormat(), view_format)) {
+    return false;
+  }
+
+  VkImageViewCreateInfo view_info{};
+  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  view_info.image = source.image->GetVkImage();
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  view_info.format = view_format;
+  view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  view_info.subresourceRange.levelCount = source.image->GetMipLevels();
+  view_info.subresourceRange.layerCount = 1;
+  auto replacement_view = std::make_shared<ImageView>(view_info);
+  auto replacement_sampler = std::make_shared<Sampler>(sampler_create_info);
+  if (replacement_view->GetVkImageView() == VK_NULL_HANDLE || replacement_sampler->GetVkSampler() == VK_NULL_HANDLE) {
+    return false;
+  }
+
+  RetireCurrentResources();
+  image = source.image;
+  image_view = std::move(replacement_view);
+  sampler = std::move(replacement_sampler);
+  view_format_ = view_format;
+  samples_linear_srgb_ = view_format == VK_FORMAT_BC7_SRGB_BLOCK || view_format == VK_FORMAT_R8G8B8A8_SRGB;
+  sampler_create_info_ = sampler_create_info;
+  sampler_create_info_.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_create_info_.pNext = nullptr;
+  EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
+                               image->GetLayout());
+  TextureStorage::GetInstance().version_++;
+  return true;
 }
 
 void CubemapStorage::Clear() {
@@ -652,7 +721,7 @@ void Texture2DStorage::SetCompressedData(const std::vector<std::byte>& data, con
 
 VkFormat Texture2DStorage::GetFormat() const {
   if (image) {
-    return image->GetFormat();
+    return view_format_ == VK_FORMAT_UNDEFINED ? image->GetFormat() : view_format_;
   }
   if (!new_compressed_data_.empty()) {
     return new_compressed_format_;

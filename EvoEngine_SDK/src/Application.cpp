@@ -2416,6 +2416,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   ProjectManager::Initialize();
   if (render_layer) {
     Platform::Initialize(this->initialization_settings);
+    if (this->initialization_settings.enable_gpu_timestamp_capture) {
+      Platform::SetGpuTimestampCaptureEnabled(true);
+    }
   }
   if (this->initialization_settings.load_default_resources) {
     Resources::Initialize();

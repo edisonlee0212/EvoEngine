@@ -339,7 +339,8 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
     auto triangles = skinned_triangles_;
     GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,
                                   ray_tracing_triangle_range_);
-    blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles);
+    blas_ = BottomLevelAccelerationStructure::CreateStatic(ray_tracing_meshlet_range_, ray_tracing_triangle_range_,
+                                                           vertices);
   }
   saved_ = false;
 }

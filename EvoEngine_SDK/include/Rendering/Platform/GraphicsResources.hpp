@@ -11,8 +11,53 @@ namespace evo_engine {
  * @brief Forward declaration for RenderInstanceStorage class.
  */
 class RenderInstanceStorage;
+class RangeDescriptor;
 
 struct FrameSubmissionState;
+
+inline constexpr VkDeviceSize kStaticBlasBuildBudgetBytes = 512ull * 1024ull * 1024ull;
+
+struct StaticBlasBuildSize {
+  VkDeviceSize destination_size = 0;
+  VkDeviceSize scratch_size = 0;
+};
+
+struct StaticBlasBuildPassPlan {
+  size_t begin = 0;
+  size_t count = 0;
+  VkDeviceSize destination_size = 0;
+  VkDeviceSize scratch_size = 0;
+  uint32_t scratch_wave_count = 0;
+  bool oversized_singleton = false;
+};
+
+[[nodiscard]] std::vector<StaticBlasBuildPassPlan> PlanStaticBlasBuildPasses(
+    const std::vector<StaticBlasBuildSize>& build_sizes, VkDeviceSize scratch_alignment,
+    VkDeviceSize budget = kStaticBlasBuildBudgetBytes);
+
+struct StaticBlasBuildTelemetry {
+  uint64_t fixed_hint_bytes = kStaticBlasBuildBudgetBytes;
+  uint64_t pending_count = 0;
+  uint64_t total_blas_count = 0;
+  uint64_t static_eligible_count = 0;
+  uint64_t updateable_count = 0;
+  uint64_t shared_input_count = 0;
+  uint64_t private_input_count = 0;
+  uint64_t private_input_bytes = 0;
+  uint64_t cumulative_built_static_count = 0;
+  uint64_t cumulative_uncompacted_bytes = 0;
+  uint64_t cumulative_compacted_bytes = 0;
+  uint64_t pass_count = 0;
+  uint64_t scratch_wave_count = 0;
+  uint64_t scratch_peak_bytes = 0;
+  uint64_t eligible_static_uncompacted_bytes = 0;
+  uint64_t eligible_static_compacted_bytes = 0;
+  uint64_t final_compacted_storage_bytes = 0;
+  uint64_t transient_peak_bytes = 0;
+  double wall_milliseconds = 0.0;
+  bool complete = true;
+  std::vector<StaticBlasBuildPassPlan> passes;
+};
 
 /**
  * @class CommandBuffer
@@ -1034,9 +1079,16 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
   uint32_t pending_content_version_ = 0;
   bool allow_update_ = false;
   bool pending_update_ = false;
+  bool telemetry_registered_ = false;
+  bool telemetry_updateable_ = false;
+  VkDeviceSize telemetry_uncompacted_bytes_ = 0;
+  VkDeviceSize telemetry_compacted_bytes_ = 0;
+  VkDeviceSize telemetry_private_input_bytes_ = 0;
   std::shared_ptr<FrameSubmissionState> pending_submission_state_{};
 
   void ResolvePendingUpdate();
+
+  BottomLevelAccelerationStructure(uint32_t vertex_count, uint32_t primitive_count);
 
  public:
   /**
@@ -1045,7 +1097,17 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
    * @param triangles List of triangles for the structure.
    */
   explicit BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
-                                            const std::vector<glm::uvec3>& triangles, bool allow_update = false);
+                                            const std::vector<glm::uvec3>& triangles, bool allow_update);
+
+  [[nodiscard]] static std::shared_ptr<BottomLevelAccelerationStructure> CreateStatic(
+      const std::shared_ptr<RangeDescriptor>& meshlet_range, const std::shared_ptr<RangeDescriptor>& triangle_range,
+      const std::vector<Vertex>& vertices);
+  static void ProcessStaticBuilds();
+  static void WaitForActiveStaticBuild();
+  static void WaitForStaticBuilds();
+  [[nodiscard]] static bool HasPendingStaticBuilds();
+  [[nodiscard]] static bool StaticBuildInProgress();
+  [[nodiscard]] static StaticBlasBuildTelemetry GetStaticBuildTelemetry();
 
   /**
    * @brief Records an in-place vertex-only update for a dynamic BLAS.
@@ -1070,6 +1132,7 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
    * @return Device address of the structure.
    */
   [[nodiscard]] VkDeviceAddress GetDeviceAddress() const;
+  [[nodiscard]] bool IsReady() const;
 };
 
 /**

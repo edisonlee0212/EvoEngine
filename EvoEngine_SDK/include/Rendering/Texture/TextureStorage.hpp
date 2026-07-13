@@ -59,8 +59,11 @@ class Texture2DStorage {
     uint32_t remaining_frames = 0;
   };
   std::vector<RetiredResources> retired_resources_;
+  VkFormat view_format_ = VK_FORMAT_UNDEFINED;
 
   void RetireCurrentResources();
+  [[nodiscard]] bool ShareImage(const Texture2DStorage& source, VkFormat view_format,
+                                const VkSamplerCreateInfo& sampler_create_info);
 
   /**
    * @brief Immediately uploads any pending data to the GPU.

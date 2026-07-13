@@ -180,7 +180,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
 
   version_++;
   if (Platform::RayAccelerationStructureEnabled()) {
-    blas_ = std::make_shared<BottomLevelAccelerationStructure>(v_c, t_c);
+    blas_ = BottomLevelAccelerationStructure::CreateStatic(meshlet_range_, triangle_range_, v_c);
   }
 
   saved_ = false;

@@ -2,6 +2,8 @@
 
 #include "Application.hpp"
 #include "Console.hpp"
+#include "GeometryStorage.hpp"
+#include "Jobs.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderInstanceStorage.hpp"
@@ -9,8 +11,11 @@
 #include "Utilities.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
+#include <mutex>
+#include <thread>
 
 using namespace evo_engine;
 
@@ -101,6 +106,416 @@ bool HasFiniteBlasPositions(const std::vector<Vertex>& vertices) {
   return std::all_of(vertices.begin(), vertices.end(), [](const Vertex& vertex) {
     return std::isfinite(vertex.position.x) && std::isfinite(vertex.position.y) && std::isfinite(vertex.position.z);
   });
+}
+
+VkDeviceSize SaturatingAdd(const VkDeviceSize left, const VkDeviceSize right) {
+  return right > (std::numeric_limits<VkDeviceSize>::max)() - left ? (std::numeric_limits<VkDeviceSize>::max)()
+                                                                   : left + right;
+}
+
+VkDeviceSize AlignUp(const VkDeviceSize value, const VkDeviceSize alignment) {
+  const auto resolved_alignment = std::max<VkDeviceSize>(1, alignment);
+  const auto remainder = value % resolved_alignment;
+  return remainder == 0 ? value : SaturatingAdd(value, resolved_alignment - remainder);
+}
+
+void RequireVkSuccess(const VkResult result, const char* operation) {
+  if (Platform::CheckVk(result) != VK_SUCCESS) {
+    throw std::runtime_error(std::string(operation) + " failed.");
+  }
+}
+
+struct PendingStaticBlasBuild {
+  std::weak_ptr<BottomLevelAccelerationStructure> target;
+  std::shared_ptr<RangeDescriptor> meshlet_range;
+  std::shared_ptr<RangeDescriptor> triangle_range;
+  uint32_t meshlet_offset = 0;
+  uint32_t meshlet_count = 0;
+  uint32_t triangle_offset = 0;
+  uint32_t triangle_count = 0;
+};
+
+struct StaticBlasBuildResult {
+  std::weak_ptr<BottomLevelAccelerationStructure> target;
+  VkAccelerationStructureKHR acceleration_structure = VK_NULL_HANDLE;
+  std::shared_ptr<Buffer> buffer;
+  VkDeviceAddress device_address = 0;
+  VkDeviceSize uncompacted_size = 0;
+  VkDeviceSize compacted_size = 0;
+};
+
+struct StaticBlasBuildJob {
+  std::vector<PendingStaticBlasBuild> requests;
+  std::vector<PendingStaticBlasBuild> deferred_requests;
+  std::vector<StaticBlasBuildResult> results;
+  StaticBlasBuildTelemetry telemetry;
+  uint64_t retained_compacted_bytes = 0;
+};
+
+struct StaticBlasBuilderState {
+  std::mutex mutex;
+  std::vector<PendingStaticBlasBuild> pending;
+  std::shared_ptr<StaticBlasBuildJob> active_job;
+  GpuWorkHandle active_handle;
+  uint64_t active_pending_count = 0;
+  StaticBlasBuildTelemetry telemetry;
+};
+
+StaticBlasBuilderState& GetStaticBlasBuilderState() {
+  static StaticBlasBuilderState state;
+  return state;
+}
+
+std::shared_ptr<Buffer> CreateAccelerationStructureBuffer(const VkDeviceSize size) {
+  VkBufferCreateInfo create_info{};
+  create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  create_info.size = size;
+  create_info.usage =
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  return std::make_shared<Buffer>(create_info, allocation_info);
+}
+
+VkAccelerationStructureKHR CreateBottomLevelAccelerationStructure(const std::shared_ptr<Buffer>& buffer,
+                                                                  const VkDeviceSize size) {
+  VkAccelerationStructureCreateInfoKHR create_info{};
+  create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+  create_info.buffer = buffer->GetVkBuffer();
+  create_info.size = size;
+  create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  VkAccelerationStructureKHR result = VK_NULL_HANDLE;
+  RequireVkSuccess(vkCreateAccelerationStructureKHR(Platform::GetVkDevice(), &create_info, nullptr, &result),
+                   "Bottom-level acceleration-structure creation");
+  if (result == VK_NULL_HANDLE) {
+    throw std::runtime_error("Bottom-level acceleration-structure creation returned a null handle.");
+  }
+  return result;
+}
+
+void DestroyAccelerationStructure(VkAccelerationStructureKHR& acceleration_structure) {
+  if (acceleration_structure != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
+    vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), acceleration_structure, nullptr);
+    acceleration_structure = VK_NULL_HANDLE;
+  }
+}
+}  // namespace
+
+std::vector<StaticBlasBuildPassPlan> evo_engine::PlanStaticBlasBuildPasses(
+    const std::vector<StaticBlasBuildSize>& build_sizes, const VkDeviceSize scratch_alignment,
+    const VkDeviceSize budget) {
+  if (budget == 0) {
+    throw std::invalid_argument("Static BLAS build budget must be nonzero.");
+  }
+  std::vector<StaticBlasBuildPassPlan> result;
+  for (size_t begin = 0; begin < build_sizes.size();) {
+    StaticBlasBuildPassPlan pass;
+    pass.begin = begin;
+    while (begin + pass.count < build_sizes.size()) {
+      const auto& candidate = build_sizes[begin + pass.count];
+      const auto candidate_scratch = AlignUp(candidate.scratch_size, scratch_alignment);
+      if (pass.count != 0 &&
+          (candidate.destination_size > budget || pass.destination_size > budget - candidate.destination_size ||
+           candidate_scratch > budget)) {
+        break;
+      }
+      pass.destination_size = SaturatingAdd(pass.destination_size, candidate.destination_size);
+      ++pass.count;
+      if (pass.destination_size >= budget || candidate_scratch > budget) {
+        break;
+      }
+    }
+    VkDeviceSize scratch_sum = 0;
+    VkDeviceSize largest_scratch = 0;
+    for (size_t index = 0; index < pass.count; ++index) {
+      const auto aligned = AlignUp(build_sizes[begin + index].scratch_size, scratch_alignment);
+      scratch_sum = SaturatingAdd(scratch_sum, aligned);
+      largest_scratch = std::max(largest_scratch, aligned);
+    }
+    pass.scratch_size = scratch_sum <= budget ? scratch_sum : std::max(largest_scratch, budget);
+    pass.oversized_singleton = pass.count == 1 && (pass.destination_size > budget || pass.scratch_size > budget);
+
+    VkDeviceSize wave_size = 0;
+    for (size_t index = 0; index < pass.count; ++index) {
+      const auto aligned = AlignUp(build_sizes[begin + index].scratch_size, scratch_alignment);
+      if (aligned == 0) {
+        continue;
+      }
+      if (wave_size == 0 || aligned > pass.scratch_size - wave_size) {
+        ++pass.scratch_wave_count;
+        wave_size = aligned;
+      } else {
+        wave_size += aligned;
+      }
+    }
+    result.emplace_back(pass);
+    begin += pass.count;
+  }
+  return result;
+}
+
+namespace {
+struct StaticBlasBuildRecord {
+  PendingStaticBlasBuild request;
+  VkAccelerationStructureGeometryKHR geometry{};
+  VkAccelerationStructureBuildSizesInfoKHR sizes{};
+  std::shared_ptr<Buffer> original_buffer;
+  VkAccelerationStructureKHR original = VK_NULL_HANDLE;
+  std::shared_ptr<Buffer> compact_buffer;
+  VkAccelerationStructureKHR compact = VK_NULL_HANDLE;
+};
+
+void RecordAccelerationStructureBarrier(const VkCommandBuffer command_buffer) {
+  VkMemoryBarrier2 barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+  barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+  barrier.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+  barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+  barrier.dstAccessMask =
+      VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+  VkDependencyInfo dependency{};
+  dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency.memoryBarrierCount = 1;
+  dependency.pMemoryBarriers = &barrier;
+  vkCmdPipelineBarrier2(command_buffer, &dependency);
+}
+
+void ExecuteStaticBlasBuildJob(const std::shared_ptr<StaticBlasBuildJob>& job,
+                               const std::shared_ptr<Buffer>& vertex_buffer,
+                               const std::shared_ptr<Buffer>& index_buffer) {
+  const auto wall_start = std::chrono::steady_clock::now();
+  std::vector<StaticBlasBuildRecord> records;
+  try {
+    const auto vertex_capacity = vertex_buffer->GetSize() / sizeof(Vertex);
+    if (vertex_capacity == 0 || vertex_capacity > (std::numeric_limits<uint32_t>::max)()) {
+      throw std::runtime_error("Geometry storage vertex capacity is invalid for static BLAS construction.");
+    }
+    const auto vertex_address = vertex_buffer->GetDeviceAddress();
+    const auto index_address = index_buffer->GetDeviceAddress();
+    records.reserve(job->requests.size());
+    std::vector<StaticBlasBuildSize> build_sizes;
+    build_sizes.reserve(job->requests.size());
+    for (const auto& request : job->requests) {
+      auto& record = records.emplace_back();
+      record.request = request;
+      record.geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+      record.geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+      record.geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
+      auto& triangles = record.geometry.geometry.triangles;
+      triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+      triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+      triangles.vertexData.deviceAddress = vertex_address;
+      triangles.vertexStride = sizeof(Vertex);
+      triangles.maxVertex = static_cast<uint32_t>(vertex_capacity - 1);
+      triangles.indexType = VK_INDEX_TYPE_UINT32;
+      triangles.indexData.deviceAddress = index_address;
+
+      VkAccelerationStructureBuildGeometryInfoKHR size_info{};
+      size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+      size_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+      size_info.flags = kBlasBuildFlags | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+      size_info.geometryCount = 1;
+      size_info.pGeometries = &record.geometry;
+      record.sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+      vkGetAccelerationStructureBuildSizesKHR(Platform::GetVkDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+                                              &size_info, &request.triangle_count, &record.sizes);
+      build_sizes.emplace_back(
+          StaticBlasBuildSize{record.sizes.accelerationStructureSize, record.sizes.buildScratchSize});
+    }
+
+    const auto scratch_alignment = std::max<VkDeviceSize>(
+        1, Platform::GetSelectedPhysicalDevice()
+               ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment);
+    auto passes = PlanStaticBlasBuildPasses(build_sizes, scratch_alignment);
+    if (passes.size() > 1) {
+      const auto first_count = passes.front().count;
+      job->deferred_requests.assign(std::make_move_iterator(job->requests.begin() + first_count),
+                                    std::make_move_iterator(job->requests.end()));
+      job->requests.resize(first_count);
+      records.resize(first_count);
+      build_sizes.resize(first_count);
+      passes.resize(1);
+    }
+    job->telemetry.passes = passes;
+    for (const auto& pass : passes) {
+      job->telemetry.scratch_peak_bytes = std::max<uint64_t>(job->telemetry.scratch_peak_bytes, pass.scratch_size);
+      job->telemetry.scratch_wave_count += pass.scratch_wave_count;
+    }
+    job->telemetry.pass_count = passes.size();
+
+    VkBufferCreateInfo scratch_create_info{};
+    scratch_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    scratch_create_info.size = std::max<uint64_t>(1, job->telemetry.scratch_peak_bytes) + scratch_alignment - 1;
+    scratch_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    scratch_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo scratch_allocation_info{};
+    scratch_allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    auto scratch_buffer = std::make_shared<Buffer>(scratch_create_info, scratch_allocation_info);
+    scratch_buffer->SetDebugName("Static BLAS Shared Scratch");
+    const auto scratch_address = AlignUp(scratch_buffer->GetDeviceAddress(), scratch_alignment);
+
+    uint64_t retained_compacted_bytes = job->retained_compacted_bytes;
+    for (const auto& pass : passes) {
+      VkQueryPool query_pool = VK_NULL_HANDLE;
+      try {
+        uint64_t original_bytes = 0;
+        std::vector<VkAccelerationStructureKHR> originals;
+        originals.reserve(pass.count);
+        for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+          auto& record = records[pass.begin + local_index];
+          record.original_buffer = CreateAccelerationStructureBuffer(record.sizes.accelerationStructureSize);
+          record.original =
+              CreateBottomLevelAccelerationStructure(record.original_buffer, record.sizes.accelerationStructureSize);
+          originals.emplace_back(record.original);
+          original_bytes = SaturatingAdd(original_bytes, record.sizes.accelerationStructureSize);
+        }
+        job->telemetry.eligible_static_uncompacted_bytes =
+            SaturatingAdd(job->telemetry.eligible_static_uncompacted_bytes, original_bytes);
+        job->telemetry.transient_peak_bytes = std::max(
+            job->telemetry.transient_peak_bytes,
+            SaturatingAdd(job->telemetry.scratch_peak_bytes, SaturatingAdd(retained_compacted_bytes, original_bytes)));
+
+        VkQueryPoolCreateInfo query_pool_info{};
+        query_pool_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+        query_pool_info.queryType = VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
+        query_pool_info.queryCount = static_cast<uint32_t>(pass.count);
+        RequireVkSuccess(vkCreateQueryPool(Platform::GetVkDevice(), &query_pool_info, nullptr, &query_pool),
+                         "Static BLAS compact-size query-pool creation");
+
+        Platform::ImmediateSubmitWithGpuTimestamp("BLAS Build", [&](const VkCommandBuffer command_buffer) {
+          vkCmdResetQueryPool(command_buffer, query_pool, 0, static_cast<uint32_t>(pass.count));
+          std::vector<VkAccelerationStructureBuildGeometryInfoKHR> wave_builds;
+          std::vector<VkAccelerationStructureBuildRangeInfoKHR> wave_ranges;
+          std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> wave_range_pointers;
+          wave_builds.reserve(pass.count);
+          wave_ranges.reserve(pass.count);
+          wave_range_pointers.reserve(pass.count);
+          VkDeviceSize wave_scratch_size = 0;
+          const auto flush_wave = [&]() {
+            if (wave_builds.empty()) {
+              return;
+            }
+            wave_range_pointers.clear();
+            for (const auto& range : wave_ranges) {
+              wave_range_pointers.emplace_back(&range);
+            }
+            vkCmdBuildAccelerationStructuresKHR(command_buffer, static_cast<uint32_t>(wave_builds.size()),
+                                                wave_builds.data(), wave_range_pointers.data());
+            RecordAccelerationStructureBarrier(command_buffer);
+            wave_builds.clear();
+            wave_ranges.clear();
+            wave_scratch_size = 0;
+          };
+
+          for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+            auto& record = records[pass.begin + local_index];
+            const auto aligned_scratch = AlignUp(record.sizes.buildScratchSize, scratch_alignment);
+            if (wave_scratch_size != 0 && aligned_scratch > pass.scratch_size - wave_scratch_size) {
+              flush_wave();
+            }
+            auto& build = wave_builds.emplace_back();
+            build.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+            build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+            build.flags = kBlasBuildFlags | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+            build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+            build.dstAccelerationStructure = record.original;
+            build.geometryCount = 1;
+            build.pGeometries = &record.geometry;
+            build.scratchData.deviceAddress = scratch_address + wave_scratch_size;
+            auto& range = wave_ranges.emplace_back();
+            range.primitiveCount = record.request.triangle_count;
+            range.primitiveOffset = record.request.triangle_offset * sizeof(glm::uvec3);
+            wave_scratch_size += aligned_scratch;
+          }
+          flush_wave();
+          vkCmdWriteAccelerationStructuresPropertiesKHR(
+              command_buffer, static_cast<uint32_t>(originals.size()), originals.data(),
+              VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query_pool, 0);
+        });
+
+        std::vector<VkDeviceSize> compact_sizes(pass.count);
+        RequireVkSuccess(
+            vkGetQueryPoolResults(Platform::GetVkDevice(), query_pool, 0, static_cast<uint32_t>(pass.count),
+                                  compact_sizes.size() * sizeof(VkDeviceSize), compact_sizes.data(),
+                                  sizeof(VkDeviceSize), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT),
+            "Static BLAS compact-size query readback");
+
+        uint64_t compact_bytes = 0;
+        for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+          if (compact_sizes[local_index] == 0) {
+            throw std::runtime_error("Static BLAS compaction returned an empty destination size.");
+          }
+          auto& record = records[pass.begin + local_index];
+          record.compact_buffer = CreateAccelerationStructureBuffer(compact_sizes[local_index]);
+          record.compact = CreateBottomLevelAccelerationStructure(record.compact_buffer, compact_sizes[local_index]);
+          compact_bytes = SaturatingAdd(compact_bytes, compact_sizes[local_index]);
+        }
+        job->telemetry.eligible_static_compacted_bytes =
+            SaturatingAdd(job->telemetry.eligible_static_compacted_bytes, compact_bytes);
+        job->telemetry.transient_peak_bytes = std::max(
+            job->telemetry.transient_peak_bytes,
+            SaturatingAdd(job->telemetry.scratch_peak_bytes,
+                          SaturatingAdd(retained_compacted_bytes, SaturatingAdd(original_bytes, compact_bytes))));
+
+        Platform::ImmediateSubmitWithGpuTimestamp("BLAS Compact", [&](const VkCommandBuffer command_buffer) {
+          for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+            const auto& record = records[pass.begin + local_index];
+            VkCopyAccelerationStructureInfoKHR copy_info{};
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
+            copy_info.src = record.original;
+            copy_info.dst = record.compact;
+            copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
+            vkCmdCopyAccelerationStructureKHR(command_buffer, &copy_info);
+          }
+        });
+
+        for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+          auto& record = records[pass.begin + local_index];
+          DestroyAccelerationStructure(record.original);
+          record.original_buffer.reset();
+          VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+          address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+          address_info.accelerationStructure = record.compact;
+          const auto device_address =
+              vkGetAccelerationStructureDeviceAddressKHR(Platform::GetVkDevice(), &address_info);
+          if (device_address == 0) {
+            throw std::runtime_error("Compacted static BLAS returned a zero device address.");
+          }
+          auto& result = job->results.emplace_back();
+          result.target = record.request.target;
+          result.acceleration_structure = record.compact;
+          result.buffer = std::move(record.compact_buffer);
+          result.device_address = device_address;
+          result.uncompacted_size = record.sizes.accelerationStructureSize;
+          result.compacted_size = compact_sizes[local_index];
+          record.compact = VK_NULL_HANDLE;
+        }
+        retained_compacted_bytes = SaturatingAdd(retained_compacted_bytes, compact_bytes);
+        vkDestroyQueryPool(Platform::GetVkDevice(), query_pool, nullptr);
+        query_pool = VK_NULL_HANDLE;
+      } catch (...) {
+        if (query_pool != VK_NULL_HANDLE) {
+          vkDestroyQueryPool(Platform::GetVkDevice(), query_pool, nullptr);
+        }
+        throw;
+      }
+    }
+    job->telemetry.static_eligible_count = job->results.size();
+    job->telemetry.shared_input_count = job->results.size();
+    job->telemetry.wall_milliseconds =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wall_start).count();
+  } catch (...) {
+    for (auto& record : records) {
+      DestroyAccelerationStructure(record.original);
+      DestroyAccelerationStructure(record.compact);
+    }
+    for (auto& result : job->results) {
+      DestroyAccelerationStructure(result.acceleration_structure);
+    }
+    job->results.clear();
+    throw;
+  }
 }
 }  // namespace
 
@@ -374,7 +789,7 @@ Image::Image(VkImageCreateInfo image_create_info) {
 #if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
   vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  vk_external_mem_image_create_info.pNext = nullptr;
+  vk_external_mem_image_create_info.pNext = image_create_info.pNext;
 #  ifdef _WIN64
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #  else
@@ -409,7 +824,7 @@ Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo&
 #if ENABLE_EXTERNAL_MEMORY
   VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
   vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  vk_external_mem_image_create_info.pNext = nullptr;
+  vk_external_mem_image_create_info.pNext = image_create_info.pNext;
 #  ifdef _WIN64
   vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
 #  else
@@ -1521,6 +1936,7 @@ void CommandQueue::Submit(
 
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
+  const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
   if (Platform::CheckVk(vkQueueSubmit(vk_queue_, 1, &submit_info, fence->GetVkFence())) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit command buffer!");
   }
@@ -1559,6 +1975,7 @@ void CommandQueue::Submit(
   });
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
+  const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
   if (Platform::CheckVk(vkQueueSubmit(vk_queue_, 1, &submit_info, fence->GetVkFence())) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit command buffer!");
   }
@@ -1597,6 +2014,7 @@ void CommandQueue::Submit(
   }
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
+  const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
   if (Platform::CheckVk(vkQueueSubmit(vk_queue_, 1, &submit_info, VK_NULL_HANDLE)) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit command buffer!");
   }
@@ -1632,15 +2050,267 @@ void CommandQueue::Present(const std::vector<std::shared_ptr<Semaphore>>& wait_s
   present_info.pSwapchains = vk_swapchain_khrs.data();
   present_info.pImageIndices = image_indices.data();
 
+  const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
   vkQueuePresentKHR(vk_queue_, &present_info);
 }
 
 void CommandQueue::WaitIdle() const {
+  const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
   Platform::CheckVk(vkQueueWaitIdle(vk_queue_));
 }
 
 VkQueue CommandQueue::GetVkQueue() const {
   return vk_queue_;
+}
+
+BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const uint32_t vertex_count,
+                                                                   const uint32_t primitive_count)
+    : vertex_count_(vertex_count), primitive_count_(primitive_count) {
+}
+
+std::shared_ptr<BottomLevelAccelerationStructure> BottomLevelAccelerationStructure::CreateStatic(
+    const std::shared_ptr<RangeDescriptor>& meshlet_range, const std::shared_ptr<RangeDescriptor>& triangle_range,
+    const std::vector<Vertex>& vertices) {
+  if (!meshlet_range || !triangle_range) {
+    throw std::invalid_argument("Static BLAS geometry ranges cannot be null.");
+  }
+  if (!vertices.empty() && !HasFiniteBlasPositions(vertices)) {
+    throw std::runtime_error("BLAS vertices contain a non-finite position.");
+  }
+  auto result = std::shared_ptr<BottomLevelAccelerationStructure>(
+      new BottomLevelAccelerationStructure(static_cast<uint32_t>(vertices.size()), triangle_range->range));
+  if (!Platform::Initialized() || triangle_range->range == 0) {
+    return result;
+  }
+  auto& state = GetStaticBlasBuilderState();
+  std::lock_guard lock(state.mutex);
+  state.pending.emplace_back(PendingStaticBlasBuild{result, meshlet_range, triangle_range, meshlet_range->offset,
+                                                    meshlet_range->range, triangle_range->offset,
+                                                    triangle_range->range});
+  return result;
+}
+
+void BottomLevelAccelerationStructure::ProcessStaticBuilds() {
+  if (!Platform::Initialized()) {
+    return;
+  }
+  auto& state = GetStaticBlasBuilderState();
+  std::shared_ptr<StaticBlasBuildJob> completed_job;
+  GpuWorkHandle completed_handle;
+  {
+    std::lock_guard lock(state.mutex);
+    if (state.active_job && state.active_handle.Valid() && Jobs::IsCompleted(state.active_handle)) {
+      completed_job = state.active_job;
+      completed_handle = state.active_handle;
+    }
+  }
+  if (completed_job) {
+    try {
+      Platform::GetGpuService().Wait(completed_handle);
+    } catch (...) {
+      std::lock_guard lock(state.mutex);
+      if (state.active_job == completed_job) {
+        state.pending.insert(state.pending.begin(), std::make_move_iterator(completed_job->deferred_requests.begin()),
+                             std::make_move_iterator(completed_job->deferred_requests.end()));
+        state.pending.insert(state.pending.begin(), std::make_move_iterator(completed_job->requests.begin()),
+                             std::make_move_iterator(completed_job->requests.end()));
+        state.active_job.reset();
+        state.active_handle = {};
+        state.active_pending_count = 0;
+      }
+      throw;
+    }
+    std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> retained_targets;
+    std::lock_guard lock(state.mutex);
+    if (state.active_job == completed_job) {
+      const auto pass_begin = state.telemetry.passes.empty()
+                                  ? 0
+                                  : state.telemetry.passes.back().begin + state.telemetry.passes.back().count;
+      uint64_t published_count = 0;
+      uint64_t published_uncompacted_bytes = 0;
+      uint64_t published_compacted_bytes = 0;
+      state.telemetry.cumulative_built_static_count =
+          SaturatingAdd(state.telemetry.cumulative_built_static_count, completed_job->telemetry.static_eligible_count);
+      state.telemetry.cumulative_uncompacted_bytes = SaturatingAdd(
+          state.telemetry.cumulative_uncompacted_bytes, completed_job->telemetry.eligible_static_uncompacted_bytes);
+      state.telemetry.cumulative_compacted_bytes = SaturatingAdd(
+          state.telemetry.cumulative_compacted_bytes, completed_job->telemetry.eligible_static_compacted_bytes);
+      for (auto& result : completed_job->results) {
+        if (const auto target = result.target.lock(); target && !target->IsReady()) {
+          retained_targets.emplace_back(target);
+          target->vk_acceleration_structure_khr_ = result.acceleration_structure;
+          target->acceleration_structure_buffer_ = std::move(result.buffer);
+          target->device_address_ = result.device_address;
+          target->content_version_ = 1;
+          target->telemetry_registered_ = true;
+          target->telemetry_uncompacted_bytes_ = result.uncompacted_size;
+          target->telemetry_compacted_bytes_ = result.compacted_size;
+          target->acceleration_structure_buffer_->SetDebugName("Compacted Static BLAS Storage");
+          result.acceleration_structure = VK_NULL_HANDLE;
+          ++published_count;
+          published_uncompacted_bytes = SaturatingAdd(published_uncompacted_bytes, result.uncompacted_size);
+          published_compacted_bytes = SaturatingAdd(published_compacted_bytes, result.compacted_size);
+        } else {
+          DestroyAccelerationStructure(result.acceleration_structure);
+        }
+      }
+      state.telemetry.total_blas_count += published_count;
+      state.telemetry.static_eligible_count += published_count;
+      state.telemetry.shared_input_count += published_count;
+      state.telemetry.pass_count += completed_job->telemetry.pass_count;
+      state.telemetry.scratch_wave_count += completed_job->telemetry.scratch_wave_count;
+      state.telemetry.scratch_peak_bytes =
+          std::max(state.telemetry.scratch_peak_bytes, completed_job->telemetry.scratch_peak_bytes);
+      state.telemetry.eligible_static_uncompacted_bytes =
+          SaturatingAdd(state.telemetry.eligible_static_uncompacted_bytes, published_uncompacted_bytes);
+      state.telemetry.eligible_static_compacted_bytes =
+          SaturatingAdd(state.telemetry.eligible_static_compacted_bytes, published_compacted_bytes);
+      state.telemetry.final_compacted_storage_bytes =
+          SaturatingAdd(state.telemetry.final_compacted_storage_bytes, published_compacted_bytes);
+      state.telemetry.transient_peak_bytes =
+          std::max(state.telemetry.transient_peak_bytes, completed_job->telemetry.transient_peak_bytes);
+      state.telemetry.wall_milliseconds += completed_job->telemetry.wall_milliseconds;
+      for (auto pass : completed_job->telemetry.passes) {
+        pass.begin += pass_begin;
+        state.telemetry.passes.emplace_back(pass);
+      }
+      state.pending.insert(state.pending.begin(), std::make_move_iterator(completed_job->deferred_requests.begin()),
+                           std::make_move_iterator(completed_job->deferred_requests.end()));
+      state.active_job.reset();
+      state.active_handle = {};
+      state.active_pending_count = 0;
+    }
+  }
+
+  if (GeometryStorage::HasPendingUploads()) {
+    return;
+  }
+  auto job = std::make_shared<StaticBlasBuildJob>();
+  {
+    std::lock_guard lock(state.mutex);
+    if (state.active_job) {
+      return;
+    }
+    for (auto iterator = state.pending.begin(); iterator != state.pending.end();) {
+      if (iterator->target.expired()) {
+        iterator = state.pending.erase(iterator);
+        continue;
+      }
+      if (iterator->meshlet_range->range != iterator->meshlet_count ||
+          iterator->triangle_range->range != iterator->triangle_count) {
+        iterator = state.pending.erase(iterator);
+        continue;
+      }
+      iterator->meshlet_offset = iterator->meshlet_range->offset;
+      iterator->triangle_offset = iterator->triangle_range->offset;
+      const bool committed = iterator->meshlet_range->prev_frame_offset == iterator->meshlet_offset &&
+                             iterator->meshlet_range->prev_frame_range == iterator->meshlet_count &&
+                             iterator->triangle_range->prev_frame_offset == iterator->triangle_offset &&
+                             iterator->triangle_range->prev_frame_range == iterator->triangle_count;
+      if (!committed) {
+        ++iterator;
+        continue;
+      }
+      job->requests.emplace_back(std::move(*iterator));
+      iterator = state.pending.erase(iterator);
+    }
+    if (job->requests.empty()) {
+      return;
+    }
+    job->retained_compacted_bytes = state.telemetry.final_compacted_storage_bytes;
+    state.active_job = job;
+    state.active_pending_count = job->requests.size();
+  }
+
+  const auto vertex_buffer = GeometryStorage::GetVertexBuffer();
+  const auto index_buffer = GeometryStorage::GetTriangleBuffer();
+  GpuWorkOptions options;
+  options.priority = TaskPriority::Low;
+  options.debug_name = "Static BLAS build and compaction";
+  try {
+    const auto handle = Platform::GetGpuService().Enqueue(options, [job, vertex_buffer, index_buffer]() {
+      ExecuteStaticBlasBuildJob(job, vertex_buffer, index_buffer);
+    });
+    std::lock_guard lock(state.mutex);
+    state.active_handle = handle;
+  } catch (...) {
+    std::lock_guard lock(state.mutex);
+    state.pending.insert(state.pending.begin(), std::make_move_iterator(job->requests.begin()),
+                         std::make_move_iterator(job->requests.end()));
+    state.active_job.reset();
+    state.active_handle = {};
+    state.active_pending_count = 0;
+    throw;
+  }
+}
+
+void BottomLevelAccelerationStructure::WaitForActiveStaticBuild() {
+  while (true) {
+    GpuWorkHandle active_handle;
+    {
+      auto& state = GetStaticBlasBuilderState();
+      std::lock_guard lock(state.mutex);
+      if (!state.active_job) {
+        return;
+      }
+      active_handle = state.active_handle;
+    }
+    if (!active_handle.Valid()) {
+      std::this_thread::yield();
+      continue;
+    }
+    try {
+      Platform::GetGpuService().Wait(active_handle);
+    } catch (...) {
+      ProcessStaticBuilds();
+      throw;
+    }
+    ProcessStaticBuilds();
+    return;
+  }
+}
+
+void BottomLevelAccelerationStructure::WaitForStaticBuilds() {
+  while (HasPendingStaticBuilds()) {
+    GeometryStorage::WaitForPendingUploads();
+    ProcessStaticBuilds();
+    GpuWorkHandle active_handle;
+    {
+      auto& state = GetStaticBlasBuilderState();
+      std::lock_guard lock(state.mutex);
+      active_handle = state.active_handle;
+    }
+    if (active_handle.Valid()) {
+      try {
+        Platform::GetGpuService().Wait(active_handle);
+      } catch (...) {
+        ProcessStaticBuilds();
+        throw;
+      }
+      ProcessStaticBuilds();
+    }
+  }
+}
+
+bool BottomLevelAccelerationStructure::HasPendingStaticBuilds() {
+  auto& state = GetStaticBlasBuilderState();
+  std::lock_guard lock(state.mutex);
+  return state.active_job || !state.pending.empty();
+}
+
+bool BottomLevelAccelerationStructure::StaticBuildInProgress() {
+  auto& state = GetStaticBlasBuilderState();
+  std::lock_guard lock(state.mutex);
+  return state.active_job != nullptr;
+}
+
+StaticBlasBuildTelemetry BottomLevelAccelerationStructure::GetStaticBuildTelemetry() {
+  auto& state = GetStaticBlasBuilderState();
+  std::lock_guard lock(state.mutex);
+  auto result = state.telemetry;
+  result.pending_count = state.pending.size() + state.active_pending_count;
+  result.complete = result.pending_count == 0;
+  return result;
 }
 
 BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<Vertex>& vertices,
@@ -1649,6 +2319,9 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
     : vertex_count_(static_cast<uint32_t>(vertices.size())),
       primitive_count_(static_cast<uint32_t>(triangles.size())),
       allow_update_(allow_update) {
+  if (!allow_update_) {
+    throw std::invalid_argument("Private BLAS construction is reserved for updateable geometry.");
+  }
   if (!Platform::Initialized() || vertices.empty() || triangles.empty())
     return;
   if (!HasFiniteBlasPositions(vertices)) {
@@ -1743,6 +2416,20 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
     acceleration_structure_buffer_->SetDebugName("Dynamic BLAS Storage");
     scratch_buffer_->SetDebugName("Dynamic BLAS Scratch");
   }
+  auto& builder_state = GetStaticBlasBuilderState();
+  std::lock_guard lock(builder_state.mutex);
+  ++builder_state.telemetry.total_blas_count;
+  ++builder_state.telemetry.private_input_count;
+  if (allow_update_) {
+    ++builder_state.telemetry.updateable_count;
+  }
+  builder_state.telemetry.private_input_bytes = SaturatingAdd(
+      builder_state.telemetry.private_input_bytes,
+      SaturatingAdd(vertex_buffer->GetSize(), SaturatingAdd(index_buffer->GetSize(), transform_buffer->GetSize())));
+  telemetry_registered_ = true;
+  telemetry_updateable_ = allow_update_;
+  telemetry_private_input_bytes_ =
+      SaturatingAdd(vertex_buffer->GetSize(), SaturatingAdd(index_buffer->GetSize(), transform_buffer->GetSize()));
 }
 
 void BottomLevelAccelerationStructure::ResolvePendingUpdate() {
@@ -1877,6 +2564,32 @@ uint32_t BottomLevelAccelerationStructure::GetContentVersion() {
 }
 
 BottomLevelAccelerationStructure::~BottomLevelAccelerationStructure() {
+  if (telemetry_registered_) {
+    auto& state = GetStaticBlasBuilderState();
+    std::lock_guard lock(state.mutex);
+    state.telemetry.total_blas_count = state.telemetry.total_blas_count > 0 ? state.telemetry.total_blas_count - 1 : 0;
+    if (telemetry_uncompacted_bytes_ != 0) {
+      state.telemetry.static_eligible_count =
+          state.telemetry.static_eligible_count > 0 ? state.telemetry.static_eligible_count - 1 : 0;
+      state.telemetry.shared_input_count =
+          state.telemetry.shared_input_count > 0 ? state.telemetry.shared_input_count - 1 : 0;
+      state.telemetry.eligible_static_uncompacted_bytes -= std::min(
+          state.telemetry.eligible_static_uncompacted_bytes, static_cast<uint64_t>(telemetry_uncompacted_bytes_));
+      state.telemetry.eligible_static_compacted_bytes -=
+          std::min(state.telemetry.eligible_static_compacted_bytes, static_cast<uint64_t>(telemetry_compacted_bytes_));
+      state.telemetry.final_compacted_storage_bytes -=
+          std::min(state.telemetry.final_compacted_storage_bytes, static_cast<uint64_t>(telemetry_compacted_bytes_));
+    } else if (telemetry_private_input_bytes_ != 0) {
+      if (telemetry_updateable_) {
+        state.telemetry.updateable_count =
+            state.telemetry.updateable_count > 0 ? state.telemetry.updateable_count - 1 : 0;
+      }
+      state.telemetry.private_input_count =
+          state.telemetry.private_input_count > 0 ? state.telemetry.private_input_count - 1 : 0;
+      state.telemetry.private_input_bytes -=
+          std::min(state.telemetry.private_input_bytes, static_cast<uint64_t>(telemetry_private_input_bytes_));
+    }
+  }
   if (!Platform::Initialized())
     return;
   if (vk_acceleration_structure_khr_ != VK_NULL_HANDLE)
@@ -1885,6 +2598,10 @@ BottomLevelAccelerationStructure::~BottomLevelAccelerationStructure() {
 
 VkDeviceAddress BottomLevelAccelerationStructure::GetDeviceAddress() const {
   return device_address_;
+}
+
+bool BottomLevelAccelerationStructure::IsReady() const {
+  return vk_acceleration_structure_khr_ != VK_NULL_HANDLE && device_address_ != 0;
 }
 
 TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::ClassifyUpdateMode(
@@ -2044,7 +2761,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   const auto register_instance = [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance,
                                      const std::shared_ptr<BottomLevelAccelerationStructure>& blas,
                                      const glm::mat4& model, const uint32_t custom_index) {
-    if (!render_instance || !blas) {
+    if (!render_instance || !blas || !blas->IsReady()) {
       return;
     }
     if (custom_index > 0x00ffffffu) {

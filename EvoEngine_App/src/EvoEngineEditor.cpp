@@ -894,7 +894,8 @@ void WaitForDemoProfileProjectIdle() {
 
 bool DemoPreviewSceneInputsReady() {
   return ProjectManager::IsProjectIdle() && !AssetManager::GetAssetLoadSnapshot().Active() &&
-         !TextureStorage::HasPendingUploads();
+         !TextureStorage::HasPendingUploads() && !GeometryStorage::HasPendingUploads() &&
+         !BottomLevelAccelerationStructure::HasPendingStaticBuilds();
 }
 
 void WaitForDemoPreviewSceneInputsReady() {
@@ -1502,6 +1503,44 @@ void CaptureDemoPreview(
   metrics["gpu_sections"] = TimingStatsJson(Platform::GetGpuTimestampStats());
   metrics["startup_cpu_sections"] = TimingStatsJson(startup_cpu_timing_stats);
   metrics["cpu_sections"] = TimingStatsJson(Platform::GetCpuTimingStats());
+  const auto blas_builder = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+  auto blas_passes = nlohmann::ordered_json::array();
+  for (const auto& pass : blas_builder.passes) {
+    blas_passes.push_back({{"begin", pass.begin},
+                           {"count", pass.count},
+                           {"destination_bytes", pass.destination_size},
+                           {"scratch_bytes", pass.scratch_size},
+                           {"scratch_wave_count", pass.scratch_wave_count},
+                           {"oversized_singleton", pass.oversized_singleton}});
+  }
+  const auto compact_ratio = blas_builder.eligible_static_uncompacted_bytes == 0
+                                 ? 0.0
+                                 : static_cast<double>(blas_builder.eligible_static_compacted_bytes) /
+                                       static_cast<double>(blas_builder.eligible_static_uncompacted_bytes);
+  metrics["blas_builder"] = {
+      {"fixed_hint_bytes", blas_builder.fixed_hint_bytes},
+      {"complete", blas_builder.complete},
+      {"pending_count", blas_builder.pending_count},
+      {"total_blas_count", blas_builder.total_blas_count},
+      {"static_eligible_count", blas_builder.static_eligible_count},
+      {"updateable_count", blas_builder.updateable_count},
+      {"shared_input_count", blas_builder.shared_input_count},
+      {"private_input_count", blas_builder.private_input_count},
+      {"private_input_bytes", blas_builder.private_input_bytes},
+      {"cumulative_built_static_count", blas_builder.cumulative_built_static_count},
+      {"cumulative_uncompacted_bytes", blas_builder.cumulative_uncompacted_bytes},
+      {"cumulative_compacted_bytes", blas_builder.cumulative_compacted_bytes},
+      {"pass_count", blas_builder.pass_count},
+      {"scratch_wave_count", blas_builder.scratch_wave_count},
+      {"scratch_peak_bytes", blas_builder.scratch_peak_bytes},
+      {"eligible_static_uncompacted_bytes", blas_builder.eligible_static_uncompacted_bytes},
+      {"eligible_static_compacted_bytes", blas_builder.eligible_static_compacted_bytes},
+      {"eligible_static_compaction_ratio", compact_ratio},
+      {"final_compacted_storage_bytes", blas_builder.final_compacted_storage_bytes},
+      {"transient_peak_bytes", blas_builder.transient_peak_bytes},
+      {"transient_scope", "builder scratch plus live original and compacted static BLAS allocations"},
+      {"wall_milliseconds", blas_builder.wall_milliseconds},
+      {"passes", std::move(blas_passes)}};
   metrics["gpu_memory"] = {{"scope", "startup-ready plus capture-window samples; pre-ready transient peaks excluded"},
                            {"startup_ready", GpuMemorySnapshotJson(startup_gpu_memory)},
                            {"peak", GpuMemorySnapshotJson(peak_gpu_memory)},
@@ -1538,11 +1577,9 @@ int main(const int argc, char** argv) {
         ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info);
         ApplyApplicationModeDefaults(application_info);
         ApplyGraphicsCommandLineOverrides(command_line, application_info);
+        application_info.enable_gpu_timestamp_capture = automated_capture;
         ApplicationContext::Get().Initialize(application_info);
         initialized = true;
-        if (command_line.demo_preview_capture_path) {
-          Platform::SetGpuTimestampCaptureEnabled(true);
-        }
         if (command_line.application_mode == ApplicationMode::Editor) {
           ApplyDemoEditorDefaults(*command_line.demo_profile_id);
         }

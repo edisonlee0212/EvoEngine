@@ -10,9 +10,14 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "Platform.hpp"
 #include "Prefab.hpp"
+#include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
 #include "SkinnedMesh.hpp"
 
+#include <array>
+#include <chrono>
 #include <fstream>
 #include <iterator>
 
@@ -20,6 +25,94 @@ using namespace evo_engine;
 
 namespace {
 constexpr float kEpsilon = 0.0001f;
+constexpr uint64_t kProjectGltfHandle = 0xE703'0000'0000'0001ull;
+constexpr uint64_t kProjectDdsHandle = 0xE703'0000'0000'0002ull;
+constexpr uint64_t kProjectBrokenGltfHandle = 0xE703'0000'0000'0003ull;
+constexpr uint64_t kProjectBrokenDdsHandle = 0xE703'0000'0000'0004ull;
+
+class TempGltfProject {
+ public:
+  TempGltfProject() {
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    root_ = std::filesystem::temp_directory_path() / ("EvoEngineGltfProject_" + std::to_string(suffix));
+    std::filesystem::create_directories(ModelsPath());
+    std::ofstream(ProjectPath()) << "{}\n";
+  }
+
+  ~TempGltfProject() {
+    std::error_code error;
+    std::filesystem::remove_all(root_, error);
+  }
+
+  [[nodiscard]] std::filesystem::path ProjectPath() const {
+    return root_ / "GltfProject.eveproj";
+  }
+
+  [[nodiscard]] std::filesystem::path ModelsPath() const {
+    return root_ / "Assets" / "Models";
+  }
+
+ private:
+  std::filesystem::path root_;
+};
+
+void WriteAssetMetadata(const std::filesystem::path& path, const std::string& type_name, const uint64_t handle) {
+  std::ofstream metadata(path.string() + ".evefilemeta");
+  metadata << "asset_extension_: " << path.extension().string() << '\n';
+  metadata << "asset_file_name_: " << path.stem().string() << '\n';
+  metadata << "asset_type_name_: " << type_name << '\n';
+  metadata << "asset_handle_: " << handle << '\n';
+}
+
+void WriteBc7UnormDds(const std::filesystem::path& path) {
+  std::array<std::byte, 164> bytes{};
+  const auto write_u32 = [&](const size_t offset, const uint32_t value) {
+    for (size_t byte = 0; byte < sizeof(value); ++byte) {
+      bytes[offset + byte] = static_cast<std::byte>((value >> (byte * 8)) & 0xff);
+    }
+  };
+  write_u32(0, 0x20534444u);
+  write_u32(4, 124);
+  write_u32(12, 4);
+  write_u32(16, 4);
+  write_u32(28, 1);
+  write_u32(76, 32);
+  write_u32(84, 0x30315844u);
+  write_u32(128, 98);
+  write_u32(132, 3);
+  write_u32(140, 1);
+  std::ofstream stream(path, std::ios::binary);
+  stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+void WriteGltfDdsVariant(const std::filesystem::path& source_path, const std::filesystem::path& output_path,
+                         const std::string& dds_uri) {
+  std::ifstream source_stream(source_path);
+  std::string source((std::istreambuf_iterator<char>(source_stream)), std::istreambuf_iterator<char>());
+  const auto replace = [&](const std::string& from, const std::string& to) {
+    const auto position = source.find(from);
+    if (position == std::string::npos) {
+      throw std::runtime_error("BoxTextured glTF fixture shape changed.");
+    }
+    source.replace(position, from.size(), to);
+  };
+  replace(R"("sampler": 0,
+            "source": 0)",
+          R"("sampler": 0,
+            "source": 0,
+            "extensions": {"MSFT_texture_dds": {"source": 1}})");
+  replace(R"({
+            "uri": "CesiumLogoFlat.png"
+        })",
+          R"({
+            "uri": "CesiumLogoFlat.png"
+        },
+        {
+            "uri": ")" +
+              dds_uri + R"("
+        })");
+  std::ofstream(output_path, std::ios::binary) << source;
+}
 
 ApplicationInitializationSettings EmptyProjectSettings() {
   ApplicationInitializationSettings settings;
@@ -332,6 +425,73 @@ TEST(GltfMaterialConversion, PrefabImportsExternalEmbeddedAndBinaryGltfTexturesW
   validate_import(uri_path);
   std::error_code cleanup_error;
   std::filesystem::remove_all(uri_root, cleanup_error);
+}
+
+TEST(GltfMaterialConversion, ProjectGltfTextureReuseAndManagedFailureFallback) {
+  TempGltfProject project;
+  const auto model_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" / "assimp" /
+                          "assimp" / "test" / "models" / "glTF2" / "BoxTextured-glTF";
+  std::filesystem::copy_file(model_root / "BoxTextured0.bin", project.ModelsPath() / "BoxTextured0.bin");
+  std::filesystem::copy_file(model_root / "CesiumLogoFlat.png", project.ModelsPath() / "CesiumLogoFlat.png");
+  WriteBc7UnormDds(project.ModelsPath() / "Texture.dds");
+
+  const auto gltf_path = project.ModelsPath() / "Model.gltf";
+  WriteGltfDdsVariant(model_root / "BoxTextured.gltf", gltf_path, "Texture.dds");
+  WriteAssetMetadata(gltf_path, "Prefab", kProjectGltfHandle);
+  WriteAssetMetadata(project.ModelsPath() / "Texture.dds", "Texture2D", kProjectDdsHandle);
+  std::ofstream(project.ModelsPath() / "Broken.dds", std::ios::binary) << "invalid";
+  const auto broken_gltf_path = project.ModelsPath() / "Broken.gltf";
+  WriteGltfDdsVariant(model_root / "BoxTextured.gltf", broken_gltf_path, "Broken.dds");
+  WriteAssetMetadata(broken_gltf_path, "Prefab", kProjectBrokenGltfHandle);
+  WriteAssetMetadata(project.ModelsPath() / "Broken.dds", "Texture2D", kProjectBrokenDdsHandle);
+
+  Application app;
+  ApplicationContextScope scope(app);
+  ASSERT_TRUE(app.PushLayer<RenderLayer>("Render Layer"));
+  auto settings = EmptyProjectSettings();
+  settings.allow_empty_project = false;
+  settings.project_path = project.ProjectPath();
+  settings.application_mode = ApplicationMode::Headless;
+  settings.load_default_resources = true;
+  settings.graphics_settings.use_mesh_shader = false;
+  settings.graphics_settings.use_ray_tracing = false;
+  app.Initialize(settings);
+
+  const auto fallback_prefab =
+      std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset(std::filesystem::path("Models/Broken.gltf")));
+  ASSERT_TRUE(fallback_prefab);
+  const auto fallback_material = FindFirstMaterial(fallback_prefab);
+  ASSERT_TRUE(fallback_material);
+  const auto fallback_texture =
+      fallback_material->GetTexture(fallback_material->material_data.shade_material.pbr_base_color_texture);
+  ASSERT_TRUE(fallback_texture);
+  EXPECT_NE(fallback_texture->GetVkImageView(), VK_NULL_HANDLE);
+  EXPECT_NE(fallback_texture->GetVkSampler(), VK_NULL_HANDLE);
+  EXPECT_EQ(fallback_texture->RefTexture2DStorage().GetFormat(), VK_FORMAT_R8G8B8A8_SRGB);
+  EXPECT_TRUE(fallback_texture->SamplesLinearSrgb());
+
+  if (!Platform::GetSelectedPhysicalDevice()->features.textureCompressionBC) {
+    GTEST_SKIP() << "BC texture compression is unavailable on the selected test device.";
+  }
+
+  const auto prefab =
+      std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset(std::filesystem::path("Models/Model.gltf")));
+  ASSERT_TRUE(prefab);
+  const auto material = FindFirstMaterial(prefab);
+  ASSERT_TRUE(material);
+  const auto texture = material->GetTexture(material->material_data.shade_material.pbr_base_color_texture);
+  const auto source_texture =
+      std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetOrCreateAsset("Models/Texture.dds"));
+  ASSERT_TRUE(texture);
+  ASSERT_TRUE(source_texture);
+  EXPECT_NE(texture->GetTextureStorageIndex(), source_texture->GetTextureStorageIndex());
+  EXPECT_EQ(texture->GetVkImage(), source_texture->GetVkImage());
+  EXPECT_NE(texture->GetVkImageView(), VK_NULL_HANDLE);
+  EXPECT_NE(texture->GetVkSampler(), VK_NULL_HANDLE);
+  EXPECT_NE(texture->GetVkImageView(), source_texture->GetVkImageView());
+  EXPECT_EQ(source_texture->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_UNORM_BLOCK);
+  EXPECT_EQ(texture->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_TRUE(texture->SamplesLinearSrgb());
 }
 
 TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlossModel) {

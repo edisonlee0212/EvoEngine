@@ -1412,6 +1412,7 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(editor_source.find("metrics[\"effective_spp\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"startup_gpu_sections\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"gpu_sections\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"blas_builder\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(true)"), std::string::npos);
   EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(false)"), std::string::npos);
   EXPECT_NE(editor_source.find("editor_layer->show_camera_window = false"), std::string::npos);
@@ -1435,6 +1436,7 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(graphics_resources.find("\"TLAS Build\""), std::string::npos);
   EXPECT_NE(graphics_resources.find("\"TLAS Update\""), std::string::npos);
   EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"BLAS Build\""), std::string::npos);
+  EXPECT_NE(graphics_resources.find("ImmediateSubmitWithGpuTimestamp(\"BLAS Compact\""), std::string::npos);
   EXPECT_NE(graphics_resources.find("BeginGpuTimestampScope(vk_command_buffer, \"BLAS Update\")"), std::string::npos);
 
   EXPECT_NE(runner.find("PINNED_EVOENGINE_BASE"), std::string::npos);
@@ -1463,6 +1465,50 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(runner.find("--hdrEnvIntensity"), std::string::npos);
   EXPECT_NE(runner.find("--solidBackgroundColor"), std::string::npos);
   EXPECT_NE(reference_patch.find("gpu_timer_name"), std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, StaticBlasBuilderUsesSharedCompactedGeometry) {
+  const auto graphics = ReadTextFile(SdkPath("src/GraphicsResources.cpp"));
+  const auto geometry = ReadTextFile(SdkPath("src/GeometryStorage.cpp"));
+  const auto mesh = ReadTextFile(SdkPath("src/Mesh.cpp"));
+  const auto skinned_mesh = ReadTextFile(SdkPath("src/SkinnedMesh.cpp"));
+  const auto platform = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto application = ReadTextFile(SdkPath("src/Application.cpp"));
+  const auto settings = ReadTextFile(SdkPath("include/ApplicationInitializationSettings.hpp"));
+  const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
+  ASSERT_FALSE(graphics.empty());
+  ASSERT_FALSE(geometry.empty());
+  ASSERT_FALSE(mesh.empty());
+  ASSERT_FALSE(skinned_mesh.empty());
+  ASSERT_FALSE(platform.empty());
+  ASSERT_FALSE(application.empty());
+  ASSERT_FALSE(settings.empty());
+  ASSERT_FALSE(editor.empty());
+
+  EXPECT_NE(mesh.find("BottomLevelAccelerationStructure::CreateStatic(meshlet_range_, triangle_range_, v_c)"),
+            std::string::npos);
+  EXPECT_NE(skinned_mesh.find("BottomLevelAccelerationStructure::CreateStatic(ray_tracing_meshlet_range_,"),
+            std::string::npos);
+  EXPECT_EQ(mesh.find("make_shared<BottomLevelAccelerationStructure>"), std::string::npos);
+  EXPECT_NE(geometry.find("VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR"), std::string::npos);
+  EXPECT_NE(geometry.find("BottomLevelAccelerationStructure::ProcessStaticBuilds()"), std::string::npos);
+  EXPECT_NE(geometry.find("if (Platform::RayAccelerationStructureEnabled())"), std::string::npos);
+  EXPECT_NE(graphics.find("VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR"), std::string::npos);
+  EXPECT_NE(graphics.find("VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR"), std::string::npos);
+  EXPECT_NE(graphics.find("VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR"), std::string::npos);
+  EXPECT_NE(graphics.find("DestroyAccelerationStructure(record.original)"), std::string::npos);
+  EXPECT_NE(graphics.find("if (!render_instance || !blas || !blas->IsReady())"), std::string::npos);
+  EXPECT_NE(platform.find("add_queue_request(graphics_family, kBackgroundQueuePriority)"), std::string::npos);
+  EXPECT_NE(platform.find("add_queue_request(graphics_family, kInteractiveQueuePriority)"), std::string::npos);
+  const auto timestamp_enable = application.find("this->initialization_settings.enable_gpu_timestamp_capture");
+  const auto resource_initialize = application.find("Resources::Initialize()");
+  ASSERT_NE(timestamp_enable, std::string::npos);
+  ASSERT_NE(resource_initialize, std::string::npos);
+  EXPECT_LT(timestamp_enable, resource_initialize);
+  EXPECT_NE(settings.find("bool enable_gpu_timestamp_capture = false"), std::string::npos);
+  EXPECT_NE(editor.find("application_info.enable_gpu_timestamp_capture = automated_capture"), std::string::npos);
+  EXPECT_NE(editor.find("BottomLevelAccelerationStructure::HasPendingStaticBuilds()"), std::string::npos);
+  EXPECT_NE(editor.find("metrics[\"blas_builder\"]"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, TlasUpdateClassifierFollowsVulkanCompatibilityRules) {

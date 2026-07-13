@@ -375,6 +375,7 @@ void WindowLayer::Render() {
     });
 
     if (const ImGuiIO& io = ImGui::GetIO(); io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+      const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
       ImGui::UpdatePlatformWindows();
       ImGui::RenderPlatformWindowsDefault();
     }
