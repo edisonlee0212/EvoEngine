@@ -157,6 +157,22 @@ std::shared_ptr<Material> FindFirstMaterial(const std::shared_ptr<Prefab>& prefa
   }
   return {};
 }
+
+std::shared_ptr<Mesh> FindFirstMesh(const std::shared_ptr<Prefab>& prefab) {
+  for (const auto& holder : prefab->private_components) {
+    if (const auto renderer = std::dynamic_pointer_cast<MeshRenderer>(holder.private_component)) {
+      if (const auto mesh = renderer->mesh.Get<Mesh>()) {
+        return mesh;
+      }
+    }
+  }
+  for (const auto& child : prefab->child_prefabs) {
+    if (const auto mesh = FindFirstMesh(child)) {
+      return mesh;
+    }
+  }
+  return {};
+}
 }  // namespace
 
 TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureInfos) {
@@ -425,6 +441,115 @@ TEST(GltfMaterialConversion, PrefabImportsExternalEmbeddedAndBinaryGltfTexturesW
   validate_import(uri_path);
   std::error_code cleanup_error;
   std::filesystem::remove_all(uri_root, cleanup_error);
+}
+
+TEST(GltfMaterialConversion, PrefabImportsAndPreservesDefaultMorphTargets) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" / "assimp" / "assimp" /
+                    "test" / "models" / "glTF2" / "SimpleMorph" / "glTF" / "SimpleMorph.gltf";
+  ASSERT_TRUE(std::filesystem::exists(path));
+  const auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
+  ASSERT_TRUE(prefab->Import(path));
+  const auto mesh = FindFirstMesh(prefab);
+  ASSERT_TRUE(mesh);
+  ASSERT_EQ(mesh->PeekMorphTargets().size(), 2);
+  ASSERT_EQ(mesh->GetDefaultMorphWeights().size(), 2);
+  EXPECT_FLOAT_EQ(mesh->GetDefaultMorphWeights()[0], 0.5f);
+  EXPECT_FLOAT_EQ(mesh->GetDefaultMorphWeights()[1], 0.5f);
+  EXPECT_TRUE(std::any_of(mesh->PeekVertices().begin(), mesh->PeekVertices().end(), [](const Vertex& vertex) {
+    return glm::distance(vertex.position, glm::vec3(0.5f, 1.5f, 0.0f)) < kEpsilon;
+  }));
+  EXPECT_NEAR(mesh->GetBound().max.y, 1.5f, kEpsilon);
+
+  const auto asymmetric = mesh->BuildMorphedVertices({1.0f, 0.0f});
+  ASSERT_EQ(asymmetric.size(), mesh->PeekVertices().size());
+  EXPECT_FALSE(std::equal(asymmetric.begin(), asymmetric.end(), mesh->PeekVertices().begin(),
+                          [](const Vertex& lhs, const Vertex& rhs) {
+                            return lhs.position == rhs.position;
+                          }));
+}
+
+TEST(GltfMaterialConversion, PrefabImportsMorphNormalAndTangentStreams) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" / "assimp" / "assimp" /
+                    "test" / "models" / "glTF2" / "AnimatedMorphCube" / "glTF" / "AnimatedMorphCube.gltf";
+  ASSERT_TRUE(std::filesystem::exists(path));
+  const auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
+  ASSERT_TRUE(prefab->Import(path));
+  const auto mesh = FindFirstMesh(prefab);
+  ASSERT_TRUE(mesh);
+  ASSERT_EQ(mesh->PeekMorphTargets().size(), 2);
+  for (const auto& target : mesh->PeekMorphTargets()) {
+    EXPECT_EQ(target.position_deltas.size(), mesh->PeekVertices().size());
+    EXPECT_EQ(target.normal_deltas.size(), mesh->PeekVertices().size());
+    EXPECT_EQ(target.tangent_deltas.size(), mesh->PeekVertices().size());
+  }
+  EXPECT_TRUE(std::any_of(mesh->PeekMorphTargets()[1].normal_deltas.begin(),
+                          mesh->PeekMorphTargets()[1].normal_deltas.end(), [](const glm::vec3& delta) {
+                            return glm::dot(delta, delta) > kEpsilon * kEpsilon;
+                          }));
+  EXPECT_TRUE(std::all_of(mesh->PeekMorphTargets()[1].tangent_deltas.begin(),
+                          mesh->PeekMorphTargets()[1].tangent_deltas.end(), [](const glm::vec3& delta) {
+                            return glm::dot(delta, delta) <= kEpsilon * kEpsilon;
+                          }));
+  const auto morphed = mesh->BuildMorphedVertices({0.0f, 1.0f});
+  ASSERT_EQ(morphed.size(), mesh->PeekVertices().size());
+  bool normal_changed = false;
+  for (size_t index = 0; index < morphed.size(); index++) {
+    normal_changed |= glm::distance(morphed[index].normal, mesh->PeekVertices()[index].normal) > kEpsilon;
+    EXPECT_NEAR(glm::distance(morphed[index].tangent, mesh->PeekVertices()[index].tangent), 0.0f, kEpsilon);
+  }
+  EXPECT_TRUE(normal_changed);
+}
+
+TEST(GltfMaterialConversion, MorphEvaluationUsesNeutralNormalBasisAndKeepsWeightsAligned) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  Vertex neutral{};
+  neutral.position = glm::vec3(0.0f);
+  neutral.normal = glm::vec3(1.0f, 0.0f, 0.0f);
+  neutral.tangent = glm::vec3(0.0f, 0.0f, 1.0f);
+  auto evaluated = neutral;
+  evaluated.normal = glm::normalize(glm::vec3(1.0f, 0.5f, 0.0f));
+  std::vector vertices = {evaluated, evaluated, evaluated};
+  Mesh mesh;
+  mesh.OnCreate();
+  VertexAttributes attributes{};
+  attributes.normal = true;
+  attributes.tangent = true;
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)});
+
+  MorphTarget invalid;
+  invalid.name = "invalid";
+  invalid.position_deltas = {glm::vec3(0.0f)};
+  MorphTarget valid;
+  valid.name = "valid";
+  valid.normal_deltas = std::vector(3, glm::vec3(0.0f, 1.0f, 0.0f));
+  mesh.SetMorphTargets({invalid, valid}, {0.25f, 0.5f}, std::vector(3, neutral));
+
+  ASSERT_EQ(mesh.PeekMorphTargets().size(), 1);
+  EXPECT_EQ(mesh.PeekMorphTargets()[0].name, "valid");
+  ASSERT_EQ(mesh.GetDefaultMorphWeights().size(), 1);
+  EXPECT_FLOAT_EQ(mesh.GetDefaultMorphWeights()[0], 0.5f);
+  EXPECT_NEAR(glm::distance(mesh.BuildMorphedVertices({})[0].normal, evaluated.normal), 0.0f, kEpsilon);
+  EXPECT_EQ(mesh.BuildMorphedVertices({0.0f})[0].normal, neutral.normal);
+  EXPECT_NEAR(glm::distance(mesh.BuildMorphedVertices({1.0f})[0].normal, glm::normalize(glm::vec3(1.0f, 1.0f, 0.0f))),
+              0.0f, kEpsilon);
+
+  mesh.SetMorphTargets({invalid}, {0.25f}, std::vector(3, neutral));
+  EXPECT_TRUE(mesh.PeekMorphTargets().empty());
+  EXPECT_TRUE(mesh.GetDefaultMorphWeights().empty());
+  EXPECT_TRUE(mesh.PeekMorphBaseVertices().empty());
+
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)});
+  EXPECT_TRUE(mesh.PeekMorphTargets().empty());
+  EXPECT_TRUE(mesh.GetDefaultMorphWeights().empty());
+  EXPECT_TRUE(mesh.PeekMorphBaseVertices().empty());
 }
 
 TEST(GltfMaterialConversion, ProjectGltfTextureReuseAndManagedFailureFallback) {
@@ -1048,8 +1173,18 @@ TEST(GltfMaterialConversion, MikkTangentsSplitMirroredChartsAndPreserveSkinnedDa
 
   Mesh mesh;
   mesh.OnCreate();
-  mesh.SetVertices(attributes, vertices, triangles);
+  std::vector<uint32_t> source_vertex_indices;
+  mesh.SetVertices(attributes, vertices, triangles, 0, &source_vertex_indices);
   ASSERT_EQ(mesh.PeekVertices().size(), 6);
+  ASSERT_EQ(source_vertex_indices.size(), mesh.PeekVertices().size());
+  MorphTarget morph_target;
+  morph_target.position_deltas = {glm::vec3(0.0f), glm::vec3(1.0f), glm::vec3(2.0f), glm::vec3(3.0f)};
+  std::vector morph_targets = {morph_target};
+  RemapMorphTargets(morph_targets, source_vertex_indices);
+  ASSERT_EQ(morph_targets[0].position_deltas.size(), source_vertex_indices.size());
+  for (size_t index = 0; index < source_vertex_indices.size(); index++) {
+    EXPECT_EQ(morph_targets[0].position_deltas[index], morph_target.position_deltas[source_vertex_indices[index]]);
+  }
   const auto& split_triangles = mesh.PeekTriangles();
   const float first_sign = mesh.PeekVertices()[split_triangles[0].x].vertex_info3;
   const float second_sign = mesh.PeekVertices()[split_triangles[1].x].vertex_info3;
@@ -1079,6 +1214,48 @@ TEST(GltfMaterialConversion, MikkTangentsSplitMirroredChartsAndPreserveSkinnedDa
     EXPECT_EQ(vertex.bond_id, glm::ivec4(7));
     EXPECT_EQ(vertex.weight, glm::vec4(0.25f));
     EXPECT_EQ(vertex.vertex_info4, glm::vec2(3.0f, 4.0f));
+  }
+
+  VertexAttributes authored_attributes = attributes;
+  authored_attributes.tangent = true;
+  for (auto& vertex : vertices) {
+    vertex.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+  }
+  Mesh mutable_mesh;
+  mutable_mesh.OnCreate();
+  mutable_mesh.SetVertices(authored_attributes, vertices, triangles);
+  mutable_mesh.SetMorphTargets({morph_target}, {0.0f}, vertices);
+  ASSERT_EQ(mutable_mesh.PeekMorphTargets().size(), 1);
+  mutable_mesh.RecalculateTangent();
+  EXPECT_TRUE(mutable_mesh.PeekMorphTargets().empty());
+  EXPECT_TRUE(mutable_mesh.GetDefaultMorphWeights().empty());
+  EXPECT_TRUE(mutable_mesh.PeekMorphBaseVertices().empty());
+  EXPECT_EQ(mutable_mesh.BuildMorphedVertices({}).size(), mutable_mesh.PeekVertices().size());
+  for (const auto& triangle : mutable_mesh.PeekTriangles()) {
+    EXPECT_LT(triangle.x, mutable_mesh.PeekVertices().size());
+    EXPECT_LT(triangle.y, mutable_mesh.PeekVertices().size());
+    EXPECT_LT(triangle.z, mutable_mesh.PeekVertices().size());
+  }
+
+  SkinnedVertexAttributes authored_skinned_attributes = skinned_attributes;
+  authored_skinned_attributes.tangent = true;
+  for (auto& vertex : skinned_vertices) {
+    vertex.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+  }
+  SkinnedMesh mutable_skinned_mesh;
+  mutable_skinned_mesh.OnCreate();
+  mutable_skinned_mesh.SetVertices(authored_skinned_attributes, skinned_vertices, triangles);
+  mutable_skinned_mesh.SetMorphTargets({morph_target}, {0.0f}, skinned_vertices);
+  ASSERT_EQ(mutable_skinned_mesh.PeekMorphTargets().size(), 1);
+  mutable_skinned_mesh.RecalculateTangent();
+  EXPECT_TRUE(mutable_skinned_mesh.PeekMorphTargets().empty());
+  EXPECT_TRUE(mutable_skinned_mesh.GetDefaultMorphWeights().empty());
+  EXPECT_TRUE(mutable_skinned_mesh.PeekMorphBaseVertices().empty());
+  EXPECT_EQ(mutable_skinned_mesh.BuildMorphedVertices({}).size(), mutable_skinned_mesh.PeekSkinnedVertices().size());
+  for (const auto& triangle : mutable_skinned_mesh.PeekTriangles()) {
+    EXPECT_LT(triangle.x, mutable_skinned_mesh.PeekSkinnedVertices().size());
+    EXPECT_LT(triangle.y, mutable_skinned_mesh.PeekSkinnedVertices().size());
+    EXPECT_LT(triangle.z, mutable_skinned_mesh.PeekSkinnedVertices().size());
   }
 }
 

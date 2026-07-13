@@ -3,6 +3,7 @@
 #include "ThirdParty/MikkTSpace/mikktspace.h"
 
 #include <algorithm>
+#include <numeric>
 
 namespace {
 template <typename VertexType>
@@ -86,9 +87,14 @@ bool CompatibleTangents(const glm::vec4& lhs, const glm::vec4& rhs) {
 }
 
 template <typename VertexType>
-void Generate(std::vector<VertexType>& vertices, std::vector<glm::uvec3>& triangles, const int tex_coord) {
+void Generate(std::vector<VertexType>& vertices, std::vector<glm::uvec3>& triangles, const int tex_coord,
+              std::vector<uint32_t>* source_vertex_indices) {
   if (vertices.empty() || triangles.empty()) {
     return;
+  }
+  if (source_vertex_indices) {
+    source_vertex_indices->resize(vertices.size());
+    std::iota(source_vertex_indices->begin(), source_vertex_indices->end(), 0u);
   }
   MikkMeshData<VertexType> data{&vertices, &triangles, std::vector<glm::vec4>(triangles.size() * 3),
                                 glm::clamp(tex_coord, 0, 3)};
@@ -123,6 +129,9 @@ void Generate(std::vector<VertexType>& vertices, std::vector<glm::uvec3>& triang
         const uint32_t target_index = source_groups.empty() ? source_index : static_cast<uint32_t>(vertices.size());
         if (!source_groups.empty()) {
           vertices.emplace_back(vertices[source_index]);
+          if (source_vertex_indices) {
+            source_vertex_indices->emplace_back(source_index);
+          }
         }
         vertices[target_index].tangent = glm::vec3(tangent);
         vertices[target_index].vertex_info3 = tangent.w;
@@ -136,11 +145,11 @@ void Generate(std::vector<VertexType>& vertices, std::vector<glm::uvec3>& triang
 }  // namespace
 
 void evo_engine::GenerateMikkTangents(std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
-                                      const int tex_coord) {
-  Generate(vertices, triangles, tex_coord);
+                                      const int tex_coord, std::vector<uint32_t>* source_vertex_indices) {
+  Generate(vertices, triangles, tex_coord, source_vertex_indices);
 }
 
 void evo_engine::GenerateMikkTangents(std::vector<SkinnedVertex>& vertices, std::vector<glm::uvec3>& triangles,
-                                      const int tex_coord) {
-  Generate(vertices, triangles, tex_coord);
+                                      const int tex_coord, std::vector<uint32_t>* source_vertex_indices) {
+  Generate(vertices, triangles, tex_coord, source_vertex_indices);
 }

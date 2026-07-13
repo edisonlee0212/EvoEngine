@@ -37,9 +37,15 @@ class SkinnedMeshRenderer : public IPrivateComponent {
   std::vector<uint32_t> ray_tracing_packed_source_vertex_indices_;
   std::vector<glm::mat4> ray_tracing_bone_matrices_;
   std::vector<glm::mat4> pending_ray_tracing_bone_matrices_;
+  std::vector<float> morph_weights_;
+  std::vector<float> ray_tracing_morph_weights_;
+  std::vector<float> pending_ray_tracing_morph_weights_;
   std::shared_ptr<FrameSubmissionState> pending_ray_tracing_submission_state_;
+  Bound ray_tracing_bound_{};
   bool ray_tracing_payload_retry_required_ = false;
+  Handle ray_tracing_mesh_handle_ = Handle(0);
   uint32_t ray_tracing_geometry_version_ = 0;
+  uint32_t morph_weights_version_ = 0;
 
  public:
   /**
@@ -48,6 +54,10 @@ class SkinnedMeshRenderer : public IPrivateComponent {
   void UpdateBoneMatrices();
 
   void UpdateRayTracingGeometry();
+
+  void SetMorphWeights(const std::vector<float>& weights);
+
+  [[nodiscard]] const std::vector<float>& PeekMorphWeights() const;
 
   /// A flag indicating whether the ragdoll should be frozen.
   bool rag_doll_freeze = false;

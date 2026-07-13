@@ -204,7 +204,15 @@ bool RenderInstanceStorage::MeshRenderInstance::operator!=(const MeshRenderInsta
     return true;
   if (material != other.material)
     return true;
+  if (ray_tracing_triangle_range != other.ray_tracing_triangle_range)
+    return true;
+  if (ray_tracing_blas != other.ray_tracing_blas)
+    return true;
   if (geometry_version != other.geometry_version)
+    return true;
+  if (ray_tracing_geometry_version != other.ray_tracing_geometry_version)
+    return true;
+  if (morph_weights_version != other.morph_weights_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -223,7 +231,10 @@ void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instanc
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = mesh->triangle_range_->prev_frame_offset;
+  instance_info_block.triangle_offset =
+      ray_tracing_triangle_range && ray_tracing_triangle_range->prev_frame_index_count != 0
+          ? ray_tracing_triangle_range->prev_frame_offset
+          : mesh->triangle_range_->prev_frame_offset;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->prev_frame_offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->prev_frame_range;
   instance_info_block.entity_index = owner.GetIndex();
@@ -272,6 +283,8 @@ bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedM
   if (geometry_version != other.geometry_version)
     return true;
   if (ray_tracing_geometry_version != other.ray_tracing_geometry_version)
+    return true;
+  if (morph_weights_version != other.morph_weights_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -2305,6 +2318,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
   auto mesh_bound = mesh->GetBound();
+  if (mesh_renderer->ray_tracing_blas_) {
+    mesh_bound.min = glm::min(mesh_bound.min, mesh_renderer->ray_tracing_bound_.min);
+    mesh_bound.max = glm::max(mesh_bound.max, mesh_renderer->ray_tracing_bound_.max);
+  }
   mesh_bound.ApplyTransform(ltw);
   glm::vec3 center = mesh_bound.Center();
 
@@ -2326,6 +2343,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cast_shadow = mesh_renderer->cast_shadow;
   render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
+  render_instance->ray_tracing_geometry_version = mesh_renderer->ray_tracing_geometry_version_;
+  render_instance->morph_weights_version = mesh_renderer->morph_weights_version_;
+  render_instance->ray_tracing_triangle_range = mesh_renderer->ray_tracing_triangle_range_;
+  render_instance->ray_tracing_blas = mesh_renderer->ray_tracing_blas_;
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
@@ -2368,6 +2389,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   }
   auto ltw = gt.value;
   auto mesh_bound = skinned_mesh->GetBound();
+  if (skinned_mesh_renderer->ray_tracing_blas_) {
+    mesh_bound.min = glm::min(mesh_bound.min, skinned_mesh_renderer->ray_tracing_bound_.min);
+    mesh_bound.max = glm::max(mesh_bound.max, skinned_mesh_renderer->ray_tracing_bound_.max);
+  }
   mesh_bound.ApplyTransform(ltw);
   glm::vec3 center = mesh_bound.Center();
 
@@ -2392,6 +2417,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->bone_matrices_snapshot = skinned_mesh_renderer->bone_matrices->value;
   render_instance->geometry_version = skinned_mesh->GetVersion();
   render_instance->ray_tracing_geometry_version = skinned_mesh_renderer->ray_tracing_geometry_version_;
+  render_instance->morph_weights_version = skinned_mesh_renderer->morph_weights_version_;
   render_instance->ray_tracing_triangle_range = skinned_mesh_renderer->ray_tracing_triangle_range_;
   render_instance->ray_tracing_blas = skinned_mesh_renderer->ray_tracing_blas_;
   render_instance->material_version = material->GetVersion();

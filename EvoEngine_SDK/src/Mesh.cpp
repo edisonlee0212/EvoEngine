@@ -6,6 +6,8 @@
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
 #include "MikkTangentSpace.hpp"
+
+#include <numeric>
 #include "Platform.hpp"
 #include "Serialization.hpp"
 #include "Utilities.hpp"
@@ -113,7 +115,8 @@ void Mesh::DrawIndexed(VkCommandBuffer vk_command_buffer, GraphicsPipelineStates
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                       const std::vector<unsigned>& indices, const int tangent_tex_coord) {
+                       const std::vector<unsigned>& indices, const int tangent_tex_coord,
+                       std::vector<uint32_t>* source_vertex_indices) {
   if (indices.size() % 3 != 0) {
     EVOENGINE_ERROR("Triangle size wrong!");
     return;
@@ -121,18 +124,24 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   std::vector<glm::uvec3> triangles;
   triangles.resize(indices.size() / 3);
   memcpy(triangles.data(), indices.data(), indices.size() * sizeof(unsigned));
-  SetVertices(vertex_attributes, vertices, triangles, tangent_tex_coord);
+  SetVertices(vertex_attributes, vertices, triangles, tangent_tex_coord, source_vertex_indices);
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                       const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord) {
+                       const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord,
+                       std::vector<uint32_t>* source_vertex_indices) {
   if (vertices.empty() || triangles.empty()) {
 #ifndef NDEBUG
     EVOENGINE_LOG("Vertices or triangles empty!");
 #endif
     return;
   }
+  ClearMorphTargets();
   vertices_ = vertices;
+  if (source_vertex_indices) {
+    source_vertex_indices->resize(vertices_.size());
+    std::iota(source_vertex_indices->begin(), source_vertex_indices->end(), 0u);
+  }
   triangles_.clear();
   triangles_.reserve(triangles.size());
   for (const auto& triangle : triangles) {
@@ -163,7 +172,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   if (!vertex_attributes.normal)
     RecalculateNormal();
   if (!vertex_attributes.tangent)
-    RecalculateTangent(tangent_tex_coord);
+    GenerateMikkTangents(vertices_, triangles_, tangent_tex_coord, source_vertex_indices);
 
   vertex_attributes_ = vertex_attributes;
   vertex_attributes_.normal = true;
@@ -186,7 +195,84 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   saved_ = false;
 }
 
+void Mesh::ClearMorphTargets() {
+  morph_targets_.clear();
+  default_morph_weights_.clear();
+  morph_base_vertices_.clear();
+}
+
+void Mesh::SetMorphTargets(std::vector<MorphTarget> morph_targets, std::vector<float> default_weights,
+                           std::vector<Vertex> morph_base_vertices) {
+  const auto valid = [&](const MorphTarget& target) {
+    const auto valid_stream = [&](const std::vector<glm::vec3>& stream) {
+      return stream.empty() || stream.size() == vertices_.size();
+    };
+    return valid_stream(target.position_deltas) && valid_stream(target.normal_deltas) &&
+           valid_stream(target.tangent_deltas);
+  };
+  for (size_t index = morph_targets.size(); index-- > 0;) {
+    if (valid(morph_targets[index])) {
+      continue;
+    }
+    morph_targets.erase(morph_targets.begin() + index);
+    if (index < default_weights.size()) {
+      default_weights.erase(default_weights.begin() + index);
+    }
+  }
+  if (morph_targets.empty()) {
+    ClearMorphTargets();
+    version_++;
+    saved_ = false;
+    return;
+  }
+  default_weights.resize(morph_targets.size(), 0.0f);
+  if (morph_base_vertices.size() != vertices_.size()) {
+    EVOENGINE_ERROR("Morph base vertex count does not match the mesh.")
+    ClearMorphTargets();
+    version_++;
+    saved_ = false;
+    return;
+  }
+  const auto default_vertices = evo_engine::BuildMorphedVertices(
+      ComposeMorphBaseVertices(vertices_, morph_base_vertices, morph_targets), morph_targets, {}, default_weights);
+  if (!MorphVertexStreamsMatch(vertices_, default_vertices)) {
+    const auto attributes = vertex_attributes_;
+    const auto triangles = triangles_;
+    SetVertices(attributes, default_vertices, triangles);
+  }
+  morph_targets_ = std::move(morph_targets);
+  default_morph_weights_ = std::move(default_weights);
+  morph_base_vertices_ = std::move(morph_base_vertices);
+  version_++;
+  saved_ = false;
+}
+
+const std::vector<MorphTarget>& Mesh::PeekMorphTargets() const {
+  return morph_targets_;
+}
+
+const std::vector<float>& Mesh::GetDefaultMorphWeights() const {
+  return default_morph_weights_;
+}
+
+const std::vector<Vertex>& Mesh::PeekMorphBaseVertices() const {
+  return morph_base_vertices_;
+}
+
+std::vector<Vertex> Mesh::BuildMorphedVertices(const std::vector<float>& weights) const {
+  if (morph_targets_.empty()) {
+    return vertices_;
+  }
+  auto resolved_weights = default_morph_weights_;
+  for (size_t index = 0; index < std::min(resolved_weights.size(), weights.size()); index++) {
+    resolved_weights[index] = weights[index];
+  }
+  return evo_engine::BuildMorphedVertices(ComposeMorphBaseVertices(vertices_, morph_base_vertices_, morph_targets_),
+                                          morph_targets_, {}, resolved_weights);
+}
+
 void Mesh::MergeVertices() {
+  ClearMorphTargets();
   for (uint32_t i = 0; i < vertices_.size() - 1; i++) {
     for (uint32_t j = i + 1; j < vertices_.size(); j++) {
       auto& vi = vertices_.at(i);
@@ -227,6 +313,7 @@ uint32_t Mesh::GetTriangleAmount() const {
 }
 
 void Mesh::RecalculateNormal() {
+  ClearMorphTargets();
   auto normal_lists = std::vector<std::vector<glm::vec3>>();
   const auto size = vertices_.size();
   for (auto i = 0; i < size; i++) {
@@ -260,6 +347,7 @@ void Mesh::RecalculateNormal() {
 }
 
 void Mesh::RecalculateTangent(const int tex_coord) {
+  ClearMorphTargets();
   GenerateMikkTangents(vertices_, triangles_, tex_coord);
 }
 

@@ -1340,6 +1340,84 @@ StrandPointAttributes DefaultStrandPointAttributes() {
   return attributes;
 }
 
+template <typename VertexType>
+void SerializeMorphTargets(YAML::Emitter& out, const std::vector<MorphTarget>& targets,
+                           const std::vector<float>& default_weights,
+                           const std::vector<VertexType>& morph_base_vertices) {
+  if (targets.empty()) {
+    return;
+  }
+  out << YAML::Key << "morph_targets_" << YAML::Value << YAML::BeginSeq;
+  for (const auto& target : targets) {
+    out << YAML::BeginMap << YAML::Key << "name" << YAML::Value << target.name;
+    const auto write = [&](const char* name, const std::vector<glm::vec3>& values) {
+      if (!values.empty()) {
+        out << YAML::Key << name << YAML::Value
+            << YAML::Binary(reinterpret_cast<const unsigned char*>(values.data()), values.size() * sizeof(glm::vec3));
+      }
+    };
+    write("position_deltas", target.position_deltas);
+    write("normal_deltas", target.normal_deltas);
+    write("tangent_deltas", target.tangent_deltas);
+    out << YAML::EndMap;
+  }
+  out << YAML::EndSeq;
+  out << YAML::Key << "default_morph_weights_" << YAML::Value
+      << YAML::Binary(reinterpret_cast<const unsigned char*>(default_weights.data()),
+                      default_weights.size() * sizeof(float));
+  out << YAML::Key << "morph_base_vertex_stride_" << YAML::Value << sizeof(VertexType);
+  out << YAML::Key << "morph_base_vertices_" << YAML::Value
+      << YAML::Binary(reinterpret_cast<const unsigned char*>(morph_base_vertices.data()),
+                      morph_base_vertices.size() * sizeof(VertexType));
+}
+
+std::pair<std::vector<MorphTarget>, std::vector<float>> DeserializeMorphTargets(const YAML::Node& in) {
+  std::vector<MorphTarget> targets;
+  std::vector<float> weights;
+  if (const auto target_nodes = in["morph_targets_"]) {
+    for (const auto& target_node : target_nodes) {
+      MorphTarget target;
+      if (target_node["name"]) {
+        target.name = target_node["name"].as<std::string>();
+      }
+      const auto read = [&](const char* name, std::vector<glm::vec3>& values) {
+        if (!target_node[name]) {
+          return;
+        }
+        const auto& binary = target_node[name].as<YAML::Binary>();
+        if (binary.size() % sizeof(glm::vec3) != 0) {
+          return;
+        }
+        values.resize(binary.size() / sizeof(glm::vec3));
+        std::memcpy(values.data(), binary.data(), binary.size());
+      };
+      read("position_deltas", target.position_deltas);
+      read("normal_deltas", target.normal_deltas);
+      read("tangent_deltas", target.tangent_deltas);
+      targets.emplace_back(std::move(target));
+    }
+  }
+  if (in["default_morph_weights_"]) {
+    const auto& binary = in["default_morph_weights_"].as<YAML::Binary>();
+    if (binary.size() % sizeof(float) == 0) {
+      weights.resize(binary.size() / sizeof(float));
+      std::memcpy(weights.data(), binary.data(), binary.size());
+    }
+  }
+  return {std::move(targets), std::move(weights)};
+}
+
+template <typename VertexType>
+std::vector<VertexType> DeserializeMorphBaseVertices(const YAML::Node& in, const size_t fallback_stride) {
+  if (const auto node = in["morph_base_vertices_"]) {
+    const auto& binary = node.as<YAML::Binary>();
+    const auto stride =
+        in["morph_base_vertex_stride_"] ? in["morph_base_vertex_stride_"].as<size_t>() : fallback_stride;
+    return DeserializeVertexData<VertexType>(binary, stride);
+  }
+  return {};
+}
+
 void SerializeMesh(YAML::Emitter& out, const Mesh& mesh) {
   out << YAML::Key << "vertex_attributes_" << YAML::BeginMap;
   mesh.GetVertexAttributes().Serialize(out);
@@ -1355,6 +1433,7 @@ void SerializeMesh(YAML::Emitter& out, const Mesh& mesh) {
         << YAML::Binary(reinterpret_cast<const unsigned char*>(triangles.data()),
                         triangles.size() * sizeof(glm::uvec3));
   }
+  SerializeMorphTargets(out, mesh.PeekMorphTargets(), mesh.GetDefaultMorphWeights(), mesh.PeekMorphBaseVertices());
 }
 
 void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
@@ -1381,6 +1460,11 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
     std::memcpy(triangles.data(), triangle_data.data(), triangle_data.size());
 
     mesh.SetVertices(vertex_attributes, vertices, triangles);
+    auto [morph_targets, default_weights] = DeserializeMorphTargets(in);
+    if (!morph_targets.empty()) {
+      mesh.SetMorphTargets(std::move(morph_targets), std::move(default_weights),
+                           DeserializeMorphBaseVertices<Vertex>(in, stride));
+    }
   }
 }
 
@@ -1406,6 +1490,7 @@ void SerializeSkinnedMesh(YAML::Emitter& out, const SkinnedMesh& mesh) {
         << YAML::Binary(reinterpret_cast<const unsigned char*>(triangles.data()),
                         triangles.size() * sizeof(glm::uvec3));
   }
+  SerializeMorphTargets(out, mesh.PeekMorphTargets(), mesh.GetDefaultMorphWeights(), mesh.PeekMorphBaseVertices());
 }
 
 void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
@@ -1438,6 +1523,11 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
     std::memcpy(triangles.data(), triangle_data.data(), triangle_data.size());
 
     mesh.SetVertices(vertex_attributes, vertices, triangles);
+    auto [morph_targets, default_weights] = DeserializeMorphTargets(in);
+    if (!morph_targets.empty()) {
+      mesh.SetMorphTargets(std::move(morph_targets), std::move(default_weights),
+                           DeserializeMorphBaseVertices<SkinnedVertex>(in, stride));
+    }
   }
 }
 
@@ -1561,12 +1651,26 @@ void SerializeMeshRenderer(YAML::Emitter& out, const MeshRenderer& renderer) {
   out << YAML::Key << "cast_shadow" << YAML::Value << renderer.cast_shadow;
   renderer.mesh.Save("mesh", out);
   renderer.material.Save("material", out);
+  const auto& morph_weights = renderer.PeekMorphWeights();
+  if (!morph_weights.empty()) {
+    out << YAML::Key << "morph_weights" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(morph_weights.data()),
+                        morph_weights.size() * sizeof(float));
+  }
 }
 
 void DeserializeMeshRenderer(const YAML::Node& in, MeshRenderer& renderer) {
   renderer.cast_shadow = in["cast_shadow"].as<bool>();
   renderer.mesh.Load("mesh", in);
   renderer.material.Load("material", in);
+  if (in["morph_weights"]) {
+    const auto& binary = in["morph_weights"].as<YAML::Binary>();
+    if (binary.size() % sizeof(float) == 0) {
+      std::vector<float> weights(binary.size() / sizeof(float));
+      std::memcpy(weights.data(), binary.data(), binary.size());
+      renderer.SetMorphWeights(weights);
+    }
+  }
 }
 
 void SerializeStrandsRenderer(YAML::Emitter& out, const StrandsRenderer& renderer) {
@@ -1611,6 +1715,12 @@ void SerializeSkinnedMeshRenderer(YAML::Emitter& out, const SkinnedMeshRenderer&
   renderer.material.Save("material", out);
   out << YAML::Key << "rag_doll_" << YAML::Value << renderer.RagDoll();
   out << YAML::Key << "rag_doll_freeze" << YAML::Value << renderer.rag_doll_freeze;
+  const auto& morph_weights = renderer.PeekMorphWeights();
+  if (!morph_weights.empty()) {
+    out << YAML::Key << "morph_weights" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(morph_weights.data()),
+                        morph_weights.size() * sizeof(float));
+  }
 
   if (const auto& bound_entities = renderer.PeekRagDollBoundEntities(); !bound_entities.empty()) {
     out << YAML::Key << "bound_entities_" << YAML::Value << YAML::BeginSeq;
@@ -1637,6 +1747,14 @@ void DeserializeSkinnedMeshRenderer(const YAML::Node& in, SkinnedMeshRenderer& r
   renderer.material.Load("material", in);
   renderer.SetRagDollState(in["rag_doll_"].as<bool>());
   renderer.rag_doll_freeze = in["rag_doll_freeze"].as<bool>();
+  if (in["morph_weights"]) {
+    const auto& binary = in["morph_weights"].as<YAML::Binary>();
+    if (binary.size() % sizeof(float) == 0) {
+      std::vector<float> weights(binary.size() / sizeof(float));
+      std::memcpy(weights.data(), binary.data(), binary.size());
+      renderer.SetMorphWeights(weights);
+    }
+  }
   if (const auto in_bound_entities = in["bound_entities_"]) {
     auto& bound_entities = renderer.RefRagDollBoundEntities();
     for (const auto& i : in_bound_entities) {

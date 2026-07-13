@@ -342,7 +342,11 @@ class RenderInstanceStorage {
    * @brief Struct for mesh render instance functionality.
    */
   struct MeshRenderInstance : IRenderInstance {
+    uint32_t ray_tracing_geometry_version = 0;
+    uint32_t morph_weights_version = 0;
     std::shared_ptr<Mesh> mesh;  ///< Shared pointer to the mesh rendered.
+    std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range;
+    std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas;
 
     /**
      * @brief Compares two MeshRenderInstance objects for inequality.
@@ -374,6 +378,7 @@ class RenderInstanceStorage {
   struct SkinnedMeshRenderInstance : IRenderInstance {
     uint32_t bone_matrices_version;  ///< Version of the bone matrices for the skinned mesh.
     uint32_t ray_tracing_geometry_version = 0;
+    uint32_t morph_weights_version = 0;
     std::shared_ptr<SkinnedMesh> skinned_mesh;    ///< Shared pointer to the skinned mesh.
     std::shared_ptr<BoneMatrices> bone_matrices;  ///< Shared pointer to bone matrices needed.
     std::vector<glm::mat4> bone_matrices_snapshot;

@@ -49,6 +49,25 @@ TEST(RayTracingSkinned, RayTracingVertexBuilderAppliesAnimatedPose) {
   EXPECT_EQ(vertex.tex_coord, skinned_vertex.tex_coord);
 }
 
+TEST(RayTracingSkinned, MorphTargetsAreAppliedBeforeSkinning) {
+  evo_engine::SkinnedVertex base{};
+  base.position = glm::vec3(1.0f, 2.0f, 3.0f);
+  base.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+  base.tangent = glm::vec3(1.0f, 0.0f, 0.0f);
+  base.bond_id = glm::ivec4(0, -1, -1, -1);
+  base.weight = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+  base.bond_id2 = glm::ivec4(-1);
+  evo_engine::MorphTarget target;
+  target.position_deltas = {glm::vec3(2.0f, 0.0f, 0.0f)};
+  const auto morphed = evo_engine::BuildMorphedVertices(std::vector{base}, std::vector{target}, {0.25f}, {0.75f});
+
+  glm::mat4 bone(1.0f);
+  bone[3] = glm::vec4(0.0f, 4.0f, 0.0f, 1.0f);
+  const auto skinned = evo_engine::BuildSkinnedRayTracingVertices(morphed, {bone});
+  ASSERT_EQ(skinned.size(), 1);
+  EXPECT_EQ(skinned[0].position, glm::vec3(2.0f, 6.0f, 3.0f));
+}
+
 TEST(RayTracingSkinned, PackedVertexRemapPreservesReorderingAndDuplication) {
   std::vector<evo_engine::SkinnedVertex> source_vertices(3);
   for (uint32_t index = 0; index < source_vertices.size(); index++) {
@@ -130,7 +149,10 @@ TEST(RayTracingSkinned, SkinnedRendererBuildsAnimatedPayloadBeforeTlas) {
   EXPECT_NE(renderer_header.find("ray_tracing_bone_matrices_"), std::string::npos);
   EXPECT_NE(renderer_header.find("ray_tracing_packed_source_vertex_indices_"), std::string::npos);
   EXPECT_NE(renderer_header.find("ray_tracing_payload_retry_required_"), std::string::npos);
+  EXPECT_NE(renderer_header.find("ray_tracing_mesh_handle_"), std::string::npos);
   EXPECT_NE(renderer_header.find("ray_tracing_geometry_version_"), std::string::npos);
+  EXPECT_NE(renderer_header.find("ray_tracing_morph_weights_"), std::string::npos);
+  EXPECT_NE(renderer_header.find("morph_weights_version_"), std::string::npos);
   EXPECT_NE(renderer_header.find("void UpdateRayTracingGeometry()"), std::string::npos);
 
   const auto update_geometry = renderer_source.find("void SkinnedMeshRenderer::UpdateRayTracingGeometry");
@@ -141,6 +163,9 @@ TEST(RayTracingSkinned, SkinnedRendererBuildsAnimatedPayloadBeforeTlas) {
   EXPECT_NE(update_geometry_source.find("FrameSubmissionState::Status::Pending"), std::string::npos);
   EXPECT_NE(update_geometry_source.find("FrameSubmissionState::Status::Submitted"), std::string::npos);
   EXPECT_NE(update_geometry_source.find("ray_tracing_payload_retry_required_ = true"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("mesh->BuildMorphedVertices(morph_weights)"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("ray_tracing_mesh_handle_ != mesh_handle"), std::string::npos);
+  EXPECT_NE(update_geometry_source.find("ray_tracing_mesh_handle_ = mesh_handle"), std::string::npos);
   EXPECT_NE(update_geometry_source.find("if (topology_changed)"), std::string::npos);
   EXPECT_NE(update_geometry_source.find("&ray_tracing_packed_source_vertex_indices_"), std::string::npos);
   EXPECT_NE(update_geometry_source.find("BottomLevelAccelerationStructure>(vertices, triangles, true)"),
@@ -186,6 +211,40 @@ TEST(RayTracingSkinned, SkinnedRendererBuildsAnimatedPayloadBeforeTlas) {
   const auto serial_loop_source = apply_animators_source.substr(serial_loop);
   EXPECT_NE(serial_loop_source.find("continue;"), std::string::npos);
   EXPECT_EQ(serial_loop_source.find("return;"), std::string::npos);
+}
+
+TEST(RayTracingSkinned, StaticMorphRendererReusesPersistentRayTracingGeometry) {
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Renderer/MeshRenderer.hpp"));
+  const auto renderer = ReadTextFile(SourcePath("EvoEngine_SDK/src/MeshRenderer.cpp"));
+  const auto storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
+  const auto graphics = ReadTextFile(SourcePath("EvoEngine_SDK/src/GraphicsResources.cpp"));
+  ASSERT_FALSE(header.empty());
+  ASSERT_FALSE(renderer.empty());
+  ASSERT_FALSE(storage.empty());
+  ASSERT_FALSE(graphics.empty());
+
+  EXPECT_NE(header.find("void SetMorphWeights"), std::string::npos);
+  EXPECT_NE(header.find("ray_tracing_packed_source_vertex_indices_"), std::string::npos);
+  EXPECT_NE(header.find("pending_ray_tracing_submission_state_"), std::string::npos);
+  EXPECT_NE(header.find("ray_tracing_mesh_handle_"), std::string::npos);
+  const auto update = renderer.find("void MeshRenderer::UpdateRayTracingGeometry");
+  ASSERT_NE(update, std::string::npos);
+  const auto update_source = renderer.substr(update);
+  EXPECT_NE(update_source.find("FrameSubmissionState::Status::Submitted"), std::string::npos);
+  EXPECT_NE(update_source.find("ray_tracing_payload_retry_required_ = true"), std::string::npos);
+  EXPECT_NE(update_source.find("mesh_asset->BuildMorphedVertices(weights)"), std::string::npos);
+  EXPECT_NE(update_source.find("ray_tracing_mesh_handle_ != mesh_handle"), std::string::npos);
+  EXPECT_NE(update_source.find("ray_tracing_mesh_handle_ = mesh_handle"), std::string::npos);
+  EXPECT_NE(update_source.find("GeometryStorage::UpdateMeshVertices"), std::string::npos);
+  EXPECT_NE(update_source.find("ray_tracing_blas_->UpdateVertices(packed_vertices)"), std::string::npos);
+  EXPECT_NE(renderer.find("void MeshRenderer::PostCloneAction"), std::string::npos);
+  EXPECT_NE(renderer.find("ray_tracing_blas_.reset()"), std::string::npos);
+  EXPECT_NE(ReadTextFile(SourcePath("EvoEngine_SDK/src/SkinnedMeshRenderer.cpp"))
+                .find("cloned_bone_matrices->value = bone_matrices->value"),
+            std::string::npos);
+  EXPECT_NE(storage.find("ray_tracing_triangle_range && ray_tracing_triangle_range->prev_frame_index_count"),
+            std::string::npos);
+  EXPECT_NE(graphics.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"), std::string::npos);
 }
 
 TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {

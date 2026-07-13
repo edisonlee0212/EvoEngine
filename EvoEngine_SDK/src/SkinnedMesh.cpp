@@ -4,6 +4,8 @@
 #include "Application.hpp"
 #include "GeometryStorage.hpp"
 #include "MikkTangentSpace.hpp"
+
+#include <numeric>
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Serialization.hpp"
@@ -282,7 +284,7 @@ void SkinnedMesh::OnCreate() {
 
 void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                               const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<unsigned>& indices,
-                              const int tangent_tex_coord) {
+                              const int tangent_tex_coord, std::vector<uint32_t>* source_vertex_indices) {
   if (indices.size() % 3 != 0) {
     EVOENGINE_ERROR("Triangle size wrong!");
     return;
@@ -290,18 +292,24 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   std::vector<glm::uvec3> triangles;
   triangles.resize(indices.size() / 3);
   memcpy(triangles.data(), indices.data(), indices.size() * sizeof(unsigned));
-  SetVertices(skinned_vertex_attributes, skinned_vertices, triangles, tangent_tex_coord);
+  SetVertices(skinned_vertex_attributes, skinned_vertices, triangles, tangent_tex_coord, source_vertex_indices);
 }
 
 void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                               const std::vector<SkinnedVertex>& skinned_vertices,
-                              const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord) {
+                              const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord,
+                              std::vector<uint32_t>* source_vertex_indices) {
   if (skinned_vertices.empty() || triangles.empty()) {
     EVOENGINE_LOG("Skinned vertices or triangles empty!");
     return;
   }
 
+  ClearMorphTargets();
   skinned_vertices_ = skinned_vertices;
+  if (source_vertex_indices) {
+    source_vertex_indices->resize(skinned_vertices_.size());
+    std::iota(source_vertex_indices->begin(), source_vertex_indices->end(), 0u);
+  }
   skinned_triangles_ = triangles;
 #pragma region Bound
   glm::vec3 min_bound = skinned_vertices_.at(0).position;
@@ -320,7 +328,7 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   if (!skinned_vertex_attributes.normal)
     RecalculateNormal();
   if (!skinned_vertex_attributes.tangent)
-    RecalculateTangent(tangent_tex_coord);
+    GenerateMikkTangents(skinned_vertices_, skinned_triangles_, tangent_tex_coord, source_vertex_indices);
 
   skinned_vertex_attributes_ = skinned_vertex_attributes;
   skinned_vertex_attributes_.normal = true;
@@ -345,6 +353,84 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
   saved_ = false;
 }
 
+void SkinnedMesh::ClearMorphTargets() {
+  morph_targets_.clear();
+  default_morph_weights_.clear();
+  morph_base_vertices_.clear();
+}
+
+void SkinnedMesh::SetMorphTargets(std::vector<MorphTarget> morph_targets, std::vector<float> default_weights,
+                                  std::vector<SkinnedVertex> morph_base_vertices) {
+  const auto valid = [&](const MorphTarget& target) {
+    const auto valid_stream = [&](const std::vector<glm::vec3>& stream) {
+      return stream.empty() || stream.size() == skinned_vertices_.size();
+    };
+    return valid_stream(target.position_deltas) && valid_stream(target.normal_deltas) &&
+           valid_stream(target.tangent_deltas);
+  };
+  for (size_t index = morph_targets.size(); index-- > 0;) {
+    if (valid(morph_targets[index])) {
+      continue;
+    }
+    morph_targets.erase(morph_targets.begin() + index);
+    if (index < default_weights.size()) {
+      default_weights.erase(default_weights.begin() + index);
+    }
+  }
+  if (morph_targets.empty()) {
+    ClearMorphTargets();
+    version_++;
+    saved_ = false;
+    return;
+  }
+  default_weights.resize(morph_targets.size(), 0.0f);
+  if (morph_base_vertices.size() != skinned_vertices_.size()) {
+    EVOENGINE_ERROR("Morph base vertex count does not match the skinned mesh.")
+    ClearMorphTargets();
+    version_++;
+    saved_ = false;
+    return;
+  }
+  const auto default_vertices =
+      evo_engine::BuildMorphedVertices(ComposeMorphBaseVertices(skinned_vertices_, morph_base_vertices, morph_targets),
+                                       morph_targets, {}, default_weights);
+  if (!MorphVertexStreamsMatch(skinned_vertices_, default_vertices)) {
+    const auto attributes = skinned_vertex_attributes_;
+    const auto triangles = skinned_triangles_;
+    SetVertices(attributes, default_vertices, triangles);
+  }
+  morph_targets_ = std::move(morph_targets);
+  default_morph_weights_ = std::move(default_weights);
+  morph_base_vertices_ = std::move(morph_base_vertices);
+  version_++;
+  saved_ = false;
+}
+
+const std::vector<MorphTarget>& SkinnedMesh::PeekMorphTargets() const {
+  return morph_targets_;
+}
+
+const std::vector<float>& SkinnedMesh::GetDefaultMorphWeights() const {
+  return default_morph_weights_;
+}
+
+const std::vector<SkinnedVertex>& SkinnedMesh::PeekMorphBaseVertices() const {
+  return morph_base_vertices_;
+}
+
+std::vector<SkinnedVertex> SkinnedMesh::BuildMorphedVertices(const std::vector<float>& weights) const {
+  if (morph_targets_.empty()) {
+    return skinned_vertices_;
+  }
+  auto resolved_weights = default_morph_weights_;
+  for (size_t index = 0; index < std::min(resolved_weights.size(), weights.size()); index++) {
+    resolved_weights[index] = weights[index];
+  }
+  return evo_engine::BuildMorphedVertices(
+      ComposeMorphBaseVertices(skinned_vertices_, morph_base_vertices_, morph_targets_), morph_targets_, {},
+      resolved_weights);
+}
+
 size_t SkinnedMesh::GetSkinnedVerticesAmount() const {
   return skinned_vertices_.size();
 }
@@ -354,6 +440,7 @@ size_t SkinnedMesh::GetTriangleAmount() const {
 }
 
 void SkinnedMesh::RecalculateNormal() {
+  ClearMorphTargets();
   auto normal_lists = std::vector<std::vector<glm::vec3>>();
   const auto size = skinned_vertices_.size();
   for (auto i = 0; i < size; i++) {
@@ -381,6 +468,7 @@ void SkinnedMesh::RecalculateNormal() {
 }
 
 void SkinnedMesh::RecalculateTangent(const int tex_coord) {
+  ClearMorphTargets();
   GenerateMikkTangents(skinned_vertices_, skinned_triangles_, tex_coord);
 }
 

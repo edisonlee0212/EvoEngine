@@ -5,6 +5,7 @@
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 #include "IGeometry.hpp"
+#include "MorphTarget.hpp"
 #include "Platform.hpp"
 #include "Vertex.hpp"
 
@@ -139,11 +140,16 @@ class Mesh final : public IAsset, public IGeometry {
 
   std::vector<Vertex> vertices_;      /**< The vertices of the mesh. */
   std::vector<glm::uvec3> triangles_; /**< The triangles of the mesh. */
+  std::vector<MorphTarget> morph_targets_;
+  std::vector<float> default_morph_weights_;
+  std::vector<Vertex> morph_base_vertices_;
 
   VertexAttributes vertex_attributes_ = {}; /**< The vertex attributes of the mesh. */
   friend class RenderLayer;
   friend class RenderInstanceStorage;
   friend class TopLevelAccelerationStructure;
+
+  void ClearMorphTargets();
   std::shared_ptr<RangeDescriptor> triangle_range_; /**< Shared pointer to the triangle range descriptor. */
   std::shared_ptr<RangeDescriptor> meshlet_range_;  /**< Shared pointer to the meshlet range descriptor. */
 
@@ -201,7 +207,8 @@ class Mesh final : public IAsset, public IGeometry {
    * @param indices A vector containing the indices.
    */
   void SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                   const std::vector<unsigned>& indices, int tangent_tex_coord = 0);
+                   const std::vector<unsigned>& indices, int tangent_tex_coord = 0,
+                   std::vector<uint32_t>* source_vertex_indices = nullptr);
 
   /**
    * @brief Sets the vertices and triangles for the mesh.
@@ -211,7 +218,19 @@ class Mesh final : public IAsset, public IGeometry {
    * @param triangles A vector containing the triangle indices.
    */
   void SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                   const std::vector<glm::uvec3>& triangles, int tangent_tex_coord = 0);
+                   const std::vector<glm::uvec3>& triangles, int tangent_tex_coord = 0,
+                   std::vector<uint32_t>* source_vertex_indices = nullptr);
+
+  void SetMorphTargets(std::vector<MorphTarget> morph_targets, std::vector<float> default_weights,
+                       std::vector<Vertex> morph_base_vertices);
+
+  [[nodiscard]] const std::vector<MorphTarget>& PeekMorphTargets() const;
+
+  [[nodiscard]] const std::vector<float>& GetDefaultMorphWeights() const;
+
+  [[nodiscard]] const std::vector<Vertex>& PeekMorphBaseVertices() const;
+
+  [[nodiscard]] std::vector<Vertex> BuildMorphedVertices(const std::vector<float>& weights) const;
 
   /**
    * @brief Merges duplicate vertices in the mesh.

@@ -18,7 +18,44 @@ bool BoneMatricesMatch(const std::vector<glm::mat4>& lhs, const std::vector<glm:
   }
   return true;
 }
+
+bool MorphWeightsMatch(const std::vector<float>& lhs, const std::vector<float>& rhs) {
+  return lhs.size() == rhs.size() && std::equal(lhs.begin(), lhs.end(), rhs.begin());
+}
+
+std::vector<float> ResolveMorphWeights(const SkinnedMesh& mesh, const std::vector<float>& overrides) {
+  auto result = mesh.GetDefaultMorphWeights();
+  for (size_t index = 0; index < std::min(result.size(), overrides.size()); index++) {
+    result[index] = overrides[index];
+  }
+  return result;
+}
+
+Bound CalculateBound(const std::vector<Vertex>& vertices) {
+  Bound result{};
+  if (vertices.empty()) {
+    return result;
+  }
+  result.min = vertices.front().position;
+  result.max = result.min;
+  for (const auto& vertex : vertices) {
+    result.min = glm::min(result.min, vertex.position);
+    result.max = glm::max(result.max, vertex.position);
+  }
+  return result;
+}
 }  // namespace
+
+void SkinnedMeshRenderer::SetMorphWeights(const std::vector<float>& weights) {
+  if (!MorphWeightsMatch(morph_weights_, weights)) {
+    morph_weights_ = weights;
+    morph_weights_version_++;
+  }
+}
+
+const std::vector<float>& SkinnedMeshRenderer::PeekMorphWeights() const {
+  return morph_weights_;
+}
 
 void SkinnedMeshRenderer::UpdateBoneMatrices() {
   const auto scene = GetScene();
@@ -60,16 +97,19 @@ void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
     }
     if (pending_ray_tracing_submission_state_->status == FrameSubmissionState::Status::Submitted) {
       ray_tracing_bone_matrices_ = std::move(pending_ray_tracing_bone_matrices_);
+      ray_tracing_morph_weights_ = std::move(pending_ray_tracing_morph_weights_);
       ray_tracing_payload_retry_required_ = false;
     } else {
       ray_tracing_payload_retry_required_ = true;
     }
     pending_ray_tracing_submission_state_.reset();
     pending_ray_tracing_bone_matrices_.clear();
+    pending_ray_tracing_morph_weights_.clear();
   }
   const auto clear_ray_tracing_geometry = [&]() {
     if (!ray_tracing_meshlet_range_ && !ray_tracing_triangle_range_ && !ray_tracing_blas_ &&
-        ray_tracing_bone_matrices_.empty() && ray_tracing_geometry_version_ == 0) {
+        ray_tracing_bone_matrices_.empty() && ray_tracing_morph_weights_.empty() && ray_tracing_mesh_handle_ == 0 &&
+        ray_tracing_geometry_version_ == 0) {
       return;
     }
     GeometryStorage::FreeMesh(GetHandle());
@@ -79,9 +119,13 @@ void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
     ray_tracing_packed_source_vertex_indices_.clear();
     ray_tracing_bone_matrices_.clear();
     pending_ray_tracing_bone_matrices_.clear();
+    ray_tracing_morph_weights_.clear();
+    pending_ray_tracing_morph_weights_.clear();
     pending_ray_tracing_submission_state_.reset();
     ray_tracing_payload_retry_required_ = false;
+    ray_tracing_mesh_handle_ = Handle(0);
     ray_tracing_geometry_version_ = 0;
+    ray_tracing_bound_ = {};
   };
   if (!Platform::RayAccelerationStructureEnabled() || !bone_matrices) {
     clear_ray_tracing_geometry();
@@ -92,34 +136,49 @@ void SkinnedMeshRenderer::UpdateRayTracingGeometry() {
     clear_ray_tracing_geometry();
     return;
   }
+  const auto mesh_handle = mesh->GetHandle();
   const auto geometry_version = mesh->GetVersion();
-  const bool topology_changed = !ray_tracing_blas_ || ray_tracing_geometry_version_ != geometry_version ||
+  const auto morph_weights = ResolveMorphWeights(*mesh, morph_weights_);
+  const bool topology_changed = !ray_tracing_blas_ || ray_tracing_mesh_handle_ != mesh_handle ||
+                                ray_tracing_geometry_version_ != geometry_version ||
                                 ray_tracing_packed_source_vertex_indices_.empty();
   if (!topology_changed && !ray_tracing_payload_retry_required_ &&
-      BoneMatricesMatch(ray_tracing_bone_matrices_, bone_matrices->value)) {
+      BoneMatricesMatch(ray_tracing_bone_matrices_, bone_matrices->value) &&
+      MorphWeightsMatch(ray_tracing_morph_weights_, morph_weights)) {
     return;
   }
 
+  std::vector<SkinnedVertex> morphed_vertices;
+  const auto* deformation_vertices = &mesh->PeekSkinnedVertices();
+  if (!mesh->PeekMorphTargets().empty()) {
+    morphed_vertices = mesh->BuildMorphedVertices(morph_weights);
+    deformation_vertices = &morphed_vertices;
+  }
   if (topology_changed) {
     GeometryStorage::FreeMesh(GetHandle());
     ray_tracing_meshlet_range_ = std::make_shared<RangeDescriptor>();
     ray_tracing_triangle_range_ = std::make_shared<RangeDescriptor>();
-    auto vertices = BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value);
+    auto vertices = BuildSkinnedRayTracingVertices(*deformation_vertices, bone_matrices->value);
+    ray_tracing_bound_ = CalculateBound(vertices);
     auto triangles = mesh->skinned_triangles_;
     GeometryStorage::AllocateMesh(GetHandle(), vertices, triangles, ray_tracing_meshlet_range_,
                                   ray_tracing_triangle_range_, &ray_tracing_packed_source_vertex_indices_);
     ray_tracing_blas_ = std::make_shared<BottomLevelAccelerationStructure>(vertices, triangles, true);
+    ray_tracing_mesh_handle_ = mesh_handle;
     ray_tracing_geometry_version_ = geometry_version;
     ray_tracing_bone_matrices_ = bone_matrices->value;
+    ray_tracing_morph_weights_ = morph_weights;
     ray_tracing_payload_retry_required_ = false;
     return;
   }
 
-  const auto packed_vertices = BuildSkinnedRayTracingVertices(mesh->skinned_vertices_, bone_matrices->value,
+  const auto packed_vertices = BuildSkinnedRayTracingVertices(*deformation_vertices, bone_matrices->value,
                                                               ray_tracing_packed_source_vertex_indices_);
+  ray_tracing_bound_ = CalculateBound(packed_vertices);
   GeometryStorage::UpdateMeshVertices(ray_tracing_meshlet_range_, packed_vertices);
   pending_ray_tracing_submission_state_ = ray_tracing_blas_->UpdateVertices(packed_vertices);
   pending_ray_tracing_bone_matrices_ = bone_matrices->value;
+  pending_ray_tracing_morph_weights_ = morph_weights;
 }
 
 void SkinnedMeshRenderer::OnCreate() {
@@ -127,6 +186,24 @@ void SkinnedMeshRenderer::OnCreate() {
   SetEnabled(true);
 }
 void SkinnedMeshRenderer::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {
+  auto cloned_bone_matrices = std::make_shared<BoneMatrices>();
+  if (bone_matrices) {
+    cloned_bone_matrices->value = bone_matrices->value;
+  }
+  bone_matrices = std::move(cloned_bone_matrices);
+  ray_tracing_meshlet_range_.reset();
+  ray_tracing_triangle_range_.reset();
+  ray_tracing_blas_.reset();
+  ray_tracing_packed_source_vertex_indices_.clear();
+  ray_tracing_bone_matrices_.clear();
+  pending_ray_tracing_bone_matrices_.clear();
+  ray_tracing_morph_weights_.clear();
+  pending_ray_tracing_morph_weights_.clear();
+  pending_ray_tracing_submission_state_.reset();
+  ray_tracing_bound_ = {};
+  ray_tracing_payload_retry_required_ = false;
+  ray_tracing_mesh_handle_ = Handle(0);
+  ray_tracing_geometry_version_ = 0;
 }
 void SkinnedMeshRenderer::Relink(const std::unordered_map<Handle, Handle>& map, const std::shared_ptr<Scene>& scene) {
   animator.Relink(map, scene);
@@ -242,9 +319,15 @@ void SkinnedMeshRenderer::OnDestroy() {
   ray_tracing_packed_source_vertex_indices_.clear();
   ray_tracing_bone_matrices_.clear();
   pending_ray_tracing_bone_matrices_.clear();
+  morph_weights_.clear();
+  ray_tracing_morph_weights_.clear();
+  pending_ray_tracing_morph_weights_.clear();
   pending_ray_tracing_submission_state_.reset();
   ray_tracing_payload_retry_required_ = false;
+  ray_tracing_mesh_handle_ = Handle(0);
   ray_tracing_geometry_version_ = 0;
+  morph_weights_version_ = 0;
+  ray_tracing_bound_ = {};
   rag_doll_transform_chain_.clear();
   bound_entities_.clear();
   animator.Clear();

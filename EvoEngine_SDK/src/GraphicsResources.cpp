@@ -26,6 +26,7 @@ constexpr VkBuildAccelerationStructureFlagsKHR kTlasBuildFlags =
     VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
 constexpr VkBuildAccelerationStructureFlagsKHR kBlasBuildFlags =
     VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+static_assert(sizeof(VkAccelerationStructureInstanceKHR) == 64);
 
 VkPipelineStageFlags2 RayTraversalStageMask() {
   VkPipelineStageFlags2 stages = 0;
@@ -2631,6 +2632,63 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Classif
                                                                                     : UpdateMode::NoOp;
 }
 
+std::vector<TopLevelAccelerationStructure::InstanceUploadRange> TopLevelAccelerationStructure::PlanInstanceUploadRanges(
+    const bool full_upload, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
+    const std::vector<VkAccelerationStructureInstanceKHR>& current_instances) {
+  if (current_instances.empty()) {
+    return {};
+  }
+  if (full_upload) {
+    return {{0, static_cast<uint32_t>(current_instances.size())}};
+  }
+  std::vector<InstanceUploadRange> ranges;
+  for (uint32_t index = 0; index < current_instances.size(); ++index) {
+    if (index < previous_instances.size() &&
+        AccelerationStructureInstancesEqual(previous_instances[index], current_instances[index])) {
+      continue;
+    }
+    if (!ranges.empty() && ranges.back().first_instance + ranges.back().instance_count == index) {
+      ranges.back().instance_count++;
+    } else {
+      ranges.push_back({index, 1});
+    }
+  }
+  return ranges;
+}
+
+TopLevelAccelerationStructure::UploadTelemetry& TopLevelAccelerationStructure::UploadTelemetry::operator+=(
+    const UploadTelemetry& other) {
+  source_bytes += other.source_bytes;
+  uploaded_bytes += other.uploaded_bytes;
+  range_count += other.range_count;
+  operation_count += other.operation_count;
+  build_count += other.build_count;
+  update_count += other.update_count;
+  no_op_count += other.no_op_count;
+  full_upload_count += other.full_upload_count;
+  zero_instance_upload_update_count += other.zero_instance_upload_update_count;
+  return *this;
+}
+
+TopLevelAccelerationStructure::UploadTelemetry TopLevelAccelerationStructure::UploadTelemetry::DeltaFrom(
+    const UploadTelemetry& baseline) const {
+  const auto delta = [](const uint64_t current, const uint64_t previous) {
+    return current >= previous ? current - previous : current;
+  };
+  UploadTelemetry result;
+  result.source_bytes = delta(source_bytes, baseline.source_bytes);
+  result.uploaded_bytes = delta(uploaded_bytes, baseline.uploaded_bytes);
+  result.range_count = delta(range_count, baseline.range_count);
+  result.operation_count = delta(operation_count, baseline.operation_count);
+  result.build_count = delta(build_count, baseline.build_count);
+  result.update_count = delta(update_count, baseline.update_count);
+  result.no_op_count = delta(no_op_count, baseline.no_op_count);
+  result.full_upload_count = delta(full_upload_count, baseline.full_upload_count);
+  result.zero_instance_upload_update_count =
+      delta(zero_instance_upload_update_count, baseline.zero_instance_upload_update_count);
+  return result;
+}
+
 void TopLevelAccelerationStructure::Destroy() {
   if (Platform::Initialized() && vk_acceleration_structure_khr_ != VK_NULL_HANDLE) {
     vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), vk_acceleration_structure_khr_, nullptr);
@@ -2653,6 +2711,7 @@ void TopLevelAccelerationStructure::Destroy() {
   pending_final_blas_references_.clear();
   pending_retained_blas_references_.clear();
   pending_extra_staging_buffers_.clear();
+  pending_upload_telemetry_ = {};
 }
 
 void TopLevelAccelerationStructure::Allocate(const uint32_t instance_capacity) {
@@ -2732,6 +2791,7 @@ void TopLevelAccelerationStructure::ResolvePendingUpdate() {
     previous_instances_ = std::move(pending_instances_);
     previous_blas_content_versions_ = std::move(pending_blas_content_versions_);
     committed_blas_references_ = std::move(pending_final_blas_references_);
+    upload_telemetry_ += pending_upload_telemetry_;
   }
   pending_ = false;
   pending_submission_state_.reset();
@@ -2740,6 +2800,7 @@ void TopLevelAccelerationStructure::ResolvePendingUpdate() {
   pending_final_blas_references_.clear();
   pending_retained_blas_references_.clear();
   pending_extra_staging_buffers_.clear();
+  pending_upload_telemetry_ = {};
 }
 
 TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
@@ -2785,7 +2846,9 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   };
   const auto register_mesh = [&](const std::shared_ptr<RenderInstanceStorage::MeshRenderInstance>& render_instance) {
     if (render_instance && render_instance->mesh) {
-      register_instance(render_instance, render_instance->mesh->blas_, render_instance->model.value,
+      const auto blas =
+          render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas : render_instance->mesh->blas_;
+      register_instance(render_instance, blas, render_instance->model.value,
                         static_cast<uint32_t>(render_instance->instance_index));
     }
   };
@@ -2856,10 +2919,12 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   auto mode =
       ClassifyUpdateMode(base_built, base_instances, instances, base_blas_content_versions, blas_content_versions);
   if (mode == UpdateMode::NoOp) {
+    upload_telemetry_.no_op_count++;
     return mode;
   }
 
   const auto instance_count = static_cast<uint32_t>(instances.size());
+  bool full_upload = !base_built;
   if (vk_acceleration_structure_khr_ == VK_NULL_HANDLE || instance_count > instance_capacity_) {
     if (same_pending_frame) {
       throw std::runtime_error("TLAS capacity cannot grow after recording an update in the same frame.");
@@ -2869,53 +2934,99 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
                                       : instance_capacity_ * 2;
     Allocate(std::max(instance_count, std::max(1u, doubled_capacity)));
     mode = UpdateMode::Build;
+    full_upload = true;
   }
 
   const auto byte_size = static_cast<VkDeviceSize>(instance_count) * sizeof(VkAccelerationStructureInstanceKHR);
-  auto staging_buffer = instance_staging_buffer_;
-  if (same_pending_frame) {
-    staging_buffer = std::make_shared<Buffer>(byte_size);
-    pending_extra_staging_buffers_.emplace_back(staging_buffer);
+  const auto upload_ranges = PlanInstanceUploadRanges(full_upload, base_instances, instances);
+  VkDeviceSize upload_byte_size = 0;
+  for (const auto& range : upload_ranges) {
+    upload_byte_size += static_cast<VkDeviceSize>(range.instance_count) * sizeof(VkAccelerationStructureInstanceKHR);
   }
-  void* mapped_data = nullptr;
-  Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), &mapped_data));
-  memcpy(mapped_data, instances.data(), byte_size);
-  Platform::CheckVk(vmaFlushAllocation(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), 0, byte_size));
-  vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation());
+  std::shared_ptr<Buffer> staging_buffer;
+  if (upload_byte_size != 0) {
+    staging_buffer = instance_staging_buffer_;
+    if (same_pending_frame) {
+      staging_buffer = std::make_shared<Buffer>(upload_byte_size);
+      pending_extra_staging_buffers_.emplace_back(staging_buffer);
+    }
+    void* mapped_data = nullptr;
+    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), &mapped_data));
+    VkDeviceSize staging_offset = 0;
+    for (const auto& range : upload_ranges) {
+      const auto range_byte_size =
+          static_cast<VkDeviceSize>(range.instance_count) * sizeof(VkAccelerationStructureInstanceKHR);
+      memcpy(static_cast<std::byte*>(mapped_data) + staging_offset, instances.data() + range.first_instance,
+             range_byte_size);
+      staging_offset += range_byte_size;
+    }
+    Platform::CheckVk(
+        vmaFlushAllocation(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), 0, upload_byte_size));
+    vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation());
+  }
+
+  if (!same_pending_frame) {
+    pending_upload_telemetry_ = {};
+  }
+  pending_upload_telemetry_.source_bytes += byte_size;
+  pending_upload_telemetry_.uploaded_bytes += upload_byte_size;
+  pending_upload_telemetry_.range_count += upload_ranges.size();
+  pending_upload_telemetry_.operation_count++;
+  pending_upload_telemetry_.build_count += mode == UpdateMode::Build ? 1 : 0;
+  pending_upload_telemetry_.update_count += mode == UpdateMode::Update ? 1 : 0;
+  pending_upload_telemetry_.full_upload_count += full_upload ? 1 : 0;
+  pending_upload_telemetry_.zero_instance_upload_update_count +=
+      mode == UpdateMode::Update && upload_ranges.empty() ? 1 : 0;
 
   const auto existing_build = base_built;
-  Platform::RecordCommandsMainQueue([this, staging_buffer, instance_count, byte_size, mode, existing_build,
+  Platform::RecordCommandsMainQueue([this, staging_buffer, upload_ranges, instance_count, mode, existing_build,
                                      same_pending_frame](const VkCommandBuffer vk_command_buffer) {
-    if (same_pending_frame) {
-      VkBufferMemoryBarrier2 reuse_instance_buffer_barrier{};
-      reuse_instance_buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-      reuse_instance_buffer_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-      reuse_instance_buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      reuse_instance_buffer_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-      reuse_instance_buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      reuse_instance_buffer_barrier.buffer = instances_data_buffer_->GetVkBuffer();
-      reuse_instance_buffer_barrier.offset = 0;
-      reuse_instance_buffer_barrier.size = byte_size;
+    std::vector<VkBufferMemoryBarrier2> instance_barriers;
+    std::vector<VkBufferMemoryBarrier2> reuse_instance_buffer_barriers;
+    std::vector<VkBufferCopy> copy_regions;
+    VkDeviceSize staging_offset = 0;
+    for (const auto& range : upload_ranges) {
+      const auto destination_offset =
+          static_cast<VkDeviceSize>(range.first_instance) * sizeof(VkAccelerationStructureInstanceKHR);
+      const auto range_byte_size =
+          static_cast<VkDeviceSize>(range.instance_count) * sizeof(VkAccelerationStructureInstanceKHR);
+      copy_regions.push_back({staging_offset, destination_offset, range_byte_size});
+
+      auto& instance_barrier = instance_barriers.emplace_back();
+      instance_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+      instance_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+      instance_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      instance_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+      instance_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      instance_barrier.buffer = instances_data_buffer_->GetVkBuffer();
+      instance_barrier.offset = destination_offset;
+      instance_barrier.size = range_byte_size;
+
+      if (same_pending_frame) {
+        auto& reuse_barrier = reuse_instance_buffer_barriers.emplace_back();
+        reuse_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        reuse_barrier.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+        reuse_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        reuse_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        reuse_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        reuse_barrier.buffer = instances_data_buffer_->GetVkBuffer();
+        reuse_barrier.offset = destination_offset;
+        reuse_barrier.size = range_byte_size;
+      }
+      staging_offset += range_byte_size;
+    }
+    if (!reuse_instance_buffer_barriers.empty()) {
       VkDependencyInfo reuse_instance_buffer_dependency{};
       reuse_instance_buffer_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-      reuse_instance_buffer_dependency.bufferMemoryBarrierCount = 1;
-      reuse_instance_buffer_dependency.pBufferMemoryBarriers = &reuse_instance_buffer_barrier;
+      reuse_instance_buffer_dependency.bufferMemoryBarrierCount =
+          static_cast<uint32_t>(reuse_instance_buffer_barriers.size());
+      reuse_instance_buffer_dependency.pBufferMemoryBarriers = reuse_instance_buffer_barriers.data();
       vkCmdPipelineBarrier2(vk_command_buffer, &reuse_instance_buffer_dependency);
     }
-    VkBufferCopy copy_region{};
-    copy_region.size = byte_size;
-    vkCmdCopyBuffer(vk_command_buffer, staging_buffer->GetVkBuffer(), instances_data_buffer_->GetVkBuffer(), 1,
-                    &copy_region);
-
-    VkBufferMemoryBarrier2 instance_barrier{};
-    instance_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-    instance_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    instance_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    instance_barrier.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-    instance_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    instance_barrier.buffer = instances_data_buffer_->GetVkBuffer();
-    instance_barrier.offset = 0;
-    instance_barrier.size = byte_size;
+    if (!copy_regions.empty()) {
+      vkCmdCopyBuffer(vk_command_buffer, staging_buffer->GetVkBuffer(), instances_data_buffer_->GetVkBuffer(),
+                      static_cast<uint32_t>(copy_regions.size()), copy_regions.data());
+    }
 
     VkMemoryBarrier2 reuse_barrier{};
     reuse_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -2930,8 +3041,8 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     pre_build_dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
     pre_build_dependency.memoryBarrierCount = existing_build ? 1u : 0u;
     pre_build_dependency.pMemoryBarriers = existing_build ? &reuse_barrier : nullptr;
-    pre_build_dependency.bufferMemoryBarrierCount = 1;
-    pre_build_dependency.pBufferMemoryBarriers = &instance_barrier;
+    pre_build_dependency.bufferMemoryBarrierCount = static_cast<uint32_t>(instance_barriers.size());
+    pre_build_dependency.pBufferMemoryBarriers = instance_barriers.data();
     vkCmdPipelineBarrier2(vk_command_buffer, &pre_build_dependency);
 
     VkAccelerationStructureGeometryKHR geometry{};
@@ -3008,4 +3119,9 @@ VkAccelerationStructureKHR TopLevelAccelerationStructure::GetVkAccelerationStruc
 
 VkDeviceAddress TopLevelAccelerationStructure::GetDeviceAddress() const {
   return device_address_;
+}
+
+TopLevelAccelerationStructure::UploadTelemetry TopLevelAccelerationStructure::GetUploadTelemetry() {
+  ResolvePendingUpdate();
+  return upload_telemetry_;
 }

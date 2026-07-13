@@ -8,6 +8,7 @@
 #include "Animator.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsResources.hpp"
+#include "MorphTarget.hpp"
 #include "Scene.hpp"
 #include "Vertex.hpp"
 
@@ -104,9 +105,12 @@ class SkinnedMesh : public IAsset, public IGeometry {
   friend class RenderInstanceStorage;
   friend class TopLevelAccelerationStructure;
 
-  SkinnedVertexAttributes skinned_vertex_attributes_;       /**< Attributes of the skinned vertices. */
-  std::vector<SkinnedVertex> skinned_vertices_;             /**< List of skinned vertices. */
-  std::vector<glm::uvec3> skinned_triangles_;               /**< List of triangles (indices) for the skinned mesh. */
+  SkinnedVertexAttributes skinned_vertex_attributes_; /**< Attributes of the skinned vertices. */
+  std::vector<SkinnedVertex> skinned_vertices_;       /**< List of skinned vertices. */
+  std::vector<glm::uvec3> skinned_triangles_;         /**< List of triangles (indices) for the skinned mesh. */
+  std::vector<MorphTarget> morph_targets_;
+  std::vector<float> default_morph_weights_;
+  std::vector<SkinnedVertex> morph_base_vertices_;
   std::shared_ptr<RangeDescriptor> skinned_triangle_range_; /**< Range descriptor for skinned triangles. */
   std::shared_ptr<RangeDescriptor> skinned_meshlet_range_;  /**< Range descriptor for skinned meshlets. */
   std::shared_ptr<RangeDescriptor>
@@ -115,6 +119,8 @@ class SkinnedMesh : public IAsset, public IGeometry {
       ray_tracing_meshlet_range_; /**< Static meshlet payload range used by the ray tracing mirror geometry. */
   std::shared_ptr<BottomLevelAccelerationStructure>
       blas_; /**< Bind-pose bottom-level acceleration structure for ray tracing. */
+
+  void ClearMorphTargets();
 
   friend struct SkinnedMeshBonesBlock;
 
@@ -182,7 +188,7 @@ class SkinnedMesh : public IAsset, public IGeometry {
    */
   void SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                    const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<unsigned>& indices,
-                   int tangent_tex_coord = 0);
+                   int tangent_tex_coord = 0, std::vector<uint32_t>* source_vertex_indices = nullptr);
 
   /**
    * @brief Sets the vertices for the skinned mesh using attribute information, vertices, and triangle data.
@@ -192,7 +198,18 @@ class SkinnedMesh : public IAsset, public IGeometry {
    */
   void SetVertices(const SkinnedVertexAttributes& skinned_vertex_attributes,
                    const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<glm::uvec3>& triangles,
-                   int tangent_tex_coord = 0);
+                   int tangent_tex_coord = 0, std::vector<uint32_t>* source_vertex_indices = nullptr);
+
+  void SetMorphTargets(std::vector<MorphTarget> morph_targets, std::vector<float> default_weights,
+                       std::vector<SkinnedVertex> morph_base_vertices);
+
+  [[nodiscard]] const std::vector<MorphTarget>& PeekMorphTargets() const;
+
+  [[nodiscard]] const std::vector<float>& GetDefaultMorphWeights() const;
+
+  [[nodiscard]] const std::vector<SkinnedVertex>& PeekMorphBaseVertices() const;
+
+  [[nodiscard]] std::vector<SkinnedVertex> BuildMorphedVertices(const std::vector<float>& weights) const;
 
   /**
    * @brief Gets the amount of skinned vertices.

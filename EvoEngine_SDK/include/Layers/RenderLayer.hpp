@@ -50,6 +50,8 @@ class RenderLayer final : public ILayer {
    */
   [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetPreviousRenderInstanceStorage() const;
 
+  [[nodiscard]] TopLevelAccelerationStructure::UploadTelemetry GetTlasUploadTelemetry() const;
+
   [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
 
   using DdgiSettings = evo_engine::DdgiSettings;

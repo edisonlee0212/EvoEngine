@@ -980,6 +980,21 @@ nlohmann::ordered_json TimingStatsJson(const std::vector<GpuTimestampStats>& tim
   return result;
 }
 
+nlohmann::ordered_json TlasUploadTelemetryJson(const TopLevelAccelerationStructure::UploadTelemetry& telemetry) {
+  return {{"source_bytes", telemetry.source_bytes},
+          {"uploaded_bytes", telemetry.uploaded_bytes},
+          {"upload_ratio", telemetry.source_bytes == 0 ? 0.0
+                                                       : static_cast<double>(telemetry.uploaded_bytes) /
+                                                             static_cast<double>(telemetry.source_bytes)},
+          {"range_count", telemetry.range_count},
+          {"operation_count", telemetry.operation_count},
+          {"build_count", telemetry.build_count},
+          {"update_count", telemetry.update_count},
+          {"no_op_count", telemetry.no_op_count},
+          {"full_upload_count", telemetry.full_upload_count},
+          {"zero_instance_upload_update_count", telemetry.zero_instance_upload_update_count}};
+}
+
 GpuMemorySnapshot MaxGpuMemorySnapshot(const GpuMemorySnapshot& left, const GpuMemorySnapshot& right) {
   auto result = left;
   result.block_count = std::max(left.block_count, right.block_count);
@@ -1307,6 +1322,8 @@ void CaptureDemoPreview(
   scene_camera->ResetFrameCount();
   const auto startup_gpu_timestamp_stats = Platform::GetGpuTimestampStats();
   const auto startup_cpu_timing_stats = Platform::GetCpuTimingStats();
+  const auto startup_tlas_upload = render_layer->GetTlasUploadTelemetry();
+  auto capture_tlas_upload_baseline = startup_tlas_upload;
   const auto startup_gpu_memory = Platform::GetGpuMemorySnapshot();
   auto peak_gpu_memory = startup_gpu_memory;
   auto final_gpu_memory = startup_gpu_memory;
@@ -1333,6 +1350,7 @@ void CaptureDemoPreview(
     ++capture_frame_count;
     if (capture_frame_count == std::min(timing_warmup_frames, warmup_frames)) {
       Platform::ResetGpuTimestampStats();
+      capture_tlas_upload_baseline = render_layer->GetTlasUploadTelemetry();
       memory_telemetry_seconds = 0.0;
       measurement_start_time = std::chrono::steady_clock::now();
     }
@@ -1344,6 +1362,7 @@ void CaptureDemoPreview(
   }
   const auto effective_timing_warmup_frames = std::min(timing_warmup_frames, capture_frame_count);
   const auto measured_frame_count = capture_frame_count - effective_timing_warmup_frames;
+  const auto capture_tlas_upload = render_layer->GetTlasUploadTelemetry().DeltaFrom(capture_tlas_upload_baseline);
   const auto capture_elapsed_seconds =
       std::max(0.0, std::chrono::duration<double>(std::chrono::steady_clock::now() - measurement_start_time).count() -
                         memory_telemetry_seconds);
@@ -1503,6 +1522,8 @@ void CaptureDemoPreview(
   metrics["gpu_sections"] = TimingStatsJson(Platform::GetGpuTimestampStats());
   metrics["startup_cpu_sections"] = TimingStatsJson(startup_cpu_timing_stats);
   metrics["cpu_sections"] = TimingStatsJson(Platform::GetCpuTimingStats());
+  metrics["startup_tlas_upload"] = TlasUploadTelemetryJson(startup_tlas_upload);
+  metrics["tlas_upload"] = TlasUploadTelemetryJson(capture_tlas_upload);
   const auto blas_builder = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
   auto blas_passes = nlohmann::ordered_json::array();
   for (const auto& pass : blas_builder.passes) {

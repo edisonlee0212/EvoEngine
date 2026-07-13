@@ -1336,6 +1336,13 @@ anti_aliasing:
   vertices[1].tex_coord_3 = glm::vec2(0.8f, 0.2f);
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   mesh->SetVertices(vertex_attributes, vertices, {glm::uvec3(0, 1, 2)});
+  EXPECT_EQ(mesh->BuildMorphedVertices({}).size(), vertices.size());
+  MorphTarget morph_target;
+  morph_target.name = "raise";
+  morph_target.position_deltas = {glm::vec3(0.0f), glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(0.0f)};
+  mesh->SetMorphTargets({morph_target}, {0.25f}, vertices);
+  EXPECT_TRUE(MorphVertexStreamsMatch(mesh->PeekVertices(), mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(mesh->PeekVertices()[1].position.y, 0.5f);
   YAML::Emitter mesh_out;
   BeginMap(mesh_out);
   Serialization::SerializeObject(mesh_out, static_cast<IAsset&>(*mesh));
@@ -1343,7 +1350,11 @@ anti_aliasing:
   const auto mesh_node = YAML::Load(mesh_out.c_str());
   EXPECT_TRUE(mesh_node["vertices_"]);
   EXPECT_TRUE(mesh_node["triangles_"]);
+  EXPECT_TRUE(mesh_node["morph_targets_"]);
+  EXPECT_TRUE(mesh_node["default_morph_weights_"]);
+  EXPECT_TRUE(mesh_node["morph_base_vertices_"]);
   EXPECT_EQ(mesh_node["vertex_stride_"].as<size_t>(), sizeof(Vertex));
+  EXPECT_EQ(mesh_node["morph_base_vertex_stride_"].as<size_t>(), sizeof(Vertex));
 
   const auto restored_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   Serialization::DeserializeObject(mesh_node, static_cast<IAsset&>(*restored_mesh));
@@ -1353,6 +1364,43 @@ anti_aliasing:
   EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
   EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.4f, 0.6f));
   EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.8f, 0.2f));
+  ASSERT_EQ(restored_mesh->PeekMorphTargets().size(), 1);
+  EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].name, "raise");
+  EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].position_deltas[1], glm::vec3(0.0f, 2.0f, 0.0f));
+  ASSERT_EQ(restored_mesh->GetDefaultMorphWeights().size(), 1);
+  EXPECT_FLOAT_EQ(restored_mesh->GetDefaultMorphWeights()[0], 0.25f);
+  EXPECT_TRUE(MorphVertexStreamsMatch(restored_mesh->PeekVertices(), restored_mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(restored_mesh->PeekVertices()[1].position.y, 0.5f);
+  ASSERT_EQ(restored_mesh->PeekMorphBaseVertices().size(), vertices.size());
+  EXPECT_EQ(
+      std::memcmp(restored_mesh->PeekMorphBaseVertices().data(), vertices.data(), vertices.size() * sizeof(Vertex)), 0);
+
+  const auto padded_morph_stride = sizeof(Vertex) + 8;
+  std::vector<unsigned char> padded_morph_base(vertices.size() * padded_morph_stride);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(padded_morph_base.data() + i * padded_morph_stride, &vertices[i], sizeof(Vertex));
+  }
+  auto padded_morph_node = YAML::Clone(mesh_node);
+  padded_morph_node["morph_base_vertex_stride_"] = padded_morph_stride;
+  padded_morph_node["morph_base_vertices_"] = YAML::Binary(padded_morph_base.data(), padded_morph_base.size());
+  const auto padded_morph_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(padded_morph_node, static_cast<IAsset&>(*padded_morph_mesh));
+  ASSERT_EQ(padded_morph_mesh->PeekMorphBaseVertices().size(), vertices.size());
+  EXPECT_EQ(padded_morph_mesh->PeekMorphBaseVertices()[1].position, vertices[1].position);
+
+  auto implicit_morph_stride_node = YAML::Clone(mesh_node);
+  implicit_morph_stride_node.remove("morph_base_vertex_stride_");
+  const auto implicit_morph_stride_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(implicit_morph_stride_node, static_cast<IAsset&>(*implicit_morph_stride_mesh));
+  EXPECT_EQ(implicit_morph_stride_mesh->PeekMorphBaseVertices().size(), vertices.size());
+
+  auto missing_morph_base_node = YAML::Clone(mesh_node);
+  missing_morph_base_node.remove("morph_base_vertices_");
+  const auto missing_morph_base_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(missing_morph_base_node, static_cast<IAsset&>(*missing_morph_base_mesh));
+  EXPECT_TRUE(missing_morph_base_mesh->PeekMorphTargets().empty());
+  EXPECT_TRUE(missing_morph_base_mesh->GetDefaultMorphWeights().empty());
+  EXPECT_TRUE(missing_morph_base_mesh->PeekMorphBaseVertices().empty());
 
   std::vector<unsigned char> legacy_vertex_data(vertices.size() * 80);
   for (size_t i = 0; i < vertices.size(); ++i) {
@@ -1402,6 +1450,10 @@ anti_aliasing:
   const auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   skinned_mesh->bone_animator_indices = {2, 5};
   skinned_mesh->SetVertices(skinned_vertex_attributes, skinned_vertices, {glm::uvec3(0, 1, 2)});
+  EXPECT_EQ(skinned_mesh->BuildMorphedVertices({}).size(), skinned_vertices.size());
+  skinned_mesh->SetMorphTargets({morph_target}, {0.5f}, skinned_vertices);
+  EXPECT_TRUE(MorphVertexStreamsMatch(skinned_mesh->PeekSkinnedVertices(), skinned_mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(skinned_mesh->PeekSkinnedVertices()[1].position.y, 1.0f);
   YAML::Emitter skinned_mesh_out;
   BeginMap(skinned_mesh_out);
   Serialization::SerializeObject(skinned_mesh_out, static_cast<IAsset&>(*skinned_mesh));
@@ -1410,6 +1462,7 @@ anti_aliasing:
   EXPECT_TRUE(skinned_mesh_node["bone_animator_indices"]);
   EXPECT_TRUE(skinned_mesh_node["skinned_vertices_"]);
   EXPECT_EQ(skinned_mesh_node["skinned_vertex_stride_"].as<size_t>(), sizeof(SkinnedVertex));
+  EXPECT_EQ(skinned_mesh_node["morph_base_vertex_stride_"].as<size_t>(), sizeof(SkinnedVertex));
 
   const auto restored_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   Serialization::DeserializeObject(skinned_mesh_node, static_cast<IAsset&>(*restored_skinned_mesh));
@@ -1420,6 +1473,15 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.3f, 0.7f));
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.9f, 0.1f));
+  ASSERT_EQ(restored_skinned_mesh->PeekMorphTargets().size(), 1);
+  EXPECT_FLOAT_EQ(restored_skinned_mesh->GetDefaultMorphWeights()[0], 0.5f);
+  EXPECT_TRUE(MorphVertexStreamsMatch(restored_skinned_mesh->PeekSkinnedVertices(),
+                                      restored_skinned_mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].position.y, 1.0f);
+  ASSERT_EQ(restored_skinned_mesh->PeekMorphBaseVertices().size(), skinned_vertices.size());
+  EXPECT_EQ(std::memcmp(restored_skinned_mesh->PeekMorphBaseVertices().data(), skinned_vertices.data(),
+                        skinned_vertices.size() * sizeof(SkinnedVertex)),
+            0);
 
   std::vector<unsigned char> legacy_skinned_vertex_data(skinned_vertices.size() * 144);
   for (size_t i = 0; i < skinned_vertices.size(); ++i) {
@@ -1479,8 +1541,22 @@ anti_aliasing:
   EXPECT_EQ(restored_strands->PeekStrandPoints().size(), 4);
   EXPECT_FLOAT_EQ(restored_strands->PeekStrandPoints()[3].position.x, 1.0f);
 
+  MeshRenderer mesh_renderer;
+  mesh_renderer.SetMorphWeights({0.125f, 0.875f});
+  YAML::Emitter mesh_renderer_out;
+  BeginMap(mesh_renderer_out);
+  Serialization::SerializeObject(mesh_renderer_out, static_cast<IPrivateComponent&>(mesh_renderer));
+  mesh_renderer_out << YAML::EndMap;
+  const auto mesh_renderer_node = YAML::Load(mesh_renderer_out.c_str());
+  EXPECT_TRUE(mesh_renderer_node["morph_weights"]);
+  MeshRenderer restored_mesh_renderer;
+  Serialization::DeserializeObject(mesh_renderer_node, static_cast<IPrivateComponent&>(restored_mesh_renderer));
+  ASSERT_EQ(restored_mesh_renderer.PeekMorphWeights().size(), 2);
+  EXPECT_FLOAT_EQ(restored_mesh_renderer.PeekMorphWeights()[1], 0.875f);
+
   SkinnedMeshRenderer skinned_mesh_renderer;
   skinned_mesh_renderer.cast_shadow = false;
+  skinned_mesh_renderer.SetMorphWeights({0.75f});
   skinned_mesh_renderer.SetRagDollState(true);
   skinned_mesh_renderer.rag_doll_freeze = true;
   skinned_mesh_renderer.RefRagDollTransformChain() = {glm::mat4(3.0f)};
@@ -1492,6 +1568,7 @@ anti_aliasing:
   EXPECT_FALSE(skinned_mesh_renderer_node["cast_shadow"].as<bool>());
   EXPECT_TRUE(skinned_mesh_renderer_node["rag_doll_"].as<bool>());
   EXPECT_TRUE(skinned_mesh_renderer_node["rag_doll_transform_chain_"]);
+  EXPECT_TRUE(skinned_mesh_renderer_node["morph_weights"]);
 
   SkinnedMeshRenderer restored_skinned_mesh_renderer;
   Serialization::DeserializeObject(skinned_mesh_renderer_node,
@@ -1500,6 +1577,8 @@ anti_aliasing:
   EXPECT_TRUE(restored_skinned_mesh_renderer.RagDoll());
   EXPECT_TRUE(restored_skinned_mesh_renderer.rag_doll_freeze);
   EXPECT_EQ(restored_skinned_mesh_renderer.PeekRagDollTransformChain().size(), 1);
+  ASSERT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights().size(), 1);
+  EXPECT_FLOAT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights()[0], 0.75f);
 }
 
 TEST(SerializationRegistry, GaussianSplatLoadsStandardPlyFields) {

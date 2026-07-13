@@ -3925,6 +3925,16 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceSto
   return render_instances_list_[index];
 }
 
+TopLevelAccelerationStructure::UploadTelemetry RenderLayer::GetTlasUploadTelemetry() const {
+  TopLevelAccelerationStructure::UploadTelemetry result;
+  for (const auto& render_instances : render_instances_list_) {
+    if (render_instances && render_instances->mesh_top_level_acceleration_structure) {
+      result += render_instances->mesh_top_level_acceleration_structure->GetUploadTelemetry();
+    }
+  }
+  return result;
+}
+
 bool RenderLayer::RequiresCameraWideTemporalHistoryRejection() const {
   const auto render_instances = GetCurrentRenderInstanceStorage();
   return (render_instances && render_instances->RequiresCameraWideTemporalHistoryRejection()) ||
@@ -3972,6 +3982,16 @@ void RenderLayer::ApplyAnimators() const {
         continue;
       skinned_mesh_renderer->UpdateRayTracingGeometry();
       skinned_mesh_renderer->bone_matrices->UploadData();
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
+    for (const auto& entity : *owners) {
+      if (!scene->IsEntityEnabled(entity))
+        continue;
+      const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+      if (mesh_renderer->IsEnabled()) {
+        mesh_renderer->UpdateRayTracingGeometry();
+      }
     }
   }
 }

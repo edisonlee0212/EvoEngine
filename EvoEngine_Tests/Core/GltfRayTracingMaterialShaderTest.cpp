@@ -1412,6 +1412,10 @@ TEST(GltfRayTracingMaterial, RayBaselineCaptureRecordsLinearHdrAndGpuMetrics) {
   EXPECT_NE(editor_source.find("metrics[\"effective_spp\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"startup_gpu_sections\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"gpu_sections\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"startup_tlas_upload\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("metrics[\"tlas_upload\"]"), std::string::npos);
+  EXPECT_NE(editor_source.find("capture_tlas_upload_baseline = render_layer->GetTlasUploadTelemetry()"),
+            std::string::npos);
   EXPECT_NE(editor_source.find("metrics[\"blas_builder\"]"), std::string::npos);
   EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(true)"), std::string::npos);
   EXPECT_NE(editor_source.find("Platform::SetGpuTimestampCaptureEnabled(false)"), std::string::npos);
@@ -1518,6 +1522,7 @@ TEST(GltfRayTracingMaterial, TlasUpdateClassifierFollowsVulkanCompatibilityRules
   EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original), Tlas::UpdateMode::NoOp);
   EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original, {7}, {7}), Tlas::UpdateMode::NoOp);
   EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, original, {7}, {8}), Tlas::UpdateMode::Update);
+  EXPECT_TRUE(Tlas::PlanInstanceUploadRanges(false, original, original).empty());
 
   auto transformed = original;
   transformed[0].transform.matrix[0][3] = 2.0f;
@@ -1541,6 +1546,96 @@ TEST(GltfRayTracingMaterial, TlasUpdateClassifierFollowsVulkanCompatibilityRules
   EXPECT_EQ(Tlas::ClassifyUpdateMode(true, original, added), Tlas::UpdateMode::Build);
   EXPECT_EQ(Tlas::ClassifyUpdateMode(false, {}, inactive), Tlas::UpdateMode::Build);
   EXPECT_EQ(Tlas::ClassifyUpdateMode(true, inactive, inactive), Tlas::UpdateMode::NoOp);
+}
+
+TEST(GltfRayTracingMaterial, TlasUploadPlannerCoalescesOnlyChangedInstances) {
+  using Tlas = evo_engine::TopLevelAccelerationStructure;
+  std::vector<VkAccelerationStructureInstanceKHR> original(6, MakeTlasTestInstance());
+  auto changed = original;
+  changed[1].transform.matrix[0][3] = 1.0f;
+  changed[2].mask = 0x01;
+  changed[4].flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+
+  EXPECT_TRUE(Tlas::PlanInstanceUploadRanges(false, original, original).empty());
+  const auto dirty = Tlas::PlanInstanceUploadRanges(false, original, changed);
+  ASSERT_EQ(dirty.size(), 2);
+  EXPECT_EQ(dirty[0].first_instance, 1);
+  EXPECT_EQ(dirty[0].instance_count, 2);
+  EXPECT_EQ(dirty[1].first_instance, 4);
+  EXPECT_EQ(dirty[1].instance_count, 1);
+
+  const auto full = Tlas::PlanInstanceUploadRanges(true, original, changed);
+  ASSERT_EQ(full.size(), 1);
+  EXPECT_EQ(full[0].first_instance, 0);
+  EXPECT_EQ(full[0].instance_count, changed.size());
+
+  auto grown = original;
+  grown.emplace_back(MakeTlasTestInstance(2));
+  const auto growth = Tlas::PlanInstanceUploadRanges(false, original, grown);
+  ASSERT_EQ(growth.size(), 1);
+  EXPECT_EQ(growth[0].first_instance, original.size());
+  EXPECT_EQ(growth[0].instance_count, 1);
+
+  auto shrunk = original;
+  shrunk.pop_back();
+  EXPECT_TRUE(Tlas::PlanInstanceUploadRanges(false, original, shrunk).empty());
+
+  std::vector<VkAccelerationStructureInstanceKHR> shifted;
+  for (VkDeviceAddress address = 1; address <= 4; ++address) {
+    auto instance = MakeTlasTestInstance(address);
+    instance.instanceCustomIndex = static_cast<uint32_t>(address);
+    shifted.emplace_back(instance);
+  }
+  auto erased = shifted;
+  erased.erase(erased.begin() + 1);
+  const auto shifted_suffix = Tlas::PlanInstanceUploadRanges(false, shifted, erased);
+  ASSERT_EQ(shifted_suffix.size(), 1);
+  EXPECT_EQ(shifted_suffix[0].first_instance, 1);
+  EXPECT_EQ(shifted_suffix[0].instance_count, 2);
+  EXPECT_TRUE(Tlas::PlanInstanceUploadRanges(false, {}, {}).empty());
+}
+
+TEST(GltfRayTracingMaterial, TlasUploadTelemetryAggregatesAndSubtractsSnapshots) {
+  using Telemetry = evo_engine::TopLevelAccelerationStructure::UploadTelemetry;
+  Telemetry first;
+  first.source_bytes = 640;
+  first.uploaded_bytes = 128;
+  first.range_count = 2;
+  first.operation_count = 3;
+  first.update_count = 3;
+  first.no_op_count = 4;
+  first.zero_instance_upload_update_count = 1;
+  Telemetry second;
+  second.source_bytes = 320;
+  second.uploaded_bytes = 64;
+  second.range_count = 1;
+  second.operation_count = 1;
+  second.build_count = 1;
+  second.full_upload_count = 1;
+
+  auto total = first;
+  total += second;
+  EXPECT_EQ(total.source_bytes, 960);
+  EXPECT_EQ(total.uploaded_bytes, 192);
+  EXPECT_EQ(total.range_count, 3);
+  EXPECT_EQ(total.operation_count, 4);
+  EXPECT_EQ(total.build_count, 1);
+  EXPECT_EQ(total.update_count, 3);
+  EXPECT_EQ(total.no_op_count, 4);
+  EXPECT_EQ(total.full_upload_count, 1);
+  EXPECT_EQ(total.zero_instance_upload_update_count, 1);
+
+  const auto delta = total.DeltaFrom(first);
+  EXPECT_EQ(delta.source_bytes, second.source_bytes);
+  EXPECT_EQ(delta.uploaded_bytes, second.uploaded_bytes);
+  EXPECT_EQ(delta.range_count, second.range_count);
+  EXPECT_EQ(delta.operation_count, second.operation_count);
+  EXPECT_EQ(delta.build_count, second.build_count);
+  EXPECT_EQ(delta.update_count, second.update_count);
+  EXPECT_EQ(delta.no_op_count, second.no_op_count);
+  EXPECT_EQ(delta.full_upload_count, second.full_upload_count);
+  EXPECT_EQ(delta.zero_instance_upload_update_count, second.zero_instance_upload_update_count);
+  EXPECT_EQ(total.DeltaFrom(total).operation_count, 0);
 }
 
 TEST(GltfRayTracingMaterial, PersistentTlasUsesMainQueueAndRayOnlyParticleInstances) {
@@ -1573,10 +1668,18 @@ TEST(GltfRayTracingMaterial, PersistentTlasUsesMainQueueAndRayOnlyParticleInstan
   EXPECT_NE(platform.find("FrameSubmissionState::Status::Discarded"), std::string::npos);
   EXPECT_NE(platform.find("FrameSubmissionState::Status::Submitted"), std::string::npos);
   EXPECT_NE(platform.find("Platform::TrackCurrentFrameSubmission"), std::string::npos);
-  EXPECT_NE(graphics.find("reuse_instance_buffer_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT"),
+  EXPECT_NE(graphics.find("reuse_barrier.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT"), std::string::npos);
+  EXPECT_NE(graphics.find("reuse_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT"), std::string::npos);
+  EXPECT_NE(graphics.find("PlanInstanceUploadRanges"), std::string::npos);
+  EXPECT_NE(graphics.find("copy_regions"), std::string::npos);
+  EXPECT_NE(graphics.find("upload_byte_size"), std::string::npos);
+  EXPECT_NE(graphics.find("upload_telemetry_ += pending_upload_telemetry_"), std::string::npos);
+  EXPECT_NE(graphics.find("pending_submission_state_->status == FrameSubmissionState::Status::Submitted"),
             std::string::npos);
-  EXPECT_NE(graphics.find("reuse_instance_buffer_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT"),
-            std::string::npos);
+  EXPECT_NE(render_layer.find("RenderLayer::GetTlasUploadTelemetry"), std::string::npos);
+  EXPECT_NE(
+      render_layer.find("result += render_instances->mesh_top_level_acceleration_structure->GetUploadTelemetry()"),
+      std::string::npos);
   EXPECT_NE(render_layer.find("particle_info.instance_matrix.value"), std::string::npos);
   EXPECT_NE(render_layer.find("particle_info.instance_color"), std::string::npos);
 }

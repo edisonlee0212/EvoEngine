@@ -856,6 +856,72 @@ auto ReadMaterial(const std::string& directory,
 
 float ImportedTangentHandedness(const aiMesh* mesh, int vertex_index);
 
+std::pair<std::vector<MorphTarget>, std::vector<float>> ReadImportedMorphTargets(const aiMesh* mesh) {
+  std::vector<MorphTarget> targets;
+  std::vector<float> weights;
+  if (!mesh) {
+    return {targets, weights};
+  }
+  targets.reserve(mesh->mNumAnimMeshes);
+  weights.reserve(mesh->mNumAnimMeshes);
+  const auto cast = [](const aiVector3D& value) {
+    return glm::vec3(value.x, value.y, value.z);
+  };
+  for (uint32_t target_index = 0; target_index < mesh->mNumAnimMeshes; target_index++) {
+    const auto* source = mesh->mAnimMeshes[target_index];
+    if (!source || source->mNumVertices != mesh->mNumVertices) {
+      continue;
+    }
+    MorphTarget target;
+    target.name = source->mName.length == 0 ? "target_" + std::to_string(target_index) : source->mName.C_Str();
+    const auto read_deltas = [&](std::vector<glm::vec3>& deltas, const aiVector3D* values,
+                                 const aiVector3D* base_values) {
+      if (!values || !base_values) {
+        return;
+      }
+      deltas.resize(mesh->mNumVertices);
+      for (uint32_t vertex_index = 0; vertex_index < mesh->mNumVertices; vertex_index++) {
+        deltas[vertex_index] = cast(values[vertex_index]) - cast(base_values[vertex_index]);
+      }
+    };
+    read_deltas(target.position_deltas, source->mVertices, mesh->mVertices);
+    read_deltas(target.normal_deltas, source->mNormals, mesh->mNormals);
+    read_deltas(target.tangent_deltas, source->mTangents, mesh->mTangents);
+    targets.emplace_back(std::move(target));
+    weights.emplace_back(source->mWeight);
+  }
+  return {std::move(targets), std::move(weights)};
+}
+
+template <typename VertexType>
+std::vector<VertexType> RemapMorphBaseVertices(const std::vector<VertexType>& source_vertices,
+                                               const std::vector<uint32_t>& source_vertex_indices,
+                                               const std::vector<MorphTarget>& morph_targets,
+                                               const std::vector<VertexType>& evaluated_vertices) {
+  auto result = evaluated_vertices;
+  const auto has_stream = [&](const auto stream) {
+    return std::any_of(morph_targets.begin(), morph_targets.end(), [&](const MorphTarget& target) {
+      return !(target.*stream).empty();
+    });
+  };
+  const bool positions = has_stream(&MorphTarget::position_deltas);
+  const bool normals = has_stream(&MorphTarget::normal_deltas);
+  const bool tangents = has_stream(&MorphTarget::tangent_deltas);
+  for (size_t index = 0; index < result.size(); index++) {
+    const auto& source = source_vertices.at(source_vertex_indices.at(index));
+    if (positions) {
+      result[index].position = source.position;
+    }
+    if (normals) {
+      result[index].normal = source.normal;
+    }
+    if (tangents) {
+      result[index].tangent = source.tangent;
+    }
+  }
+  return result;
+}
+
 glm::vec2 ReadImportedTexCoord(const aiMesh* mesh, const int channel, const int vertex_index,
                                const bool restore_gltf_coordinates) {
   glm::vec2 tex_coord(mesh->mTextureCoords[channel][vertex_index].x, mesh->mTextureCoords[channel][vertex_index].y);
@@ -936,6 +1002,13 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_co
     }
     vertices[i] = vertex;
   }
+  auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
+                                                    ? ReadImportedMorphTargets(importer_mesh)
+                                                    : std::pair<std::vector<MorphTarget>, std::vector<float>>{};
+  const auto morph_base_vertices = vertices;
+  if (!morph_targets.empty()) {
+    vertices = BuildMorphedVertices(vertices, morph_targets, {}, default_morph_weights);
+  }
   // now walk through each of the mesh's _Faces (a face is a mesh its triangle) and retrieve the corresponding vertex
   // indices.
   for (int i = 0; i < importer_mesh->mNumFaces; i++) {
@@ -945,7 +1018,14 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_co
       indices.push_back(importer_mesh->mFaces[i].mIndices[j]);
   }
   auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  mesh->SetVertices(attributes, vertices, indices, tangent_tex_coord);
+  std::vector<uint32_t> source_vertex_indices;
+  mesh->SetVertices(attributes, vertices, indices, tangent_tex_coord, &source_vertex_indices);
+  if (!morph_targets.empty()) {
+    RemapMorphTargets(morph_targets, source_vertex_indices);
+    auto remapped_base =
+        RemapMorphBaseVertices(morph_base_vertices, source_vertex_indices, morph_targets, mesh->PeekVertices());
+    mesh->SetMorphTargets(std::move(morph_targets), std::move(default_morph_weights), std::move(remapped_base));
+  }
   return mesh;
 }
 std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
@@ -1014,6 +1094,13 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
       skinned_vertex_attributes.tex_coord_3 = true;
     }
     vertices[i] = vertex;
+  }
+  auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
+                                                    ? ReadImportedMorphTargets(importer_mesh)
+                                                    : std::pair<std::vector<MorphTarget>, std::vector<float>>{};
+  const auto morph_base_vertices = vertices;
+  if (!morph_targets.empty()) {
+    vertices = BuildMorphedVertices(vertices, morph_targets, {}, default_morph_weights);
   }
   // now walk through each of the mesh's _Faces (a face is a mesh its triangle) and retrieve the corresponding vertex
   // indices.
@@ -1091,7 +1178,14 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
     vertices[i].weight2 = weights;
   }
 #pragma endregion
-  skinned_mesh->SetVertices(skinned_vertex_attributes, vertices, indices, tangent_tex_coord);
+  std::vector<uint32_t> source_vertex_indices;
+  skinned_mesh->SetVertices(skinned_vertex_attributes, vertices, indices, tangent_tex_coord, &source_vertex_indices);
+  if (!morph_targets.empty()) {
+    RemapMorphTargets(morph_targets, source_vertex_indices);
+    auto remapped_base = RemapMorphBaseVertices(morph_base_vertices, source_vertex_indices, morph_targets,
+                                                skinned_mesh->PeekSkinnedVertices());
+    skinned_mesh->SetMorphTargets(std::move(morph_targets), std::move(default_morph_weights), std::move(remapped_base));
+  }
   return skinned_mesh;
 }
 
@@ -1426,9 +1520,6 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
   std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>> opacity_maps;
   std::unordered_map<std::string, std::shared_ptr<Bone>> bones_map;
   std::shared_ptr<Animation> animation;
-  if (!bones_map.empty() || scene.HasAnimations()) {
-    animation = AssetManager::CreateTemporaryAsset<Animation>();
-  }
   std::shared_ptr<AssimpImportNode> root_assimp_node = std::make_shared<AssimpImportNode>(scene.mRootNode);
 
   std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>> bones_lists;
@@ -1489,8 +1580,9 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
   }
   LogPrefabImportPhaseDuration(path, "Relink materials", material_relink_start);
 
-  if (!bones_map.empty() || scene.HasAnimations()) {
+  if (!bones_map.empty()) {
     const auto animation_start = PrefabImportClock::now();
+    animation = AssetManager::CreateTemporaryAsset<Animation>();
     root_assimp_node->NecessaryWalker(bones_map);
     size_t index = 0;
     root_assimp_node->AttachToAnimator(animation, index);
@@ -1506,6 +1598,8 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
     holder.private_component = std::static_pointer_cast<IPrivateComponent>(animator);
     private_components.push_back(holder);
     LogPrefabImportPhaseDuration(path, "Build animation", animation_start);
+  } else if (scene.HasAnimations()) {
+    EVOENGINE_WARNING("Skipped non-skeletal animation channels while importing " + path.filename().string())
   }
   const auto gather_assets_start = PrefabImportClock::now();
   GatherAssets();
