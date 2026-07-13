@@ -316,7 +316,7 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   descriptor_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   descriptor_layout->Initialize();
 
-  constexpr size_t value_count = 20;
+  constexpr size_t value_count = 38;
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.size = value_count * sizeof(float);
@@ -367,6 +367,17 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   EXPECT_NEAR(values[17], 1.92f, 1.0e-6f);
   EXPECT_NEAR(values[18], 0.0f, 1.0e-6f);
   EXPECT_FLOAT_EQ(values[19], 1.0f);
+  for (const auto offset : {20u, 23u, 32u, 35u}) {
+    EXPECT_NEAR(values[offset], 0.0f, 1.0e-6f);
+    EXPECT_NEAR(values[offset + 1], 0.0f, 1.0e-6f);
+    EXPECT_NEAR(values[offset + 2], 1.0f, 1.0e-6f);
+  }
+  const glm::vec3 normal_fallback = glm::normalize(glm::vec3(1.0f, 2.0f, 3.0f));
+  for (const auto offset : {26u, 29u}) {
+    EXPECT_NEAR(values[offset], normal_fallback.x, 1.0e-6f);
+    EXPECT_NEAR(values[offset + 1], normal_fallback.y, 1.0e-6f);
+    EXPECT_NEAR(values[offset + 2], normal_fallback.z, 1.0e-6f);
+  }
 }
 
 TEST(GpuService, M10CameraRayTransportShadersCompile) {

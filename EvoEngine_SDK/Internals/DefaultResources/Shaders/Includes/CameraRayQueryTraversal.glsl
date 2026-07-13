@@ -7,7 +7,7 @@ void EE_CAMERA_RAY_QUERY_APPLY_MISS() {
 
 vec3 EE_CAMERA_RAY_QUERY_WORLD_NORMAL(const mat4 model, const vec3 object_normal, const vec3 fallback) {
   const mat3 normal_matrix = transpose(inverse(mat3(model)));
-  return EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal, fallback);
+  return EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(normal_matrix * object_normal, fallback);
 }
 
 void EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(const rayQueryEXT ray_query) {
@@ -91,11 +91,17 @@ vec3 EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(const rayQueryEXT ray_query, const 
   const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
   const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
   const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
-  const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
-                                                                      v2.position - v0.position),
-                                                                vec3(0.0f, 1.0f, 0.0f));
+  const vec2 bary = rayQueryGetIntersectionBarycentricsEXT(ray_query, false);
+  const vec3 barycentrics = vec3(1.0f - bary.x - bary.y, bary.x, bary.y);
+  const vec3 object_shading_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z,
+      vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_geometric_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(v1.position - v0.position, v2.position - v0.position, object_shading_normal);
+  const vec3 world_shading_normal =
+      EE_CAMERA_RAY_QUERY_WORLD_NORMAL(instance.model, object_shading_normal, -ray_direction);
   const vec3 world_geometric_normal = EE_CAMERA_RAY_QUERY_WORLD_NORMAL(instance.model, object_geometric_normal,
-                                                                       -ray_direction);
+                                                                       world_shading_normal);
 
   bool is_inside = shadow_is_inside != 0u;
   const float cos_theta = abs(dot(normalize(ray_direction),

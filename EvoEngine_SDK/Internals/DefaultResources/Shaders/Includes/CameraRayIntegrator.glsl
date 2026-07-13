@@ -1,6 +1,8 @@
 #ifndef EE_CAMERA_RAY_INTEGRATOR_GLSL
 #define EE_CAMERA_RAY_INTEGRATOR_GLSL
 
+#include "CameraRayGeometry.glsl"
+
 const float EE_CAMERA_PI = 3.14159265359f;
 const float EE_CAMERA_RAY_EPSILON = 1e-3f;
 const float EE_CAMERA_MAX_TRACE_DISTANCE = 1e20f;
@@ -770,9 +772,17 @@ void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE(const vec3 shading_position, inout uint 
 
   const float distance = sqrt(distance_squared);
   const vec3 direction = to_light / distance;
-  const vec3 object_light_normal = cross(v1.position - v0.position, v2.position - v0.position);
-  const vec3 light_normal = EE_CAMERA_SAFE_NORMALIZE(transpose(inverse(mat3(instance.model))) * object_light_normal,
-                                                      vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_light_shading_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z,
+      vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_light_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(v1.position - v0.position, v2.position - v0.position,
+                                 object_light_shading_normal);
+  const mat3 light_normal_matrix = transpose(inverse(mat3(instance.model)));
+  const vec3 light_shading_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      light_normal_matrix * object_light_shading_normal, vec3(0.0f, 1.0f, 0.0f));
+  const vec3 light_normal =
+      EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(light_normal_matrix * object_light_normal, light_shading_normal);
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[instance.material_index];
   const float light_cosine = material.double_sided != 0 ? abs(dot(light_normal, -direction))
                                                          : max(dot(light_normal, -direction), 0.0f);
@@ -1486,9 +1496,12 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
 
   const vec3 object_position = v0.position * barycentrics.x + v1.position * barycentrics.y +
                                v2.position * barycentrics.z;
-  const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
-                                                                      v2.position - v0.position),
-                                                                vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y +
+                             v2.normal * barycentrics.z;
+  const vec3 object_shading_normal =
+      EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(object_normal, vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_geometric_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(v1.position - v0.position, v2.position - v0.position, object_shading_normal);
   const vec2 tex_coord_0 = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y +
                            v2.tex_coord * barycentrics.z;
   const vec2 tex_coord_1 = v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y +
@@ -1498,8 +1511,6 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
   const vec2 tex_coord_3 = v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y +
                            v2.tex_coord_3 * barycentrics.z;
   const vec4 vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
-  const vec3 object_normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y +
-                             v2.normal * barycentrics.z;
   const vec3 object_tangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y +
                               v2.tangent * barycentrics.z;
   const float tangent_handedness =
@@ -1508,8 +1519,10 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
 
   hit.material_index = uint(instance.material_index);
   hit.position = vec3(instance.model * vec4(object_position, 1.0f));
-  const vec3 unflipped_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_geometric_normal,
-                                                                   vec3(0.0f, 1.0f, 0.0f));
+  const vec3 unflipped_shading_normal =
+      EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(normal_matrix * object_shading_normal, vec3(0.0f, 1.0f, 0.0f));
+  const vec3 unflipped_geometric_normal =
+      EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(normal_matrix * object_geometric_normal, unflipped_shading_normal);
   const float side_flip = dot(unflipped_geometric_normal, ray_direction) < 0.0f ? 1.0f : -1.0f;
   hit.geometric_normal = unflipped_geometric_normal * side_flip;
   const vec3 v0_shadow_normal = v0.normal * side_flip;
@@ -1523,7 +1536,7 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT(const bool is_inside, co
                                                   ray_direction, instance.model, v0, v1, v2, ray_spread_angle);
   hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
       hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, hit.tex_gradients);
-  hit.normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal, hit.geometric_normal);
+  hit.normal = unflipped_shading_normal;
   const vec3 world_tangent = mat3(instance.model) * object_tangent;
   hit.tangent = EE_CAMERA_SAFE_NORMALIZE(world_tangent - hit.normal * dot(world_tangent, hit.normal),
                                           vec3(1.0f, 0.0f, 0.0f));

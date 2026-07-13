@@ -1,6 +1,7 @@
 #extension GL_GOOGLE_include_directive : require
 
 #include "GltfRayTracingMath.glsl"
+#include "CameraRayGeometry.glsl"
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0, std430) buffer ProbeOutput {
@@ -22,6 +23,19 @@ void main() {
   scaled_clearcoat_normal = EE_GLTF_RT_SAFE_NORMALIZE(scaled_clearcoat_normal, vec3(0.0f, 0.0f, 1.0f));
   const float coated_normal_emission = 2.0f * (1.0f - EE_GLTF_RT_FRESNEL_SCHLICK(1.0f, vec3(0.04f)).x);
   const float coated_grazing_emission = 2.0f * (1.0f - EE_GLTF_RT_FRESNEL_SCHLICK(0.0f, vec3(0.04f)).x);
+  const vec3 normal_fallback = normalize(vec3(1.0f, 2.0f, 3.0f));
+  const vec3 tiny_face_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(vec3(0.00001f, 0.0f, 0.0f), vec3(0.0f, 0.00001f, 0.0f), normal_fallback);
+  const vec3 large_face_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(vec3(100000.0f, 0.0f, 0.0f), vec3(0.0f, 100000.0f, 0.0f), normal_fallback);
+  const vec3 minimum_scale_face_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(vec3(1.0e-30f, 0.0f, 0.0f), vec3(0.0f, 1.0e-30f, 0.0f), normal_fallback);
+  const vec3 maximum_scale_face_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(vec3(1.0e30f, 0.0f, 0.0f), vec3(0.0f, 1.0e30f, 0.0f), normal_fallback);
+  const vec3 degenerate_face_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(vec3(1.0f, 0.0f, 0.0f), vec3(2.0f, 0.0f, 0.0f), normal_fallback);
+  const vec3 invalid_face_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      vec3(uintBitsToFloat(0x7f800000u), 0.0f, 0.0f), normal_fallback);
   EE_GLTF_RT_NUMERICAL_PROBE.values[0] = f0;
   EE_GLTF_RT_NUMERICAL_PROBE.values[1] = fresnel_normal.x;
   EE_GLTF_RT_NUMERICAL_PROBE.values[2] = fresnel_grazing.x;
@@ -46,4 +60,22 @@ void main() {
       float(all(greaterThanEqual(weighted_normal, vec3(0.0f))) &&
             all(lessThanEqual(weighted_normal, vec3(0.5f))) &&
             !any(isnan(weighted_grazing)) && !any(isinf(weighted_grazing)));
+  EE_GLTF_RT_NUMERICAL_PROBE.values[20] = tiny_face_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[21] = tiny_face_normal.y;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[22] = tiny_face_normal.z;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[23] = large_face_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[24] = large_face_normal.y;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[25] = large_face_normal.z;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[26] = degenerate_face_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[27] = degenerate_face_normal.y;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[28] = degenerate_face_normal.z;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[29] = invalid_face_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[30] = invalid_face_normal.y;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[31] = invalid_face_normal.z;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[32] = minimum_scale_face_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[33] = minimum_scale_face_normal.y;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[34] = minimum_scale_face_normal.z;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[35] = maximum_scale_face_normal.x;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[36] = maximum_scale_face_normal.y;
+  EE_GLTF_RT_NUMERICAL_PROBE.values[37] = maximum_scale_face_normal.z;
 }

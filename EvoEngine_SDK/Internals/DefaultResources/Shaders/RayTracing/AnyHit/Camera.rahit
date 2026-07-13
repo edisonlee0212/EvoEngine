@@ -6,6 +6,7 @@
 #include "RayTracingBasic.glsl"
 #include "Random.glsl"
 #include "GltfRasterMaterial.glsl"
+#include "CameraRayGeometry.glsl"
 
 layout(location = 0) rayPayloadInEXT CameraRayTracingPayload hit_value;
 
@@ -27,7 +28,7 @@ vec3 EE_CAMERA_SAFE_NORMALIZE(const vec3 value, const vec3 fallback) {
 }
 
 vec3 EE_CAMERA_WORLD_NORMAL(const vec3 object_normal, const vec3 fallback) {
-  return EE_CAMERA_SAFE_NORMALIZE(vec3(object_normal * gl_WorldToObjectEXT), fallback);
+  return EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(vec3(object_normal * gl_WorldToObjectEXT), fallback);
 }
 
 vec3 EE_CAMERA_SHADOW_TRANSMISSION(const uint material_index, const vec2 tex_coord_0, const vec2 tex_coord_1,
@@ -73,10 +74,13 @@ void main() {
     return;
   }
 
-  const vec3 object_geometric_normal = EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position,
-                                                                      v2.position - v0.position),
-                                                                vec3(0.0f, 1.0f, 0.0f));
-  const vec3 world_geometric_normal = EE_CAMERA_WORLD_NORMAL(object_geometric_normal, -gl_WorldRayDirectionEXT);
+  const vec3 object_shading_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z,
+      vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_geometric_normal =
+      EE_CAMERA_GEOMETRIC_NORMAL(v1.position - v0.position, v2.position - v0.position, object_shading_normal);
+  const vec3 world_shading_normal = EE_CAMERA_WORLD_NORMAL(object_shading_normal, -gl_WorldRayDirectionEXT);
+  const vec3 world_geometric_normal = EE_CAMERA_WORLD_NORMAL(object_geometric_normal, world_shading_normal);
   const vec3 transmission =
       EE_CAMERA_SHADOW_TRANSMISSION(material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3,
                                     vertex_color.rgb, world_geometric_normal);

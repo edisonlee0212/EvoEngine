@@ -693,8 +693,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenKeepsMappedNormalHemisphereGuard) {
   const auto expect_reference_hit_normal_order = [](const std::string& shader_source) {
     const auto reconstruction = shader_source.find("EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT");
     ASSERT_NE(reconstruction, std::string::npos);
-    const auto base_normal =
-        shader_source.find("hit.normal = EE_CAMERA_SAFE_NORMALIZE(normal_matrix * object_normal", reconstruction);
+    const auto base_normal = shader_source.find("hit.normal = unflipped_shading_normal", reconstruction);
     const auto tangent_basis =
         shader_source.find("hit.bitangent = EE_CAMERA_SAFE_NORMALIZE(cross(hit.normal, hit.tangent)", reconstruction);
     const auto side_check = shader_source.find("if (dot(hit.normal, hit.geometric_normal) < 0.0f)", reconstruction);
@@ -732,6 +731,45 @@ TEST(GltfRayTracingMaterial, CameraRaygenKeepsMappedNormalHemisphereGuard) {
   expect_reference_hit_normal_order(ray_query);
   EXPECT_LT(mapped_normal, tangent_update);
   EXPECT_EQ(pre_normal_tangent_projection, std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, CameraGeometricNormalsAreScaleIndependentWithVertexFallback) {
+  const auto geometry = ReadTextFile(ShaderPath("Includes/CameraRayGeometry.glsl"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.rahit"));
+  const auto ray_query = ReadTextFile(ShaderPath("Includes/CameraRayQueryTraversal.glsl"));
+  ASSERT_FALSE(geometry.empty());
+  ASSERT_FALSE(integrator.empty());
+  ASSERT_FALSE(any_hit.empty());
+  ASSERT_FALSE(ray_query.empty());
+
+  EXPECT_NE(geometry.find("any(isnan(value)) || any(isinf(value))"), std::string::npos);
+  EXPECT_NE(geometry.find("const float scale = max(max(abs(value.x), abs(value.y)), abs(value.z))"), std::string::npos);
+  EXPECT_NE(geometry.find("const vec3 scaled_value = value / scale"), std::string::npos);
+  EXPECT_NE(geometry.find("EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(edge_1, vec3(0.0f))"), std::string::npos);
+  EXPECT_NE(geometry.find("EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(edge_2, vec3(0.0f))"), std::string::npos);
+  EXPECT_NE(
+      geometry.find("EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(cross(normalized_edge_1, normalized_edge_2), fallback)"),
+      std::string::npos);
+  EXPECT_EQ(geometry.find("0.00000001"), std::string::npos);
+
+  for (const auto* source : {&integrator, &any_hit, &ray_query}) {
+    EXPECT_NE(source->find("object_shading_normal"), std::string::npos);
+    EXPECT_NE(source->find("EE_CAMERA_GEOMETRIC_NORMAL(v1.position - v0.position, v2.position - v0.position, "
+                           "object_shading_normal)"),
+              std::string::npos);
+    EXPECT_EQ(source->find("EE_CAMERA_SAFE_NORMALIZE(cross(v1.position - v0.position"), std::string::npos);
+  }
+  EXPECT_NE(integrator.find("EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(normal_matrix * object_geometric_normal, "
+                            "unflipped_shading_normal)"),
+            std::string::npos);
+  EXPECT_NE(integrator.find("object_light_shading_normal"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(light_normal_matrix * object_light_normal, "
+                            "light_shading_normal)"),
+            std::string::npos);
+  EXPECT_NE(any_hit.find("EE_CAMERA_WORLD_NORMAL(object_geometric_normal, world_shading_normal)"), std::string::npos);
+  EXPECT_NE(ray_query.find("EE_CAMERA_RAY_QUERY_WORLD_NORMAL(instance.model, object_geometric_normal"),
+            std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, RayCamerasUseReferenceSafeOffsetsForSurfaceRays) {

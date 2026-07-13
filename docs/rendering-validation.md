@@ -739,6 +739,12 @@ keeps the original full payload. RTX shadow rays no longer copy/restore the full
 intersections continue traversal, the shadow miss preserves accumulated transmission, and a committed opaque hit remains
 occluded while `TerminateOnFirstHit` and `SkipClosestHitShader` avoid a redundant closest-hit invocation.
 
+Shared camera geometry reconstruction normalizes each finite nonzero triangle edge before taking the face cross product,
+so valid geometric normals are independent of object-space scale. Only zero or non-finite geometry falls back to the
+interpolated vertex normal. The geometric normal is oriented toward the incoming ray; the shading normal is kept on the
+same hemisphere and replaced by the geometric normal when reflection would enter the surface. Bounce and shadow origins
+retain the geometric-normal `safeOffsetRay` policy, including the vertex-normal shadow-terminator position.
+
 `Scripts/raytracer_m11_suite.json` pins the approved M6 report SHA-256, device/driver, per-lane baseline, active material
 mask/key, and absolute M11 targets. `Scripts/validate_raytracer_m11.py` reuses the compact M6 capture harness but emits an
 M11 plan and acceptance report. Before any capture it hashes the archived M6 report and derives the pinned lane metrics
