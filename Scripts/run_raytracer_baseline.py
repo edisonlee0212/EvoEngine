@@ -333,6 +333,7 @@ def run_command(
 def prepare_evo_runtime_environment(profile_dir: Path, technique: str, dry_run: bool) -> dict[str, object]:
     runtime_root = (profile_dir / f"evo-{technique}-runtime").resolve()
     shader_cache = runtime_root / "ShaderBinaries"
+    pipeline_cache = runtime_root / "PipelineCache"
     imgui_ini = runtime_root / "imgui.ini"
     if not dry_run:
         if runtime_root.exists():
@@ -340,11 +341,13 @@ def prepare_evo_runtime_environment(profile_dir: Path, technique: str, dry_run: 
         runtime_root.mkdir(parents=True, exist_ok=True)
     environment = {
         "EVOENGINE_SHADER_CACHE_DIR": str(shader_cache),
+        "EVOENGINE_PIPELINE_CACHE_DIR": str(pipeline_cache),
         "EVOENGINE_IMGUI_INI_PATH": str(imgui_ini),
     }
     return {
         "root": str(runtime_root),
         "shader_cache": str(shader_cache),
+        "pipeline_cache": str(pipeline_cache),
         "imgui_ini": str(imgui_ini),
         "environment": environment,
     }
@@ -871,6 +874,8 @@ def main() -> int:
                     summary = validate_evo_summary(summary, evo_metrics, profile, evo_telemetry_mode, expected_gpu_timer)
                     if not Path(runtime_state["shader_cache"]).is_dir():
                         raise RuntimeError("EvoEngine did not use the isolated shader cache")
+                    if not Path(runtime_state["pipeline_cache"]).is_dir():
+                        raise RuntimeError("EvoEngine did not use the isolated pipeline cache")
                 common_manifest["runs"].append(
                     {
                         "profile": profile_name,

@@ -1,6 +1,7 @@
 
 #pragma once
 #include "GraphicsResources.hpp"
+#include "VulkanPipelineCache.hpp"
 
 namespace evo_engine {
 
@@ -20,6 +21,8 @@ class ComputePipeline final : public IGraphicsResource {
 
   /// Vulkan handle for the compute pipeline.
   VkPipeline vk_compute_pipeline_ = VK_NULL_HANDLE;
+
+  PipelineCreationFeedback creation_feedback_{};
 
  public:
   /**
@@ -50,6 +53,8 @@ class ComputePipeline final : public IGraphicsResource {
    * @return True if the pipeline is initialized, otherwise false.
    */
   [[nodiscard]] bool Initialized() const;
+
+  [[nodiscard]] const PipelineCreationFeedback& GetCreationFeedback() const;
 
   /**
    * @brief Binds the compute pipeline to a command buffer.

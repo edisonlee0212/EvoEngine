@@ -1448,7 +1448,23 @@ void CaptureDemoPreview(
   metrics["capabilities"] = {{"acceleration_structure", capabilities.support_acceleration_structure},
                              {"ray_tracing_pipeline", capabilities.support_ray_tracing},
                              {"ray_query", capabilities.support_ray_query},
-                             {"shader_execution_reordering", capabilities.support_shader_execution_reordering}};
+                             {"shader_execution_reordering", capabilities.support_shader_execution_reordering},
+                             {"pipeline_creation_feedback", capabilities.support_pipeline_creation_feedback}};
+  const auto pipeline_cache = Platform::GetPipelineCacheStats();
+  metrics["pipeline_cache"] = {
+      {"initialized", pipeline_cache.initialized},
+      {"path", pipeline_cache.path},
+      {"load_source", pipeline_cache.load_source},
+      {"initial_bytes", pipeline_cache.initial_bytes},
+      {"persisted_bytes", pipeline_cache.persisted_bytes},
+      {"creation_count", pipeline_cache.creation_count},
+      {"creation_failures", pipeline_cache.creation_failures},
+      {"valid_feedback_count", pipeline_cache.valid_feedback_count},
+      {"application_cache_hit_count", pipeline_cache.application_cache_hit_count},
+      {"deferred_creation_count", pipeline_cache.deferred_creation_count},
+      {"synchronous_fallback_count", pipeline_cache.synchronous_fallback_count},
+      {"feedback_supported", pipeline_cache.feedback_supported},
+      {"deferred_host_operations_supported", pipeline_cache.deferred_host_operations_supported}};
   metrics["query_only"] =
       resolved_render_mode == Camera::CameraRenderMode::RayQuery && !capabilities.support_ray_tracing;
   metrics["active_ray_backend"] = nullptr;
@@ -1491,6 +1507,12 @@ void CaptureDemoPreview(
         {"activation_count", variant.activation_count},
         {"accumulation_reset_count", variant.accumulation_reset_count},
         {"fallback_frame_count", variant.fallback_frame_count},
+        {"eviction_count", variant.eviction_count},
+        {"resident_variant_count", variant.resident_variant_count},
+        {"pending_build_count", variant.pending_build_count},
+        {"failed_entry_count", variant.failed_entry_count},
+        {"retained_submission_count", variant.retained_submission_count},
+        {"variant_capacity", variant.variant_capacity},
         {"build_ms", variant.build_milliseconds},
         {"request_to_ready_ms", variant.request_to_ready_milliseconds},
         {"fallback_build_ms", variant.fallback_build_milliseconds},
@@ -1501,7 +1523,18 @@ void CaptureDemoPreview(
           {"compilations", variant.shader_cache.compilations},
           {"coalesced_waits", variant.shader_cache.coalesced_waits},
           {"corrupt_entries", variant.shader_cache.corrupt_entries},
-          {"failures", variant.shader_cache.failures}}}};
+          {"failures", variant.shader_cache.failures}}},
+        {"pipeline_creation",
+         {{"result", variant.pipeline_creation.result},
+          {"feedback_supported", variant.pipeline_creation.feedback_supported},
+          {"feedback_valid", variant.pipeline_creation.feedback_valid},
+          {"application_cache_hit", variant.pipeline_creation.application_cache_hit},
+          {"duration_ns", variant.pipeline_creation.duration_nanoseconds},
+          {"wall_ms", variant.pipeline_creation.wall_milliseconds},
+          {"deferred_requested", variant.pipeline_creation.deferred_requested},
+          {"deferred_used", variant.pipeline_creation.deferred_used},
+          {"synchronous_fallback", variant.pipeline_creation.synchronous_fallback},
+          {"fallback_reason", variant.pipeline_creation.fallback_reason}}}};
   }
   metrics["deterministic"] = deterministic_capture;
   metrics["accumulation_wall_seconds"] = capture_elapsed_seconds;

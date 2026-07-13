@@ -825,6 +825,51 @@ python Scripts\validate_raytracer_m12_repair.py --phase measure
 python Scripts\validate_raytracer_m12_repair.py --phase analyze
 ```
 
+### M14 Pipeline and Variant Caching
+
+All engine compute, graphics, and ray-tracing pipeline creation uses one `VkPipelineCache` owned by `Platform`. The raw
+driver payload is wrapped in a schema-1 file containing vendor, device, driver, API, and pipeline-cache UUID identity plus
+a checksum. Both the wrapper and Vulkan's version-one payload header are validated before driver use. Load and save are
+limited to 256 MiB, matching the pinned reference's safety ceiling, and publication uses a same-directory temporary file
+with replace semantics. `EVOENGINE_PIPELINE_CACHE_DIR` selects the cache directory; otherwise it is placed beside an
+explicit `EVOENGINE_SHADER_CACHE_DIR`, or under the git-ignored `./PipelineCache`.
+
+Pipeline creation records wall latency and optional Vulkan creation feedback. RTX creation first requests
+`VK_KHR_deferred_host_operations`, joins the driver work with bounded host concurrency, treats
+`VK_OPERATION_NOT_DEFERRED_KHR` as successful completion, and makes at most one synchronous retry after a deferred-path
+failure. Devices without creation feedback or deferred execution remain supported. Capture JSON exposes aggregate
+`pipeline_cache` state and the active ray variant's `pipeline_creation` result.
+
+The camera-ray cache retains the permanent all-feature fallback and at most eight successful nonfallback variants for
+each technique. It admits only one pending build per technique, bounds failed retry records to eight, and evicts by a
+deterministic last-use serial. An evicted pipeline and its RTX SBT remain retained by the current frame's submission token
+until that frame fence completes or the commands are discarded; eviction never waits for the queue to idle.
+
+M14 uses exactly three pre-commit renderer launches and no reference process: isolated RTX cold, isolated RayQuery cold,
+and forced query-only warm using the RayQuery cache. All are 1280x720, 64 SPP, deterministic Bistro captures. The warm
+lane must load both persistent caches, report valid aggregate feedback with more application pipeline-cache hits than the
+isolated cold RayQuery lane, and remain bit-exact to ordinary RayQuery. Corrupt/incompatible files, concurrent request
+coalescing, failed retry records, submission retirement, and
+1,000-mask churn are focused tests rather than extra launches. Run:
+
+```bat
+python Scripts\validate_raytracer_m14.py --self-test
+out\build\vs2026-x64-tests\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="VulkanPipelineCache.*:RayCameraShaderVariantCache.*:ShaderCache.*"
+python Scripts\validate_raytracer_m14.py --output-dir out\raytracer-m14
+```
+
+The full-pipeline `VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT` is not a portable per-pipeline
+requirement: [Vulkan describes it](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineCreationFeedbackFlagBits.html)
+as a signal that the implementation avoided the large majority of creation work. If a
+completed three-launch slice was rejected only because the active query-only pipeline left that bit unset, preserve the
+original ledger and use `--analyze-existing`. The no-launch overlay requires the warm disk payload, valid aggregate
+feedback, a hit count above the cold RayQuery lane, zero frontend recompilations, exact RayQuery/query-only HDR identity,
+and every other original gate; it does not rewrite the failed ledger or launch another renderer process.
+
+```bat
+python Scripts\validate_raytracer_m14.py --analyze-existing --output-dir out\raytracer-m14
+```
+
 Run both RT-pipeline and RayQuery techniques with:
 
 ```bat
@@ -842,8 +887,9 @@ By default it regenerates the ignored Bistro project template and removes saved 
 The reset reuses the existing source cache without fetching or checking out a newer upstream revision. The runner requires
 the static Bistro pin above, deterministically derives `bistro-directional-intensity-10.gltf` from its `bistro.gltf`, and
 rejects source or derived glTF and selected glTF/DDS closure hashes that differ from M0. Every Evo process also receives a
-fresh output-local shader-cache directory and ImGui ini path, so root working-directory state cannot reuse stale SPIR-V or
-leak into a capture. Dry runs write `manifest.dry-run.json` and do not replace measured evidence.
+fresh output-local shader-cache and Vulkan pipeline-cache directory plus an ImGui ini path, so root working-directory
+state cannot reuse stale binaries or leak into a capture. Dry runs write `manifest.dry-run.json` and do not replace
+measured evidence.
 
 Bistro raster parity remains a separate display-space check. It explicitly enables the configured DDGI volume and uses a
 newly initialized post-processing stack: GTAO, SMAA Ultra, and tone mapping enabled with bloom and SSR disabled. The

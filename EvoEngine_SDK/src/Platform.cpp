@@ -290,6 +290,13 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   graphics.gpu_crash_tracker.Initialize();
 #endif
   graphics.CreateLogicalDevice();
+  graphics.pipeline_cache_ = std::make_unique<VulkanPipelineCache>();
+  graphics.pipeline_cache_->Initialize(graphics.vk_device_, graphics.selected_physical_device->properties,
+                                       graphics.capabilities_.support_pipeline_creation_feedback,
+                                       graphics.capabilities_.support_ray_tracing && vkCreateDeferredOperationKHR &&
+                                           vkCreateRayTracingPipelinesKHR && vkGetDeferredOperationMaxConcurrencyKHR &&
+                                           vkDeferredOperationJoinKHR && vkGetDeferredOperationResultKHR &&
+                                           vkDestroyDeferredOperationKHR);
   graphics.SetupVmaAllocator();
   graphics.RegisterShaderIncludePath(Resources::GetDefaultResourcePath("Shaders/Includes"));
   const auto& selected_physical_device = graphics.selected_physical_device;
@@ -1404,6 +1411,16 @@ void Platform::SelectPhysicalDevice() {
       required_device_extension_names_.emplace_back(extension_name);
     }
   };
+  const auto effective_api_version =
+      std::min(volkGetInstanceVersion(), selected_physical_device->properties.apiVersion);
+  if (effective_api_version >= VK_API_VERSION_1_3) {
+    capabilities_.support_pipeline_creation_feedback = true;
+  } else if (selected_physical_device->CheckExtensionSupport(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME)) {
+    require_device_extension(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME);
+    capabilities_.support_pipeline_creation_feedback = true;
+  } else {
+    capabilities_.support_pipeline_creation_feedback = false;
+  }
   const bool ray_acceleration_structure_supported =
       capabilities_.support_acceleration_structure &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
@@ -2399,6 +2416,10 @@ void Platform::OnDestroy() {
 
   graphics.temporary_buffer_sync_actions.clear();
 
+  if (graphics.pipeline_cache_)
+    graphics.pipeline_cache_->Shutdown();
+  graphics.pipeline_cache_.reset();
+
   vmaDestroyAllocator(graphics.vma_allocator_);
   graphics.vma_allocator_ = VK_NULL_HANDLE;
 
@@ -2598,6 +2619,42 @@ std::shared_ptr<FrameSubmissionState> Platform::TrackCurrentFrameSubmission() {
   auto state = std::make_shared<FrameSubmissionState>();
   graphics.frame_submission_states_[graphics.current_frame_index_].emplace_back(state);
   return state;
+}
+
+VkResult Platform::CreateComputePipeline(const VkComputePipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                         PipelineCreationFeedback& feedback) {
+  auto& graphics = GetInstance();
+  if (graphics.pipeline_cache_)
+    return graphics.pipeline_cache_->CreateComputePipeline(create_info, pipeline, feedback);
+  feedback = {};
+  feedback.result = vkCreateComputePipelines(graphics.vk_device_, VK_NULL_HANDLE, 1, &create_info, nullptr, &pipeline);
+  return feedback.result;
+}
+
+VkResult Platform::CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                          PipelineCreationFeedback& feedback) {
+  auto& graphics = GetInstance();
+  if (graphics.pipeline_cache_)
+    return graphics.pipeline_cache_->CreateGraphicsPipeline(create_info, pipeline, feedback);
+  feedback = {};
+  feedback.result = vkCreateGraphicsPipelines(graphics.vk_device_, VK_NULL_HANDLE, 1, &create_info, nullptr, &pipeline);
+  return feedback.result;
+}
+
+VkResult Platform::CreateRayTracingPipeline(const VkRayTracingPipelineCreateInfoKHR& create_info, VkPipeline& pipeline,
+                                            PipelineCreationFeedback& feedback) {
+  auto& graphics = GetInstance();
+  if (graphics.pipeline_cache_)
+    return graphics.pipeline_cache_->CreateRayTracingPipeline(create_info, pipeline, feedback);
+  feedback = {};
+  feedback.result = vkCreateRayTracingPipelinesKHR(graphics.vk_device_, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &create_info,
+                                                   nullptr, &pipeline);
+  return feedback.result;
+}
+
+VulkanPipelineCacheStats Platform::GetPipelineCacheStats() {
+  const auto& pipeline_cache = GetInstance().pipeline_cache_;
+  return pipeline_cache ? pipeline_cache->GetStats() : VulkanPipelineCacheStats{};
 }
 
 bool Platform::CheckExtensionSupport(const std::string& extension_name) {

@@ -5016,6 +5016,10 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     camera_transient_resources.Bind(camera_render_graph_resources);
     const ScopedRenderCameraDrawScope camera_draw_scope(current_frame_index, scene, camera, is_scene_camera);
     camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);
+    if (ray_camera_shader_variant_cache_) {
+      ray_camera_shader_variant_cache_->RecordActiveUse(use_ray_query ? RayCameraShaderTechnique::RayQuery
+                                                                      : RayCameraShaderTechnique::RayTracing);
+    }
     camera->rendered_ = true;
     camera->require_rendering_ = false;
     camera->frame_count_++;

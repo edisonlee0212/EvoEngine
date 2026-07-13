@@ -31,6 +31,8 @@ set(EVOENGINE_TEST_SOURCES
 	Core/GltfRasterMaterialShaderTest.cpp
 	Core/GltfRayTracingMaterialShaderTest.cpp
 	Core/ShaderCacheTest.cpp
+	Core/VulkanPipelineCacheTest.cpp
+	Core/RayCameraShaderVariantCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
@@ -183,6 +185,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER ShaderCache.*
 	PROPERTIES LABELS "core,render,shader-cache"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER VulkanPipelineCache.*:RayCameraShaderVariantCache.*
+	PROPERTIES LABELS "core,render,pipeline-cache,shader-variants"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

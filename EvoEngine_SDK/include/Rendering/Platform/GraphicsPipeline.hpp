@@ -8,6 +8,7 @@
 #include "GraphicsPipelineStates.hpp"
 #include "GraphicsResources.hpp"
 #include "IGeometry.hpp"
+#include "VulkanPipelineCache.hpp"
 
 namespace evo_engine {
 
@@ -218,6 +219,8 @@ class GraphicsPipeline final : public IGraphicsResource {
 
   VkPipeline vk_graphics_pipeline_ = VK_NULL_HANDLE;  ///< Vulkan graphics pipeline handle.
 
+  PipelineCreationFeedback creation_feedback_{};
+
  public:
   /**
    * @brief Destroys the graphics pipeline and releases resources.
@@ -260,6 +263,8 @@ class GraphicsPipeline final : public IGraphicsResource {
    * @return True if initialized, false otherwise.
    */
   [[nodiscard]] bool Initialized() const;
+
+  [[nodiscard]] const PipelineCreationFeedback& GetCreationFeedback() const;
 
   /**
    * @brief Binds the graphics pipeline to a command buffer.

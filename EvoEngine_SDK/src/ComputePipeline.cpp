@@ -13,6 +13,7 @@ ComputePipeline::~ComputePipeline() {
 }
 
 void ComputePipeline::Initialize() {
+  creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
   if (vk_compute_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
@@ -71,8 +72,7 @@ void ComputePipeline::Initialize() {
   pipeline_info.layout = pipeline_layout_->GetVkPipelineLayout();
   pipeline_info.stage = shader_stage_create_info;
   try {
-    Platform::CheckVk(vkCreateComputePipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
-                                               &vk_compute_pipeline_));
+    Platform::CheckVk(Platform::CreateComputePipeline(pipeline_info, vk_compute_pipeline_, creation_feedback_));
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to build compute pipeline: ") + error.what());
     vk_compute_pipeline_ = nullptr;
@@ -81,6 +81,10 @@ void ComputePipeline::Initialize() {
 
 bool ComputePipeline::Initialized() const {
   return vk_compute_pipeline_ != VK_NULL_HANDLE;
+}
+
+const PipelineCreationFeedback& ComputePipeline::GetCreationFeedback() const {
+  return creation_feedback_;
 }
 
 void ComputePipeline::Bind(VkCommandBuffer vk_command_buffer) const {

@@ -3,6 +3,7 @@
 #include "GltfSceneFeatures.hpp"
 #include "Jobs.hpp"
 #include "Shader.hpp"
+#include "VulkanPipelineCache.hpp"
 
 #include <chrono>
 #include <functional>
@@ -10,10 +11,12 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace evo_engine {
 
 class ComputePipeline;
+struct FrameSubmissionState;
 class RayTracingPipeline;
 
 enum class RayCameraShaderTechnique { RayTracing, RayQuery };
@@ -36,10 +39,17 @@ struct RayCameraShaderVariantStats {
   uint64_t activation_count = 0;
   uint64_t accumulation_reset_count = 0;
   uint64_t fallback_frame_count = 0;
+  uint64_t eviction_count = 0;
+  uint32_t resident_variant_count = 0;
+  uint32_t pending_build_count = 0;
+  uint32_t failed_entry_count = 0;
+  uint32_t retained_submission_count = 0;
+  uint32_t variant_capacity = 8;
   double build_milliseconds = 0.0;
   double request_to_ready_milliseconds = 0.0;
   double fallback_build_milliseconds = 0.0;
   ShaderCompileCacheStats shader_cache;
+  PipelineCreationFeedback pipeline_creation;
 };
 
 struct RayCameraShaderVariantUpdate {
@@ -68,6 +78,7 @@ class RayCameraShaderVariantCache final {
   [[nodiscard]] bool IsReady(RayCameraShaderTechnique technique) const;
   void RecordFallbackFrame(RayCameraShaderTechnique technique);
   void RecordAccumulationReset(RayCameraShaderTechnique technique);
+  void RecordActiveUse(RayCameraShaderTechnique technique);
   void WaitForJobs();
 
  private:
@@ -83,8 +94,16 @@ class RayCameraShaderVariantCache final {
     double build_milliseconds = 0.0;
     double request_to_ready_milliseconds = 0.0;
     uint64_t retry_after_update = 0;
-    bool completed = false;
+    uint64_t last_access_serial = 0;
+    bool published = false;
     bool success = false;
+  };
+
+  template <typename Pipeline>
+  struct RetainedSubmission {
+    std::shared_ptr<Pipeline> pipeline;
+    std::shared_ptr<FrameSubmissionState> submission;
+    uint32_t frame_index = 0;
   };
 
   template <typename Pipeline>
@@ -92,8 +111,16 @@ class RayCameraShaderVariantCache final {
     std::shared_ptr<Pipeline> fallback;
     std::shared_ptr<Pipeline> active;
     std::unordered_map<uint32_t, std::shared_ptr<Entry<Pipeline>>> entries;
+    std::vector<RetainedSubmission<Pipeline>> retained_submissions;
     RayCameraShaderVariantStats stats;
   };
+
+  template <typename Pipeline>
+  void PruneEntries(TechniqueState<Pipeline>& state, uint32_t requested_mask);
+  template <typename Pipeline>
+  void ReleaseCompletedSubmissions(TechniqueState<Pipeline>& state);
+  template <typename Pipeline>
+  void TouchEntry(const std::shared_ptr<Entry<Pipeline>>& entry);
 
   void PollCompletedJobs();
   bool UpdateRayTracing(uint32_t feature_mask);
@@ -104,10 +131,13 @@ class RayCameraShaderVariantCache final {
   mutable std::mutex mutex_;
   bool shutting_down_ = false;
   uint64_t update_serial_ = 0;
+  uint64_t access_serial_ = 0;
   TechniqueState<RayTracingPipeline> ray_tracing_;
   TechniqueState<ComputePipeline> ray_query_;
   RayTracingFactory ray_tracing_factory_;
   RayQueryFactory ray_query_factory_;
+
+  friend class RayCameraShaderVariantCacheTestAccess;
 };
 
 }  // namespace evo_engine

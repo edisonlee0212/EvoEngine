@@ -1,12 +1,17 @@
 #include "RayCameraShaderVariantCache.hpp"
 
 #include "ComputePipeline.hpp"
+#include "Platform.hpp"
 #include "RayTracingPipeline.hpp"
+
+#include <algorithm>
+#include <cstdint>
 
 using namespace evo_engine;
 
 namespace {
 constexpr uint32_t kRayCameraFallbackMask = kGltfSceneAllFeatures | kRayCameraDebugViewsFeature;
+constexpr uint32_t kRayCameraVariantCapacity = 8;
 
 std::string VariantKey(const RayCameraShaderTechnique technique, const uint32_t mask) {
   return std::string(technique == RayCameraShaderTechnique::RayTracing ? "rtx:" : "rq:") +
@@ -58,7 +63,9 @@ void RayCameraShaderVariantCache::PollCompletedJobs() {
     for (auto& [mask, entry] : state.entries) {
       if (entry->job.Valid() && Jobs::IsCompleted(entry->job)) {
         Jobs::Wait(entry->job);
+        const std::lock_guard entry_lock(entry->mutex);
         entry->job = {};
+        entry->published = true;
       }
     }
   };
@@ -66,13 +73,85 @@ void RayCameraShaderVariantCache::PollCompletedJobs() {
   poll(ray_query_);
 }
 
+template <typename Pipeline>
+void RayCameraShaderVariantCache::ReleaseCompletedSubmissions(TechniqueState<Pipeline>& state) {
+  state.retained_submissions.erase(std::remove_if(state.retained_submissions.begin(), state.retained_submissions.end(),
+                                                  [](const auto& retained) {
+                                                    return !retained.submission ||
+                                                           retained.submission->status !=
+                                                               FrameSubmissionState::Status::Pending;
+                                                  }),
+                                   state.retained_submissions.end());
+}
+
+template <typename Pipeline>
+void RayCameraShaderVariantCache::TouchEntry(const std::shared_ptr<Entry<Pipeline>>& entry) {
+  entry->last_access_serial = ++access_serial_;
+}
+
+template <typename Pipeline>
+void RayCameraShaderVariantCache::PruneEntries(TechniqueState<Pipeline>& state, const uint32_t requested_mask) {
+  const auto prune = [&](const bool successful, const size_t capacity) {
+    while (true) {
+      size_t count = 0;
+      auto victim = state.entries.end();
+      uint64_t victim_serial = UINT64_MAX;
+      uint32_t victim_mask = UINT32_MAX;
+      for (auto candidate = state.entries.begin(); candidate != state.entries.end(); ++candidate) {
+        const auto& entry = candidate->second;
+        const std::lock_guard entry_lock(entry->mutex);
+        if (!entry->published || entry->success != successful)
+          continue;
+        ++count;
+        if (successful && entry->pipeline == state.active)
+          continue;
+        if (!successful && candidate->first == requested_mask)
+          continue;
+        if (entry->last_access_serial < victim_serial ||
+            (entry->last_access_serial == victim_serial && candidate->first < victim_mask)) {
+          victim = candidate;
+          victim_serial = entry->last_access_serial;
+          victim_mask = candidate->first;
+        }
+      }
+      if (count <= capacity || victim == state.entries.end())
+        return;
+      state.entries.erase(victim);
+      ++state.stats.eviction_count;
+    }
+  };
+  prune(true, kRayCameraVariantCapacity);
+  prune(false, kRayCameraVariantCapacity);
+
+  state.stats.resident_variant_count = 0;
+  state.stats.pending_build_count = 0;
+  state.stats.failed_entry_count = 0;
+  for (const auto& [mask, entry] : state.entries) {
+    const std::lock_guard entry_lock(entry->mutex);
+    if (!entry->published)
+      ++state.stats.pending_build_count;
+    else if (entry->success)
+      ++state.stats.resident_variant_count;
+    else
+      ++state.stats.failed_entry_count;
+  }
+  state.stats.retained_submission_count = static_cast<uint32_t>(state.retained_submissions.size());
+  state.stats.variant_capacity = kRayCameraVariantCapacity;
+}
+
 void RayCameraShaderVariantCache::RequestRayTracing(const uint32_t feature_mask) {
   if (!ray_tracing_factory_ || !ray_tracing_.fallback ||
       ray_tracing_.entries.find(feature_mask) != ray_tracing_.entries.end())
     return;
+  for (const auto& [mask, pending] : ray_tracing_.entries) {
+    const std::lock_guard entry_lock(pending->mutex);
+    if (!pending->published)
+      return;
+  }
   auto entry = std::make_shared<Entry<RayTracingPipeline>>();
   entry->mask = feature_mask;
   entry->requested_at = std::chrono::steady_clock::now();
+  TouchEntry(entry);
   const auto factory = ray_tracing_factory_;
   entry->job = Jobs::RunOnRenderThread([entry, factory]() {
     const auto before = Shader::GetCompileCacheStats();
@@ -98,7 +177,6 @@ void RayCameraShaderVariantCache::RequestRayTracing(const uint32_t feature_mask)
       entry->build_milliseconds = std::chrono::duration<double, std::milli>(completed_at - build_start).count();
       entry->request_to_ready_milliseconds =
           std::chrono::duration<double, std::milli>(completed_at - entry->requested_at).count();
-      entry->completed = true;
     }
   });
   ray_tracing_.entries.emplace(feature_mask, entry);
@@ -109,9 +187,15 @@ void RayCameraShaderVariantCache::RequestRayTracing(const uint32_t feature_mask)
 void RayCameraShaderVariantCache::RequestRayQuery(const uint32_t feature_mask) {
   if (!ray_query_factory_ || !ray_query_.fallback || ray_query_.entries.find(feature_mask) != ray_query_.entries.end())
     return;
+  for (const auto& [mask, pending] : ray_query_.entries) {
+    const std::lock_guard entry_lock(pending->mutex);
+    if (!pending->published)
+      return;
+  }
   auto entry = std::make_shared<Entry<ComputePipeline>>();
   entry->mask = feature_mask;
   entry->requested_at = std::chrono::steady_clock::now();
+  TouchEntry(entry);
   const auto factory = ray_query_factory_;
   entry->job = Jobs::RunOnRenderThread([entry, factory]() {
     const auto before = Shader::GetCompileCacheStats();
@@ -137,7 +221,6 @@ void RayCameraShaderVariantCache::RequestRayQuery(const uint32_t feature_mask) {
       entry->build_milliseconds = std::chrono::duration<double, std::milli>(completed_at - build_start).count();
       entry->request_to_ready_milliseconds =
           std::chrono::duration<double, std::milli>(completed_at - entry->requested_at).count();
-      entry->completed = true;
     }
   });
   ray_query_.entries.emplace(feature_mask, entry);
@@ -170,7 +253,8 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
   if (const auto search = ray_tracing_.entries.find(feature_mask); search != ray_tracing_.entries.end()) {
     const auto entry = search->second;
     const std::lock_guard entry_lock(entry->mutex);
-    if (entry->completed && entry->success) {
+    if (entry->published && entry->success) {
+      TouchEntry(entry);
       const bool changed = ray_tracing_.active != entry->pipeline;
       ray_tracing_.active = entry->pipeline;
       stats.active_mask = feature_mask;
@@ -184,7 +268,7 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
       stats.activation_count += changed ? 1u : 0u;
       return changed;
     }
-    if (entry->completed) {
+    if (entry->published) {
       if (entry->retry_after_update == 0)
         entry->retry_after_update = update_serial_ + 120u;
       if (update_serial_ >= entry->retry_after_update) {
@@ -257,7 +341,8 @@ bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
   if (const auto search = ray_query_.entries.find(feature_mask); search != ray_query_.entries.end()) {
     const auto entry = search->second;
     const std::lock_guard entry_lock(entry->mutex);
-    if (entry->completed && entry->success) {
+    if (entry->published && entry->success) {
+      TouchEntry(entry);
       const bool changed = ray_query_.active != entry->pipeline;
       ray_query_.active = entry->pipeline;
       stats.active_mask = feature_mask;
@@ -271,7 +356,7 @@ bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
       stats.activation_count += changed ? 1u : 0u;
       return changed;
     }
-    if (entry->completed) {
+    if (entry->published) {
       if (entry->retry_after_update == 0)
         entry->retry_after_update = update_serial_ + 120u;
       if (update_serial_ >= entry->retry_after_update) {
@@ -326,6 +411,8 @@ RayCameraShaderVariantUpdate RayCameraShaderVariantCache::Update(const uint32_t 
   const std::lock_guard lock(mutex_);
   ++update_serial_;
   PollCompletedJobs();
+  ReleaseCompletedSubmissions(ray_tracing_);
+  ReleaseCompletedSubmissions(ray_query_);
   RayCameraShaderVariantUpdate result;
   const auto promoted_mask = PromoteGltfSceneFeatures(feature_mask);
   if (need_ray_tracing)
@@ -334,6 +421,8 @@ RayCameraShaderVariantUpdate RayCameraShaderVariantCache::Update(const uint32_t 
   if (need_ray_query)
     result.ray_query_activated =
         UpdateRayQuery(promoted_mask | (need_ray_query_debug_views ? kRayCameraDebugViewsFeature : 0u));
+  PruneEntries(ray_tracing_, promoted_mask | (need_ray_tracing_debug_views ? kRayCameraDebugViewsFeature : 0u));
+  PruneEntries(ray_query_, promoted_mask | (need_ray_query_debug_views ? kRayCameraDebugViewsFeature : 0u));
   return result;
 }
 
@@ -353,6 +442,10 @@ RayCameraShaderVariantStats RayCameraShaderVariantCache::GetStats(const RayCamer
   result.requested_mask &= kGltfSceneAllFeatures;
   result.active_mask &= kGltfSceneAllFeatures;
   result.shader_cache = Shader::GetCompileCacheStats();
+  if (technique == RayCameraShaderTechnique::RayTracing && ray_tracing_.active)
+    result.pipeline_creation = ray_tracing_.active->GetCreationFeedback();
+  if (technique == RayCameraShaderTechnique::RayQuery && ray_query_.active)
+    result.pipeline_creation = ray_query_.active->GetCreationFeedback();
   return result;
 }
 
@@ -371,6 +464,34 @@ void RayCameraShaderVariantCache::RecordAccumulationReset(const RayCameraShaderT
   const std::lock_guard lock(mutex_);
   auto& stats = technique == RayCameraShaderTechnique::RayTracing ? ray_tracing_.stats : ray_query_.stats;
   ++stats.accumulation_reset_count;
+}
+
+void RayCameraShaderVariantCache::RecordActiveUse(const RayCameraShaderTechnique technique) {
+  const std::lock_guard lock(mutex_);
+  const auto record = [&](auto& state) {
+    ReleaseCompletedSubmissions(state);
+    if (!state.active || state.active == state.fallback)
+      return;
+    for (auto& [mask, entry] : state.entries) {
+      const std::lock_guard entry_lock(entry->mutex);
+      if (entry->pipeline == state.active) {
+        TouchEntry(entry);
+        break;
+      }
+    }
+    const auto frame_index = Platform::GetFrameCount();
+    if (!state.retained_submissions.empty()) {
+      const auto& latest = state.retained_submissions.back();
+      if (latest.frame_index == frame_index && latest.pipeline == state.active)
+        return;
+    }
+    state.retained_submissions.push_back({state.active, Platform::TrackCurrentFrameSubmission(), frame_index});
+    state.stats.retained_submission_count = static_cast<uint32_t>(state.retained_submissions.size());
+  };
+  if (technique == RayCameraShaderTechnique::RayTracing)
+    record(ray_tracing_);
+  else
+    record(ray_query_);
 }
 
 void RayCameraShaderVariantCache::WaitForJobs() {

@@ -5,6 +5,7 @@
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
+#include "VulkanPipelineCache.hpp"
 
 #include <array>
 #include <cstddef>
@@ -332,6 +333,9 @@ class Platform final {
   /// Vulkan logical device handle.
   VkDevice vk_device_ = VK_NULL_HANDLE;
 
+  /// Persistent, device-scoped pipeline cache shared by engine pipeline creation.
+  std::unique_ptr<VulkanPipelineCache> pipeline_cache_{};
+
   /// Vulkan Memory Allocator (VMA) handle.
   VmaAllocator vma_allocator_ = VK_NULL_HANDLE;
 
@@ -482,6 +486,7 @@ class Platform final {
     bool support_shader_float16 = false;
     bool support_ray_tracing_validation = false;
     bool support_async_compute = false;
+    bool support_pipeline_creation_feedback = false;
     uint32_t subgroup_size = 1;
     uint32_t task_subgroup_count = 1;
     uint32_t task_work_group_invocations = 1;
@@ -534,6 +539,14 @@ class Platform final {
    * @return Shared state resolved by the frame lifecycle.
    */
   [[nodiscard]] static std::shared_ptr<FrameSubmissionState> TrackCurrentFrameSubmission();
+
+  static VkResult CreateComputePipeline(const VkComputePipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                        PipelineCreationFeedback& feedback);
+  static VkResult CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                         PipelineCreationFeedback& feedback);
+  static VkResult CreateRayTracingPipeline(const VkRayTracingPipelineCreateInfoKHR& create_info, VkPipeline& pipeline,
+                                           PipelineCreationFeedback& feedback);
+  [[nodiscard]] static VulkanPipelineCacheStats GetPipelineCacheStats();
 
   /**
    * @brief Adds a temporary buffer synchronization action.

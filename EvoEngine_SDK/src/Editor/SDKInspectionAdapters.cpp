@@ -1501,6 +1501,14 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
     const auto stats = render_layer.GetRayCameraShaderVariantStats(technique);
     ImGui::Text("%s: %s -> %s (%s%s)", label, stats.requested_key.c_str(), stats.active_key.c_str(),
                 stats.cache_source.c_str(), stats.pending ? ", pending" : "");
+    ImGui::Text("  variants %u/%u, pending %u, failed %u, retained %u, evictions %llu", stats.resident_variant_count,
+                stats.variant_capacity, stats.pending_build_count, stats.failed_entry_count,
+                stats.retained_submission_count, static_cast<unsigned long long>(stats.eviction_count));
+    ImGui::Text("  pipeline %.2f ms%s%s", stats.pipeline_creation.wall_milliseconds,
+                stats.pipeline_creation.feedback_valid
+                    ? (stats.pipeline_creation.application_cache_hit ? ", cache hit" : ", cache miss")
+                    : ", cache status unknown",
+                stats.pipeline_creation.deferred_used ? ", deferred" : "");
   };
   if (Platform::RayTracingEnabled())
     draw_variant("RTX variant", RayCameraShaderTechnique::RayTracing);

@@ -610,8 +610,10 @@ def evo_command(
     cache_root = paths["cache_root"]
     cache_root.mkdir(parents=True, exist_ok=True)
     shader_cache = cache_root / "ShaderBinaries"
+    pipeline_cache = cache_root / "PipelineCache"
     environment = {
         "EVOENGINE_SHADER_CACHE_DIR": str(shader_cache.resolve()),
+        "EVOENGINE_PIPELINE_CACHE_DIR": str(pipeline_cache.resolve()),
         "EVOENGINE_IMGUI_INI_PATH": str(paths["imgui"].resolve()),
     }
     render_mode = "raytracing" if spec.technique == "rtx" else "rayquery"
@@ -658,7 +660,7 @@ def evo_command(
         command.append("--disable-ray-tracing-pipeline")
     return command, environment, {
         "frontend_cache": spec.cache_state,
-        "application_pipeline_cache": "unsupported_until_m14",
+        "application_pipeline_cache": str(pipeline_cache.resolve()),
         "opaque_driver_cache": "uncontrolled",
         "shader_cache": str(shader_cache.resolve()),
     }

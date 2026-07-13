@@ -1,6 +1,7 @@
 
 #pragma once
 #include "GraphicsResources.hpp"
+#include "VulkanPipelineCache.hpp"
 
 namespace evo_engine {
 
@@ -27,6 +28,8 @@ class RayTracingPipeline final : public IGraphicsResource {
    * @brief Vulkan ray tracing pipeline handle.
    */
   VkPipeline vk_ray_tracing_pipeline_ = VK_NULL_HANDLE;
+
+  PipelineCreationFeedback creation_feedback_{};
 
   /**
    * @brief Shader binding tables for ray generation, miss, and closest-hit shaders.
@@ -94,6 +97,8 @@ class RayTracingPipeline final : public IGraphicsResource {
    * @return true if the pipeline is initialized, otherwise false.
    */
   [[nodiscard]] bool Initialized() const;
+
+  [[nodiscard]] const PipelineCreationFeedback& GetCreationFeedback() const;
 
   /**
    * @brief Binds the ray tracing pipeline to the given command buffer.

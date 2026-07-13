@@ -25,6 +25,7 @@ bool RayTracingPipeline::IsRecursionDepthSupported(const uint32_t requested_dept
 }
 
 void RayTracingPipeline::Initialize() {
+  creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
   if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
@@ -166,11 +167,18 @@ void RayTracingPipeline::Initialize() {
   }
   raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = max_recursion_depth_;
   try {
-    Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
-                                                     &raytracing_pipeline_create_info, nullptr,
-                                                     &vk_ray_tracing_pipeline_));
+    if (Platform::CheckVk(Platform::CreateRayTracingPipeline(raytracing_pipeline_create_info, vk_ray_tracing_pipeline_,
+                                                             creation_feedback_)) != VK_SUCCESS) {
+      EVOENGINE_ERROR("Failed to build ray tracing pipeline.");
+      if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE)
+        vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
+      vk_ray_tracing_pipeline_ = nullptr;
+      return;
+    }
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to build ray tracing pipeline: ") + error.what());
+    if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE)
+      vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
     vk_ray_tracing_pipeline_ = nullptr;
     return;
   }
@@ -206,6 +214,7 @@ void RayTracingPipeline::Initialize() {
                                                            group_count, sbt_size, shader_handle_storage.data()));
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to create ray tracing shader group handles: ") + error.what());
+    vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
     vk_ray_tracing_pipeline_ = nullptr;
     return;
   }
@@ -217,6 +226,10 @@ void RayTracingPipeline::Initialize() {
 
 bool RayTracingPipeline::Initialized() const {
   return vk_ray_tracing_pipeline_ != VK_NULL_HANDLE;
+}
+
+const PipelineCreationFeedback& RayTracingPipeline::GetCreationFeedback() const {
+  return creation_feedback_;
 }
 
 void RayTracingPipeline::Bind(const VkCommandBuffer vk_command_buffer) const {
