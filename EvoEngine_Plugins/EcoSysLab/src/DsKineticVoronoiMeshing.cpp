@@ -204,6 +204,387 @@ glm::vec3 ToVec3(const glm::dvec3& a) {
   return glm::vec3(static_cast<float>(a[0]), static_cast<float>(a[1]), static_cast<float>(a[2]));
 }
 
+struct StrandCrossSectionGuidePoint {
+  glm::dvec2 profile_position;
+  SkeletonNodeHandle node_handle;
+  StrandSegmentHandle segment_handle = -1;
+  double root_distance = 0.0;
+};
+
+namespace {
+
+/// Profile-plane to model-space transform for an internode, matching @ref StrandModel::ApplyProfile and kinDS local (x, 0, y).
+glm::dmat4 BuildInternodeProfileTransform(const StrandModelSkeleton& skeleton, SkeletonNodeHandle node_handle) {
+  if (node_handle < 0 || node_handle >= static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
+    return glm::dmat4(1.0);
+  }
+
+  const auto& node = skeleton.PeekNode(node_handle);
+  const glm::vec3 left_f = node.info.regulated_global_rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+  const glm::vec3 up_f = node.info.regulated_global_rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+  const glm::vec3 front_f = node.info.regulated_global_rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+  const glm::dvec3 left(left_f);
+  const glm::dvec3 up(up_f);
+  const glm::dvec3 front(front_f);
+  const double radius = node.data.strand_radius;
+  const glm::dvec3 origin(node.info.GetGlobalEndPosition());
+
+  glm::dmat4 transform(1.0);
+  transform[0] = glm::dvec4(left * radius, 0.0);
+  transform[1] = glm::dvec4(front, 0.0);
+  transform[2] = glm::dvec4(up * radius, 0.0);
+  transform[3] = glm::dvec4(origin, 1.0);
+  return transform;
+}
+
+glm::dmat4 MixAffineTransforms(const glm::dmat4& lower, const glm::dmat4& upper, double fraction) {
+  const double t = glm::clamp(fraction, 0.0, 1.0);
+  glm::dmat4 result(1.0);
+  for (int column = 0; column < 4; ++column) {
+    result[column] = glm::mix(lower[column], upper[column], t);
+  }
+  return result;
+}
+
+glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(
+    const StrandModelSkeleton& skeleton, const std::vector<StrandCrossSectionGuidePoint>& guide_points, size_t height) {
+  if (guide_points.empty()) {
+    return glm::dmat4(1.0);
+  }
+
+  const size_t clamped_height = std::min(height, guide_points.size() - 1);
+  const SkeletonNodeHandle current_internode = guide_points[clamped_height].node_handle;
+
+  size_t internode_run_start = clamped_height;
+  while (internode_run_start > 0 && guide_points[internode_run_start - 1].node_handle == current_internode) {
+    --internode_run_start;
+  }
+
+  size_t internode_run_end = clamped_height;
+  while (internode_run_end + 1 < guide_points.size() &&
+         guide_points[internode_run_end + 1].node_handle == current_internode) {
+    ++internode_run_end;
+  }
+
+  const glm::dmat4 current_internode_transform = BuildInternodeProfileTransform(skeleton, current_internode);
+
+  SkeletonNodeHandle previous_internode = -1;
+  if (internode_run_start > 0) {
+    previous_internode = guide_points[internode_run_start - 1].node_handle;
+  } else if (current_internode >= 0 &&
+             current_internode < static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
+    previous_internode = skeleton.PeekNode(current_internode).GetParentHandle();
+  }
+
+  if (previous_internode < 0) {
+    return current_internode_transform;
+  }
+
+  const glm::dmat4 previous_internode_transform = BuildInternodeProfileTransform(skeleton, previous_internode);
+
+  // Cross-section h uses guide_points[h], which lies at the end of uniform segment h-1 (or strand start at h=0).
+  // The internode transition begins one step earlier: guide[internode_run_start - 1] marks the junction with the
+  // previous internode, while guide[internode_run_start..internode_run_end] share the current internode handle.
+  const double start_distance = internode_run_start > 0 ? guide_points[internode_run_start - 1].root_distance
+                                                        : guide_points[0].root_distance;
+  const double end_distance = guide_points[internode_run_end].root_distance;
+  if (end_distance <= start_distance + glm::epsilon<double>()) {
+    return current_internode_transform;
+  }
+
+  const double fraction = (guide_points[clamped_height].root_distance - start_distance) / (end_distance - start_distance);
+  return MixAffineTransforms(previous_internode_transform, current_internode_transform, fraction);
+}
+
+// Legacy affine-fit helpers (retained for comparison; no longer used in InitData).
+[[maybe_unused]] glm::dmat4 FitGlobalProfileToModelTransformAtHeight(
+    int h, const std::vector<std::vector<size_t>>& sorted_segments,
+    const DtsStrandGroup& uniformly_subdivided_strand_group) {
+  const auto& segments = sorted_segments[h == 0 ? 0 : (h - 1)];
+
+  std::function<glm::vec3(size_t)> get_point = [&](size_t idx) {
+    size_t segment_handle = segments[idx];
+    const auto& segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
+    return glm::vec3(segment_data.profile_position.x, 0.0f, segment_data.profile_position.y);
+  };
+
+  std::optional<std::array<size_t, 3>> triple_opt = FindNonCollinearTriple(get_point, segments.size());
+
+  glm::vec3 p0_profile, p1_profile, p2_profile;
+  glm::vec3 p0_global, p1_global, p2_global;
+
+  if (!triple_opt.has_value()) {
+    std::optional<std::array<size_t, 2>> pair_opt = FindNonIdenticalPair(get_point, segments.size());
+
+    StrandSegmentHandle first_segment_handle = segments[0];
+    const auto& first_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
+    const auto& first_segment = uniformly_subdivided_strand_group.PeekStrandSegment(first_segment_handle);
+    const auto& strand = uniformly_subdivided_strand_group.PeekStrand(first_segment.GetStrandHandle());
+    StrandSegmentHandle next_segment_handle = first_segment.GetNextHandle();
+
+    float normal_sign = 1.0f;
+    glm::vec3 normal_global;
+
+    if (h != 0) {
+      if (next_segment_handle == -1) {
+        next_segment_handle = first_segment.GetPrevHandle();
+        normal_sign = -1.0f;
+      }
+
+      const auto& next_segment = uniformly_subdivided_strand_group.PeekStrandSegment(next_segment_handle);
+      normal_global = normal_sign * glm::normalize(next_segment.end_position - first_segment.end_position);
+    } else {
+      normal_global = normal_sign * glm::normalize(strand.start_position - first_segment.end_position);
+    }
+
+    glm::vec3 u_global;
+    glm::vec3 v_global;
+    glm::vec3 u_profile;
+    glm::vec3 v_profile;
+
+    if (!pair_opt.has_value()) {
+      u_global = glm::normalize(glm::cross(normal_global, glm::vec3(1.0f, 0.0f, 0.0f)));
+      if (glm::length(u_global) < glm::epsilon<float>()) {
+        u_global = glm::normalize(glm::cross(normal_global, glm::vec3(0.0f, 0.0f, 1.0f)));
+      }
+      v_global = glm::normalize(glm::cross(normal_global, u_global));
+
+      if (h != 0) {
+        p0_global = first_segment.end_position;
+      } else {
+        p0_global = strand.start_position;
+      }
+      p1_global = p0_global + u_global;
+      p0_profile = glm::vec3(first_segment_data.profile_position.x, 0.0f, first_segment_data.profile_position.y);
+      p1_profile = p0_profile + glm::vec3(1.0f, 0.0f, 0.0f);
+    } else {
+      const auto& pair = pair_opt.value();
+      size_t p0_idx = pair[0];
+      size_t p1_idx = pair[1];
+
+      const glm::vec2& p0_profile_2d =
+          uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[p0_idx]).profile_position;
+      p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
+
+      const glm::vec2& p1_profile_2d =
+          uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[p1_idx]).profile_position;
+      p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
+
+      if (h != 0) {
+        p0_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[p0_idx]).end_position;
+        p1_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[p1_idx]).end_position;
+      } else {
+        p0_global =
+            uniformly_subdivided_strand_group
+                .PeekStrand(uniformly_subdivided_strand_group.PeekStrandSegment(segments[p0_idx]).GetStrandHandle())
+                .start_position;
+        p1_global =
+            uniformly_subdivided_strand_group
+                .PeekStrand(uniformly_subdivided_strand_group.PeekStrandSegment(segments[p1_idx]).GetStrandHandle())
+                .start_position;
+      }
+
+      u_profile = glm::normalize(p1_profile - p0_profile);
+      u_global = glm::normalize(p1_global - p0_global);
+      v_profile = glm::normalize(glm::cross(normal_global, u_profile));
+      v_global = glm::normalize(glm::cross(normal_global, u_global));
+    }
+
+    p2_global = p0_global + v_global;
+    p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);
+  } else {
+    const auto& triple = triple_opt.value();
+
+    const glm::vec2 p0_profile_2d =
+        uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[0]]).profile_position;
+    p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
+
+    const glm::vec2& p1_profile_2d =
+        uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[1]]).profile_position;
+    p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
+
+    const glm::vec2& p2_profile_2d =
+        uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[2]]).profile_position;
+    p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
+
+    if (h != 0) {
+      p0_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[0]]).end_position;
+      p1_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[1]]).end_position;
+      p2_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[2]]).end_position;
+    } else {
+      p0_global =
+          uniformly_subdivided_strand_group
+              .PeekStrand(uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[0]]).GetStrandHandle())
+              .start_position;
+      p1_global =
+          uniformly_subdivided_strand_group
+              .PeekStrand(uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[1]]).GetStrandHandle())
+              .start_position;
+      p2_global =
+          uniformly_subdivided_strand_group
+              .PeekStrand(uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[2]]).GetStrandHandle())
+              .start_position;
+    }
+  }
+
+  return ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
+}
+
+[[maybe_unused]] glm::dmat4 FitBranchProfileToModelTransformAtHeight(
+    int h, size_t branch_index, const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id,
+    const std::vector<std::vector<StrandCrossSectionGuidePoint>>& strand_guide_points,
+    const DtsStrandGroup& uniformly_subdivided_strand_group) {
+  const auto& strand_ids = strands_by_branch_id[h][branch_index];
+  if (strand_ids.empty()) {
+    return glm::dmat4(1.0);
+  }
+
+  std::function<glm::vec3(size_t)> get_point = [&](size_t idx) {
+    size_t strand_id = strand_ids[idx];
+    const auto& segment_data =
+        uniformly_subdivided_strand_group.PeekStrandSegmentData(strand_guide_points[strand_id][h].segment_handle);
+    return glm::vec3(segment_data.profile_position.x, 0.0f, segment_data.profile_position.y);
+  };
+
+  std::optional<std::array<size_t, 3>> triple_opt = FindNonCollinearTriple(get_point, strand_ids.size());
+
+  glm::vec3 p0_profile, p1_profile, p2_profile;
+  glm::vec3 p0_global, p1_global, p2_global;
+
+  if (!triple_opt.has_value()) {
+    std::optional<std::array<size_t, 2>> pair_opt = FindNonIdenticalPair(get_point, strand_ids.size());
+
+    StrandSegmentHandle first_segment_handle = strand_guide_points[strand_ids[0]][h].segment_handle;
+    const auto& first_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
+    const auto& first_segment = uniformly_subdivided_strand_group.PeekStrandSegment(first_segment_handle);
+    const auto& strand = uniformly_subdivided_strand_group.PeekStrand(first_segment.GetStrandHandle());
+    StrandSegmentHandle next_segment_handle = first_segment.GetNextHandle();
+
+    float normal_sign = 1.0f;
+    glm::vec3 normal_global;
+
+    if (h != 0) {
+      if (next_segment_handle == -1) {
+        next_segment_handle = first_segment.GetPrevHandle();
+        normal_sign = -1.0f;
+      }
+
+      const auto& next_segment = uniformly_subdivided_strand_group.PeekStrandSegment(next_segment_handle);
+      normal_global = normal_sign * glm::normalize(next_segment.end_position - first_segment.end_position);
+    } else {
+      normal_global = normal_sign * glm::normalize(strand.start_position - first_segment.end_position);
+    }
+
+    glm::vec3 u_global;
+    glm::vec3 v_global;
+
+    if (!pair_opt.has_value()) {
+      u_global = glm::normalize(glm::cross(normal_global, glm::vec3(1.0f, 0.0f, 0.0f)));
+      if (glm::length(u_global) < glm::epsilon<float>()) {
+        u_global = glm::normalize(glm::cross(normal_global, glm::vec3(0.0f, 0.0f, 1.0f)));
+      }
+      v_global = glm::normalize(glm::cross(normal_global, u_global));
+
+      if (h != 0) {
+        p0_global = first_segment.end_position;
+      } else {
+        p0_global = strand.start_position;
+      }
+      p1_global = p0_global + u_global;
+      p0_profile = glm::vec3(first_segment_data.profile_position.x, 0.0f, first_segment_data.profile_position.y);
+      p1_profile = p0_profile + glm::vec3(1.0f, 0.0f, 0.0f);
+    } else {
+      const auto& pair = pair_opt.value();
+      const glm::vec2& p0_profile_2d = uniformly_subdivided_strand_group
+                                           .PeekStrandSegmentData(strand_guide_points[strand_ids[pair[0]]][h].segment_handle)
+                                           .profile_position;
+      p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
+
+      const glm::vec2& p1_profile_2d = uniformly_subdivided_strand_group
+                                           .PeekStrandSegmentData(strand_guide_points[strand_ids[pair[1]]][h].segment_handle)
+                                           .profile_position;
+      p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
+
+      if (h != 0) {
+        p0_global = uniformly_subdivided_strand_group
+                        .PeekStrandSegment(strand_guide_points[strand_ids[pair[0]]][h].segment_handle)
+                        .end_position;
+        p1_global = uniformly_subdivided_strand_group
+                        .PeekStrandSegment(strand_guide_points[strand_ids[pair[1]]][h].segment_handle)
+                        .end_position;
+      } else {
+        p0_global = uniformly_subdivided_strand_group
+                        .PeekStrand(uniformly_subdivided_strand_group
+                                        .PeekStrandSegment(strand_guide_points[strand_ids[pair[0]]][h].segment_handle)
+                                        .GetStrandHandle())
+                        .start_position;
+        p1_global = uniformly_subdivided_strand_group
+                        .PeekStrand(uniformly_subdivided_strand_group
+                                        .PeekStrandSegment(strand_guide_points[strand_ids[pair[1]]][h].segment_handle)
+                                        .GetStrandHandle())
+                        .start_position;
+      }
+
+      glm::vec3 u_profile = glm::normalize(p1_profile - p0_profile);
+      (void)u_profile;
+      glm::vec3 u_global_dir = glm::normalize(p1_global - p0_global);
+      v_global = glm::normalize(glm::cross(normal_global, u_global_dir));
+    }
+
+    p2_global = p0_global + v_global;
+    p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);
+  } else {
+    const auto& triple = triple_opt.value();
+
+    const glm::vec2 p0_profile_2d = uniformly_subdivided_strand_group
+                                        .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+                                        .profile_position;
+    p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
+
+    const glm::vec2& p1_profile_2d = uniformly_subdivided_strand_group
+                                       .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+                                       .profile_position;
+    p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
+
+    const glm::vec2& p2_profile_2d = uniformly_subdivided_strand_group
+                                       .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+                                       .profile_position;
+    p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
+
+    if (h != 0) {
+      p0_global = uniformly_subdivided_strand_group
+                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+                      .end_position;
+      p1_global = uniformly_subdivided_strand_group
+                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+                      .end_position;
+      p2_global = uniformly_subdivided_strand_group
+                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+                      .end_position;
+    } else {
+      p0_global = uniformly_subdivided_strand_group
+                      .PeekStrand(uniformly_subdivided_strand_group
+                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+                                      .GetStrandHandle())
+                      .start_position;
+      p1_global = uniformly_subdivided_strand_group
+                      .PeekStrand(uniformly_subdivided_strand_group
+                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+                                      .GetStrandHandle())
+                      .start_position;
+      p2_global = uniformly_subdivided_strand_group
+                      .PeekStrand(uniformly_subdivided_strand_group
+                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+                                      .GetStrandHandle())
+                      .start_position;
+    }
+  }
+
+  return ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
+}
+
+}  // namespace
+
 kinDS::VoronoiMesh DsKineticVoronoiMeshing::TransformBoundaryMesh(
     const kinDS::VoronoiMesh& boundary_mesh,
     const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
@@ -710,27 +1091,9 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       },
       (initialize_parameters.min_segment_length + initialize_parameters.max_segment_length) * .5f * .01f);
 
-  struct GuidePoint {
-    glm::dvec2 profile_position;
-    SkeletonNodeHandle node_handle;
-    StrandSegmentHandle segment_handle;
-  };
-
-  std::vector<std::vector<GuidePoint>> strand_guide_points(randomly_subdivided_strands.size());
-  std::vector<int> uniform_particle_offsets(randomly_subdivided_strands.size());
-  if (!uniform_particle_offsets.empty())
-    uniform_particle_offsets[0] = 0;
-  for (uint32_t strand_index = 1; strand_index < randomly_subdivided_strands.size(); strand_index++) {
-    uniform_particle_offsets[strand_index] =
-        uniform_particle_offsets[strand_index - 1] +
-        uniformly_subdivided_strand_group.PeekStrand(strand_index - 1).PeekStrandSegmentHandles().size() + 1;
-  }
-
+  std::vector<std::vector<StrandCrossSectionGuidePoint>> strand_guide_points(randomly_subdivided_strands.size());
   std::vector<std::vector<int>> randomly_subdivided_segment_handles(randomly_subdivided_strands.size());
   std::vector<std::vector<double>> random_subdivisions_by_strand(randomly_subdivided_strands.size());
-
-  // for debugging
-  std::vector<std::vector<double>> uniform_subdivisions_by_strand(randomly_subdivided_strands.size());
 
   int maxSegmentCount = std::numeric_limits<int>::min();
   std::mutex m;
@@ -744,49 +1107,33 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     auto& random_subdivided_strand = randomly_subdivided_strands[strand_index];
     auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
 
-    const auto uniform_particle_offset = uniform_particle_offsets[strand_index];
+    size_t first_segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[0];
+    const auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
 
-    size_t segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[0];
-    auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-    auto node_handle = first_uniform_segment_data.node_handle;
+    StrandCrossSectionGuidePoint first_guide_point;
+    first_guide_point.profile_position =
+        glm::dvec2(first_uniform_segment_data.profile_position.x, first_uniform_segment_data.profile_position.y);
+    first_guide_point.node_handle = first_uniform_segment_data.node_handle;
+    first_guide_point.segment_handle = first_segment_handle;
+    first_guide_point.root_distance = first_uniform_segment_data.start_root_distance;
+    strand_guide_points[strand_index].push_back(first_guide_point);
 
-    // First 2 particles within same strand will always have same profile position/polar coordinate.
-    glm::dvec2 profile_position{first_uniform_segment_data.profile_position.x,
-                                first_uniform_segment_data.profile_position.y};
-    GuidePoint guide_point;
-    guide_point.profile_position = profile_position;
-    guide_point.node_handle = node_handle;
-    guide_point.segment_handle = segment_handle;
-
-    strand_guide_points[strand_index].push_back(guide_point);
-
-    int last_index_with_new_node = 0;
-    float previous_root_distance = 0.0f;
     updateMax(maxSegmentCount, uniformly_subdivided_strand.PeekStrandSegmentHandles().size());
     for (int uniform_segment_index = 0;
          uniform_segment_index < uniformly_subdivided_strand.PeekStrandSegmentHandles().size();
          uniform_segment_index++) {
       size_t segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[uniform_segment_index];
       const auto& uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-      const auto& uniform_segment = uniformly_subdivided_strand_group.PeekStrandSegment(segment_handle);
-      auto node_handle = uniform_segment_data.node_handle;
-      glm::dvec2 profile_position{uniform_segment_data.profile_position.x, uniform_segment_data.profile_position.y};
 
-      /* if (uniform_segment_data.segment_index != strand_guide_points[strand_index].size()) {
-        EVOENGINE_WARNING(std::string("Deviation detected in guide point generation: guide point no. " +
-                                      std::to_string(strand_guide_points[strand_index].size()) + " has distance " +
-                                      std::to_string(uniform_segment_data.segment_index)));
-      }*/
-      GuidePoint guide_point;
-      guide_point.profile_position = profile_position;
-      guide_point.node_handle = node_handle;
+      StrandCrossSectionGuidePoint guide_point;
+      guide_point.profile_position =
+          glm::dvec2(uniform_segment_data.profile_position.x, uniform_segment_data.profile_position.y);
+      guide_point.node_handle = uniform_segment_data.node_handle;
       guide_point.segment_handle = segment_handle;
-
+      guide_point.root_distance = uniform_segment_data.end_root_distance;
       strand_guide_points[strand_index].push_back(guide_point);
-      uniform_subdivisions_by_strand[strand_index].push_back(uniform_segment.end_t);
     }
 
-    // Iterate through randomly subdivided segments to obtain segment indices and subdivisions
     for (int random_segment_index = 0;
          random_segment_index < random_subdivided_strand.PeekStrandSegmentHandles().size(); random_segment_index++) {
       size_t segment_handle = random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_index];
@@ -794,9 +1141,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       const auto& random_segment_data = randomly_subdivided_strand_group.PeekStrandSegmentData(
           random_subdivided_strand.PeekStrandSegmentHandles()[random_segment_index]);
 
-      randomly_subdivided_segment_handles[strand_index].push_back(segment_handle);
+      randomly_subdivided_segment_handles[strand_index].push_back(static_cast<int>(segment_handle));
 
-      // scale parameters to subdivision
       if (!isnan(segment.end_t)) {
         random_subdivisions_by_strand[strand_index].push_back(
             initialize_parameters.uniform_subdivision * (segment.end_t + random_segment_data.original_segment_index));
@@ -804,193 +1150,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     }
   });
 
-  // Sort profile positions and global positions by t (TODO: should be by node index later). This needs to be sequential
-  // because push_back is not thread-safe.
-  size_t node_count = strand_model_skeleton.PeekRawNodes().size();
-  std::vector<std::vector<size_t>> sorted_segments(maxSegmentCount);
-
-  for (size_t strand_index = 0; strand_index < randomly_subdivided_strands.size(); ++strand_index) {
-    auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
-    Jobs::RunParallelFor(
-        uniformly_subdivided_strand.PeekStrandSegmentHandles().size(), [&](const size_t segment_index) {
-          size_t segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[segment_index];
-          const auto& segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-          const auto& segment = uniformly_subdivided_strand_group.PeekStrandSegment(segment_handle);
-          // glm::vec3 global_position = segment.end_position;
-          // sorted_positions[segment_index].push_back({glm::vec3(segment_data.profile_position, 0.0f),
-          // global_position});
-          sorted_segments[segment_index].push_back(segment_handle);
-        });
-  }
-
-  std::vector<glm::dmat4> profile_to_model_transforms(maxSegmentCount + 1);
-
-  // create a file for debugging global vs profile positions
-  /*std::ofstream debug_file("profile_to_global_debug.csv");
-  // create header
-  debug_file << "segment_index,p0_profile.x,p0_profile.y,p0_profile.z,p0_global.x,p0_global.y,p0_global.z,"
-                "p1_profile.x,p1_profile.y,p1_profile.z,p1_global.x,p1_global.y,p1_global.z,"
-                "p2_profile.x,p2_profile.y,p2_profile.z,p2_global.x,p2_global.y,p2_global.z\n";*/
-
-  // we need to treat the first transform separately as it derives from the start points of the first segments
-  const auto& strands = uniformly_subdivided_strand_group.PeekStrands();
-
-  auto get_transforms = [&](int h) {
-    if (h >= profile_to_model_transforms.size()) {
-      EVOENGINE_ERROR("Segment index out of bounds!");
-      return;
-    }
-
-    const auto& segments = sorted_segments[h == 0 ? 0 : (h - 1)];
-
-    std::function<glm::vec3(size_t)> get_point = [&](size_t idx) {
-      size_t segment_handle = segments[idx];
-      const auto& segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-      return glm::vec3(segment_data.profile_position.x, 0.0f, segment_data.profile_position.y);
-    };
-
-    std::optional<std::array<size_t, 3>> triple_opt = FindNonCollinearTriple(get_point, segments.size());
-
-    glm::vec3 p0_profile, p1_profile, p2_profile;
-    glm::vec3 p0_global, p1_global, p2_global;
-
-    if (!triple_opt.has_value()) {
-      // use normal to get a transformation
-      // find non-identical pair
-      std::optional<std::array<size_t, 2>> pair_opt = FindNonIdenticalPair(get_point, segments.size());
-
-      // get normal from first segment
-      StrandSegmentHandle first_segment_handle = segments[0];
-      const auto& first_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
-      const auto& first_segment = uniformly_subdivided_strand_group.PeekStrandSegment(first_segment_handle);
-      const auto& strand = uniformly_subdivided_strand_group.PeekStrand(first_segment.GetStrandHandle());
-      StrandSegmentHandle next_segment_handle = first_segment.GetNextHandle();
-
-      float normal_sign = 1.0f;
-      glm::vec3 normal_global;
-
-      if (h != 0) {
-        // TODO: is this always safe? We could have a strand with only one segment.
-        if (next_segment_handle == -1) {
-          next_segment_handle = first_segment.GetPrevHandle();
-          normal_sign = -1.0f;
-        }
-
-        const auto& next_segment = uniformly_subdivided_strand_group.PeekStrandSegment(next_segment_handle);
-
-        normal_global = normal_sign * glm::normalize(next_segment.end_position - first_segment.end_position);
-      } else {
-        // use strand start position instead
-        normal_global = normal_sign * glm::normalize(strand.start_position - first_segment.end_position);
-      }
-
-      glm::vec3 u_global;
-      glm::vec3 v_global;
-
-      glm::vec3 u_profile;
-      glm::vec3 v_profile;
-
-      if (!pair_opt.has_value()) {
-        // all points identical, use normal and two arbitrary orthogonal vectors
-        u_global = glm::normalize(glm::cross(normal_global, glm::vec3(1.0f, 0.0f, 0.0f)));
-        if (glm::length(u_global) < glm::epsilon<float>()) {
-          u_global = glm::normalize(glm::cross(normal_global, glm::vec3(0.0f, 0.0f, 1.0f)));
-        }
-        v_global = glm::normalize(glm::cross(normal_global, u_global));
-
-        if (h != 0) {
-          p0_global = first_segment.end_position;
-        } else {
-          p0_global = strand.start_position;
-        }
-        p1_global = p0_global + u_global;
-        p0_profile = glm::vec3(first_segment_data.profile_position.x, 0.0f, first_segment_data.profile_position.y);
-        p1_profile = p0_profile + glm::vec3(1.0f, 0.0f, 0.0f);
-      } else {
-        const auto& pair = pair_opt.value();
-        // use the pair to define u direction
-        size_t p0_idx = pair[0];
-        size_t p1_idx = pair[1];
-
-        const glm::vec2& p0_profile_2d =
-            uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[p0_idx]).profile_position;
-        p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
-
-        const glm::vec2& p1_profile_2d =
-            uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[p1_idx]).profile_position;
-        p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
-
-        if (h != 0) {
-          p0_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[p0_idx]).end_position;
-          p1_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[p1_idx]).end_position;
-        } else {
-          auto& p0_strand =
-              strands[uniformly_subdivided_strand_group.PeekStrandSegment(segments[p0_idx]).GetStrandHandle()];
-          auto& p1_strand =
-              strands[uniformly_subdivided_strand_group.PeekStrandSegment(segments[p1_idx]).GetStrandHandle()];
-
-          p0_global = p0_strand.start_position;
-          p1_global = p1_strand.start_position;
-        }
-
-        u_profile = glm::normalize(p1_profile - p0_profile);
-        u_global = glm::normalize(p1_global - p0_global);
-        v_profile = glm::normalize(glm::cross(normal_global, u_profile));
-        v_global = glm::normalize(glm::cross(normal_global, u_global));
-      }
-
-      p2_global = p0_global + v_global;
-      p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);  // TODO: is this correct?
-    } else {
-      const auto& triple = triple_opt.value();
-
-      // now get the end positions and profile positions of the three segments
-      const glm::vec2 p0_profile_2d =
-          uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[0]]).profile_position;
-      p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
-
-      const glm::vec2& p1_profile_2d =
-          uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[1]]).profile_position;
-      p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
-
-      const glm::vec2& p2_profile_2d =
-          uniformly_subdivided_strand_group.PeekStrandSegmentData(segments[triple[2]]).profile_position;
-      p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
-
-      if (h != 0) {
-        p0_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[0]]).end_position;
-        p1_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[1]]).end_position;
-        p2_global = uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[2]]).end_position;
-      } else {
-        auto& p0_strand =
-            strands[uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[0]]).GetStrandHandle()];
-        auto& p1_strand =
-            strands[uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[1]]).GetStrandHandle()];
-        auto& p2_strand =
-            strands[uniformly_subdivided_strand_group.PeekStrandSegment(segments[triple[2]]).GetStrandHandle()];
-        p0_global = p0_strand.start_position;
-        p1_global = p1_strand.start_position;
-        p2_global = p2_strand.start_position;
-      }
-    }
-
-    /*debug_file << segment_index << "," << p0_profile.x << "," << p0_profile.y << "," << p0_profile.z << ","
-               << p0_global.x << "," << p0_global.y << "," << p0_global.z << "," << p1_profile.x << "," << p1_profile.y
-               << "," << p1_profile.z << "," << p1_global.x << "," << p1_global.y << "," << p1_global.z << ","
-               << p2_profile.x << "," << p2_profile.y << "," << p2_profile.z << "," << p2_global.x << "," << p2_global.y
-               << "," << p2_global.z << "\n";*/
-
-    profile_to_model_transforms[h] =
-        ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
-  };
-
-  Jobs::RunParallelFor(maxSegmentCount + 1, [&](const size_t segment_index) {
-    get_transforms(segment_index);
-  });
-
   // Create a branch index lookup using [strand_id][h]
   std::vector<std::vector<size_t>> branch_indices(strand_guide_points.size());
-  size_t last_branch_index = 0;
   // Maintain the branches as [h][branch_id][strand_no]
   std::vector<std::vector<std::vector<size_t>>> strands_by_branch_id(maxSegmentCount + 1);
 
@@ -1091,205 +1252,29 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     std::cout << std::endl;
   }*/
 
-  // re-order transforms by height and branch
   std::vector<std::vector<glm::dmat4>> transforms_by_height_and_branch(maxSegmentCount + 1);
-
-  auto get_branch_transforms = [&](size_t branch_index, int h) {
-    if (h >= profile_to_model_transforms.size()) {
-      EVOENGINE_ERROR("Segment index out of bounds!");
-      return;
-    }
-
-    const auto& strand_ids = strands_by_branch_id[h][branch_index];
-
-    if (strand_ids.empty()) {
-      return;
-    }
-
-    std::function<glm::vec3(size_t)> get_point = [&](size_t idx) {
-      size_t strand_id = strand_ids[idx];
-      size_t segment_handle = strand_guide_points[strand_id][h].segment_handle;
-      const auto& segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(segment_handle);
-      return glm::vec3(segment_data.profile_position.x, 0.0f, segment_data.profile_position.y);
-    };
-
-    std::optional<std::array<size_t, 3>> triple_opt = FindNonCollinearTriple(get_point, strand_ids.size());
-
-    glm::vec3 p0_profile, p1_profile, p2_profile;
-    glm::vec3 p0_global, p1_global, p2_global;
-
-    if (!triple_opt.has_value()) {
-      // use normal to get a transformation
-      // find non-identical pair
-      std::optional<std::array<size_t, 2>> pair_opt = FindNonIdenticalPair(get_point, strand_ids.size());
-
-      // get normal from first segment
-      StrandSegmentHandle first_segment_handle = strand_guide_points[strand_ids[0]][h].segment_handle;
-      const auto& first_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
-      const auto& first_segment = uniformly_subdivided_strand_group.PeekStrandSegment(first_segment_handle);
-      const auto& strand = uniformly_subdivided_strand_group.PeekStrand(first_segment.GetStrandHandle());
-      StrandSegmentHandle next_segment_handle = first_segment.GetNextHandle();
-
-      float normal_sign = 1.0f;
-      glm::vec3 normal_global;
-
-      if (h != 0) {
-        // TODO: is this always safe? We could have a strand with only one segment.
-        if (next_segment_handle == -1) {
-          next_segment_handle = first_segment.GetPrevHandle();
-          normal_sign = -1.0f;
-        }
-
-        const auto& next_segment = uniformly_subdivided_strand_group.PeekStrandSegment(next_segment_handle);
-
-        normal_global = normal_sign * glm::normalize(next_segment.end_position - first_segment.end_position);
-      } else {
-        // use strand start position instead
-        normal_global = normal_sign * glm::normalize(strand.start_position - first_segment.end_position);
-      }
-
-      glm::vec3 u_global;
-      glm::vec3 v_global;
-
-      glm::vec3 u_profile;
-      glm::vec3 v_profile;
-
-      if (!pair_opt.has_value()) {
-        // all points identical, use normal and two arbitrary orthogonal vectors
-        u_global = glm::normalize(glm::cross(normal_global, glm::vec3(1.0f, 0.0f, 0.0f)));
-        if (glm::length(u_global) < glm::epsilon<float>()) {
-          u_global = glm::normalize(glm::cross(normal_global, glm::vec3(0.0f, 0.0f, 1.0f)));
-        }
-        v_global = glm::normalize(glm::cross(normal_global, u_global));
-
-        if (h != 0) {
-          p0_global = first_segment.end_position;
-        } else {
-          p0_global = strand.start_position;
-        }
-        p1_global = p0_global + u_global;
-        p0_profile = glm::vec3(first_segment_data.profile_position.x, 0.0f, first_segment_data.profile_position.y);
-        p1_profile = p0_profile + glm::vec3(1.0f, 0.0f, 0.0f);
-      } else {
-        const auto& pair = pair_opt.value();
-        // use the pair to define u direction
-        size_t p0_idx = pair[0];
-        size_t p1_idx = pair[1];
-
-        const glm::vec2& p0_profile_2d =
-            uniformly_subdivided_strand_group
-                .PeekStrandSegmentData(strand_guide_points[strand_ids[p0_idx]][h].segment_handle)
-                .profile_position;
-        p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
-
-        const glm::vec2& p1_profile_2d =
-            uniformly_subdivided_strand_group
-                .PeekStrandSegmentData(strand_guide_points[strand_ids[p1_idx]][h].segment_handle)
-                .profile_position;
-        p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
-
-        if (h != 0) {
-          p0_global = uniformly_subdivided_strand_group
-                          .PeekStrandSegment(strand_guide_points[strand_ids[p0_idx]][h].segment_handle)
-                          .end_position;
-          p1_global = uniformly_subdivided_strand_group
-                          .PeekStrandSegment(strand_guide_points[strand_ids[p1_idx]][h].segment_handle)
-                          .end_position;
-        } else {
-          auto& p0_strand = strands[uniformly_subdivided_strand_group
-                                        .PeekStrandSegment(strand_guide_points[strand_ids[p0_idx]][h].segment_handle)
-                                        .GetStrandHandle()];
-          auto& p1_strand = strands[uniformly_subdivided_strand_group
-                                        .PeekStrandSegment(strand_guide_points[strand_ids[p1_idx]][h].segment_handle)
-                                        .GetStrandHandle()];
-
-          p0_global = p0_strand.start_position;
-          p1_global = p1_strand.start_position;
-        }
-
-        u_profile = glm::normalize(p1_profile - p0_profile);
-        u_global = glm::normalize(p1_global - p0_global);
-        v_profile = glm::normalize(glm::cross(normal_global, u_profile));
-        v_global = glm::normalize(glm::cross(normal_global, u_global));
-      }
-
-      p2_global = p0_global + v_global;
-      p2_profile = p0_profile + glm::vec3(0.0f, 0.0f, 1.0f);  // TODO: is this correct?
-    } else {
-      const auto& triple = triple_opt.value();
-
-      // now get the end positions and profile positions of the three segments
-      const glm::vec2 p0_profile_2d =
-          uniformly_subdivided_strand_group
-              .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
-              .profile_position;
-      p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
-
-      const glm::vec2& p1_profile_2d =
-          uniformly_subdivided_strand_group
-              .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
-              .profile_position;
-      p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
-
-      const glm::vec2& p2_profile_2d =
-          uniformly_subdivided_strand_group
-              .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
-              .profile_position;
-      p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
-
-      if (h != 0) {
-        p0_global = uniformly_subdivided_strand_group
-                        .PeekStrandSegment(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
-                        .end_position;
-        p1_global = uniformly_subdivided_strand_group
-                        .PeekStrandSegment(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
-                        .end_position;
-        p2_global = uniformly_subdivided_strand_group
-                        .PeekStrandSegment(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
-                        .end_position;
-      } else {
-        auto& p0_strand = strands[uniformly_subdivided_strand_group
-                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
-                                      .GetStrandHandle()];
-        auto& p1_strand = strands[uniformly_subdivided_strand_group
-                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
-                                      .GetStrandHandle()];
-        auto& p2_strand = strands[uniformly_subdivided_strand_group
-                                      .PeekStrandSegment(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
-                                      .GetStrandHandle()];
-        p0_global = p0_strand.start_position;
-        p1_global = p1_strand.start_position;
-        p2_global = p2_strand.start_position;
-      }
-    }
-
-    /*debug_file << segment_index << "," << p0_profile.x << "," << p0_profile.y << "," << p0_profile.z << ","
-               << p0_global.x << "," << p0_global.y << "," << p0_global.z << "," << p1_profile.x << "," << p1_profile.y
-               << "," << p1_profile.z << "," << p1_global.x << "," << p1_global.y << "," << p1_global.z << ","
-               << p2_profile.x << "," << p2_profile.y << "," << p2_profile.z << "," << p2_global.x << "," << p2_global.y
-               << "," << p2_global.z << "\n";*/
-
-    transforms_by_height_and_branch[h][branch_index] =
-        ComputeAffineFromCoplanarPoints(p0_profile, p1_profile, p2_profile, p0_global, p1_global, p2_global);
-  };
-
   Jobs::RunParallelFor(maxSegmentCount + 1, [&](const size_t h) {
     transforms_by_height_and_branch[h].resize(strands_by_branch_id[h].size());
-    for (size_t branch_index = 0; branch_index < transforms_by_height_and_branch[h].size(); branch_index++)
-      get_branch_transforms(branch_index, h);
+    for (size_t branch_index = 0; branch_index < transforms_by_height_and_branch[h].size(); branch_index++) {
+      const auto& strand_ids = strands_by_branch_id[h][branch_index];
+      if (strand_ids.empty()) {
+        continue;
+      }
+
+      transforms_by_height_and_branch[h][branch_index] = BuildInterpolatedInternodeTransformAtHeight(
+          strand_model_skeleton, strand_guide_points[strand_ids.front()], h);
+    }
   });
 
-  // Proof of concept, just assume we have one trunk with no branches and all strands have the same length
-  // construct cubic hermite spline for each strand
   std::vector<std::vector<glm::dvec2>> strand_splines;
+  strand_splines.reserve(strand_guide_points.size());
   for (const auto& guide_points : strand_guide_points) {
-    // extract support points
     std::vector<glm::dvec2> support_points;
     support_points.reserve(guide_points.size());
-    for (auto& gp : guide_points) {
-      support_points.emplace_back(gp.profile_position);
+    for (const auto& guide_point : guide_points) {
+      support_points.emplace_back(guide_point.profile_position);
     }
-    strand_splines.push_back(support_points);
+    strand_splines.push_back(std::move(support_points));
   }
 
   kinDS::logger.setLogLevel(kinDS::LogLevel::Debug, false);
