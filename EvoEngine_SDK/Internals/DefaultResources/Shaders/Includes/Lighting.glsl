@@ -4,7 +4,7 @@
 #include "DDGI.glsl"
 #include "VogelDisk.glsl"
 
-layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArray EE_DIRECTIONAL_LIGHT_SM;
+layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArrayShadow EE_DIRECTIONAL_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 15) uniform sampler2DArray EE_POINT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 16) uniform sampler2D EE_SPOT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 17) uniform sampler2D EE_DDGI_IRRADIANCE_ATLAS;
@@ -335,18 +335,16 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 }
 
 int EE_FUNC_DIRECTIONAL_SHADOW_CASCADE_INDEX(float dist) {
-	if (dist < EE_RENDER_INFO.shadow_split_0) return 0;
-	if (dist < EE_RENDER_INFO.shadow_split_1) return 1;
-	if (dist < EE_RENDER_INFO.shadow_split_2) return 2;
-	if (dist < EE_RENDER_INFO.shadow_split_3) return 3;
+	vec4 splitDistances = EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances;
+	if (dist < splitDistances.x) return 0;
+	if (dist < splitDistances.y) return 1;
+	if (dist < splitDistances.z) return 2;
+	if (dist < splitDistances.w) return 3;
 	return -1;
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_SPLIT_DISTANCE(int splitIndex) {
-	if (splitIndex <= 0) return EE_RENDER_INFO.shadow_split_0;
-	if (splitIndex == 1) return EE_RENDER_INFO.shadow_split_1;
-	if (splitIndex == 2) return EE_RENDER_INFO.shadow_split_2;
-	return EE_RENDER_INFO.shadow_split_3;
+	return EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances[clamp(splitIndex, 0, 3)];
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_TRANSITION_HALF_WIDTH(int boundaryIndex) {
@@ -361,7 +359,7 @@ float EE_FUNC_DIRECTIONAL_SHADOW_TRANSITION_HALF_WIDTH(int boundaryIndex) {
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_DISTANCE_FADE(float dist) {
-	float maxShadowDistance = EE_RENDER_INFO.shadow_split_3;
+	float maxShadowDistance = EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances.w;
 	if (dist >= maxShadowDistance) return 0.0f;
 
 	float fadeWidth = max(EE_RENDER_INFO.shadow_fade_parameters.x, 0.0f);
@@ -477,7 +475,10 @@ vec4 EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(float dist, vec3 fragPos) {
 		return vec4(mix(vec3(0.75f, 0.0f, 0.0f), vec3(atlasUv, 1.0f), insideScale), 1.0f);
 	}
 
-	float worldUnitsPerTexel = (2.0f * light.light_frustum_width[splitIndex]) / max(float(light.viewport_x_size), 1.0f);
+	vec2 worldUnitsPerTexelAxes =
+	    2.0f * vec2(light.light_frustum_width[splitIndex], light.light_frustum_height[splitIndex]) /
+	    max(viewportSize, vec2(1.0f));
+	float worldUnitsPerTexel = max(worldUnitsPerTexelAxes.x, worldUnitsPerTexelAxes.y);
 	float density = clamp(log2(max(worldUnitsPerTexel, 0.001f)) * 0.125f + 0.5f, 0.0f, 1.0f);
 	vec3 densityColor = mix(vec3(0.0f, 0.35f, 1.0f), vec3(1.0f, 0.1f, 0.0f), density);
 	vec2 texelUv = fract(lightUv * viewportSize);
@@ -494,8 +495,15 @@ vec2 EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(DirectionalLight light, vec2 lightUv) {
 	       atlasSize;
 }
 
-float EE_FUNC_DIRECTIONAL_SHADOW_DEPTH(DirectionalLight light, int splitIndex, vec2 lightUv) {
-	return texture(EE_DIRECTIONAL_LIGHT_SM, vec3(EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(light, lightUv), splitIndex)).r;
+float EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(DirectionalLight light, int splitIndex, vec2 lightUv,
+                                        float receiverDepth) {
+	vec2 viewportSize = max(vec2(float(light.viewport_x_size), float(light.viewport_y_size)), vec2(1.0f));
+	vec2 halfTexel = vec2(0.5f) / viewportSize;
+	if (any(lessThan(lightUv, halfTexel)) || any(greaterThan(lightUv, vec2(1.0f) - halfTexel))) {
+		return 1.0f;
+	}
+	return texture(EE_DIRECTIONAL_LIGHT_SM,
+	               vec4(EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(light, lightUv), splitIndex, receiverDepth));
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(float receiverDepth, float closestDepth) {
@@ -504,13 +512,12 @@ float EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(float receiverDepth, float closestDepth
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_HARD(DirectionalLight light, int splitIndex, vec3 projCoords) {
-	float closestDepth = EE_FUNC_DIRECTIONAL_SHADOW_DEPTH(light, splitIndex, projCoords.xy);
-	return EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
+	return EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(light, splitIndex, projCoords.xy, projCoords.z);
 }
 
-float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec3 projCoords, float radiusUv,
+float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec3 projCoords, vec2 radiusUv,
                                      int sampleAmount, vec3 randomSeed) {
-	if (radiusUv <= 0.0f || sampleAmount <= 1) {
+	if (all(lessThanEqual(radiusUv, vec2(0.0f))) || sampleAmount <= 1) {
 		return EE_FUNC_DIRECTIONAL_SHADOW_HARD(light, splitIndex, projCoords);
 	}
 
@@ -518,8 +525,7 @@ float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec
 	for (int sampleIndex = 0; sampleIndex < sampleAmount; sampleIndex++)
 	{
 		vec2 texCoord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, sampleAmount, randomSeed) * radiusUv;
-		float closestDepth = EE_FUNC_DIRECTIONAL_SHADOW_DEPTH(light, splitIndex, texCoord);
-		shadow += EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
+		shadow += EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(light, splitIndex, texCoord, projCoords.z);
 	}
 	return shadow / float(sampleAmount);
 }
@@ -529,10 +535,15 @@ float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3
 	DirectionalLight light = EE_DIRECTIONAL_LIGHTS[i];
 	vec3 lightDir = light.direction;
 	float nDotL = max(dot(normal, -lightDir), 0.0f);
-	float shadowTexelSize = light.light_frustum_width[splitIndex] / max(float(light.viewport_x_size), 1.0f);
+	vec2 viewportSize = max(vec2(float(light.viewport_x_size), float(light.viewport_y_size)), vec2(1.0f));
+	vec2 halfExtent = max(vec2(light.light_frustum_width[splitIndex], light.light_frustum_height[splitIndex]),
+	                      vec2(0.001f));
+	vec2 worldUnitsPerTexel = 2.0f * halfExtent / viewportSize;
+	float shadowTexelSize = max(worldUnitsPerTexel.x, worldUnitsPerTexel.y);
 	float constantBias = light.reserved_parameters.z;
 	float slopeBias = light.reserved_parameters.y * (1.0f - nDotL);
-	float bias = (constantBias + slopeBias) * shadowTexelSize;
+	float lightDepthSpan = max(2.0f * light.light_frustum_distance[splitIndex], 0.001f);
+	float bias = (constantBias + slopeBias) * shadowTexelSize / lightDepthSpan;
 	float normalOffset = light.reserved_parameters.w * shadowTexelSize;
 
 	fragPos = fragPos + normal * normalOffset;
@@ -548,8 +559,8 @@ float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3
 	}
 	projCoords = vec3(projCoords.xy, projCoords.z - bias);
 
-	float radiusUv = max(light.reserved_parameters.x * 100.0f, 0.0f) / max(float(light.viewport_x_size), 1.0f);
-	int sampleAmount = clamp(EE_RENDER_INFO.shadow_sample_size, 1, 64);
+	vec2 radiusUv = vec2(max(light.reserved_parameters.x, 0.0f)) / (2.0f * halfExtent);
+	int sampleAmount = clamp(EE_RENDER_INFO.shadow_debug_parameters.w, 1, 64);
 	return EE_FUNC_DIRECTIONAL_SHADOW_PCF(light, splitIndex, projCoords, radiusUv, sampleAmount, fragPos * 3141);
 }
 

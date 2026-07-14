@@ -34,6 +34,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/VulkanPipelineCacheTest.cpp
 	Core/RayCameraShaderVariantCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
+	Core/DirectionalShadowCascadeFitTest.cpp
 	Core/RayCameraHistoryTest.cpp
 	Core/PostProcessingRuntimeTest.cpp
 	Core/RayTracingSkinnedInstanceTest.cpp
@@ -195,8 +196,13 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
-	TEST_FILTER CameraRenderTechnique.*
+	TEST_FILTER GraphicsInitializationSettings.*:CameraRenderTechnique.*
 	PROPERTIES LABELS "core,render,camera"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER DirectionalShadowCascadeFit.*
+	PROPERTIES LABELS "core,render,shadow"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

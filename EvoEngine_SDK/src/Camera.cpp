@@ -371,6 +371,8 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (auto_spp_convergence_threshold != other.auto_spp_convergence_threshold)
     return true;
+  if (shadow_split_distances != other.shadow_split_distances)
+    return true;
   return false;
 }
 
@@ -697,7 +699,7 @@ void Camera::CalculateFrustumPoints(const std::shared_ptr<Camera>& camera_compon
   const glm::vec3 near_center = front * near_plane;
   const glm::vec3 far_center = front * far_plane;
 
-  const float e = tanf(glm::radians(camera_component->camera_settings.fov * 0.5f));
+  const float e = tanf(glm::radians(camera_component->camera_settings.fov * 0.25f));
   const float near_ext_y = e * near_plane;
   const float near_ext_x = near_ext_y * camera_component->GetSizeRatio();
   const float far_ext_y = e * far_plane;

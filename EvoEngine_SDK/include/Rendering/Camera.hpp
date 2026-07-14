@@ -127,6 +127,7 @@ struct CameraInfoBlock {
   uint32_t emissive_triangle_nee_enabled = 1;
   uint32_t ray_debug_view = 0;
   uint32_t auto_spp_padding2 = 0;
+  glm::vec4 shadow_split_distances = {};
 
   /**
    * @brief Projects a 3D world position into 2D screen space.

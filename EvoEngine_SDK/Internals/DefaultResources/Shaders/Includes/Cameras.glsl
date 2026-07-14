@@ -33,6 +33,7 @@ struct Camera {
   uint emissive_triangle_nee_enabled;
   uint ray_debug_view;
   uint auto_spp_padding2;
+  vec4 shadow_split_distances;
 };
 
 // Camera
@@ -74,14 +75,14 @@ vec3 EE_CAMERA_POSITION(int camera_index) {
 
 float EE_CAMERA_NEAR(int camera_index) {
   float a = EE_CAMERAS[camera_index].projection[2][2];
-  float b = EE_CAMERAS[camera_index].projection[2][3];
-  return b / (a - 1.f);
+  float b = EE_CAMERAS[camera_index].projection[3][2];
+  return abs(b / a);
 }
 
 float EE_CAMERA_FAR(int camera_index) {
   float a = EE_CAMERAS[camera_index].projection[2][2];
-  float b = EE_CAMERAS[camera_index].projection[2][3];
-  return b / (a + 1.f);
+  float b = EE_CAMERAS[camera_index].projection[3][2];
+  return abs(b / (a + 1.f));
 }
 
 float EE_CAMERA_TAN_HALF_FOV(int camera_index) {

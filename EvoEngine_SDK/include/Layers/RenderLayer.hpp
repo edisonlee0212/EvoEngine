@@ -291,9 +291,10 @@ class RenderLayer final : public ILayer {
 
   /// Represents the view for a specific directional light shadow map.
   struct DirectionalLightShadowMapView {
-    int light_index;      ///< Index of the light.
-    int split_index;      ///< Index of the split for cascaded shadow maps.
-    glm::ivec4 viewport;  ///< The viewport rectangle for rendering.
+    int light_index;               ///< Camera-local index of the light.
+    int split_index;               ///< Index of the split for cascaded shadow maps.
+    glm::ivec4 viewport;           ///< The viewport rectangle for rendering.
+    glm::mat4 light_space_matrix;  ///< Matrix for this camera, light, and split.
   };
 
   /// Represents the view for deferred rendering.
@@ -749,9 +750,6 @@ class RenderLayer final : public ILayer {
 
   /// Graphics pipeline for rendering spot light shadows with hair strands.
   std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline;
-
-  /// Graphics pipeline for rendering directional light shadows with hair strands.
-  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using normal meshes.
   std::shared_ptr<GraphicsPipeline> deferred_prepass_pipeline_normal;

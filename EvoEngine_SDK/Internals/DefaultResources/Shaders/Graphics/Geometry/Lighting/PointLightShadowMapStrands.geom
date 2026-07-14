@@ -4,7 +4,7 @@
 #include "Basic.glsl"
 
 layout(lines, invocations = 1) in;
-layout(triangle_strip, max_vertices = 6) out;
+layout(triangle_strip, max_vertices = 10) out;
 
 layout (location = 0) in TES_OUT {
 	vec3 FragPos;

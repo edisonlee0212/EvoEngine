@@ -28,14 +28,21 @@ class TransparentGeometryPass;
  * @brief Struct containing various render settings for the engine.
  */
 struct RenderSettings {
+  enum class ShadowCascadeFitMode {
+    StableSphere,
+    TightLightSpaceAabb,
+  };
+
   float max_shadow_distance = 400;           ///< Maximum shadow distance in the scene.
   float shadow_cascade_split_lambda = 0.5f;  ///< Blend factor for practical log/uniform cascade splits.
-  bool enable_debug_visualization = false;   ///< Whether debug visualization is enabled.
-  int shadow_debug_mode = 0;                 ///< CSM debug visualization mode.
-  int shadow_debug_selected_cascade = 0;     ///< Selected cascade for CSM diagnostics.
-  int shadow_debug_selected_light = 0;       ///< Selected directional light for CSM diagnostics.
+  ShadowCascadeFitMode shadow_cascade_fit_mode = ShadowCascadeFitMode::StableSphere;
+  bool enable_debug_visualization = false;  ///< Whether debug visualization is enabled.
+  int shadow_debug_mode = 0;                ///< CSM debug visualization mode.
+  int shadow_debug_selected_cascade = 0;    ///< Selected cascade for CSM diagnostics.
+  int shadow_debug_selected_light = 0;      ///< Selected directional light for CSM diagnostics.
 
-  int pcf_sample_amount = 32;                    ///< Sample amount for directional PCF shadow filtering.
+  int pcf_sample_amount = 32;                    ///< Sample amount for point and spot PCF shadow filtering.
+  int directional_pcf_sample_amount = 16;        ///< Sample amount for directional PCF shadow filtering.
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
@@ -46,6 +53,9 @@ struct RenderSettings {
 
   [[nodiscard]] float GetShadowCascadeSplit(int split, float near_distance = 0.1f) const;
   [[nodiscard]] float GetShadowCascadeSplitDistance(int split, float near_distance = 0.1f) const;
+  [[nodiscard]] glm::vec4 GetShadowCascadeSplitDistances(float near_distance = 0.1f) const;
+  [[nodiscard]] float GetShadowCascadeTransitionHalfWidth(int boundary, float near_distance = 0.1f) const;
+  [[nodiscard]] static const char* GetShadowCascadeFitModeName(ShadowCascadeFitMode mode);
 };
 
 /**
@@ -184,7 +194,7 @@ class RenderInstanceStorage {
     glm::vec4 ddgi_atlas_parameters = glm::vec4(1.0f);
     glm::vec4 ddgi_volume_parameters = glm::vec4(0.0f);
     glm::vec4 ddgi_sampling_parameters = glm::vec4(1.0f);
-    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);
+    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);  ///< Debug mode/cascade/light and directional PCF samples.
     glm::vec4 shadow_fade_parameters = glm::vec4(20.0f, 0.0f, 0.0f, 0.0f);
     glm::uvec4 emissive_triangle_parameters = glm::uvec4(0);
 
@@ -878,6 +888,34 @@ class RenderInstanceStorage {
    * @return Index of the camera.
    */
   [[nodiscard]] int GetCameraIndex(const Handle& camera_handle);
+
+  struct DirectionalShadowCascadeFitInput {
+    RenderSettings::ShadowCascadeFitMode mode = RenderSettings::ShadowCascadeFitMode::StableSphere;
+    std::array<glm::vec3, 8> frustum_corners{};
+    Bound world_bound{};
+    glm::vec3 light_direction = glm::vec3(0.0f, 0.0f, 1.0f);
+    glm::vec3 light_up = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::ivec2 viewport_extent{};
+    float filter_radius_world = 0.0f;
+  };
+
+  struct DirectionalShadowCascadeFitResult {
+    glm::mat4 light_space_matrix{1.0f};
+    glm::vec2 orthographic_min{};
+    glm::vec2 orthographic_max{};
+    float light_space_depth_half_extent = 0.0f;
+  };
+
+  [[nodiscard]] static DirectionalShadowCascadeFitResult CalculateDirectionalShadowCascadeFit(
+      const DirectionalShadowCascadeFitInput& input);
+
+  struct DirectionalShadowTelemetry {
+    glm::vec4 split_distances{};
+    int pcf_sample_amount = 0;
+    std::vector<DirectionalLightInfoBlock> lights{};
+  };
+
+  [[nodiscard]] DirectionalShadowTelemetry GetDirectionalShadowTelemetry(const Handle& camera_handle) const;
 
   /**
    * @brief Finds the entity handle via a render instance index.

@@ -41,13 +41,18 @@ void ResolveFrameSubmissionStates(std::vector<std::weak_ptr<FrameSubmissionState
 }
 
 void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, const size_t prim_count,
-                  const size_t indirect_draw_commands) {
+                  const size_t indirect_draw_commands,
+                  const DirectionalShadowCasterKind directional_shadow_caster = DirectionalShadowCasterKind::Count) {
   stats.prim_count += prim_count;
   if (kind == RenderDrawCallKind::Indirect) {
     stats.indirect_draw_calls++;
     stats.indirect_draw_commands += indirect_draw_commands;
   } else {
     stats.direct_draw_calls++;
+  }
+  const auto caster_index = static_cast<size_t>(directional_shadow_caster);
+  if (prim_count > 0 && caster_index < stats.directional_shadow_caster_draw_calls.size()) {
+    stats.directional_shadow_caster_draw_calls[caster_index]++;
   }
 }
 
@@ -84,6 +89,10 @@ RenderPassDrawStats RenderCameraDrawStats::Total() const {
     total.indirect_draw_calls += stats.indirect_draw_calls;
     total.indirect_draw_commands += stats.indirect_draw_commands;
     total.prim_count += stats.prim_count;
+    for (size_t caster_index = 0; caster_index < total.directional_shadow_caster_draw_calls.size(); ++caster_index) {
+      total.directional_shadow_caster_draw_calls[caster_index] +=
+          stats.directional_shadow_caster_draw_calls[caster_index];
+    }
   }
   return total;
 }
@@ -192,6 +201,14 @@ void Platform::EndRenderCameraDrawScope() {
 void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
                                    const uint32_t frame_index, const size_t prim_count,
                                    const size_t indirect_draw_commands) {
+  CountRenderPassDraw(bucket, kind, frame_index, prim_count, indirect_draw_commands,
+                      DirectionalShadowCasterKind::Count);
+}
+
+void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
+                                   const uint32_t frame_index, const size_t prim_count,
+                                   const size_t indirect_draw_commands,
+                                   const DirectionalShadowCasterKind directional_shadow_caster) {
   auto& graphics = GetInstance();
   if (frame_index < graphics.draw_call.size()) {
     graphics.draw_call[frame_index]++;
@@ -204,7 +221,7 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
     return;
   }
   auto& stats = graphics.render_pass_draw_stats[frame_index][bucket_index];
-  AddDrawStats(stats, kind, prim_count, indirect_draw_commands);
+  AddDrawStats(stats, kind, prim_count, indirect_draw_commands, directional_shadow_caster);
   if (!graphics.active_render_camera_draw_scope_ ||
       graphics.active_render_camera_draw_scope_->frame_index != frame_index ||
       frame_index >= graphics.render_camera_draw_stats.size()) {
@@ -225,7 +242,8 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
   } else {
     camera_stats->entity_index = scope.entity_index;
   }
-  AddDrawStats(camera_stats->pass_stats[bucket_index], kind, prim_count, indirect_draw_commands);
+  AddDrawStats(camera_stats->pass_stats[bucket_index], kind, prim_count, indirect_draw_commands,
+               directional_shadow_caster);
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
@@ -986,6 +1004,20 @@ const std::shared_ptr<Platform::PhysicalDevice>& Platform::GetSelectedPhysicalDe
   return graphics.selected_physical_device;
 }
 
+VkFormatProperties3 Platform::GetPhysicalDeviceFormatProperties(const VkFormat format) {
+  const auto& physical_device = GetSelectedPhysicalDevice();
+  if (!physical_device) {
+    throw std::runtime_error("Physical device is unavailable.");
+  }
+  VkFormatProperties3 format_properties{};
+  format_properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+  VkFormatProperties2 format_properties_2{};
+  format_properties_2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+  format_properties_2.pNext = &format_properties;
+  vkGetPhysicalDeviceFormatProperties2(physical_device->vk_physical_device, format, &format_properties_2);
+  return format_properties;
+}
+
 VkDevice Platform::GetVkDevice() {
   const auto& graphics = GetInstance();
   return graphics.vk_device_;
@@ -1154,6 +1186,37 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
   }
   if (!support_check)
     return false;
+  const auto effective_api_version = std::min(volkGetInstanceVersion(), properties.apiVersion);
+  if (effective_api_version < VK_API_VERSION_1_3 &&
+      !CheckExtensionSupport(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME)) {
+    EVOENGINE_WARNING("Current device cannot report depth-comparison format support.")
+    return false;
+  }
+  VkFormatProperties3 shadow_format_properties{};
+  shadow_format_properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+  VkFormatProperties2 shadow_format_properties_2{};
+  shadow_format_properties_2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+  shadow_format_properties_2.pNext = &shadow_format_properties;
+  vkGetPhysicalDeviceFormatProperties2(vk_physical_device, Constants::shadow_map, &shadow_format_properties_2);
+  constexpr VkFormatFeatureFlags2 required_shadow_features =
+      VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT |
+      VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT;
+  if ((shadow_format_properties.optimalTilingFeatures & required_shadow_features) != required_shadow_features) {
+    EVOENGINE_WARNING("Current device does not support linear depth-comparison sampling for the shadow-map format.")
+    return false;
+  }
+  const auto directional_shadow_resolution =
+      ApplicationContext::Get().GetApplicationInfo().graphics_settings.directional_light_shadow_map_resolution;
+  VkImageFormatProperties shadow_image_properties{};
+  const auto shadow_image_result = vkGetPhysicalDeviceImageFormatProperties(
+      vk_physical_device, Constants::shadow_map, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+      VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0, &shadow_image_properties);
+  if (shadow_image_result != VK_SUCCESS || shadow_image_properties.maxExtent.width < directional_shadow_resolution ||
+      shadow_image_properties.maxExtent.height < directional_shadow_resolution ||
+      shadow_image_properties.maxArrayLayers < 4 || !(shadow_image_properties.sampleCounts & VK_SAMPLE_COUNT_1_BIT)) {
+    EVOENGINE_WARNING("Current device cannot allocate the configured directional shadow map.")
+    return false;
+  }
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     if (!queue_family_indices.present_family.has_value())
       return false;
@@ -1438,6 +1501,9 @@ void Platform::SelectPhysicalDevice() {
   };
   const auto effective_api_version =
       std::min(volkGetInstanceVersion(), selected_physical_device->properties.apiVersion);
+  if (effective_api_version < VK_API_VERSION_1_3) {
+    require_device_extension(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
+  }
   if (effective_api_version >= VK_API_VERSION_1_3) {
     capabilities_.support_pipeline_creation_feedback = true;
   } else if (selected_physical_device->CheckExtensionSupport(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME)) {

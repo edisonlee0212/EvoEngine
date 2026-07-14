@@ -1602,7 +1602,13 @@ void InspectRenderLayerStats(RenderLayer& render_layer) {
 
 void InspectShadowSettings(RenderSettings& render_settings) {
   const char* shadow_debug_modes[] = {"Off", "Cascade Index", "Light UV", "Light Depth", "Atlas UV", "Texel Density"};
-  ImGui::TextUnformatted("Fit policy: Legacy Stable");
+  const char* fit_modes[] = {"Stable Sphere", "Tight Light-Space AABB"};
+  auto fit_mode = static_cast<int>(render_settings.shadow_cascade_fit_mode);
+  if (ImGui::Combo("Fit policy", &fit_mode, fit_modes, IM_ARRAYSIZE(fit_modes))) {
+    render_settings.shadow_cascade_fit_mode = static_cast<RenderSettings::ShadowCascadeFitMode>(
+        glm::clamp(fit_mode, 0, static_cast<int>(IM_ARRAYSIZE(fit_modes)) - 1));
+  }
+  ImGui::TextUnformatted("Stable Sphere is quantized and snapped; Tight AABB is intentionally unsnapped.");
   ImGui::TextUnformatted("Split policy: Practical Log/Uniform");
   if (ImGui::TreeNode("Distance")) {
     if (ImGui::DragFloat("Max shadow distance", &render_settings.max_shadow_distance, 1.0f, 10.f, 1000.f)) {
@@ -1628,8 +1634,9 @@ void InspectShadowSettings(RenderSettings& render_settings) {
   }
   if (ImGui::TreeNode("Sampling")) {
     ImGui::TextUnformatted("Shadow filtering: PCF");
-    ImGui::DragInt("Filter samples", &render_settings.pcf_sample_amount, 1, 1, 64);
-    ImGui::TextUnformatted("PCF radius: 100 x light size.");
+    ImGui::DragInt("Directional filter samples", &render_settings.directional_pcf_sample_amount, 1, 1, 64);
+    ImGui::DragInt("Point/spot filter samples", &render_settings.pcf_sample_amount, 1, 1, 64);
+    ImGui::TextUnformatted("Directional PCF radius: light size in world units.");
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Diagnostics")) {
@@ -2394,11 +2401,11 @@ bool InspectDirectionalLight(InspectorContext&, DirectionalLight& light) {
     changed = false;
   if (ImGui::DragFloat("Intensity", &light.diffuse_brightness, 0.01f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Bias", &light.bias, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Bias (texels)", &light.bias, 0.001f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Slope Bias", &light.slope_bias, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Slope Bias (texels)", &light.slope_bias, 0.001f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Normal Offset", &light.normal_offset, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Normal Offset (texels)", &light.normal_offset, 0.001f, 0.0f, 999.0f))
     changed = false;
   if (ImGui::DragFloat("Light Size", &light.light_size, 0.001f, 0.0f, 999.0f))
     changed = false;

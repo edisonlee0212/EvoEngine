@@ -54,11 +54,14 @@ enum class RenderPassDrawBucket : uint8_t {
 
 enum class RenderDrawCallKind : uint8_t { Direct, Indirect };
 
+enum class DirectionalShadowCasterKind : uint8_t { Regular, MeshShader, Instanced, Skinned, Strands, External, Count };
+
 struct RenderPassDrawStats {
   size_t direct_draw_calls = 0;
   size_t indirect_draw_calls = 0;
   size_t indirect_draw_commands = 0;
   size_t prim_count = 0;
+  std::array<size_t, static_cast<size_t>(DirectionalShadowCasterKind::Count)> directional_shadow_caster_draw_calls{};
 
   [[nodiscard]] size_t TotalDrawCalls() const;
 };
@@ -524,6 +527,9 @@ class Platform final {
   static void EndRenderCameraDrawScope();
   static void CountRenderPassDraw(RenderPassDrawBucket bucket, RenderDrawCallKind kind, uint32_t frame_index,
                                   size_t prim_count, size_t indirect_draw_commands = 0);
+  static void CountRenderPassDraw(RenderPassDrawBucket bucket, RenderDrawCallKind kind, uint32_t frame_index,
+                                  size_t prim_count, size_t indirect_draw_commands,
+                                  DirectionalShadowCasterKind directional_shadow_caster);
   /**
    * @brief Checks if the platform is initialized.
    *
@@ -859,6 +865,13 @@ class Platform final {
    * @return A shared pointer to the selected physical device.
    */
   static const std::shared_ptr<PhysicalDevice>& GetSelectedPhysicalDevice();
+
+  /**
+   * @brief Gets extended format features for the selected physical device.
+   * @param format Vulkan format to query.
+   * @return Extended format properties.
+   */
+  [[nodiscard]] static VkFormatProperties3 GetPhysicalDeviceFormatProperties(VkFormat format);
 
   /**
    * @brief Gets the Vulkan logical device handle.

@@ -290,11 +290,19 @@ pass descriptor sets. Ray tracing, ray query, and ray diagnostics keep their bin
 
 Current shadow policy:
 
-- directional CSM uses Legacy Stable fitting;
-- split placement uses Practical Log/Uniform;
-- directional, point, and spot lights use PCF sampling;
-- PCF radius is derived from light size as `100 x light_size`;
-- directional shadows default to 8192, while point and spot shadows default to 4096;
+- directional CSM defaults to Stable Sphere fitting; Render Layer inspection can switch globally and transiently between
+  Stable Sphere and unsnapped Tight Light-Space AABB, and the choice is not serialized;
+- split placement uses Practical Log/Uniform distances stored per camera, matching each camera-indexed cascade matrix;
+- directional shadows use 16-sample Vogel-disc PCF through a linear comparison sampler; point and spot shadows retain
+  their existing 32-sample PCF paths;
+- built-in strand-renderer geometry does not cast directional shadows; normal strand rendering and point/spot strand
+  shadows remain enabled;
+- directional light size is the PCF radius in world units and each fit includes that footprint plus its packed-viewport
+  comparison/snap guard and a conservative TAA-jitter envelope;
+- both fits include the bounded depth overlap used by cascade-transition blending;
+- directional constant, slope, and normal-offset bias are authored in texels and use the packed viewport's corrected
+  world-units-per-texel scale;
+- directional, point, and spot shadows default to 4096;
 - an explicit shadow-map quality override sets directional, point, and spot resolution together.
 
 ## Ray Camera Paths

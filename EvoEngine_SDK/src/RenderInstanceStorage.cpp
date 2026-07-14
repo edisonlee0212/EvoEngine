@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 using namespace evo_engine;
@@ -136,6 +137,128 @@ float RenderSettings::GetShadowCascadeSplitDistance(const int split, const float
   return max_shadow_distance * GetShadowCascadeSplit(split, near_distance);
 }
 
+glm::vec4 RenderSettings::GetShadowCascadeSplitDistances(const float near_distance) const {
+  glm::vec4 result;
+  for (int split = 0; split < 4; ++split) {
+    result[split] = GetShadowCascadeSplitDistance(split, near_distance);
+  }
+  return result;
+}
+
+float RenderSettings::GetShadowCascadeTransitionHalfWidth(const int boundary, const float near_distance) const {
+  const auto clamped_boundary = glm::clamp(boundary, 0, 2);
+  const auto split_distances = GetShadowCascadeSplitDistances(near_distance);
+  const auto split_distance = split_distances[clamped_boundary];
+  const auto previous_split = clamped_boundary == 0 ? 0.0f : split_distances[clamped_boundary - 1];
+  const auto next_split = split_distances[clamped_boundary + 1];
+  const auto available_width = glm::max(glm::min(split_distance - previous_split, next_split - split_distance), 0.0f);
+  return glm::min(glm::max(shadow_cascade_transition_width, 0.0f), available_width) * 0.5f;
+}
+
+const char* RenderSettings::GetShadowCascadeFitModeName(const ShadowCascadeFitMode mode) {
+  switch (mode) {
+    case ShadowCascadeFitMode::StableSphere:
+      return "Stable Sphere";
+    case ShadowCascadeFitMode::TightLightSpaceAabb:
+      return "Tight Light-Space AABB";
+  }
+  return "Stable Sphere";
+}
+
+RenderInstanceStorage::DirectionalShadowCascadeFitResult RenderInstanceStorage::CalculateDirectionalShadowCascadeFit(
+    const DirectionalShadowCascadeFitInput& input) {
+  DirectionalShadowCascadeFitResult result;
+  glm::vec3 frustum_center(0.0f);
+  for (const auto& corner : input.frustum_corners) {
+    frustum_center += corner;
+  }
+  frustum_center /= static_cast<float>(input.frustum_corners.size());
+
+  const auto light_direction = glm::normalize(input.light_direction);
+  const auto light_up = glm::normalize(input.light_up);
+  const auto world_center = input.world_bound.Center();
+  const auto light_view_center =
+      frustum_center + glm::dot(world_center - frustum_center, light_direction) * light_direction;
+
+  const std::array<glm::vec3, 8> world_corners = {
+      glm::vec3(input.world_bound.min.x, input.world_bound.min.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.min.x, input.world_bound.min.y, input.world_bound.max.z),
+      glm::vec3(input.world_bound.min.x, input.world_bound.max.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.min.x, input.world_bound.max.y, input.world_bound.max.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.min.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.min.y, input.world_bound.max.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.max.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.max.y, input.world_bound.max.z),
+  };
+  float minimum_depth = std::numeric_limits<float>::max();
+  float maximum_depth = std::numeric_limits<float>::lowest();
+  for (const auto& corner : world_corners) {
+    const auto depth = glm::dot(corner - light_view_center, light_direction);
+    minimum_depth = glm::min(minimum_depth, depth);
+    maximum_depth = glm::max(maximum_depth, depth);
+  }
+  result.light_space_depth_half_extent = glm::max(maximum_depth - minimum_depth, 0.001f);
+
+  const auto light_position = light_view_center - light_direction * result.light_space_depth_half_extent;
+  const auto light_view = glm::lookAt(light_position, light_view_center, light_up);
+  const bool stabilize = input.mode != RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb;
+  const auto filter_radius_world = glm::max(input.filter_radius_world, 0.0f);
+  const auto padded_half_extent = [&](const float raw_half_extent, const int viewport_extent) {
+    const auto half_extent = glm::max(raw_half_extent, 0.001f);
+    if (viewport_extent <= 0) {
+      return half_extent;
+    }
+    const auto footprint_texels = stabilize ? 2.0f : 1.0f;
+    if (static_cast<float>(viewport_extent) <= footprint_texels) {
+      return half_extent + filter_radius_world;
+    }
+    return (half_extent + filter_radius_world) / (1.0f - footprint_texels / static_cast<float>(viewport_extent));
+  };
+  if (input.mode == RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb) {
+    result.orthographic_min = glm::vec2(std::numeric_limits<float>::max());
+    result.orthographic_max = glm::vec2(std::numeric_limits<float>::lowest());
+    for (const auto& corner : input.frustum_corners) {
+      const auto light_space_corner = light_view * glm::vec4(corner, 1.0f);
+      result.orthographic_min = glm::min(result.orthographic_min, glm::vec2(light_space_corner));
+      result.orthographic_max = glm::max(result.orthographic_max, glm::vec2(light_space_corner));
+    }
+    const auto extent_center = (result.orthographic_min + result.orthographic_max) * 0.5f;
+    auto half_extent = (result.orthographic_max - result.orthographic_min) * 0.5f;
+    half_extent.x = padded_half_extent(half_extent.x, input.viewport_extent.x);
+    half_extent.y = padded_half_extent(half_extent.y, input.viewport_extent.y);
+    result.orthographic_min = extent_center - half_extent;
+    result.orthographic_max = extent_center + half_extent;
+  } else {
+    auto half_extent = 0.0f;
+    for (const auto& corner : input.frustum_corners) {
+      half_extent = glm::max(half_extent, glm::distance(corner, frustum_center));
+    }
+    half_extent = glm::max(padded_half_extent(half_extent, input.viewport_extent.x),
+                           padded_half_extent(half_extent, input.viewport_extent.y));
+    half_extent = glm::ceil(half_extent * 16.0f) / 16.0f;
+    result.orthographic_min = glm::vec2(-half_extent);
+    result.orthographic_max = glm::vec2(half_extent);
+  }
+
+  const auto extent_center = (result.orthographic_min + result.orthographic_max) * 0.5f;
+  const auto half_extent = glm::max((result.orthographic_max - result.orthographic_min) * 0.5f, glm::vec2(0.001f));
+  result.orthographic_min = extent_center - half_extent;
+  result.orthographic_max = extent_center + half_extent;
+
+  auto light_projection = glm::ortho(result.orthographic_min.x, result.orthographic_max.x, result.orthographic_min.y,
+                                     result.orthographic_max.y, 0.0f, result.light_space_depth_half_extent * 2.0f);
+  if (stabilize && input.viewport_extent.x > 0 && input.viewport_extent.y > 0) {
+    const auto shadow_origin = light_projection * light_view * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    const auto viewport = glm::vec2(input.viewport_extent);
+    const auto texel_origin = glm::vec2(shadow_origin) * viewport * 0.5f;
+    const auto projection_offset = (glm::round(texel_origin) - texel_origin) * 2.0f / viewport;
+    light_projection[3][0] += projection_offset.x;
+    light_projection[3][1] += projection_offset.y;
+  }
+  result.light_space_matrix = light_projection * light_view;
+  return result;
+}
+
 bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
@@ -244,11 +367,11 @@ void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instanc
 uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
     const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
 
-  if (Platform::MeshShaderEnabled()) {
+  if (graphics_pipeline->mesh_shader) {
+    const uint32_t task_work_group_invocations =
+        Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
     graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
     const uint32_t count =
         (mesh->meshlet_range_->prev_frame_range + task_work_group_invocations - 1) / task_work_group_invocations;
@@ -709,7 +832,8 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
   shadow_cascade_transition_width = glm::max(target_render_settings.shadow_cascade_transition_width, 0.0f);
   shadow_debug_parameters = glm::ivec4(glm::clamp(target_render_settings.shadow_debug_mode, 0, 5),
                                        glm::clamp(target_render_settings.shadow_debug_selected_cascade, 0, 3),
-                                       glm::max(target_render_settings.shadow_debug_selected_light, 0), 0);
+                                       glm::max(target_render_settings.shadow_debug_selected_light, 0),
+                                       glm::clamp(target_render_settings.directional_pcf_sample_amount, 1, 64));
   shadow_fade_parameters = glm::vec4(glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
                                                 glm::max(target_render_settings.max_shadow_distance, 0.0f)),
                                      0.0f, 0.0f, 0.0f);
@@ -1258,8 +1382,6 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
-  auto& min_bound = world_bound.min;
-  auto& max_bound = world_bound.max;
 #pragma region Directional Light
   const std::vector<Entity>* directional_light_entities =
       target_scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
@@ -1317,6 +1439,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
     for (const auto& [cameraGlobalTransform, camera] : cameras) {
       size_t directional_light_index = 0;
       auto camera_index = GetCameraIndex(camera->GetHandle());
+      const auto& split_distances = camera_info_blocks_[camera_index].shadow_split_distances;
       glm::vec3 main_camera_pos = cameraGlobalTransform.GetPosition();
       glm::quat main_camera_rot = cameraGlobalTransform.GetRotation();
       for (const auto& light_entity : *directional_light_entities) {
@@ -1329,8 +1452,6 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           break;
         glm::quat rotation = target_scene->GetDataComponent<GlobalTransform>(light_entity).GetRotation();
         glm::vec3 light_dir = glm::normalize(rotation * glm::vec3(0, 0, 1));
-        float plane_distance = 0;
-        glm::vec3 center;
         const auto block_index = camera_index * max_directional_light_size + directional_light_index;
         directional_light_info_blocks_[block_index].direction = glm::vec4(light_dir, 0.0f);
         directional_light_info_blocks_[block_index].diffuse =
@@ -1338,72 +1459,46 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
         directional_light_info_blocks_[block_index].specular = glm::vec4(0.0f);
         const auto camera_near_distance = glm::max(camera->camera_settings.near_distance, 0.001f);
         for (int split = 0; split < 4; split++) {
-          float split_start = 0;
-          float split_end = render_settings.GetShadowCascadeSplitDistance(split, camera_near_distance);
-          if (split != 0)
-            split_start = render_settings.GetShadowCascadeSplitDistance(split - 1, camera_near_distance);
-          render_info_block.split_distances[split] = split_end;
-          glm::mat4 light_projection, light_view;
-          float max_distance = split_end;
-          glm::vec3 light_pos;
-          glm::vec3 camera_frustum_center =
-              (main_camera_rot * glm::vec3(0, 0, -1)) * ((split_end - split_start) / 2.0f + split_start) +
-              main_camera_pos;
-
-          glm::vec3 p0 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p7 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, min_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d0 = glm::distance(p0, p7);
-
-          glm::vec3 p1 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p6 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, min_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d1 = glm::distance(p1, p6);
-
-          glm::vec3 p2 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, min_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p5 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, max_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d2 = glm::distance(p2, p5);
-
-          glm::vec3 p3 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, min_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p4 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, max_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d3 = glm::distance(p3, p4);
-
-          center =
-              Ray::ClosestPointOnLine(world_bound.Center(), camera_frustum_center, camera_frustum_center + light_dir);
-          plane_distance = glm::max(glm::max(d0, d1), glm::max(d2, d3));
-          light_pos = center - light_dir * plane_distance;
-          light_view = glm::lookAt(light_pos, light_pos + light_dir, glm::normalize(rotation * glm::vec3(0, 1, 0)));
-          light_projection =
-              glm::ortho(-max_distance, max_distance, -max_distance, max_distance, 0.0f, plane_distance * 2.0f);
-#pragma region Fix Shimmering due to the movement of the camera
-          glm::mat4 shadow_matrix = light_projection * light_view;
-          glm::vec4 shadow_origin = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-          shadow_origin = shadow_matrix * shadow_origin;
-          shadow_origin =
-              shadow_origin * static_cast<float>(directional_light_info_blocks_[block_index].viewport.z) / 2.0f;
-          glm::vec4 rounded_origin = glm::round(shadow_origin);
-          glm::vec4 round_offset = rounded_origin - shadow_origin;
-          round_offset =
-              round_offset * 2.0f / static_cast<float>(directional_light_info_blocks_[block_index].viewport.z);
-          round_offset.z = 0.0f;
-          round_offset.w = 0.0f;
-          glm::mat4 shadow_proj = light_projection;
-          shadow_proj[3] += round_offset;
-          light_projection = shadow_proj;
-#pragma endregion
-          directional_light_info_blocks_[block_index].light_space_matrix[split] = light_projection * light_view;
-          directional_light_info_blocks_[block_index].light_frustum_width[split] = max_distance;
-          directional_light_info_blocks_[block_index].light_frustum_distance[split] = plane_distance;
+          float split_start = camera_near_distance;
+          const float split_end = split_distances[split];
+          if (split != 0) {
+            split_start = split_distances[split - 1];
+          }
+          auto fit_start = split_start;
+          auto fit_end = split_end;
+          if (split != 0) {
+            fit_start = glm::max(
+                camera_near_distance,
+                split_start - render_settings.GetShadowCascadeTransitionHalfWidth(split - 1, camera_near_distance));
+          }
+          if (split != 3) {
+            fit_end = glm::min(split_distances.w, split_end + render_settings.GetShadowCascadeTransitionHalfWidth(
+                                                                  split, camera_near_distance));
+          }
+          std::array<glm::vec3, 8> frustum_corners{};
+          Camera::CalculateFrustumPoints(camera, fit_start, fit_end, main_camera_pos, main_camera_rot,
+                                         frustum_corners.data());
+          const auto camera_size = glm::max(glm::vec2(camera->GetSize()), glm::vec2(1.0f));
+          const auto far_half_height =
+              glm::tan(glm::radians(camera->camera_settings.fov * 0.25f)) * glm::max(fit_end, 0.0f);
+          const auto jitter_margin_world = glm::length(
+              glm::vec2(far_half_height * camera->GetSizeRatio() / camera_size.x, far_half_height / camera_size.y));
+          const auto& viewport = directional_light_info_blocks_[block_index].viewport;
+          const auto fit = CalculateDirectionalShadowCascadeFit({
+              render_settings.shadow_cascade_fit_mode,
+              frustum_corners,
+              world_bound,
+              light_dir,
+              glm::normalize(rotation * glm::vec3(0, 1, 0)),
+              glm::ivec2(viewport.z, viewport.w),
+              glm::max(dlc->light_size, 0.0f) + jitter_margin_world,
+          });
+          directional_light_info_blocks_[block_index].light_space_matrix[split] = fit.light_space_matrix;
+          directional_light_info_blocks_[block_index].light_frustum_width[split] =
+              (fit.orthographic_max.x - fit.orthographic_min.x) * 0.5f;
+          directional_light_info_blocks_[block_index].light_frustum_height[split] =
+              (fit.orthographic_max.y - fit.orthographic_min.y) * 0.5f;
+          directional_light_info_blocks_[block_index].light_frustum_distance[split] = fit.light_space_depth_half_extent;
           if (split == 4 - 1)
             directional_light_info_blocks_[block_index].reserved_parameters =
                 glm::vec4(dlc->light_size, dlc->slope_bias, dlc->bias, dlc->normal_offset);
@@ -2194,6 +2289,8 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
   for (const auto& camera_info : cameras) {
     CameraInfoBlock camera_info_block;
     camera_info.second->UpdateCameraInfoBlock(camera_info_block, camera_info.first);
+    camera_info_block.shadow_split_distances =
+        render_settings.GetShadowCascadeSplitDistances(camera_info.second->camera_settings.near_distance);
     const auto index = RegisterCamera(camera_info.second->GetHandle(), camera_info_block);
   }
   CollectEntityRenderers(scene, world_bound);
@@ -2548,6 +2645,28 @@ int RenderInstanceStorage::GetCameraIndex(const Handle& camera_handle) {
     throw std::runtime_error("Unable to find camera!");
   }
   return search->second;
+}
+
+RenderInstanceStorage::DirectionalShadowTelemetry RenderInstanceStorage::GetDirectionalShadowTelemetry(
+    const Handle& camera_handle) const {
+  DirectionalShadowTelemetry result;
+  result.pcf_sample_amount = render_info_block.shadow_debug_parameters.w;
+  const auto camera_search = camera_indices_.find(camera_handle);
+  if (camera_search == camera_indices_.end()) {
+    return result;
+  }
+  result.split_distances = camera_info_blocks_[camera_search->second].shadow_split_distances;
+  if (cameras.empty()) {
+    return result;
+  }
+  const auto light_capacity = directional_light_info_blocks_.size() / cameras.size();
+  const auto begin = static_cast<size_t>(camera_search->second) * light_capacity;
+  if (begin >= directional_light_info_blocks_.size()) {
+    return result;
+  }
+  const auto end = std::min(begin + light_capacity, directional_light_info_blocks_.size());
+  result.lights.assign(directional_light_info_blocks_.begin() + begin, directional_light_info_blocks_.begin() + end);
+  return result;
 }
 
 Handle RenderInstanceStorage::GetInstanceEntityHandle(const int render_instance_index) {

@@ -14,6 +14,7 @@ struct DirectionalLightInfoBlock {
   glm::vec4 specular;               /**< The specular color of the light. */
   glm::mat4 light_space_matrix[4];  /**< The light space transformation matrices. */
   glm::vec4 light_frustum_width;    /**< The width of the frustum for the light. */
+  glm::vec4 light_frustum_height;   /**< The height of the frustum for the light. */
   glm::vec4 light_frustum_distance; /**< The distance of the frustum for the light. */
   glm::vec4 reserved_parameters;    /**< Reserved parameters. */
   glm::ivec4 viewport;              /**< Viewport information for the light. */
@@ -35,9 +36,9 @@ class DirectionalLight : public IPrivateComponent {
   bool cast_shadow = true;             /**< Whether the light casts shadows. */
   glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
   float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
-  float bias = 0.001f;                 /**< Bias for shadow mapping to reduce artifacts. */
-  float slope_bias = 0.001f;           /**< Additional shadow bias applied at grazing light angles. */
-  float normal_offset = 0.01f;         /**< Offset added to the surface normal for shadow calculations. */
+  float bias = 0.1f;                   /**< Constant directional shadow bias in shadow texels. */
+  float slope_bias = 0.1f;             /**< Additional directional shadow bias in texels at grazing angles. */
+  float normal_offset = 0.01f;         /**< Directional receiver normal offset in shadow texels. */
   float light_size = 0.001f;           /**< Size of the light source. */
 
   /**
@@ -208,6 +209,12 @@ class Lighting {
    * @param results Output viewport origins and sizes.
    */
   static void AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector<glm::uvec3>& results);
+
+  /**
+   * @brief Returns the comparison sampler configuration used by directional shadow maps.
+   * @return Vulkan sampler creation information.
+   */
+  [[nodiscard]] static VkSamplerCreateInfo GetDirectionalShadowSamplerCreateInfo();
 
   /**
    * @brief Default constructor for Lighting.

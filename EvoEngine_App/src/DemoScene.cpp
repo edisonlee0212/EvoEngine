@@ -36,6 +36,9 @@ using namespace evo_engine;
 namespace {
 constexpr uint64_t kSpatialDragonGaussianSplatHandle = 9739484957885691067ull;
 constexpr uint64_t kBicycleGaussianSplatHandle = 14453709846752502031ull;
+constexpr const char* kCsmValidationRootName = "CSM Caster Validation";
+constexpr const char* kCsmValidationRegularName = "CSM Validation Regular Caster";
+constexpr const char* kCsmValidationInstancedName = "CSM Validation Instanced Caster";
 // VK's benchmark preset 1 maps to the first imported INRIA camera because preset 0 is VK's default camera.
 const glm::vec3 kBicycleDemoCamera0Position = glm::vec3(-3.0026817f, 1.4007727f, -2.2284005f);
 const glm::vec3 kBicycleDemoCamera0Front = glm::vec3(0.7710113f, -0.08249339f, 0.6314558f);
@@ -250,7 +253,6 @@ std::shared_ptr<Mesh> CreateRenderingRegressionMaterialQuad(const std::array<glm
     vertices[i].tex_coord_2 = tex_coords_0[3 - i];
     vertices[i].tex_coord_3 = tex_coords_1[i];
   }
-
   VertexAttributes attributes;
   attributes.normal = true;
   attributes.tex_coord = true;
@@ -1854,6 +1856,113 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
     rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
   }
   RegisterRenderingRegressionTemporalMotionUpdate();
+}
+
+void evo_engine::ConfigureCsmCasterValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  const auto capoeira = FindEntityNamed(scene, "Capoeira");
+  if (!capoeira) {
+    throw std::runtime_error("CSM caster validation requires the Rendering Capoeira prefab.");
+  }
+  scene->SetEnable(*capoeira, false);
+
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>()) {
+    for (const auto& owner : *owners) {
+      if (const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(owner).lock()) {
+        renderer->cast_shadow = false;
+        renderer->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SkinnedMeshRenderer>()) {
+    for (const auto& owner : *owners) {
+      if (const auto renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(owner).lock()) {
+        renderer->cast_shadow = false;
+        renderer->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Particles>()) {
+    for (const auto& owner : *owners) {
+      if (const auto renderer = scene->GetOrSetPrivateComponent<Particles>(owner).lock()) {
+        renderer->cast_shadow = false;
+        renderer->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<PointLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SpotLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<SpotLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+  std::vector<Entity> capoeira_entities{*capoeira};
+  while (!capoeira_entities.empty()) {
+    const auto entity = capoeira_entities.back();
+    capoeira_entities.pop_back();
+    if (scene->HasPrivateComponent<SkinnedMeshRenderer>(entity)) {
+      const auto renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(entity).lock();
+      renderer->cast_shadow = true;
+      renderer->SetEnabled(true);
+    }
+    const auto children = scene->GetChildren(entity);
+    capoeira_entities.insert(capoeira_entities.end(), children.begin(), children.end());
+  }
+  if (const auto existing_root = FindEntityNamed(scene, kCsmValidationRootName)) {
+    scene->DeleteEntity(*existing_root);
+  }
+  const auto root = scene->CreateEntity(kCsmValidationRootName);
+  scene->SetEnable(root, false);
+
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(material, glm::vec3(0.25f, 0.75f, 1.0f), 0.8f, 0.0f);
+
+  const auto regular_entity = scene->CreateEntity(kCsmValidationRegularName);
+  const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(regular_entity).lock();
+  mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
+  mesh_renderer->material = material;
+  mesh_renderer->cast_shadow = true;
+  Transform regular_transform;
+  regular_transform.SetValue(glm::vec3(0.0f, -1.0f, -3.0f), glm::vec3(0.0f), glm::vec3(0.45f));
+  scene->SetDataComponent(regular_entity, regular_transform);
+  scene->SetParent(regular_entity, root);
+
+  const auto instanced_entity = scene->CreateEntity(kCsmValidationInstancedName);
+  const auto particles = scene->GetOrSetPrivateComponent<Particles>(instanced_entity).lock();
+  particles->mesh = Resources::GetInstance().GetPrimitives().cube;
+  particles->material = material;
+  particles->cast_shadow = true;
+  ParticleInfo particle;
+  particle.instance_matrix.SetScale(glm::vec3(0.45f));
+  particles->particle_info_list.Get<ParticleInfoList>()->SetParticleInfos({particle});
+  Transform instanced_transform;
+  instanced_transform.SetPosition(glm::vec3(-1.0f, -1.0f, -3.0f));
+  scene->SetDataComponent(instanced_entity, instanced_transform);
+  scene->SetParent(instanced_entity, root);
+
+  scene->SetEnable(root, false);
+}
+
+void evo_engine::EnableCsmCasterValidation(const std::shared_ptr<Scene>& scene) {
+  const auto root = scene ? FindEntityNamed(scene, kCsmValidationRootName) : std::nullopt;
+  const auto capoeira = scene ? FindEntityNamed(scene, "Capoeira") : std::nullopt;
+  if (!root || !capoeira) {
+    throw std::runtime_error("CSM caster validation was not configured before activation.");
+  }
+  scene->SetEnable(*root, true);
+  scene->SetEnable(*capoeira, true);
 }
 
 void evo_engine::ConfigureM10RayTransportValidation(const std::shared_ptr<Scene>& scene) {

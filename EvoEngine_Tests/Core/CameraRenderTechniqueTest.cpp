@@ -13,6 +13,7 @@
 #include "ApplicationContext.hpp"
 #include "ApplicationInitializationSettings.hpp"
 #include "Camera.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "Serialization.hpp"
 
 using namespace evo_engine;
@@ -39,12 +40,25 @@ std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
 }
 }  // namespace
 
-TEST(GraphicsInitializationSettings, DefaultsDirectionalShadowsToVeryHighResolution) {
+TEST(GraphicsInitializationSettings, DefaultsAllShadowsToHighResolution) {
   const GraphicsInitializationSettings settings;
   EXPECT_EQ(settings.shadow_map_resolution_quality, GraphicsInitializationSettings::ShadowMapResolutionQuality::High);
-  EXPECT_EQ(settings.directional_light_shadow_map_resolution, 8192u);
+  EXPECT_EQ(settings.directional_light_shadow_map_resolution, 4096u);
   EXPECT_EQ(settings.point_light_shadow_map_resolution, 4096u);
   EXPECT_EQ(settings.spot_light_shadow_map_resolution, 4096u);
+}
+
+TEST(GraphicsInitializationSettings, ExplicitQualityUpdatesAllShadowResolutions) {
+  GraphicsInitializationSettings settings;
+  settings.SetShadowMapResolutionQuality(GraphicsInitializationSettings::ShadowMapResolutionQuality::VeryHigh);
+  EXPECT_EQ(settings.directional_light_shadow_map_resolution, 8192u);
+  EXPECT_EQ(settings.point_light_shadow_map_resolution, 8192u);
+  EXPECT_EQ(settings.spot_light_shadow_map_resolution, 8192u);
+
+  settings.SetShadowMapResolutionQuality(GraphicsInitializationSettings::ShadowMapResolutionQuality::Medium);
+  EXPECT_EQ(settings.directional_light_shadow_map_resolution, 2048u);
+  EXPECT_EQ(settings.point_light_shadow_map_resolution, 2048u);
+  EXPECT_EQ(settings.spot_light_shadow_map_resolution, 2048u);
 }
 
 TEST(CameraRenderTechnique, NamesAndAliasesExposeRasterRayTracingAndRayQuery) {
@@ -93,7 +107,8 @@ TEST(CameraRenderTechnique, NamesAndAliasesExposeRasterRayTracingAndRayQuery) {
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
-  EXPECT_EQ(sizeof(CameraInfoBlock) % 16u, 0u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 688u);
+  EXPECT_EQ(sizeof(CameraInfoBlock), 704u);
   EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_enabled), offsetof(CameraInfoBlock, gamma));
   EXPECT_LT(offsetof(CameraInfoBlock, gamma), offsetof(CameraInfoBlock, sample_size));
   EXPECT_LT(offsetof(CameraInfoBlock, sample_size), offsetof(CameraInfoBlock, bounce));
@@ -105,6 +120,48 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold),
             offsetof(CameraInfoBlock, emissive_triangle_nee_enabled));
   EXPECT_LT(offsetof(CameraInfoBlock, emissive_triangle_nee_enabled), offsetof(CameraInfoBlock, ray_debug_view));
+}
+
+TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
+  const auto cameras =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.glsl"));
+  const auto lighting =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl"));
+  const auto storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
+  EXPECT_NE(cameras.find("vec4 shadow_split_distances"), std::string::npos);
+  EXPECT_NE(lighting.find("EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances"), std::string::npos);
+  EXPECT_EQ(lighting.find("EE_RENDER_INFO.shadow_split_"), std::string::npos);
+  EXPECT_NE(storage.find("camera_info_block.shadow_split_distances ="), std::string::npos);
+  EXPECT_NE(storage.find("camera_info_blocks_[camera_index].shadow_split_distances"), std::string::npos);
+
+  CameraInfoBlock first;
+  CameraInfoBlock second = first;
+  EXPECT_FALSE(first != second);
+  second.shadow_split_distances = glm::vec4(20.0f, 60.0f, 150.0f, 400.0f);
+  EXPECT_TRUE(first != second);
+}
+
+TEST(CameraRenderTechnique, ZeroToOneDepthHelpersUseProjectionTranslation) {
+  const auto cameras =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.glsl"));
+  const auto translation = cameras.find("float b = EE_CAMERAS[camera_index].projection[3][2];");
+  ASSERT_NE(translation, std::string::npos);
+  EXPECT_NE(cameras.find("float b = EE_CAMERAS[camera_index].projection[3][2];", translation + 1), std::string::npos);
+  EXPECT_NE(cameras.find("return abs(b / a);"), std::string::npos);
+  EXPECT_NE(cameras.find("return abs(b / (a + 1.f));"), std::string::npos);
+  EXPECT_EQ(cameras.find("float b = EE_CAMERAS[camera_index].projection[2][3];"), std::string::npos);
+}
+
+TEST(CameraRenderTechnique, DirectionalAndPunctualPcfCountsUseSeparateRenderInfoFields) {
+  Application app;
+  ApplicationContextScope scope(app);
+  RenderSettings settings;
+  settings.directional_pcf_sample_amount = 7;
+  settings.pcf_sample_amount = 23;
+  RenderInstanceStorage::RenderInfoBlock render_info;
+  render_info.Apply(settings);
+  EXPECT_EQ(render_info.shadow_debug_parameters.w, 7);
+  EXPECT_EQ(render_info.pcf_sample_amount, 23);
 }
 
 TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {

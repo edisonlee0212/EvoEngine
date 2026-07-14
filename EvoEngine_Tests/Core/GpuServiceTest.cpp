@@ -9,6 +9,7 @@
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "Jobs.hpp"
+#include "Lights.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
@@ -542,6 +543,112 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
     EXPECT_NEAR(values[offset + 1], normal_fallback.y, 1.0e-6f);
     EXPECT_NEAR(values[offset + 2], normal_fallback.z, 1.0e-6f);
   }
+}
+
+TEST(GpuService, DirectionalShadowComparisonSamplerFiltersDepthStep) {
+  ScopedGpuPlatform platform;
+  constexpr auto format = Platform::Constants::shadow_map;
+  const auto format_properties = Platform::GetPhysicalDeviceFormatProperties(format);
+  constexpr VkFormatFeatureFlags2 required_features =
+      VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT |
+      VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT |
+      VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT;
+  ASSERT_EQ(format_properties.optimalTilingFeatures & required_features, required_features)
+      << "Selected devices must support the production directional comparison-PCF path.";
+
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.format = format;
+  image_info.extent = {2, 1, 1};
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  auto image = std::make_shared<Image>(image_info);
+
+  VkImageViewCreateInfo view_info{};
+  view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  view_info.image = image->GetVkImage();
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+  view_info.format = format;
+  view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  view_info.subresourceRange.levelCount = 1;
+  view_info.subresourceRange.layerCount = 1;
+  auto image_view = std::make_shared<ImageView>(view_info, image);
+  auto sampler = std::make_shared<Sampler>(Lighting::GetDirectionalShadowSamplerCreateInfo());
+
+  constexpr std::array<float, 2> depth_step = {0.25f, 0.75f};
+  Buffer staging_buffer(sizeof(depth_step));
+  staging_buffer.UploadData(sizeof(depth_step), depth_step.data());
+
+  constexpr size_t value_count = 7;
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = value_count * sizeof(float);
+  buffer_info.usage =
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(buffer_info, allocation_info);
+  const std::array<float, value_count> zero{};
+  output->Upload(zero);
+
+  auto descriptor_layout = std::make_shared<DescriptorSetLayout>();
+  descriptor_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0);
+  descriptor_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  descriptor_layout->Initialize();
+  auto descriptor_set = std::make_shared<DescriptorSet>(descriptor_layout);
+  VkDescriptorImageInfo descriptor_image_info{};
+  descriptor_image_info.sampler = sampler->GetVkSampler();
+  descriptor_image_info.imageView = image_view->GetVkImageView();
+  descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
+  descriptor_set->UpdateBufferDescriptorBinding(1, output);
+
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                 shader_root / "Compute" / "DirectionalShadowComparisonProbe.comp"));
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = shader;
+  pipeline->descriptor_set_layouts.emplace_back(descriptor_layout);
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy copy_region{};
+    copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    copy_region.imageSubresource.layerCount = 1;
+    copy_region.imageExtent = {2, 1, 1};
+    image->CopyFromBuffer(command_buffer, staging_buffer.GetVkBuffer(), {copy_region});
+    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    Platform::EverythingBarrier(command_buffer);
+    pipeline->Bind(command_buffer);
+    pipeline->BindDescriptorSet(command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+    pipeline->Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+
+  std::array<float, value_count> values{};
+  output->Download(values);
+  constexpr std::array<float, value_count> expected = {0.0f, 0.25f, 0.5f, 0.75f, 1.0f, 1.0f, 0.0f};
+  for (size_t index = 0; index < value_count; ++index) {
+    EXPECT_NEAR(values[index], expected[index], 0.02f) << index;
+  }
+  EXPECT_LT(values[0], values[1]);
+  EXPECT_LT(values[1], values[2]);
+  EXPECT_LT(values[2], values[3]);
+  EXPECT_LT(values[3], values[4]);
+  EXPECT_GT(values[2], 0.0f);
+  EXPECT_LT(values[2], 1.0f);
 }
 
 TEST(GpuService, M10CameraRayTransportShadersCompile) {

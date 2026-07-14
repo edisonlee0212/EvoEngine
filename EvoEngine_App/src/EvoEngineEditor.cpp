@@ -5,12 +5,18 @@
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
+#include "GeometryStorage.hpp"
+#include "GraphicsPipeline.hpp"
+#include "Lights.hpp"
+#include "Mesh.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 #include "Scene.hpp"
+#include "Shader.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -28,6 +34,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <unordered_set>
+#include <vector>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -80,9 +87,13 @@ struct EditorCommandLine {
   std::optional<float> preview_shadow_split_lambda;
   std::optional<float> preview_shadow_cascade_transition_width;
   std::optional<float> preview_shadow_distance_fade;
+  std::optional<RenderSettings::ShadowCascadeFitMode> preview_shadow_fit_mode;
+  std::optional<int> preview_shadow_pcf_samples;
   std::optional<int> preview_shadow_debug_mode;
   std::optional<int> preview_shadow_debug_cascade;
   std::optional<int> preview_shadow_debug_light;
+  std::optional<int> preview_shadow_light_count;
+  bool preview_shadow_caster_fixture = false;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
   bool preview_capture_m10_ray_transport = false;
@@ -496,6 +507,16 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-shadow-distance-fade requires a non-negative width.");
       }
       command_line.preview_shadow_distance_fade = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-shadow-fit") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-fit requires stable-sphere or tight-aabb.");
+      }
+      command_line.preview_shadow_fit_mode = ParseShadowCascadeFitModeName(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-shadow-pcf-samples") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-pcf-samples requires a value between 1 and 64.");
+      }
+      command_line.preview_shadow_pcf_samples = std::clamp(std::stoi(argv[++arg_index]), 1, 64);
     } else if (argument == "--preview-shadow-debug") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-shadow-debug requires a mode.");
@@ -511,6 +532,17 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-shadow-debug-light requires a directional light index.");
       }
       command_line.preview_shadow_debug_light = std::max(0, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-shadow-light-count") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-light-count requires 1, 2, or 4.");
+      }
+      const auto count = std::stoi(argv[++arg_index]);
+      if (count != 1 && count != 2 && count != 4) {
+        throw std::invalid_argument("--preview-shadow-light-count requires 1, 2, or 4.");
+      }
+      command_line.preview_shadow_light_count = count;
+    } else if (argument == "--preview-shadow-caster-fixture") {
+      command_line.preview_shadow_caster_fixture = true;
     } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
@@ -598,10 +630,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     throw std::invalid_argument(
         "--preview-post-processing-stress requires --capture-demo-preview and --preview-metrics-json.");
   }
-  if ((command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
-       command_line.preview_shadow_debug_light) &&
+  if ((command_line.preview_shadow_fit_mode || command_line.preview_shadow_pcf_samples ||
+       command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
+       command_line.preview_shadow_debug_light || command_line.preview_shadow_light_count ||
+       command_line.preview_shadow_caster_fixture) &&
       !command_line.demo_preview_capture_path) {
-    throw std::invalid_argument("--preview-shadow-debug requires --capture-demo-preview.");
+    throw std::invalid_argument("Preview shadow controls require --capture-demo-preview.");
   }
   if ((command_line.preview_shadow_split_lambda || command_line.preview_shadow_cascade_transition_width ||
        command_line.preview_shadow_distance_fade) &&
@@ -1144,6 +1178,166 @@ nlohmann::ordered_json RayTracingPipelineLifetimeStatsJson(const RayTracingPipel
           {"shader_binding_table_creation_count", stats.shader_binding_table_creation_count}};
 }
 
+nlohmann::ordered_json RenderPassDrawStatsJson(const RenderPassDrawStats& stats) {
+  const auto caster_draws = [&](const DirectionalShadowCasterKind kind) {
+    return stats.directional_shadow_caster_draw_calls[static_cast<size_t>(kind)];
+  };
+  return {{"direct_draw_calls", stats.direct_draw_calls},
+          {"indirect_draw_calls", stats.indirect_draw_calls},
+          {"indirect_draw_commands", stats.indirect_draw_commands},
+          {"primitive_count", stats.prim_count},
+          {"total_draw_calls", stats.TotalDrawCalls()},
+          {"directional_shadow_casters",
+           {{"regular", caster_draws(DirectionalShadowCasterKind::Regular)},
+            {"mesh_shader", caster_draws(DirectionalShadowCasterKind::MeshShader)},
+            {"instanced", caster_draws(DirectionalShadowCasterKind::Instanced)},
+            {"skinned", caster_draws(DirectionalShadowCasterKind::Skinned)},
+            {"strands", caster_draws(DirectionalShadowCasterKind::Strands)},
+            {"external", caster_draws(DirectionalShadowCasterKind::External)}}}};
+}
+
+nlohmann::ordered_json DirectionalShadowDrawStatsJson() {
+  RenderPassDrawStats result{};
+  const auto bucket = static_cast<size_t>(RenderPassDrawBucket::DirectionalLightShadow);
+  for (const auto& frame_stats : Platform::GetInstance().render_pass_draw_stats) {
+    if (frame_stats[bucket].TotalDrawCalls() > result.TotalDrawCalls()) {
+      result = frame_stats[bucket];
+    }
+  }
+  return RenderPassDrawStatsJson(result);
+}
+
+void ConfigureDirectionalShadowLightCount(const std::shared_ptr<Scene>& scene, const int light_count) {
+  if (!scene) {
+    throw std::runtime_error("Directional-shadow validation requires an active scene.");
+  }
+
+  std::shared_ptr<DirectionalLight> source;
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>()) {
+    for (const auto& owner : *owners) {
+      const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock();
+      if (!light) {
+        continue;
+      }
+      if (!source && scene->IsEntityEnabled(owner) && light->IsEnabled()) {
+        source = light;
+      }
+      light->SetEnabled(false);
+    }
+  }
+  if (!source) {
+    const auto entity = scene->CreateEntity("CSM Validation Directional Light 0");
+    source = scene->GetOrSetPrivateComponent<DirectionalLight>(entity).lock();
+  }
+  if (!source) {
+    throw std::runtime_error("Directional-shadow validation failed to create its source light.");
+  }
+
+  const auto diffuse = source->diffuse;
+  const auto diffuse_brightness = source->diffuse_brightness;
+  const auto bias = source->bias;
+  const auto slope_bias = source->slope_bias;
+  const auto normal_offset = source->normal_offset;
+  const auto light_size = source->light_size;
+  const auto configure = [&](const std::shared_ptr<DirectionalLight>& light) {
+    light->SetEnabled(true);
+    light->cast_shadow = true;
+    light->diffuse = diffuse;
+    light->diffuse_brightness = diffuse_brightness / static_cast<float>(light_count);
+    light->bias = bias;
+    light->slope_bias = slope_bias;
+    light->normal_offset = normal_offset;
+    light->light_size = light_size;
+  };
+  configure(source);
+
+  for (int light_index = 1; light_index < light_count; ++light_index) {
+    const auto entity = scene->CreateEntity("CSM Validation Directional Light " + std::to_string(light_index));
+    const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(entity).lock();
+    if (!light) {
+      throw std::runtime_error("Directional-shadow validation failed to create a packed light.");
+    }
+    configure(light);
+    Transform transform;
+    transform.SetEulerRotation(glm::radians(
+        glm::vec3(35.0f + 20.0f * static_cast<float>(light_index), 45.0f * static_cast<float>(light_index), 0.0f)));
+    scene->SetDataComponent(entity, transform);
+  }
+  std::cout << "CSM validation directional shadow lights: " << light_count << std::endl;
+}
+
+nlohmann::ordered_json DirectionalShadowTelemetryJson(const std::shared_ptr<RenderLayer>& render_layer,
+                                                      const std::shared_ptr<Camera>& camera) {
+  nlohmann::ordered_json result;
+  result["draws"] = DirectionalShadowDrawStatsJson();
+  result["fit_policy"] =
+      RenderSettings::GetShadowCascadeFitModeName(render_layer->render_settings.shadow_cascade_fit_mode);
+  result["pcf_sample_count"] = render_layer->render_settings.directional_pcf_sample_amount;
+  result["indirect_rendering_enabled"] = render_layer->enable_indirect_rendering;
+  result["mesh_shader_enabled"] = Platform::MeshShaderEnabled() && render_layer->enable_meshlet;
+  result["lights"] = nlohmann::ordered_json::array();
+
+  const auto render_instances = render_layer->GetPreviousRenderInstanceStorage();
+  if (!render_instances || !camera) {
+    return result;
+  }
+  const auto telemetry = render_instances->GetDirectionalShadowTelemetry(camera->GetHandle());
+  result["pcf_sample_count"] = telemetry.pcf_sample_amount;
+  for (size_t local_light_index = 0; local_light_index < telemetry.lights.size(); ++local_light_index) {
+    const auto& light = telemetry.lights[local_light_index];
+    if (light.diffuse.w <= 0.5f || light.viewport.z <= 0 || light.viewport.w <= 0) {
+      continue;
+    }
+    nlohmann::ordered_json cascades = nlohmann::ordered_json::array();
+    for (int cascade = 0; cascade < 4; ++cascade) {
+      const auto half_extent_x = light.light_frustum_width[cascade];
+      const auto half_extent_y = light.light_frustum_height[cascade];
+      const auto first_split_start = glm::max(camera->camera_settings.near_distance, 0.001f);
+      cascades.push_back({{"index", cascade},
+                          {"split_start", cascade == 0 ? first_split_start : telemetry.split_distances[cascade - 1]},
+                          {"split_end", telemetry.split_distances[cascade]},
+                          {"orthographic_half_extent", half_extent_x},
+                          {"orthographic_half_extent_y", half_extent_y},
+                          {"light_space_depth_span", light.light_frustum_distance[cascade] * 2.0f},
+                          {"viewport", {light.viewport.x, light.viewport.y, light.viewport.z, light.viewport.w}},
+                          {"world_units_per_texel", 2.0f * half_extent_x / static_cast<float>(light.viewport.z)},
+                          {"world_units_per_texel_y", 2.0f * half_extent_y / static_cast<float>(light.viewport.w)},
+                          {"pcf_radius_texels_x",
+                           light.reserved_parameters.x * static_cast<float>(light.viewport.z) / (2.0f * half_extent_x)},
+                          {"pcf_radius_texels_y", light.reserved_parameters.x * static_cast<float>(light.viewport.w) /
+                                                      (2.0f * half_extent_y)}});
+    }
+    result["lights"].push_back({{"index", local_light_index},
+                                {"pcf_radius_world", light.reserved_parameters.x},
+                                {"bias", light.reserved_parameters.z},
+                                {"slope_bias", light.reserved_parameters.y},
+                                {"normal_offset", light.reserved_parameters.w},
+                                {"cascades", cascades}});
+  }
+  return result;
+}
+
+std::shared_ptr<GraphicsPipeline> CreateCsmExternalShadowValidationPipeline() {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->vertex_shader = Shader::CreateTemporary(
+      ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalShadowValidation.vert");
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+                              Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+  pipeline->geometry_type = GeometryType::Mesh;
+  pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(glm::mat4);
+  push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  pipeline->Initialize();
+  if (!pipeline->Initialized()) {
+    throw std::runtime_error("Failed to initialize the CSM external-caster validation pipeline.");
+  }
+  return pipeline;
+}
+
 nlohmann::ordered_json PostProcessingRuntimeStatsJson(const PostProcessingRuntimeStats& stats) {
   return {{"scratch_size", {stats.scratch_size.x, stats.scratch_size.y}},
           {"stack_handle", stats.stack_handle},
@@ -1520,8 +1714,11 @@ void CaptureDemoPreview(
     const std::optional<AntiAliasing::SmaaDebugMode>& preview_smaa_debug_mode,
     const bool preview_anti_aliasing_debug_disabled, const std::optional<float>& preview_shadow_split_lambda,
     const std::optional<float>& preview_shadow_cascade_transition_width,
-    const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
+    const std::optional<float>& preview_shadow_distance_fade,
+    const std::optional<RenderSettings::ShadowCascadeFitMode>& preview_shadow_fit_mode,
+    const std::optional<int>& preview_shadow_pcf_samples, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
+    const std::optional<int>& preview_shadow_light_count, const bool preview_shadow_caster_fixture,
     const bool deterministic_capture, const bool preview_bistro_ddgi, const bool preview_m10_ray_transport,
     const bool preview_post_processing_stress) {
   auto output_extension = output_path.extension().string();
@@ -1532,6 +1729,9 @@ void CaptureDemoPreview(
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
   if (preview_m10_ray_transport) {
     ConfigureM10RayTransportValidation(ApplicationContext::Get().GetActiveScene());
+  }
+  if (preview_shadow_light_count) {
+    ConfigureDirectionalShadowLightCount(ApplicationContext::Get().GetActiveScene(), *preview_shadow_light_count);
   }
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     window_layer->ResizeWindow(width, height);
@@ -1669,7 +1869,8 @@ void CaptureDemoPreview(
     }
   }
   if (preview_shadow_split_lambda || preview_shadow_cascade_transition_width || preview_shadow_distance_fade ||
-      preview_shadow_debug_mode || preview_shadow_debug_cascade || preview_shadow_debug_light) {
+      preview_shadow_fit_mode || preview_shadow_pcf_samples || preview_shadow_debug_mode ||
+      preview_shadow_debug_cascade || preview_shadow_debug_light) {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     if (!render_layer) {
       throw std::runtime_error("Preview shadow overrides require RenderLayer.");
@@ -1684,6 +1885,12 @@ void CaptureDemoPreview(
     if (preview_shadow_distance_fade) {
       render_layer->render_settings.shadow_distance_fade = std::max(0.0f, *preview_shadow_distance_fade);
     }
+    if (preview_shadow_fit_mode) {
+      render_layer->render_settings.shadow_cascade_fit_mode = *preview_shadow_fit_mode;
+    }
+    if (preview_shadow_pcf_samples) {
+      render_layer->render_settings.directional_pcf_sample_amount = std::clamp(*preview_shadow_pcf_samples, 1, 64);
+    }
     if (preview_shadow_debug_mode) {
       render_layer->render_settings.shadow_debug_mode = std::clamp(*preview_shadow_debug_mode, 0, 5);
     }
@@ -1696,6 +1903,25 @@ void CaptureDemoPreview(
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  std::shared_ptr<GraphicsPipeline> external_shadow_pipeline;
+  std::shared_ptr<Mesh> external_shadow_mesh;
+  glm::mat4 external_shadow_model(1.0f);
+  const auto register_external_shadow_caster = [&]() {
+    if (!preview_shadow_caster_fixture) {
+      return;
+    }
+    render_layer->RenderToDirectionalLightShadowMap(
+        [external_shadow_pipeline, external_shadow_mesh, external_shadow_model](
+            const VkCommandBuffer command_buffer, const RenderLayer::DirectionalLightShadowMapView& view) {
+          external_shadow_pipeline->states.ResetAllStates(0);
+          external_shadow_pipeline->states.SetViewportScissor(view.viewport);
+          external_shadow_pipeline->Bind(command_buffer);
+          external_shadow_pipeline->PushConstant(command_buffer, 0, view.light_space_matrix * external_shadow_model);
+          GeometryStorage::BindVertices(command_buffer);
+          external_shadow_mesh->DrawIndexed(command_buffer, external_shadow_pipeline->states, 1);
+          return external_shadow_mesh->GetTriangleAmount();
+        });
+  };
   if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     if (!render_layer) {
       throw std::runtime_error("Ray preview capture requires RenderLayer.");
@@ -1746,6 +1972,19 @@ void CaptureDemoPreview(
   }
   scene_camera->Resize(preview_resolution);
   WaitForDemoPreviewSceneInputsReady();
+  if (preview_shadow_caster_fixture) {
+    if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
+      throw std::runtime_error("CSM caster validation requires the raster RenderLayer path.");
+    }
+    ConfigureCsmCasterValidation(ApplicationContext::Get().GetActiveScene());
+    WaitForDemoPreviewSceneInputsReady();
+    EnableCsmCasterValidation(ApplicationContext::Get().GetActiveScene());
+    render_layer->enable_meshlet = false;
+    external_shadow_pipeline = CreateCsmExternalShadowValidationPipeline();
+    external_shadow_mesh = Resources::GetInstance().GetPrimitives().cube;
+    external_shadow_model =
+        glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -1.0f, -4.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(0.45f));
+  }
   nlohmann::ordered_json post_processing_stress = nullptr;
   if (preview_post_processing_stress) {
     try {
@@ -1824,6 +2063,7 @@ void CaptureDemoPreview(
   size_t capture_frame_count = 0;
   while ((wait_for_ray_accumulation && scene_camera->GetFrameCount() < warmup_frames) ||
          (!wait_for_ray_accumulation && capture_frame_count < warmup_frames)) {
+    register_external_shadow_caster();
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
@@ -1936,6 +2176,7 @@ void CaptureDemoPreview(
   metrics["emissive_triangle_nee_enabled"] = scene_camera->camera_settings.emissive_triangle_nee_enabled;
   metrics["auto_spp_enabled"] = scene_camera->camera_settings.auto_spp_enabled;
   metrics["m10_ray_transport"] = preview_m10_ray_transport;
+  metrics["csm_caster_fixture"] = preview_shadow_caster_fixture;
   metrics["post_processing_stress"] = post_processing_stress;
   if (preview_m10_ray_transport) {
     metrics["m10_fixture_version"] = "isolated-v2";
@@ -2071,6 +2312,7 @@ void CaptureDemoPreview(
                     {"api_version", physical_device.apiVersion}};
   metrics["startup_gpu_sections"] = TimingStatsJson(startup_gpu_timestamp_stats);
   metrics["gpu_sections"] = TimingStatsJson(Platform::GetGpuTimestampStats());
+  metrics["directional_shadow"] = DirectionalShadowTelemetryJson(render_layer, scene_camera);
   metrics["startup_cpu_sections"] = TimingStatsJson(startup_cpu_timing_stats);
   const auto capture_cpu_timing_stats = Platform::GetCpuTimingStats();
   metrics["cpu_sections"] = TimingStatsJson(capture_cpu_timing_stats);
@@ -2237,8 +2479,10 @@ int main(const int argc, char** argv) {
               command_line.preview_anti_aliasing_motion_sequence, command_line.preview_taa_debug_mode,
               command_line.preview_smaa_debug_mode, command_line.preview_anti_aliasing_debug_disabled,
               command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
-              command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
+              command_line.preview_shadow_distance_fade, command_line.preview_shadow_fit_mode,
+              command_line.preview_shadow_pcf_samples, command_line.preview_shadow_debug_mode,
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
+              command_line.preview_shadow_light_count, command_line.preview_shadow_caster_fixture,
               command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
               command_line.preview_capture_m10_ray_transport, command_line.preview_post_processing_stress);
           ApplicationContext::Get().Terminate();

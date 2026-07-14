@@ -44,6 +44,8 @@ bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& othe
 
   if (light_frustum_width != other.light_frustum_width)
     return true;
+  if (light_frustum_height != other.light_frustum_height)
+    return true;
   if (light_frustum_distance != other.light_frustum_distance)
     return true;
   if (reserved_parameters != other.reserved_parameters)
@@ -148,6 +150,26 @@ void Lighting::AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector
   results.resize(size);
 }
 
+VkSamplerCreateInfo Lighting::GetDirectionalShadowSamplerCreateInfo() {
+  VkSamplerCreateInfo sampler_info{};
+  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_info.magFilter = VK_FILTER_LINEAR;
+  sampler_info.minFilter = VK_FILTER_LINEAR;
+  sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.anisotropyEnable = VK_FALSE;
+  sampler_info.maxAnisotropy = 1.0f;
+  sampler_info.compareEnable = VK_TRUE;
+  sampler_info.compareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+  sampler_info.minLod = 0.0f;
+  sampler_info.maxLod = 0.0f;
+  sampler_info.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+  sampler_info.unnormalizedCoordinates = VK_FALSE;
+  return sampler_info;
+}
+
 Lighting::Lighting() {
   lighting_descriptor_sets_.resize(Platform::GetMaxFramesInFlight());
   for (auto& descriptor_set : lighting_descriptor_sets_) {
@@ -203,22 +225,7 @@ void Lighting::Initialize() {
       view_info.subresourceRange.layerCount = 1;
       directional_light_shadow_map_layered_views_.emplace_back(std::make_shared<ImageView>(view_info));
     }
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = Platform::GetSelectedPhysicalDevice()->properties.limits.maxSamplerAnisotropy;
-    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_info.compareEnable = VK_FALSE;
-    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-    directional_shadow_map_sampler_ = std::make_shared<Sampler>(sampler_info);
+    directional_shadow_map_sampler_ = std::make_shared<Sampler>(GetDirectionalShadowSamplerCreateInfo());
   }
 
   point_light_shadow_map_sampler_.reset();

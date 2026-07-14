@@ -2146,38 +2146,6 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     strands_spot_light_shadow_pipeline->Initialize();
   }
-  if (!strands_directional_light_shadow_pipeline) {
-    strands_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
-    strands_directional_light_shadow_pipeline->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapStrands.vert");
-    strands_directional_light_shadow_pipeline->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
-    strands_directional_light_shadow_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
-    strands_directional_light_shadow_pipeline->geometry_shader =
-        Shader::CreateTemporary(ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/Geometry/Lighting/DirectionalLightShadowMapStrands.geom");
-    strands_directional_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
-    strands_directional_light_shadow_pipeline->geometry_type = GeometryType::Strands;
-    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
-    strands_directional_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    strands_directional_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    strands_directional_light_shadow_pipeline->tessellation_patch_control_points = 4;
-    auto& push_constant_range = strands_directional_light_shadow_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderInstancePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    strands_directional_light_shadow_pipeline->Initialize();
-  }
 #endif
   if (!deferred_prepass_pipeline_normal) {
     deferred_prepass_pipeline_normal = std::make_shared<GraphicsPipeline>();
@@ -4746,7 +4714,6 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                directional_light_shadow_opaque_pipeline,
                instanced_directional_light_shadow_pipeline_opaque,
                skinned_directional_light_shadow_pipeline_opaque,
-               strands_directional_light_shadow_pipeline,
                per_frame_descriptor_sets_[current_frame_index],
                meshlet_descriptor_sets_[current_frame_index],
                camera_index,
@@ -4760,12 +4727,14 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                  return lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(split, load_op, store_op);
                },
                [&](const VkCommandBuffer vk_command_buffer, const int light_index, const int split_index,
-                   const glm::ivec4& viewport) {
+                   const glm::ivec4& viewport, const glm::mat4& light_space_matrix) {
                  for (const auto& func : directional_light_shadow_map_external_functions) {
-                   const auto prim_count = func(vk_command_buffer, {light_index, split_index, viewport});
+                   const auto prim_count =
+                       func(vk_command_buffer, {light_index, split_index, viewport, light_space_matrix});
                    if (count_draw_calls) {
                      Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow,
-                                                   RenderDrawCallKind::Direct, current_frame_index, prim_count);
+                                                   RenderDrawCallKind::Direct, current_frame_index, prim_count, 0,
+                                                   DirectionalShadowCasterKind::External);
                    }
                  }
                },

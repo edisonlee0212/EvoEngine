@@ -1014,7 +1014,7 @@ measured evidence.
 
 Bistro raster parity remains a separate display-space check. It explicitly enables the configured DDGI volume and uses a
 newly initialized post-processing stack: GTAO, SMAA Ultra, and tone mapping enabled with bloom and SSR disabled. The
-imported Bistro sun uses light size `0.01`, and the default directional shadow resource is 8192. Ray-tracing and ray-query
+imported Bistro sun uses light size `0.01`, and the default directional shadow resource is 4096. Ray-tracing and ray-query
 parity captures keep DDGI disabled. A matched raster capture uses:
 
 ```bat
