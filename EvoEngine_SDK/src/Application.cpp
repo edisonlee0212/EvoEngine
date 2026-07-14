@@ -356,7 +356,6 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Smaa;
   stack.anti_aliasing->taa = {};
   stack.anti_aliasing->smaa = {};
-  stack.anti_aliasing->ResetHistory();
   if (in["enable_ambient_occlusion"])
     stack.enable_ambient_occlusion = in["enable_ambient_occlusion"].as<bool>();
   if (in["enable_bloom"])

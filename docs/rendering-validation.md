@@ -915,13 +915,39 @@ Mutable descriptor and readback state follows the same slot ownership: lighting 
 sets, DDGI readback buffers, and render-graph transient stores select the recycled frame slot. Particle-buffer mutations
 join the required geometry drain without forcing mesh/BLAS wait paths to process them. Rare synchronous readbacks and
 destructive lifetime events (capture, picking, camera destruction, resource resize, and cubemap mutation) drain submitted
-frames before mapping, replacing, or releasing GPU-visible objects; none runs on the steady capture frame path. If two
-cameras share one post-processing stack in a frame, the second recording receives transient duplicate descriptor sets so
-later binding updates cannot alter the first camera's recorded work. The first recording also snapshots the stack scratch
-textures and active anti-aliasing targets/history, including their images, views, samplers, and built-in descriptor sets,
-into its frame-slot retention store. A later same-frame resize therefore cannot destroy handles already encoded in command
-buffers. This conservative bridge remains through M16; M16b replaces shared mutable stack resources with camera-owned
-runtime state.
+frames before mapping, replacing, or releasing GPU-visible objects; none runs on the steady capture frame path.
+
+### M16b Post-Processing Camera Ownership
+
+Post-processing stack assets contain settings only. Each camera owns its resolution-dependent scratch textures, mutable
+descriptor sets, TAA history, SMAA targets, tone-mapping histogram/adapted-luminance buffers, and exposure timing. Shared
+pipelines, layouts, shader variants, and immutable SMAA lookup textures belong to RenderLayer, while transient inputs such
+as motion vectors are passed directly to each invocation. Camera runtime resources referenced by submitted work are retained
+in the frame slot until recycling; replacement on a later resize therefore cannot destroy encoded handles. Duplicate
+descriptor sets are needed only when the same camera is recorded repeatedly in one frame, not when separate cameras share
+one stack asset. Camera-info collection does not advance jitter, previous matrices, or stack-version observation for a
+camera that was not requested to render. A shared asset's new version therefore resets every temporal subsystem lazily on
+each camera's next render, while size-compatible scratch remains allocated. Resolution and render-technique invalidation
+use independent counters and reset paths.
+
+The M16b validator launches one RelWithDebInfo and one Debug raster process. Each process renders two same-frame cameras
+sharing one settings asset at different resolutions, proves backing images, buffers, and descriptor sets do not alias,
+advances only camera A, mutates the asset once, verifies lazy per-camera version observation and scratch reuse, resizes
+camera A, switches camera B through RayQuery and back without launching a ray camera, and executes four create/render/
+delete churn cycles. Both configurations must return VMA allocation count/bytes and live descriptor count to their exact
+baseline; Debug must also have clean validation/shutdown and no VMA leak log. The accepted evidence is under
+`out/raytracer-m16b-final` and passes 59/59 gates. Two earlier two-lane attempts are preserved under
+`out/raytracer-m16b` and `out/raytracer-m16b-replacement`: they exposed an incorrect fixed-delta exposure assertion,
+exception-shutdown ordering, and premature non-rendering-camera version observation. No reference or ordinary-RayQuery
+process is part of this validation.
+
+```bat
+python Scripts\validate_raytracer_m16b.py --self-test
+out\build\vs2026-x64\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="PostProcessingRuntime.*:SerializationRegistry.PostProcessingAssetReloadAndImportAdvanceVersion:RenderGraph.*"
+python Scripts\validate_raytracer_m16b.py --capture --rel-editor out\build\vs2026-x64\EvoEngine_App\RelWithDebInfo\EvoEngineEditor.exe --debug-editor out\build\vs2026-x64\EvoEngine_App\Debug\EvoEngineEditor.exe --output-dir out\raytracer-m16b-final
+```
+
+### M16 Ray-Camera Graph Cache
 
 Ray-camera graph plans use a 16-entry exact-structure LRU cache. The cache stores only execution plans, while each frame's
 graph callbacks and resource registry remain current. Each camera's one history generation owns two output descriptor sets,

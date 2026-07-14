@@ -12,6 +12,9 @@
 namespace evo_engine {
 class DescriptorSet;
 class DescriptorSetLayout;
+class PostProcessingStack;
+class RenderGraphTransientResourceStore;
+struct PostProcessingCameraResources;
 
 enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
 
@@ -57,6 +60,35 @@ struct RayCameraHistoryStats {
   uint64_t peak_live_output_descriptor_count = 0;
   uint64_t output_descriptor_creation_count = 0;
   uint64_t output_descriptor_reuse_count = 0;
+};
+
+struct PostProcessingRuntimeStats {
+  glm::uvec2 scratch_size = {};
+  uint64_t stack_handle = 0;
+  uint32_t stack_version = 0;
+  uint32_t render_technique = 0;
+  uint64_t scratch_generation = 0;
+  uint64_t source_texture = 0;
+  uint64_t result_texture = 0;
+  uint64_t swap_texture = 0;
+  uint64_t taa_color_textures[2] = {};
+  uint64_t taa_depth_textures[2] = {};
+  uint64_t smaa_edges_texture = 0;
+  uint64_t smaa_blend_texture = 0;
+  uint64_t histogram_buffer = 0;
+  uint64_t luminance_buffer = 0;
+  uint32_t taa_frame_index = 0;
+  uint32_t taa_last_processed_frame = 0;
+  bool taa_history_valid = false;
+  bool auto_exposure_time_initialized = false;
+  bool luminance_reset_pending = false;
+  uint64_t auto_exposure_process_count = 0;
+  uint64_t auto_exposure_reset_count = 0;
+  uint64_t temporal_reset_count = 0;
+  uint64_t version_reset_count = 0;
+  uint64_t resolution_reset_count = 0;
+  uint64_t technique_reset_count = 0;
+  std::vector<uint64_t> descriptor_sets;
 };
 
 /**
@@ -289,6 +321,7 @@ class Camera final : public IPrivateComponent {
    * @brief Called when the camera is destroyed.
    */
   void OnDestroy() override;
+  void PostCloneAction(const std::shared_ptr<IPrivateComponent>& source) override;
 
   /**
    * @brief Collects asset references used by the camera.
@@ -304,6 +337,7 @@ class Camera final : public IPrivateComponent {
 
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
+  [[nodiscard]] PostProcessingRuntimeStats GetPostProcessingRuntimeStats() const;
   [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;
@@ -318,6 +352,9 @@ class Camera final : public IPrivateComponent {
   friend class Platform;     ///< Grants access to the Platform class.
   friend class RenderLayer;  ///< Grants access to the RenderLayer class.
   friend class RayCameraHistoryTestAccess;
+  friend class PostProcessingRuntimeTestAccess;
+  friend class PostProcessingPass;
+  friend class PostProcessingStack;
   friend struct CameraInfoBlock;  ///< Grants access to the CameraInfoBlock struct.
 
   std::shared_ptr<RenderTexture> render_texture_;  ///< The render texture used by the camera.
@@ -345,6 +382,7 @@ class Camera final : public IPrivateComponent {
   RayCameraHistoryStats ray_camera_history_counters_{};
   uint64_t next_ray_camera_history_resource_generation_ = 0;
   bool ray_camera_history_owner_alive_ = false;
+  std::shared_ptr<PostProcessingCameraResources> post_processing_resources_;
 
   glm::mat4 prev_global_transform_{};
   bool rendered_ = false;               ///< Indicates whether the camera has rendered.
@@ -364,6 +402,10 @@ class Camera final : public IPrivateComponent {
       const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory = {});
   void InvalidateRayCameraHistory();
   void ReleaseRayCameraHistory();
+  PostProcessingCameraResources& AcquirePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack);
+  void SynchronizePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack);
+  void RetainPostProcessingResources(RenderGraphTransientResourceStore& transient_resources) const;
+  void ReleasePostProcessingResources();
 };
 
 }  // namespace evo_engine

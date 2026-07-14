@@ -1581,6 +1581,42 @@ anti_aliasing:
   EXPECT_FLOAT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights()[0], 0.75f);
 }
 
+TEST(SerializationRegistry, PostProcessingAssetReloadAndImportAdvanceVersion) {
+  TempProject project;
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(ProjectSettings(project));
+
+  const auto stack = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+  ASSERT_TRUE(stack);
+  stack->enable_bloom = false;
+  ASSERT_TRUE(stack->SetPathAndSave("Versioned.evepostprocessingstack"));
+  ASSERT_TRUE(std::filesystem::exists(stack->GetAbsolutePath()));
+  EXPECT_TRUE(stack->Saved());
+
+  stack->enable_bloom = true;
+  stack->SetUnsaved();
+  const auto version_before_reload = stack->GetVersion();
+  ASSERT_TRUE(stack->Load());
+  EXPECT_EQ(stack->GetVersion(), version_before_reload + 1);
+  EXPECT_FALSE(stack->enable_bloom);
+  EXPECT_TRUE(stack->Saved());
+
+  stack->enable_bloom = true;
+  stack->SetUnsaved();
+  const auto import_path = project.RootPath() / "Imported.evepostprocessingstack";
+  ASSERT_TRUE(stack->Export(import_path));
+  ASSERT_TRUE(std::filesystem::exists(import_path));
+  stack->enable_bloom = false;
+  stack->SetUnsaved();
+  const auto version_before_import = stack->GetVersion();
+  ASSERT_FALSE(stack->Saved());
+  ASSERT_TRUE(stack->Import(import_path));
+  EXPECT_EQ(stack->GetVersion(), version_before_import + 1);
+  EXPECT_TRUE(stack->enable_bloom);
+  EXPECT_FALSE(stack->Saved());
+}
+
 TEST(SerializationRegistry, GaussianSplatLoadsStandardPlyFields) {
   Application app;
   ApplicationContextScope scope(app);

@@ -10,6 +10,7 @@
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Scene.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -26,6 +27,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_set>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -84,6 +86,7 @@ struct EditorCommandLine {
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
   bool preview_capture_m10_ray_transport = false;
+  bool preview_post_processing_stress = false;
   bool disable_ray_tracing_pipeline = false;
 };
 
@@ -520,6 +523,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_bistro_ddgi = true;
     } else if (argument == "--preview-m10-ray-transport") {
       command_line.preview_capture_m10_ray_transport = true;
+    } else if (argument == "--preview-post-processing-stress") {
+      command_line.preview_post_processing_stress = true;
     } else {
       auto application_mode = command_line.application_mode;
       if (!ConsumeApplicationModeArgument(argc, argv, arg_index, application_mode)) {
@@ -588,6 +593,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_m10_ray_transport && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-m10-ray-transport requires --capture-demo-preview.");
   }
+  if (command_line.preview_post_processing_stress &&
+      (!command_line.demo_preview_capture_path || !command_line.preview_capture_metrics_path)) {
+    throw std::invalid_argument(
+        "--preview-post-processing-stress requires --capture-demo-preview and --preview-metrics-json.");
+  }
   if ((command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
        command_line.preview_shadow_debug_light) &&
       !command_line.demo_preview_capture_path) {
@@ -604,6 +614,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_m10_ray_transport &&
       command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
     throw std::invalid_argument("--preview-m10-ray-transport requires --demo rendering-regression.");
+  }
+  if (command_line.preview_post_processing_stress &&
+      command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-post-processing-stress requires --demo rendering-regression.");
   }
   if (command_line.preview_anti_aliasing_motion_sequence &&
       command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
@@ -1130,6 +1144,356 @@ nlohmann::ordered_json RayTracingPipelineLifetimeStatsJson(const RayTracingPipel
           {"shader_binding_table_creation_count", stats.shader_binding_table_creation_count}};
 }
 
+nlohmann::ordered_json PostProcessingRuntimeStatsJson(const PostProcessingRuntimeStats& stats) {
+  return {{"scratch_size", {stats.scratch_size.x, stats.scratch_size.y}},
+          {"stack_handle", stats.stack_handle},
+          {"stack_version", stats.stack_version},
+          {"render_technique", stats.render_technique},
+          {"scratch_generation", stats.scratch_generation},
+          {"source_texture", stats.source_texture},
+          {"result_texture", stats.result_texture},
+          {"swap_texture", stats.swap_texture},
+          {"taa_color_textures", {stats.taa_color_textures[0], stats.taa_color_textures[1]}},
+          {"taa_depth_textures", {stats.taa_depth_textures[0], stats.taa_depth_textures[1]}},
+          {"smaa_edges_texture", stats.smaa_edges_texture},
+          {"smaa_blend_texture", stats.smaa_blend_texture},
+          {"histogram_buffer", stats.histogram_buffer},
+          {"luminance_buffer", stats.luminance_buffer},
+          {"taa_frame_index", stats.taa_frame_index},
+          {"taa_last_processed_frame", stats.taa_last_processed_frame},
+          {"taa_history_valid", stats.taa_history_valid},
+          {"auto_exposure_time_initialized", stats.auto_exposure_time_initialized},
+          {"luminance_reset_pending", stats.luminance_reset_pending},
+          {"auto_exposure_process_count", stats.auto_exposure_process_count},
+          {"auto_exposure_reset_count", stats.auto_exposure_reset_count},
+          {"temporal_reset_count", stats.temporal_reset_count},
+          {"version_reset_count", stats.version_reset_count},
+          {"resolution_reset_count", stats.resolution_reset_count},
+          {"technique_reset_count", stats.technique_reset_count},
+          {"descriptor_sets", stats.descriptor_sets}};
+}
+
+void RequirePostProcessingStress(const bool condition, const std::string& message) {
+  if (!condition) {
+    throw std::runtime_error("M16b post-processing stress failed: " + message);
+  }
+}
+
+void CheckPostProcessingStress(std::vector<std::string>& failures, const bool condition, const std::string& message) {
+  if (!condition) {
+    failures.emplace_back(message);
+  }
+}
+
+void CheckDistinctPostProcessingResources(std::vector<std::string>& failures, const std::vector<uint64_t>& first,
+                                          const std::vector<uint64_t>& second, const std::string& label) {
+  std::unordered_set<uint64_t> first_resources;
+  for (const auto resource : first) {
+    CheckPostProcessingStress(failures, resource != 0, label + " contains a null first-camera resource");
+    first_resources.emplace(resource);
+  }
+  for (const auto resource : second) {
+    CheckPostProcessingStress(failures, resource != 0, label + " contains a null second-camera resource");
+    CheckPostProcessingStress(failures, first_resources.find(resource) == first_resources.end(),
+                              label + " aliases between cameras");
+  }
+}
+
+struct PostProcessingStressCamera {
+  Entity entity;
+  std::shared_ptr<Camera> camera;
+  uint64_t handle = 0;
+};
+
+nlohmann::ordered_json PostProcessingStressCameraJson(const PostProcessingStressCamera& stress_camera) {
+  return {{"camera_handle", stress_camera.handle},
+          {"size", {stress_camera.camera->GetSize().x, stress_camera.camera->GetSize().y}},
+          {"frame_count", stress_camera.camera->GetFrameCount()},
+          {"rendered", stress_camera.camera->Rendered()},
+          {"runtime", PostProcessingRuntimeStatsJson(stress_camera.camera->GetPostProcessingRuntimeStats())}};
+}
+
+nlohmann::ordered_json RunPostProcessingStress() {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  RequirePostProcessingStress(static_cast<bool>(scene), "active scene is unavailable");
+
+  const auto stack = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+  RequirePostProcessingStress(static_cast<bool>(stack), "shared stack creation failed");
+  stack->enable_ambient_occlusion = false;
+  stack->enable_screen_space_reflection = false;
+  stack->enable_bloom = false;
+  stack->enable_anti_aliasing = true;
+  stack->enable_tone_mapping = true;
+  stack->anti_aliasing->algorithm = AntiAliasing::Algorithm::Taa;
+  stack->anti_aliasing->ApplyTaaPreset(AntiAliasing::TaaPreset::BestQuality);
+  stack->tone_mapping->auto_exposure = true;
+  stack->tone_mapping->auto_exposure_delta_time_override = 1.0f / 60.0f;
+  stack->tone_mapping->dither = false;
+  stack->SetUnsaved();
+
+  const auto create_camera = [&](const std::string& name, const glm::uvec2 size) {
+    PostProcessingStressCamera result;
+    result.entity = scene->CreateEntity(name);
+    result.handle = scene->GetEntityHandle(result.entity).GetValue();
+    result.camera = scene->GetOrSetPrivateComponent<Camera>(result.entity).lock();
+    RequirePostProcessingStress(static_cast<bool>(result.camera), "camera creation failed");
+    result.camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+    result.camera->camera_settings.use_clear_color = true;
+    result.camera->post_processing_stack_ref = stack;
+    result.camera->Resize(size);
+    return result;
+  };
+  const auto render = [&](const std::vector<std::shared_ptr<Camera>>& cameras, const size_t frame_count) {
+    size_t rendered_frames = 0;
+    size_t attempts = 0;
+    while (rendered_frames < frame_count) {
+      for (const auto& camera : cameras) {
+        camera->SetRequireRendering(true);
+      }
+      RequirePostProcessingStress(ApplicationContext::Get().Loop(), "application ended during camera rendering");
+      const bool all_rendered = std::all_of(cameras.begin(), cameras.end(), [](const auto& camera) {
+        return camera->Rendered();
+      });
+      if (all_rendered) {
+        ++rendered_frames;
+      }
+      RequirePostProcessingStress(++attempts <= frame_count + 16, "temporary cameras were not rendered");
+    }
+  };
+  const auto settle_deleted_cameras = [&](PostProcessingStressCamera& first, PostProcessingStressCamera& second) {
+    scene->DeleteEntity(first.entity);
+    scene->DeleteEntity(second.entity);
+    first.camera.reset();
+    second.camera.reset();
+    for (int frame = 0; frame < Platform::GetMaxFramesInFlight() + 2; ++frame) {
+      RequirePostProcessingStress(ApplicationContext::Get().Loop(),
+                                  "application ended while retiring camera resources");
+    }
+    Platform::WaitForFrameSubmissions("M16b Post-Processing Stress Cleanup Fence Wait");
+  };
+
+  auto first = create_camera("M16b Shared Stack Camera A", {640, 360});
+  auto second = create_camera("M16b Shared Stack Camera B", {320, 180});
+  render({first.camera, second.camera}, 8);
+  const auto taa_first = first.camera->GetPostProcessingRuntimeStats();
+  const auto taa_second = second.camera->GetPostProcessingRuntimeStats();
+  std::vector<std::string> failures;
+  nlohmann::ordered_json result;
+  CheckPostProcessingStress(failures, taa_first.scratch_size == glm::uvec2(640, 360), "camera A scratch size is wrong");
+  CheckPostProcessingStress(failures, taa_second.scratch_size == glm::uvec2(320, 180),
+                            "camera B scratch size is wrong");
+  CheckPostProcessingStress(failures, taa_first.stack_handle != 0 && taa_first.stack_handle == taa_second.stack_handle,
+                            "cameras did not observe one shared stack");
+  CheckPostProcessingStress(failures, taa_first.taa_history_valid && taa_second.taa_history_valid,
+                            "TAA histories did not initialize");
+  CheckPostProcessingStress(failures,
+                            taa_first.auto_exposure_process_count > 0 && taa_second.auto_exposure_process_count > 0 &&
+                                !taa_first.luminance_reset_pending && !taa_second.luminance_reset_pending,
+                            "auto exposure histories did not initialize");
+  CheckPostProcessingStress(failures, taa_first.taa_last_processed_frame == taa_second.taa_last_processed_frame,
+                            "cameras were not processed in the same frame");
+  CheckDistinctPostProcessingResources(
+      failures, {taa_first.source_texture, taa_first.result_texture, taa_first.swap_texture},
+      {taa_second.source_texture, taa_second.result_texture, taa_second.swap_texture}, "scratch textures");
+  CheckDistinctPostProcessingResources(failures,
+                                       {taa_first.taa_color_textures[0], taa_first.taa_color_textures[1],
+                                        taa_first.taa_depth_textures[0], taa_first.taa_depth_textures[1]},
+                                       {taa_second.taa_color_textures[0], taa_second.taa_color_textures[1],
+                                        taa_second.taa_depth_textures[0], taa_second.taa_depth_textures[1]},
+                                       "TAA histories");
+  CheckDistinctPostProcessingResources(failures, {taa_first.histogram_buffer, taa_first.luminance_buffer},
+                                       {taa_second.histogram_buffer, taa_second.luminance_buffer},
+                                       "auto-exposure buffers");
+  CheckDistinctPostProcessingResources(failures, taa_first.descriptor_sets, taa_second.descriptor_sets,
+                                       "descriptor sets");
+  result["taa_baseline"] = {{"a", PostProcessingStressCameraJson(first)},
+                            {"b", PostProcessingStressCameraJson(second)}};
+  const auto second_before_a_only = PostProcessingRuntimeStatsJson(taa_second);
+  const auto second_frame_before_a_only = second.camera->GetFrameCount();
+  render({first.camera}, 1);
+  const auto after_a_only_first = first.camera->GetPostProcessingRuntimeStats();
+  const auto after_a_only_second = second.camera->GetPostProcessingRuntimeStats();
+  CheckPostProcessingStress(failures, after_a_only_first.taa_last_processed_frame > taa_first.taa_last_processed_frame,
+                            "camera A TAA history did not advance independently");
+  CheckPostProcessingStress(failures,
+                            after_a_only_first.auto_exposure_process_count > taa_first.auto_exposure_process_count,
+                            "camera A exposure history did not advance independently");
+  CheckPostProcessingStress(failures,
+                            PostProcessingRuntimeStatsJson(after_a_only_second) == second_before_a_only &&
+                                second.camera->GetFrameCount() == second_frame_before_a_only &&
+                                !second.camera->Rendered(),
+                            "camera B changed while only camera A rendered");
+  result["after_a_only"] = {{"a", PostProcessingStressCameraJson(first)},
+                            {"b", PostProcessingStressCameraJson(second)}};
+
+  const auto old_version = stack->GetVersion();
+  stack->anti_aliasing->algorithm = AntiAliasing::Algorithm::Smaa;
+  stack->SetUnsaved();
+  CheckPostProcessingStress(failures, stack->GetVersion() == old_version + 1,
+                            "settings mutation did not advance version once");
+  render({first.camera}, 1);
+  const auto version_first = first.camera->GetPostProcessingRuntimeStats();
+  const auto version_second_pending = second.camera->GetPostProcessingRuntimeStats();
+  CheckPostProcessingStress(
+      failures,
+      version_first.stack_version == stack->GetVersion() && version_second_pending.stack_version == old_version,
+      "stack version was not observed lazily per camera");
+  CheckPostProcessingStress(failures, version_first.version_reset_count == after_a_only_first.version_reset_count + 1,
+                            "camera A version reset count is wrong");
+  CheckPostProcessingStress(failures,
+                            version_first.auto_exposure_reset_count == after_a_only_first.auto_exposure_reset_count + 1,
+                            "camera A exposure history was not reset by version");
+  CheckPostProcessingStress(failures, version_first.temporal_reset_count == after_a_only_first.temporal_reset_count + 1,
+                            "camera A temporal state was not reset exactly once by version");
+  CheckPostProcessingStress(failures,
+                            version_first.scratch_generation == after_a_only_first.scratch_generation &&
+                                version_first.source_texture == after_a_only_first.source_texture &&
+                                version_first.result_texture == after_a_only_first.result_texture &&
+                                version_first.swap_texture == after_a_only_first.swap_texture,
+                            "camera A compatible scratch was replaced by version invalidation");
+  result["after_version_a"] = {{"a", PostProcessingStressCameraJson(first)},
+                               {"b", PostProcessingStressCameraJson(second)}};
+
+  render({second.camera}, 1);
+  const auto version_second = second.camera->GetPostProcessingRuntimeStats();
+  CheckPostProcessingStress(failures,
+                            version_second.stack_version == stack->GetVersion() &&
+                                version_second.version_reset_count == after_a_only_second.version_reset_count + 1,
+                            "camera B did not observe its own version reset");
+  CheckPostProcessingStress(
+      failures,
+      version_second.auto_exposure_reset_count == after_a_only_second.auto_exposure_reset_count + 1 &&
+          version_second.temporal_reset_count == after_a_only_second.temporal_reset_count + 1,
+      "camera B temporal subsystems were not reset exactly once by version");
+  CheckPostProcessingStress(failures,
+                            version_second.scratch_generation == after_a_only_second.scratch_generation &&
+                                version_second.source_texture == after_a_only_second.source_texture &&
+                                version_second.result_texture == after_a_only_second.result_texture &&
+                                version_second.swap_texture == after_a_only_second.swap_texture,
+                            "camera B compatible scratch was replaced by version invalidation");
+  CheckDistinctPostProcessingResources(failures, {version_first.smaa_edges_texture, version_first.smaa_blend_texture},
+                                       {version_second.smaa_edges_texture, version_second.smaa_blend_texture},
+                                       "SMAA targets");
+  result["after_version_b"] = {{"a", PostProcessingStressCameraJson(first)},
+                               {"b", PostProcessingStressCameraJson(second)}};
+
+  const auto second_before_resize = PostProcessingRuntimeStatsJson(version_second);
+  first.camera->Resize({480, 270});
+  render({first.camera}, 1);
+  const auto resized_first = first.camera->GetPostProcessingRuntimeStats();
+  CheckPostProcessingStress(failures,
+                            resized_first.scratch_size == glm::uvec2(480, 270) &&
+                                resized_first.scratch_generation == version_first.scratch_generation + 1 &&
+                                resized_first.resolution_reset_count == version_first.resolution_reset_count + 1,
+                            "camera A resolution invalidation is wrong");
+  CheckPostProcessingStress(failures,
+                            resized_first.version_reset_count == version_first.version_reset_count &&
+                                resized_first.technique_reset_count == version_first.technique_reset_count,
+                            "camera A resize affected another invalidation key");
+  CheckPostProcessingStress(failures,
+                            resized_first.temporal_reset_count == version_first.temporal_reset_count + 1 &&
+                                resized_first.auto_exposure_reset_count == version_first.auto_exposure_reset_count + 1,
+                            "camera A resize did not reset every temporal subsystem exactly once");
+  CheckPostProcessingStress(
+      failures, PostProcessingRuntimeStatsJson(second.camera->GetPostProcessingRuntimeStats()) == second_before_resize,
+      "camera A resize changed camera B");
+  result["after_resize_a"] = {{"a", PostProcessingStressCameraJson(first)},
+                              {"b", PostProcessingStressCameraJson(second)}};
+
+  const auto first_before_technique = PostProcessingRuntimeStatsJson(resized_first);
+  const auto technique_second_before = second.camera->GetPostProcessingRuntimeStats();
+  CameraInfoBlock camera_info_block{};
+  second.camera->camera_render_mode = Camera::CameraRenderMode::RayQuery;
+  second.camera->SetRequireRendering(true);
+  second.camera->UpdateCameraInfoBlock(camera_info_block, GlobalTransform{});
+  second.camera->ResetRenderState();
+  const auto ray_query_second = second.camera->GetPostProcessingRuntimeStats();
+  CheckPostProcessingStress(
+      failures,
+      ray_query_second.render_technique == static_cast<uint32_t>(Camera::CameraRenderMode::RayQuery) &&
+          ray_query_second.technique_reset_count == technique_second_before.technique_reset_count + 1 &&
+          ray_query_second.resolution_reset_count == technique_second_before.resolution_reset_count &&
+          ray_query_second.version_reset_count == technique_second_before.version_reset_count &&
+          ray_query_second.scratch_generation == technique_second_before.scratch_generation &&
+          ray_query_second.temporal_reset_count == technique_second_before.temporal_reset_count + 1 &&
+          ray_query_second.auto_exposure_reset_count == technique_second_before.auto_exposure_reset_count + 1,
+      "RayQuery technique invalidation affected another key");
+  CheckPostProcessingStress(
+      failures, PostProcessingRuntimeStatsJson(first.camera->GetPostProcessingRuntimeStats()) == first_before_technique,
+      "camera B technique switch changed camera A");
+  result["after_technique_b_ray_query"] = {{"a", PostProcessingStressCameraJson(first)},
+                                           {"b", PostProcessingStressCameraJson(second)}};
+  second.camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  second.camera->SetRequireRendering(true);
+  second.camera->UpdateCameraInfoBlock(camera_info_block, GlobalTransform{});
+  second.camera->ResetRenderState();
+  const auto raster_second = second.camera->GetPostProcessingRuntimeStats();
+  CheckPostProcessingStress(
+      failures,
+      raster_second.render_technique == static_cast<uint32_t>(Camera::CameraRenderMode::Rasterization) &&
+          raster_second.technique_reset_count == ray_query_second.technique_reset_count + 1 &&
+          raster_second.resolution_reset_count == ray_query_second.resolution_reset_count &&
+          raster_second.version_reset_count == ray_query_second.version_reset_count &&
+          raster_second.scratch_generation == ray_query_second.scratch_generation &&
+          raster_second.temporal_reset_count == ray_query_second.temporal_reset_count + 1 &&
+          raster_second.auto_exposure_reset_count == ray_query_second.auto_exposure_reset_count + 1,
+      "raster technique restoration did not use the independent path");
+  result["after_technique_b_rasterization"] = {{"a", PostProcessingStressCameraJson(first)},
+                                               {"b", PostProcessingStressCameraJson(second)}};
+
+  settle_deleted_cameras(first, second);
+  const auto churn_baseline_memory = Platform::GetGpuMemorySnapshot();
+  const auto churn_baseline_descriptors = DescriptorSet::GetLifetimeStats();
+  uint64_t first_active_allocation_count = 0;
+  uint64_t first_active_allocation_bytes = 0;
+  uint64_t first_active_descriptor_count = 0;
+  auto churn_cycles = nlohmann::ordered_json::array();
+  for (size_t iteration = 0; iteration < 4; ++iteration) {
+    auto churn_first = create_camera("M16b Churn Camera A", {480, 270});
+    auto churn_second = create_camera("M16b Churn Camera B", {320, 180});
+    render({churn_first.camera, churn_second.camera}, 1);
+    const auto active_memory = Platform::GetGpuMemorySnapshot();
+    const auto active_descriptors = DescriptorSet::GetLifetimeStats();
+    churn_cycles.push_back({{"iteration", iteration},
+                            {"memory", GpuMemorySnapshotJson(active_memory)},
+                            {"descriptor_sets", DescriptorSetLifetimeStatsJson(active_descriptors)}});
+    if (iteration == 0) {
+      first_active_allocation_count = active_memory.allocation_count;
+      first_active_allocation_bytes = active_memory.allocation_bytes;
+      first_active_descriptor_count = active_descriptors.live_count;
+    } else {
+      CheckPostProcessingStress(failures,
+                                active_memory.allocation_count <= first_active_allocation_count &&
+                                    active_memory.allocation_bytes <= first_active_allocation_bytes &&
+                                    active_descriptors.live_count <= first_active_descriptor_count,
+                                "multi-camera churn exceeded the first active-cycle bound");
+    }
+    settle_deleted_cameras(churn_first, churn_second);
+  }
+  const auto churn_final_memory = Platform::GetGpuMemorySnapshot();
+  const auto churn_final_descriptors = DescriptorSet::GetLifetimeStats();
+  CheckPostProcessingStress(failures,
+                            churn_final_memory.allocation_count == churn_baseline_memory.allocation_count &&
+                                churn_final_memory.allocation_bytes == churn_baseline_memory.allocation_bytes &&
+                                churn_final_descriptors.live_count == churn_baseline_descriptors.live_count,
+                            "multi-camera churn did not return allocations to baseline");
+  result["churn"] = {
+      {"iterations", 4},
+      {"baseline_memory", GpuMemorySnapshotJson(churn_baseline_memory)},
+      {"baseline_descriptor_sets", DescriptorSetLifetimeStatsJson(churn_baseline_descriptors)},
+      {"first_active_memory",
+       {{"allocation_count", first_active_allocation_count}, {"allocation_bytes", first_active_allocation_bytes}}},
+      {"first_active_descriptor_count", first_active_descriptor_count},
+      {"cycles", std::move(churn_cycles)},
+      {"final_memory", GpuMemorySnapshotJson(churn_final_memory)},
+      {"final_descriptor_sets", DescriptorSetLifetimeStatsJson(churn_final_descriptors)}};
+  result["stack_version_before_mutation"] = old_version;
+  result["stack_version_after_mutation"] = stack->GetVersion();
+  result["failures"] = std::move(failures);
+  result["pass"] = result["failures"].empty();
+  return result;
+}
+
 void CaptureDemoPreview(
     const std::filesystem::path& output_path, const std::optional<std::filesystem::path>& metrics_path, const int width,
     const int height, const size_t warmup_frames, const size_t timing_warmup_frames,
@@ -1158,7 +1522,8 @@ void CaptureDemoPreview(
     const std::optional<float>& preview_shadow_cascade_transition_width,
     const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
-    const bool deterministic_capture, const bool preview_bistro_ddgi, const bool preview_m10_ray_transport) {
+    const bool deterministic_capture, const bool preview_bistro_ddgi, const bool preview_m10_ray_transport,
+    const bool preview_post_processing_stress) {
   auto output_extension = output_path.extension().string();
   std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
@@ -1299,7 +1664,6 @@ void CaptureDemoPreview(
           anti_aliasing->smaa.debug_mode = *preview_smaa_debug_mode;
         }
         anti_aliasing->NormalizeSettings();
-        anti_aliasing->ResetHistory(scene_camera);
       }
       scene_camera->ResetFrameCount();
     }
@@ -1382,6 +1746,17 @@ void CaptureDemoPreview(
   }
   scene_camera->Resize(preview_resolution);
   WaitForDemoPreviewSceneInputsReady();
+  nlohmann::ordered_json post_processing_stress = nullptr;
+  if (preview_post_processing_stress) {
+    try {
+      RequirePostProcessingStress(!linear_hdr_output && resolved_render_mode == Camera::CameraRenderMode::Rasterization,
+                                  "stress capture must use rasterization and PNG output");
+      post_processing_stress = RunPostProcessingStress();
+    } catch (...) {
+      Platform::DrainGpuResourceWork();
+      throw;
+    }
+  }
   if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
                                ? RayCameraShaderTechnique::RayQuery
@@ -1561,6 +1936,7 @@ void CaptureDemoPreview(
   metrics["emissive_triangle_nee_enabled"] = scene_camera->camera_settings.emissive_triangle_nee_enabled;
   metrics["auto_spp_enabled"] = scene_camera->camera_settings.auto_spp_enabled;
   metrics["m10_ray_transport"] = preview_m10_ray_transport;
+  metrics["post_processing_stress"] = post_processing_stress;
   if (preview_m10_ray_transport) {
     metrics["m10_fixture_version"] = "isolated-v2";
   } else {
@@ -1864,7 +2240,7 @@ int main(const int argc, char** argv) {
               command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
               command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
-              command_line.preview_capture_m10_ray_transport);
+              command_line.preview_capture_m10_ray_transport, command_line.preview_post_processing_stress);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

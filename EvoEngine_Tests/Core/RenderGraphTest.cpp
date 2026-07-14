@@ -2227,25 +2227,22 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   EXPECT_NE(post_processing_header.find("class PerFrameDescriptorSet"), std::string::npos);
   EXPECT_NE(post_processing_header.find("duplicate_descriptor_sets"), std::string::npos);
   EXPECT_NE(post_processing_header.find("duplicate_descriptor_set_lists"), std::string::npos);
-  EXPECT_NE(post_processing_header.find("PerFrameDescriptorSetList downsampling_descriptor_set"), std::string::npos);
-  EXPECT_NE(post_processing_header.find("void RetainRuntimeResources(uint64_t camera_handle"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("PerFrameDescriptorSetList downsampling_descriptor_sets"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("struct PostProcessingCameraResources"), std::string::npos);
   EXPECT_NE(render_layer_header.find("ddgi_variability_readback_buffers_"), std::string::npos);
   EXPECT_NE(render_layer_source.find("Required DDGI Resource Rebuild Fence Wait"), std::string::npos);
   EXPECT_NE(render_graph_header.find("void RetainAsset(std::shared_ptr<IAsset> asset)"), std::string::npos);
+  EXPECT_NE(render_graph_header.find("void RetainBuffer(std::shared_ptr<Buffer> buffer)"), std::string::npos);
   EXPECT_NE(
       render_graph_header.find("void RetainRenderTextureResources(std::shared_ptr<RenderTexture> render_texture)"),
       std::string::npos);
   EXPECT_NE(post_processing_pass.find("RetainAsset(post_processing_stack)"), std::string::npos);
-  EXPECT_NE(post_processing_pass.find("anti_aliasing->RetainRuntimeResources"), std::string::npos);
+  EXPECT_NE(post_processing_pass.find("RetainPostProcessingResources"), std::string::npos);
   const auto ray_process = post_processing_pass.find("post_processing_stack->ProcessRayCamera");
-  const auto ray_retention = post_processing_pass.find(
-      "RetainPostProcessingRenderTextures(parameters.transient_resources, post_processing_stack, parameters.camera);",
-      ray_process);
+  const auto ray_retention = post_processing_pass.find("RetainPostProcessingResources", ray_process);
   const auto raster_process =
       post_processing_pass.find("post_processing_stack->Process(parameters.camera", ray_retention);
-  const auto raster_retention = post_processing_pass.find(
-      "RetainPostProcessingRenderTextures(parameters.transient_resources, post_processing_stack, parameters.camera);",
-      raster_process);
+  const auto raster_retention = post_processing_pass.find("RetainPostProcessingResources", raster_process);
   ASSERT_NE(ray_process, std::string::npos);
   EXPECT_NE(ray_retention, std::string::npos);
   ASSERT_NE(raster_process, std::string::npos);

@@ -1,7 +1,7 @@
 #include "Camera.hpp"
 #include <algorithm>
 #include <cctype>
-#include <unordered_map>
+#include <type_traits>
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
@@ -16,15 +16,22 @@
 using namespace evo_engine;
 
 namespace {
-std::unordered_map<uint64_t, glm::mat4> previous_camera_projection_views;
-std::unordered_map<uint64_t, glm::mat4> previous_camera_unjittered_projection_views;
-struct CameraJitterState {
-  glm::vec2 current = {};
-  glm::vec2 previous = {};
-  uint32_t frame_index = 0;
-  bool taa_enabled = false;
-};
-std::unordered_map<uint64_t, CameraJitterState> camera_jitter_states;
+template <typename T>
+uint64_t VulkanHandleIdentity(const T handle) {
+  if constexpr (std::is_pointer_v<T>) {
+    return reinterpret_cast<uintptr_t>(handle);
+  } else {
+    return static_cast<uint64_t>(handle);
+  }
+}
+
+uint64_t ResourceIdentity(const std::shared_ptr<RenderTexture>& resource) {
+  return resource && resource->GetColorImage() ? VulkanHandleIdentity(resource->GetColorImage()->GetVkImage()) : 0;
+}
+
+uint64_t ResourceIdentity(const std::shared_ptr<Buffer>& resource) {
+  return resource ? VulkanHandleIdentity(resource->GetVkBuffer()) : 0;
+}
 
 bool SameExtent(const VkExtent3D left, const VkExtent3D right) {
   return left.width == right.width && left.height == right.height && left.depth == right.depth;
@@ -446,26 +453,32 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const auto unjittered_projection = glm::perspective(glm::radians(camera_settings.fov * 0.5f), ratio,
                                                       camera_settings.near_distance, camera_settings.far_distance);
   camera_info_block.projection = unjittered_projection;
-  auto& jitter_state = camera_jitter_states[GetHandle().GetValue()];
-  const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
-  const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
-                           post_processing_stack->enable_anti_aliasing && post_processing_stack->anti_aliasing &&
-                           post_processing_stack->anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa;
-  if (jitter_state.taa_enabled != taa_enabled) {
-    jitter_state = {};
-    jitter_state.taa_enabled = taa_enabled;
-  }
-  jitter_state.previous = jitter_state.current;
-  jitter_state.current = {};
-  if (taa_enabled && size_.x != 0 && size_.y != 0) {
-    const uint32_t sequence_index = jitter_state.frame_index % 16u + 1u;
-    jitter_state.current = glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
-    jitter_state.current *= 2.0f / glm::vec2(size_);
-    camera_info_block.projection[2][0] += jitter_state.current.x;
-    camera_info_block.projection[2][1] += jitter_state.current.y;
-    ++jitter_state.frame_index;
-  } else {
-    jitter_state.frame_index = 0;
+  PostProcessingCameraResources* post_processing_resources = nullptr;
+  if (require_rendering_) {
+    const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
+    post_processing_resources = &AcquirePostProcessingResources(post_processing_stack);
+    const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
+                             post_processing_stack->enable_anti_aliasing && post_processing_stack->anti_aliasing &&
+                             post_processing_stack->anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa;
+    if (post_processing_resources->jitter_taa_enabled != taa_enabled) {
+      post_processing_resources->current_jitter = {};
+      post_processing_resources->previous_jitter = {};
+      post_processing_resources->jitter_frame_index = 0;
+      post_processing_resources->jitter_taa_enabled = taa_enabled;
+    }
+    post_processing_resources->previous_jitter = post_processing_resources->current_jitter;
+    post_processing_resources->current_jitter = {};
+    if (taa_enabled && size_.x != 0 && size_.y != 0) {
+      const uint32_t sequence_index = post_processing_resources->jitter_frame_index % 16u + 1u;
+      post_processing_resources->current_jitter =
+          glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
+      post_processing_resources->current_jitter *= 2.0f / glm::vec2(size_);
+      camera_info_block.projection[2][0] += post_processing_resources->current_jitter.x;
+      camera_info_block.projection[2][1] += post_processing_resources->current_jitter.y;
+      ++post_processing_resources->jitter_frame_index;
+    } else {
+      post_processing_resources->jitter_frame_index = 0;
+    }
   }
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
@@ -473,21 +486,24 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
-  const auto camera_handle = GetHandle().GetValue();
-  const auto previous_projection_view = previous_camera_projection_views.find(camera_handle);
-  camera_info_block.previous_projection_view = previous_projection_view == previous_camera_projection_views.end()
-                                                   ? camera_info_block.projection_view
-                                                   : previous_projection_view->second;
-  previous_camera_projection_views[camera_handle] = camera_info_block.projection_view;
-  const auto previous_unjittered_projection_view = previous_camera_unjittered_projection_views.find(camera_handle);
+  camera_info_block.previous_projection_view =
+      post_processing_resources && post_processing_resources->previous_matrices_valid
+          ? post_processing_resources->previous_projection_view
+          : camera_info_block.projection_view;
   camera_info_block.previous_unjittered_projection_view =
-      previous_unjittered_projection_view == previous_camera_unjittered_projection_views.end()
-          ? camera_info_block.unjittered_projection_view
-          : previous_unjittered_projection_view->second;
-  previous_camera_unjittered_projection_views[camera_handle] = camera_info_block.unjittered_projection_view;
+      post_processing_resources && post_processing_resources->previous_matrices_valid
+          ? post_processing_resources->previous_unjittered_projection_view
+          : camera_info_block.unjittered_projection_view;
+  if (post_processing_resources) {
+    post_processing_resources->previous_projection_view = camera_info_block.projection_view;
+    post_processing_resources->previous_unjittered_projection_view = camera_info_block.unjittered_projection_view;
+    post_processing_resources->previous_matrices_valid = true;
+  }
   camera_info_block.clear_color =
       glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
-  camera_info_block.jitter = glm::vec4(jitter_state.current, jitter_state.previous);
+  camera_info_block.jitter = post_processing_resources ? glm::vec4(post_processing_resources->current_jitter,
+                                                                   post_processing_resources->previous_jitter)
+                                                       : glm::vec4(0.0f);
   camera_info_block.resolution = size_;
   camera_info_block.fade_factor = camera_settings.fade_factor;
   camera_info_block.fade_ratio = camera_settings.fade_ratio;
@@ -592,7 +608,9 @@ void Camera::Resize(const glm::uvec2& size) {
   }
   ReleaseRayCameraHistory();
   size_ = size;
-  ResetFrameCount();
+  frame_count_ = 0;
+  ++temporal_history_version_;
+  InvalidateRayCameraHistory();
   if (render_texture_) {
     render_texture_->Resize({size_.x, size_.y, 1});
     UpdateGBuffer();
@@ -603,6 +621,7 @@ void Camera::OnCreate() {
   ray_camera_history_ = {};
   ray_camera_history_counters_ = {};
   ray_camera_history_owner_alive_ = true;
+  post_processing_resources_.reset();
   size_ = glm::uvec2(1, 1);
   frame_count_ = 0;
   camera_settings = {};
@@ -776,8 +795,13 @@ void Camera::OnDestroy() {
     render_layer->ForgetRayCameraHistoryCamera(GetHandle().GetValue(), this);
   }
   ReleaseRayCameraHistory();
+  ReleasePostProcessingResources();
   post_processing_stack_ref.Clear();
   skybox.Clear();
+}
+
+void Camera::PostCloneAction(const std::shared_ptr<IPrivateComponent>& source) {
+  post_processing_resources_.reset();
 }
 
 void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -818,6 +842,61 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
   return stats;
 }
 
+PostProcessingRuntimeStats Camera::GetPostProcessingRuntimeStats() const {
+  PostProcessingRuntimeStats stats;
+  if (!post_processing_resources_) {
+    return stats;
+  }
+  const auto& resources = *post_processing_resources_;
+  stats.scratch_size = resources.stack.size;
+  stats.stack_handle = resources.stack_handle;
+  stats.stack_version = resources.stack_version;
+  stats.render_technique = resources.render_technique;
+  stats.scratch_generation = resources.stack.generation;
+  stats.source_texture = ResourceIdentity(resources.stack.source_color_texture);
+  stats.result_texture = ResourceIdentity(resources.stack.result_texture);
+  stats.swap_texture = ResourceIdentity(resources.stack.swap_texture);
+  for (size_t index = 0; index < 2; ++index) {
+    stats.taa_color_textures[index] = ResourceIdentity(resources.anti_aliasing.history.textures[index]);
+    stats.taa_depth_textures[index] = ResourceIdentity(resources.anti_aliasing.history.depth_textures[index]);
+  }
+  stats.smaa_edges_texture = ResourceIdentity(resources.anti_aliasing.smaa_edges_texture);
+  stats.smaa_blend_texture = ResourceIdentity(resources.anti_aliasing.smaa_blend_texture);
+  stats.histogram_buffer = ResourceIdentity(resources.tone_mapping.histogram_buffer);
+  stats.luminance_buffer = ResourceIdentity(resources.tone_mapping.luminance_buffer);
+  stats.taa_frame_index = resources.anti_aliasing.history.frame_index;
+  stats.taa_last_processed_frame = resources.anti_aliasing.history.last_processed_frame;
+  stats.taa_history_valid = resources.anti_aliasing.history.valid;
+  stats.auto_exposure_time_initialized = resources.tone_mapping.auto_exposure_time_initialized;
+  stats.luminance_reset_pending = resources.tone_mapping.luminance_reset_pending;
+  stats.auto_exposure_process_count = resources.tone_mapping.auto_exposure_process_count;
+  stats.auto_exposure_reset_count = resources.tone_mapping.auto_exposure_reset_count;
+  stats.temporal_reset_count = resources.temporal_reset_count;
+  stats.version_reset_count = resources.version_reset_count;
+  stats.resolution_reset_count = resources.resolution_reset_count;
+  stats.technique_reset_count = resources.technique_reset_count;
+  resources.stack.blur_horizontal_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.stack.blur_vertical_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.ambient_occlusion.blur_horizontal_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.ambient_occlusion.blur_vertical_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.ambient_occlusion.combine_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.ambient_occlusion.geometry_output_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.anti_aliasing.copy_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.anti_aliasing.resolve_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.anti_aliasing.smaa_prepare_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.anti_aliasing.smaa_edge_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.anti_aliasing.smaa_weight_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.anti_aliasing.smaa_neighborhood_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.screen_space_reflection.combine_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.screen_space_reflection.reflect_output_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.bloom.copy_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.bloom.mix_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  resources.bloom.downsampling_descriptor_sets.AppendIdentities(stats.descriptor_sets);
+  resources.bloom.upsampling_descriptor_sets.AppendIdentities(stats.descriptor_sets);
+  resources.tone_mapping.auto_exposure_descriptor_set.AppendIdentities(stats.descriptor_sets);
+  return stats;
+}
+
 ImTextureID Camera::GetGBufferBaseColorAoImTextureId() const {
   return g_buffer_base_color_ao_im_texture_id_;
 }
@@ -849,10 +928,61 @@ void Camera::ResetFrameCount() {
   frame_count_ = 0;
   ++temporal_history_version_;
   InvalidateRayCameraHistory();
-  const auto camera_handle = GetHandle().GetValue();
-  previous_camera_projection_views.erase(camera_handle);
-  previous_camera_unjittered_projection_views.erase(camera_handle);
-  camera_jitter_states.erase(camera_handle);
+  if (post_processing_resources_) {
+    post_processing_resources_->ResetTemporalState();
+  }
+}
+
+PostProcessingCameraResources& Camera::AcquirePostProcessingResources(
+    const std::shared_ptr<PostProcessingStack>& stack) {
+  SynchronizePostProcessingResources(stack);
+  return *post_processing_resources_;
+}
+
+void Camera::SynchronizePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack) {
+  if (!post_processing_resources_) {
+    post_processing_resources_ = std::make_shared<PostProcessingCameraResources>();
+  }
+  auto& resources = *post_processing_resources_;
+  const uint64_t stack_handle = stack ? stack->GetHandle().GetValue() : 0;
+  const uint32_t stack_version = stack ? stack->GetVersion() : 0;
+  bool reset_temporal_state = false;
+  if (resources.stack_handle != stack_handle || resources.stack_version != stack_version) {
+    if (resources.stack_version != std::numeric_limits<uint32_t>::max()) {
+      ++resources.version_reset_count;
+    }
+    resources.stack_handle = stack_handle;
+    resources.stack_version = stack_version;
+    reset_temporal_state = true;
+  }
+  const auto render_technique = static_cast<uint32_t>(camera_render_mode);
+  if (resources.render_technique != render_technique) {
+    if (resources.render_technique != std::numeric_limits<uint32_t>::max()) {
+      ++resources.technique_reset_count;
+    }
+    resources.render_technique = render_technique;
+    reset_temporal_state = true;
+  }
+  if (resources.observed_resolution != size_) {
+    if (resources.observed_resolution != glm::uvec2(0)) {
+      ++resources.resolution_reset_count;
+    }
+    resources.observed_resolution = size_;
+    reset_temporal_state = true;
+  }
+  if (reset_temporal_state) {
+    resources.ResetTemporalState();
+  }
+}
+
+void Camera::RetainPostProcessingResources(RenderGraphTransientResourceStore& transient_resources) const {
+  if (post_processing_resources_) {
+    post_processing_resources_->Retain(transient_resources);
+  }
+}
+
+void Camera::ReleasePostProcessingResources() {
+  post_processing_resources_.reset();
 }
 
 void Camera::InvalidateRayCameraHistory() {

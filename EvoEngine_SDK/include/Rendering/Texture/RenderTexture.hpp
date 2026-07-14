@@ -65,6 +65,7 @@ class RenderTexture {
    * @param render_texture_create_info Information for creating the render texture.
    */
   explicit RenderTexture(const RenderTextureCreateInfo& render_texture_create_info);
+  RenderTexture(const RenderTextureCreateInfo& render_texture_create_info, uint32_t mip_levels);
 
   /**
    * @brief Resizes the render texture.

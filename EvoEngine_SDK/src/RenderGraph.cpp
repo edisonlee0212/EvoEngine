@@ -589,6 +589,12 @@ void RenderGraphTransientResourceStore::RetainDescriptorSet(std::shared_ptr<Desc
   }
 }
 
+void RenderGraphTransientResourceStore::RetainBuffer(std::shared_ptr<Buffer> buffer) {
+  if (buffer) {
+    buffers_.emplace_back(std::move(buffer));
+  }
+}
+
 void RenderGraphTransientResourceStore::RetainAsset(std::shared_ptr<IAsset> asset) {
   if (asset) {
     assets_.emplace_back(std::move(asset));

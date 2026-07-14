@@ -267,6 +267,7 @@ class RenderGraphTransientResourceStore {
   void Allocate(const std::vector<RenderResourceDescriptor>& resources, const RenderGraphExecutionPlan& execution_plan);
   void Bind(RenderGraphResourceRegistry& resource_registry);
   void RetainDescriptorSet(std::shared_ptr<DescriptorSet> descriptor_set);
+  void RetainBuffer(std::shared_ptr<Buffer> buffer);
   void RetainAsset(std::shared_ptr<IAsset> asset);
   void RetainRenderTextureResources(std::shared_ptr<RenderTexture> render_texture);
   void RetainImage(std::shared_ptr<Image> image);

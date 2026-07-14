@@ -238,6 +238,9 @@ void RenderTexture::Clear(VkCommandBuffer vk_command_buffer) const {
 RenderTexture::RenderTexture(const RenderTextureCreateInfo& render_texture_create_info) {
   Initialize(render_texture_create_info);
 }
+RenderTexture::RenderTexture(const RenderTextureCreateInfo& render_texture_create_info, const uint32_t mip_levels) {
+  Initialize(render_texture_create_info, mip_levels);
+}
 void RenderTexture::Resize(const VkExtent3D extent, const uint32_t mip_level) {
   if (extent.width == extent_.width && extent.height == extent_.height && extent.depth == extent_.depth)
     return;

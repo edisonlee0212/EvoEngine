@@ -1731,8 +1731,7 @@ TEST(GltfRayTracingMaterial, RayTracingCameraRoutesLinearOutputThroughPostTonema
   ASSERT_FALSE(render_layer.empty());
   EXPECT_NE(render_layer.find("PostProcessingPass::CreateRayTracingDescriptor(post_ray_tracing_dependency)"),
             std::string::npos);
-  EXPECT_NE(render_layer.find("PostProcessingPass::Execute(context, {camera, nullptr, false, true})"),
-            std::string::npos);
+  EXPECT_NE(render_layer.find("{camera, active_camera_transient_resources, false, true}"), std::string::npos);
 
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
   ASSERT_FALSE(post_processing_pass.empty());

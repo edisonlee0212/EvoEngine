@@ -6,7 +6,7 @@
 
 #include <array>
 #include <functional>
-#include <unordered_map>
+#include <limits>
 
 namespace evo_engine {
 class ToneMapping;
@@ -19,10 +19,15 @@ class Image;
 class ImageView;
 class RenderGraphTransientResourceStore;
 class Sampler;
+struct PostProcessingCameraResources;
+struct PostProcessingExecutionContext;
+struct PostProcessingRendererResources;
 
 class PerFrameDescriptorSet {
  public:
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetOrCreate(const std::shared_ptr<DescriptorSetLayout>& layout) const;
+  void AppendIdentities(std::vector<uint64_t>& identities) const;
+  void Retain(RenderGraphTransientResourceStore& transient_resources) const;
   void Reset();
 
  private:
@@ -38,6 +43,8 @@ class PerFrameDescriptorSet {
 class PerFrameDescriptorSetList {
  public:
   [[nodiscard]] std::vector<std::shared_ptr<DescriptorSet>>& Get();
+  void AppendIdentities(std::vector<uint64_t>& identities) const;
+  void Retain(RenderGraphTransientResourceStore& transient_resources) const;
   void Reset();
 
  private:
@@ -51,30 +58,17 @@ class PerFrameDescriptorSetList {
 };
 
 class PostProcessingStack : public IAsset {
-  glm::uvec2 current_size = glm::uvec2(1);
-  size_t pipeline_build_step_ = 0;
-  bool pipelines_ready_ = false;
-  void Resize(const glm::uvec2& size);
-  bool BuildNextPipeline();
-
-  mutable std::shared_ptr<DescriptorSetLayout> blur_layout;
-  mutable std::shared_ptr<ComputePipeline> blur_pipeline;
-
-  PerFrameDescriptorSet blur_horizontal_descriptor_set;
-  PerFrameDescriptorSet blur_vertical_descriptor_set;
+  void Resize(PostProcessingCameraResources& resources, const glm::uvec2& size) const;
+  bool BuildNextPipeline(PostProcessingRendererResources& resources) const;
 
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
   }
 
-  std::shared_ptr<RenderTexture> source_color_texture;
-  std::shared_ptr<RenderTexture> result_texture;
-  std::shared_ptr<RenderTexture> swap_texture;
-  std::shared_ptr<ImageView> motion_vectors_image_view;
-
   void OnCreate() override;
   void Process(const std::shared_ptr<Camera>& target_camera,
+               const std::shared_ptr<ImageView>& motion_vectors_image_view = {},
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
   std::shared_ptr<AmbientOcclusion> ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
@@ -82,7 +76,7 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<AntiAliasing> anti_aliasing{};
   std::shared_ptr<ToneMapping> tone_mapping{};
 
-  void GaussianBlur(const glm::uvec2& size) const;
+  void GaussianBlur(const glm::uvec2& size, PostProcessingExecutionContext& context) const;
   void ProcessRayCamera(const std::shared_ptr<Camera>& target_camera,
                         const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
 
@@ -95,20 +89,14 @@ class PostProcessingStack : public IAsset {
 
 class IPostProcessing {
  public:
-  virtual void Process(const PostProcessingStack& post_processing_stack,
-                       const std::shared_ptr<Camera>& target_camera) = 0;
-  virtual void BuildPipelines(bool force_rebuild = false) = 0;
+  virtual void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+                       PostProcessingExecutionContext& context) const = 0;
+  virtual void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const = 0;
 };
 
 class AmbientOcclusion : public IPostProcessing {
  public:
   enum class Algorithm : int32_t { Ssao = 0, Gtao = 1 };
-
-  std::shared_ptr<DescriptorSetLayout> blur_layout;
-  std::shared_ptr<ComputePipeline> blur_pipeline;
-
-  PerFrameDescriptorSet blur_horizontal_descriptor_set;
-  PerFrameDescriptorSet blur_vertical_descriptor_set;
   struct BlurPushConstant {
     int horizontal = false;
     float camera_near;
@@ -117,8 +105,6 @@ class AmbientOcclusion : public IPostProcessing {
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
   };
   float avoid_distance = 0.1f;
-  std::shared_ptr<DescriptorSetLayout> combine_layout;
-  PerFrameDescriptorSet combine_descriptor_set;
   /**
    * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
    */
@@ -148,13 +134,9 @@ class AmbientOcclusion : public IPostProcessing {
     int steps_per_slice;
     float thickness;
   };
-  std::shared_ptr<DescriptorSetLayout> geometry_output_layout;
-  PerFrameDescriptorSet geometry_output_descriptor_set;
-  std::shared_ptr<ComputePipeline> geometry_pipeline;
-  std::shared_ptr<ComputePipeline> combine_pipeline;
-
-  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines(bool force_rebuild = false) override;
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+               PostProcessingExecutionContext& context) const override;
+  void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 };
@@ -258,69 +240,23 @@ class AntiAliasing final : public IPostProcessing {
   TaaSettings taa{};
   SmaaSettings smaa{};
 
-  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+               PostProcessingExecutionContext& context) const override;
   void ApplyTaaPreset(TaaPreset value);
   void NormalizeSettings();
-  void ResetHistory(const std::shared_ptr<Camera>& target_camera = nullptr);
-  void RetainRuntimeResources(uint64_t camera_handle, RenderGraphTransientResourceStore& transient_resources) const;
-  void BuildPipelines(bool force_rebuild = false) override;
+  void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 
  private:
-  struct HistoryResources {
-    std::shared_ptr<RenderTexture> textures[2];
-    std::shared_ptr<RenderTexture> depth_textures[2];
-    glm::uvec2 size = glm::uvec2(0);
-    uint32_t frame_index = 0;
-    uint32_t last_processed_frame = 0;
-    uint32_t camera_history_version = 0;
-    size_t settings_hash = 0;
-    bool valid = false;
-  };
-
-  [[nodiscard]] size_t ComputeSettingsHash() const;
-  void PruneHistory(uint32_t current_frame_index, uint64_t active_camera_handle);
-  void ProcessTaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera);
-  void ProcessSmaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera);
-  void BuildTaaPipelines(bool force_rebuild);
-  void BuildSmaaPipelines(bool force_rebuild);
-  void EnsureSmaaTargets(const glm::uvec2& size);
-  void EnsureSmaaLookupTextures();
-
-  std::unordered_map<uint64_t, HistoryResources> history_resources_;
-  bool reset_history_ = false;
-  bool built_use_tgsm_ = false;
-  bool built_use_fp16_ = false;
-  bool resolve_pipeline_configuration_valid_ = false;
-
-  std::shared_ptr<DescriptorSetLayout> copy_layout_;
-  std::shared_ptr<DescriptorSetLayout> resolve_layout_;
-  PerFrameDescriptorSet copy_descriptor_set_;
-  PerFrameDescriptorSet resolve_descriptor_set_;
-  std::shared_ptr<ComputePipeline> copy_pipeline_;
-  std::shared_ptr<ComputePipeline> resolve_pipeline_;
-
-  glm::uvec2 smaa_size_ = glm::uvec2(0);
-  std::shared_ptr<RenderTexture> smaa_edges_texture_;
-  std::shared_ptr<RenderTexture> smaa_blend_texture_;
-  std::shared_ptr<Image> smaa_area_image_;
-  std::shared_ptr<Image> smaa_search_image_;
-  std::shared_ptr<ImageView> smaa_area_view_;
-  std::shared_ptr<ImageView> smaa_search_view_;
-  std::shared_ptr<Sampler> smaa_lookup_sampler_;
-  std::shared_ptr<DescriptorSetLayout> smaa_prepare_layout_;
-  std::shared_ptr<DescriptorSetLayout> smaa_edge_layout_;
-  std::shared_ptr<DescriptorSetLayout> smaa_weight_layout_;
-  std::shared_ptr<DescriptorSetLayout> smaa_neighborhood_layout_;
-  PerFrameDescriptorSet smaa_prepare_descriptor_set_;
-  PerFrameDescriptorSet smaa_edge_descriptor_set_;
-  PerFrameDescriptorSet smaa_weight_descriptor_set_;
-  PerFrameDescriptorSet smaa_neighborhood_descriptor_set_;
-  std::shared_ptr<ComputePipeline> smaa_prepare_pipeline_;
-  std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_edge_pipelines_{};
-  std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_weight_pipelines_{};
-  std::shared_ptr<GraphicsPipeline> smaa_neighborhood_pipeline_;
+  void ProcessTaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+                  PostProcessingExecutionContext& context) const;
+  void ProcessSmaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+                   PostProcessingExecutionContext& context) const;
+  void BuildTaaPipelines(PostProcessingRendererResources& resources, bool force_rebuild) const;
+  void BuildSmaaPipelines(PostProcessingRendererResources& resources, bool force_rebuild) const;
+  void EnsureSmaaTargets(const glm::uvec2& size, PostProcessingCameraResources& resources) const;
+  void EnsureSmaaLookupTextures(PostProcessingRendererResources& resources) const;
 };
 
 class ScreenSpaceReflection : public IPostProcessing {
@@ -341,30 +277,15 @@ class ScreenSpaceReflection : public IPostProcessing {
     float thickness;
   };
 
-  std::shared_ptr<DescriptorSetLayout> combine_layout;
-  std::shared_ptr<DescriptorSetLayout> reflect_output_layout;
-  std::shared_ptr<ComputePipeline> reflect_pipeline;
-  std::shared_ptr<ComputePipeline> combine_pipeline;
-  PerFrameDescriptorSet combine_descriptor_set;
-  PerFrameDescriptorSet reflect_output_descriptor_set;
-
-  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines(bool force_rebuild = false) override;
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+               PostProcessingExecutionContext& context) const override;
+  void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 };
 
 class Bloom : public IPostProcessing {
  public:
-  std::shared_ptr<DescriptorSetLayout> mix_layout;
-  PerFrameDescriptorSet mix_descriptor_set;
-  std::shared_ptr<DescriptorSetLayout> copy_layout;
-  PerFrameDescriptorSet copy_descriptor_set;
-
-  std::shared_ptr<DescriptorSetLayout> sampling_layout;
-  std::shared_ptr<ComputePipeline> downsampling_pipeline;
-  std::shared_ptr<ComputePipeline> upsampling_pipeline;
-
   struct DownsamplingPushConstant {
     glm::vec2 source_resolution;
     int mip_level;
@@ -383,12 +304,9 @@ class Bloom : public IPostProcessing {
 
   float filter_radius = 0.001f;
   int bloom_chain_length = 2;
-  PerFrameDescriptorSetList downsampling_descriptor_set;
-  PerFrameDescriptorSetList upsampling_descriptor_set;
-  std::shared_ptr<ComputePipeline> copy_pipeline;
-  std::shared_ptr<ComputePipeline> mix_pipeline;
-  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines(bool force_rebuild = false) override;
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+               PostProcessingExecutionContext& context) const override;
+  void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 };
@@ -439,21 +357,163 @@ class ToneMapping : public IPostProcessing {
   int average_mode = 1;
   bool dither = true;
   float auto_exposure_delta_time_override = -1.0f;
-  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
-  void BuildPipelines(bool force_rebuild = false) override;
+  void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+               PostProcessingExecutionContext& context) const override;
+  void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
-  std::shared_ptr<DescriptorSetLayout> auto_exposure_layout;
-  std::shared_ptr<DescriptorSet> auto_exposure_descriptor_set;
-  std::shared_ptr<Buffer> histogram_buffer;
-  std::shared_ptr<Buffer> luminance_buffer;
-  std::shared_ptr<ComputePipeline> histogram_pipeline;
-  std::shared_ptr<ComputePipeline> auto_exposure_pipeline;
-  std::shared_ptr<ComputePipeline> pipeline;
+};
 
- private:
-  bool auto_exposure_time_initialized_ = false;
-  double last_auto_exposure_time_ = 0.0;
+struct PostProcessingCameraResources {
+  struct StackResources {
+    glm::uvec2 size = glm::uvec2(0);
+    uint64_t generation = 0;
+    std::shared_ptr<RenderTexture> source_color_texture;
+    std::shared_ptr<RenderTexture> result_texture;
+    std::shared_ptr<RenderTexture> swap_texture;
+    PerFrameDescriptorSet blur_horizontal_descriptor_set;
+    PerFrameDescriptorSet blur_vertical_descriptor_set;
+  } stack;
+
+  struct AmbientOcclusionResources {
+    PerFrameDescriptorSet blur_horizontal_descriptor_set;
+    PerFrameDescriptorSet blur_vertical_descriptor_set;
+    PerFrameDescriptorSet combine_descriptor_set;
+    PerFrameDescriptorSet geometry_output_descriptor_set;
+  } ambient_occlusion;
+
+  struct AntiAliasingResources {
+    struct HistoryResources {
+      std::shared_ptr<RenderTexture> textures[2];
+      std::shared_ptr<RenderTexture> depth_textures[2];
+      glm::uvec2 size = glm::uvec2(0);
+      uint32_t frame_index = 0;
+      uint32_t last_processed_frame = 0;
+      uint32_t camera_history_version = 0;
+      bool valid = false;
+    } history;
+
+    PerFrameDescriptorSet copy_descriptor_set;
+    PerFrameDescriptorSet resolve_descriptor_set;
+    glm::uvec2 smaa_size = glm::uvec2(0);
+    std::shared_ptr<RenderTexture> smaa_edges_texture;
+    std::shared_ptr<RenderTexture> smaa_blend_texture;
+    PerFrameDescriptorSet smaa_prepare_descriptor_set;
+    PerFrameDescriptorSet smaa_edge_descriptor_set;
+    PerFrameDescriptorSet smaa_weight_descriptor_set;
+    PerFrameDescriptorSet smaa_neighborhood_descriptor_set;
+  } anti_aliasing;
+
+  struct ScreenSpaceReflectionResources {
+    PerFrameDescriptorSet combine_descriptor_set;
+    PerFrameDescriptorSet reflect_output_descriptor_set;
+  } screen_space_reflection;
+
+  struct BloomResources {
+    PerFrameDescriptorSet mix_descriptor_set;
+    PerFrameDescriptorSet copy_descriptor_set;
+    PerFrameDescriptorSetList downsampling_descriptor_sets;
+    PerFrameDescriptorSetList upsampling_descriptor_sets;
+  } bloom;
+
+  struct ToneMappingResources {
+    PerFrameDescriptorSet auto_exposure_descriptor_set;
+    std::shared_ptr<Buffer> histogram_buffer;
+    std::shared_ptr<Buffer> luminance_buffer;
+    bool auto_exposure_time_initialized = false;
+    bool luminance_reset_pending = true;
+    double last_auto_exposure_time = 0.0;
+    uint64_t auto_exposure_process_count = 0;
+    uint64_t auto_exposure_reset_count = 0;
+  } tone_mapping;
+
+  uint64_t stack_handle = 0;
+  uint32_t stack_version = (std::numeric_limits<uint32_t>::max)();
+  uint32_t render_technique = (std::numeric_limits<uint32_t>::max)();
+  glm::uvec2 observed_resolution = glm::uvec2(0);
+  uint64_t temporal_reset_count = 0;
+  uint64_t version_reset_count = 0;
+  uint64_t resolution_reset_count = 0;
+  uint64_t technique_reset_count = 0;
+  glm::vec2 current_jitter = {};
+  glm::vec2 previous_jitter = {};
+  uint32_t jitter_frame_index = 0;
+  bool jitter_taa_enabled = false;
+  glm::mat4 previous_projection_view = glm::mat4(1.0f);
+  glm::mat4 previous_unjittered_projection_view = glm::mat4(1.0f);
+  bool previous_matrices_valid = false;
+
+  void ResetTemporalState();
+  void Retain(RenderGraphTransientResourceStore& transient_resources) const;
+};
+
+struct PostProcessingRendererResources {
+  size_t pipeline_build_step = 0;
+  bool pipelines_ready = false;
+
+  struct StackResources {
+    std::shared_ptr<DescriptorSetLayout> blur_layout;
+    std::shared_ptr<ComputePipeline> blur_pipeline;
+  } stack;
+
+  struct AmbientOcclusionResources {
+    std::shared_ptr<DescriptorSetLayout> blur_layout;
+    std::shared_ptr<ComputePipeline> blur_pipeline;
+    std::shared_ptr<DescriptorSetLayout> combine_layout;
+    std::shared_ptr<DescriptorSetLayout> geometry_output_layout;
+    std::shared_ptr<ComputePipeline> geometry_pipeline;
+    std::shared_ptr<ComputePipeline> combine_pipeline;
+  } ambient_occlusion;
+
+  struct AntiAliasingResources {
+    std::shared_ptr<DescriptorSetLayout> copy_layout;
+    std::shared_ptr<DescriptorSetLayout> resolve_layout;
+    std::shared_ptr<ComputePipeline> copy_pipeline;
+    std::array<std::shared_ptr<ComputePipeline>, 4> resolve_pipelines{};
+    std::shared_ptr<Image> smaa_area_image;
+    std::shared_ptr<Image> smaa_search_image;
+    std::shared_ptr<ImageView> smaa_area_view;
+    std::shared_ptr<ImageView> smaa_search_view;
+    std::shared_ptr<Sampler> smaa_lookup_sampler;
+    std::shared_ptr<DescriptorSetLayout> smaa_prepare_layout;
+    std::shared_ptr<DescriptorSetLayout> smaa_edge_layout;
+    std::shared_ptr<DescriptorSetLayout> smaa_weight_layout;
+    std::shared_ptr<DescriptorSetLayout> smaa_neighborhood_layout;
+    std::shared_ptr<ComputePipeline> smaa_prepare_pipeline;
+    std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_edge_pipelines{};
+    std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_weight_pipelines{};
+    std::shared_ptr<GraphicsPipeline> smaa_neighborhood_pipeline;
+  } anti_aliasing;
+
+  struct ScreenSpaceReflectionResources {
+    std::shared_ptr<DescriptorSetLayout> combine_layout;
+    std::shared_ptr<DescriptorSetLayout> reflect_output_layout;
+    std::shared_ptr<ComputePipeline> reflect_pipeline;
+    std::shared_ptr<ComputePipeline> combine_pipeline;
+  } screen_space_reflection;
+
+  struct BloomResources {
+    std::shared_ptr<DescriptorSetLayout> mix_layout;
+    std::shared_ptr<DescriptorSetLayout> copy_layout;
+    std::shared_ptr<DescriptorSetLayout> sampling_layout;
+    std::shared_ptr<ComputePipeline> downsampling_pipeline;
+    std::shared_ptr<ComputePipeline> upsampling_pipeline;
+    std::shared_ptr<ComputePipeline> copy_pipeline;
+    std::shared_ptr<ComputePipeline> mix_pipeline;
+  } bloom;
+
+  struct ToneMappingResources {
+    std::shared_ptr<DescriptorSetLayout> auto_exposure_layout;
+    std::shared_ptr<ComputePipeline> histogram_pipeline;
+    std::shared_ptr<ComputePipeline> auto_exposure_pipeline;
+    std::shared_ptr<ComputePipeline> pipeline;
+  } tone_mapping;
+};
+
+struct PostProcessingExecutionContext {
+  PostProcessingCameraResources& camera;
+  PostProcessingRendererResources& renderer;
+  std::shared_ptr<ImageView> motion_vectors_image_view;
 };
 
 }  // namespace evo_engine

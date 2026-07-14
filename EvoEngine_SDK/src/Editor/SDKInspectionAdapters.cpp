@@ -681,9 +681,6 @@ bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
     if (ImGui::DragFloat("Bias", &ambient_occlusion.gtao_bias, 0.001f, 0.0f, 1.f))
       changed = true;
   }
-  if (ImGui::Button("Rebuild pipelines")) {
-    ambient_occlusion.BuildPipelines();
-  }
   return changed;
 }
 
@@ -693,7 +690,9 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
   const char* algorithms[] = {"TAA", "SMAA"};
   if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
     anti_aliasing.algorithm = static_cast<AntiAliasing::Algorithm>(algorithm);
-    anti_aliasing.ResetHistory();
+    changed = true;
+  }
+  if (ImGui::Button("Reset temporal state")) {
     changed = true;
   }
 
@@ -710,9 +709,6 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
       anti_aliasing.smaa.debug_mode = static_cast<AntiAliasing::SmaaDebugMode>(debug_mode);
       changed = true;
     }
-    if (ImGui::Button("Rebuild pipelines")) {
-      anti_aliasing.BuildPipelines(true);
-    }
     return changed;
   }
 
@@ -726,7 +722,6 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
 
   const auto mark_custom = [&] {
     taa.preset = AntiAliasing::TaaPreset::Custom;
-    anti_aliasing.ResetHistory();
     changed = true;
   };
 
@@ -790,12 +785,6 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
     taa.debug_mode = static_cast<AntiAliasing::TaaDebugMode>(debug_mode);
     changed = true;
   }
-  if (ImGui::Button("Reset history")) {
-    anti_aliasing.ResetHistory();
-  }
-  if (ImGui::Button("Rebuild pipelines")) {
-    anti_aliasing.BuildPipelines(true);
-  }
   return changed;
 }
 
@@ -805,9 +794,6 @@ bool InspectBloom(Bloom& bloom) {
     changed = true;
   if (ImGui::DragInt("Chain length", &bloom.bloom_chain_length, 1, 0, 10))
     changed = true;
-  if (ImGui::Button("Rebuild pipelines")) {
-    bloom.BuildPipelines();
-  }
   return changed;
 }
 
@@ -825,9 +811,6 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
     changed = true;
   if (ImGui::Checkbox("Blur", &ssr.blur))
     changed = true;
-  if (ImGui::Button("Rebuild pipelines")) {
-    ssr.BuildPipelines();
-  }
   return changed;
 }
 
@@ -909,40 +892,6 @@ bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
     ImGui::TreePop();
   }
 
-  if (ImGui::TreeNode("Debug")) {
-    static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-    auto initial_size = ImVec2(stack.source_color_texture->GetExtent().width * debug_scale,
-                               stack.source_color_texture->GetExtent().height * debug_scale);
-    if (ImGui::TreeNode("Source")) {
-      ImGui::Image(stack.source_color_texture->GetColorImTextureId(), initial_size, ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Result")) {
-      ImGui::Image(stack.result_texture->GetColorImTextureId(),
-                   ImVec2(stack.result_texture->GetExtent().width * debug_scale,
-                          stack.result_texture->GetExtent().height * debug_scale),
-                   ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Mipmaps")) {
-      const auto mip_levels = stack.result_texture->GetMipLevels();
-      for (uint32_t mip_level = 1; mip_level < mip_levels; mip_level++) {
-        initial_size /= 2.f;
-        ImGui::Image(stack.result_texture->GetColorImTextureId(mip_level), initial_size, ImVec2(0, 1), ImVec2(1, 0));
-      }
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Swap")) {
-      ImGui::Image(stack.swap_texture->GetColorImTextureId(),
-                   ImVec2(stack.swap_texture->GetExtent().width * debug_scale,
-                          stack.swap_texture->GetExtent().height * debug_scale),
-                   ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    ImGui::TreePop();
-  }
   return changed;
 }
 

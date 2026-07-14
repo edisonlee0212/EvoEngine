@@ -23,6 +23,7 @@ struct ApplicationInitializationSettings;
 class ComputePipeline;
 class OffscreenPreviewRenderer;
 class Sampler;
+struct PostProcessingRendererResources;
 
 /**
  * \class RenderLayer
@@ -402,6 +403,7 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<PostProcessingRendererResources>& GetPostProcessingRendererResources() const;
 
  private:
   std::vector<
@@ -442,6 +444,7 @@ class RenderLayer final : public ILayer {
   std::vector<FrameRenderPassExternalFunction> frame_render_pass_external_functions;
   std::vector<CameraRenderPassExternalFunction> camera_render_pass_external_functions;
   mutable std::vector<std::vector<RenderGraphTransientResourceStore>> render_graph_transient_resource_stores_;
+  std::shared_ptr<PostProcessingRendererResources> post_processing_renderer_resources_;
   mutable RenderGraphPlanCache ray_camera_render_graph_plan_cache_{16};
   mutable std::unordered_map<uint64_t, std::weak_ptr<Camera>> ray_camera_history_cameras_;
   mutable RayCameraHistoryStats retired_ray_camera_history_stats_{};

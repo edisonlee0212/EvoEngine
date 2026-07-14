@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 
 using namespace evo_engine;
 
@@ -82,12 +83,41 @@ void ToneMapping::Deserialize(const YAML::Node& in) {
 }
 
 void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
-                          const std::shared_ptr<Camera>& target_camera) {
+                          const std::shared_ptr<Camera>& target_camera, PostProcessingExecutionContext& context) const {
+  auto& camera = context.camera.tone_mapping;
+  auto& renderer = context.renderer.tone_mapping;
+  if (!renderer.histogram_pipeline || !renderer.histogram_pipeline->Initialized() || !renderer.auto_exposure_pipeline ||
+      !renderer.auto_exposure_pipeline->Initialized() || !renderer.pipeline || !renderer.pipeline->Initialized()) {
+    return;
+  }
+  if (!camera.histogram_buffer) {
+    camera.histogram_buffer = CreateToneMappingStorageBuffer(sizeof(uint32_t) * kExposureHistogramSize);
+    camera.luminance_reset_pending = true;
+  }
+  if (!camera.luminance_buffer) {
+    camera.luminance_buffer = CreateToneMappingStorageBuffer(sizeof(float));
+    camera.luminance_reset_pending = true;
+  }
+  const auto& auto_exposure_descriptor_set =
+      camera.auto_exposure_descriptor_set.GetOrCreate(renderer.auto_exposure_layout);
+  auto_exposure_descriptor_set->UpdateBufferDescriptorBinding(0, camera.histogram_buffer);
+  auto_exposure_descriptor_set->UpdateBufferDescriptorBinding(1, camera.luminance_buffer);
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto resolution = target_camera->GetSize();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    if (camera.luminance_reset_pending) {
+      constexpr float initial_luminance = 0.18f;
+      uint32_t initial_luminance_bits = 0;
+      std::memcpy(&initial_luminance_bits, &initial_luminance, sizeof(initial_luminance));
+      vkCmdFillBuffer(vk_command_buffer, camera.histogram_buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
+      vkCmdFillBuffer(vk_command_buffer, camera.luminance_buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE,
+                      initial_luminance_bits);
+      Platform::BufferMemoryBarrier(vk_command_buffer, *camera.histogram_buffer);
+      Platform::BufferMemoryBarrier(vk_command_buffer, *camera.luminance_buffer);
+      camera.luminance_reset_pending = false;
+    }
 
     PushConstant push_constant;
     push_constant.camera_index =
@@ -110,46 +140,50 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
       double delta_seconds = auto_exposure_delta_time_override;
       if (delta_seconds < 0.0) {
         const double now = ApplicationContext::Get().GetTimes().Now();
-        delta_seconds = auto_exposure_time_initialized_ ? std::max(now - last_auto_exposure_time_, 0.0)
-                                                        : ApplicationContext::Get().GetTimes().DeltaTime();
-        last_auto_exposure_time_ = now;
-        auto_exposure_time_initialized_ = true;
+        delta_seconds = camera.auto_exposure_time_initialized ? std::max(now - camera.last_auto_exposure_time, 0.0)
+                                                              : ApplicationContext::Get().GetTimes().DeltaTime();
+        camera.last_auto_exposure_time = now;
+        camera.auto_exposure_time_initialized = true;
       }
       push_constant.auto_exposure_speed = auto_exposure_speed * static_cast<float>(delta_seconds);
 
-      histogram_pipeline->Bind(vk_command_buffer);
-      histogram_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                            render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-      histogram_pipeline->BindDescriptorSet(
+      renderer.histogram_pipeline->Bind(vk_command_buffer);
+      renderer.histogram_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                     render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+      renderer.histogram_pipeline->BindDescriptorSet(
           vk_command_buffer, 1, target_camera->GetRenderTexture()->GetStorageDescriptorSet()->GetVkDescriptorSet());
-      histogram_pipeline->BindDescriptorSet(vk_command_buffer, 2, auto_exposure_descriptor_set->GetVkDescriptorSet());
-      histogram_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      histogram_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(resolution.x, 16),
-                                   Platform::DivUp(resolution.y, 16));
-      Platform::BufferMemoryBarrier(vk_command_buffer, *histogram_buffer);
+      renderer.histogram_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                                     auto_exposure_descriptor_set->GetVkDescriptorSet());
+      renderer.histogram_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      renderer.histogram_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(resolution.x, 16),
+                                            Platform::DivUp(resolution.y, 16));
+      Platform::BufferMemoryBarrier(vk_command_buffer, *camera.histogram_buffer);
 
-      auto_exposure_pipeline->Bind(vk_command_buffer);
-      auto_exposure_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-      auto_exposure_pipeline->BindDescriptorSet(
+      renderer.auto_exposure_pipeline->Bind(vk_command_buffer);
+      renderer.auto_exposure_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0, render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+      renderer.auto_exposure_pipeline->BindDescriptorSet(
           vk_command_buffer, 1, target_camera->GetRenderTexture()->GetStorageDescriptorSet()->GetVkDescriptorSet());
-      auto_exposure_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                auto_exposure_descriptor_set->GetVkDescriptorSet());
-      auto_exposure_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      auto_exposure_pipeline->Dispatch(vk_command_buffer, 1, 1, 1);
-      Platform::BufferMemoryBarrier(vk_command_buffer, *luminance_buffer);
+      renderer.auto_exposure_pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                                         auto_exposure_descriptor_set->GetVkDescriptorSet());
+      renderer.auto_exposure_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      renderer.auto_exposure_pipeline->Dispatch(vk_command_buffer, 1, 1, 1);
+      Platform::BufferMemoryBarrier(vk_command_buffer, *camera.luminance_buffer);
+      ++camera.auto_exposure_process_count;
     } else {
-      auto_exposure_time_initialized_ = false;
+      camera.auto_exposure_time_initialized = false;
     }
 
-    pipeline->Bind(vk_command_buffer);
-    pipeline->BindDescriptorSet(vk_command_buffer, 0, render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-    pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                target_camera->GetRenderTexture()->GetStorageDescriptorSet()->GetVkDescriptorSet());
-    pipeline->BindDescriptorSet(vk_command_buffer, 2, auto_exposure_descriptor_set->GetVkDescriptorSet());
-    pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    renderer.pipeline->Bind(vk_command_buffer);
+    renderer.pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                         render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+    renderer.pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, target_camera->GetRenderTexture()->GetStorageDescriptorSet()->GetVkDescriptorSet());
+    renderer.pipeline->BindDescriptorSet(vk_command_buffer, 2, auto_exposure_descriptor_set->GetVkDescriptorSet());
+    renderer.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
-    pipeline->Dispatch(vk_command_buffer, Platform::DivUp(resolution.x * resolution.y, work_group_invocations));
+    renderer.pipeline->Dispatch(vk_command_buffer,
+                                Platform::DivUp(resolution.x * resolution.y, work_group_invocations));
     /**
      * Remember, many of vulkan commands are executed without ordering. So we have this Platform::EverythingBarrier() to
      * make sure that the above commands finishes before moving on. This is syncronization on GPU, not between GPU and
@@ -159,27 +193,17 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
   });
 }
 
-void ToneMapping::BuildPipelines(const bool force_rebuild) {
+void ToneMapping::BuildPipelines(PostProcessingRendererResources& resources, const bool) const {
+  constexpr bool force_rebuild = false;
+  auto& auto_exposure_layout = resources.tone_mapping.auto_exposure_layout;
+  auto& histogram_pipeline = resources.tone_mapping.histogram_pipeline;
+  auto& auto_exposure_pipeline = resources.tone_mapping.auto_exposure_pipeline;
+  auto& pipeline = resources.tone_mapping.pipeline;
   if (force_rebuild || !auto_exposure_layout) {
     auto_exposure_layout = std::make_shared<DescriptorSetLayout>();
     auto_exposure_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     auto_exposure_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     auto_exposure_layout->Initialize();
-  }
-  if (force_rebuild || !histogram_buffer) {
-    histogram_buffer = CreateToneMappingStorageBuffer(sizeof(uint32_t) * kExposureHistogramSize);
-    std::array<uint32_t, kExposureHistogramSize> zero_histogram{};
-    histogram_buffer->UploadData(sizeof(zero_histogram), zero_histogram.data());
-  }
-  if (force_rebuild || !luminance_buffer) {
-    luminance_buffer = CreateToneMappingStorageBuffer(sizeof(float));
-    const float initial_luminance = 0.18f;
-    luminance_buffer->Upload(initial_luminance);
-  }
-  if (force_rebuild || !auto_exposure_descriptor_set) {
-    auto_exposure_descriptor_set = std::make_shared<DescriptorSet>(auto_exposure_layout);
-    auto_exposure_descriptor_set->UpdateBufferDescriptorBinding(0, histogram_buffer);
-    auto_exposure_descriptor_set->UpdateBufferDescriptorBinding(1, luminance_buffer);
   }
   if (force_rebuild || !histogram_pipeline) {
     histogram_pipeline = std::make_shared<ComputePipeline>();

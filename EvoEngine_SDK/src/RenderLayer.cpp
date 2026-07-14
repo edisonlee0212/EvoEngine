@@ -1809,6 +1809,7 @@ void RenderLayer::RegisterCameraRenderPass(
 }
 
 void RenderLayer::OnCreate() {
+  post_processing_renderer_resources_ = std::make_shared<PostProcessingRendererResources>();
   render_graph_transient_resource_stores_.clear();
   render_graph_transient_resource_stores_.resize(Platform::GetMaxFramesInFlight());
   ray_camera_render_graph_plan_cache_.Clear();
@@ -5175,6 +5176,7 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
+  post_processing_renderer_resources_.reset();
   ray_camera_shader_variant_cache_.reset();
   ray_tracing_camera_pipeline.reset();
   ray_tracing_camera_fallback_pipeline_.reset();
@@ -5183,6 +5185,10 @@ void RenderLayer::OnDestroy() {
   render_graph_transient_resource_stores_.clear();
   ray_camera_render_graph_plan_cache_.Clear();
   ClearRayCameraHistories();
+}
+
+const std::shared_ptr<PostProcessingRendererResources>& RenderLayer::GetPostProcessingRendererResources() const {
+  return post_processing_renderer_resources_;
 }
 
 void RenderLayer::PruneRayCameraHistories(const std::shared_ptr<RenderInstanceStorage>& render_instances) const {

@@ -35,6 +35,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/RayCameraShaderVariantCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
 	Core/RayCameraHistoryTest.cpp
+	Core/PostProcessingRuntimeTest.cpp
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
 	Core/GpuServiceTest.cpp
@@ -196,6 +197,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER CameraRenderTechnique.*
 	PROPERTIES LABELS "core,render,camera"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER RayCameraHistory.*:PostProcessingRuntime.*
+	PROPERTIES LABELS "core,render,camera,post-processing"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
